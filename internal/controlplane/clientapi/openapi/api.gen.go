@@ -1007,6 +1007,42 @@ func (e MeetingItemKind) Valid() bool {
 	}
 }
 
+// Defines values for MeetingKind.
+const (
+	InPerson MeetingKind = "in_person"
+	Online   MeetingKind = "online"
+)
+
+// Valid indicates whether the value is a known member of the MeetingKind enum.
+func (e MeetingKind) Valid() bool {
+	switch e {
+	case InPerson:
+		return true
+	case Online:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingLiveTrack.
+const (
+	MeetingLiveTrackMic MeetingLiveTrack = "mic"
+	MeetingLiveTrackTab MeetingLiveTrack = "tab"
+)
+
+// Valid indicates whether the value is a known member of the MeetingLiveTrack enum.
+func (e MeetingLiveTrack) Valid() bool {
+	switch e {
+	case MeetingLiveTrackMic:
+		return true
+	case MeetingLiveTrackTab:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MeetingNotesState.
 const (
 	MeetingNotesStateFailed  MeetingNotesState = "failed"
@@ -1031,9 +1067,28 @@ func (e MeetingNotesState) Valid() bool {
 	}
 }
 
+// Defines values for MeetingSource.
+const (
+	Live   MeetingSource = "live"
+	Upload MeetingSource = "upload"
+)
+
+// Valid indicates whether the value is a known member of the MeetingSource enum.
+func (e MeetingSource) Valid() bool {
+	switch e {
+	case Live:
+		return true
+	case Upload:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MeetingState.
 const (
 	MeetingStateFailed       MeetingState = "failed"
+	MeetingStateRecording    MeetingState = "recording"
 	MeetingStateTranscribed  MeetingState = "transcribed"
 	MeetingStateTranscribing MeetingState = "transcribing"
 )
@@ -1043,9 +1098,32 @@ func (e MeetingState) Valid() bool {
 	switch e {
 	case MeetingStateFailed:
 		return true
+	case MeetingStateRecording:
+		return true
 	case MeetingStateTranscribed:
 		return true
 	case MeetingStateTranscribing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MeetingTrack.
+const (
+	MeetingTrackFile MeetingTrack = "file"
+	MeetingTrackMic  MeetingTrack = "mic"
+	MeetingTrackTab  MeetingTrack = "tab"
+)
+
+// Valid indicates whether the value is a known member of the MeetingTrack enum.
+func (e MeetingTrack) Valid() bool {
+	switch e {
+	case MeetingTrackFile:
+		return true
+	case MeetingTrackMic:
+		return true
+	case MeetingTrackTab:
 		return true
 	default:
 		return false
@@ -1658,6 +1736,27 @@ func (e SupersetRequestMethod) Valid() bool {
 	}
 }
 
+// Defines values for TaskKind.
+const (
+	Broad  TaskKind = "broad"
+	Narrow TaskKind = "narrow"
+	Quick  TaskKind = "quick"
+)
+
+// Valid indicates whether the value is a known member of the TaskKind enum.
+func (e TaskKind) Valid() bool {
+	switch e {
+	case Broad:
+		return true
+	case Narrow:
+		return true
+	case Quick:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskStatus.
 const (
 	TaskStatusBlocked   TaskStatus = "blocked"
@@ -1712,6 +1811,51 @@ func (e TokenKind) Valid() bool {
 	}
 }
 
+// Defines values for ToolAccessSource.
+const (
+	ToolAccessConnection ToolAccessSource = "connection"
+	ToolAccessException  ToolAccessSource = "exception"
+	ToolAccessPreset     ToolAccessSource = "preset"
+)
+
+// Valid indicates whether the value is a known member of the ToolAccessSource enum.
+func (e ToolAccessSource) Valid() bool {
+	switch e {
+	case ToolAccessConnection:
+		return true
+	case ToolAccessException:
+		return true
+	case ToolAccessPreset:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolAccessState.
+const (
+	ToolAccessAvailable   ToolAccessState = "available"
+	ToolAccessOff         ToolAccessState = "off"
+	ToolAccessOn          ToolAccessState = "on"
+	ToolAccessUnavailable ToolAccessState = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the ToolAccessState enum.
+func (e ToolAccessState) Valid() bool {
+	switch e {
+	case ToolAccessAvailable:
+		return true
+	case ToolAccessOff:
+		return true
+	case ToolAccessOn:
+		return true
+	case ToolAccessUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ToolDisplay.
 const (
 	ToolDisplayFull ToolDisplay = "full"
@@ -1727,6 +1871,24 @@ func (e ToolDisplay) Valid() bool {
 	case ToolDisplayOff:
 		return true
 	case ToolDisplayOn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolPreset.
+const (
+	ToolPresetFull   ToolPreset = "full"
+	ToolPresetReport ToolPreset = "report"
+)
+
+// Valid indicates whether the value is a known member of the ToolPreset enum.
+func (e ToolPreset) Valid() bool {
+	switch e {
+	case ToolPresetFull:
+		return true
+	case ToolPresetReport:
 		return true
 	default:
 		return false
@@ -2068,16 +2230,16 @@ func (e WorkspaceChangeStatus) Valid() bool {
 
 // Defines values for WorkspaceEntryType.
 const (
-	Directory WorkspaceEntryType = "directory"
-	File      WorkspaceEntryType = "file"
+	WorkspaceEntryTypeDirectory WorkspaceEntryType = "directory"
+	WorkspaceEntryTypeFile      WorkspaceEntryType = "file"
 )
 
 // Valid indicates whether the value is a known member of the WorkspaceEntryType enum.
 func (e WorkspaceEntryType) Valid() bool {
 	switch e {
-	case Directory:
+	case WorkspaceEntryTypeDirectory:
 		return true
-	case File:
+	case WorkspaceEntryTypeFile:
 		return true
 	default:
 		return false
@@ -2666,8 +2828,11 @@ type Bot struct {
 	Pinned bool `json:"pinned"`
 
 	// Position The Bot's place in the order the owner sets, 0 first (issue #470); the main Bot is first.
-	Position int     `json:"position"`
-	Provider *string `json:"provider,omitempty"`
+	Position int `json:"position"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   ToolPreset `json:"preset"`
+	Provider *string    `json:"provider,omitempty"`
 
 	// Scopes What the Bot may reach of a Connection it may use, keyed integration:label: of a Superset Connection, the dashboards it may read. A Connection not named here is reached whole.
 	Scopes map[string]ConnectionScope `json:"scopes"`
@@ -2678,10 +2843,13 @@ type Bot struct {
 	// SkillsOff The skills given to everyone that the Bot does not get.
 	SkillsOff []string `json:"skills_off"`
 
+	// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+	ToolAccess *ToolAccess `json:"tool_access,omitempty"`
+
 	// ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
 	ToolDisplay ToolDisplay `json:"tool_display"`
 
-	// Tools The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty, every tool a Bot gets. A CLI's own tools are not switched here.
+	// Tools Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
 	Tools []string `json:"tools"`
 
 	// ToolsOff The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
@@ -2723,7 +2891,10 @@ type BotSettings struct {
 	GuaranteedDispatches *int    `json:"guaranteed_dispatches,omitempty"`
 	Model                *string `json:"model,omitempty"`
 	Persona              *string `json:"persona,omitempty"`
-	Provider             *string `json:"provider,omitempty"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   *ToolPreset `json:"preset,omitempty"`
+	Provider *string     `json:"provider,omitempty"`
 
 	// Scopes What the Bot may reach of each Connection, as a whole: a Connection left out of the map is reached whole. Left out, the Bot keeps its scopes.
 	Scopes *map[string]ConnectionScope `json:"scopes,omitempty"`
@@ -2737,7 +2908,7 @@ type BotSettings struct {
 	// ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
 	ToolDisplay *ToolDisplay `json:"tool_display,omitempty"`
 
-	// Tools The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out, the Bot keeps those it has.
+	// Tools Additional tools or families; left out, the Bot keeps those it has.
 	Tools *[]string `json:"tools,omitempty"`
 
 	// ToolsOff The tools the Bot turns off, each a name or a family; left out, the Bot keeps those it has.
@@ -3174,7 +3345,10 @@ type Disconnected struct {
 // Dispatch defines model for Dispatch.
 type Dispatch struct {
 	// Activity One line about the newest thing the worker said or did.
-	Activity     *string   `json:"activity,omitempty"`
+	Activity *string `json:"activity,omitempty"`
+
+	// ChainEntry One-based position in the Task's effective routing chain.
+	ChainEntry   *int      `json:"chain_entry,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	Effort       *string   `json:"effort,omitempty"`
 	Epoch        int       `json:"epoch"`
@@ -3196,12 +3370,15 @@ type Dispatch struct {
 	ProfileVersionId *string         `json:"profile_version_id,omitempty"`
 	ProgressAt       *time.Time      `json:"progress_at,omitempty"`
 	Result           *DispatchResult `json:"result,omitempty"`
-	SettledAt        *time.Time      `json:"settled_at,omitempty"`
-	StartedAt        *time.Time      `json:"started_at,omitempty"`
-	Status           DispatchStatus  `json:"status"`
-	TaskId           string          `json:"task_id"`
-	UnknownCause     *string         `json:"unknown_cause,omitempty"`
-	UpdatedAt        time.Time       `json:"updated_at"`
+
+	// Runtime The worker runtime selected by role routing.
+	Runtime      *string        `json:"runtime,omitempty"`
+	SettledAt    *time.Time     `json:"settled_at,omitempty"`
+	StartedAt    *time.Time     `json:"started_at,omitempty"`
+	Status       DispatchStatus `json:"status"`
+	TaskId       string         `json:"task_id"`
+	UnknownCause *string        `json:"unknown_cause,omitempty"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 
 	// WaitingSince Set while the worker waits for an answer.
 	WaitingSince *time.Time `json:"waiting_since,omitempty"`
@@ -3921,14 +4098,19 @@ type Me struct {
 
 // Meeting defines model for Meeting.
 type Meeting struct {
-	Actions    int       `json:"actions"`
-	CreatedAt  time.Time `json:"created_at"`
-	DurationMs int64     `json:"duration_ms"`
+	Actions   int       `json:"actions"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// DurationMs Its length; while it records, what is kept so far, where a resumed recording goes on.
+	DurationMs int64 `json:"duration_ms"`
 
 	// Failure Why hearing it failed
-	Failure     *string      `json:"failure,omitempty"`
-	FileName    string       `json:"file_name"`
-	Id          string       `json:"id"`
+	Failure  *string `json:"failure,omitempty"`
+	FileName string  `json:"file_name"`
+	Id       string  `json:"id"`
+
+	// Kind How a live meeting is held; online records the microphone and a shared tab.
+	Kind        *MeetingKind `json:"kind,omitempty"`
 	Language    *string      `json:"language,omitempty"`
 	MediaType   string       `json:"media_type"`
 	Model       *string      `json:"model,omitempty"`
@@ -3937,11 +4119,14 @@ type Meeting struct {
 	People      []string     `json:"people"`
 
 	// Provider The speech-to-text provider that heard it.
-	Provider *string          `json:"provider,omitempty"`
-	Size     int64            `json:"size"`
+	Provider *string `json:"provider,omitempty"`
+	Size     int64   `json:"size"`
+
+	// Source How the meeting came, uploaded or recorded live.
+	Source   MeetingSource    `json:"source"`
 	Speakers []MeetingSpeaker `json:"speakers"`
 
-	// State Where the meeting's transcription stands.
+	// State Where the meeting's transcription stands; a live meeting is recording until it ends.
 	State MeetingState `json:"state"`
 	Title string       `json:"title"`
 
@@ -4002,6 +4187,9 @@ type MeetingItem struct {
 	// OwnerSpeaker The label of the voice that does it
 	OwnerSpeaker *string `json:"owner_speaker,omitempty"`
 
+	// OwnerTrack What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+	OwnerTrack *MeetingTrack `json:"owner_track,omitempty"`
+
 	// Quote The sentence it rests on.
 	Quote *string `json:"quote,omitempty"`
 
@@ -4018,24 +4206,35 @@ type MeetingItemUpdate struct {
 	Done bool `json:"done"`
 }
 
+// MeetingKind How a live meeting is held; online records the microphone and a shared tab.
+type MeetingKind string
+
 // MeetingLine defines model for MeetingLine.
 type MeetingLine struct {
 	EndMs int64 `json:"end_ms"`
 
 	// Heard The label the provider heard it as.
 	Heard string `json:"heard"`
-	N     int    `json:"n"`
 
-	// Speaker The label of the voice it is shown as.
+	// N The line's number
+	N int `json:"n"`
+
+	// Speaker The label of the voice it is shown as
 	Speaker string `json:"speaker"`
 	StartMs int64  `json:"start_ms"`
 	Text    string `json:"text"`
+
+	// Track What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+	Track MeetingTrack `json:"track"`
 }
 
 // MeetingList defines model for MeetingList.
 type MeetingList struct {
 	Data []Meeting `json:"data"`
 }
+
+// MeetingLiveTrack defines model for MeetingLiveTrack.
+type MeetingLiveTrack string
 
 // MeetingNotes defines model for MeetingNotes.
 type MeetingNotes struct {
@@ -4074,24 +4273,41 @@ type MeetingSettingsUpdate struct {
 	NotesModel string `json:"notes_model"`
 }
 
+// MeetingSource How the meeting came, uploaded or recorded live.
+type MeetingSource string
+
 // MeetingSpeaker defines model for MeetingSpeaker.
 type MeetingSpeaker struct {
-	// Label The voice's label
+	// Label The voice's label on its track, the provider's or m1, m2… for one the owner made.
 	Label string `json:"label"`
 
 	// Name The name shown
 	Name  string `json:"name"`
 	Named bool   `json:"named"`
 
+	// Owner The owner's own voice
+	Owner bool `json:"owner"`
+
 	// Share Its share of the meeting's talk
 	Share float32 `json:"share"`
 
 	// TalkMs How long its lines last.
 	TalkMs int64 `json:"talk_ms"`
+
+	// Track What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+	Track MeetingTrack `json:"track"`
 }
 
-// MeetingState Where the meeting's transcription stands.
+// MeetingState Where the meeting's transcription stands; a live meeting is recording until it ends.
 type MeetingState string
+
+// MeetingTrack What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+type MeetingTrack string
+
+// MeetingTrackRequest defines model for MeetingTrackRequest.
+type MeetingTrackRequest struct {
+	Track MeetingLiveTrack `json:"track"`
+}
 
 // MeetingWord defines model for MeetingWord.
 type MeetingWord struct {
@@ -4466,6 +4682,21 @@ type NewLarkChannelPerson struct {
 	Who string `json:"who"`
 }
 
+// NewLiveMeeting defines model for NewLiveMeeting.
+type NewLiveMeeting struct {
+	// Kind How a live meeting is held; online records the microphone and a shared tab.
+	Kind MeetingKind `json:"kind"`
+
+	// Language An ISO 639-1 code, such as vi; absent, the provider finds it.
+	Language *string `json:"language,omitempty"`
+
+	// People Who is in the meeting; they help name the speakers.
+	People *[]string `json:"people,omitempty"`
+
+	// Title Absent
+	Title *string `json:"title,omitempty"`
+}
+
 // NewNode defines model for NewNode.
 type NewNode struct {
 	// Device With a provider, a machine that holds an Android emulator: at AWS a size with nested virtualization and at least 40 GiB of disk; its first boot installs what the emulator needs. Left out, a plain machine.
@@ -4541,15 +4772,19 @@ type NewTask struct {
 	// DependsOn Refs of earlier Tasks in this request, or ids of Tasks already in the Run.
 	DependsOn *[]string `json:"depends_on,omitempty"`
 	Effort    *string   `json:"effort,omitempty"`
+	Kind      *TaskKind `json:"kind,omitempty"`
 	Model     *string   `json:"model,omitempty"`
 
 	// Profile The profile it runs with; implementer when left out.
 	Profile *string `json:"profile,omitempty"`
 
 	// Ref Names the Task within this request, for depends_on.
-	Ref     string  `json:"ref"`
-	Runtime *string `json:"runtime,omitempty"`
-	Spec    string  `json:"spec"`
+	Ref string `json:"ref"`
+
+	// ReviewOf The succeeded Task in this Run a reviewer checks; its vendor is excluded.
+	ReviewOf *string `json:"review_of,omitempty"`
+	Runtime  *string `json:"runtime,omitempty"`
+	Spec     string  `json:"spec"`
 }
 
 // NewTasks defines model for NewTasks.
@@ -4771,8 +5006,11 @@ type Profile struct {
 	MemoryRequestBytes *int64  `json:"memory_request_bytes,omitempty"`
 	Model              *string `json:"model,omitempty"`
 	Name               string  `json:"name"`
-	Provider           *string `json:"provider,omitempty"`
-	Runtime            string  `json:"runtime"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   ToolPreset `json:"preset"`
+	Provider *string    `json:"provider,omitempty"`
+	Runtime  string     `json:"runtime"`
 
 	// Skills The skills its workers get beside those given to everyone.
 	Skills []string `json:"skills"`
@@ -4781,7 +5019,10 @@ type Profile struct {
 	SkillsOff []string `json:"skills_off"`
 	Source    string   `json:"source"`
 
-	// Tools The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty, every tool a worker gets. A CLI's own tools are not switched here.
+	// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+	ToolAccess *ToolAccess `json:"tool_access,omitempty"`
+
+	// Tools Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
 	Tools []string `json:"tools"`
 
 	// ToolsOff The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
@@ -4895,6 +5136,22 @@ type Resources struct {
 	// CpuMillis CPU in thousandths of a core.
 	CpuMillis   int64 `json:"cpu_millis"`
 	MemoryBytes int64 `json:"memory_bytes"`
+}
+
+// RoleMetric defines model for RoleMetric.
+type RoleMetric struct {
+	Attempts int64 `json:"attempts"`
+
+	// ChainEntry One-based position in the Task's effective routing chain.
+	ChainEntry *int     `json:"chain_entry,omitempty"`
+	CostMicros int64    `json:"cost_micros"`
+	Failed     int64    `json:"failed"`
+	Kind       TaskKind `json:"kind"`
+	Model      string   `json:"model"`
+	Role       string   `json:"role"`
+	Runtime    string   `json:"runtime"`
+	Succeeded  int64    `json:"succeeded"`
+	Unpriced   int64    `json:"unpriced"`
 }
 
 // Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A prompt Routine may have a script that runs first and wakes the Bot only when it finds work.
@@ -5357,6 +5614,13 @@ type Skill struct {
 	UpdatedAt time.Time        `json:"updated_at"`
 }
 
+// SkillAccess defines model for SkillAccess.
+type SkillAccess struct {
+	Missing bool   `json:"missing"`
+	Name    string `json:"name"`
+	Reason  string `json:"reason"`
+}
+
 // SkillAudit defines model for SkillAudit.
 type SkillAudit struct {
 	Alerts     *int    `json:"alerts,omitempty"`
@@ -5496,6 +5760,9 @@ type SpeakerSuggestion struct {
 
 	// Name The name the voice called itself.
 	Name string `json:"name"`
+
+	// Track What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+	Track MeetingTrack `json:"track"`
 }
 
 // SupersetAnswer defines model for SupersetAnswer.
@@ -5698,6 +5965,7 @@ type Task struct {
 	FailureCount      int            `json:"failure_count"`
 	FinishedAt        *time.Time     `json:"finished_at,omitempty"`
 	Id                string         `json:"id"`
+	Kind              TaskKind       `json:"kind"`
 	Model             *string        `json:"model,omitempty"`
 
 	// NotBefore No new Dispatch starts before it (a back-off or a rate limit).
@@ -5737,6 +6005,7 @@ type TaskDetail struct {
 	// FollowUps More work asked of the Task's worker after it succeeded, oldest first.
 	FollowUps      *[]FollowUp `json:"follow_ups,omitempty"`
 	Id             string      `json:"id"`
+	Kind           TaskKind    `json:"kind"`
 	LatestDispatch *Dispatch   `json:"latest_dispatch,omitempty"`
 	Model          *string     `json:"model,omitempty"`
 
@@ -5758,6 +6027,9 @@ type TaskDetail struct {
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
+// TaskKind defines model for TaskKind.
+type TaskKind string
+
 // TaskList defines model for TaskList.
 type TaskList struct {
 	Data []Task `json:"data"`
@@ -5775,6 +6047,28 @@ type TerminalTicket struct {
 // TokenKind defines model for TokenKind.
 type TokenKind string
 
+// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+type ToolAccess struct {
+	Families []ToolFamilyAccess `json:"families"`
+	Skills   []SkillAccess      `json:"skills"`
+}
+
+// ToolAccessItem defines model for ToolAccessItem.
+type ToolAccessItem struct {
+	Name   string           `json:"name"`
+	Reason string           `json:"reason"`
+	Source ToolAccessSource `json:"source"`
+
+	// State Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+	State ToolAccessState `json:"state"`
+}
+
+// ToolAccessSource defines model for ToolAccessSource.
+type ToolAccessSource string
+
+// ToolAccessState Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+type ToolAccessState string
+
 // ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
 type ToolDisplay string
 
@@ -5788,6 +6082,18 @@ type ToolFamily struct {
 	Tools   []string `json:"tools"`
 }
 
+// ToolFamilyAccess defines model for ToolFamilyAccess.
+type ToolFamilyAccess struct {
+	Description string           `json:"description"`
+	Name        string           `json:"name"`
+	Reason      string           `json:"reason"`
+	Source      ToolAccessSource `json:"source"`
+
+	// State Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+	State ToolAccessState  `json:"state"`
+	Tools []ToolAccessItem `json:"tools"`
+}
+
 // ToolFamilyList defines model for ToolFamilyList.
 type ToolFamilyList struct {
 	Data []ToolFamily `json:"data"`
@@ -5797,6 +6103,9 @@ type ToolFamilyList struct {
 type ToolNames struct {
 	Data []string `json:"data"`
 }
+
+// ToolPreset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+type ToolPreset string
 
 // TranscribeRequest defines model for TranscribeRequest.
 type TranscribeRequest struct {
@@ -6716,6 +7025,12 @@ type UploadMeetingParams struct {
 	People *[]string `form:"people,omitempty" json:"people,omitempty"`
 }
 
+// NameMeetingSpeakerParams defines parameters for NameMeetingSpeaker.
+type NameMeetingSpeakerParams struct {
+	// Track The voice's track; absent, the one track that has the label.
+	Track *MeetingTrack `form:"track,omitempty" json:"track,omitempty"`
+}
+
 // ListMemoryNotesParams defines parameters for ListMemoryNotes.
 type ListMemoryNotesParams struct {
 	// Bot A Bot's memory, by its id; give this or agent.
@@ -6770,6 +7085,12 @@ type ListQuestionsParams struct {
 
 	// ChatId Only the questions of the Runs a coordinator created from this chat.
 	ChatId *string `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+}
+
+// GetRoleMetricsParams defines parameters for GetRoleMetrics.
+type GetRoleMetricsParams struct {
+	// Since Start of the period; defaults to 14 days ago.
+	Since *time.Time `form:"since,omitempty" json:"since,omitempty"`
 }
 
 // ListRoutinesParams defines parameters for ListRoutines.
@@ -7042,6 +7363,9 @@ type SetMeetingSettingsJSONRequestBody = MeetingSettingsUpdate
 // SetMeetingWordsJSONRequestBody defines body for SetMeetingWords for application/json ContentType.
 type SetMeetingWordsJSONRequestBody = MeetingWordsUpdate
 
+// StartLiveMeetingJSONRequestBody defines body for StartLiveMeeting for application/json ContentType.
+type StartLiveMeetingJSONRequestBody = NewLiveMeeting
+
 // FixMeetingWordJSONRequestBody defines body for FixMeetingWord for application/json ContentType.
 type FixMeetingWordJSONRequestBody = MeetingWordFix
 
@@ -7053,6 +7377,9 @@ type SetMeetingLineSpeakerJSONRequestBody = SpeakerName
 
 // NameMeetingSpeakerJSONRequestBody defines body for NameMeetingSpeaker for application/json ContentType.
 type NameMeetingSpeakerJSONRequestBody = SpeakerName
+
+// OpenMeetingTrackJSONRequestBody defines body for OpenMeetingTrack for application/json ContentType.
+type OpenMeetingTrackJSONRequestBody = MeetingTrackRequest
 
 // PutMemoryNoteJSONRequestBody defines body for PutMemoryNote for application/json ContentType.
 type PutMemoryNoteJSONRequestBody = MemoryNoteText
@@ -7089,6 +7416,9 @@ type AnswerQuestionJSONRequestBody = Answer
 
 // PutRepoJSONRequestBody defines body for PutRepo for application/json ContentType.
 type PutRepoJSONRequestBody = NewRepo
+
+// PutRoleRoutingJSONRequestBody defines body for PutRoleRouting for application/json ContentType.
+type PutRoleRoutingJSONRequestBody = Source
 
 // PreviewRoutineScheduleJSONRequestBody defines body for PreviewRoutineSchedule for application/json ContentType.
 type PreviewRoutineScheduleJSONRequestBody = RoutineSchedule
@@ -8749,6 +9079,24 @@ type ClientInterface interface {
 	// Corresponds with POST /meetings (the `UploadMeeting` operationId).
 	UploadMeetingWithBody(ctx context.Context, params *UploadMeetingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// StartLiveMeetingWithBody Start recording a meeting live from the browser; only the owner
+	//
+	// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+	StartLiveMeetingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartLiveMeeting Start recording a meeting live from the browser; only the owner
+	//
+	// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+	StartLiveMeeting(ctx context.Context, body StartLiveMeetingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// DeleteMeeting Delete a meeting with its recording, transcript and notes; only the owner
 	//
 	// Corresponds with DELETE /meetings/{meeting_id} (the `DeleteMeeting` operationId).
@@ -8758,6 +9106,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 	GetMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EndLiveMeeting End a meeting being recorded; only the owner
+	//
+	// The tracks still open keep their last words (at most 20 seconds), the tracks become the meeting's recording, and the meeting is transcribed with its notes being written. Ending one that has ended answers it as it is.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/end (the `EndLiveMeeting` operationId).
+	EndLiveMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// FixMeetingWordWithBody Replace a word heard wrong in one line or the whole meeting; only the owner
 	//
@@ -8825,21 +9180,35 @@ type ClientInterface interface {
 
 	// NameMeetingSpeakerWithBody Name a voice for the whole meeting; only the owner
 	//
-	// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+	// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-	NameMeetingSpeakerWithBody(ctx context.Context, meetingId MeetingID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	NameMeetingSpeakerWithBody(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 	//
-	// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+	// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-	NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OpenMeetingTrackWithBody A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+	OpenMeetingTrackWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OpenMeetingTrack A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+	OpenMeetingTrack(ctx context.Context, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
 	//
@@ -9165,6 +9534,30 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
 	PutRepo(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetRoleRouting The worker role and kind mapping
+	//
+	// Corresponds with GET /role-routing (the `GetRoleRouting` operationId).
+	GetRoleRouting(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutRoleRoutingWithBody Validate and replace the worker role and kind mapping; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+	PutRoleRoutingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutRoleRouting Validate and replace the worker role and kind mapping; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+	PutRoleRouting(ctx context.Context, body PutRoleRoutingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetRoleMetrics Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+	//
+	// Corresponds with GET /role-routing/metrics (the `GetRoleMetrics` operationId).
+	GetRoleMetrics(ctx context.Context, params *GetRoleMetricsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PreviewRoutineScheduleWithBody A schedule in words and its next three times, as a Routine made now would have them
 	//
@@ -13287,6 +13680,44 @@ func (c *Client) UploadMeetingWithBody(ctx context.Context, params *UploadMeetin
 	return c.Client.Do(req)
 }
 
+// StartLiveMeetingWithBody Start recording a meeting live from the browser; only the owner
+//
+// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+func (c *Client) StartLiveMeetingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartLiveMeetingRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartLiveMeeting Start recording a meeting live from the browser; only the owner
+//
+// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+func (c *Client) StartLiveMeeting(ctx context.Context, body StartLiveMeetingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartLiveMeetingRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // DeleteMeeting Delete a meeting with its recording, transcript and notes; only the owner
 //
 // Corresponds with DELETE /meetings/{meeting_id} (the `DeleteMeeting` operationId).
@@ -13307,6 +13738,23 @@ func (c *Client) DeleteMeeting(ctx context.Context, meetingId MeetingID, reqEdit
 // Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 func (c *Client) GetMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetMeetingRequest(c.Server, meetingId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EndLiveMeeting End a meeting being recorded; only the owner
+//
+// The tracks still open keep their last words (at most 20 seconds), the tracks become the meeting's recording, and the meeting is transcribed with its notes being written. Ending one that has ended answers it as it is.
+//
+// Corresponds with POST /meetings/{meeting_id}/end (the `EndLiveMeeting` operationId).
+func (c *Client) EndLiveMeeting(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEndLiveMeetingRequest(c.Server, meetingId)
 	if err != nil {
 		return nil, err
 	}
@@ -13463,13 +13911,13 @@ func (c *Client) GetMeetingRecording(ctx context.Context, meetingId MeetingID, r
 
 // NameMeetingSpeakerWithBody Name a voice for the whole meeting; only the owner
 //
-// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 //
 // Takes any type of body and a specified content type.
 //
 // Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-func (c *Client) NameMeetingSpeakerWithBody(ctx context.Context, meetingId MeetingID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewNameMeetingSpeakerRequestWithBody(c.Server, meetingId, label, contentType, body)
+func (c *Client) NameMeetingSpeakerWithBody(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewNameMeetingSpeakerRequestWithBody(c.Server, meetingId, label, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -13482,13 +13930,47 @@ func (c *Client) NameMeetingSpeakerWithBody(ctx context.Context, meetingId Meeti
 
 // NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 //
-// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 //
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-func (c *Client) NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewNameMeetingSpeakerRequest(c.Server, meetingId, label, body)
+func (c *Client) NameMeetingSpeaker(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewNameMeetingSpeakerRequest(c.Server, meetingId, label, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OpenMeetingTrackWithBody A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+func (c *Client) OpenMeetingTrackWithBody(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOpenMeetingTrackRequestWithBody(c.Server, meetingId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OpenMeetingTrack A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+func (c *Client) OpenMeetingTrack(ctx context.Context, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOpenMeetingTrackRequest(c.Server, meetingId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -14304,6 +14786,70 @@ func (c *Client) PutRepoWithBody(ctx context.Context, name Name, contentType str
 // Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
 func (c *Client) PutRepo(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutRepoRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetRoleRouting The worker role and kind mapping
+//
+// Corresponds with GET /role-routing (the `GetRoleRouting` operationId).
+func (c *Client) GetRoleRouting(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRoleRoutingRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutRoleRoutingWithBody Validate and replace the worker role and kind mapping; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+func (c *Client) PutRoleRoutingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRoleRoutingRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutRoleRouting Validate and replace the worker role and kind mapping; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+func (c *Client) PutRoleRouting(ctx context.Context, body PutRoleRoutingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRoleRoutingRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetRoleMetrics Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+//
+// Corresponds with GET /role-routing/metrics (the `GetRoleMetrics` operationId).
+func (c *Client) GetRoleMetrics(ctx context.Context, params *GetRoleMetricsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRoleMetricsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -22827,6 +23373,46 @@ func NewUploadMeetingRequestWithBody(server string, params *UploadMeetingParams,
 	return req, nil
 }
 
+// NewStartLiveMeetingRequest calls the generic StartLiveMeeting builder with application/json body
+func NewStartLiveMeetingRequest(server string, body StartLiveMeetingJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewStartLiveMeetingRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewStartLiveMeetingRequestWithBody constructs an http.Request for the StartLiveMeeting method, with any body, and a specified content type
+func NewStartLiveMeetingRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meetings/live")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewDeleteMeetingRequest constructs an http.Request for the DeleteMeeting method
 func NewDeleteMeetingRequest(server string, meetingId MeetingID) (*http.Request, error) {
 	var err error
@@ -22888,6 +23474,40 @@ func NewGetMeetingRequest(server string, meetingId MeetingID) (*http.Request, er
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewEndLiveMeetingRequest constructs an http.Request for the EndLiveMeeting method
+func NewEndLiveMeetingRequest(server string, meetingId MeetingID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "meeting_id", meetingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meetings/%s/end", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -23119,18 +23739,18 @@ func NewGetMeetingRecordingRequest(server string, meetingId MeetingID) (*http.Re
 }
 
 // NewNameMeetingSpeakerRequest calls the generic NameMeetingSpeaker builder with application/json body
-func NewNameMeetingSpeakerRequest(server string, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody) (*http.Request, error) {
+func NewNameMeetingSpeakerRequest(server string, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewNameMeetingSpeakerRequestWithBody(server, meetingId, label, "application/json", bodyReader)
+	return NewNameMeetingSpeakerRequestWithBody(server, meetingId, label, params, "application/json", bodyReader)
 }
 
 // NewNameMeetingSpeakerRequestWithBody constructs an http.Request for the NameMeetingSpeaker method, with any body, and a specified content type
-func NewNameMeetingSpeakerRequestWithBody(server string, meetingId MeetingID, label string, contentType string, body io.Reader) (*http.Request, error) {
+func NewNameMeetingSpeakerRequestWithBody(server string, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -23162,7 +23782,81 @@ func NewNameMeetingSpeakerRequestWithBody(server string, meetingId MeetingID, la
 		return nil, err
 	}
 
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Track != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "track", *params.Track, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
 	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewOpenMeetingTrackRequest calls the generic OpenMeetingTrack builder with application/json body
+func NewOpenMeetingTrackRequest(server string, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewOpenMeetingTrackRequestWithBody(server, meetingId, "application/json", bodyReader)
+}
+
+// NewOpenMeetingTrackRequestWithBody constructs an http.Request for the OpenMeetingTrack method, with any body, and a specified content type
+func NewOpenMeetingTrackRequestWithBody(server string, meetingId MeetingID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "meeting_id", meetingId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/meetings/%s/tickets", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -24739,6 +25433,127 @@ func NewPutRepoRequestWithBody(server string, name Name, contentType string, bod
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetRoleRoutingRequest constructs an http.Request for the GetRoleRouting method
+func NewGetRoleRoutingRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/role-routing")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutRoleRoutingRequest calls the generic PutRoleRouting builder with application/json body
+func NewPutRoleRoutingRequest(server string, body PutRoleRoutingJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutRoleRoutingRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPutRoleRoutingRequestWithBody constructs an http.Request for the PutRoleRouting method, with any body, and a specified content type
+func NewPutRoleRoutingRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/role-routing")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetRoleMetricsRequest constructs an http.Request for the GetRoleMetrics method
+func NewGetRoleMetricsRequest(server string, params *GetRoleMetricsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/role-routing/metrics")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Since != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "since", *params.Since, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "date-time"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -28907,6 +29722,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /meetings (the `UploadMeeting` operationId).
 	UploadMeetingWithBodyWithResponse(ctx context.Context, params *UploadMeetingParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadMeetingResponse, error)
 
+	// StartLiveMeetingWithBodyWithResponse Start recording a meeting live from the browser; only the owner
+	//
+	// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+	StartLiveMeetingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartLiveMeetingResponse, error)
+
+	// StartLiveMeetingWithResponse Start recording a meeting live from the browser; only the owner
+	//
+	// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+	StartLiveMeetingWithResponse(ctx context.Context, body StartLiveMeetingJSONRequestBody, reqEditors ...RequestEditorFn) (*StartLiveMeetingResponse, error)
+
 	// DeleteMeetingWithResponse Delete a meeting with its recording, transcript and notes; only the owner
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -28920,6 +29753,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /meetings/{meeting_id} (the `GetMeeting` operationId).
 	GetMeetingWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*GetMeetingResponse, error)
+
+	// EndLiveMeetingWithResponse End a meeting being recorded; only the owner
+	//
+	// The tracks still open keep their last words (at most 20 seconds), the tracks become the meeting's recording, and the meeting is transcribed with its notes being written. Ending one that has ended answers it as it is.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/end (the `EndLiveMeeting` operationId).
+	EndLiveMeetingWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*EndLiveMeetingResponse, error)
 
 	// FixMeetingWordWithBodyWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
 	//
@@ -28991,21 +29833,35 @@ type ClientWithResponsesInterface interface {
 
 	// NameMeetingSpeakerWithBodyWithResponse Name a voice for the whole meeting; only the owner
 	//
-	// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+	// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-	NameMeetingSpeakerWithBodyWithResponse(ctx context.Context, meetingId MeetingID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error)
+	NameMeetingSpeakerWithBodyWithResponse(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error)
 
 	// NameMeetingSpeakerWithResponse Name a voice for the whole meeting; only the owner
 	//
-	// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+	// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-	NameMeetingSpeakerWithResponse(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error)
+	NameMeetingSpeakerWithResponse(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error)
+
+	// OpenMeetingTrackWithBodyWithResponse A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+	OpenMeetingTrackWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OpenMeetingTrackResponse, error)
+
+	// OpenMeetingTrackWithResponse A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+	OpenMeetingTrackWithResponse(ctx context.Context, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenMeetingTrackResponse, error)
 
 	// ListMemoryNotesWithResponse The notes of a Bot's or an agent's memory, by path
 	//
@@ -29381,6 +30237,34 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
 	PutRepoWithResponse(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRepoResponse, error)
+
+	// GetRoleRoutingWithResponse The worker role and kind mapping
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /role-routing (the `GetRoleRouting` operationId).
+	GetRoleRoutingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetRoleRoutingResponse, error)
+
+	// PutRoleRoutingWithBodyWithResponse Validate and replace the worker role and kind mapping; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+	PutRoleRoutingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRoleRoutingResponse, error)
+
+	// PutRoleRoutingWithResponse Validate and replace the worker role and kind mapping; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+	PutRoleRoutingWithResponse(ctx context.Context, body PutRoleRoutingJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRoleRoutingResponse, error)
+
+	// GetRoleMetricsWithResponse Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /role-routing/metrics (the `GetRoleMetrics` operationId).
+	GetRoleMetricsWithResponse(ctx context.Context, params *GetRoleMetricsParams, reqEditors ...RequestEditorFn) (*GetRoleMetricsResponse, error)
 
 	// PreviewRoutineScheduleWithBodyWithResponse A schedule in words and its next three times, as a Routine made now would have them
 	//
@@ -37002,6 +37886,54 @@ func (r UploadMeetingResponse) ContentType() string {
 	return ""
 }
 
+type StartLiveMeetingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Meeting
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r StartLiveMeetingResponse) GetJSON201() *Meeting {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StartLiveMeetingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StartLiveMeetingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartLiveMeetingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartLiveMeetingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartLiveMeetingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DeleteMeetingResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -37085,6 +38017,54 @@ func (r GetMeetingResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetMeetingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type EndLiveMeetingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Meeting
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r EndLiveMeetingResponse) GetJSON200() *Meeting {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r EndLiveMeetingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r EndLiveMeetingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r EndLiveMeetingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EndLiveMeetingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r EndLiveMeetingResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -37366,6 +38346,54 @@ func (r NameMeetingSpeakerResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r NameMeetingSpeakerResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type OpenMeetingTrackResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *TerminalTicket
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r OpenMeetingTrackResponse) GetJSON201() *TerminalTicket {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r OpenMeetingTrackResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r OpenMeetingTrackResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r OpenMeetingTrackResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OpenMeetingTrackResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OpenMeetingTrackResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -39114,6 +40142,143 @@ func (r PutRepoResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PutRepoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetRoleRoutingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Source
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetRoleRoutingResponse) GetJSON200() *Source {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetRoleRoutingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetRoleRoutingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetRoleRoutingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetRoleRoutingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetRoleRoutingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutRoleRoutingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutRoleRoutingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutRoleRoutingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutRoleRoutingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutRoleRoutingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutRoleRoutingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetRoleMetricsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]RoleMetric
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetRoleMetricsResponse) GetJSON200() *[]RoleMetric {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetRoleMetricsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetRoleMetricsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetRoleMetricsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetRoleMetricsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetRoleMetricsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -44770,6 +45935,36 @@ func (c *ClientWithResponses) UploadMeetingWithBodyWithResponse(ctx context.Cont
 	return ParseUploadMeetingResponse(rsp)
 }
 
+// StartLiveMeetingWithBodyWithResponse Start recording a meeting live from the browser; only the owner
+//
+// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+func (c *ClientWithResponses) StartLiveMeetingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartLiveMeetingResponse, error) {
+	rsp, err := c.StartLiveMeetingWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartLiveMeetingResponse(rsp)
+}
+
+// StartLiveMeetingWithResponse Start recording a meeting live from the browser; only the owner
+//
+// The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it. Refused (conflict) while another meeting is recording: resume or end that one first.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/live (the `StartLiveMeeting` operationId).
+func (c *ClientWithResponses) StartLiveMeetingWithResponse(ctx context.Context, body StartLiveMeetingJSONRequestBody, reqEditors ...RequestEditorFn) (*StartLiveMeetingResponse, error) {
+	rsp, err := c.StartLiveMeeting(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartLiveMeetingResponse(rsp)
+}
+
 // DeleteMeetingWithResponse Delete a meeting with its recording, transcript and notes; only the owner
 //
 // Returns a wrapper object for the known response body format(s).
@@ -44794,6 +45989,21 @@ func (c *ClientWithResponses) GetMeetingWithResponse(ctx context.Context, meetin
 		return nil, err
 	}
 	return ParseGetMeetingResponse(rsp)
+}
+
+// EndLiveMeetingWithResponse End a meeting being recorded; only the owner
+//
+// The tracks still open keep their last words (at most 20 seconds), the tracks become the meeting's recording, and the meeting is transcribed with its notes being written. Ending one that has ended answers it as it is.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/end (the `EndLiveMeeting` operationId).
+func (c *ClientWithResponses) EndLiveMeetingWithResponse(ctx context.Context, meetingId MeetingID, reqEditors ...RequestEditorFn) (*EndLiveMeetingResponse, error) {
+	rsp, err := c.EndLiveMeeting(ctx, meetingId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEndLiveMeetingResponse(rsp)
 }
 
 // FixMeetingWordWithBodyWithResponse Replace a word heard wrong in one line or the whole meeting; only the owner
@@ -44914,13 +46124,13 @@ func (c *ClientWithResponses) GetMeetingRecordingWithResponse(ctx context.Contex
 
 // NameMeetingSpeakerWithBodyWithResponse Name a voice for the whole meeting; only the owner
 //
-// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-func (c *ClientWithResponses) NameMeetingSpeakerWithBodyWithResponse(ctx context.Context, meetingId MeetingID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error) {
-	rsp, err := c.NameMeetingSpeakerWithBody(ctx, meetingId, label, contentType, body, reqEditors...)
+func (c *ClientWithResponses) NameMeetingSpeakerWithBodyWithResponse(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error) {
+	rsp, err := c.NameMeetingSpeakerWithBody(ctx, meetingId, label, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -44929,17 +46139,43 @@ func (c *ClientWithResponses) NameMeetingSpeakerWithBodyWithResponse(ctx context
 
 // NameMeetingSpeakerWithResponse Name a voice for the whole meeting; only the owner
 //
-// A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number.
+// A name another voice of the track has makes the two one voice, with the lines and actions of both. An empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with PUT /meetings/{meeting_id}/speakers/{label} (the `NameMeetingSpeaker` operationId).
-func (c *ClientWithResponses) NameMeetingSpeakerWithResponse(ctx context.Context, meetingId MeetingID, label string, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error) {
-	rsp, err := c.NameMeetingSpeaker(ctx, meetingId, label, body, reqEditors...)
+func (c *ClientWithResponses) NameMeetingSpeakerWithResponse(ctx context.Context, meetingId MeetingID, label string, params *NameMeetingSpeakerParams, body NameMeetingSpeakerJSONRequestBody, reqEditors ...RequestEditorFn) (*NameMeetingSpeakerResponse, error) {
+	rsp, err := c.NameMeetingSpeaker(ctx, meetingId, label, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
 	return ParseNameMeetingSpeakerResponse(rsp)
+}
+
+// OpenMeetingTrackWithBodyWithResponse A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+func (c *ClientWithResponses) OpenMeetingTrackWithBodyWithResponse(ctx context.Context, meetingId MeetingID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OpenMeetingTrackResponse, error) {
+	rsp, err := c.OpenMeetingTrackWithBody(ctx, meetingId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOpenMeetingTrackResponse(rsp)
+}
+
+// OpenMeetingTrackWithResponse A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /meetings/{meeting_id}/tickets (the `OpenMeetingTrack` operationId).
+func (c *ClientWithResponses) OpenMeetingTrackWithResponse(ctx context.Context, meetingId MeetingID, body OpenMeetingTrackJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenMeetingTrackResponse, error) {
+	rsp, err := c.OpenMeetingTrack(ctx, meetingId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOpenMeetingTrackResponse(rsp)
 }
 
 // ListMemoryNotesWithResponse The notes of a Bot's or an agent's memory, by path
@@ -45609,6 +46845,58 @@ func (c *ClientWithResponses) PutRepoWithResponse(ctx context.Context, name Name
 		return nil, err
 	}
 	return ParsePutRepoResponse(rsp)
+}
+
+// GetRoleRoutingWithResponse The worker role and kind mapping
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /role-routing (the `GetRoleRouting` operationId).
+func (c *ClientWithResponses) GetRoleRoutingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetRoleRoutingResponse, error) {
+	rsp, err := c.GetRoleRouting(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetRoleRoutingResponse(rsp)
+}
+
+// PutRoleRoutingWithBodyWithResponse Validate and replace the worker role and kind mapping; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+func (c *ClientWithResponses) PutRoleRoutingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRoleRoutingResponse, error) {
+	rsp, err := c.PutRoleRoutingWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRoleRoutingResponse(rsp)
+}
+
+// PutRoleRoutingWithResponse Validate and replace the worker role and kind mapping; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+func (c *ClientWithResponses) PutRoleRoutingWithResponse(ctx context.Context, body PutRoleRoutingJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRoleRoutingResponse, error) {
+	rsp, err := c.PutRoleRouting(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRoleRoutingResponse(rsp)
+}
+
+// GetRoleMetricsWithResponse Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /role-routing/metrics (the `GetRoleMetrics` operationId).
+func (c *ClientWithResponses) GetRoleMetricsWithResponse(ctx context.Context, params *GetRoleMetricsParams, reqEditors ...RequestEditorFn) (*GetRoleMetricsResponse, error) {
+	rsp, err := c.GetRoleMetrics(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetRoleMetricsResponse(rsp)
 }
 
 // PreviewRoutineScheduleWithBodyWithResponse A schedule in words and its next three times, as a Routine made now would have them
@@ -51463,6 +52751,39 @@ func ParseUploadMeetingResponse(rsp *http.Response) (*UploadMeetingResponse, err
 	return response, nil
 }
 
+// ParseStartLiveMeetingResponse parses an HTTP response from a StartLiveMeetingWithResponse call
+func ParseStartLiveMeetingResponse(rsp *http.Response) (*StartLiveMeetingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartLiveMeetingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Meeting
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteMeetingResponse parses an HTTP response from a DeleteMeetingWithResponse call
 func ParseDeleteMeetingResponse(rsp *http.Response) (*DeleteMeetingResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -51508,6 +52829,39 @@ func ParseGetMeetingResponse(rsp *http.Response) (*GetMeetingResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest MeetingDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEndLiveMeetingResponse parses an HTTP response from a EndLiveMeetingWithResponse call
+func ParseEndLiveMeetingResponse(rsp *http.Response) (*EndLiveMeetingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EndLiveMeetingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Meeting
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -51703,6 +53057,39 @@ func ParseNameMeetingSpeakerResponse(rsp *http.Response) (*NameMeetingSpeakerRes
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseOpenMeetingTrackResponse parses an HTTP response from a OpenMeetingTrackWithResponse call
+func ParseOpenMeetingTrackResponse(rsp *http.Response) (*OpenMeetingTrackResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OpenMeetingTrackResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest TerminalTicket
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -52907,6 +54294,101 @@ func ParsePutRepoResponse(rsp *http.Response) (*PutRepoResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Repo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetRoleRoutingResponse parses an HTTP response from a GetRoleRoutingWithResponse call
+func ParseGetRoleRoutingResponse(rsp *http.Response) (*GetRoleRoutingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetRoleRoutingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Source
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutRoleRoutingResponse parses an HTTP response from a PutRoleRoutingWithResponse call
+func ParsePutRoleRoutingResponse(rsp *http.Response) (*PutRoleRoutingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutRoleRoutingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetRoleMetricsResponse parses an HTTP response from a GetRoleMetricsWithResponse call
+func ParseGetRoleMetricsResponse(rsp *http.Response) (*GetRoleMetricsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetRoleMetricsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []RoleMetric
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -55240,12 +56722,18 @@ type ServerInterface interface {
 	// UploadMeeting Upload a meeting's recording, at most 128 MB; only the owner
 	// (POST /meetings)
 	UploadMeeting(w http.ResponseWriter, r *http.Request, params UploadMeetingParams)
+	// StartLiveMeeting Start recording a meeting live from the browser; only the owner
+	// (POST /meetings/live)
+	StartLiveMeeting(w http.ResponseWriter, r *http.Request)
 	// DeleteMeeting Delete a meeting with its recording, transcript and notes; only the owner
 	// (DELETE /meetings/{meeting_id})
 	DeleteMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// GetMeeting A meeting with its transcript, notes, decisions and actions
 	// (GET /meetings/{meeting_id})
 	GetMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
+	// EndLiveMeeting End a meeting being recorded; only the owner
+	// (POST /meetings/{meeting_id}/end)
+	EndLiveMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
 	// (POST /meetings/{meeting_id}/fix)
 	FixMeetingWord(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
@@ -55263,7 +56751,10 @@ type ServerInterface interface {
 	GetMeetingRecording(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 	// (PUT /meetings/{meeting_id}/speakers/{label})
-	NameMeetingSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, label string)
+	NameMeetingSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, label string, params NameMeetingSpeakerParams)
+	// OpenMeetingTrack A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	// (POST /meetings/{meeting_id}/tickets)
+	OpenMeetingTrack(w http.ResponseWriter, r *http.Request, meetingId MeetingID)
 	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
 	// (GET /memory-notes)
 	ListMemoryNotes(w http.ResponseWriter, r *http.Request, params ListMemoryNotesParams)
@@ -55375,6 +56866,15 @@ type ServerInterface interface {
 	// PutRepo Register a repository under a name, or change what the name means; only the owner
 	// (PUT /repos/{name})
 	PutRepo(w http.ResponseWriter, r *http.Request, name Name)
+	// GetRoleRouting The worker role and kind mapping
+	// (GET /role-routing)
+	GetRoleRouting(w http.ResponseWriter, r *http.Request)
+	// PutRoleRouting Validate and replace the worker role and kind mapping; only the owner
+	// (PUT /role-routing)
+	PutRoleRouting(w http.ResponseWriter, r *http.Request)
+	// GetRoleMetrics Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+	// (GET /role-routing/metrics)
+	GetRoleMetrics(w http.ResponseWriter, r *http.Request, params GetRoleMetricsParams)
 	// PreviewRoutineSchedule A schedule in words and its next three times, as a Routine made now would have them
 	// (POST /routine-schedule)
 	PreviewRoutineSchedule(w http.ResponseWriter, r *http.Request)
@@ -60508,6 +62008,20 @@ func (siw *ServerInterfaceWrapper) UploadMeeting(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// StartLiveMeeting operation middleware
+func (siw *ServerInterfaceWrapper) StartLiveMeeting(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartLiveMeeting(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteMeeting operation middleware
 func (siw *ServerInterfaceWrapper) DeleteMeeting(w http.ResponseWriter, r *http.Request) {
 
@@ -60551,6 +62065,32 @@ func (siw *ServerInterfaceWrapper) GetMeeting(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMeeting(w, r, meetingId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EndLiveMeeting operation middleware
+func (siw *ServerInterfaceWrapper) EndLiveMeeting(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "meeting_id" -------------
+	var meetingId MeetingID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "meeting_id", r.PathValue("meeting_id"), &meetingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "meeting_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EndLiveMeeting(w, r, meetingId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -60732,8 +62272,50 @@ func (siw *ServerInterfaceWrapper) NameMeetingSpeaker(w http.ResponseWriter, r *
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params NameMeetingSpeakerParams
+
+	// ------------- Optional query parameter "track" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "track", r.URL.Query(), &params.Track, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "track"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "track", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.NameMeetingSpeaker(w, r, meetingId, label)
+		siw.Handler.NameMeetingSpeaker(w, r, meetingId, label, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// OpenMeetingTrack operation middleware
+func (siw *ServerInterfaceWrapper) OpenMeetingTrack(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "meeting_id" -------------
+	var meetingId MeetingID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "meeting_id", r.PathValue("meeting_id"), &meetingId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "meeting_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenMeetingTrack(w, r, meetingId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -61766,6 +63348,67 @@ func (siw *ServerInterfaceWrapper) PutRepo(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutRepo(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRoleRouting operation middleware
+func (siw *ServerInterfaceWrapper) GetRoleRouting(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRoleRouting(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutRoleRouting operation middleware
+func (siw *ServerInterfaceWrapper) PutRoleRouting(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutRoleRouting(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRoleMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetRoleMetrics(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetRoleMetricsParams
+
+	// ------------- Optional query parameter "since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "since", r.URL.Query(), &params.Since, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRoleMetrics(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -63791,6 +65434,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/routines/{routine_id}/runs", wrapper.ListRoutineRuns)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/runs", wrapper.RunRoutine)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/routines/{routine_id}/grants/{integration}/{label}/{action}", wrapper.RevokeRoutineGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/role-routing", wrapper.GetRoleRouting)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/role-routing", wrapper.PutRoleRouting)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/role-routing/metrics", wrapper.GetRoleMetrics)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles", wrapper.ListProfiles)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/{name}", wrapper.DeleteProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
@@ -63827,6 +65473,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/fix", wrapper.FixMeetingWord)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meetings/{meeting_id}/speakers/{label}", wrapper.NameMeetingSpeaker)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/meetings/{meeting_id}/lines/{n}/speaker", wrapper.SetMeetingLineSpeaker)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/live", wrapper.StartLiveMeeting)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/tickets", wrapper.OpenMeetingTrack)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/meetings/{meeting_id}/end", wrapper.EndLiveMeeting)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/meetings/{meeting_id}/items/{item_id}", wrapper.UpdateMeetingItem)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-actions", wrapper.ListMeetingActions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/meeting-settings", wrapper.GetMeetingSettings)
@@ -69835,6 +71484,45 @@ func (response UploadMeetingdefaultJSONResponse) VisitUploadMeetingResponse(w ht
 	return err
 }
 
+type StartLiveMeetingRequestObject struct {
+	Body *StartLiveMeetingJSONRequestBody
+}
+
+type StartLiveMeetingResponseObject interface {
+	VisitStartLiveMeetingResponse(w http.ResponseWriter) error
+}
+
+type StartLiveMeeting201JSONResponse Meeting
+
+func (response StartLiveMeeting201JSONResponse) VisitStartLiveMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartLiveMeetingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StartLiveMeetingdefaultJSONResponse) VisitStartLiveMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteMeetingRequestObject struct {
 	MeetingId MeetingID `json:"meeting_id"`
 }
@@ -69896,6 +71584,45 @@ type GetMeetingdefaultJSONResponse struct {
 }
 
 func (response GetMeetingdefaultJSONResponse) VisitGetMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EndLiveMeetingRequestObject struct {
+	MeetingId MeetingID `json:"meeting_id"`
+}
+
+type EndLiveMeetingResponseObject interface {
+	VisitEndLiveMeetingResponse(w http.ResponseWriter) error
+}
+
+type EndLiveMeeting200JSONResponse Meeting
+
+func (response EndLiveMeeting200JSONResponse) VisitEndLiveMeetingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EndLiveMeetingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response EndLiveMeetingdefaultJSONResponse) VisitEndLiveMeetingResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -70116,6 +71843,7 @@ func (response GetMeetingRecordingdefaultJSONResponse) VisitGetMeetingRecordingR
 type NameMeetingSpeakerRequestObject struct {
 	MeetingId MeetingID `json:"meeting_id"`
 	Label     string    `json:"label"`
+	Params    NameMeetingSpeakerParams
 	Body      *NameMeetingSpeakerJSONRequestBody
 }
 
@@ -70143,6 +71871,46 @@ type NameMeetingSpeakerdefaultJSONResponse struct {
 }
 
 func (response NameMeetingSpeakerdefaultJSONResponse) VisitNameMeetingSpeakerResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenMeetingTrackRequestObject struct {
+	MeetingId MeetingID `json:"meeting_id"`
+	Body      *OpenMeetingTrackJSONRequestBody
+}
+
+type OpenMeetingTrackResponseObject interface {
+	VisitOpenMeetingTrackResponse(w http.ResponseWriter) error
+}
+
+type OpenMeetingTrack201JSONResponse TerminalTicket
+
+func (response OpenMeetingTrack201JSONResponse) VisitOpenMeetingTrackResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenMeetingTrackdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response OpenMeetingTrackdefaultJSONResponse) VisitOpenMeetingTrackResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -71573,6 +73341,116 @@ type PutRepodefaultJSONResponse struct {
 }
 
 func (response PutRepodefaultJSONResponse) VisitPutRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRoleRoutingRequestObject struct {
+}
+
+type GetRoleRoutingResponseObject interface {
+	VisitGetRoleRoutingResponse(w http.ResponseWriter) error
+}
+
+type GetRoleRouting200JSONResponse Source
+
+func (response GetRoleRouting200JSONResponse) VisitGetRoleRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRoleRoutingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetRoleRoutingdefaultJSONResponse) VisitGetRoleRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutRoleRoutingRequestObject struct {
+	Body *PutRoleRoutingJSONRequestBody
+}
+
+type PutRoleRoutingResponseObject interface {
+	VisitPutRoleRoutingResponse(w http.ResponseWriter) error
+}
+
+type PutRoleRouting204Response struct {
+}
+
+func (response PutRoleRouting204Response) VisitPutRoleRoutingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type PutRoleRoutingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutRoleRoutingdefaultJSONResponse) VisitPutRoleRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRoleMetricsRequestObject struct {
+	Params GetRoleMetricsParams
+}
+
+type GetRoleMetricsResponseObject interface {
+	VisitGetRoleMetricsResponse(w http.ResponseWriter) error
+}
+
+type GetRoleMetrics200JSONResponse []RoleMetric
+
+func (response GetRoleMetrics200JSONResponse) VisitGetRoleMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRoleMetricsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetRoleMetricsdefaultJSONResponse) VisitGetRoleMetricsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -74349,12 +76227,18 @@ type StrictServerInterface interface {
 	// UploadMeeting Upload a meeting's recording, at most 128 MB; only the owner
 	// (POST /meetings)
 	UploadMeeting(ctx context.Context, request UploadMeetingRequestObject) (UploadMeetingResponseObject, error)
+	// StartLiveMeeting Start recording a meeting live from the browser; only the owner
+	// (POST /meetings/live)
+	StartLiveMeeting(ctx context.Context, request StartLiveMeetingRequestObject) (StartLiveMeetingResponseObject, error)
 	// DeleteMeeting Delete a meeting with its recording, transcript and notes; only the owner
 	// (DELETE /meetings/{meeting_id})
 	DeleteMeeting(ctx context.Context, request DeleteMeetingRequestObject) (DeleteMeetingResponseObject, error)
 	// GetMeeting A meeting with its transcript, notes, decisions and actions
 	// (GET /meetings/{meeting_id})
 	GetMeeting(ctx context.Context, request GetMeetingRequestObject) (GetMeetingResponseObject, error)
+	// EndLiveMeeting End a meeting being recorded; only the owner
+	// (POST /meetings/{meeting_id}/end)
+	EndLiveMeeting(ctx context.Context, request EndLiveMeetingRequestObject) (EndLiveMeetingResponseObject, error)
 	// FixMeetingWord Replace a word heard wrong in one line or the whole meeting; only the owner
 	// (POST /meetings/{meeting_id}/fix)
 	FixMeetingWord(ctx context.Context, request FixMeetingWordRequestObject) (FixMeetingWordResponseObject, error)
@@ -74373,6 +76257,9 @@ type StrictServerInterface interface {
 	// NameMeetingSpeaker Name a voice for the whole meeting; only the owner
 	// (PUT /meetings/{meeting_id}/speakers/{label})
 	NameMeetingSpeaker(ctx context.Context, request NameMeetingSpeakerRequestObject) (NameMeetingSpeakerResponseObject, error)
+	// OpenMeetingTrack A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`, `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio, invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+	// (POST /meetings/{meeting_id}/tickets)
+	OpenMeetingTrack(ctx context.Context, request OpenMeetingTrackRequestObject) (OpenMeetingTrackResponseObject, error)
 	// ListMemoryNotes The notes of a Bot's or an agent's memory, by path
 	// (GET /memory-notes)
 	ListMemoryNotes(ctx context.Context, request ListMemoryNotesRequestObject) (ListMemoryNotesResponseObject, error)
@@ -74484,6 +76371,15 @@ type StrictServerInterface interface {
 	// PutRepo Register a repository under a name, or change what the name means; only the owner
 	// (PUT /repos/{name})
 	PutRepo(ctx context.Context, request PutRepoRequestObject) (PutRepoResponseObject, error)
+	// GetRoleRouting The worker role and kind mapping
+	// (GET /role-routing)
+	GetRoleRouting(ctx context.Context, request GetRoleRoutingRequestObject) (GetRoleRoutingResponseObject, error)
+	// PutRoleRouting Validate and replace the worker role and kind mapping; only the owner
+	// (PUT /role-routing)
+	PutRoleRouting(ctx context.Context, request PutRoleRoutingRequestObject) (PutRoleRoutingResponseObject, error)
+	// GetRoleMetrics Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+	// (GET /role-routing/metrics)
+	GetRoleMetrics(ctx context.Context, request GetRoleMetricsRequestObject) (GetRoleMetricsResponseObject, error)
 	// PreviewRoutineSchedule A schedule in words and its next three times, as a Routine made now would have them
 	// (POST /routine-schedule)
 	PreviewRoutineSchedule(ctx context.Context, request PreviewRoutineScheduleRequestObject) (PreviewRoutineScheduleResponseObject, error)
@@ -78991,6 +80887,37 @@ func (sh *strictHandler) UploadMeeting(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
+// StartLiveMeeting operation middleware
+func (sh *strictHandler) StartLiveMeeting(w http.ResponseWriter, r *http.Request) {
+	var request StartLiveMeetingRequestObject
+
+	var body StartLiveMeetingJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartLiveMeeting(ctx, request.(StartLiveMeetingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartLiveMeeting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartLiveMeetingResponseObject); ok {
+		if err := validResponse.VisitStartLiveMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeleteMeeting operation middleware
 func (sh *strictHandler) DeleteMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID) {
 	var request DeleteMeetingRequestObject
@@ -79036,6 +80963,32 @@ func (sh *strictHandler) GetMeeting(w http.ResponseWriter, r *http.Request, meet
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMeetingResponseObject); ok {
 		if err := validResponse.VisitGetMeetingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EndLiveMeeting operation middleware
+func (sh *strictHandler) EndLiveMeeting(w http.ResponseWriter, r *http.Request, meetingId MeetingID) {
+	var request EndLiveMeetingRequestObject
+
+	request.MeetingId = meetingId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EndLiveMeeting(ctx, request.(EndLiveMeetingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EndLiveMeeting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EndLiveMeetingResponseObject); ok {
+		if err := validResponse.VisitEndLiveMeetingResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -79197,11 +81150,12 @@ func (sh *strictHandler) GetMeetingRecording(w http.ResponseWriter, r *http.Requ
 }
 
 // NameMeetingSpeaker operation middleware
-func (sh *strictHandler) NameMeetingSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, label string) {
+func (sh *strictHandler) NameMeetingSpeaker(w http.ResponseWriter, r *http.Request, meetingId MeetingID, label string, params NameMeetingSpeakerParams) {
 	var request NameMeetingSpeakerRequestObject
 
 	request.MeetingId = meetingId
 	request.Label = label
+	request.Params = params
 
 	var body NameMeetingSpeakerJSONRequestBody
 	if err := runtime.BindJSONBody(r, &body); err != nil {
@@ -79223,6 +81177,39 @@ func (sh *strictHandler) NameMeetingSpeaker(w http.ResponseWriter, r *http.Reque
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(NameMeetingSpeakerResponseObject); ok {
 		if err := validResponse.VisitNameMeetingSpeakerResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OpenMeetingTrack operation middleware
+func (sh *strictHandler) OpenMeetingTrack(w http.ResponseWriter, r *http.Request, meetingId MeetingID) {
+	var request OpenMeetingTrackRequestObject
+
+	request.MeetingId = meetingId
+
+	var body OpenMeetingTrackJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OpenMeetingTrack(ctx, request.(OpenMeetingTrackRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OpenMeetingTrack")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OpenMeetingTrackResponseObject); ok {
+		if err := validResponse.VisitOpenMeetingTrackResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -80251,6 +82238,87 @@ func (sh *strictHandler) PutRepo(w http.ResponseWriter, r *http.Request, name Na
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutRepoResponseObject); ok {
 		if err := validResponse.VisitPutRepoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRoleRouting operation middleware
+func (sh *strictHandler) GetRoleRouting(w http.ResponseWriter, r *http.Request) {
+	var request GetRoleRoutingRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRoleRouting(ctx, request.(GetRoleRoutingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRoleRouting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRoleRoutingResponseObject); ok {
+		if err := validResponse.VisitGetRoleRoutingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutRoleRouting operation middleware
+func (sh *strictHandler) PutRoleRouting(w http.ResponseWriter, r *http.Request) {
+	var request PutRoleRoutingRequestObject
+
+	var body PutRoleRoutingJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutRoleRouting(ctx, request.(PutRoleRoutingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutRoleRouting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutRoleRoutingResponseObject); ok {
+		if err := validResponse.VisitPutRoleRoutingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRoleMetrics operation middleware
+func (sh *strictHandler) GetRoleMetrics(w http.ResponseWriter, r *http.Request, params GetRoleMetricsParams) {
+	var request GetRoleMetricsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRoleMetrics(ctx, request.(GetRoleMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRoleMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRoleMetricsResponseObject); ok {
+		if err := validResponse.VisitGetRoleMetricsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

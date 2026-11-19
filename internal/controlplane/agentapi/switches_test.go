@@ -61,8 +61,7 @@ func TestAWorkersProfileTurnsToolsOff(t *testing.T) {
 	assert.Contains(t, w.logs.String(), "agentapi.tool_off")
 }
 
-// Scenario: a Bot keeps only the browser's open tool (issue #536, step 7).
-// Its pi lists that one alone and is refused the memory. When the owner turns
+// Scenario: a report Bot adds just the browser's open tool and is refused other browser tools. When the owner turns
 // the open tool off instead, the pi's next list and call follow at once,
 // without a new pi: the Bot is read at each request. Every tool a pi is
 // listed is a name of the catalog its switches are checked against.
@@ -75,7 +74,8 @@ func TestABotsToolsAreReadAtEachCall(t *testing.T) {
 	_, _, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Tools: []string{"agent_browser_open"}})
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Preset: agenttool.PresetReport,
+		Tools: []string{"agent_browser_open"}})
 	require.NoError(t, err)
 
 	chat, err := w.svc.CreateChat(ctx, bot.ID, "")
@@ -84,12 +84,13 @@ func TestABotsToolsAreReadAtEachCall(t *testing.T) {
 	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
 	require.NoError(t, err)
 
-	assert.Equal(t, []string{"agent_browser_open"}, toolNames(w.tools(pi)))
+	assert.Contains(t, toolNames(w.tools(pi)), "agent_browser_open")
+	assert.NotContains(t, toolNames(w.tools(pi)), "agent_browser_click")
 
 	status, _, _ := w.use(pi, "agent_browser_open", `{"url":"https://example.com"}`)
 	require.Equal(t, http.StatusOK, status)
 
-	status, _, _ = w.use(pi, agenttool.ToolMemory, `{"target":"agent","action":"add","text":"x"}`)
+	status, _, _ = w.use(pi, "agent_browser_click", `{"selector":"button"}`)
 	assert.Equal(t, http.StatusNotFound, status)
 
 	bot.Tools, bot.ToolsOff = nil, []string{"agent_browser_open"}
@@ -123,7 +124,7 @@ func TestABotTurnsThePhoneOff(t *testing.T) {
 	_, _, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", ToolsOff: []string{devicetool.Prefix + "*"}})
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap"})
 	require.NoError(t, err)
 
 	chat, err := w.svc.CreateChat(ctx, bot.ID, "")
@@ -132,6 +133,14 @@ func TestABotTurnsThePhoneOff(t *testing.T) {
 	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
 	require.NoError(t, err)
 
+	assert.Empty(t, w.listedOn(agenttool.PathDeviceTools, pi))
+	bot.Tools = []string{"phone"}
+	_, err = w.svc.PutBot(ctx, bot)
+	require.NoError(t, err)
+	assert.Contains(t, w.listedOn(agenttool.PathDeviceTools, pi), devicetool.Tap)
+	bot.ToolsOff = []string{"phone"}
+	_, err = w.svc.PutBot(ctx, bot)
+	require.NoError(t, err)
 	assert.Empty(t, w.listedOn(agenttool.PathDeviceTools, pi))
 
 	status, _ := w.useDevice(pi, devicetool.Tap, `{"target":"#3"}`)

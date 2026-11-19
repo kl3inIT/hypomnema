@@ -178,6 +178,9 @@ func (s *Server) CreateTasks(ctx context.Context, req openapi.CreateTasksRequest
 ) (openapi.CreateTasksResponseObject, error) {
 	in := make([]orchestration.NewTask, 0, len(req.Body.Tasks))
 	for _, t := range req.Body.Tasks {
+		if principal(ctx).Kind != bearertoken.Owner && (t.Runtime != nil || t.Model != nil || t.Effort != nil) {
+			return nil, fmt.Errorf("%w: only the owner can override Task runtime, model or effort", orchestration.ErrForbidden)
+		}
 		in = append(in, fromNewTask(t))
 	}
 

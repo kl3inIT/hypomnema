@@ -208,6 +208,10 @@ type Config struct {
 	SonioxURL     string
 	SonioxTTSURL  string
 	ElevenLabsURL string
+	// SonioxRealtimeURL is Soniox's realtime WebSocket (live.go); empty: theirs.
+	SonioxRealtimeURL string
+	// LiveBackoff are the waits before each new realtime stream after a failure; nil: 2, 5, 10, 20, 30 seconds.
+	LiveBackoff []time.Duration
 	// PollInterval is how often a Soniox job is asked after; zero: each
 	// second (LiteLLM's SONIOX_DEFAULT_POLL_INTERVAL, MemoryOS's POLL_INTERVAL).
 	PollInterval time.Duration
@@ -223,9 +227,10 @@ type Config struct {
 // /v1, MemoryOS's base URL), its TTS host (OmniRoute audioRegistry.ts:466),
 // and ElevenLabs's API (Bifrost, 9router-go, LiteLLM's TTS_BASE_URL).
 const (
-	sonioxURL     = "https://api.soniox.com/v1"
-	sonioxTTSURL  = "https://tts-rt.soniox.com/tts"
-	elevenLabsURL = "https://api.elevenlabs.io"
+	sonioxURL         = "https://api.soniox.com/v1"
+	sonioxTTSURL      = "https://tts-rt.soniox.com/tts"
+	sonioxRealtimeURL = "wss://stt-rt.soniox.com/transcribe-websocket"
+	elevenLabsURL     = "https://api.elevenlabs.io"
 
 	pollEvery = time.Second
 	pollFor   = 30 * time.Minute
@@ -249,7 +254,10 @@ func New(cfg Config) *Service {
 	for _, d := range []struct {
 		field *string
 		value string
-	}{{&cfg.SonioxURL, sonioxURL}, {&cfg.SonioxTTSURL, sonioxTTSURL}, {&cfg.ElevenLabsURL, elevenLabsURL}} {
+	}{
+		{&cfg.SonioxURL, sonioxURL}, {&cfg.SonioxTTSURL, sonioxTTSURL}, {&cfg.ElevenLabsURL, elevenLabsURL},
+		{&cfg.SonioxRealtimeURL, sonioxRealtimeURL},
+	} {
 		if *d.field == "" {
 			*d.field = d.value
 		}

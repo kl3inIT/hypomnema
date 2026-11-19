@@ -879,7 +879,7 @@ sequenceDiagram
     a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
     scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build. A take with taps
     and no `screen` (filmed before the node recorded it) is made without rings, with a warning.
-  - Videos and revisions (`internal/controlplane/videos`, migration 00123). A **video** belongs to one take (one
+  - Videos and revisions (`internal/controlplane/videos`, migration 00126). A **video** belongs to one take (one
     row of `videos`, its take unique); each make or change request adds an immutable **revision** (`video_revisions`:
     rev 1, 2, …, its parent, the lines, voice, captions and aspect it is made with, the provider, model and voice
     that spoke it, its length, warnings and state). States: `queued`, `voicing`, `composing`, `captioning`,
@@ -1483,7 +1483,8 @@ flowchart LR
     requirements fail whatever its allowlists say: a worker has the Integrations of its Run's Connections (read when
     the Dispatch is made); a Bot those of which it may use a Connection now (switched on for chats and on its list,
     the owner's own sign-in among them, read as `hypomnema-pi` syncs its skills when pi starts for a
-    chat); both have the phone while a node holds one.
+    chat); either has the phone only while a node holds one and its effective tools include the phone family.
+    A worker's offer uses the same check, including for nodes that still write their own guide.
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -1507,7 +1508,7 @@ flowchart LR
     every skill that requires something (each offered skill carries its `requires`), so that its worker gets each
     guide once, from the node, until the node takes the release that leaves them to the store. The control plane
     keeps what each node said in memory, as it keeps the phones' states: a node says hello before each socket.
-  - Tools are switched the same way, `tools` and `tools_off` beside the skills (see "Tool switches" under "An
+  - Tools use a preset and exceptions beside the skills (see "Tool switches" under "An
     agent's tools").
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
     neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
@@ -1685,7 +1686,13 @@ flowchart LR
     commands stay for the owner.
   - Not built: a Routine on a node, a one-time Routine, a run started by an outside event, a Routine that feeds
     another, stopping a run by hand. A prompt run's chat is listed among the chats like any other.
-- Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
+- Role routing (issue #661): the `implementer`, `planner`, `explorer` and `reviewer` profiles can omit runtime and
+  model. Every Task has a `kind` (`broad` by default, `narrow` or `quick`). The scheduler selects a role/kind chain,
+  filters the review author's vendor, and snapshots its selected entry and chain into the Dispatch. Follow-ups
+  keep their entry; cooling accounts can trigger a handoff to a later entry on the same node and worktree.
+  All entries share their role's profile version and memory. See [role routing](docs/role-routing.md) for the
+  mapping, owner commands, metrics and migration path for existing profiles and Bots.
+- Legacy profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
@@ -1832,7 +1839,7 @@ flowchart LR
   every machine that can run it is busy"). The API's Node has `max_dispatches` (left out for none), `reserved`,
   `allocatable` and `requested`; the Machines page shows the cap beside the running count and what is requested of
   the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
-  A new Task whose profile's runtime has only accounts that cool down is placed, in the same pass, under the first
+  A new Task with a legacy profile whose runtime has only accounts that cool down is placed under the first
   of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
   current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
   only one that names no runtime or model of its own; a backup's own `fallbacks` are not followed; with none that
@@ -3748,9 +3755,10 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   whether the public proxy cuts a long blocking transcription from a tool outside.
 
 Meetings (`internal/controlplane/meetings`, `orchestration/meetingstore`, `modelgateway/complete.go`,
-`clientapi/meetings.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issues #721 and #747,
-[research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a meeting's recording; it is
-heard with who spoke when (Audio, above) and a gateway chat model writes its summary, decisions and actions.
+`clientapi/meetings.go`, `clientapi/meetinglive.go`, `clientcli/meetings.go`, `web/src/features/meetings`; issues
+#721, #747 and #820, [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): the owner uploads a
+meeting's recording, or records one live from the browser; it is heard with who spoke when (Audio, above) and a
+gateway chat model writes its summary, decisions and actions.
 - Data (migrations 00104, 00105): `meetings` (title and whether the owner gave it, language, people as JSON (a
   `terms` column is left from before #747, no longer written or read), the
   file's name, media type and size, length, `state` transcribing, transcribed or failed with its `failure`,
@@ -3761,7 +3769,12 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
   line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
   hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there).
-  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771).
+  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771). 00125 (issue
+  #820) rebuilt the tables, keeping every row: `meetings` gained `source` (`upload`, every meeting before it, or
+  `live`) and `kind` (`online` or `in_person` for a live one), the state `recording`, and `size` 0 while it records;
+  a voice is one of a track's (`meeting_speakers` keyed `(meeting_id, track, label)`, `meeting_lines.track`,
+  `meeting_items.owner_track`): `file` for an upload, `mic` and `tab` for a live meeting (MemoryOS V108, V197).
+  Lines are read by `start_ms`, then `n`, which stays a line's id.
 - The recording is a file in `HYPOMNEMA_MEETINGS_DIR` (default `meetings` beside the database), written to a
   temporary file and renamed, at most 128 MiB (Nojoin keeps recordings on disk; artifacts are capped at 5 MB and
   read whole, and playback needs ranges). Its media type is kept only when it is audio/*, video/* or
@@ -3794,8 +3807,32 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   whose title came already joins it; a decision that restates an action on its line is
   dropped. An answer that is not the JSON fails the notes with the reason. A title written by the model replaces
   one the owner did not give.
-- Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}`; a name another voice
-  has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
+- Recording live (`meetings/live.go`, `meetings/wav.go`, `speech/live.go`, `clientapi/meetinglive.go`; issue #820,
+  after MemoryOS's meeting recorder): `POST /meetings/live {kind, language?, title?, people?}` makes a meeting
+  `recording`, refused while another records (one at a time, so at most two streams). Each track (the microphone;
+  online also a shared tab) asks `POST /meetings/{id}/tickets {track}` for a 60 s single-use ticket, then opens the
+  WebSocket `/api/v1/meetings/{id}/stream/{ticket}?track=&offset=` (outside the contract, as a terminal's, both
+  server deadlines lifted): PCM16 24 kHz mono frames of at most 64 KiB and one `{"type":"end"}` in; `ready`,
+  `preview`, `line` (kept), `finished`, `error {code}` out; a ping every 20 s; a track with no audio for 60 s
+  or past 5 h ends. The control plane relays each track to Soniox's realtime WebSocket (`stt-rt-v5`, the key as a
+  bearer header, endpoint detection, diarization except an online microphone, which is the owner, shown "You" and
+  not renamed; the Dictionary as `context.terms`; a keepalive after 5 s without audio; the end as an empty text
+  frame), keys from the same vault pool. A failed Soniox stream reopens after 2/5/10/20/30 s, replays the last 5 s
+  sent, then the audio that came meanwhile (kept up to 30 s; past it the track ends behind), and shifts the new
+  stream's times; a stream stopped while a new one is awaited waits for it (a wait before asking is cut short) and
+  sends it that audio before the end; a track whose socket drops keeps the words already final, and stays among the
+  meeting's tracks until they are kept; a final token that ends at or before the track's last kept line is dropped, so
+  a replay, or a browser that reconnects with an earlier offset, never keeps a line twice. A stream more than 30 s
+  behind ends its track. Lines are appended as final (`meetingstore.AppendLine`). Each track's PCM is written to
+  `<id>.<track>.pcm` at its offset on the meeting's clock; `POST /meetings/{id}/end` first stops any track opening
+  (one still opening ends at once, having heard nothing, its stream closed by its opening or by the end, whichever
+  comes second, and one asked for later is refused `ended`), lets open or closing tracks keep their last words (at
+  most 20 s), mixes the tracks into one WAV as the meeting's recording, removes the track files, and
+  moves the meeting to `transcribed` and its notes to `writing` in one guarded transaction, once (never through
+  `transcribing`). Each track's audio seconds are counted on the `meetings` key when it closes. Nothing ends a
+  meeting by itself: one left recording keeps its length (`duration_ms`, the longest track kept) to resume from.
+- Speakers: a voice is named for the whole meeting (`PUT /meetings/{id}/speakers/{label}?track=`, the track absent
+  for the one track holding the label; a name another voice of its track has merges the two) or one line is given to a name (`PUT /meetings/{id}/lines/{n}/speaker`; a new name is a new
   voice). Suggestions come from a voice that says its name ("Laura here", MemoryOS `SpeakerIntroductions`).
 - The client API: `GET /meetings?q=&limit=` (titles and what was said), `POST /meetings` (the recording as the
   body; `file_name`, `media_type`, `language`, `title`, `people` in the query), `GET`
@@ -3806,7 +3843,15 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   (`{words}` the owner's; the answer lists every word with where it comes from and whether it is sent) and `POST
   /meetings/{id}/fix` `{from, to, line?}`. Changes are the owner's; reads are any token's. The CLI: `hypomnema
   meetings list|show|upload|rm|notes|speaker|line|done|actions|recording|settings|words|fix`.
-- On the web: the sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
+- On the web: Record, beside Upload recording, asks Online (only where a tab's sound can be shared, Chromium on a
+  computer) or In person, the language and the people, asks for the tab then the microphone, and opens the
+  meeting's page on a recording bar (time, a level meter a track, a warning when the tab is silent 20 s or no longer
+  shared, Stop asked first, then "Saving the last words…") over the live transcript in the turn layout with what
+  is being said. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
+  tab closes and holds a screen wake lock; a socket that drops reconnects after 1/2/5/10/20 s with up to 30 s of
+  audio queued, its offset the time of the first queued frame, which nothing is dropped before until the new
+  socket is ready. A meeting left recording offers Resume recording or End; the player shows once it is transcribed.
+  The sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
   title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
@@ -3819,8 +3864,8 @@ heard with who spoke when (Audio, above) and a gateway chat model writes its sum
   repository), and Notes model, picked with the single-model picker the Bots use
   (`features/agents/model-picker.tsx`). Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
-- Not built: the Bot's meeting tools and memory (issue #722), a recording made in the app, live transcription,
-  editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
+- Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
+  recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
@@ -3858,29 +3903,31 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web`, `hypomnema image` and `hypomnema audio` are.
 
-Tool switches (issue #536, step 7; #492, row 10; `internal/shared/agenttool/switches.go`, migration 00091): a
-profile's YAML and a Bot narrow the table above with two lists beside their skills, `tools: [...]` (only these;
-empty or left out, every tool the agent kind gets) and `tools_off: [...]` (never these; it wins), as OpenClaw's
-agent has `tools.allow` and `tools.deny` (`docs/gateway/config-tools/tool-policy.md`) and OpenMausBot's bot an Allow
-and an Exclude list (`docs/tool-selection.md`).
+Tool switches (issue #875, [research](docs/research/2026-11-18-tool-presets.md), `internal/shared/agenttool/switches.go`):
+a profile version and a Bot use `preset: full` by default (every family except phone) or `preset: report` (memory,
+artifacts, routines, web and Superset), then `tools` adds and `tools_off` removes; removal wins. A preset or addition
+does not give an agent a tool its kind cannot have or a Connection it cannot use. The migration converts the old
+allowlists to exceptions to `full` so existing access stays the same; unused bootstrap settings start at the default.
 
-- An entry is a tool's name or a family, the start of a name and one `*` at the end (`agent_browser_*`,
+- An entry is a tool name, a family name (`phone`), or the start of a name and one `*` at the end (`agent_browser_*`,
   `superset_*`, `whatsapp_*`, `device_*`, `web_*`, `node_*`; `*` alone is every tool), after OpenClaw's `*` wildcards and
   OpenMausBot's whole-server `mcp:mail:*`; a `*` elsewhere is refused. Each must name at least one of the control
-  plane's tools and be named once, in one list, or the profile or Bot is refused (`400`), as an unknown skill is.
+  plane's tools and appear once at most per list, or the profile or Bot is refused (`400`).
   `GET /v1/tools` lists the families and their names (`agenttool.ToolFamilies`).
 - Enforced where the tools are listed and again on every call: `/agent/v1/tools` and `/agent/v1/tools/call`, and
   the older routes (browser, phone, gateway, `/agent/v1/memory`). A tool switched off is left out of the list and its
   call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
-  gateway. A worker's switches are its Dispatch's profile version's, read at each call (a new version reaches the
-  next Dispatch, as skills do); a Bot's pi's are its Bot's, read at each call, so a change reaches a running pi at
-  its next call. The owner's token, the coordinator token and a Routine's script have no switches (no MCP).
+  gateway. A worker uses its Dispatch's profile version, capped by the current Bot's policy if the Bot created
+  its Run. An owner Run keeps the profile's policy. A Bot's policy is read at each request, so taking a tool away
+  reaches its running pi and workers at their next call. The owner's token, the coordinator token and a Routine's
+  script have no switches (no MCP).
 - Only Hypomnema's own tools: a CLI's built-in tools (Claude Code's Bash, Codex's shell, the node's `ask` and
   `finish`) are not switched here.
-- Set with `profiles apply` (YAML), `bots set --tools a,b --tools-off c` (a change that names neither keeps them),
-  the main Bot from its chat (recorded and undone as its other changes), and the web's agent and Bot forms: a row per
-  family with a switch, which writes the family in `tools_off`; a list of only some tools or a single tool off is
-  set in the YAML or the CLI, shown under the rows and kept on save.
+- Set with `profiles apply` (YAML), `bots set --preset report --tools phone --tools-off web_fetch`, or the web's
+  profile and Bot forms. A Bot update that leaves out a setting keeps it. The detail API and the forms show saved
+  state per family and tool (`off`, `on` when a Run must supply something, `unavailable`, or `available`), its
+  reason and source, and which skill requirements are missing. A profile's view does not assume any Run or Bot;
+  its editable YAML uses the effective migrated settings without rewriting the original stored source.
 
 Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `internal/node/nodeexec`; issue #543,
 [research](docs/research/2026-11-15-agent-runs-commands-on-a-node.md)), as OpenClaw's `exec` on a node, Omnara's
@@ -4255,9 +4302,10 @@ The owner's commands:
   and "lone subagent lossy handoff", Coder's subagent catalog); a question that changes nothing goes to a profile
   that reads and reports; a Task that needs an earlier one's findings gets that Task's report pasted word for word
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
-  follow-up to its worker, not a new Task; a pull request is reviewed, when the owner asks or has said so as a
-  standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
-  the spec only in the first round; findings that make a change incorrect are sent to the change's worker as a
+  follow-up to its worker, not a new Task. The `planner` researches in one session; the `reviewer` checks plans
+  before owner approval and `broad` or `narrow` changes from another vendor. A `quick` change needs green CI only.
+  A first PR review receives the pull request and spec, not the report or transcript. Findings that make a change
+  incorrect are sent to the change's worker as a
   follow-up without asking the owner (issue #871; owner, 2026-11-18), and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
@@ -5175,7 +5223,8 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
-internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions
+internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions, a meeting recorded live (its tracks, their audio mixed into one WAV, its end)
+internal/controlplane/speech/speechtest  a fake of Soniox's realtime WebSocket for the tests of meetings recorded live
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores

@@ -4,10 +4,12 @@ import {
   ChevronRight,
   CircleAlert,
   LoaderCircle,
+  Mic,
   Search,
   Sparkles,
   UserRound,
 } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 
 import type { Meeting, MeetingDetail, MeetingItem } from "@/api/generated/types.gen"
@@ -20,23 +22,37 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
+import { Spinner } from "@/components/ui/spinner"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
 
+import { captureSupport, openMeetingSources, sourceError } from "./meeting-capture"
 import { PlayerProvider, TimeLink } from "./meeting-player"
+import type { RecorderSnapshot } from "./meeting-recorder"
+import {
+  endMeeting,
+  startRecording,
+  useActiveMeeting,
+  useRecorderValue,
+  useRecordingFailure,
+} from "./meeting-session"
 import { usePlayingAt } from "./player-context"
 import {
   clock,
   percent,
   providerName,
+  sameVoice,
   stageOf,
   stepsOf,
+  voiceKey,
+  voiceOf,
   whenText,
   working,
   type Step,
 } from "./meetings-state"
+import { RecordingBar } from "./recording-bar"
 import { SpeakerBadge } from "./speaker-badge"
 import { SpeakerPicker } from "./speaker-picker"
 import { WordFix } from "./word-fix"
@@ -73,6 +89,11 @@ export function MeetingScreen({ id }: { id: string }) {
             </Empty>
           ) : !d ? (
             <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+          ) : d.meeting.state === "recording" ? (
+            <>
+              <Head meeting={d.meeting} />
+              <Live detail={d} />
+            </>
           ) : (
             <PlayerProvider src={recordingUrl(id)} durationMs={d.meeting.duration_ms}>
               {(player) => (
@@ -415,14 +436,14 @@ function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () =>
       <div className="flex flex-wrap items-center gap-2">
         <ul aria-label="Speakers" className="flex flex-wrap gap-1.5">
           {speakers.map((s) => {
-            const suggestion = detail.suggestions.find((g) => g.label === s.label)
+            const suggestion = detail.suggestions.find((g) => sameVoice(g, s))
 
             return (
               <li
-                key={s.label}
+                key={voiceKey(s)}
                 className="flex items-center gap-1.5 rounded-lg border bg-card px-2 py-1 text-xs"
               >
-                <SpeakerBadge speakers={speakers} label={s.label} size="sm" />
+                <SpeakerBadge speakers={speakers} voice={s} size="sm" />
                 <span className="font-medium">{s.name}</span>
                 <span className="text-muted-foreground tabular-nums">{percent(s.share)}</span>
                 {suggestion && (
@@ -457,7 +478,8 @@ function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () =>
         )}
         {turnsOf(lines).map((turn) => {
           const first = turn[0]!
-          const speaker = speakers.find((s) => s.label === first.speaker)
+          const voice = { track: first.track, label: first.speaker }
+          const speaker = voiceOf(speakers, first)
           const name = speaker?.name ?? "Speaker"
 
           return (
@@ -465,7 +487,7 @@ function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () =>
             // transcript (web/src/features/meetings/meeting-transcript.tsx; issue #807).
             <li key={first.n} data-testid="transcript-turn" className="flex items-start gap-1 ps-2">
               <span className="flex shrink-0 pt-1.5">
-                <SpeakerBadge speakers={speakers} label={first.speaker} />
+                <SpeakerBadge speakers={speakers} voice={voice} />
               </span>
               <div className="flex min-w-0 flex-1 flex-col">
                 <div className="flex items-center gap-2 px-2 pt-1">
@@ -538,17 +560,209 @@ function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () =>
   )
 }
 
-// turnsOf groups lines that follow one another said by one voice into turns.
+// turnsOf groups lines that follow one another, in the order they were said, said by one voice into turns.
 function turnsOf(lines: MeetingDetail["lines"]) {
   const turns: MeetingDetail["lines"][] = []
 
   for (const l of lines) {
     const last = turns.at(-1)
-    if (last && last[0]!.speaker === l.speaker && last.at(-1)!.n === l.n - 1) last.push(l)
+    if (last && last[0]!.speaker === l.speaker && last[0]!.track === l.track) last.push(l)
     else turns.push([l])
   }
 
   return turns
+}
+
+// Live is a meeting being recorded (issue #820): in the tab that records it, the recording bar over the lines as they
+// are kept and what is being said; elsewhere, or after the recording stopped by itself, why, and Resume recording or
+// End (no reference ends a meeting by itself; MemoryOS closes only an idle track).
+function Live({ detail }: { detail: MeetingDetail }) {
+  const active = useActiveMeeting()
+  const recorder = active?.meetingId === detail.meeting.id ? active.recorder : undefined
+  const previews = useRecorderValue(recorder, (s) => s.previews)
+
+  return (
+    <>
+      {recorder ? (
+        <RecordingBar
+          meetingId={detail.meeting.id}
+          recorder={recorder}
+          kind={detail.meeting.kind ?? "in_person"}
+        />
+      ) : (
+        <NotRecordingHere meeting={detail.meeting} />
+      )}
+      <LiveTranscript detail={detail} previews={previews} />
+    </>
+  )
+}
+
+// failureText says why a recording stopped by itself.
+const failureText: Record<string, string> = {
+  ended: "The meeting was ended.",
+  too_long: "A track records at most five hours.",
+  unavailable:
+    "No speech-to-text provider can hear it live. Add a Soniox key on Settings → Gateway → Audio.",
+  provider_failed: "The speech-to-text provider stopped answering.",
+  connection: "The connection to the server was lost.",
+}
+
+function NotRecordingHere({ meeting }: { meeting: Meeting }) {
+  const failure = useRecordingFailure()
+  const cache = useQueryClient()
+  const [busy, setBusy] = useState<"resume" | "end" | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  const failed = failure?.meetingId === meeting.id ? failure.code : ""
+
+  async function resume() {
+    setBusy("resume")
+    setError(null)
+    try {
+      // The microphone again, and online the tab: the clock goes on where the recording was kept.
+      const online = meeting.kind === "online" && captureSupport() === "sharedAudio"
+      const sources = await openMeetingSources(online ? "online" : "in_person").catch(
+        (e: unknown) => {
+          throw new Error(sourceError(e))
+        },
+      )
+      await startRecording(
+        meeting.id,
+        [
+          { track: "mic", stream: sources.microphone, offsetMs: meeting.duration_ms },
+          ...(sources.tab
+            ? [{ track: "tab" as const, stream: sources.tab, offsetMs: meeting.duration_ms }]
+            : []),
+        ],
+        cache,
+      )
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function end() {
+    setBusy("end")
+    setError(null)
+    try {
+      await endMeeting(meeting.id, cache)
+      toast.add({ title: "Meeting ended", type: "success" })
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <Alert data-testid="not-recording">
+      <CircleAlert />
+      <AlertTitle>{failed ? "The recording stopped" : "Not being recorded here"}</AlertTitle>
+      <AlertDescription>
+        <div className="flex flex-col gap-2">
+          <p>
+            {failed
+              ? `${failureText[failed] ?? "It stopped."} What was said until then is kept.`
+              : `This meeting was left recording at ${clock(meeting.duration_ms)}, maybe in a tab that was closed. Resume it here, or end it to write its notes.`}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" disabled={busy !== null} onClick={() => void resume()}>
+              {busy === "resume" ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <Mic data-icon="inline-start" />
+              )}
+              Resume recording
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void end()}>
+              {busy === "end" && <Spinner data-icon="inline-start" />}
+              End meeting
+            </Button>
+          </div>
+          <ErrorAlert error={error} />
+        </div>
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+// LiveTranscript is the lines kept so far in the turn layout of the transcript (issue #799) with the voices' badges
+// (issue #807), and under them what is being said, not yet final, on each track (MemoryOS's preview line). The page
+// follows the end while the reader is there.
+function LiveTranscript({
+  detail,
+  previews,
+}: {
+  detail: MeetingDetail
+  previews: RecorderSnapshot["previews"]
+}) {
+  const speakers = detail.meeting.speakers
+  const saying = (["tab", "mic"] as const).flatMap((track) => {
+    const p = previews[track]
+
+    return p?.text ? [{ track, ...p }] : []
+  })
+  const end = useRef<HTMLDivElement>(null)
+  const count = detail.lines.length
+
+  useEffect(() => {
+    if (count > 0) end.current?.scrollIntoView({ block: "nearest" })
+  }, [count])
+
+  return (
+    <ol aria-label="Live transcript" className="flex flex-col gap-3 rounded-xl border bg-card p-2">
+      {count === 0 && saying.length === 0 && (
+        <li className="py-6 text-center text-sm text-muted-foreground">
+          The lines appear here as they are said.
+        </li>
+      )}
+      {turnsOf(detail.lines).map((turn) => {
+        const first = turn[0]!
+
+        return (
+          <li key={first.n} data-testid="transcript-turn" className="flex items-start gap-1 ps-2">
+            <span className="flex shrink-0 pt-1.5">
+              <SpeakerBadge
+                speakers={speakers}
+                voice={{ track: first.track, label: first.speaker }}
+              />
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-center gap-2 px-2 pt-1">
+                <span className="text-sm font-semibold">
+                  {voiceOf(speakers, first)?.name ?? "Speaker"}
+                </span>
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {clock(first.start_ms)}
+                </span>
+              </div>
+              <ol className="flex flex-col">
+                {turn.map((l) => (
+                  <li key={l.n} data-testid="transcript-line" className="px-2 py-0.5">
+                    <p className="text-sm leading-relaxed">{l.text}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          </li>
+        )
+      })}
+      {saying.map((p) => (
+        <li
+          key={p.track}
+          data-testid="transcript-preview"
+          className="flex items-start gap-1 ps-2 text-muted-foreground"
+        >
+          <span className="flex shrink-0 pt-1.5">
+            <SpeakerBadge speakers={speakers} voice={{ track: p.track, label: p.speaker || "1" }} />
+          </span>
+          <p className="min-w-0 flex-1 px-2 pt-1 text-sm leading-relaxed italic">{p.text}…</p>
+        </li>
+      ))}
+      <div ref={end} aria-hidden />
+    </ol>
+  )
 }
 
 // usePickedWords keeps the last words the owner selected inside one line of the transcript, as the selection is gone

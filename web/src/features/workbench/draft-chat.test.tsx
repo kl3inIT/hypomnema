@@ -25,6 +25,7 @@ const main: Bot = {
   fallbacks: [],
   skills: [],
   skills_off: [],
+  preset: "full",
   tools: [],
   tools_off: [],
   connections: { limited: false, names: [] },

@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,26 +18,23 @@ func deployProfile(t *testing.T, name string) string {
 	return string(raw)
 }
 
-// Scenario: the Claude reviewer reviews as the Codex reviewer does (issue #756). Its instruction is the Codex
-// reviewer's word for word, with one paragraph more: a review of a Claude author's change says it was not
-// independent.
-func TestTheClaudeReviewerHasTheCodexReviewersInstruction(t *testing.T) {
+func TestDeploymentProfilesDoNotPinModels(t *testing.T) {
 	t.Parallel()
 
-	var codex, claude profileSource
-	require.NoError(t, decodeStrict(deployProfile(t, "reviewer-codex.yaml"), &codex))
-	require.NoError(t, decodeStrict(deployProfile(t, "reviewer-claude.yaml"), &claude))
-
-	assert.True(t, strings.HasPrefix(claude.Instruction, codex.Instruction), "the Codex reviewer's text first")
-	assert.Contains(t, strings.TrimPrefix(claude.Instruction, codex.Instruction), "the review was not independent")
-	assert.Equal(t, "claude", claude.Runtime)
-	assert.Empty(t, claude.Fallbacks, "a backup's own backups are not followed")
+	for _, role := range roles {
+		var sample profileSource
+		require.NoError(t, decodeStrict(deployProfile(t, role+".yaml"), &sample))
+		assert.Equal(t, role, sample.Name)
+		assert.Empty(t, sample.Runtime)
+		assert.Nil(t, sample.Model)
+		assert.Empty(t, sample.Fallbacks)
+		assert.NotEmpty(t, sample.Instruction)
+	}
 }
 
 // Scenario (issue #756, split of PR #786): the gateway now ends a Codex worker's turn with a usage limit when every
-// Codex account cools, and the node reports it as rate_limited with no reset. The scheduler cannot see the
-// gateway's accounts, so the review, applied from deploy/profiles as the owner applies it, is not started on Codex
-// again at once: it waits RateLimitCooldown, then runs again.
+// Codex account cools, and the node reports it as rate_limited with no reset. A legacy reviewer profile is not
+// started on Codex again at once: it waits RateLimitCooldown, then runs again.
 func TestACodexReviewTheGatewayRefusesWaitsAndDoesNotLoop(t *testing.T) {
 	t.Parallel()
 
@@ -51,11 +47,12 @@ func TestACodexReviewTheGatewayRefusesWaitsAndDoesNotLoop(t *testing.T) {
 	both := w.addNode("node_both", 4, "claude", "codex")
 	require.NoError(t, w.s.DrainNode(ctx, w.node.ID))
 
-	_, _, err := w.s.ApplyProfile(ctx, "", deployProfile(t, "reviewer-claude.yaml"))
+	_, _, err := w.s.ApplyProfile(ctx, "", "name: reviewer-claude\ndescription: legacy reviewer\nruntime: claude\n"+
+		"model: {provider: claude-subscription, name: claude-opus-5-5}\n")
 	require.NoError(t, err)
 
-	codex := strings.NewReplacer("<gateway provider>", "codex-subscription", "<gateway model>", "gpt-6.1-sol").
-		Replace(deployProfile(t, "reviewer-codex.yaml"))
+	codex := "name: reviewer\ndescription: legacy reviewer\nruntime: codex\n" +
+		"model: {provider: codex-subscription, name: gpt-6.1-sol}\n"
 	_, _, err = w.s.ApplyProfile(ctx, "", codex)
 	require.NoError(t, err)
 

@@ -36,8 +36,9 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
-// Where a meeting's transcription stands.
+// Where a meeting's transcription stands: a live one is recording until the owner ends it (issue #820).
 const (
+	Recording    = "recording"
 	Transcribing = "transcribing"
 	Transcribed  = "transcribed"
 	Failed       = "failed"
@@ -49,6 +50,27 @@ const (
 	NotesWriting = "writing"
 	NotesReady   = "ready"
 	NotesFailed  = "failed"
+)
+
+// How a meeting came: a recording uploaded, or recorded live from the browser (issue #820).
+const (
+	SourceUpload = "upload"
+	SourceLive   = "live"
+)
+
+// How a live meeting is held: online, the microphone and a shared tab; in person, the microphone only (MemoryOS's
+// meeting kinds).
+const (
+	Online   = "online"
+	InPerson = "in_person"
+)
+
+// The tracks a voice is heard on (MemoryOS's meeting tracks): an upload's file, a live meeting's microphone and its
+// shared tab.
+const (
+	TrackFile = "file"
+	TrackMic  = "mic"
+	TrackTab  = "tab"
 )
 
 // The kinds of item in the notes.
@@ -83,8 +105,11 @@ type Meeting struct {
 	Model     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	Notes     Notes
-	Speakers  []Speaker
+	// Source is how it came (SourceUpload, SourceLive); Kind how a live one is held (Online, InPerson).
+	Source   string
+	Kind     string
+	Notes    Notes
+	Speakers []Speaker
 	// Actions counts the actions in the notes, OpenActions those not done.
 	Actions     int
 	OpenActions int
@@ -107,29 +132,52 @@ type Section struct {
 	Points []string `json:"points"`
 }
 
-// Speaker is a voice of a meeting.
+// Speaker is a voice of a meeting, one of a track's.
 type Speaker struct {
+	Track    string
 	Label    string
 	Position int
 	// Name is what the owner called it; empty when it is still "Speaker N".
 	Name string
+	// Owner: the owner's own voice, an online meeting's microphone, shown as "You" and not renamed (issue #820).
+	Owner bool
 	// Talk is how long its lines last.
 	Talk time.Duration
 }
 
-// Shown is the voice's name, or "Speaker N" by the order it first spoke in (MemoryOS SpeakerNames, Nojoin's
-// "Speaker N").
-func (s Speaker) Shown() string {
-	if s.Name != "" {
-		return s.Name
-	}
+// You is how the owner's own voice is shown.
+const You = "You"
 
-	return "Speaker " + strconv.Itoa(s.Position)
+// Shown is the voice's name, "You" for the owner's microphone online, or "Speaker N" by the order it first spoke in
+// on its track (MemoryOS SpeakerNames, Nojoin's "Speaker N").
+func (s Speaker) Shown() string {
+	switch {
+	case s.Name != "":
+		return s.Name
+	case s.Owner:
+		return You
+	default:
+		return "Speaker " + strconv.Itoa(s.Position)
+	}
+}
+
+// Key names a voice within its meeting: its track and its label.
+func (s Speaker) Key() string { return VoiceKey(s.Track, s.Label) }
+
+// VoiceKey names the voice of a track's label.
+func VoiceKey(track, label string) string { return track + "/" + label }
+
+// ownerVoice says the voice is the owner's own: online, the microphone carries only the owner (MemoryOS's
+// MeetingService.openTrack, which does not diarize it), and a voice the owner named for a line is not.
+func ownerVoice(kind, track string, named bool) bool {
+	return kind == Online && track == TrackMic && !named
 }
 
 // Line is a line of the transcript.
 type Line struct {
-	N          int
+	N int
+	// Track is the track it was heard on; Speaker a voice of that track.
+	Track      string
 	Start, End time.Duration
 	// Speaker is the voice the line is shown as; Heard the label the provider gave it.
 	Speaker string
@@ -145,7 +193,9 @@ type Item struct {
 	Text     string
 	// Owner is who does an action as the notes said it, when that is no voice of the meeting; OwnerSpeaker the
 	// voice that does it.
-	Owner        string
+	Owner string
+	// OwnerTrack is OwnerSpeaker's track.
+	OwnerTrack   string
 	OwnerSpeaker string
 	Due          string
 	Done         bool
@@ -321,7 +371,7 @@ func (s *Store) List(ctx context.Context, query string, limit int) ([]Meeting, e
 			ID: r.ID, Title: r.Title, Titled: r.Titled, Language: r.Language, People: r.People, Terms: r.Terms,
 			FileName: r.FileName, MediaType: r.MediaType, Size: r.Size, DurationMs: r.DurationMs, State: r.State,
 			Failure: r.Failure, Attempts: r.Attempts, Provider: r.Provider, Model: r.Model, CreatedAt: r.CreatedAt,
-			UpdatedAt: r.UpdatedAt,
+			UpdatedAt: r.UpdatedAt, Source: r.Source, Kind: r.Kind,
 		})
 		m.Notes = Notes{State: r.NotesState, Summary: r.NotesSummary}
 		m.Speakers = speakers[r.ID]
@@ -345,8 +395,8 @@ func (s *Store) speakersOf(ctx context.Context, q *store.Queries, ids []string) 
 
 	for _, r := range rows {
 		out[r.MeetingID] = append(out[r.MeetingID], Speaker{
-			Label: r.Label, Position: int(r.Position), Name: r.Name.String,
-			Talk: time.Duration(r.TalkMs) * time.Millisecond,
+			Track: r.Track, Label: r.Label, Position: int(r.Position), Name: r.Name.String,
+			Owner: ownerVoice(r.MeetingKind, r.Track, r.Name.Valid), Talk: time.Duration(r.TalkMs) * time.Millisecond,
 		})
 	}
 
@@ -396,15 +446,18 @@ func (s *Store) Actions(ctx context.Context) ([]MeetingAction, error) {
 		a := MeetingAction{
 			Item: itemOf(store.MeetingItem{
 				ID: r.ID, MeetingID: r.MeetingID, Kind: r.Kind, Position: r.Position, Text: r.Text, Owner: r.Owner,
-				OwnerSpeaker: r.OwnerSpeaker, Due: r.Due, Done: r.Done, Quote: r.Quote, Line: r.Line,
-				StartMs: r.StartMs,
+				OwnerSpeaker: r.OwnerSpeaker, OwnerTrack: r.OwnerTrack, Due: r.Due, Done: r.Done, Quote: r.Quote,
+				Line: r.Line, StartMs: r.StartMs,
 			}),
 			MeetingID: r.MeetingID, MeetingTitle: r.MeetingTitle, MeetingAt: storeutil.Millis(r.MeetingCreatedAt),
 		}
 
 		switch {
 		case r.OwnerSpeaker.Valid && r.SpeakerPosition.Valid:
-			a.Who = Speaker{Name: r.SpeakerName.String, Position: int(r.SpeakerPosition.Int64)}.Shown()
+			a.Who = Speaker{
+				Name: r.SpeakerName.String, Position: int(r.SpeakerPosition.Int64),
+				Owner: ownerVoice(r.MeetingKind, r.OwnerTrack.String, r.SpeakerName.Valid),
+			}.Shown()
 		default:
 			a.Who = r.Owner.String
 		}
@@ -518,14 +571,14 @@ func (s *Store) SaveTranscript(ctx context.Context, id string, h Heard) error {
 				seen[label] = true
 
 				if err := q.InsertMeetingSpeaker(ctx, store.InsertMeetingSpeakerParams{
-					MeetingID: id, Label: label, Position: int64(len(seen)),
+					MeetingID: id, Track: TrackFile, Label: label, Position: int64(len(seen)),
 				}); err != nil {
 					return fmt.Errorf("storing a voice of meeting %s: %w", id, err)
 				}
 			}
 
 			if err := q.InsertMeetingLine(ctx, store.InsertMeetingLineParams{
-				MeetingID: id, N: int64(i + 1), StartMs: l.Start.Milliseconds(),
+				MeetingID: id, N: int64(i + 1), Track: TrackFile, StartMs: l.Start.Milliseconds(),
 				EndMs: max(l.End, l.Start).Milliseconds(), Speaker: label, Heard: l.Speaker, Text: l.Text,
 			}); err != nil {
 				return fmt.Errorf("storing a line of meeting %s: %w", id, err)
@@ -608,7 +661,8 @@ func (s *Store) SaveNotes(ctx context.Context, id string, w Written) error {
 
 			if err := q.InsertMeetingItem(ctx, store.InsertMeetingItemParams{
 				ID: s.newID("mti"), MeetingID: id, Kind: it.Kind, Position: int64(i), Text: clip(it.Text, 2000),
-				Owner: text(it.Owner), OwnerSpeaker: text(it.OwnerSpeaker), Due: text(it.Due),
+				Owner: text(it.Owner), OwnerTrack: text(ownerTrack(it)), OwnerSpeaker: text(it.OwnerSpeaker),
+				Due:   text(it.Due),
 				Quote: text(clip(it.Quote, 2000)), Line: sql.NullInt64{Int64: int64(it.Line), Valid: it.Line > 0},
 				StartMs: start,
 			}); err != nil {
@@ -655,10 +709,11 @@ func (s *Store) WriteAgain(ctx context.Context, id string) error {
 	})
 }
 
-// NameSpeaker names a voice for the whole meeting. A name another voice of the meeting already has makes the two
-// one: its lines and actions go to that voice (Nojoin's merge_into_speaker). An empty name gives the voice back its
-// number.
-func (s *Store) NameSpeaker(ctx context.Context, id, label, name string) error {
+// NameSpeaker names a voice of a track for the whole meeting; an empty track is the one track holding the label. A
+// name another voice of the track already has makes the two one: its lines and actions go to that voice (Nojoin's
+// merge_into_speaker); the voices of another track are other people's (issue #820). An empty name gives the voice
+// back its number. The owner's own voice online is "You" and is not renamed.
+func (s *Store) NameSpeaker(ctx context.Context, id, track, label, name string) error {
 	name = strings.TrimSpace(name)
 	if name != "" {
 		if err := checkText(name, MaxName, "a name"); err != nil {
@@ -672,26 +727,33 @@ func (s *Store) NameSpeaker(ctx context.Context, id, label, name string) error {
 			return err
 		}
 
-		self, ok := findLabel(speakers, label)
-		if !ok {
-			return fmt.Errorf("%w: meeting %s has no voice %s", storeerr.ErrNotFound, id, label)
+		self, err := findLabel(speakers, track, label)
+		if err != nil {
+			return fmt.Errorf("meeting %s: %w", id, err)
+		}
+
+		if self.Owner {
+			return fmt.Errorf("%w: the microphone of an online meeting is your own voice", storeerr.ErrInvalid)
 		}
 
 		if name == "" {
-			return q.NameMeetingSpeaker(ctx, store.NameMeetingSpeakerParams{MeetingID: id, Label: label})
+			return q.NameMeetingSpeaker(ctx, store.NameMeetingSpeakerParams{
+				MeetingID: id, Track: self.Track, Label: self.Label,
+			})
 		}
 
-		if other, ok := findName(speakers, name); ok && other.Label != self.Label {
-			return merge(ctx, q, id, self.Label, other.Label)
+		if other, ok := findName(onTrack(speakers, self.Track), name); ok && other.Label != self.Label {
+			return merge(ctx, q, id, self.Track, self.Label, other.Label)
 		}
 
 		return q.NameMeetingSpeaker(ctx, store.NameMeetingSpeakerParams{
-			Name: sql.NullString{String: name, Valid: true}, MeetingID: id, Label: label,
+			Name: sql.NullString{String: name, Valid: true}, MeetingID: id, Track: self.Track, Label: self.Label,
 		})
 	})
 }
 
-// SetLineSpeaker gives one line to the voice called name: one of the meeting's, or a new one made for it.
+// SetLineSpeaker gives one line to the voice called name on the line's track: one of the track's, or a new one made
+// for it.
 func (s *Store) SetLineSpeaker(ctx context.Context, id string, n int, name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -703,7 +765,8 @@ func (s *Store) SetLineSpeaker(ctx context.Context, id string, n int, name strin
 	}
 
 	return s.write(ctx, func(q *store.Queries, _ int64) error {
-		if _, err := q.GetMeetingLine(ctx, store.GetMeetingLineParams{MeetingID: id, N: int64(n)}); err != nil {
+		line, err := q.GetMeetingLine(ctx, store.GetMeetingLineParams{MeetingID: id, N: int64(n)})
+		if err != nil {
 			return storeutil.NotFound(err, "line "+strconv.Itoa(n)+" of meeting", id)
 		}
 
@@ -712,12 +775,14 @@ func (s *Store) SetLineSpeaker(ctx context.Context, id string, n int, name strin
 			return err
 		}
 
-		target, ok := findName(speakers, name)
+		track := onTrack(speakers, line.Track)
+
+		target, ok := findName(track, name)
 		if !ok {
-			target = Speaker{Label: freeLabel(speakers), Position: nextPosition(speakers), Name: name}
+			target = Speaker{Track: line.Track, Label: freeLabel(track), Position: nextPosition(track), Name: name}
 
 			if err := q.InsertMeetingSpeaker(ctx, store.InsertMeetingSpeakerParams{
-				MeetingID: id, Label: target.Label, Position: int64(target.Position),
+				MeetingID: id, Track: target.Track, Label: target.Label, Position: int64(target.Position),
 				Name: sql.NullString{String: name, Valid: true},
 			}); err != nil {
 				return fmt.Errorf("storing a voice of meeting %s: %w", id, err)
@@ -734,17 +799,17 @@ func (s *Store) SetLineSpeaker(ctx context.Context, id string, n int, name strin
 	})
 }
 
-// merge makes voice from one with voice to.
-func merge(ctx context.Context, q *store.Queries, id, from, to string) error {
+// merge makes voice from one with voice to, both of one track.
+func merge(ctx context.Context, q *store.Queries, id, track, from, to string) error {
 	if err := q.MoveMeetingLines(ctx, store.MoveMeetingLinesParams{
-		ToLabel: to, MeetingID: id, FromLabel: from,
+		ToLabel: to, MeetingID: id, Track: track, FromLabel: from,
 	}); err != nil {
 		return err
 	}
 
 	if err := q.MoveMeetingItemOwners(ctx, store.MoveMeetingItemOwnersParams{
 		ToLabel: sql.NullString{String: to, Valid: true}, MeetingID: id,
-		FromLabel: sql.NullString{String: from, Valid: true},
+		Track: sql.NullString{String: track, Valid: true}, FromLabel: sql.NullString{String: from, Valid: true},
 	}); err != nil {
 		return err
 	}
@@ -827,7 +892,8 @@ func (s *Store) SetSettings(ctx context.Context, set Settings) error {
 }
 
 func speakersIn(ctx context.Context, q *store.Queries, id string) ([]Speaker, error) {
-	if _, err := q.GetMeeting(ctx, id); err != nil {
+	m, err := q.GetMeeting(ctx, id)
+	if err != nil {
 		return nil, storeutil.NotFound(err, "meeting", id)
 	}
 
@@ -838,20 +904,47 @@ func speakersIn(ctx context.Context, q *store.Queries, id string) ([]Speaker, er
 
 	out := make([]Speaker, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, Speaker{Label: r.Label, Position: int(r.Position), Name: r.Name.String})
+		out = append(out, Speaker{
+			Track: r.Track, Label: r.Label, Position: int(r.Position), Name: r.Name.String,
+			Owner: ownerVoice(m.Kind, r.Track, r.Name.Valid),
+		})
 	}
 
 	return out, nil
 }
 
-func findLabel(speakers []Speaker, label string) (Speaker, bool) {
+// findLabel finds the voice of a label on a track; with no track, on the one track that has the label.
+func findLabel(speakers []Speaker, track, label string) (Speaker, error) {
+	var found []Speaker
+
 	for _, s := range speakers {
-		if s.Label == label {
-			return s, true
+		if s.Label == label && (track == "" || s.Track == track) {
+			found = append(found, s)
 		}
 	}
 
-	return Speaker{}, false
+	switch len(found) {
+	case 0:
+		return Speaker{}, fmt.Errorf("%w: no voice %s", storeerr.ErrNotFound, label)
+	case 1:
+		return found[0], nil
+	default:
+		return Speaker{}, fmt.Errorf("%w: voice %s is on more than one track; name the track", storeerr.ErrInvalid,
+			label)
+	}
+}
+
+// onTrack are the voices of one track.
+func onTrack(speakers []Speaker, track string) []Speaker {
+	out := make([]Speaker, 0, len(speakers))
+
+	for _, s := range speakers {
+		if s.Track == track {
+			out = append(out, s)
+		}
+	}
+
+	return out
 }
 
 // findName finds the voice shown by a name, compared as MemoryOS's MinutesChecks.fold does: composed, lower case,
@@ -875,7 +968,7 @@ func Fold(s string) string {
 func freeLabel(speakers []Speaker) string {
 	for i := 1; ; i++ {
 		label := "m" + strconv.Itoa(i)
-		if _, taken := findLabel(speakers, label); !taken {
+		if !hasLabel(speakers, label) {
 			return label
 		}
 	}
@@ -896,7 +989,7 @@ func meetingOf(r store.Meeting) Meeting {
 		FileName: r.FileName, MediaType: r.MediaType, Size: r.Size,
 		Duration: time.Duration(r.DurationMs) * time.Millisecond, State: r.State, Failure: r.Failure,
 		Attempts: int(r.Attempts), Provider: r.Provider, Model: r.Model, CreatedAt: storeutil.Millis(r.CreatedAt),
-		UpdatedAt: storeutil.Millis(r.UpdatedAt),
+		UpdatedAt: storeutil.Millis(r.UpdatedAt), Source: r.Source, Kind: r.Kind,
 	}
 }
 
@@ -912,7 +1005,7 @@ func notesOf(r store.MeetingNote) Notes {
 
 func lineOf(r store.MeetingLine) Line {
 	return Line{
-		N: int(r.N), Start: time.Duration(r.StartMs) * time.Millisecond,
+		N: int(r.N), Track: r.Track, Start: time.Duration(r.StartMs) * time.Millisecond,
 		End: time.Duration(r.EndMs) * time.Millisecond, Speaker: r.Speaker, Heard: r.Heard, Text: r.Text,
 	}
 }
@@ -920,8 +1013,9 @@ func lineOf(r store.MeetingLine) Line {
 func itemOf(r store.MeetingItem) Item {
 	it := Item{
 		ID: r.ID, Kind: r.Kind, Position: int(r.Position), Text: r.Text, Owner: r.Owner.String,
-		OwnerSpeaker: r.OwnerSpeaker.String, Due: r.Due.String, Done: r.Done == 1, Quote: r.Quote.String,
-		Line: int(r.Line.Int64),
+		OwnerTrack: r.OwnerTrack.String, OwnerSpeaker: r.OwnerSpeaker.String, Due: r.Due.String, Done: r.Done == 1,
+		Quote: r.Quote.String,
+		Line:  int(r.Line.Int64),
 	}
 
 	if r.StartMs.Valid {
@@ -991,6 +1085,18 @@ func fileExt(name string) string {
 	}
 
 	return ""
+}
+
+// ownerTrack is the track of an item's voice: an upload's file when none is said.
+func ownerTrack(it Item) string {
+	switch {
+	case it.OwnerSpeaker == "":
+		return ""
+	case it.OwnerTrack == "":
+		return TrackFile
+	default:
+		return it.OwnerTrack
+	}
 }
 
 func text(s string) sql.NullString { return sql.NullString{String: s, Valid: s != ""} }

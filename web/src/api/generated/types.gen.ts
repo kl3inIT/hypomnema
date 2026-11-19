@@ -134,6 +134,7 @@ export type Task = {
   run_id: string;
   position: number;
   profile: string;
+  kind: TaskKind;
   spec: string;
   runtime?: string;
   model?: string;
@@ -196,6 +197,24 @@ export type NewTasks = {
   tasks: Array<NewTask>;
 };
 
+export type TaskKind = 'broad' | 'narrow' | 'quick';
+
+export type RoleMetric = {
+  role: string;
+  kind: TaskKind;
+  runtime: string;
+  model: string;
+  /**
+   * One-based position in the Task's effective routing chain.
+   */
+  chain_entry?: number;
+  attempts: number;
+  succeeded: number;
+  failed: number;
+  cost_micros: number;
+  unpriced: number;
+};
+
 export type NewTask = {
   /**
    * Names the Task within this request, for depends_on.
@@ -205,6 +224,11 @@ export type NewTask = {
    * The profile it runs with; implementer when left out.
    */
   profile?: string;
+  kind?: TaskKind;
+  /**
+   * The succeeded Task in this Run a reviewer checks; its vendor is excluded.
+   */
+  review_of?: string;
   spec: string;
   runtime?: string;
   model?: string;
@@ -231,6 +255,14 @@ export type Dispatch = {
    * The profile version it ran with; absent for Dispatches from before profiles.
    */
   profile_version_id?: string;
+  /**
+   * One-based position in the Task's effective routing chain.
+   */
+  chain_entry?: number;
+  /**
+   * The worker runtime selected by role routing.
+   */
+  runtime?: string;
   /**
    * The profile the Task asked for, when this Dispatch ran under a backup of it because every account of that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
    */
@@ -2969,8 +3001,10 @@ export type Bot = {
    * The skills given to everyone that the Bot does not get.
    */
   skills_off: Array<string>;
+  preset: ToolPreset;
+  tool_access?: ToolAccess;
   /**
-   * The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty, every tool a Bot gets. A CLI's own tools are not switched here.
+   * Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
    */
   tools: Array<string>;
   /**
@@ -3296,8 +3330,9 @@ export type BotSettings = {
    * The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
    */
   skills_off?: Array<string>;
+  preset?: ToolPreset;
   /**
-   * The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out, the Bot keeps those it has.
+   * Additional tools or families; left out, the Bot keeps those it has.
    */
   tools?: Array<string>;
   /**
@@ -3418,8 +3453,10 @@ export type Profile = {
    * The skills given to everyone that its workers do not get.
    */
   skills_off: Array<string>;
+  preset: ToolPreset;
+  tool_access?: ToolAccess;
   /**
-   * The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty, every tool a worker gets. A CLI's own tools are not switched here.
+   * Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
    */
   tools: Array<string>;
   /**
@@ -3471,6 +3508,48 @@ export type Model = {
   provider: string;
   name: string;
   kind: string;
+};
+
+/**
+ * Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+ */
+export type ToolPreset = 'full' | 'report';
+
+/**
+ * Saved access in the detail response, before a particular chat or Run applies its own limits.
+ */
+export type ToolAccess = {
+  families: Array<ToolFamilyAccess>;
+  skills: Array<SkillAccess>;
+};
+
+export type ToolFamilyAccess = {
+  name: string;
+  description: string;
+  state: ToolAccessState;
+  reason: string;
+  source: ToolAccessSource;
+  tools: Array<ToolAccessItem>;
+};
+
+export type ToolAccessItem = {
+  name: string;
+  state: ToolAccessState;
+  reason: string;
+  source: ToolAccessSource;
+};
+
+/**
+ * Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+ */
+export type ToolAccessState = 'off' | 'on' | 'unavailable' | 'available';
+
+export type ToolAccessSource = 'preset' | 'exception' | 'connection';
+
+export type SkillAccess = {
+  name: string;
+  missing: boolean;
+  reason: string;
 };
 
 export type ToolFamily = {
@@ -4138,9 +4217,46 @@ export type ChatMessageList = {
 };
 
 /**
- * Where the meeting's transcription stands.
+ * Where the meeting's transcription stands; a live meeting is recording until it ends.
  */
-export type MeetingState = 'transcribing' | 'transcribed' | 'failed';
+export type MeetingState = 'recording' | 'transcribing' | 'transcribed' | 'failed';
+
+/**
+ * How the meeting came, uploaded or recorded live.
+ */
+export type MeetingSource = 'upload' | 'live';
+
+/**
+ * How a live meeting is held; online records the microphone and a shared tab.
+ */
+export type MeetingKind = 'online' | 'in_person';
+
+/**
+ * What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+ */
+export type MeetingTrack = 'file' | 'mic' | 'tab';
+
+export type MeetingLiveTrack = 'mic' | 'tab';
+
+export type NewLiveMeeting = {
+  kind: MeetingKind;
+  /**
+   * An ISO 639-1 code, such as vi; absent, the provider finds it.
+   */
+  language?: string;
+  /**
+   * Absent
+   */
+  title?: string;
+  /**
+   * Who is in the meeting; they help name the speakers.
+   */
+  people?: Array<string>;
+};
+
+export type MeetingTrackRequest = {
+  track: MeetingLiveTrack;
+};
 
 /**
  * Where its notes stand; waiting is for the transcript.
@@ -4171,10 +4287,15 @@ export type MeetingNotes = {
 };
 
 export type MeetingSpeaker = {
+  track: MeetingTrack;
   /**
-   * The voice's label
+   * The voice's label on its track, the provider's or m1, m2… for one the owner made.
    */
   label: string;
+  /**
+   * The owner's own voice
+   */
+  owner: boolean;
   /**
    * The name shown
    */
@@ -4202,8 +4323,13 @@ export type Meeting = {
   file_name: string;
   media_type: string;
   size: number;
+  /**
+   * Its length; while it records, what is kept so far, where a resumed recording goes on.
+   */
   duration_ms: number;
   state: MeetingState;
+  source: MeetingSource;
+  kind?: MeetingKind;
   /**
    * Why hearing it failed
    */
@@ -4225,11 +4351,15 @@ export type MeetingList = {
 };
 
 export type MeetingLine = {
+  /**
+   * The line's number
+   */
   n: number;
+  track: MeetingTrack;
   start_ms: number;
   end_ms: number;
   /**
-   * The label of the voice it is shown as.
+   * The label of the voice it is shown as
    */
   speaker: string;
   /**
@@ -4253,6 +4383,7 @@ export type MeetingItem = {
    * The label of the voice that does it
    */
   owner_speaker?: string;
+  owner_track?: MeetingTrack;
   /**
    * The deadline in the words the meeting used.
    */
@@ -4273,6 +4404,7 @@ export type MeetingItem = {
 };
 
 export type SpeakerSuggestion = {
+  track: MeetingTrack;
   label: string;
   /**
    * The name the voice called itself.
@@ -9741,6 +9873,86 @@ export type RevokeRoutineGrantResponses = {
 
 export type RevokeRoutineGrantResponse = RevokeRoutineGrantResponses[keyof RevokeRoutineGrantResponses];
 
+export type GetRoleRoutingData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/role-routing';
+};
+
+export type GetRoleRoutingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetRoleRoutingError = GetRoleRoutingErrors[keyof GetRoleRoutingErrors];
+
+export type GetRoleRoutingResponses = {
+  /**
+   * The effective mapping as YAML.
+   */
+  200: Source;
+};
+
+export type GetRoleRoutingResponse = GetRoleRoutingResponses[keyof GetRoleRoutingResponses];
+
+export type PutRoleRoutingData = {
+  body: Source;
+  path?: never;
+  query?: never;
+  url: '/role-routing';
+};
+
+export type PutRoleRoutingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutRoleRoutingError = PutRoleRoutingErrors[keyof PutRoleRoutingErrors];
+
+export type PutRoleRoutingResponses = {
+  /**
+   * The mapping was stored.
+   */
+  204: void;
+};
+
+export type PutRoleRoutingResponse = PutRoleRoutingResponses[keyof PutRoleRoutingResponses];
+
+export type GetRoleMetricsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Start of the period; defaults to 14 days ago.
+     */
+    since?: string;
+  };
+  url: '/role-routing/metrics';
+};
+
+export type GetRoleMetricsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetRoleMetricsError = GetRoleMetricsErrors[keyof GetRoleMetricsErrors];
+
+export type GetRoleMetricsResponses = {
+  /**
+   * Worker metrics.
+   */
+  200: Array<RoleMetric>;
+};
+
+export type GetRoleMetricsResponse = GetRoleMetricsResponses[keyof GetRoleMetricsResponses];
+
 export type ListProfilesData = {
   body?: never;
   path?: never;
@@ -10706,7 +10918,12 @@ export type NameMeetingSpeakerData = {
      */
     label: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * The voice's track; absent, the one track that has the label.
+     */
+    track?: MeetingTrack;
+  };
   url: '/meetings/{meeting_id}/speakers/{label}';
 };
 
@@ -10758,6 +10975,85 @@ export type SetMeetingLineSpeakerResponses = {
 };
 
 export type SetMeetingLineSpeakerResponse = SetMeetingLineSpeakerResponses[keyof SetMeetingLineSpeakerResponses];
+
+export type StartLiveMeetingData = {
+  body: NewLiveMeeting;
+  path?: never;
+  query?: never;
+  url: '/meetings/live';
+};
+
+export type StartLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartLiveMeetingError = StartLiveMeetingErrors[keyof StartLiveMeetingErrors];
+
+export type StartLiveMeetingResponses = {
+  /**
+   * The meeting, recording.
+   */
+  201: Meeting;
+};
+
+export type StartLiveMeetingResponse = StartLiveMeetingResponses[keyof StartLiveMeetingResponses];
+
+export type OpenMeetingTrackData = {
+  body: MeetingTrackRequest;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/tickets';
+};
+
+export type OpenMeetingTrackErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenMeetingTrackError = OpenMeetingTrackErrors[keyof OpenMeetingTrackErrors];
+
+export type OpenMeetingTrackResponses = {
+  /**
+   * The ticket.
+   */
+  201: TerminalTicket;
+};
+
+export type OpenMeetingTrackResponse = OpenMeetingTrackResponses[keyof OpenMeetingTrackResponses];
+
+export type EndLiveMeetingData = {
+  body?: never;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/end';
+};
+
+export type EndLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type EndLiveMeetingError = EndLiveMeetingErrors[keyof EndLiveMeetingErrors];
+
+export type EndLiveMeetingResponses = {
+  /**
+   * The meeting, transcribed.
+   */
+  200: Meeting;
+};
+
+export type EndLiveMeetingResponse = EndLiveMeetingResponses[keyof EndLiveMeetingResponses];
 
 export type UpdateMeetingItemData = {
   body: MeetingItemUpdate;

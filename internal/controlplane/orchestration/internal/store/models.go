@@ -150,6 +150,7 @@ type Bot struct {
 	ConnectionScopes     sql.NullString
 	GuaranteedDispatches sql.NullInt64
 	Fallbacks            string
+	Preset               string
 }
 
 type Channel struct {
@@ -333,6 +334,8 @@ type Dispatch struct {
 	FollowUpID       sql.NullString
 	CpuMillis        int64
 	MemoryBytes      int64
+	RoleChain        string
+	ChainEntry       sql.NullInt64
 }
 
 type DispatchEffect struct {
@@ -560,6 +563,8 @@ type Meeting struct {
 	Model      string
 	CreatedAt  int64
 	UpdatedAt  int64
+	Source     string
+	Kind       string
 }
 
 type MeetingItem struct {
@@ -575,11 +580,13 @@ type MeetingItem struct {
 	Quote        sql.NullString
 	Line         sql.NullInt64
 	StartMs      sql.NullInt64
+	OwnerTrack   sql.NullString
 }
 
 type MeetingLine struct {
 	MeetingID string
 	N         int64
+	Track     string
 	StartMs   int64
 	EndMs     int64
 	Speaker   string
@@ -608,6 +615,7 @@ type MeetingSetting struct {
 
 type MeetingSpeaker struct {
 	MeetingID string
+	Track     string
 	Label     string
 	Position  int64
 	Name      sql.NullString
@@ -718,6 +726,7 @@ type ProfileVersion struct {
 	ToolsOff           string
 	CpuRequestMillis   sql.NullInt64
 	MemoryRequestBytes sql.NullInt64
+	Preset             string
 }
 
 type Provider struct {
@@ -772,6 +781,11 @@ type Repo struct {
 
 type RestartBoot struct {
 	At int64
+}
+
+type RoleRouting struct {
+	ID     int64
+	Source string
 }
 
 type Routine struct {
@@ -938,6 +952,8 @@ type Task struct {
 	NotBefore         sql.NullInt64
 	CancelRequestedAt sql.NullInt64
 	WaitingReason     sql.NullString
+	Kind              string
+	AuthorVendor      string
 }
 
 type TaskDep struct {
