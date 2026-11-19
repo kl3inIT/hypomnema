@@ -19,11 +19,15 @@ UPDATE todos
 SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_when, due_kind = @due_kind,
     due_date = @due_date, due_zone = @due_zone, due_at = @due_at, overdue_at = @overdue_at,
     assignee_kind = @assignee_kind, assignee = @assignee, state = @state, snoozed_until = @snoozed_until,
-    work_kind = @work_kind, work_id = @work_id, approval_id = @approval_id, done_by_kind = @done_by_kind,
+    work_kind = @work_kind, work_id = @work_id, work_bot = @work_bot, approval_id = @approval_id, done_by_kind = @done_by_kind,
     done_by = @done_by, recorded_by_kind = @recorded_by_kind, recorded_by = @recorded_by, closed_how = @closed_how,
     close_reason = @close_reason, evidence = @evidence, closed_at = @closed_at, duplicate_of = @duplicate_of,
     updated_at = @now
 WHERE id = @id AND revision = @revision AND state = @from_state;
+
+-- name: GetTodoChatMessage :one
+-- Who wrote a chat message and in which chat: the owner's message cited as evidence (role owner, no sender).
+SELECT chat_id, role, sender_id FROM chat_messages WHERE seq = @seq;
 
 -- name: CountDuplicatesOf :one
 -- The items marked duplicate of this one.

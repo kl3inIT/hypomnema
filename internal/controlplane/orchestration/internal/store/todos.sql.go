@@ -71,7 +71,7 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 }
 
 const getTodo = `-- name: GetTodo :one
-SELECT id, revision, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_quote, source_ref, created_by_kind, created_by, work_kind, work_id, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at FROM todos WHERE id = ?1
+SELECT id, revision, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_quote, source_ref, created_by_kind, created_by, work_kind, work_id, work_bot, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at FROM todos WHERE id = ?1
 `
 
 func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
@@ -100,6 +100,7 @@ func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
 		&i.CreatedBy,
 		&i.WorkKind,
 		&i.WorkID,
+		&i.WorkBot,
 		&i.ApprovalID,
 		&i.DoneByKind,
 		&i.DoneBy,
@@ -119,7 +120,7 @@ func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
 }
 
 const getTodoByIdempotencyKey = `-- name: GetTodoByIdempotencyKey :one
-SELECT id, revision, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_quote, source_ref, created_by_kind, created_by, work_kind, work_id, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at FROM todos WHERE idempotency_key = ?1
+SELECT id, revision, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_quote, source_ref, created_by_kind, created_by, work_kind, work_id, work_bot, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at FROM todos WHERE idempotency_key = ?1
 `
 
 func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (Todo, error) {
@@ -148,6 +149,7 @@ func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sq
 		&i.CreatedBy,
 		&i.WorkKind,
 		&i.WorkID,
+		&i.WorkBot,
 		&i.ApprovalID,
 		&i.DoneByKind,
 		&i.DoneBy,
@@ -163,6 +165,24 @@ func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sq
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const getTodoChatMessage = `-- name: GetTodoChatMessage :one
+SELECT chat_id, role, sender_id FROM chat_messages WHERE seq = ?1
+`
+
+type GetTodoChatMessageRow struct {
+	ChatID   string
+	Role     string
+	SenderID sql.NullString
+}
+
+// Who wrote a chat message and in which chat: the owner's message cited as evidence (role owner, no sender).
+func (q *Queries) GetTodoChatMessage(ctx context.Context, seq int64) (GetTodoChatMessageRow, error) {
+	row := q.db.QueryRowContext(ctx, getTodoChatMessage, seq)
+	var i GetTodoChatMessageRow
+	err := row.Scan(&i.ChatID, &i.Role, &i.SenderID)
 	return i, err
 }
 
@@ -300,7 +320,7 @@ func (q *Queries) ListTodoEvents(ctx context.Context, arg ListTodoEventsParams) 
 }
 
 const listTodos = `-- name: ListTodos :many
-SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_kind, t.work_id, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at FROM todos t
+SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_kind, t.work_id, t.work_bot, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at FROM todos t
 WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?2 AS TEXT))))
   AND (CAST(?3 AS TEXT) = '' OR (t.assignee_kind = ?3 AND t.assignee = ?4))
   AND (CAST(?5 AS TEXT) = '' OR t.source_kind = ?5)
@@ -389,6 +409,7 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 			&i.CreatedBy,
 			&i.WorkKind,
 			&i.WorkID,
+			&i.WorkBot,
 			&i.ApprovalID,
 			&i.DoneByKind,
 			&i.DoneBy,
@@ -422,11 +443,11 @@ UPDATE todos
 SET revision = revision + 1, title = ?1, notes = ?2, done_when = ?3, due_kind = ?4,
     due_date = ?5, due_zone = ?6, due_at = ?7, overdue_at = ?8,
     assignee_kind = ?9, assignee = ?10, state = ?11, snoozed_until = ?12,
-    work_kind = ?13, work_id = ?14, approval_id = ?15, done_by_kind = ?16,
-    done_by = ?17, recorded_by_kind = ?18, recorded_by = ?19, closed_how = ?20,
-    close_reason = ?21, evidence = ?22, closed_at = ?23, duplicate_of = ?24,
-    updated_at = ?25
-WHERE id = ?26 AND revision = ?27 AND state = ?28
+    work_kind = ?13, work_id = ?14, work_bot = ?15, approval_id = ?16, done_by_kind = ?17,
+    done_by = ?18, recorded_by_kind = ?19, recorded_by = ?20, closed_how = ?21,
+    close_reason = ?22, evidence = ?23, closed_at = ?24, duplicate_of = ?25,
+    updated_at = ?26
+WHERE id = ?27 AND revision = ?28 AND state = ?29
 `
 
 type UpdateTodoParams struct {
@@ -444,6 +465,7 @@ type UpdateTodoParams struct {
 	SnoozedUntil   sql.NullInt64
 	WorkKind       sql.NullString
 	WorkID         sql.NullString
+	WorkBot        sql.NullString
 	ApprovalID     sql.NullString
 	DoneByKind     sql.NullString
 	DoneBy         sql.NullString
@@ -478,6 +500,7 @@ func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (int64, 
 		arg.SnoozedUntil,
 		arg.WorkKind,
 		arg.WorkID,
+		arg.WorkBot,
 		arg.ApprovalID,
 		arg.DoneByKind,
 		arg.DoneBy,

@@ -929,6 +929,7 @@ type Todo struct {
 	CreatedBy       string
 	WorkKind        sql.NullString
 	WorkID          sql.NullString
+	WorkBot         sql.NullString
 	ApprovalID      sql.NullString
 	DoneByKind      sql.NullString
 	DoneBy          sql.NullString

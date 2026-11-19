@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -25,12 +26,16 @@ var t0 = time.Date(2026, 11, 18, 9, 0, 0, 0, time.UTC)
 
 const zone = "Asia/Ho_Chi_Minh"
 
-// world is the Inbox over a migrated database, with two Bots: kai, which the items are given to, and lan.
+// world is the Inbox over a migrated database, with two Bots: kai, which the items are given to, and lan; and
+// kai's chat with the owner, where the owner said something (said is his message as evidence).
 type world struct {
 	db       *sql.DB
 	clock    *fakeClock
+	svc      *orchestration.Service
 	inbox    *inboxstore.Store
 	kai, lan string
+	chat     string
+	said     []inboxstore.Link
 }
 
 func newWorld(t *testing.T) *world {
@@ -55,7 +60,24 @@ func newWorld(t *testing.T) *world {
 	lan, err := s.PutBot(t.Context(), orchestration.Bot{Name: "lan"})
 	require.NoError(t, err)
 
-	return &world{db: db, clock: clock, inbox: s.Inbox(), kai: kai.ID, lan: lan.ID}
+	chat, err := s.CreateChat(t.Context(), kai.ID, "Kai")
+	require.NoError(t, err)
+
+	w := &world{db: db, clock: clock, svc: s, inbox: s.Inbox(), kai: kai.ID, lan: lan.ID, chat: chat.ID}
+	w.said = w.message(t, chat.ID, orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: "xong 1"})
+
+	return w
+}
+
+// message adds a message to a chat and gives it as evidence.
+func (w *world) message(t *testing.T, chatID string, m orchestration.NewChatMessage) []inboxstore.Link {
+	t.Helper()
+
+	added, err := w.svc.AddChatMessages(t.Context(), chatID, m)
+	require.NoError(t, err)
+
+	return []inboxstore.Link{{Kind: inboxstore.LinkChatMessage, Ref: strconv.FormatInt(added[0].Seq, 10),
+		Label: m.Text}}
 }
 
 var (
@@ -81,13 +103,21 @@ func inAttempt(actor inboxstore.Actor, t inboxstore.Todo) inboxstore.Change {
 	return c
 }
 
-// approval adds an Approval in a status.
+// approval adds an Approval in a status, asked in kai's chat.
 func (w *world) approval(t *testing.T, id, status string) string {
 	t.Helper()
 
+	return w.approvalIn(t, id, status, w.chat, "")
+}
+
+// approvalIn adds an Approval in a status, asked in a chat or a Run.
+func (w *world) approvalIn(t *testing.T, id, status, chatID, runID string) string {
+	t.Helper()
+
 	_, err := w.db.ExecContext(t.Context(), `INSERT INTO approvals (id, integration, label, action, action_name,
-		asked_by, title, payload, match_hash, status, created_at) VALUES (?, 'google', 'work', 'gmail.send',
-		'Send mail', 'pi', 'Send mail', '[]', 'h', 'pending', 1)`, id)
+		chat_id, run_id, asked_by, title, payload, match_hash, status, created_at) VALUES (?, 'google', 'work',
+		'gmail.send', 'Send mail', nullif(?, ''), nullif(?, ''), 'pi', 'Send mail', '[]', 'h', 'pending', 1)`,
+		id, chatID, runID)
 	require.NoError(t, err)
 	w.decide(t, id, status)
 
@@ -128,15 +158,39 @@ func (w *world) proposed(t *testing.T) inboxstore.Todo {
 	return td
 }
 
+// fromChat is an item kai added in its chat with the owner, for him to do.
+func (w *world) fromChat(t *testing.T) inboxstore.Todo {
+	t.Helper()
+
+	td, err := w.inbox.Create(t.Context(), bot(w.kai), inboxstore.NewTodo{
+		Title: "Renew the passport", State: inboxstore.Open, Assignee: me,
+		Source: inboxstore.Source{Kind: inboxstore.FromChat, ID: w.chat},
+	})
+	require.NoError(t, err)
+
+	return td
+}
+
 // doing is an open item kai started in its chat.
 func (w *world) doing(t *testing.T) inboxstore.Todo {
 	t.Helper()
 
 	td, err := w.inbox.Start(t.Context(), by(bot(w.kai), w.open(t)), inboxstore.Work{Kind: inboxstore.WorkChat,
-		ID: "cht_kai"})
+		ID: w.chat})
 	require.NoError(t, err)
 
 	return td
+}
+
+// unchanged checks that a refused change wrote nothing: the item keeps its revision and its history.
+func (w *world) unchanged(t *testing.T, before inboxstore.Todo) {
+	t.Helper()
+
+	again, err := w.inbox.Get(t.Context(), before.ID)
+	require.NoError(t, err)
+	assert.Equal(t, before.Revision, again.Revision, "no revision bump")
+	assert.Len(t, again.Events, len(before.Events), "no event")
+	assert.Equal(t, before.State, again.State)
 }
 
 // review is a doing item waiting for a pending Approval.
@@ -163,10 +217,7 @@ func (w *world) done(t *testing.T) inboxstore.Todo {
 	return td
 }
 
-var (
-	ownerMessage = []inboxstore.Link{{Kind: inboxstore.LinkChatMessage, Ref: "cht_kai/12", Label: "xong 1"}}
-	prLink       = []inboxstore.Link{{Kind: inboxstore.LinkPullRequest, Ref: "https://github.com/o/r/pull/1"}}
-)
+var prLink = []inboxstore.Link{{Kind: inboxstore.LinkPullRequest, Ref: "https://github.com/o/r/pull/1"}}
 
 // Scenario: every row of the transitions of issue #845, once allowed and once refused. A refused change leaves the
 // item as it was.
@@ -303,13 +354,13 @@ func TestTransitions(t *testing.T) {
 				DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand})
 		}, nil, inboxstore.Done},
 		{"bot records for the owner", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.Done(t.Context(), by(bot(w.lan), w.open(t)), inboxstore.Closing{
+			return w.inbox.Done(t.Context(), by(bot(w.lan), w.fromChat(t)), inboxstore.Closing{
 				DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand,
-				Evidence: ownerMessage,
+				Evidence: w.said,
 			})
 		}, nil, inboxstore.Done},
 		{"bot records for the owner without his message", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.Done(t.Context(), by(bot(w.lan), w.open(t)), inboxstore.Closing{
+			return w.inbox.Done(t.Context(), by(bot(w.lan), w.fromChat(t)), inboxstore.Closing{
 				DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand, Evidence: prLink,
 			})
 		}, storeerr.ErrInvalid, ""},
@@ -322,13 +373,13 @@ func TestTransitions(t *testing.T) {
 			return w.inbox.Drop(t.Context(), by(owner, w.doing(t)), "No longer needed.", nil)
 		}, nil, inboxstore.Dropped},
 		{"bot drops for the owner", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.Drop(t.Context(), by(bot(w.lan), w.open(t)), "He said drop it.", ownerMessage)
+			return w.inbox.Drop(t.Context(), by(bot(w.lan), w.fromChat(t)), "He said drop it.", w.said)
 		}, nil, inboxstore.Dropped},
 		{"drop without a reason", func(t *testing.T, w *world) (inboxstore.Todo, error) {
 			return w.inbox.Drop(t.Context(), by(owner, w.open(t)), " ", nil)
 		}, storeerr.ErrInvalid, ""},
 		{"bot drops without the owner's message", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.Drop(t.Context(), by(bot(w.lan), w.open(t)), "Not needed.", nil)
+			return w.inbox.Drop(t.Context(), by(bot(w.lan), w.fromChat(t)), "Not needed.", nil)
 		}, storeerr.ErrInvalid, ""},
 		// proposed/open → duplicate: the owner.
 		{"owner marks open duplicate", func(t *testing.T, w *world) (inboxstore.Todo, error) {
@@ -806,6 +857,172 @@ func TestEveryChangeIsAnEvent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, o.Work)
 	assert.Empty(t, o.ApprovalID)
-	assert.JSONEq(t, `{"state":"open","work_kind":null,"work_id":null,"approval_id":null,"reason":"Expired."}`,
+	assert.JSONEq(t, `{"state":"open","work_kind":null,"work_id":null,"work_bot":null,"approval_id":null,"reason":"Expired."}`,
 		string(o.Events[3].After))
+}
+
+// Scenario: only the Bot that started an attempt writes to it; another Bot that gives the attempt's work id is
+// refused, and nothing is written.
+func TestOnlyTheBotOfTheAttemptWritesToIt(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	d := w.doing(t)
+	assert.Equal(t, w.kai, d.Work.Bot)
+
+	_, err := w.inbox.Release(ctx, inAttempt(bot(w.lan), d), "Not mine.")
+	require.ErrorIs(t, err, storeerr.ErrForbidden, "another Bot releases")
+	_, err = w.inbox.Done(ctx, inAttempt(bot(w.lan), d), inboxstore.Closing{
+		DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.lan}, How: inboxstore.ClosedByBot, Evidence: prLink})
+	require.ErrorIs(t, err, storeerr.ErrForbidden, "another Bot closes as its own")
+	_, err = w.inbox.Done(ctx, inAttempt(bot(w.lan), d), inboxstore.Closing{
+		DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand, Evidence: w.said})
+	require.ErrorIs(t, err, storeerr.ErrForbidden, "another Bot records for the owner")
+	w.unchanged(t, d)
+
+	_, err = w.inbox.Release(ctx, inAttempt(bot(w.kai), d), "The site is down.")
+	require.NoError(t, err, "the Bot of the attempt releases")
+}
+
+// Scenario: an item leaves review only by its Approval's answer: Start, by the system or by the Bot, does not move
+// it to doing nor replace its attempt; and only a Bot starts an open item.
+func TestStartDoesNotLeaveReview(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	r := w.review(t)
+
+	_, err := w.inbox.Start(ctx, by(system, r), inboxstore.Work{Kind: inboxstore.WorkRun, ID: "run_other"})
+	require.ErrorIs(t, err, storeerr.ErrForbidden, "the system starts a review item")
+	_, err = w.inbox.Start(ctx, inAttempt(bot(w.kai), r), inboxstore.Work{Kind: inboxstore.WorkRun, ID: "run_other"})
+	require.ErrorIs(t, err, storeerr.ErrConflict, "the Bot starts its review item again")
+	w.unchanged(t, r)
+
+	again, err := w.inbox.Get(ctx, r.ID)
+	require.NoError(t, err)
+	assert.Equal(t, r.ApprovalID, again.ApprovalID, "the Approval stays linked")
+	assert.Equal(t, r.Work, again.Work, "the attempt stays")
+
+	o := w.open(t)
+	_, err = w.inbox.Start(ctx, by(system, o), inboxstore.Work{Kind: inboxstore.WorkRun, ID: "run_1"})
+	require.ErrorIs(t, err, storeerr.ErrForbidden, "the system starts an open item")
+	w.unchanged(t, o)
+}
+
+// Scenario: a Bot recording for the owner cites his own message in the item's chat: a message that does not exist,
+// the coordinator's, a Channel person's, or the owner's in another chat is refused and writes nothing.
+func TestABotRecordsForTheOwnerOnlyWithHisMessage(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	item := w.fromChat(t)
+
+	other, err := w.svc.CreateChat(ctx, w.lan, "Lan")
+	require.NoError(t, err)
+
+	cases := map[string][]inboxstore.Link{
+		"a message that does not exist": {{Kind: inboxstore.LinkChatMessage, Ref: "999999"}},
+		"a ref that is no message":      {{Kind: inboxstore.LinkChatMessage, Ref: "cht_kai/12"}},
+		"the coordinator's message": w.message(t, w.chat, orchestration.NewChatMessage{
+			Role: orchestration.ChatCoordinator, Text: "Done, you said so."}),
+		"a Channel person's message": w.message(t, w.chat, orchestration.NewChatMessage{
+			Role: orchestration.ChatOwner, Text: "xong rồi",
+			Sender: &orchestration.ChatSender{ID: "ou_linh", Name: "Linh"}}),
+		"the owner's message in another chat": w.message(t, other.ID, orchestration.NewChatMessage{
+			Role: orchestration.ChatOwner, Text: "xong"}),
+	}
+
+	item, err = w.inbox.Get(ctx, item.ID)
+	require.NoError(t, err)
+
+	for name, evidence := range cases {
+		_, err := w.inbox.Done(ctx, by(bot(w.lan), item), inboxstore.Closing{
+			DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand, Evidence: evidence})
+		require.ErrorIs(t, err, storeerr.ErrInvalid, "done with %s", name)
+
+		_, err = w.inbox.Drop(ctx, by(bot(w.lan), item), "He said drop it.", evidence)
+		require.ErrorIs(t, err, storeerr.ErrInvalid, "dropped with %s", name)
+	}
+
+	w.unchanged(t, item)
+
+	d := w.doing(t)
+	_, err = w.inbox.Done(ctx, inAttempt(bot(w.kai), d), inboxstore.Closing{
+		DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand, Evidence: w.said})
+	require.NoError(t, err, "his message in the chat of the attempt")
+}
+
+// Scenario: the Approval an item waits for is one its attempt asked: a pending Approval of another chat or Run, or
+// of none, is refused and writes nothing; one of the attempt's Run is linked.
+func TestLinkApprovalTakesOnlyTheAttemptsApproval(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	d := w.doing(t)
+
+	for _, a := range []string{
+		w.approvalIn(t, "apr_chat", "pending", "cht_other", ""),
+		w.approvalIn(t, "apr_run", "pending", "", "run_1"),
+		w.approvalIn(t, "apr_none", "pending", "", ""),
+	} {
+		_, err := w.inbox.LinkApproval(ctx, by(system, d), a)
+		require.ErrorIs(t, err, storeerr.ErrConflict, a)
+	}
+
+	w.unchanged(t, d)
+
+	run, err := w.inbox.Start(ctx, by(bot(w.kai), w.open(t)), inboxstore.Work{Kind: inboxstore.WorkRun, ID: "run_1"})
+	require.NoError(t, err)
+
+	_, err = w.inbox.LinkApproval(ctx, by(system, run), "apr_chat")
+	require.ErrorIs(t, err, storeerr.ErrConflict, "a chat's Approval on a Run's attempt")
+
+	linked, err := w.inbox.LinkApproval(ctx, by(system, run), "apr_run")
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Review, linked.State)
+}
+
+// Scenario: the owner's Lark and Zalo chats are sources (owner, 2026-11-19): a Bot proposes an item from one with
+// the chat's id and the message as a typed reference; without its message, or open, it is refused.
+func TestABotProposesFromLarkAndZalo(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+
+	for _, src := range []inboxstore.Source{
+		{Kind: inboxstore.FromLark, ID: "oc_123", Quote: "Gửi anh hợp đồng nhé",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_456"}},
+		{Kind: inboxstore.FromZalo, ID: "g_789", Quote: "Mai họp lúc 9h",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkZaloMessage, Ref: "1700000000000"}},
+	} {
+		td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Answer " + src.Kind,
+			State: inboxstore.Proposed, Source: src, Assignee: me})
+		require.NoError(t, err)
+		assert.Equal(t, src, td.Source)
+
+		_, err = w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Answer " + src.Kind,
+			State: inboxstore.Open, Source: src, Assignee: me})
+		require.ErrorIs(t, err, storeerr.ErrForbidden, "open from %s", src.Kind)
+
+		noRef := src
+		noRef.Ref = nil
+		_, err = w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Answer " + src.Kind,
+			State: inboxstore.Proposed, Source: noRef, Assignee: me})
+		require.ErrorIs(t, err, storeerr.ErrInvalid, "from %s without its message", src.Kind)
+
+		wrongRef := src
+		wrongRef.Ref = &inboxstore.Link{Kind: inboxstore.LinkURL, Ref: "https://example.com"}
+		_, err = w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Answer " + src.Kind,
+			State: inboxstore.Proposed, Source: wrongRef, Assignee: me})
+		require.ErrorIs(t, err, storeerr.ErrInvalid, "from %s with another kind of reference", src.Kind)
+	}
+
+	page, err := w.inbox.List(ctx, inboxstore.Filter{SourceKind: inboxstore.FromZalo}, "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, page.Total)
 }

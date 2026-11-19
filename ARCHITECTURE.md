@@ -3645,27 +3645,30 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
   test (a date's first moment and the next day's in its zone, never shown as a time); `assignee_kind` `me`,
   `person` (a name ≤ 100), `bot` (an existing Bot's id) or `unknown`; `state` `proposed`, `open`, `doing`, `review`,
   `done`, `dropped`, `duplicate`; `snoozed_until` (proposed or open only); the source (`owner`, `chat` with its chat,
-  `routine` with its run; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt (`work_kind`
-  `chat` or `run`, `work_id`) while doing or review; the one pending `approval_id` while review; the close
+  `routine` with its run, `lark` or `zalo` with the chat's id at the service and its message as a `lark_message` or
+  `zalo_message` reference; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt (`work_kind`
+  `chat` or `run`, `work_id`, and `work_bot`, the Bot that started it) while doing or review; the one pending `approval_id` while review; the close
   (`done_by_kind`/`done_by` apart from `recorded_by_kind`/`recorded_by`, `closed_how`, `close_reason`, `evidence`
-  a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message`, `mail`, `run`, `pull_request`,
-  `meeting_line`, `closed_at`); `duplicate_of`; a create's idempotency key, unique, with its request's hash. Checks
+  a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
+  `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `closed_at`); `duplicate_of`; a create's idempotency key, unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed` or `linked_approval`, the revision it made, JSON of the fields before and after, and the
   reason when one is given), written in the change's transaction.
 - Transitions (`inboxstore/transitions.go`, the `transitions` table lists every move and who may make it): the
-  owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run adds proposed ones,
-  which stay proposed until the owner accepts, drops or marks them duplicate; the Bot assigned starts an open item
-  (`Start`, with its chat or Run); the system puts a doing item in review with one pending Approval
-  (`LinkApproval`) and back to doing once it is approved, or open once it is rejected or expired; the Bot of the
+  owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from the owner's
+  Lark or Zalo chats adds proposed ones, which stay proposed until the owner accepts, drops or marks them duplicate;
+  the Bot assigned starts an open item, and only an open one (`Start`, with its chat or Run); the system puts a doing
+  item in review with one pending Approval asked in the item's attempt (its chat or Run; `LinkApproval`) and back
+  to doing once it is approved, or open once it is rejected or expired, the only ways out of review; the Bot of the
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
-  owner closes or drops an open or doing item, or a Bot records it for him with his message (`chat_message`) as
-  evidence; `closed_how` `ai` and `time` are refused; nothing in review is closed or reassigned until its Approval
+  owner closes or drops an open or doing item, or a Bot records it for him with his message as evidence (a
+  `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source chat or
+  attempt chat); `closed_how` `ai` and `time` are refused; nothing in review is closed or reassigned until its Approval
   is rejected; a duplicate's target exists, is not the item nor a duplicate, and the item is the target of none;
   the owner reopens a closed item, which clears its close; only the owner snoozes, to a time to come; the owner
   edits any item not closed, a Bot only those it added or is given, never their assignee. Every mutation names its
   actor, the revision it read and, for a Bot on a doing or review item, its attempt's id; a stale revision or
-  another attempt's id is a conflict and writes nothing. Leaving doing or review clears the attempt, and any change
+  another attempt's id is a conflict and writes nothing, and a Bot other than the attempt's is forbidden. Leaving doing or review clears the attempt, and any change
   of state the snooze. A create retried with its idempotency key returns the first item.
 - Reads: `Get` with its latest 500 events; `List` by state set (not closed by default), assignee, source kind, due
   window, with or without snoozed and closed items, by due (none last) then created, pages of at most 200 with a

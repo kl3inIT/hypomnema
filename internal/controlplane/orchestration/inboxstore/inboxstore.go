@@ -112,7 +112,14 @@ const (
 	FromChat = "chat"
 	// FromRoutine: a Bot in a Routine's run; ID is the run.
 	FromRoutine = "routine"
+	// FromLark and FromZalo: a chat of the owner's own account at Lark or Zalo, the main sources (owner,
+	// 2026-11-19); ID is the chat's id at the service and Ref the message, a LinkLarkMessage or LinkZaloMessage.
+	FromLark = "lark"
+	FromZalo = "zalo"
 )
+
+// sourceMessage is the kind of Link a source at a messaging service names its message by.
+var sourceMessage = map[string]string{FromLark: LinkLarkMessage, FromZalo: LinkZaloMessage}
 
 // Source is where a to-do came from, with the words it came from and a typed reference to them.
 type Source struct {
@@ -130,9 +137,14 @@ const (
 	LinkRun         = "run"
 	LinkPullRequest = "pull_request"
 	LinkMeetingLine = "meeting_line"
+	// LinkLarkMessage and LinkZaloMessage are a message at Lark or Zalo; Ref is its id there.
+	LinkLarkMessage = "lark_message"
+	LinkZaloMessage = "zalo_message"
 )
 
-var linkKinds = []string{LinkURL, LinkChatMessage, LinkMail, LinkRun, LinkPullRequest, LinkMeetingLine}
+var linkKinds = []string{
+	LinkURL, LinkChatMessage, LinkMail, LinkRun, LinkPullRequest, LinkMeetingLine, LinkLarkMessage, LinkZaloMessage,
+}
 
 // Link is a typed reference: evidence that a to-do is done, or where it came from.
 type Link struct {
@@ -147,10 +159,11 @@ const (
 	WorkRun  = "run"
 )
 
-// Work is a Bot's current attempt at a to-do: its chat or a Run.
+// Work is a Bot's current attempt at a to-do: its chat or a Run. Bot is the Bot that started it, set by Start.
 type Work struct {
 	Kind string
 	ID   string
+	Bot  string
 }
 
 // How a to-do was closed: by hand or by a Bot. Judged by AI and by time are kept for later parts and refused now.
@@ -272,7 +285,8 @@ type NewTodo struct {
 }
 
 // Create adds a to-do. The owner adds open items by hand; a Bot adds open items in a chat with the owner (Source
-// FromChat) and proposed ones in a Routine's run (Source FromRoutine). A create retried with the same
+// FromChat) and proposed ones in a Routine's run or from the owner's Lark or Zalo chats (Source FromRoutine,
+// FromLark, FromZalo). A create retried with the same
 // IdempotencyKey and the same request returns the first item and writes nothing; with another request it is a
 // conflict (docs/conventions.md, "Idempotency").
 func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error) {
@@ -365,19 +379,19 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 }
 
 // mayCreate is the creation rows of the transitions (issue #845): the owner adds open items by hand; a Bot adds
-// open items in a chat with the owner and proposed ones in a Routine's run (Plane's intake: what is found waits as
-// pending, what the owner asked for is an issue).
+// open items in a chat with the owner and proposed ones in a Routine's run or from the owner's Lark or Zalo chats
+// (Plane's intake: what is found waits as pending, what the owner asked for is an issue).
 func mayCreate(actor Actor, state, source string) error {
 	switch {
 	case state != Open && state != Proposed:
 		return fmt.Errorf("%w: a to-do starts open or proposed", storeerr.ErrInvalid)
-	case !slices.Contains([]string{ByHand, FromChat, FromRoutine}, source):
+	case !slices.Contains([]string{ByHand, FromChat, FromRoutine, FromLark, FromZalo}, source):
 		return fmt.Errorf("%w: unknown source %q", storeerr.ErrInvalid, source)
 	case actor.Kind == Owner && state == Open && source == ByHand:
 		return nil
 	case actor.Kind == Bot && state == Open && source == FromChat:
 		return nil
-	case actor.Kind == Bot && state == Proposed && source == FromRoutine:
+	case actor.Kind == Bot && state == Proposed && (source == FromRoutine || source == FromLark || source == FromZalo):
 		return nil
 	}
 
@@ -416,6 +430,9 @@ func checkSource(src Source) error {
 		return fmt.Errorf("%w: a to-do from a %s names it", storeerr.ErrInvalid, src.Kind)
 	case utf8.RuneCountInString(src.Quote) > MaxQuote:
 		return fmt.Errorf("%w: a quote is at most %d characters", storeerr.ErrInvalid, MaxQuote)
+	case sourceMessage[src.Kind] != "" && (src.Ref == nil || src.Ref.Kind != sourceMessage[src.Kind]):
+		return fmt.Errorf("%w: a to-do from %s names its message as a %s", storeerr.ErrInvalid, src.Kind,
+			sourceMessage[src.Kind])
 	case src.Ref != nil:
 		return checkLink(*src.Ref)
 	}
@@ -801,7 +818,7 @@ func fromRow(r store.Todo) (Todo, error) {
 	}
 
 	if r.WorkKind.Valid {
-		t.Work = &Work{Kind: r.WorkKind.String, ID: r.WorkID.String}
+		t.Work = &Work{Kind: r.WorkKind.String, ID: r.WorkID.String, Bot: r.WorkBot.String}
 	}
 
 	if r.DoneByKind.Valid {
