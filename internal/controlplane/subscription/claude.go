@@ -312,11 +312,14 @@ func (c *Claude) postJSON(
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: %w", doing, err)
+		return fmt.Errorf("%s: %w: %w", doing, errTokenTransport, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // the error is the request's
 
-	answer, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return fmt.Errorf("%s: reading the answer: %w: %w", doing, errTokenTransport, err)
+	}
 
 	if status != nil {
 		*status = resp.StatusCode
