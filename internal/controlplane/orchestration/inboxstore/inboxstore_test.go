@@ -857,7 +857,8 @@ func TestEveryChangeIsAnEvent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, o.Work)
 	assert.Empty(t, o.ApprovalID)
-	assert.JSONEq(t, `{"state":"open","work_kind":null,"work_id":null,"work_bot":null,"approval_id":null,"reason":"Expired."}`,
+	assert.JSONEq(t,
+		`{"state":"open","work_kind":null,"work_id":null,"work_bot":null,"approval_id":null,"reason":"Expired."}`,
 		string(o.Events[3].After))
 }
 

@@ -24,7 +24,7 @@ func TestInboxMigrationOnADatabaseWithData(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 117)
+	_, err = p.UpTo(ctx, 125)
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot_id, created_at, updated_at)
