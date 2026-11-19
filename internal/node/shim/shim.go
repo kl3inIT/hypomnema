@@ -334,6 +334,8 @@ type processIdentity struct {
 	Started int64
 	Dir     string
 	BootID  string `json:",omitempty"`
+	Group   int64  `json:",omitempty"`
+	Session int64  `json:",omitempty"`
 }
 
 func wallStart(pid int) (int64, error) {
@@ -346,15 +348,11 @@ func wallStart(pid int) (int64, error) {
 
 func recordPID(root *os.Root) error {
 	pid := os.Getpid()
-	boot, err := bootID()
+	identity, err := identifyShim(pid, root.Name())
 	if err != nil {
 		return err
 	}
-	started, err := identityStart(pid, boot)
-	if err != nil {
-		return err
-	}
-	raw, err := json.Marshal(processIdentity{PID: pid, Started: started, Dir: root.Name(), BootID: boot})
+	raw, err := json.Marshal(identity)
 	if err != nil {
 		return err
 	}
@@ -399,7 +397,7 @@ func KillRecorded(dir string) error {
 	}
 	started, err := identityStart(pid, identity.BootID)
 	if identity.BootID != "" && errors.Is(err, os.ErrNotExist) {
-		return killOrphanedGroup(dir, pid)
+		return killOrphanedGroup(dir, identity)
 	}
 	if err != nil {
 		return err
