@@ -20,10 +20,13 @@ import {
   Check,
   Copy,
   AudioLines,
+  Eye,
+  EyeOff,
   FileText,
   Globe,
   ImageIcon,
   KeyRound,
+  Pencil,
   Plus,
   Search,
   Trash2,
@@ -33,8 +36,11 @@ import { useId, useState } from "react"
 import { z } from "zod"
 
 import "@/api/client"
-import { createGatewayKeyMutation } from "@/api/generated/@tanstack/react-query.gen"
-import { revokeGatewayKey } from "@/api/generated/sdk.gen"
+import {
+  createGatewayKeyMutation,
+  updateGatewayKeyMutation,
+} from "@/api/generated/@tanstack/react-query.gen"
+import { getGatewayKeyValue, revokeGatewayKey } from "@/api/generated/sdk.gen"
 import type { CreatedGatewayKey, GatewayEndpoint, GatewayKey } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -162,11 +168,7 @@ const columns: ColumnDef<typeof features, GatewayKey>[] = [
     id: "key",
     enableSorting: false,
     header: "Key",
-    cell: ({ row }) => (
-      <span className="font-mono text-muted-foreground">
-        {row.original.prefix ? `${row.original.prefix}…` : "—"}
-      </span>
-    ),
+    cell: ({ row }) => <KeyValue gatewayKey={row.original} />,
   },
   {
     id: "models",
@@ -213,9 +215,8 @@ const sortable = new Set(["name", "last_used", "created_at"])
 
 // GatewayKeysScreen is where the owner gives a tool outside, such as opencode or omp, a key to the model gateway
 // (issue #199, step 6). The keys are the Vault page's data table (vault-screen.tsx: a search by name, columns that
-// sort), the page the owner named for a list (2026-11-12). A key's value is shown once and only its start is kept,
-// as Coder's AI Gateway keys (coder/site/src/pages/AISettingsPage/GatewayKeysPage/); the address a tool is given
-// is the page's own origin with /v1, as 9router's Endpoint & Key page gives it (EndpointPageClient.js). A model is
+// sort), the page the owner named for a list (2026-11-12). Keys are masked until shown, as on 9router's Endpoint &
+// Key page (EndpointPageClient.js), and a tool calls the page's own origin with /v1. A model is
 // shown with its maker's mark and its name to read. The keys made for one worker or one Bot's chat are counted,
 // not listed: they end with what they were made for.
 export function GatewayKeysScreen() {
@@ -225,8 +226,8 @@ export function GatewayKeysScreen() {
     <SettingsPage
       wide
       title="Gateway keys"
-      description="Keys for tools outside, such as opencode or omp, to use your models through the gateway. A key's value is shown once."
-      actions={<CreateKey />}
+      description="Keys for tools outside, such as opencode or omp, to use your models through the gateway."
+      actions={<KeyDialog />}
     >
       <BaseURL />
       {keys.isPending && (
@@ -301,6 +302,80 @@ function CopyButton({ value, label, done }: { value: string; label: string; done
     <InputGroupButton size="icon-xs" aria-label={label} onClick={() => void copy()}>
       {copied ? <Check /> : <Copy />}
     </InputGroupButton>
+  )
+}
+
+function KeyValue({ gatewayKey }: { gatewayKey: GatewayKey }) {
+  const [shown, setShown] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<unknown>(null)
+
+  if (!gatewayKey.masked_value) {
+    return (
+      <div className="grid max-w-56 min-w-40 gap-1 text-xs whitespace-normal text-muted-foreground">
+        <code>{gatewayKey.prefix ? `${gatewayKey.prefix}…` : "—"}</code>
+        <span>Made before keys could be shown again; make a new one to copy it.</span>
+        <KeyDialog gatewayKey={gatewayKey} />
+      </div>
+    )
+  }
+
+  async function read(action: "show" | "copy") {
+    setPending(true)
+    setError(null)
+    try {
+      const value =
+        shown ??
+        (await getGatewayKeyValue({ path: { key_id: gatewayKey.id }, throwOnError: true })).data
+          .secret
+
+      if (action === "show") {
+        setShown(value)
+      } else {
+        await navigator.clipboard.writeText(value)
+        setCopied(true)
+        said("The key was copied")
+      }
+    } catch (error) {
+      setError(error)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const visibility = shown ? "Hide" : "Show"
+
+  return (
+    <div className="grid w-40 min-w-0 gap-1 whitespace-normal lg:w-56">
+      <code className="text-xs break-all text-muted-foreground">
+        {shown ?? gatewayKey.masked_value}
+      </code>
+      <div className="flex gap-1">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={pending}
+          aria-label={`${visibility} key for ${gatewayKey.name}`}
+          title={`${visibility} key`}
+          onClick={() => (shown ? setShown(null) : void read("show"))}
+        >
+          {shown ? <EyeOff /> : <Eye />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          disabled={pending}
+          aria-label={`Copy key for ${gatewayKey.name}`}
+          title="Copy key"
+          onClick={() => void read("copy")}
+        >
+          {copied ? <Check /> : <Copy />}
+        </Button>
+        <KeyDialog gatewayKey={gatewayKey} />
+      </div>
+      <ErrorAlert error={error} />
+    </div>
   )
 }
 
@@ -481,8 +556,7 @@ const keySchema = z
     path: ["models"],
   })
 
-// CreateKey makes a key in a dialog and then shows its value, once, in the same dialog, as Coder's does.
-function CreateKey() {
+function KeyDialog({ gatewayKey }: { gatewayKey?: GatewayKey }) {
   const refresh = useRefreshGatewayKeys()
   const [open, setOpen] = useState(false)
   const [made, setMade] = useState<CreatedGatewayKey | null>(null)
@@ -494,29 +568,54 @@ function CreateKey() {
 
   const create = useMutation({
     ...createGatewayKeyMutation(),
+    gcTime: 0,
     onSuccess: async (created) => {
       setMade(created)
       await refresh()
     },
   })
+  const update = useMutation({
+    ...updateGatewayKeyMutation(),
+    onSuccess: async (key) => {
+      await refresh()
+      said(`${key.name} was updated`)
+      change(false)
+    },
+  })
+  const selectedModels = gatewayKey?.models.filter((model) => model !== every) ?? []
+  const action = gatewayKey ? "Save changes" : "Create key"
+  const pending = create.isPending || update.isPending
 
   const form = useForm({
     defaultValues: {
-      name: "",
-      scope: "every" as "every" | "some",
-      models: [] as string[],
-      endpoints: endpointKinds.map((kind) => kind.id),
+      name: gatewayKey?.name ?? "",
+      scope: (gatewayKey && !gatewayKey.models.includes(every) ? "some" : "every") as
+        | "every"
+        | "some",
+      models: selectedModels,
+      endpoints: gatewayKey?.endpoints ?? endpointKinds.map((kind) => kind.id),
     },
     validators: { onSubmit: keySchema },
-    onSubmit: ({ value }) =>
+    onSubmit: ({ value }) => {
+      const access = { name: value.name, models: value.scope === "every" ? [] : value.models }
+      if (gatewayKey) {
+        const sameEndpoints =
+          gatewayKey.endpoints.length === value.endpoints.length &&
+          gatewayKey.endpoints.every((kind) => value.endpoints.includes(kind))
+        update.mutate({
+          path: { key_id: gatewayKey.id },
+          body: { ...access, ...(!sameEndpoints && { endpoints: value.endpoints }) },
+        })
+        return
+      }
       create.mutate({
         body: {
-          name: value.name,
-          models: value.scope === "every" ? [] : value.models,
+          ...access,
           // Every kind is sent as none named, so that a kind added later is given too.
           ...(value.endpoints.length < endpointKinds.length && { endpoints: value.endpoints }),
         },
-      }),
+      })
+    },
   })
 
   function change(next: boolean) {
@@ -525,6 +624,7 @@ function CreateKey() {
       setMade(null)
       form.reset()
       create.reset()
+      update.reset()
     }
   }
 
@@ -532,10 +632,21 @@ function CreateKey() {
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger
         render={
-          <Button>
-            <Plus data-icon="inline-start" />
-            Create key
-          </Button>
+          gatewayKey ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Edit ${gatewayKey.name}`}
+              title="Edit key"
+            >
+              <Pencil />
+            </Button>
+          ) : (
+            <Button>
+              <Plus data-icon="inline-start" />
+              Create key
+            </Button>
+          )
         }
       />
       <DialogContent>
@@ -544,7 +655,7 @@ function CreateKey() {
             <DialogHeader>
               <DialogTitle>Copy the key of {made.key.name}</DialogTitle>
               <DialogDescription>
-                Copy this key now and give it to the tool as its API key. It cannot be shown again.
+                Give this key to the tool as its API key. You can copy it again from the list.
               </DialogDescription>
             </DialogHeader>
             <InputGroup>
@@ -560,9 +671,13 @@ function CreateKey() {
         ) : (
           <>
             <DialogHeader>
-              <DialogTitle>New gateway key</DialogTitle>
+              <DialogTitle>
+                {gatewayKey ? `Edit ${gatewayKey.name}` : "New gateway key"}
+              </DialogTitle>
               <DialogDescription>
-                For one tool on one machine, so that it can be revoked alone.
+                {gatewayKey
+                  ? "Change what the key can do without replacing the value used by your tool."
+                  : "For one tool on one machine, so that it can be revoked alone."}
               </DialogDescription>
             </DialogHeader>
             <DialogPanel>
@@ -649,10 +764,10 @@ function CreateKey() {
                       {(field) => (
                         <FieldGroup data-slot="checkbox-group">
                           {endpointKinds.map((kind) => (
-                            <FieldLabel key={kind.id} htmlFor={`endpoint-${kind.id}`}>
+                            <FieldLabel key={kind.id} htmlFor={`${formId}-${kind.id}`}>
                               <Field orientation="horizontal">
                                 <Checkbox
-                                  id={`endpoint-${kind.id}`}
+                                  id={`${formId}-${kind.id}`}
                                   checked={field.state.value.includes(kind.id)}
                                   onCheckedChange={(checked) =>
                                     field.handleChange(
@@ -681,17 +796,17 @@ function CreateKey() {
                 </FieldGroup>
               </form>
             </DialogPanel>
-            <ErrorAlert error={create.error} />
+            <ErrorAlert error={create.error ?? update.error} />
             <DialogFooter>
               <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
               <Button
                 type="submit"
                 form={formId}
-                focusableWhenDisabled={create.isPending}
-                disabled={create.isPending}
+                focusableWhenDisabled={pending}
+                disabled={pending}
               >
-                {create.isPending && <Spinner data-icon="inline-start" />}
-                Create key
+                {pending && <Spinner data-icon="inline-start" />}
+                {action}
               </Button>
             </DialogFooter>
           </>

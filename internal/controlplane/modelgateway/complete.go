@@ -168,7 +168,7 @@ func (s *Service) MeetingsKey(ctx context.Context) (string, error) {
 		name = meetingsKeyName + "-" + strconv.Itoa(n)
 	}
 
-	k, _, err := s.AddKey(ctx, name, nil, []Endpoint{EndpointAudio})
+	k, _, err := s.addKey(ctx, name, []string{AllModels}, keyOwner{endpoints: []Endpoint{EndpointAudio}})
 	if err != nil {
 		return "", err
 	}

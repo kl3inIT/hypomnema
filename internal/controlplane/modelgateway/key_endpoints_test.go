@@ -44,6 +44,15 @@ func TestAKeyUsesOnlyTheKindsItWasGiven(t *testing.T) {
 
 	status, _, body = g.post(t, "/v1/web/fetch", g.key, `{"url":"`+page.URL+`"}`)
 	assert.Equal(t, http.StatusOK, status, body)
+
+	_, err = g.svc.UpdateKey(t.Context(), searcher.ID, modelgateway.KeyUpdate{
+		Endpoints: []modelgateway.Endpoint{modelgateway.EndpointFetch},
+	})
+	require.NoError(t, err)
+	status, _, body = g.post(t, "/v1/web/fetch", searchKey, `{"url":"`+page.URL+`"}`)
+	assert.Equal(t, http.StatusOK, status, body)
+	status, _, body = g.post(t, "/v1/search", searchKey, `{"query":"hypomnema"}`)
+	assert.Equal(t, http.StatusForbidden, status, body)
 }
 
 // Scenario: a key's kinds are kept once each in one order however they were
