@@ -780,6 +780,58 @@ var commands = []command{
 		flags:   jsonFlag, run: takesDelete,
 	},
 	{
+		name: "videos list", summary: "the videos made of takes, the newest first, with their revisions (owner)",
+		flags: jsonFlag, run: videosList,
+	},
+	{
+		name: "videos get", args: "<video_id>", min: 1, max: 1,
+		summary: "a video with each revision's state, voice and note, and the latest one's lines (owner)",
+		flags:   jsonFlag, run: videosGet,
+	},
+	{
+		name: "videos make", args: "<take_id>", min: 1, max: 1,
+		summary: "make an available take into a video, or a new revision of its video, made in the background (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("title", "", "the video's title on its first make (default the take's)")
+			fs.String("aspect", "", "9:16 or 16:9 (default 9:16)")
+			fs.Bool("no-captions", false, "make it without captions")
+			fs.String("voice", "", "the voice to speak with (default each provider's, from `audio voice`)")
+			fs.String("key", "", "idempotency key; repeat a make whose result was lost with the same key")
+			jsonFlag(fs)
+		},
+		run: videosMake,
+	},
+	{
+		name: "videos request-changes", args: "<video_id> <rev>", min: 2, max: 2,
+		summary: "ask for changes to a revision in review: a note for the agent, edited lines queue a new revision (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("note", "", "what to change, for the agent")
+			fs.String("lines-file", "", "each scene's line, one a line, from this file or - for standard input")
+			fs.String("key", "", "idempotency key; repeat a request whose result was lost with the same key")
+			jsonFlag(fs)
+		},
+		run: videosRequestChanges,
+	},
+	{
+		name: "videos approve", args: "<video_id> <rev>", min: 2, max: 2,
+		summary: "approve a revision in review; the one approved before goes back to review (owner)",
+		flags:   jsonFlag, run: videosApprove,
+	},
+	{
+		name: "videos delete", args: "<video_id>", min: 1, max: 1,
+		summary: "delete a video, its revisions and their files; refused while one is being made (owner)",
+		flags:   jsonFlag, run: videosDelete,
+	},
+	{
+		name: "videos download", args: "<video_id> <rev>", min: 2, max: 2,
+		summary: "save a made revision's MP4 (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("out", "", "the file to write (default <video_id>-r<rev>.mp4)")
+			jsonFlag(fs)
+		},
+		run: videosDownload,
+	},
+	{
 		name:    "device status",
 		summary: "the nodes that hold an Android phone: each phone's state and what is installed (owner)",
 		flags:   jsonFlag, run: deviceStatus,
@@ -902,6 +954,11 @@ var commands = []command{
 		name: "audio order", args: "stt|tts <provider> <provider>", min: 3, max: 3,
 		summary: "the order speech-to-text (stt) or text-to-speech (tts) asks the providers in, each named once (owner)",
 		flags:   jsonFlag, run: audioOrder,
+	},
+	{
+		name: "audio voice", args: "<provider> [voice]", min: 1, max: 2,
+		summary: "the voice a provider speaks videos with when none is asked; none: its own default (owner)",
+		flags:   jsonFlag, run: audioVoice,
 	},
 	{
 		name: "audio keys add", args: "<provider>", min: 1, max: 1,

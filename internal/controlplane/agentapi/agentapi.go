@@ -128,7 +128,8 @@ type Server struct {
 	// device is the phone a node holds (issue #417); nil when the control plane gave none.
 	device Device
 	// exec runs agents' commands on the nodes' machines (issue #543, nodes.go); nil when the control plane gave none.
-	exec *nodeExec
+	exec   *nodeExec
+	videos *videoTools
 	// relay sends Superset's tools' requests through the service proxy (issue #536); nil when the control
 	// plane gave none.
 	relay Relay
