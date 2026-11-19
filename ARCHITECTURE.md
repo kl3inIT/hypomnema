@@ -867,6 +867,30 @@ sequenceDiagram
     pause, the steps and chapters (autodemo's rule) seek, and it downloads and deletes (`web/src/features/takes`).
     A seek into a segment's still tail lands just before its last frame (`last_frame_ms`), as Chromium does not
     seek into a file's last sample.
+  - Making a video of a take (issue #818, part 1 of 3: the compose core; the revisions, runner, voice, captions,
+    access and Studio are parts 2 and 3, and nothing calls the core yet). The control plane installs a pinned
+    static ffmpeg and ffprobe (`internal/controlplane/videos/ffmpeg`, BtbN/FFmpeg-Builds' GPL build n9.0.2 for
+    linux/amd64 and linux/arm64, as a node installs scrcpy-server): at start, in the background, unless
+    `HYPOMNEMA_FFMPEG=0`, into `ffmpeg/` beside the database, the file's size and SHA-256 checked, ffmpeg, ffprobe
+    and the license taken out into `<version>.tmp`, run there (`-filters` has `freezedetect`, `subtitles` and `ass`,
+    `-encoders` `libx264` and `aac`), then renamed into `<version>/` and named by `current`; the build `current`
+    named before stays in use until the new one passes, and is removed then. A failed install is logged and tried
+    again at the next use. The programs are called by these absolute paths, never through PATH, and Be Vietnam Pro
+    SemiBold (OFL, embedded; `third_party/be-vietnam-pro`) is written to `ffmpeg/fonts/` for the captions.
+    `internal/controlplane/videos/compose` is aidemo's compose ported to Go (MIT, `third_party/aidemo`): a take's
+    scenes are its steps, steps at the same time one scene, each from its step to the next (the last to the take's
+    end), the first from the take's start with the span before its step a lead-in cut as an idle span; a take with
+    no steps is refused. Motionless spans are what `freezedetect` finds in each segment (1.5 s, noise 0.003) and
+    the still tail after a segment's `last_frame_ms`; a scene's spans, clipped to it but for its first and last
+    300 ms and the 600 ms after its tap, are cut to their first 400 ms. The kept footage, cut from every segment it
+    overlaps and scaled to 720×1280 (9:16) or 1280×720 (16:9) with "contain", is retimed to the scene's voice and
+    300 ms within 0.5x-1.6x, its last frame held when still short and its tail trimmed when still long; a scene
+    over a segment `freezedetect` fails on is kept whole, with a warning. A tap's ring, autodemo's ripple (MIT,
+    `third_party/autodemo`), is drawn for 0.5 s from the tap's step, its point scaled from the screen's pixels
+    to the video's; each scene's voice is padded to its scene's length, captions (an ASS file) burned in when
+    given, and the MP4 (H.264, AAC, 30 fps) written in a work folder and renamed into place whole. Its tests make
+    a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
+    scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1431,7 +1455,8 @@ flowchart LR
     requirements fail whatever its allowlists say: a worker has the Integrations of its Run's Connections (read when
     the Dispatch is made); a Bot those of which it may use a Connection now (switched on for chats and on its list,
     the owner's own sign-in among them, read as `hypomnema-pi` syncs its skills when pi starts for a
-    chat); both have the phone while a node holds one.
+    chat); either has the phone only while a node holds one and its effective tools include the phone family.
+    A worker's offer uses the same check, including for nodes that still write their own guide.
   - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
     OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
     the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
@@ -1455,7 +1480,7 @@ flowchart LR
     every skill that requires something (each offered skill carries its `requires`), so that its worker gets each
     guide once, from the node, until the node takes the release that leaves them to the store. The control plane
     keeps what each node said in memory, as it keeps the phones' states: a node says hello before each socket.
-  - Tools are switched the same way, `tools` and `tools_off` beside the skills (see "Tool switches" under "An
+  - Tools use a preset and exceptions beside the skills (see "Tool switches" under "An
     agent's tools").
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
     neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
@@ -1633,7 +1658,13 @@ flowchart LR
     commands stay for the owner.
   - Not built: a Routine on a node, a one-time Routine, a run started by an outside event, a Routine that feeds
     another, stopping a run by hand. A prompt run's chat is listed among the chats like any other.
-- Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
+- Role routing (issue #661): the `implementer`, `planner`, `explorer` and `reviewer` profiles can omit runtime and
+  model. Every Task has a `kind` (`broad` by default, `narrow` or `quick`). The scheduler selects a role/kind chain,
+  filters the review author's vendor, and snapshots its selected entry and chain into the Dispatch. Follow-ups
+  keep their entry; cooling accounts can trigger a handoff to a later entry on the same node and worktree.
+  All entries share their role's profile version and memory. See [role routing](docs/role-routing.md) for the
+  mapping, owner commands, metrics and migration path for existing profiles and Bots.
+- Legacy profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
@@ -1780,7 +1811,7 @@ flowchart LR
   every machine that can run it is busy"). The API's Node has `max_dispatches` (left out for none), `reserved`,
   `allocatable` and `requested`; the Machines page shows the cap beside the running count and what is requested of
   the allocatable on a machine's card (a column the table hides until shown). A profile's builder edits its requests.
-  A new Task whose profile's runtime has only accounts that cool down is placed, in the same pass, under the first
+  A new Task with a legacy profile whose runtime has only accounts that cool down is placed under the first
   of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
   current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
   only one that names no runtime or model of its own; a backup's own `fallbacks` are not followed; with none that
@@ -3806,29 +3837,31 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web`, `hypomnema image` and `hypomnema audio` are.
 
-Tool switches (issue #536, step 7; #492, row 10; `internal/shared/agenttool/switches.go`, migration 00091): a
-profile's YAML and a Bot narrow the table above with two lists beside their skills, `tools: [...]` (only these;
-empty or left out, every tool the agent kind gets) and `tools_off: [...]` (never these; it wins), as OpenClaw's
-agent has `tools.allow` and `tools.deny` (`docs/gateway/config-tools/tool-policy.md`) and OpenMausBot's bot an Allow
-and an Exclude list (`docs/tool-selection.md`).
+Tool switches (issue #875, [research](docs/research/2026-11-18-tool-presets.md), `internal/shared/agenttool/switches.go`):
+a profile version and a Bot use `preset: full` by default (every family except phone) or `preset: report` (memory,
+artifacts, routines, web and Superset), then `tools` adds and `tools_off` removes; removal wins. A preset or addition
+does not give an agent a tool its kind cannot have or a Connection it cannot use. The migration converts the old
+allowlists to exceptions to `full` so existing access stays the same; unused bootstrap settings start at the default.
 
-- An entry is a tool's name or a family, the start of a name and one `*` at the end (`agent_browser_*`,
+- An entry is a tool name, a family name (`phone`), or the start of a name and one `*` at the end (`agent_browser_*`,
   `superset_*`, `whatsapp_*`, `device_*`, `web_*`, `node_*`; `*` alone is every tool), after OpenClaw's `*` wildcards and
   OpenMausBot's whole-server `mcp:mail:*`; a `*` elsewhere is refused. Each must name at least one of the control
-  plane's tools and be named once, in one list, or the profile or Bot is refused (`400`), as an unknown skill is.
+  plane's tools and appear once at most per list, or the profile or Bot is refused (`400`).
   `GET /v1/tools` lists the families and their names (`agenttool.ToolFamilies`).
 - Enforced where the tools are listed and again on every call: `/agent/v1/tools` and `/agent/v1/tools/call`, and
   the older routes (browser, phone, gateway, `/agent/v1/memory`). A tool switched off is left out of the list and its
   call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
-  gateway. A worker's switches are its Dispatch's profile version's, read at each call (a new version reaches the
-  next Dispatch, as skills do); a Bot's pi's are its Bot's, read at each call, so a change reaches a running pi at
-  its next call. The owner's token, the coordinator token and a Routine's script have no switches (no MCP).
+  gateway. A worker uses its Dispatch's profile version, capped by the current Bot's policy if the Bot created
+  its Run. An owner Run keeps the profile's policy. A Bot's policy is read at each request, so taking a tool away
+  reaches its running pi and workers at their next call. The owner's token, the coordinator token and a Routine's
+  script have no switches (no MCP).
 - Only Hypomnema's own tools: a CLI's built-in tools (Claude Code's Bash, Codex's shell, the node's `ask` and
   `finish`) are not switched here.
-- Set with `profiles apply` (YAML), `bots set --tools a,b --tools-off c` (a change that names neither keeps them),
-  the main Bot from its chat (recorded and undone as its other changes), and the web's agent and Bot forms: a row per
-  family with a switch, which writes the family in `tools_off`; a list of only some tools or a single tool off is
-  set in the YAML or the CLI, shown under the rows and kept on save.
+- Set with `profiles apply` (YAML), `bots set --preset report --tools phone --tools-off web_fetch`, or the web's
+  profile and Bot forms. A Bot update that leaves out a setting keeps it. The detail API and the forms show saved
+  state per family and tool (`off`, `on` when a Run must supply something, `unavailable`, or `available`), its
+  reason and source, and which skill requirements are missing. A profile's view does not assume any Run or Bot;
+  its editable YAML uses the effective migrated settings without rewriting the original stored source.
 
 Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `internal/node/nodeexec`; issue #543,
 [research](docs/research/2026-11-15-agent-runs-commands-on-a-node.md)), as OpenClaw's `exec` on a node, Omnara's
@@ -4206,9 +4239,10 @@ The owner's commands:
   and "lone subagent lossy handoff", Coder's subagent catalog); a question that changes nothing goes to a profile
   that reads and reports; a Task that needs an earlier one's findings gets that Task's report pasted word for word
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
-  follow-up to its worker, not a new Task; a pull request is reviewed, when the owner asks or has said so as a
-  standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
-  the spec only in the first round; findings that make a change incorrect are sent to the change's worker as a
+  follow-up to its worker, not a new Task. The `planner` researches in one session; the `reviewer` checks plans
+  before owner approval and `broad` or `narrow` changes from another vendor. A `quick` change needs green CI only.
+  A first PR review receives the pull request and spec, not the report or transcript. Findings that make a change
+  incorrect are sent to the change's worker as a
   follow-up without asking the owner (issue #871; owner, 2026-11-18), and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
@@ -5104,6 +5138,8 @@ internal/controlplane/serviceproxy  the one service proxy: an account's token ad
 internal/controlplane/skillssh  search of skills.sh and its audits, as the skills CLI does
 internal/controlplane/superset  Superset's API for agents: charts' data and the queries a chart runs
 internal/controlplane/vault  the vault: encrypted secrets and their versions, the keyring, rewrap
+internal/controlplane/videos/ffmpeg  the pinned ffmpeg and ffprobe videos are made with, installed at start, and the captions' font; installffmpeg/ installs it for CI
+internal/controlplane/videos/compose  a take made into one MP4: scenes, dead time cut, each scene fitted to its voice, taps' rings, 9:16 or 16:9 (aidemo's compose, ported)
 internal/controlplane/webui    serves the embedded web client
 internal/e2e               tests only: the control plane's node API with the node daemon
 internal/node             package node: configuration, CLI detection, init, check, run with the registry of runtimes, and the systemd unit

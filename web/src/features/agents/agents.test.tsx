@@ -57,6 +57,7 @@ const profile = (name: string, m: Partial<Profile> = {}): Profile => ({
   fallbacks: [],
   skills: [],
   skills_off: [],
+  preset: "full",
   tools: [],
   tools_off: [],
   source: `name: ${name}\ndescription: What ${name} is for.\nruntime: claude\n`,
@@ -278,8 +279,10 @@ test("a new agent is sent as YAML built from the fields", async () => {
   const create = await screen.findByRole("button", { name: "Create profile" })
   expect(create).toBeDisabled()
 
-  await user.type(screen.getByLabelText("Name"), "codex-implementer")
-  await user.type(screen.getByLabelText("Description"), "Makes a narrow change.")
+  await user.click(screen.getByLabelText("Name"))
+  await user.paste("codex-implementer")
+  await user.click(screen.getByLabelText("Description"))
+  await user.paste("Makes a narrow change.")
   await choose(user, screen.getByLabelText("Runs on"), "Codex")
   // The model is found by typing: words of its provider and its name, and Enter takes the first match.
   await user.click(screen.getByLabelText("Model"))
@@ -300,7 +303,8 @@ test("a new agent is sent as YAML built from the fields", async () => {
   await user.click(
     within(screen.getByRole("group", { name: "Effort" })).getByRole("button", { name: "High" }),
   )
-  await user.type(screen.getByLabelText("Instructions"), "Keep the change small.")
+  await user.click(screen.getByLabelText("Instructions"))
+  await user.paste("Keep the change small.")
   await user.click(create)
 
   await screen.findByRole("heading", { name: "codex-implementer" })
@@ -575,6 +579,7 @@ const draft = (m: Partial<Draft>): Draft => ({
   fallbacks: [],
   skills: [],
   skillsOff: [],
+  preset: "full",
   tools: [],
   toolsOff: [],
   cpu: "",

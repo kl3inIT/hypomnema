@@ -370,12 +370,17 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 		if nt.Profile == "" {
 			nt.Profile = DefaultProfile
 		}
+		nt.Kind = or(nt.Kind, "broad")
 
 		if err := validNewTask(nt, byRef); err != nil {
 			return nil, err
 		}
 
-		if err := checkTaskProfile(ctx, q, nt); err != nil {
+		vendor, err := taskAuthor(ctx, q, run, nt)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkTaskProfile(ctx, q, nt, vendor); err != nil {
 			return nil, err
 		}
 
@@ -389,6 +394,7 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 
 		if err := q.InsertTask(ctx, store.InsertTaskParams{
 			ID: id, RunID: runID, Position: position + int64(i), Profile: nt.Profile, Spec: nt.Spec,
+			Kind: nt.Kind, AuthorVendor: vendor,
 			Runtime: nullString(nt.Runtime), Model: nullString(nt.Model), Effort: nullString(nt.Effort),
 			Status: string(st), BlockedReason: nullString(string(reason)), Now: now,
 		}); err != nil {
@@ -418,6 +424,8 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 
 func validNewTask(nt NewTask, byRef map[string]string) error {
 	switch {
+	case !validTaskKind(nt.Kind):
+		return fmt.Errorf("%w: task kind must be broad, narrow or quick", ErrInvalid)
 	case nt.Ref == "":
 		return fmt.Errorf("%w: a task needs a ref", ErrInvalid)
 	case byRef[nt.Ref] != "":
@@ -893,6 +901,7 @@ func runFromRow(r store.Run) Run {
 func taskFromRow(t store.Task) Task {
 	return Task{
 		ID: t.ID, RunID: t.RunID, Position: int(t.Position), Profile: t.Profile, Spec: t.Spec,
+		Kind:    t.Kind,
 		Runtime: t.Runtime.String, Model: t.Model.String, Effort: t.Effort.String,
 		Status: TaskStatus(t.Status), BlockedReason: BlockedReason(t.BlockedReason.String),
 		FailureCount: int(t.FailureCount), Result: t.Result.String,

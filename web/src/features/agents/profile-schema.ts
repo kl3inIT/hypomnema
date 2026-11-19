@@ -8,7 +8,7 @@ export const profileSchema = {
   title: "Hypomnema profile",
   type: "object",
   additionalProperties: false,
-  required: ["name", "description", "runtime"],
+  required: ["name", "description"],
   properties: {
     name: {
       type: "string",
@@ -38,6 +38,22 @@ export const profileSchema = {
     instruction: {
       type: "string",
       description: "Added after the rules every worker gets, which it may not override.",
+    },
+    preset: {
+      enum: ["full", "report"],
+      description: "Tool families to start from. Full (default) excludes the phone.",
+    },
+    tools: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string" },
+      description: "Additional tool or family names on top of the preset.",
+    },
+    tools_off: {
+      type: "array",
+      uniqueItems: true,
+      items: { type: "string" },
+      description: "Tools or families to remove. These win over additions.",
     },
     fallbacks: {
       type: "array",

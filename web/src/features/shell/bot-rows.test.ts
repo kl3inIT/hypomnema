@@ -26,6 +26,7 @@ const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
   fallbacks: [],
   skills: [],
   skills_off: [],
+  preset: "full",
   tools: [],
   tools_off: [],
   connections: { limited: false, names: [] },

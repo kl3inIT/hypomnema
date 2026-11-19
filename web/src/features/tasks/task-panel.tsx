@@ -127,6 +127,7 @@ function PanelBody({ taskId }: { taskId: string }) {
             {card.node && <Chip>{card.node}</Chip>}
             {(dispatch?.model || task.model) && <Chip>{dispatch?.model || task.model}</Chip>}
             <Chip>{task.profile}</Chip>
+            {task.kind && <Chip>{task.kind}</Chip>}
             {pr && (
               <a
                 href={pr.url}

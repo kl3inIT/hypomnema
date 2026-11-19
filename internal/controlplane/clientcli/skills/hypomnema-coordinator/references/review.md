@@ -1,8 +1,15 @@
 # Review
 
-How a pull request is reviewed by another worker. Whether to review is the owner's to say; this is how. The
-author's spec says "A review comes before the merge: do not turn on auto-merge.", so its worker leaves the pull
-request open for the review.
+<!-- Omnigent examples/polly/config.yaml:182-199; no reference for the quick exception (owner, 2026-11-18) -->
+`quick` work (for example a README rename) needs green CI and no worker review. `narrow` and `broad` work (for
+example a queue fix or a refactor) needs a reviewer from another vendor. The author's spec says "A review comes
+before the merge: do not turn on auto-merge." Hold the PR if no independent reviewer can run.
+
+<!-- oh-my-opencode packages/senpi-task/src/agents/builtin/plan-reviewer.ts:120-151; no reference for approval and copying specs (owner, 2026-11-18) -->
+Review a plan before showing it to the owner: use `profile: reviewer`, `kind: broad` and `review_of` set to the
+succeeded planner Task's id. For example, "Check whether this retry design is executable; verify the cited paths
+and the acceptance checks", followed by the plan verbatim. Ask the planner to address blockers. Once the owner
+approves, put the plan on the issue and pass it verbatim to the implementer.
 
 1. Start from a Task that succeeded with a pull request in its evidence (`hypomnema tasks show <task_id> --json`).
    Look at its checks first, read-only (`gh pr checks <url>`): while they are red there is nothing to review yet.
@@ -11,11 +18,9 @@ request open for the review.
    changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or
    does not answer, nothing waits for it: go on with the review. Workers and reviewers never ask it (owner,
    2026-11-17, issue #766).
-2. Check `hypomnema profiles list --json` and pick a reviewer from another vendor than the PR's author, as
-   Omnigent's Polly does (owner, 2026-11-18, issue #870). Use `reviewer` (GPT) for a Claude author and
-   `reviewer-claude` for a GPT author (including `implementer-codex`). For a DeepSeek author, use `reviewer`,
-   or `reviewer-claude` if it cannot run. Use `reviewer-deepseek` only when the chosen independent reviewer
-   cannot run and the author was not DeepSeek. If no independent reviewer can run, say so and hold the PR.
+<!-- Omnigent examples/polly/config.yaml:182-199; no reference for review_of (owner, 2026-11-18) -->
+2. Set `profile: reviewer`, `kind` to the work's kind and `review_of` to the succeeded author Task's id. Use
+   the same Run so the scheduler excludes the vendor that actually did the work. Never specify a model yourself.
 3. Create the review as a Task in the same Run:
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
