@@ -39,6 +39,7 @@ type AudioSettings interface {
 	AudioCounts(ctx context.Context, now time.Time) (map[string]map[string]modelgateway.AudioCount, error)
 	SetAudioProvider(ctx context.Context, provider string, on bool) error
 	SetAudioOrder(ctx context.Context, kind string, providers []string) error
+	SetAudioVoice(ctx context.Context, provider, voice string) error
 }
 
 // WithAudio gives the API the gateway's audio and its settings.
@@ -218,6 +219,25 @@ func (s *Server) SetAudioOrder(ctx context.Context, req openapi.SetAudioOrderReq
 	return openapi.SetAudioOrder200JSONResponse(out), nil
 }
 
+// SetAudioVoice keeps the voice a provider speaks a video with and answers the providers.
+func (s *Server) SetAudioVoice(ctx context.Context, req openapi.SetAudioVoiceRequestObject,
+) (openapi.SetAudioVoiceResponseObject, error) {
+	if s.audioSettings == nil {
+		return nil, errNoAudio
+	}
+
+	if err := s.audioSettings.SetAudioVoice(ctx, string(req.Provider), req.Body.Voice); err != nil {
+		return nil, gatewayKeyError(err)
+	}
+
+	out, err := s.audioProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.SetAudioVoice200JSONResponse(out), nil
+}
+
 // AddAudioKey keeps one more key of a provider in the vault, under the lowest
 // free name. The key is not logged and is not in the answer.
 func (s *Server) AddAudioKey(ctx context.Context, req openapi.AddAudioKeyRequestObject,
@@ -327,6 +347,10 @@ func (s *Server) audioProviders(ctx context.Context) (openapi.Audio, error) {
 			}
 
 			link.Keys = append(link.Keys, key)
+		}
+
+		if v := set.Voices[l.Provider]; v != "" {
+			link.Voice = ptr(v)
 		}
 
 		out.Providers = append(out.Providers, link)
