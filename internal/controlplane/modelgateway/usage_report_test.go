@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -91,6 +92,55 @@ func TestTheUsagePageCountsWhatTheGatewayServed(t *testing.T) {
 
 	_, err = g.svc.Usage(t.Context(), "1y", 0)
 	require.Error(t, err)
+}
+
+func TestCacheShareUsesOnlyMeasuredRequests(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int64
+	backend, _ := claudeBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 2 {
+			stream(
+				event(`{"type":"message_start","message":{"id":"msg_2",`+
+					`"usage":{"input_tokens":120,"cache_read_input_tokens":40}}}`),
+				claudeHello[2],
+				claudeHello[6],
+			)(w, r)
+
+			return
+		}
+
+		stream(claudeHello...)(w, r)
+	})
+	g := newClaudeGateway(t, backend, &accounts{})
+
+	status, _, body := g.send(t, "/v1/messages", claudeCodeAsk, claudeCodeHeaders(g.key)...)
+	require.Equal(t, http.StatusOK, status, body)
+
+	status, _, body = g.send(t, "/v1/messages", claudeCodeAsk, claudeCodeHeaders(g.key)...)
+	require.Equal(t, http.StatusOK, status, body)
+
+	for _, period := range []string{"24h", "90d", "12m"} {
+		report, err := g.svc.Usage(t.Context(), period, 0)
+		require.NoError(t, err, period)
+		require.Len(t, report.ByModel, 1)
+		require.Len(t, report.ByKey, 1)
+		require.Len(t, report.ByAccount, 1)
+
+		for _, counts := range []modelgateway.UsageCounts{
+			report.Totals, report.Buckets[len(report.Buckets)-1].UsageCounts,
+			report.ByModel[0].UsageCounts, report.ByKey[0].UsageCounts, report.ByAccount[0].UsageCounts,
+		} {
+			assert.Equal(t, int64(2), counts.Requests, period)
+			assert.Equal(t, int64(176), counts.Prompt, period)
+			assert.Equal(t, int64(1), counts.EstimatedRequests, period)
+			assert.Equal(t, int64(160), counts.EstimatedPrompt, period)
+			assert.Equal(t, int64(16), counts.MeasuredPrompt, period)
+			assert.Equal(t, int64(4), counts.Cached, period)
+			assert.Greater(t, counts.Completion, int64(7), period)
+			assert.Greater(t, counts.CostMicros, int64(94), period)
+		}
+	}
 }
 
 // Scenario: a request served by an API provider records no account.

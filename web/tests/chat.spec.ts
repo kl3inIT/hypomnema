@@ -138,7 +138,7 @@ type PageGlobal = { fetch: typeof fetch; streams: Streams }
 // above the composer and the questions their workers put to the owner. Finishing a Run or answering a question
 // takes it out of what the next read answers.
 type Work = {
-  runs: { id: string; status: string; tasks: object[]; usage?: object }[]
+  runs: { id: string; status: string; tasks: object[]; usage?: object; review_stall?: object }[]
   questions: Record<string, unknown>[]
   // The requests that wait for the owner's answer (GET /approvals); answering one takes it out.
   approvals?: Record<string, unknown>[]
@@ -732,6 +732,51 @@ test("a running Task's row says what it does, and Stop stops it", async ({ page 
 
 // Scenario: every Task of the chat's Run has ended. The owner presses Finish Run, is asked first, and the Run
 // finishes and leaves the dock.
+test("a completed review leaves the docked Run stalled", async ({ page }) => {
+  await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }), {
+    runs: [
+      {
+        ...openRun("run_1", run.objective, [
+          task("tsk_1", 1, "Review the /health PR", "succeeded"),
+        ]),
+        review_stall: {
+          task_id: "tsk_1",
+          pull_request: "https://github.com/owner/repo/pull/840",
+          verdict: "correct",
+          merge_state: "DIRTY",
+          mergeable: "CONFLICTING",
+          checks: "PASSING",
+          waiting_for_owner: false,
+        },
+      },
+      {
+        ...openRun("run_2", "Write the release notes", [
+          task("tsk_2", 3, "Review again", "succeeded"),
+        ]),
+        review_stall: {
+          task_id: "tsk_2",
+          pull_request: "https://github.com/owner/repo/pull/841",
+          verdict: "incorrect",
+          merge_state: "BLOCKED",
+          mergeable: "MERGEABLE",
+          checks: "PASSING",
+          waiting_for_owner: true,
+        },
+      },
+    ],
+    questions: [],
+  })
+  await open(page)
+  await write(page, state(false))
+
+  const docked = page.getByRole("list", { name: "Runs of this chat" })
+  await expect(
+    docked.getByRole("button", { name: /Stalled after review.*correct.*DIRTY/ }),
+  ).toBeVisible()
+  await expect(docked.getByRole("button", { name: /Waiting for you.*incorrect/ })).toBeVisible()
+  await shot(page, "chat-dock-review-stall")
+})
+
 test("Finish asks and finishes the docked Run", async ({ page }) => {
   const calls = await fakeServer(
     page,
@@ -1252,12 +1297,14 @@ test("tool calls shown off leave only the answers", async ({ page }) => {
 // what the chat sent, newest first, and ↓ goes back to the empty box.
 test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page }) => {
   await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }))
-  const other = { ...chat, id: "cht_2", title: "login page" }
-  // The other chat: listed beside this one, with no work of its own.
+  // The other chat: another Bot's main chat (issue #471), listed beside this one, with no work of its own.
+  const other = { ...chat, id: "cht_2", title: "login page", bot: "bot_reviewer" }
+  const reviewer = { ...builder, id: "bot_reviewer", main: false, name: "reviewer", position: 1 }
   await page.route(
     (url) =>
       url.pathname.startsWith("/api/v1/") &&
       (url.pathname === "/api/v1/chats" ||
+        url.pathname === "/api/v1/bots" ||
         url.pathname.startsWith(`/api/v1/chats/${other.id}`) ||
         url.searchParams.get("chat_id") === other.id),
     (route) => {
@@ -1265,24 +1312,30 @@ test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page }
       const body =
         path === "/chats"
           ? { data: [chat, other] }
-          : path === `/chats/${other.id}`
-            ? other
-            : { data: [] }
+          : path === "/bots"
+            ? {
+                data: [
+                  { ...builder, position: 0, main_chat: chat.id },
+                  { ...reviewer, main_chat: other.id },
+                ],
+              }
+            : path === `/chats/${other.id}`
+              ? other
+              : { data: [] }
 
       return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) })
     },
   )
-  // goTo opens a chat from the Bot's chats in the list, which a phone shows in the drawer behind ≡.
+  // goTo opens a Bot's main chat from its row in the list, which a phone shows in the drawer behind ≡.
   const goTo = async (title: string) => {
     await openMenu(page)
-    // The Bot's two chats are under it, shown with its toggle once the list is read.
-    const toggle = page
-      .getByRole("button", { name: /the chats of builder$/ })
+    const row = page
+      .getByRole("navigation", { name: "Bots" })
+      .getByRole("link", { name: title })
       .filter({ visible: true })
       .first()
-    await expect(toggle).toBeVisible()
-    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click()
-    await page.getByRole("link", { name: title }).filter({ visible: true }).first().click()
+    await expect(row).toBeVisible()
+    await row.click()
   }
 
   await open(page)

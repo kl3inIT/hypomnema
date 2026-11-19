@@ -26,6 +26,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/device"
+	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 	"github.com/kl3inIT/hypomnema/internal/node/nodeexec"
 	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
@@ -50,7 +51,8 @@ type Config struct {
 	// Token is the node's token, from `hypomnema nodes add`.
 	Token string `json:"token"`
 	// WorktreeRoot is where the node makes its worktrees.
-	WorktreeRoot string `json:"worktree_root"`
+	WorktreeRoot string           `json:"worktree_root"`
+	Disk         diskguard.Policy `json:"disk"`
 	// DisableAutoUpdate keeps the node at its version (Nezha's
 	// disable_auto_update). UpdateEveryMinutes sets how often it looks for a
 	// newer release (Nezha's self_update_period); zero is a random interval of
@@ -118,6 +120,9 @@ func Configure(home, rawURL, token, worktreeRoot, device string) error {
 	// An install over a node that is already there changes where it connects and with what, and nothing else:
 	// what the machine's owner set in its configuration stays, the worktree root too unless another is named.
 	old, oldErr := LoadConfig(home)
+	if oldErr != nil && !errors.Is(oldErr, os.ErrNotExist) {
+		return oldErr
+	}
 
 	if worktreeRoot == "" && oldErr == nil {
 		worktreeRoot = old.WorktreeRoot
@@ -139,7 +144,7 @@ func Configure(home, rawURL, token, worktreeRoot, device string) error {
 		return fmt.Errorf("restricting %s: %w", home, err)
 	}
 
-	cfg := Config{}
+	cfg := Config{Disk: diskguard.DefaultPolicy()}
 	if oldErr == nil {
 		cfg = old
 	}
@@ -173,6 +178,14 @@ func saveConfig(home string, cfg Config) error {
 
 // Run runs the daemon with the runtimes' workers until ctx ends.
 func Run(ctx context.Context, home string, logger *slog.Logger) error {
+	socketHome, err := filepath.Abs(home)
+	if err != nil {
+		return fmt.Errorf("resolving the configured node home: %w", err)
+	}
+	home, err = filepath.EvalSymlinks(socketHome)
+	if err != nil {
+		return fmt.Errorf("resolving the node home: %w", err)
+	}
 	cfg, err := LoadConfig(home)
 	if err != nil {
 		return err
@@ -264,17 +277,33 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	all := runners{
 		supervisor: &runner.Supervisor{
-			Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
+			Home: home, SocketHome: socketHome, Exe: exe, URL: cfg.URL, Logger: logger,
+			Worktrees: worktree.Maker{Root: home, Logger: logger},
 		},
 		byRuntime: byRuntime, transcripts: transcripts, skills: skills.Cache{
 			Home: home, URL: cfg.URL, Token: cfg.Token, Client: &http.Client{Timeout: 5 * time.Minute},
 		},
 	}
 
+	userHome, _ := os.UserHomeDir()
+	caches := diskguard.Caches{
+		Policy: cfg.Disk, WorktreeRoot: cfg.WorktreeRoot, NodeHome: home, UserHome: userHome,
+		WorkerPath: runner.Path, Logger: logger,
+	}
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
-		System:      DetectSystem(ctx, cfg.WorktreeRoot),
-		Stats:       func(ctx context.Context) *nodeproto.SystemStats { return MeasureSystem(ctx, cfg.WorktreeRoot) },
+		System:    DetectSystem(ctx, cfg.WorktreeRoot),
+		Stats:     func(ctx context.Context) *nodeproto.SystemStats { return MeasureSystem(ctx, cfg.WorktreeRoot) },
+		DiskFloor: cfg.Disk.FloorBytes,
+		Disk: func(ctx context.Context) nodeproto.DiskSpace {
+			sample, _ := cfg.Disk.Measure(ctx, cfg.WorktreeRoot)
+			return sample
+		},
+		Maintenance: &daemon.Maintenance{
+			NodeHome: home, Binary: exe,
+			ShimRoot: filepath.Join(home, "run"), Stopped: all.supervisor.Stopped,
+			CleanTemp: all.supervisor.CleanTemp, CleanWorktree: all.supervisor.Worktrees.Clean, TrimCaches: caches.Trim,
+		},
 		Reach:       ReachHost,
 		InstallTool: agenttool.ToolInstaller{Home: home}.Install,
 		FindRuntimes: func(ctx context.Context, tools []nodeproto.ToolState) []nodeproto.RuntimeInfo {
@@ -359,13 +388,16 @@ func LoadConfig(home string) (Config, error) {
 		return Config{}, fmt.Errorf("reading the configuration (run `hypomnema-node init` first): %w", err)
 	}
 
-	var cfg Config
+	cfg := Config{Disk: diskguard.DefaultPolicy()}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return Config{}, fmt.Errorf("decoding %s: %w", configPath(home), err)
 	}
 
 	if cfg.URL == "" || cfg.Token == "" || cfg.WorktreeRoot == "" {
 		return Config{}, fmt.Errorf("%s needs url, token and worktree_root", configPath(home))
+	}
+	if err := cfg.Disk.Validate(); err != nil {
+		return Config{}, fmt.Errorf("%s: %w", configPath(home), err)
 	}
 
 	return cfg, nil

@@ -25,11 +25,13 @@ require (
 	github.com/ulikunitz/xz v0.5.15
 	github.com/vektah/gqlparser/v2 v2.5.27
 	github.com/xuri/excelize/v2 v2.11.1
+	github.com/yuin/goldmark v1.8.2
 	go.mau.fi/libsignal v0.2.2
 	go.mau.fi/whatsmeow v0.0.0-20261113220833-ecc39170bc14
 	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/crypto v0.59.0
 	golang.org/x/sync v0.25.0
+	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.48.0
 	golang.org/x/text v0.44.0
 	google.golang.org/protobuf v1.36.12
@@ -85,7 +87,6 @@ require (
 	go.yaml.in/yaml/v4 v4.0.0 // indirect
 	golang.org/x/exp v0.0.0-20261109185158-a52e3aef5920 // indirect
 	golang.org/x/net v0.62.0 // indirect
-	golang.org/x/sys v0.50.0 // indirect
 	modernc.org/libc v1.80.2 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect

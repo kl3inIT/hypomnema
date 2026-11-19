@@ -27,6 +27,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	shippedrelease "github.com/kl3inIT/hypomnema/internal/shared/release"
+	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
 const writeTimeout = 10 * time.Second
@@ -54,7 +55,7 @@ type Server struct {
 	// runtimeTools are the agent CLIs a node of a system is told to have (issue #107).
 	runtimeTools func(os, arch string) []nodeproto.Tool
 
-	// phoneHeld says whether a node holds the phone every worker is given (issue #417); nil when the control
+	// phoneHeld says whether a node holds a phone allowed workers are given; nil when the control
 	// plane wired none.
 	phoneHeld func(ctx context.Context) bool
 
@@ -284,6 +285,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hello := orchestration.Hello{
+		DiskPolicy:   req.DiskPolicy,
 		WorktreeRoot: req.WorktreeRoot, Terminal: req.Terminal, Device: req.Device, KVM: req.KVM,
 		Held: req.Held, ListsHeld: req.ListsHeld,
 		System: orchestration.SystemInfo{
@@ -584,9 +586,14 @@ func (c *session) push(ctx context.Context) error {
 			}
 		}
 
-		// And whether a phone is there to be used (issue #417): the worker is then told of its tools.
 		if c.srv.phoneHeld != nil && o.AgentKey != "" && c.srv.phoneHeld(ctx) {
-			o.Device = nodeproto.DeviceAndroid
+			switches, err := c.srv.svc.ToolSwitchesOfDispatch(ctx, o.DispatchID)
+			if err != nil {
+				c.srv.logger.WarnContext(ctx, "reading phone access",
+					slog.String("dispatch", o.DispatchID), slog.String("error", err.Error()))
+			} else if switches.AllowsFamily("phone") {
+				o.Device = nodeproto.DeviceAndroid
+			}
 		}
 
 		// And the names of the tools it gets, read with that key as its tools server will be, for the "Tools" block
@@ -596,6 +603,12 @@ func (c *session) push(ctx context.Context) error {
 		}
 
 		o.Skills = c.srv.skillsFor(c.nodeID, o.Skills)
+		if o.Device == "" {
+			android := skillpack.Requirement(skillpack.RequiresDevice, nodeproto.DeviceAndroid)
+			o.Skills = slices.DeleteFunc(slices.Clone(o.Skills), func(sk nodeproto.Skill) bool {
+				return slices.Contains(sk.Requires, android)
+			})
+		}
 
 		if err := c.send(ctx, nodeproto.TypeOffer, nodeproto.Offer(o)); err != nil {
 			return err
@@ -685,6 +698,12 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 		err = c.srv.svc.NodeTools(ctx, c.nodeID, tools)
 	}
 
+	if hb.Disk != nil {
+		if diskErr := c.srv.svc.NodeDisk(ctx, c.nodeID, *hb.Disk); diskErr != nil {
+			err = errors.Join(err, diskErr)
+		}
+	}
+
 	if err == nil && hb.Stats != nil {
 		err = c.srv.svc.NodeStats(ctx, c.nodeID, orchestration.SystemStats{
 			CPUPercent: hb.Stats.CPUPercent, MemoryUsedBytes: hb.Stats.MemoryUsedBytes,
@@ -722,6 +741,25 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 		}
 
 		return c.send(ctx, nodeproto.TypeReportAck, c.srv.apply(ctx, c.nodeID, r))
+	case nodeproto.TypeCleanupCheck:
+		if err := c.srv.svc.CheckNodeToken(ctx, c.tokenID); err != nil {
+			return err
+		}
+
+		var check nodeproto.CleanupCheck
+		err := json.Unmarshal(msg.Payload, &check)
+		if err != nil || check.ID == "" || len(check.Paths) > nodeproto.CleanupBatchSize {
+			return c.send(ctx, nodeproto.TypeError, nodeproto.Error{
+				Code: nodeproto.ErrorInvalid, Message: "invalid cleanup check",
+			})
+		}
+
+		worktrees, protected, err := c.srv.svc.CheckWorktreeCleanupWithProtection(ctx, c.nodeID, check.Paths)
+		if err != nil {
+			c.srv.logger.WarnContext(ctx, "could not check worktree cleanup", slog.Any("error", err))
+			return c.send(ctx, nodeproto.TypeCleanupAck, nodeproto.CleanupAck{ID: check.ID})
+		}
+		return c.send(ctx, nodeproto.TypeCleanupAck, cleanupReply(check.ID, worktrees, protected))
 	case nodeproto.TypeItems:
 		var b nodeproto.Items
 		if err := json.Unmarshal(msg.Payload, &b); err != nil || b.DispatchID == "" {
@@ -737,6 +775,18 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 		return c.send(ctx, nodeproto.TypeError,
 			nodeproto.Error{Code: nodeproto.ErrorInvalid, Message: "unexpected message " + string(msg.Type)})
 	}
+}
+
+func cleanupReply(id string, worktrees []nodeproto.CleanupWorktree, protected []string) nodeproto.CleanupAck {
+	ack := nodeproto.CleanupAck{ID: id, Worktrees: worktrees, Protected: &protected}
+	msg, err := nodeproto.Encode(nodeproto.TypeCleanupAck, ack)
+	if err != nil {
+		return nodeproto.CleanupAck{ID: id}
+	}
+	if len(msg.Payload) >= nodeproto.MaxMessageBytes-1024 {
+		return nodeproto.CleanupAck{ID: id, Split: true}
+	}
+	return ack
 }
 
 // gpusOf is a heartbeat's GPUs as the registry keeps them.

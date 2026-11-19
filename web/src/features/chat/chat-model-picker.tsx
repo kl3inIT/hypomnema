@@ -72,7 +72,7 @@ export function ChatModelControls({
   return (
     <>
       <ModelButton
-        bot={bot}
+        botName={own?.name ?? bot}
         botModel={own?.model ?? ""}
         model={now.model}
         chosen={keyOf(choice)}
@@ -98,7 +98,7 @@ export function ChatModelControls({
 }
 
 function ModelButton({
-  bot,
+  botName,
   botModel,
   model,
   chosen,
@@ -106,7 +106,8 @@ function ModelButton({
   disabled,
   onPick,
 }: {
-  bot: string
+  // botName is the Bot's name, said in the default row; its id only while the Bots load.
+  botName: string
   botModel: string
   // model is what the chat runs with, chosen the key of the chat's own ("" for the Bot's).
   model: string
@@ -117,7 +118,7 @@ function ModelButton({
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
-  const botsLabel = `${bot}'s model: ${modelName(botModel || defaultBotModel)}`
+  const botsLabel = `${botName}'s model: ${modelName(botModel || defaultBotModel)}`
   const groups = choices(models, chosen, botsLabel)
   const value = groups.flatMap((g) => g.items).find((c) => c.key === chosen) ?? null
   const name = model ? modelName(model) : "Default model"

@@ -2,19 +2,46 @@ import { expect, test, type Locator, type Page } from "@playwright/test"
 
 import { shot } from "./shot.js"
 
-// The grid of chats, built, against a fake client API. A grid is a desktop's: a phone shows one chat.
+// The grid of chats, built, against a fake client API. A grid is a desktop's: a phone shows one chat. Each chat is
+// the main chat of a Bot of its own, whose row in the sidebar carries it (issue #471).
+
+const botIds = ["coordinator", "reporter", "researcher", "writer", "tester"]
 
 const chats = ["health page", "login button", "slow setup", "quick question", "fifth"].map(
   (title, index) => ({
     id: `cht_${index + 1}`,
     title,
-    bot: "coordinator",
+    bot: botIds[index]!,
     working: index === 0,
     coordinator: true,
     created_at: "2026-11-09T10:00:00Z",
     updated_at: "2026-11-09T10:00:00Z",
   }),
 )
+
+const bots = botIds.map((id, index) => ({
+  id,
+  main: index === 0,
+  name: id,
+  position: index,
+  pinned: false,
+  main_chat: `cht_${index + 1}`,
+  persona: "",
+  memory: "",
+  memory_limit: 2200,
+  fallbacks: [],
+  skills: [],
+  skills_off: [],
+  tools: [],
+  tools_off: [],
+  connections: { limited: false, names: [] },
+  workers: { limited: false, names: [] },
+  scopes: {},
+  tool_display: "on",
+  guaranteed_dispatches: 4,
+  created_at: "2026-11-09T10:00:00Z",
+  updated_at: "2026-11-09T10:00:00Z",
+}))
 
 async function fakeServer(page: Page) {
   await page.addInitScript({ content: "localStorage.setItem('hypomnema.token', 'secret')" })
@@ -48,6 +75,8 @@ async function fakeServer(page: Page) {
         return json({ id: "tok_1", name: "web", kind: "owner" })
       case "/chats":
         return json({ data: chats })
+      case "/bots":
+        return json({ data: bots })
       case "/events/stream":
         return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
       case "/tasks":
@@ -58,9 +87,9 @@ async function fakeServer(page: Page) {
   })
 }
 
-// A chat's row in the sidebar, under its Bot's row, which the test opens.
+// The sidebar's row of the Bot whose main chat this is: it shows the chat's title and carries it (issue #471).
 const row = (page: Page, title: string) =>
-  page.getByRole("list", { name: "Chats of coordinator" }).getByRole("link", { name: title })
+  page.getByRole("navigation", { name: "Bots" }).getByRole("link", { name: title })
 const pane = (page: Page, title: string) => page.getByRole("region", { name: title })
 const panes = (page: Page) => page.getByRole("main", { name: "Grid of chats" }).getByRole("region")
 
@@ -77,14 +106,13 @@ test.beforeEach(({ page }, info) => {
   void page
 })
 
-// Scenario: the owner follows several chats at once. A chat dragged from the sidebar onto the open chat's right
+// Scenario: the owner follows several Bots at once. A Bot's main chat dragged from the sidebar onto the open chat's right
 // side makes a grid of the two; more are dropped on edges until there are four, and a fifth is not taken. The grid
 // is still there after a reload.
 test("chats are dragged from the sidebar into a grid of up to four", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/chats/cht_1")
   await expect(page.getByText("about the health page")).toBeVisible()
-  await page.getByRole("button", { name: "Show the chats of coordinator" }).click()
 
   await drag(page, row(page, "login button"), page.getByRole("main"), 0.97, 0.5)
   await expect(page.getByTestId("grid-ghost")).toBeVisible()

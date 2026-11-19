@@ -19,6 +19,7 @@ import (
 
 // Suggestion is a name offered for an unnamed voice, from the line it said it in.
 type Suggestion struct {
+	Track string
 	Label string
 	Name  string
 	Line  int
@@ -60,8 +61,8 @@ func suggest(lines []meetingstore.Line, speakers []meetingstore.Speaker, people 
 	unnamed := map[string]bool{}
 
 	for _, s := range speakers {
-		if s.Name == "" {
-			unnamed[s.Label] = true
+		if s.Name == "" && !s.Owner {
+			unnamed[s.Key()] = true
 		}
 	}
 
@@ -77,13 +78,14 @@ func suggest(lines []meetingstore.Line, speakers []meetingstore.Speaker, people 
 	found := map[string]bool{}
 
 	for _, l := range lines {
-		if !unnamed[l.Speaker] || found[l.Speaker] {
+		voice := meetingstore.VoiceKey(l.Track, l.Speaker)
+		if !unnamed[voice] || found[voice] {
 			continue
 		}
 
 		if n, ok := said(l.Text, expected); ok {
-			found[l.Speaker] = true
-			out = append(out, Suggestion{Label: l.Speaker, Name: n, Line: l.N})
+			found[voice] = true
+			out = append(out, Suggestion{Track: l.Track, Label: l.Speaker, Name: n, Line: l.N})
 		}
 	}
 

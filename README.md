@@ -40,7 +40,7 @@ To connect a Google account (Gmail, Calendar, Drive, Docs, Sheets), as Hermes' g
    a browser on any machine, sign in, and paste back the address the browser ends on (a page that does not load).
    A service alone may read and write; with `:read` it may only read.
 
-No agent uses an account until you say so. To let pi use it in chats, and give it to the Runs it starts:
+Bots and workers use only the accounts you give them. To let pi use it in chats, and give it to the Runs it starts:
 `hypomnema integrations chats google:work on` (or "Use in chats" on the account in Settings). To give it to a Run
 you start yourself: `hypomnema runs create --use google:work ...`. The agent calls Google with the `gws` command,
 which Hypomnema installs and signs in on every call. The agent never holds the account's token: each request passes
@@ -64,6 +64,45 @@ you answer on the card in the chat or the Task, or with `hypomnema approvals`, `
 To let your own agent (Claude Code, Codex or pi) coordinate workers, log in with a `coordinator` token and run
 `hypomnema skills install`. It installs the coordinator skill into `~/.claude/skills` and `~/.agents/skills`; then
 ask the agent to give the work to Hypomnema workers.
+
+### Using your tools and accounts locally
+
+Log in with your **owner** token and the control plane's HTTPS URL as above. The local MCP server reads
+`~/.hypomnema/client.json`; do not put the token in either client's MCP configuration. Add it from a workspace
+you trust, since this login can use all your Connections and installed tools:
+
+```sh
+claude mcp add hypomnema -- hypomnema mcp
+codex mcp add hypomnema -- hypomnema mcp
+```
+
+Scripts can use the same tools without an MCP client. `--json` lists their schemas or returns the full tool result;
+without it, the CLI prints names or text. A tool error returns a nonzero exit status.
+
+```sh
+hypomnema tools list --json
+printf '{}' | hypomnema tools call whatsapp_chats --args-file - --json
+hypomnema tools call superset_dashboards --args-file filters.json
+```
+
+Install each service CLI locally and put it on `PATH`. For [lark-cli](https://github.com/larksuite/cli) run
+`npm install -g @larksuite/cli`; for [gws](https://github.com/googleworkspace/cli) and [gh](https://cli.github.com/),
+follow their installation guides. No separate service login is needed. Name the Connection you set in Hypomnema:
+
+```sh
+hypomnema exec lark:me -- lark-cli im chats get --as user --chat-id <chat-id>
+hypomnema exec google:work -- gws drive files list
+hypomnema exec github.com:default -- gh api user
+```
+
+The Lark example uses a user Connection; use `--as bot` with an app Connection. `exec` sets a loopback proxy and
+its `SSL_CERT_FILE` for the subprocess; the service's real credential stays on the control plane. On Windows and
+macOS, allow the one-time OS prompt to trust the local Hypomnema service proxy CA for your user. To revoke it and
+delete its local signing keys, run `hypomnema exec remove-ca`. If `exec` reports that its service hosts changed or
+the certificate is expiring, run that command and retry to trust a replacement. Linux requires no installation.
+This is not a sandbox: run trusted commands that honor the HTTPS proxy. Tool switches and “Use in
+chats” do not limit your owner token. The Connection's action policies still apply, including approvals for
+sends. See `hypomnema approvals` and rerun the same command after approving a request that was held.
 
 ## The web client
 

@@ -105,10 +105,8 @@ func (s *Server) WithWeb(web Web) *Server {
 	return s
 }
 
-// gatewayTools are the gateway's tools an agent gets, each that this control
-// plane has: a worker's by its runtime, a Bot's pi's all of them; any other
-// agent (the owner's token, the coordinator token, a Routine's script) none,
-// having the CLI's `hypomnema web`, `hypomnema image` and `hypomnema audio`.
+// gatewayTools are the gateway's tools this control plane has: a worker's by its runtime, all for a Bot's pi
+// and the owner, none for the coordinator or a Routine script.
 func (s *Server) gatewayTools(ctx context.Context, a agent) []string {
 	if s.web == nil && s.images == nil && s.audio == nil && s.muse == nil {
 		return nil
@@ -128,12 +126,16 @@ func (s *Server) gatewayTools(ctx context.Context, a agent) []string {
 		}
 
 		named = toolsOf[runtime]
-	case a.chatID != "":
+	case a.owner || a.chatID != "":
 		named = botTools
 	default:
 		return nil
 	}
 
+	return s.configuredGatewayTools(ctx, named)
+}
+
+func (s *Server) configuredGatewayTools(ctx context.Context, named []string) []string {
 	var out []string
 
 	museOn := s.museOn(ctx)

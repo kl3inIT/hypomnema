@@ -127,6 +127,7 @@ function PanelBody({ taskId }: { taskId: string }) {
             {card.node && <Chip>{card.node}</Chip>}
             {(dispatch?.model || task.model) && <Chip>{dispatch?.model || task.model}</Chip>}
             <Chip>{task.profile}</Chip>
+            {task.kind && <Chip>{task.kind}</Chip>}
             {pr && (
               <a
                 href={pr.url}
@@ -244,6 +245,8 @@ function JumpToLatest() {
 
 function statusText(card: Card) {
   if (card.question) return "Waiting for you"
+  if (card.run.review_stall?.waiting_for_owner && card.run.review_stall.task_id === card.task.id)
+    return "Waiting for you"
   // A cancel asked for and not yet done: the chip says so, as the line under it does (issue #687).
   if (stopping(card.task)) return "Stopping"
 

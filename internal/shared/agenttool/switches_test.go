@@ -9,7 +9,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
 
-func TestToolSwitchesNarrowAndOffWins(t *testing.T) {
+func TestToolPresetsApplyExceptionsAndDenyWins(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -18,9 +18,13 @@ func TestToolSwitchesNarrowAndOffWins(t *testing.T) {
 		tool     string
 		allows   bool
 	}{
-		{"no switch gives every tool", ToolSwitches{}, ToolMemory, true},
-		{"a family keeps its tools", ToolSwitches{On: []string{"agent_browser_*"}}, "agent_browser_open", true},
-		{"a family keeps no other", ToolSwitches{On: []string{"agent_browser_*"}}, ToolMemory, false},
+		{"full is the default", ToolSwitches{}, ToolMemory, true},
+		{"full excludes phone", ToolSwitches{}, devicetool.Screen, false},
+		{"report includes web", ToolSwitches{Preset: PresetReport}, ToolWebSearch, true},
+		{"report excludes browser", ToolSwitches{Preset: PresetReport}, "agent_browser_open", false},
+		{"an exception adds browser", ToolSwitches{Preset: PresetReport, On: []string{"browser"}},
+			"agent_browser_open", true},
+		{"additions do not replace preset tools", ToolSwitches{On: []string{"browser"}}, ToolMemory, true},
 		{"a name keeps itself", ToolSwitches{On: []string{ToolMemory}}, ToolMemory, true},
 		{"off wins over on", ToolSwitches{On: []string{"web_*"}, Off: []string{ToolWebFetch}}, ToolWebFetch, false},
 		{"off by family", ToolSwitches{Off: []string{"superset_*"}}, ToolSupersetAPI, false},
@@ -41,19 +45,20 @@ func TestAToolSwitchNamesAToolOnce(t *testing.T) {
 
 	require.NoError(t, CheckToolSwitches([]string{"agent_browser_*", ToolMemory}, []string{"agent_browser_eval"}))
 	require.NoError(t, CheckToolSwitches(nil, nil))
+	require.NoError(t, CheckToolSwitches([]string{"phone"}, []string{"phone"}))
 
 	for _, bad := range [][2][]string{
-		{{"browser"}, nil},
+		{{"no-such-family"}, nil},
 		{nil, {"mail_*"}},
 		{{"agent_*_open"}, nil},
-		{{ToolMemory}, {ToolMemory}},
+		{{ToolMemory, ToolMemory}, nil},
 		{{""}, nil},
 	} {
 		err := CheckToolSwitches(bad[0], bad[1])
 		require.ErrorIs(t, err, ErrBadToolSwitch, bad)
 	}
 
-	err := CheckToolSwitches([]string{"browser"}, nil)
+	err := CheckToolSwitches([]string{"no-such-family"}, nil)
 	assert.ErrorContains(t, err, "agent_browser_*", "a refusal names the families")
 }
 
@@ -67,9 +72,16 @@ func TestThePhoneFamilyIsThePhonesTools(t *testing.T) {
 		offered = append(offered, tool.Name)
 	}
 
+	// video_make and video_get are the control plane's, served on its own tools route, apart from the phone
+	// (issue #818); the phone's switch names them too.
+	offered = append(offered, devicetool.VideoMake, devicetool.VideoGet)
+
 	phone := ToolFamilies[len(ToolFamilies)-1]
 	require.Equal(t, "phone", phone.Name)
 	assert.ElementsMatch(t, offered, phone.Tools)
+	assert.False(t, devicetool.Routed(devicetool.VideoMake), "a render is not the phone's")
+	assert.False(t, devicetool.Routed(devicetool.VideoGet))
+	assert.True(t, devicetool.Routed(devicetool.VideoStatus))
 }
 
 // The phone's switch is one: switching device_* off takes the video tools of
@@ -85,7 +97,7 @@ func TestThePhonesSwitchTakesItsVideoTools(t *testing.T) {
 	only := ToolSwitches{On: []string{devicetool.Prefix + "*"}}
 	assert.True(t, only.Allows(devicetool.VideoSay))
 
-	one := ToolSwitches{Off: []string{devicetool.VideoStart}}
+	one := ToolSwitches{On: []string{"phone"}, Off: []string{devicetool.VideoStart}}
 	assert.False(t, one.Allows(devicetool.VideoStart))
 	assert.True(t, one.Allows(devicetool.VideoSay))
 	require.NoError(t, CheckToolSwitches(nil, []string{devicetool.VideoStart}))

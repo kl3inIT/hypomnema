@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 )
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -47,7 +49,7 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 		t.Skip("git is not installed")
 	}
 
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	origin(t, filepath.Join(dir, "origin"))
 
 	m := Maker{Root: filepath.Join(dir, "node"), URL: filepath.ToSlash(filepath.Join(dir, "origin")) + "/%s"}
@@ -67,7 +69,10 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a continued Conversation")
 	assert.FileExists(t, filepath.Join(path, "login.go"))
 
-	require.NoError(t, m.Remove(t.Context(), repo, path))
+	if !diskguard.ScopeAvailable() {
+		t.Skip("Landlock is not available for the native command")
+	}
+	require.NoError(t, m.Clean(t.Context(), path, true, func() bool { return true }))
 	assert.NoDirExists(t, path)
 
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a retry")

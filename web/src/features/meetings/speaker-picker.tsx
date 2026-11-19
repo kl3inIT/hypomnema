@@ -15,7 +15,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { toast } from "@/components/ui/toast"
 import { ErrorAlert } from "@/components/error-alert"
 
-import { sameName } from "./meetings-state"
+import { sameName, sameVoice, voiceKey } from "./meetings-state"
 import { SpeakerBadge } from "./speaker-badge"
 import { useLineSpeaker, useNameSpeaker } from "./use-meetings"
 
@@ -45,7 +45,10 @@ export function SpeakerPicker({
   const forLine = useLineSpeaker(id)
   const forMeeting = useNameSpeaker(id)
   const speakers = meeting.meeting.speakers
-  const self = speakers.find((s) => s.label === line.speaker)
+  const voice = { track: line.track, label: line.speaker }
+  const self = speakers.find((s) => sameVoice(s, voice))
+  // The owner's own voice online is not renamed (issue #820); a line of it may still be given to someone.
+  const renamable = !self?.owner
   const current = self?.name ?? ""
   const pending = forLine.isPending || forMeeting.isPending
 
@@ -58,7 +61,7 @@ export function SpeakerPicker({
   }
 
   for (const s of meeting.suggestions) {
-    if (s.label !== line.speaker) continue
+    if (!sameVoice(s, voice)) continue
     const said = meeting.lines.find((l) => l.n === s.line)
     add(s.name, said ? `said it at line ${s.line}` : "said it")
   }
@@ -67,7 +70,8 @@ export function SpeakerPicker({
     if (!speakers.some((s) => sameName(s.name, person))) add(person, "in People")
   }
 
-  const others = speakers.filter((s) => s.label !== line.speaker)
+  // A line goes to a voice of its own track, and a voice merges with another of its track (issue #820).
+  const others = speakers.filter((s) => s.track === line.track && !sameVoice(s, voice))
 
   function choose(name: string) {
     const next = name.trim()
@@ -90,7 +94,11 @@ export function SpeakerPicker({
 
     if (scope === "meeting") {
       forMeeting.mutate(
-        { path: { meeting_id: id, label: line.speaker }, body: { name: next } },
+        {
+          path: { meeting_id: id, label: line.speaker },
+          query: { track: line.track },
+          body: { name: next },
+        },
         { onSuccess: done },
       )
     } else {
@@ -116,17 +124,19 @@ export function SpeakerPicker({
     >
       <PopoverTrigger render={children} />
       <PopoverContent align="start" aria-label={`Who said line ${line.n}`}>
-        <ToggleGroup
-          aria-label="Change for"
-          value={[scope]}
-          onValueChange={(next: string[]) => next[0] && setScope(next[0] as Scope)}
-          variant="outline"
-          size="sm"
-          spacing={0}
-        >
-          <ToggleGroupItem value="line">This line</ToggleGroupItem>
-          <ToggleGroupItem value="meeting">Whole meeting</ToggleGroupItem>
-        </ToggleGroup>
+        {renamable && (
+          <ToggleGroup
+            aria-label="Change for"
+            value={[scope]}
+            onValueChange={(next: string[]) => next[0] && setScope(next[0] as Scope)}
+            variant="outline"
+            size="sm"
+            spacing={0}
+          >
+            <ToggleGroupItem value="line">This line</ToggleGroupItem>
+            <ToggleGroupItem value="meeting">Whole meeting</ToggleGroupItem>
+          </ToggleGroup>
+        )}
         <Command loop>
           <CommandInput
             placeholder="A name…"
@@ -158,8 +168,12 @@ export function SpeakerPicker({
             {others.length > 0 && (
               <CommandGroup heading="In this meeting">
                 {others.map((s) => (
-                  <CommandItem key={`o:${s.label}`} value={s.name} onSelect={() => choose(s.name)}>
-                    <SpeakerBadge speakers={speakers} label={s.label} size="sm" />
+                  <CommandItem
+                    key={`o:${voiceKey(s)}`}
+                    value={s.name}
+                    onSelect={() => choose(s.name)}
+                  >
+                    <SpeakerBadge speakers={speakers} voice={s} size="sm" />
                     {s.name}
                     {scope === "meeting" && (
                       <span className="ms-auto text-xs text-muted-foreground">merges the two</span>

@@ -146,6 +146,10 @@ func (s *Server) GetAccountLimits(ctx context.Context, req openapi.GetAccountLim
 			out.Detail = &detail
 		}
 
+		if verify := (*subscription.VerificationError)(nil); errors.As(err, &verify) && verify.URL != "" {
+			out.VerificationUrl = &verify.URL
+		}
+
 		return openapi.GetAccountLimits200JSONResponse(out), nil
 	}
 
@@ -219,6 +223,8 @@ func limitsUnavailable(err error) (openapi.AccountLimitsUnavailable, string) {
 		return openapi.AccountLimitsUnavailableSignIn, ""
 	case errors.Is(err, subscription.ErrLimitsResting):
 		return openapi.AccountLimitsUnavailableResting, ""
+	case errors.As(err, new(*subscription.VerificationError)):
+		return openapi.AccountLimitsUnavailableVerification, err.Error()
 	default:
 		return openapi.AccountLimitsUnavailableFailed, err.Error()
 	}
@@ -371,6 +377,17 @@ func toAccount(a subscription.Account) openapi.Account {
 
 	if a.Plan != "" {
 		out.Plan = &a.Plan
+	}
+
+	if v := a.Verification; v != nil {
+		out.Verification = &openapi.AccountVerification{AskedAt: v.AskedAt, NextTryAt: v.RetryAt}
+		if v.URL != "" {
+			out.Verification.Url = &v.URL
+		}
+
+		if v.Message != "" {
+			out.Verification.Message = &v.Message
+		}
 	}
 
 	signIns := map[subscription.State]openapi.AccountSignIn{

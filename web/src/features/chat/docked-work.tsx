@@ -152,7 +152,13 @@ function DockedRun({
   const state = runState(run, asking)
   const Icon = icons[state.icon]
   const objective = firstLine(run.objective, 120)
-  const activity = newestActivity(run)
+  const review = run.review_stall
+  const activity = review
+    ? `Review: ${review.verdict} · ${review.merge_state} · Checks: ${review.checks.toLowerCase()}`
+    : newestActivity(run)
+  const findings = review?.waiting_for_owner
+    ? run.tasks.find((task) => task.id === review.task_id)?.result
+    : undefined
 
   return (
     <li
@@ -195,6 +201,12 @@ function DockedRun({
           )}
         </CollapsibleTrigger>
         <CollapsibleContent>
+          {findings && (
+            <details className="mx-3 mb-2 text-xs text-muted-foreground">
+              <summary className="cursor-pointer font-medium">Review findings</summary>
+              <p className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap">{findings}</p>
+            </details>
+          )}
           {run.tasks.length === 0 ? (
             <p className="px-3 pb-2 text-xs text-muted-foreground">No Tasks yet.</p>
           ) : (

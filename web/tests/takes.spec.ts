@@ -168,7 +168,31 @@ function serveSegment(route: Route, data: Buffer) {
   })
 }
 
+// The video made of the take in a pane (issue #818): queued, its lines the take's steps.
+const madeVideo = {
+  id: "vid_signin",
+  take: takeId,
+  title: "Sign in to the shop",
+  made_by: "owner",
+  made_by_name: "owner",
+  created_at: "2026-11-18T10:05:00Z",
+  revisions: [
+    {
+      rev: 1,
+      state: "queued",
+      lines: ["Open the shop app", "Tap Sign in", "Type the email", "The account page shows"],
+      captions: true,
+      aspect: "9:16",
+      length_ms: 0,
+      warnings: [],
+      created_at: "2026-11-18T10:05:00Z",
+      updated_at: "2026-11-18T10:05:00Z",
+    },
+  ],
+}
+
 type Server = {
+  made?: boolean
   state: string
   deleted: string[]
   filming: (message: object) => void
@@ -210,6 +234,14 @@ async function fakeServer(page: Page): Promise<Server> {
           : json(takeOf(server.state))
       case `GET /takes/${failedId}`:
         return json(failedTake)
+      case "GET /videos":
+        return json({ data: server.made ? [madeVideo] : [] })
+      case "POST /videos":
+        server.made = true
+
+        return json(madeVideo, 201)
+      case `GET /videos/${madeVideo.id}`:
+        return json(madeVideo)
       case `DELETE /takes/${takeId}`:
         server.deleted.push(takeId)
 
@@ -357,6 +389,38 @@ test("a take's card follows it, and its tab plays and seeks it", async ({ page }
   await confirm.getByRole("button", { name: "Delete the take" }).click()
   await expect.poll(() => server.deleted).toEqual([takeId])
   await expect(paneTab(page, /Sign in to the shop/)).toHaveCount(0)
+})
+
+// Scenario: the owner makes the take a video from its tab (issue #818): Make video asks for the voice, captions and
+// shape, and the video opens as a tab of the same pane, queued; the take's tab then has "Video", and the video's
+// tab "Take", each going to the other.
+test("a take's tab makes a video that opens as a tab of the pane", async ({ page }) => {
+  const server = await fakeServer(page)
+  server.state = "available"
+  await page.goto("/chats/cht_1")
+
+  const card = page.getByRole("region", { name: "Take: Sign in to the shop" })
+  await card.getByRole("button", { name: "Open" }).click()
+  const view = page.getByTestId("take-view")
+  await view.getByRole("button", { name: "Make video" }).click()
+  const dialog = page.getByRole("dialog", { name: "Make a video" })
+  await dialog.getByRole("button", { name: "Make video" }).click()
+
+  // The take's tab and the video's, both named by the title.
+  await expect(paneTab(page, /Sign in to the shop/)).toHaveCount(2)
+  await expect(paneTab(page, /Sign in to the shop/).last()).toHaveAttribute(
+    "title",
+    /A video of a take/,
+  )
+  await expect(paneTab(page, /Sign in to the shop/).last()).toHaveAttribute("aria-selected", "true")
+  const video = page.getByTestId("video-view")
+  await expect(video.getByTestId("video-progress")).toContainText("Revision 1 is queued")
+  await expect(video.getByTestId("video-scene")).toHaveCount(4)
+
+  await video.getByRole("button", { name: "Open its take" }).click()
+  await expect(view.getByRole("button", { name: "Video", exact: true })).toBeVisible()
+  await view.getByRole("button", { name: "Video", exact: true }).click()
+  await expect(page.getByTestId("video-view")).toBeVisible()
 })
 
 // Scenario: an agent films the phone while the owner watches it. The phone's bar says REC with the take's time and

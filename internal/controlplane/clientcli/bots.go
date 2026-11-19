@@ -66,8 +66,9 @@ func printBot(e *env, b *openapi.Bot) {
 		e.printf("skills off: %s\n", strings.Join(b.SkillsOff, ", "))
 	}
 
+	e.printf("tool preset: %s\n", b.Preset)
 	if len(b.Tools) > 0 {
-		e.printf("tools: only %s\n", strings.Join(b.Tools, ", "))
+		e.printf("tools added: %s\n", strings.Join(b.Tools, ", "))
 	}
 
 	if len(b.ToolsOff) > 0 {
@@ -368,6 +369,12 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			set.SkillsOff = list(v)
 		case "tools":
 			set.Tools = list(v)
+		case "preset":
+			preset := openapi.ToolPreset(v)
+			if !preset.Valid() {
+				failed = fmt.Errorf("preset must be full or report")
+			}
+			set.Preset = &preset
 		case "tools-off":
 			set.ToolsOff = list(v)
 		case "connections":

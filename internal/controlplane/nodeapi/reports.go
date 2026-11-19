@@ -76,6 +76,13 @@ func (s *Server) call(ctx context.Context, call orchestration.NodeCall, r nodepr
 	switch r.Kind {
 	case nodeproto.ReportAccept:
 		return svc.AcceptDispatch(ctx, call)
+	case nodeproto.ReportLowDisk:
+		disk, err := decode[nodeproto.DiskSpace](r.Payload)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, svc.DeclineLowDisk(ctx, call, disk)
 	case nodeproto.ReportHeartbeat:
 		return svc.Heartbeat(ctx, call)
 	case nodeproto.ReportExited:
@@ -98,6 +105,13 @@ func (s *Server) call(ctx context.Context, call orchestration.NodeCall, r nodepr
 		return nil, svc.RecordEffect(ctx, call, orchestration.Effect{
 			Seq: p.Seq, Kind: p.Kind, Ref: p.Ref, Phase: orchestration.EffectPhase(p.Phase), Payload: p.Payload,
 		})
+	case nodeproto.ReportPublishedHead:
+		p, err := decode[nodeproto.PublishedHead](r.Payload)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, svc.RecordPublishedHead(ctx, call, orchestration.PublishedHead{Branch: p.Branch, SHA: p.SHA})
 	case nodeproto.ReportResource, nodeproto.ReportReleaseResource:
 		p, err := decode[nodeproto.Resource](r.Payload)
 		if err != nil {

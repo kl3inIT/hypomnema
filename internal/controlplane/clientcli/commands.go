@@ -89,6 +89,8 @@ var commands = []command{
 			fs.String("spec", "", "the Task's spec")
 			fs.String("spec-file", "", "read the spec from this file, or - for standard input")
 			fs.String("depends-on", "", "comma-separated refs or Task ids it depends on")
+			fs.String("kind", "", "broad (default), narrow or quick")
+			fs.String("review-of", "", "id of the succeeded Task whose work this reviewer checks")
 			fs.String("runtime", "", "runtime, instead of the profile's")
 			fs.String("model", "", "model, instead of the profile's")
 			fs.String("effort", "", "effort, instead of the profile's")
@@ -167,12 +169,12 @@ var commands = []command{
 	},
 	{
 		name: "chat", args: "[message]", max: -1,
-		summary: "write to a Bot on the server (the main Bot unless --bot) and print its replies; " +
+		summary: "write to a Bot's main chat on the server (the main Bot unless --bot) and print its replies; " +
 			"without a message, show the chat",
 		flags: func(fs *flag.FlagSet) {
-			fs.String("chat", "", "the chat to use (default the most recent)")
-			fs.String("bot", "", "start a new chat with this Bot, by its id from bots list")
-			fs.Bool("new", false, "start a new chat")
+			fs.String("chat", "", "the chat to use (default the Bot's main chat)")
+			fs.String("bot", "", "the Bot to write to, by its id from bots list (default the main Bot)")
+			fs.Bool("new", false, "start a new chat, which becomes the Bot's main chat (as the message /new)")
 			fs.String("text-file", "", "read the message from this file, or - for standard input")
 			fs.String("timeout", "10m", "stop printing replies after this long")
 			fs.Int("last", 20, "without a message, how many messages to show")
@@ -181,7 +183,13 @@ var commands = []command{
 	},
 	{
 		name: "chats", summary: "the chats with the coordinator, the most recently active first",
-		flags: jsonFlag, run: chatsList,
+		flags: func(fs *flag.FlagSet) {
+			fs.String("bot", "", "only the chats of this Bot, by its id from bots list")
+			fs.Int("offset", 0, "skip this many chats, for the next page; the first page also lists every Bot's "+
+				"main chat and every chat an approval waits in")
+			jsonFlag(fs)
+		},
+		run: chatsList,
 	},
 	{
 		name: "chats rm", args: "<chat>", min: 1, max: 1,
@@ -441,8 +449,8 @@ var commands = []command{
 			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
 			fs.String("skills", "", "the skills the bot gets beside those for everyone, separated by commas; \"\" for none")
 			fs.String("skills-off", "", "the skills for everyone the bot does not get, separated by commas; \"\" for none")
-			fs.String("tools", "", "only these Hypomnema tools, names or families (agent_browser_*) separated by "+
-				"commas; \"\" for every one")
+			fs.String("preset", "", "tool family preset: full (default) or report")
+			fs.String("tools", "", "additional Hypomnema tools or families, separated by commas; \"\" for none")
 			fs.String("tools-off", "", "the Hypomnema tools the bot does not get, names or families separated by commas; "+
 				"\"\" for none")
 			fs.String("connections", "", "only these connections, integration:label separated by commas; \"\" for none")
@@ -574,9 +582,34 @@ var commands = []command{
 	},
 	{
 		name: "mcp", offline: true,
-		summary: "Hypomnema's tools for a Bot's pi (web_search, web_fetch, generate_image, the audio_* and the " +
-			"others) as an MCP server on standard input and output; pi's mcp.json starts it",
-		run: mcpServe,
+		summary: "Hypomnema's tools for the login in client.json, as an MCP server on standard input and output",
+		run:     mcpServe,
+	},
+	{
+		name: "tools list", offline: true,
+		summary: "List the tools the control plane gives this login",
+		flags:   jsonFlag,
+		run:     toolsList,
+	},
+	{
+		name: "tools call", args: "<tool>", min: 1, max: 1, offline: true,
+		summary: "Call a tool with a JSON object from a file or standard input",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("args-file", "", "read arguments from a JSON file (- for standard input); defaults to {}")
+			jsonFlag(fs)
+		},
+		run: toolsCall,
+	},
+	{
+		name: "exec", args: "<integration>:<label> -- <command> [args...]", min: 3, max: -1, offline: true,
+		literalArgs: true,
+		summary:     "Run a local service CLI through a Connection's proxy with no service credentials on this machine",
+		run:         execService,
+	},
+	{
+		name: "exec remove-ca", offline: true,
+		summary: "Remove the local service proxy CA from your trust store and CLI home",
+		run:     removeExecCA,
 	},
 	{
 		name:    "model-key",
@@ -715,6 +748,22 @@ var commands = []command{
 		flags: jsonFlag, run: reposRemove,
 	},
 	{
+		name: "profiles routing", summary: "show the effective role and Task-kind mapping as YAML",
+		flags: jsonFlag, run: profilesRouting,
+	},
+	{
+		name: "profiles routing-apply", args: "<file>", min: 1, max: 1,
+		summary: "validate and replace the role routing YAML (owner)", run: profilesRoutingApply,
+	},
+	{
+		name: "profiles metrics", summary: "settled attempts and cost by role, kind and chain entry (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("since", "", "start of the period in RFC3339 (default: 14 days ago)")
+			jsonFlag(fs)
+		},
+		run: profilesMetrics,
+	},
+	{
 		name: "profiles list", summary: "the profiles Tasks can name, at their current versions",
 		flags: jsonFlag, run: profilesList,
 	},
@@ -778,6 +827,58 @@ var commands = []command{
 		name: "takes delete", args: "<take_id>", min: 1, max: 1,
 		summary: "delete a take and its files; one still filmed is ended first (owner)",
 		flags:   jsonFlag, run: takesDelete,
+	},
+	{
+		name: "videos list", summary: "the videos made of takes, the newest first, with their revisions (owner)",
+		flags: jsonFlag, run: videosList,
+	},
+	{
+		name: "videos get", args: "<video_id>", min: 1, max: 1,
+		summary: "a video with each revision's state, voice and note, and the latest one's lines (owner)",
+		flags:   jsonFlag, run: videosGet,
+	},
+	{
+		name: "videos make", args: "<take_id>", min: 1, max: 1,
+		summary: "make an available take into a video, or a new revision of its video, made in the background (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("title", "", "the video's title on its first make (default the take's)")
+			fs.String("aspect", "", "9:16 or 16:9 (default 9:16)")
+			fs.Bool("no-captions", false, "make it without captions")
+			fs.String("voice", "", "the voice to speak with (default each provider's, from `audio voice`)")
+			fs.String("key", "", "idempotency key; repeat a make whose result was lost with the same key")
+			jsonFlag(fs)
+		},
+		run: videosMake,
+	},
+	{
+		name: "videos request-changes", args: "<video_id> <rev>", min: 2, max: 2,
+		summary: "ask for changes to a revision in review: a note for the agent, edited lines queue a new revision (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("note", "", "what to change, for the agent")
+			fs.String("lines-file", "", "each scene's line, one a line, from this file or - for standard input")
+			fs.String("key", "", "idempotency key; repeat a request whose result was lost with the same key")
+			jsonFlag(fs)
+		},
+		run: videosRequestChanges,
+	},
+	{
+		name: "videos approve", args: "<video_id> <rev>", min: 2, max: 2,
+		summary: "approve a revision in review; the one approved before goes back to review (owner)",
+		flags:   jsonFlag, run: videosApprove,
+	},
+	{
+		name: "videos delete", args: "<video_id>", min: 1, max: 1,
+		summary: "delete a video, its revisions and their files; refused while one is being made (owner)",
+		flags:   jsonFlag, run: videosDelete,
+	},
+	{
+		name: "videos download", args: "<video_id> <rev>", min: 2, max: 2,
+		summary: "save a made revision's MP4 (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("out", "", "the file to write (default <video_id>-r<rev>.mp4)")
+			jsonFlag(fs)
+		},
+		run: videosDownload,
 	},
 	{
 		name:    "device status",
@@ -902,6 +1003,11 @@ var commands = []command{
 		name: "audio order", args: "stt|tts <provider> <provider>", min: 3, max: 3,
 		summary: "the order speech-to-text (stt) or text-to-speech (tts) asks the providers in, each named once (owner)",
 		flags:   jsonFlag, run: audioOrder,
+	},
+	{
+		name: "audio voice", args: "<provider> [voice]", min: 1, max: 2,
+		summary: "the voice a provider speaks videos with when none is asked; none: its own default (owner)",
+		flags:   jsonFlag, run: audioVoice,
 	},
 	{
 		name: "audio keys add", args: "<provider>", min: 1, max: 1,

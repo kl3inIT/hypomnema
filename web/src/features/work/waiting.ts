@@ -16,6 +16,8 @@ export function waitingText(reason: string | undefined): string | undefined {
       return "Waiting: it asks for more CPU or memory than any machine that can run it has"
     case "nodes_low_memory":
       return "Waiting: every machine that can run it is low on memory"
+    case "nodes_low_disk":
+      return "Waiting: no suitable machine has enough measured free disk space"
     case "accounts_cooling":
       return "Waiting: every account of its agent waits for its limit to reset"
     case "no_node":

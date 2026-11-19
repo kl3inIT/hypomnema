@@ -48,7 +48,13 @@ func (s *Server) GetBot(ctx context.Context, req openapi.GetBotRequestObject) (o
 		return nil, err
 	}
 
-	return openapi.GetBot200JSONResponse(toBot(b)), nil
+	out := toBot(b)
+	out.ToolAccess, err = s.toolAccess(ctx, &b, "", b.ToolSwitches())
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.GetBot200JSONResponse(out), nil
 }
 
 // CreateBot makes a Bot with a new id and the name given.
@@ -127,6 +133,10 @@ func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.B
 
 	if in.Tools != nil {
 		bot.Tools = *in.Tools
+	}
+
+	if in.Preset != nil {
+		bot.Preset = string(*in.Preset)
 	}
 
 	if in.ToolsOff != nil {
@@ -310,10 +320,11 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		Fallbacks: append([]string{}, b.Fallbacks...),
 		Persona:   b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
-		Tools: append([]string{}, b.Tools...), ToolsOff: append([]string{}, b.ToolsOff...),
+		Preset: openapi.ToolPreset(b.Preset), Tools: append([]string{}, b.Tools...),
+		ToolsOff:    append([]string{}, b.ToolsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers), Scopes: toScopes(b.Scopes),
 		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), GuaranteedDispatches: b.Guarantee(),
-		Position: b.Position, Pinned: b.Pinned,
+		Position: b.Position, Pinned: b.Pinned, MainChat: opt(b.MainChat),
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }

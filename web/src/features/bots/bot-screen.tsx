@@ -32,6 +32,7 @@ import { SkillsField } from "@/features/skills/skills-field"
 import { ToolsField } from "@/features/tools/tools-field"
 
 import { BotAccess } from "./bot-access"
+import { BotChats } from "./bot-chats"
 import {
   defaultModelLabel,
   draftOf,
@@ -99,6 +100,7 @@ export function BotScreen({ id }: { id: string }) {
               <Memory bot={b} />
               <BotAccess bot={b} />
               <BotRoutines bot={b.id} />
+              <BotChats bot={b} />
               <Channels bot={b} />
               <Removal bot={b} />
             </>
@@ -273,6 +275,7 @@ function BotForm({
 
       <SkillsField
         id="bot-skills"
+        access={stored?.tool_access?.skills}
         skills={draft.skills}
         off={draft.skillsOff}
         onChange={set}
@@ -281,6 +284,8 @@ function BotForm({
 
       <ToolsField
         id="bot-tools"
+        preset={draft.preset}
+        access={stored?.tool_access}
         tools={draft.tools}
         off={draft.toolsOff}
         onChange={set}

@@ -8,7 +8,7 @@ OAPI_CODEGEN = $(CI_TOOL) github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codeg
 OPENAPI_GEN := internal/controlplane/clientapi/openapi
 MIGRATIONS := internal/controlplane/orchestration/migrations
 SQLC_OUT := internal/controlplane/orchestration/internal/store internal/controlplane/vault/internal/store \
-	internal/controlplane/modelgateway/internal/store
+	internal/controlplane/modelgateway/internal/store internal/controlplane/videos/internal/store
 MODULE := github.com/kl3inIT/hypomnema
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
@@ -22,7 +22,7 @@ BINARIES := hypomnema hypomnema-node
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-verify: verify-static unit race ## The gate to run before every push
+verify: verify-static unit race ## The Go checks: static, unit, race; before a push, run only those of what changed
 
 verify-static: fmt-check tidy-check lint deps-check sqlc-check openapi-check migration-check
 

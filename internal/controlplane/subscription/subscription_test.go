@@ -518,12 +518,24 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 
 	until := w.clock.Now().Add(3 * time.Hour)
 	require.NoError(t, w.subs.CoolDown(t.Context(), "codex", a.ID, until, "usage limit"))
+	broken, err := w.orch.SaveAccountLogin(t.Context(), orchestration.AccountLogin{
+		Runtime: "codex", ExternalID: "another-workspace", Email: "broken@example.com",
+	}, func(string) string { return "vault:missing-codex-tokens" })
+	require.NoError(t, err)
+	assert.Equal(t, subscription.StateNoTokens, w.account(broken.ID).State)
 
 	_, err = w.subs.Token(t.Context(), "codex", "")
 
 	var cooling *subscription.CoolingError
 	require.ErrorAs(t, err, &cooling)
 	assert.Equal(t, until, cooling.Until)
+	free, err := w.subs.FirstFree(t.Context(), "codex", nil)
+	require.NoError(t, err)
+	assert.Equal(t, until, free)
+	modelReset := until.Add(time.Hour)
+	free, err = w.subs.FirstFree(t.Context(), "codex", func(string) time.Time { return modelReset })
+	require.NoError(t, err)
+	assert.Equal(t, modelReset, free)
 
 	w.clock.advance(3*time.Hour + time.Second)
 

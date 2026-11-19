@@ -32,6 +32,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   fallbacks: [],
   skills: [],
   skills_off: [],
+  preset: "full",
   tools: [],
   tools_off: [],
   connections: { limited: false, names: [] },
@@ -121,7 +122,7 @@ describe("a Bot's status", () => {
     })
   })
 
-  it("counts the Tasks of its Runs running on machines, and opens the chat they came from", () => {
+  it("counts the Tasks of its Runs running on machines, and opens its main chat", () => {
     const r = run("run_1", { bot: "coordinator", chat_id: "c9" })
     const tasks = [
       task("t1", r.id, { latest_dispatch: dispatch("n1") }),
@@ -130,7 +131,7 @@ describe("a Bot's status", () => {
     ]
     const cards = boardCards(board(tasks, [r]))
     const [coordinator] = teamBots({
-      bots,
+      bots: [bot("coordinator", { main_chat: "c1" })],
       chats: [chat("c1", "coordinator")],
       approvals: [],
       cards,
@@ -139,19 +140,19 @@ describe("a Bot's status", () => {
     expect(coordinator).toMatchObject({
       activity: "working",
       reason: "2 Tasks running on 2 machines",
-      chat: "c9",
+      chat: "c1",
     })
   })
 
-  it("waits for the owner while a worker of its Run asks him, found through the chat when the Run names no Bot", () => {
+  it("waits for the owner while a worker of its Run asks him, and opens its main chat, not the one that waits", () => {
     const r = run("run_1", { chat_id: "c1" })
     const t = task("t1", r.id, {
       latest_dispatch: dispatch("n1", { waiting_since: "2026-11-13T11:56:00Z" }),
     })
     const cards = boardCards(board([t], [r]), [question("q1", t)])
     const [coordinator] = teamBots({
-      bots,
-      chats: [chat("c1", "coordinator")],
+      bots: [bot("coordinator", { main_chat: "home" })],
+      chats: [chat("c1", "coordinator"), chat("home", "coordinator")],
       approvals: [],
       cards,
     })
@@ -159,18 +160,24 @@ describe("a Bot's status", () => {
     expect(coordinator).toMatchObject({
       activity: "waiting-on-you",
       reason: "A worker asks you a question",
-      chat: "c1",
+      chat: "home",
     })
   })
 
-  it("opens its newest chat when idle, and none when it has no chat", () => {
+  it("opens its main chat when idle, whichever chat moved last, and none when it has no main chat", () => {
     const chats = [
-      chat("old", "reporter", { updated_at: "2026-11-12T09:00:00Z" }),
-      chat("new", "reporter", { updated_at: "2026-11-13T09:00:00Z" }),
+      chat("home", "reporter", { updated_at: "2026-11-12T09:00:00Z" }),
+      chat("lark", "reporter", { updated_at: "2026-11-13T09:00:00Z" }),
+      chat("draft", "coordinator", { updated_at: "2026-11-13T09:00:00Z" }),
     ]
-    const team = teamBots({ bots, chats, approvals: [], cards: [] })
+    const team = teamBots({
+      bots: [bot("coordinator"), bot("reporter", { main_chat: "home" })],
+      chats,
+      approvals: [],
+      cards: [],
+    })
 
-    expect(team.find((b) => b.name === "reporter")?.chat).toBe("new")
+    expect(team.find((b) => b.name === "reporter")?.chat).toBe("home")
     expect(team.find((b) => b.name === "coordinator")?.chat).toBeUndefined()
   })
 })

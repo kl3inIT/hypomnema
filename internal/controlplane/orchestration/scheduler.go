@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path"
 	"time"
@@ -191,6 +192,9 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 
 	r, err := resolve(ctx, q, task)
 	if err != nil {
+		if errors.Is(err, errRoleEntry) {
+			return s.wait(ctx, q, now, task, err.Error(), out)
+		}
 		return err
 	}
 
@@ -217,13 +221,25 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 	}
 
 	// A Task that waits only for a limit to reset goes to a backup of its profile.
-	if spec == nil && reason == "" {
-		if spec, r, err = placeBackup(ctx, q, p, task, r, host, recentExpiries); err != nil {
+	if spec == nil && len(r.chain) > 0 && (reason == "" || reason == ReasonNoAccount) {
+		spec, r, reason, err = placeRoleBackup(ctx, q, p, task, r, host, recentExpiries, reason)
+		if err != nil {
+			return err
+		}
+	} else if spec == nil && reason == "" && len(r.chain) == 0 {
+		if spec, r, reason, err = placeBackup(ctx, q, p, task, r, host, recentExpiries); err != nil {
 			return err
 		}
 	}
 
 	if spec == nil {
+		if p.gatewayCoolingUntil(r) != 0 {
+			shown := ReasonAccountsCooling
+			if until := p.gatewayCooling[[2]string{r.gatewayRoute, r.model}]; until > now {
+				shown = gatewayCoolingReason(r.model, until)
+			}
+			return recordTaskWait(ctx, q, task, shown)
+		}
 		return s.wait(ctx, q, now, task, reason, out)
 	}
 
@@ -247,8 +263,12 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 	out.Created = append(out.Created, id)
 
 	if told == 0 {
+		fallback := r.profile
+		if len(r.chain) > 0 {
+			fallback = r.model
+		}
 		out.Escalations = append(out.Escalations, Escalation{
-			Kind: EscalationFallback, DispatchID: id, Profile: r.fallbackFor, Fallback: r.profile,
+			Kind: EscalationFallback, DispatchID: id, Profile: r.fallbackFor, Fallback: fallback,
 			Until: r.fallbackUntil,
 		})
 	}
@@ -276,44 +296,45 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 // (t3code: one hop).
 func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
 	recentExpiries map[string]bool,
-) (*DispatchSpec, resolved, error) {
+) (*DispatchSpec, resolved, string, error) {
 	if task.Runtime.String != "" || task.Model.String != "" {
-		return nil, r, nil
+		return nil, r, "", nil
 	}
 
 	a := p.availability(r.runtime, r.gateway, r.accounts)
 	if a.Reason != ReasonAccountsCooling {
-		return nil, r, nil
+		return nil, r, "", nil
 	}
 
 	conv, open, err := openConversation(ctx, q, task.ID)
 	if err != nil {
-		return nil, r, err
+		return nil, r, "", err
 	}
 
 	started := conv.ID != ""
 
 	if started {
 		if !open {
-			return nil, r, nil
+			return nil, r, "", nil
 		}
 
 		if may, err := mayHandOff(ctx, q, task); err != nil || !may {
-			return nil, r, err
+			return nil, r, "", err
 		}
 	}
 
 	own, err := q.GetProfileVersion(ctx, r.versionID)
 	if err != nil {
-		return nil, r, notFound(err, "profile version", r.versionID)
+		return nil, r, "", notFound(err, "profile version", r.versionID)
 	}
 
 	// A Run a Bot created falls back only to profiles on the Bot's workers list, read now (issue #169).
 	mayGive, err := runBotGives(ctx, q, task.RunID)
 	if err != nil {
-		return nil, r, err
+		return nil, r, "", err
 	}
 
+	var reason string
 	for _, name := range splitNames(own.Fallbacks) {
 		if !mayGive(name) {
 			continue
@@ -321,27 +342,33 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 
 		v, err := q.CurrentProfileVersion(ctx, name)
 		if err != nil {
-			return nil, r, notFound(err, "profile", name)
+			return nil, r, "", notFound(err, "profile", name)
 		}
 
 		b, err := resolveVersion(ctx, q, task, v)
 		if err != nil {
-			return nil, r, err
+			return nil, r, "", err
 		}
 
-		spec, _ := placeNew(p, task, b, host.asking(b), recentExpiries)
+		var spec *DispatchSpec
+		var wait string
 		if started {
-			spec = placeHandoff(p, conv, b, host.asking(b))
+			spec, wait = placeHandoff(p, conv, b, host.asking(b))
+		} else {
+			spec, wait = placeNew(p, task, b, host.asking(b), recentExpiries)
+		}
+		if wait == ReasonNodesLowDisk {
+			reason = wait
 		}
 
 		if spec != nil {
 			b.fallbackFor, b.fallbackUntil, b.handoff = task.Profile, a.At.UnixMilli(), started
 
-			return spec, b, nil
+			return spec, b, "", nil
 		}
 	}
 
-	return nil, r, nil
+	return nil, r, reason, nil
 }
 
 // runBotGives says which profiles the Bot that created a Run may give work
@@ -407,9 +434,9 @@ func runGroup(ctx context.Context, q *store.Queries, runID string) (string, int,
 // node, where the worktree is, in that worktree. No reference has more than
 // one machine; Orca and t3code keep the working directory when a session
 // moves to another agent, and here that directory is on one node (inferred).
-func placeHandoff(p *placement, conv store.Conversation, b resolved, host where) *DispatchSpec {
-	if !p.nodeReady(conv.NodeID, b.runtime, host) {
-		return nil
+func placeHandoff(p *placement, conv store.Conversation, b resolved, host where) (*DispatchSpec, string) {
+	if p.gatewayCoolingUntil(b) != 0 || p.checkNodeFit(conv.NodeID, b.runtime, host) != nil {
+		return nil, ""
 	}
 
 	account := GatewayAccountRef
@@ -418,10 +445,13 @@ func placeHandoff(p *placement, conv store.Conversation, b resolved, host where)
 	}
 
 	if account == "" || (b.gateway && !p.gatewayHasAccount(b.accounts)) {
-		return nil
+		return nil, ""
+	}
+	if p.lowDisk(conv.NodeID) {
+		return nil, ReasonNodesLowDisk
 	}
 
-	return &DispatchSpec{NodeID: conv.NodeID, Worktree: conv.Worktree, Runtime: b.runtime, AccountRef: account}
+	return &DispatchSpec{NodeID: conv.NodeID, Worktree: conv.Worktree, Runtime: b.runtime, AccountRef: account}, ""
 }
 
 // mayHandOff reports whether a Task whose worker met a limit under way may
@@ -440,6 +470,17 @@ func placeHandoff(p *placement, conv store.Conversation, b resolved, host where)
 func mayHandOff(ctx context.Context, q *store.Queries, task store.Task) (bool, error) {
 	if task.Runtime.String != "" || task.Model.String != "" {
 		return false, nil
+	}
+	last, err := q.LastDispatchOfTask(ctx, task.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	if last.RoleChain != "" {
+		chain, err := dispatchRoleChain(last)
+		if err != nil || last.ChainEntry.Int64 >= int64(len(chain)) {
+			return false, err
+		}
+		return handoffWithoutApprovedWrites(ctx, q, task.ID)
 	}
 
 	v, err := q.CurrentProfileVersion(ctx, task.Profile)
@@ -460,9 +501,13 @@ func mayHandOff(ctx context.Context, q *store.Queries, task store.Task) (bool, e
 		return false, nil
 	}
 
-	wrote, err := q.CountApprovedOfTask(ctx, nullString(task.ID))
+	return handoffWithoutApprovedWrites(ctx, q, task.ID)
+}
+
+func handoffWithoutApprovedWrites(ctx context.Context, q *store.Queries, taskID string) (bool, error) {
+	wrote, err := q.CountApprovedOfTask(ctx, nullString(taskID))
 	if err != nil {
-		return false, fmt.Errorf("reading the approvals of task %s: %w", task.ID, err)
+		return false, fmt.Errorf("reading the approvals of task %s: %w", taskID, err)
 	}
 
 	return wrote == 0, nil
@@ -474,6 +519,10 @@ func mayHandOff(ctx context.Context, q *store.Queries, task store.Task) (bool, e
 func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
 	recentExpiries map[string]bool,
 ) (*DispatchSpec, string, error) {
+	if p.gatewayCoolingUntil(r) != 0 {
+		return nil, "", nil
+	}
+
 	conv, open, err := openConversation(ctx, q, task.ID)
 	if err != nil {
 		return nil, "", err
@@ -494,8 +543,14 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, ReasonNoNodeFits, nil
 		}
 
-		if !p.nodeReady(conv.NodeID, conv.Runtime, host) {
+		fits := p.checkNodeFit(conv.NodeID, conv.Runtime, host) == nil
+		if !fits {
 			return nil, ReasonNoNode, nil
+		}
+		if len(r.chain) > 0 && r.gateway {
+			if !p.gatewayHasAccount(r.accounts) {
+				return nil, ReasonNoAccount, nil
+			}
 		}
 
 		switch usable, cooling := p.accountUsable(conv.Runtime, conv.AccountRef); {
@@ -503,6 +558,9 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, "", nil
 		case !usable:
 			return nil, ReasonNoAccount, nil
+		}
+		if p.lowDisk(conv.NodeID) {
+			return nil, ReasonNodesLowDisk, nil
 		}
 
 		return &DispatchSpec{Continue: true}, "", nil
@@ -516,6 +574,9 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 // placeNew chooses the node and the account of a Task's new Conversation.
 func placeNew(p *placement, task store.Task, r resolved, host where, recentExpiries map[string]bool,
 ) (*DispatchSpec, string) {
+	if p.gatewayCoolingUntil(r) != 0 {
+		return nil, ""
+	}
 	runtime := r.runtime
 
 	if !r.gateway && gatewayOnly(runtime) {
@@ -531,6 +592,17 @@ func placeNew(p *placement, task store.Task, r resolved, host where, recentExpir
 
 		if missing := p.anyHas(host.tools); missing != "" {
 			return nil, ReasonNoNodeHasTool + missing
+		}
+
+		if runtime != "" && p.diskPreventsPlacement(runtime, host) {
+			availability := p.availability(runtime, r.gateway, r.accounts)
+			if availability.Reason == ReasonAccountsCooling {
+				return nil, ""
+			}
+			if !availability.Available {
+				return nil, availability.Reason
+			}
+			return nil, ReasonNodesLowDisk
 		}
 
 		if runtime != "" && p.anyAtLimit(runtime, host) {
@@ -553,7 +625,6 @@ func placeNew(p *placement, task store.Task, r resolved, host where, recentExpir
 	if !r.gateway {
 		account, cooling = p.pickAccount(runtime)
 	}
-
 	switch {
 	case cooling && account == "":
 		return nil, ""
@@ -586,14 +657,8 @@ func runHost(ctx context.Context, q *store.Queries, runID string) (where, error)
 func (s *Service) wait(ctx context.Context, q *store.Queries, now int64, task store.Task, reason string,
 	out *Scheduled,
 ) error {
-	shown := or(reason, ReasonAccountsCooling)
-
-	if !task.WaitingReason.Valid || task.WaitingReason.String != shown {
-		if err := q.SetTaskWaitingReason(ctx, store.SetTaskWaitingReasonParams{
-			WaitingReason: nullString(shown), ID: task.ID,
-		}); err != nil {
-			return fmt.Errorf("recording why task %s waits: %w", task.ID, err)
-		}
+	if err := recordTaskWait(ctx, q, task, or(reason, ReasonAccountsCooling)); err != nil {
+		return err
 	}
 
 	if resolvesByItself(reason) {
@@ -603,11 +668,23 @@ func (s *Service) wait(ctx context.Context, q *store.Queries, now int64, task st
 	return s.unplaceable(ctx, q, now, task, reason, out)
 }
 
+func recordTaskWait(ctx context.Context, q *store.Queries, task store.Task, shown string) error {
+	if !task.WaitingReason.Valid || task.WaitingReason.String != shown {
+		if err := q.SetTaskWaitingReason(ctx, store.SetTaskWaitingReasonParams{
+			WaitingReason: nullString(shown), ID: task.ID,
+		}); err != nil {
+			return fmt.Errorf("recording why task %s waits: %w", task.ID, err)
+		}
+	}
+
+	return nil
+}
+
 // resolvesByItself reports whether a wait ends without anyone acting: a
 // cooling account, or every node that could run it full now. Such a wait is
 // not escalated.
 func resolvesByItself(reason string) bool {
-	return reason == "" || reason == ReasonAccountsCooling || reason == ReasonNodesFull
+	return reason == "" || reason == ReasonAccountsCooling || reason == ReasonNodesFull || reason == ReasonNodesLowDisk
 }
 
 // unplaceable escalates a Task that has waited UnplaceableAfter for a node or

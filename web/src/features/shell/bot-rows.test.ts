@@ -1,10 +1,8 @@
-import { beforeEach, expect, test } from "vitest"
+import { expect, test } from "vitest"
 
 import type { Bot, Chat } from "@/api/generated/types.gen"
 
-import { botSections, keepOpenBots, readOpenBots, reorderBots, visibleChats } from "./bot-rows"
-
-beforeEach(() => window.localStorage.clear())
+import { botSections, reorderBots, rowChat } from "./bot-rows"
 
 const chat = (id: string, bot: string, updated: string): Chat => ({
   id,
@@ -28,6 +26,7 @@ const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
   fallbacks: [],
   skills: [],
   skills_off: [],
+  preset: "full",
   tools: [],
   tools_off: [],
   connections: { limited: false, names: [] },
@@ -93,46 +92,38 @@ test("a reorder moves the Bots named into the places they held", () => {
   expect(reorderBots(bots, ["a", "b"])[1]).toBe(bots[1])
 })
 
-// Scenario: which Bots the owner opened survives a reload; what the browser kept that is not such a record is
-// read as nothing opened.
-test("the Bots the owner opened are kept, and anything else kept reads as none", () => {
-  keepOpenBots({ coordinator: true, reporter: false })
-  expect(readOpenBots()).toEqual({ coordinator: true, reporter: false })
+// Scenario: a Bot's row stands for its main chat (issue #471), which the server names, whatever chat moved last; a
+// Bot with none has no main chat on its row.
+test("a Bot's row names its main chat", () => {
+  const sections = botSections(
+    [bot("coordinator", 0, { main_chat: "home" }), bot("writer", 1)],
+    [
+      chat("home", "coordinator", "2026-11-10T09:00:00Z"),
+      chat("lark", "coordinator", "2026-11-11T09:00:00Z"),
+      chat("draft", "writer", "2026-11-11T09:00:00Z"),
+    ],
+  )
 
-  window.localStorage.setItem("hypomnema.sidebar.open-bots", "not json")
-  expect(readOpenBots()).toEqual({})
-  window.localStorage.setItem("hypomnema.sidebar.open-bots", '["coordinator"]')
-  expect(readOpenBots()).toEqual({})
+  expect(sections.main?.mainChat).toBe("home")
+  expect(sections.main?.chats.map((c) => c.id)).toEqual(["lark", "home"])
+  expect(sections.rest[0]?.mainChat).toBeUndefined()
 })
 
-// Scenario: an open Bot with 15 chats, newest first, lists its 6 newest (issue #599); the open chat, a working one and
-// one waiting on the owner are listed whatever their age, in the list's order; Show all lists every chat.
-test("an open Bot lists its 6 newest chats and every chat that needs looking at", () => {
-  const list = Array.from({ length: 15 }, (_, i) =>
-    chat(`c${i}`, "coordinator", `2026-11-${String(30 - i).padStart(2, "0")}T09:00:00Z`),
-  )
-  list[9] = { ...list[9]!, working: true }
+// Scenario: the row opens the main chat (issue #471); when another chat of the Bot waits on the owner and the main
+// chat does not, the row leads to the newest chat that waits; a Bot with no main chat and nothing waiting opens none,
+// and its row starts a chat.
+test("a Bot's row opens its main chat, or the chat that waits on the owner", () => {
+  const chats = [
+    chat("routine", "coordinator", "2026-11-12T09:00:00Z"),
+    chat("old", "coordinator", "2026-11-11T09:00:00Z"),
+    chat("home", "coordinator", "2026-11-10T09:00:00Z"),
+  ]
+  const row = { bot: "coordinator", mainChat: "home", chats }
 
-  expect(visibleChats(list, undefined, new Set(), false).map((c) => c.id)).toEqual([
-    "c0",
-    "c1",
-    "c2",
-    "c3",
-    "c4",
-    "c5",
-    "c9",
-  ])
-  expect(visibleChats(list, "c14", new Set(["c11"]), false).map((c) => c.id)).toEqual([
-    "c0",
-    "c1",
-    "c2",
-    "c3",
-    "c4",
-    "c5",
-    "c9",
-    "c11",
-    "c14",
-  ])
-  expect(visibleChats(list, "c14", new Set(["c11"]), true)).toEqual(list)
-  expect(visibleChats(list.slice(0, 4), undefined, new Set(), false)).toEqual(list.slice(0, 4))
+  expect(rowChat(row, new Set())).toBe("home")
+  expect(rowChat(row, new Set(["old"]))).toBe("old")
+  expect(rowChat(row, new Set(["old", "routine"]))).toBe("routine")
+  expect(rowChat(row, new Set(["old", "home"]))).toBe("home")
+  expect(rowChat({ bot: "writer", chats: [] }, new Set())).toBeUndefined()
+  expect(rowChat({ bot: "coordinator", chats }, new Set(["old"]))).toBe("old")
 })

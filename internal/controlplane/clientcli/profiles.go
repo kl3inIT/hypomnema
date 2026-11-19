@@ -54,8 +54,9 @@ func skillsOf(p openapi.Profile) string {
 		out += "	skills off: " + strings.Join(p.SkillsOff, ", ")
 	}
 
+	out += "	tool preset: " + string(p.Preset)
 	if len(p.Tools) > 0 {
-		out += "	tools: only " + strings.Join(p.Tools, ", ")
+		out += "	tools added: " + strings.Join(p.Tools, ", ")
 	}
 
 	if len(p.ToolsOff) > 0 {
@@ -169,6 +170,62 @@ func profilesApply(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	return e.print(fs, p, func() { e.printf("profile %s: %s v%d (%s)\n", p.Name, verb, p.Version, p.VersionId) })
+}
+
+func profilesRouting(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	resp, err := e.api.GetRoleRoutingWithResponse(ctx)
+	if err != nil {
+		return err
+	}
+	if resp.JSON200 == nil {
+		return apiError("reading role routing", resp.StatusCode(), resp.JSONDefault)
+	}
+	return e.print(fs, resp.JSON200, func() { e.printf("%s", resp.JSON200.Source) })
+}
+
+func profilesRoutingApply(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	source, err := e.read(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	resp, err := e.api.PutRoleRoutingWithResponse(ctx, openapi.Source{Source: source})
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode() != 204 {
+		return apiError("applying role routing", resp.StatusCode(), resp.JSONDefault)
+	}
+	e.printf("Role routing updated.\n")
+	return nil
+}
+
+func profilesMetrics(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	var params openapi.GetRoleMetricsParams
+	if since := str(fs, "since"); since != "" {
+		start, err := time.Parse(time.RFC3339, since)
+		if err != nil {
+			return fmt.Errorf("%w: --since must be RFC3339: %w", ErrUsage, err)
+		}
+		params.Since = &start
+	}
+	resp, err := e.api.GetRoleMetricsWithResponse(ctx, &params)
+	if err != nil {
+		return err
+	}
+	if resp.JSON200 == nil {
+		return apiError("reading role metrics", resp.StatusCode(), resp.JSONDefault)
+	}
+	return e.print(fs, resp.JSON200, func() {
+		for _, row := range *resp.JSON200 {
+			entry := "legacy"
+			if row.ChainEntry != nil {
+				entry = fmt.Sprint(*row.ChainEntry)
+			}
+			e.printf("%s/%s #%s %s %s: %d succeeded, %d failed, %d settled; %d microUSD (%d unpriced)\n",
+				row.Role, row.Kind, entry, row.Runtime, row.Model, row.Succeeded, row.Failed, row.Attempts,
+				row.CostMicros, row.Unpriced)
+		}
+	})
 }
 
 func profilesRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {

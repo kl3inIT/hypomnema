@@ -235,25 +235,25 @@ func (s *Server) underGo(
 	ctx context.Context, session, wire string, body []byte, accept string,
 	answer func(AccountToken, *http.Response) *http.Response,
 ) (*http.Response, error) {
-	return s.underAccounts(ctx, openCodeGoRuntime, forModel{}, session, nil,
-		func(token AccountToken) (*http.Response, error) {
-			resp, err := s.goPost(ctx, token, session, wire, body, accept)
-			if err != nil {
-				return nil, err
-			}
+	attempt := func(token AccountToken) (*http.Response, error) {
+		resp, err := s.goPost(ctx, token, session, wire, body, accept)
+		if err != nil {
+			return nil, err
+		}
 
-			if resp.StatusCode != http.StatusOK {
-				return s.goRefused(ctx, token, resp), nil
-			}
+		if resp.StatusCode != http.StatusOK {
+			return s.goRefused(ctx, token, resp), nil
+		}
 
-			s.accountState.served(token.AccountID)
+		s.accountState.served(token.AccountID)
 
-			if answer == nil {
-				return resp, nil
-			}
+		if answer == nil {
+			return resp, nil
+		}
 
-			return answer(token, resp), nil
-		})
+		return answer(token, resp), nil
+	}
+	return s.underModelAccounts(ctx, openCodeGoRuntime, forModel{}, session, nil, nil, attempt)
 }
 
 // goPost sends a body to Go on a wire under a key.

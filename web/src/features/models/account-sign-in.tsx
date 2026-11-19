@@ -32,7 +32,7 @@ import { ErrorAlert } from "@/components/error-alert"
 import { TextField } from "@/components/text-field"
 import { said } from "@/lib/said"
 
-import { useRefreshAccounts } from "./use-models"
+import { useRefreshAccounts, useResetAccountLimits } from "./use-models"
 
 export type SignInRuntime = "claude" | "codex" | "antigravity" | "opencode_go"
 
@@ -94,6 +94,7 @@ export function AccountSignInDialog({
 }) {
   const formId = useId()
   const refresh = useRefreshAccounts()
+  const resetLimits = useResetAccountLimits()
   // An OpenCode Go account is its Console API key and nothing else (issue #854): the dialog is the token's form.
   const keyOnly = runtime === "opencode_go"
   const firstWay: Way = keyOnly ? "token" : "sign-in"
@@ -104,6 +105,7 @@ export function AccountSignInDialog({
   const pastable = runtime === "claude" && !account
 
   async function finished(signedIn: Account) {
+    resetLimits(signedIn.id)
     await refresh()
     change(false)
     said(`${name} account ${signedIn.label} is signed in`)

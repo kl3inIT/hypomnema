@@ -119,7 +119,7 @@ export function gpuTitle(gpu: { name: string; power_watts?: number }) {
 }
 
 // gib writes bytes as "12.4 GiB".
-function gib(bytes: number) {
+export function gib(bytes: number) {
   return `${(bytes / 2 ** 30).toFixed(1)} GiB`
 }
 

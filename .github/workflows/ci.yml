@@ -21,6 +21,7 @@ jobs:
   changes:
     name: Changes
     runs-on: ubuntu-24.04
+    timeout-minutes: 1
     permissions:
       contents: read
       pull-requests: read
@@ -45,6 +46,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -53,7 +55,9 @@ jobs:
           cache: false
       # Each job keeps its own build cache, as Omnara's matrix legs do: what the race detector builds is of no use
       # to the others, and one shared key would keep only the first job's.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Go cache
+        id: go_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/pkg/mod
@@ -75,12 +79,21 @@ jobs:
         run: make verify-static MIGRATION_BASE=origin/migration-base
       - name: govulncheck
         run: make govulncheck
+      - name: Save Go cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go_cache.outputs.cache-primary-key }}
 
   unit:
     name: Unit
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -89,7 +102,9 @@ jobs:
           cache: false
       # Each job keeps its own build cache, as Omnara's matrix legs do: what the race detector builds is of no use
       # to the others, and one shared key would keep only the first job's.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Go cache
+        id: go_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/pkg/mod
@@ -104,8 +119,9 @@ jobs:
       # plane installs it, and kept between runs while its pin is unchanged. Its ffprobe also reads the phone's takes
       # back, a decoder independent of the writer (issue #817): it is put on PATH. Ubuntu's ffmpeg was installed for
       # that until 2026-11-18, and a slow mirror timed it out at 15 minutes that day.
-      - name: Cache the pinned ffmpeg
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore the pinned ffmpeg cache
+        id: ffmpeg_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/hypomnema-ffmpeg
           key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('internal/controlplane/videos/ffmpeg/release.go', 'internal/controlplane/videos/ffmpeg/fonts/*') }}
@@ -122,12 +138,27 @@ jobs:
           HYPOMNEMA_BOX_TEST: required
           HYPOMNEMA_NEED_FFPROBE: required
           HYPOMNEMA_NEED_FFMPEG: required
+      - name: Save Go cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go_cache.outputs.cache-primary-key }}
+      - name: Save the pinned ffmpeg cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.ffmpeg_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/hypomnema-ffmpeg
+          key: ${{ steps.ffmpeg_cache.outputs.cache-primary-key }}
 
   race:
     name: Race
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -136,7 +167,9 @@ jobs:
           cache: false
       # Each job keeps its own build cache, as Omnara's matrix legs do: what the race detector builds is of no use
       # to the others, and one shared key would keep only the first job's.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Go cache
+        id: go_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/pkg/mod
@@ -145,12 +178,21 @@ jobs:
           restore-keys: go-race-${{ runner.os }}-
       - name: make race
         run: make race
+      - name: Save Go cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go_cache.outputs.cache-primary-key }}
 
   web:
     name: Web
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 21
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -159,15 +201,27 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          package-manager-cache: false
+      - name: Resolve the pnpm cache inputs
+        id: pnpm_store
+        run: |
+          echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+          echo "arch=$(node -p 'process.arch')" >> "$GITHUB_OUTPUT"
+      - name: Restore pnpm cache
+        id: pnpm_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm_store.outputs.path }}
+          key: node-cache-${{ runner.os }}-${{ steps.pnpm_store.outputs.arch }}-pnpm-${{ hashFiles('web/pnpm-lock.yaml') }}
       # The browser tests run the control plane itself for what only its answers show, the headers of a page's
       # frame among them (issue #737; web/tests/server).
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: false
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Go cache
+        id: go_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/pkg/mod
@@ -187,9 +241,9 @@ jobs:
       - name: Resolve the Playwright version
         id: playwright_version
         run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
-      - name: Cache Chromium
+      - name: Restore Chromium cache
         id: chromium_cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
@@ -208,6 +262,26 @@ jobs:
       - name: make web-e2e
         timeout-minutes: 15
         run: make web-e2e
+      - name: Save pnpm cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.pnpm_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm_store.outputs.path }}
+          key: ${{ steps.pnpm_cache.outputs.cache-primary-key }}
+      - name: Save Go cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.go_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go_cache.outputs.cache-primary-key }}
+      - name: Save Chromium cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.chromium_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.chromium_cache.outputs.cache-primary-key }}
 
   # The one check to wait for: it passes when no job failed, the skipped ones of a documentation change
   # included (Coder's `required`).
@@ -216,6 +290,7 @@ jobs:
     needs: [changes, static, unit, race, web]
     if: always()
     runs-on: ubuntu-24.04
+    timeout-minutes: 1
     steps:
       - name: Every job passed or was skipped
         env:

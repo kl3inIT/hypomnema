@@ -367,6 +367,57 @@ func TestAReplyQuotesTheMessageItAnswers(t *testing.T) {
 	require.ErrorIs(t, err, errNoMessage)
 }
 
+// A reply that tags a member lists them in the same context as the quote, as mautrix-whatsapp sends a mention
+// (pkg/msgconv/from-matrix.go, generateContextInfo and convertPill), so that WhatsApp tags them (issue #852); a
+// member given by a LID or a bare number is tagged by that JID. A mention the text does not write is refused.
+func TestAReplyThatTagsAMemberListsThemBesideTheQuote(t *testing.T) {
+	t.Parallel()
+
+	acc := linkedAccount(t)
+	ctx := t.Context()
+	group := types.NewJID("120363000000003", types.GroupServer)
+	lan := types.NewJID("84911111111", types.DefaultUserServer)
+
+	acc.handle(incoming(group, lan, "q1", "Lan", time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC),
+		&waE2E.Message{Conversation: proto.String("Báo giá đâu anh?")}))
+
+	out := messaging.Outgoing{Chat: group.String(), Text: "@84911111111 đây em", ReplyTo: "q1",
+		Mentions: []string{lan.String()}}
+
+	mentioned, err := mentionJIDs(out.Text, out.Mentions)
+	require.NoError(t, err)
+
+	info, err := acc.contextInfo(ctx, group, out.ReplyTo, mentioned)
+	require.NoError(t, err)
+
+	msg, err := acc.build(ctx, out, info)
+	require.NoError(t, err)
+
+	got := msg.GetExtendedTextMessage()
+	require.NotNil(t, got)
+	assert.Equal(t, "@84911111111 đây em", got.GetText())
+	assert.Equal(t, []string{"84911111111@s.whatsapp.net"}, got.GetContextInfo().GetMentionedJID())
+	assert.Equal(t, "q1", got.GetContextInfo().GetStanzaID())
+	assert.Equal(t, lan.String(), got.GetContextInfo().GetParticipant())
+
+	info, err = acc.contextInfo(ctx, group, "", []string{"168453096898812@lid"})
+	require.NoError(t, err)
+	msg, err = acc.build(ctx, messaging.Outgoing{Chat: group.String(), Text: "@168453096898812 ok"}, info)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"168453096898812@lid"}, msg.GetExtendedTextMessage().GetContextInfo().GetMentionedJID())
+	assert.Empty(t, msg.GetExtendedTextMessage().GetContextInfo().GetStanzaID(), "no reply, no quote")
+
+	mentioned, err = mentionJIDs("@168453096898812 và @84911111111", []string{"168453096898812@lid", "+84911111111"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"168453096898812@lid", "84911111111@s.whatsapp.net"}, mentioned)
+
+	_, err = mentionJIDs("Lan, đây em", []string{lan.String()})
+	require.ErrorContains(t, err, "does not write @84911111111")
+
+	_, err = mentionJIDs("@120363000000003", []string{group.String()})
+	require.ErrorContains(t, err, "is not a member's id", "a group is not tagged")
+}
+
 // A file given up by the mirror's first version, which did not ask the phone, waits again for its download once
 // the mirror is upgraded (issue #651); one given up for its size stays given up.
 func TestAFileGivenUpBeforeIsAskedOfThePhone(t *testing.T) {

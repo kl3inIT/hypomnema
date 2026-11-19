@@ -39,7 +39,7 @@ const (
 )
 
 // Agent calls the control plane's agent API for one agent, with its
-// credential: a Dispatch's key, or a Bot's pi's token.
+// credential: a Dispatch's key, a Bot's pi's token, or the owner's token.
 type Agent struct {
 	url    string
 	key    string
@@ -49,11 +49,16 @@ type Agent struct {
 // NewAgent is the agent API at url, called with key; nil when either is
 // missing: the agent then has none of the control plane's tools.
 func NewAgent(url, key string) *Agent {
+	return NewAgentWithClient(url, key, &http.Client{})
+}
+
+// NewAgentWithClient uses client for the requests, including its redirect policy.
+func NewAgentWithClient(url, key string, client *http.Client) *Agent {
 	if url == "" || key == "" {
 		return nil
 	}
 
-	return &Agent{url: strings.TrimSuffix(url, "/"), key: key, client: &http.Client{}}
+	return &Agent{url: strings.TrimSuffix(url, "/"), key: key, client: client}
 }
 
 // Do sends one request and returns the answer's body when it is a 200. Its
@@ -82,6 +87,9 @@ func (a *Agent) doWithin(ctx context.Context, method, path string, body any, lim
 
 	req.Header.Set("Authorization", "Bearer "+a.key)
 	req.Header.Set("Content-Type", "application/json")
+	if path == agenttool.PathTools || path == agenttool.PathToolsCall {
+		req.Header.Set(agenttool.HeaderWhatsAppMentions, "1")
+	}
 
 	resp, err := a.client.Do(req)
 	if err != nil {

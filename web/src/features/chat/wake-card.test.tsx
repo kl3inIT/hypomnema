@@ -23,6 +23,7 @@ const finished: TaskDetail = {
   run_id: "run_1",
   position: 1,
   profile: "implementer",
+  kind: "narrow",
   spec: "Add the /health handler",
   status: "succeeded",
   failure_count: 0,

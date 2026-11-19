@@ -353,6 +353,11 @@ func (s *Server) serveChat(
 	}
 
 	if resp != nil {
+		if record.Outcome == OutcomeNoAccount {
+			relayCooling(w, resp)
+			_ = resp.Body.Close()
+			return
+		}
 		s.relay(w, r, req, resp, record)
 		_ = resp.Body.Close()
 
@@ -373,6 +378,8 @@ func (s *Server) tryChat(
 	ctx context.Context, req chatRequest, model Model, keyID string, record *Usage, hasFallbacks func() bool,
 ) (*http.Response, bool) {
 	exhausted := len(model.Targets) > 0
+	var cooling modelCooling
+	record.Outcome, record.Error = "", ""
 	for i, target := range model.Targets {
 		last := i == len(model.Targets)-1
 		noteServed(ctx, "")
@@ -385,7 +392,10 @@ func (s *Server) tryChat(
 			if ctx.Err() != nil {
 				return nil, false
 			}
-			exhausted = exhausted && errors.Is(err, ErrNoAccount)
+			if cooling.add(err) {
+				continue
+			}
+			exhausted = false
 
 			s.logger.WarnContext(ctx, "a gateway target gave no answer",
 				slog.String("event", "modelgateway.target_failed"), slog.String("provider", target.Provider),
@@ -395,6 +405,7 @@ func (s *Server) tryChat(
 		}
 
 		record.Status = resp.StatusCode
+		cooling.other = true
 		refused := accountRefused(resp.StatusCode)
 		exhausted = exhausted && refused
 
@@ -408,7 +419,7 @@ func (s *Server) tryChat(
 		return resp, exhausted
 	}
 
-	return nil, exhausted
+	return s.coolingResponse(ctx, "/v1/chat/completions", cooling, record), exhausted
 }
 
 func accountRefused(status int) bool {
@@ -517,8 +528,8 @@ func (s *Server) relayStream(
 
 	// A scanner blocks in Read and takes no deadline, so a silent provider is
 	// ended by closing its body, as 9router-go and Bifrost do.
-	idle := time.AfterFunc(s.idleTimeout, func() { _ = resp.Body.Close() })
-	defer idle.Stop()
+	idle := watchStreamIdle(resp.Body, s.idleTimeout)
+	defer idle.timer.Stop()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64<<10), maxLineBytes)
@@ -526,10 +537,11 @@ func (s *Server) relayStream(
 	var (
 		done, finished, clientGone bool
 		sent                       int
+		failure                    string
 	)
 
 	for scanner.Scan() {
-		idle.Reset(s.idleTimeout)
+		idle.reset()
 
 		// Only data lines are passed on; comments and event names are not, as
 		// in new-api and Bifrost.
@@ -539,6 +551,7 @@ func (s *Server) relayStream(
 		}
 
 		payload = bytes.TrimSpace(payload)
+		noteStreamFailure(&failure, payload)
 		if string(payload) == "[DONE]" {
 			done = true
 
@@ -582,6 +595,8 @@ func (s *Server) relayStream(
 	}
 
 	switch {
+	case failure != "":
+		record.Outcome, record.Error = OutcomeTruncated, failure
 	case clientGone || r.Context().Err() != nil:
 		record.Outcome = OutcomeClientGone
 	case done || finished:
@@ -593,7 +608,7 @@ func (s *Server) relayStream(
 	default:
 		// A provider that died looks like a clean end of the body, so only an
 		// end mark or a finish reason says the answer is whole (Bifrost).
-		record.Outcome = OutcomeTruncated
+		record.Outcome, record.Error = OutcomeTruncated, idle.endReason(scanner.Err(), "a finish reason or [DONE]")
 
 		_, _ = io.WriteString(w, `data: {"error":{"message":"the provider's answer ended early",`+
 			`"type":"server_error","code":"upstream_truncated"}}`+"\n\n")

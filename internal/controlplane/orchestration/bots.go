@@ -14,6 +14,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // DefaultBotID is the id of the main Bot, the one that is always there: a chat that names no other talks with it,
@@ -69,11 +70,9 @@ type Bot struct {
 	// SkillsOff the ones given to everyone it does not get (issue #21).
 	Skills    []string
 	SkillsOff []string
-	// Tools are the only control-plane tools its pi gets, when any is named,
-	// and ToolsOff those it never gets, each a name or a family (issue #536;
-	// agenttool.ToolSwitches).
-	Tools    []string
-	ToolsOff []string
+	Preset    string
+	Tools     []string
+	ToolsOff  []string
 	// Connections are the Connections the Bot may use and Workers the
 	// profiles it may give work to (issue #169, part 3; botaccess.go).
 	Connections AllowList
@@ -90,8 +89,11 @@ type Bot struct {
 	GuaranteedDispatches int
 	// Position is the Bot's place in the order the owner sets, 0 first, and Pinned lists it in the sidebar's
 	// Pinned section (issue #470). Neither is a setting: PutBot keeps them as they are.
-	Position  int
-	Pinned    bool
+	Position int
+	Pinned   bool
+	// MainChat is the chat a click on the Bot opens and the web and the CLI write to (issue #471); empty until the
+	// first message from either makes it. Its other chats stay as they are.
+	MainChat  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -101,10 +103,11 @@ func botFromRow(r store.Bot) Bot {
 		ID: r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
 		Fallbacks: splitNames(r.Fallbacks),
 		Persona:   r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
-		Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff), Connections: allowListOf(r.Connections),
-		Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
+		Preset: r.Preset, Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff),
+		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
 		GuaranteedDispatches: int(r.GuaranteedDispatches.Int64),
 		Position:             int(r.Position), Pinned: r.Pinned != 0, Scopes: scopesOf(r.ConnectionScopes),
+		MainChat:  r.MainChat.String,
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
 }
@@ -304,6 +307,7 @@ func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
 	}
 
 	b.Provider = provider
+	b.Preset = agenttool.DefaultPreset(b.Preset)
 
 	if err := checkBotFallbacks(ctx, q, b); err != nil {
 		return err
@@ -313,7 +317,7 @@ func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
 		return err
 	}
 
-	if err := checkTools(b.Tools, b.ToolsOff); err != nil {
+	if err := checkTools(b.Preset, b.Tools, b.ToolsOff); err != nil {
 		return err
 	}
 
@@ -405,7 +409,8 @@ func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 		Fallbacks: strings.Join(b.Fallbacks, ","),
 		Effort:    nullString(b.Effort), Persona: b.Persona, Skills: strings.Join(b.Skills, ","),
 		SkillsOff: strings.Join(b.SkillsOff, ","), Tools: strings.Join(b.Tools, ","),
-		ToolsOff: strings.Join(b.ToolsOff, ","), Connections: b.Connections.stored(), Workers: b.Workers.stored(),
+		Preset: agenttool.DefaultPreset(b.Preset), ToolsOff: strings.Join(b.ToolsOff, ","),
+		Connections: b.Connections.stored(), Workers: b.Workers.stored(),
 		ToolDisplay: string(b.ToolDisplay), ConnectionScopes: storedScopes(b.Scopes),
 		GuaranteedDispatches: storedLimit(b.GuaranteedDispatches), Now: now,
 	})
@@ -425,7 +430,7 @@ func updateBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 		Provider: nullString(b.Provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
 		Fallbacks: strings.Join(b.Fallbacks, ","),
 		Persona:   b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
-		Tools: strings.Join(b.Tools, ","), ToolsOff: strings.Join(b.ToolsOff, ","),
+		Preset: agenttool.DefaultPreset(b.Preset), Tools: strings.Join(b.Tools, ","), ToolsOff: strings.Join(b.ToolsOff, ","),
 		Connections: b.Connections.stored(), Workers: b.Workers.stored(), ToolDisplay: string(b.ToolDisplay),
 		ConnectionScopes: storedScopes(b.Scopes), GuaranteedDispatches: storedLimit(b.GuaranteedDispatches), Now: now,
 		ID: b.ID,

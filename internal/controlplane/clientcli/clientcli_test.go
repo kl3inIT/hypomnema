@@ -893,7 +893,7 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "investigate")
 	require.NoError(t, err)
-	assert.Contains(t, out, "three or four\n   mature projects, never a single one",
+	assert.Contains(t, out, "three or four mature projects to clone",
 		"a research Task names several references to clone (issue #719)")
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "review")
@@ -1221,7 +1221,7 @@ func TestChatFromTheTerminal(t *testing.T) {
 
 	out, err = w.cmdIn(t, "and a test\n", "chat", "--text-file", "-")
 	require.NoError(t, err)
-	assert.Contains(t, out, "chat "+chatID, "the most recent chat")
+	assert.Contains(t, out, "chat "+chatID, "the main Bot's main chat")
 	assert.Contains(t, out, "pi: I read: and a test")
 
 	out, err = w.cmd(t, "chat", "--last", "2")
@@ -1274,7 +1274,76 @@ func TestChatWithAChosenBot(t *testing.T) {
 	assert.Equal(t, vmap.Id, chats.Data[0].Bot, "the chat talks with the Bot named")
 
 	_, err = w.cmd(t, "chat", "--bot", vmap.Id, "--chat", chatID, "again")
-	require.ErrorContains(t, err, "a chat's Bot is fixed when it is made")
+	require.ErrorContains(t, err, "--chat names a chat, whose Bot is fixed")
+}
+
+// Scenario: the owner writes from the terminal with no chat named (issue #471). The message goes to the Bot's main
+// chat, not to the chat that moved last (here a Lark chat of the main Bot), and again to the same one; --new starts
+// another, which becomes the main chat while the former one stays. Reading a Bot with no main chat makes none, and
+// chats --bot lists one Bot's chats.
+func TestChatWritesToTheBotsMainChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+	ctx := t.Context()
+
+	var vmap, maps openapi.Bot
+	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap")
+	w.jsonCmd(t, &maps, "", "bots", "set", "maps")
+
+	first, err := w.cmd(t, "chat", "--bot", vmap.Id, "hello")
+	require.NoError(t, err)
+	mainID := regexp.MustCompile(`chat (cht_\w+)`).FindStringSubmatch(first)[1]
+
+	// A chat of Lark's kind, made after: it moved last, but it is no Bot's main chat.
+	lark, err := w.svc.CreateChat(ctx, vmap.Id, "lark")
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, lark.ID, orchestration.ChatOwner, "from Lark")
+	require.NoError(t, err)
+
+	again, err := w.cmd(t, "chat", "--bot", vmap.Id, "again")
+	require.NoError(t, err)
+	assert.Contains(t, again, "chat "+mainID, "the Bot's main chat, not the newest chat")
+
+	fresh, err := w.cmd(t, "chat", "--bot", vmap.Id, "--new", "a second topic")
+	require.NoError(t, err)
+	freshID := regexp.MustCompile(`chat (cht_\w+)`).FindStringSubmatch(fresh)[1]
+	assert.NotEqual(t, mainID, freshID)
+
+	var bot openapi.Bot
+	w.jsonCmd(t, &bot, "", "bots", "show", vmap.Id)
+	assert.Equal(t, freshID, val(bot.MainChat), "--new moves the main chat")
+
+	shown, err := w.cmd(t, "chat", "--bot", vmap.Id)
+	require.NoError(t, err)
+	assert.Contains(t, shown, "chat "+freshID)
+	assert.Contains(t, shown, "you: a second topic")
+
+	none, err := w.cmd(t, "chat", "--bot", maps.Id)
+	require.NoError(t, err)
+	assert.Contains(t, none, "no main chat yet")
+
+	var chats openapi.ChatList
+	w.jsonCmd(t, &chats, "", "chats", "--bot", vmap.Id)
+	ids := []string{}
+	for _, c := range chats.Data {
+		ids = append(ids, c.Id)
+		assert.Equal(t, vmap.Id, c.Bot)
+	}
+	assert.ElementsMatch(t, []string{mainID, freshID, lark.ID}, ids, "the former main chat stays")
+
+	w.jsonCmd(t, &chats, "", "chats", "--bot", maps.Id)
+	assert.Empty(t, chats.Data, "reading a Bot with no main chat made none")
+
+	// /new is --new without a message: a new main chat, and nothing sent.
+	started, err := w.cmd(t, "chat", "--bot", vmap.Id, "/new")
+	require.NoError(t, err)
+	startedID := regexp.MustCompile(`chat (cht_\w+)`).FindStringSubmatch(started)[1]
+	assert.NotContains(t, started, "you: /new")
+	w.jsonCmd(t, &bot, "", "bots", "show", vmap.Id)
+	assert.Equal(t, startedID, val(bot.MainChat), "/new moves the main chat")
+	assert.NotEqual(t, freshID, startedID)
 }
 
 // Scenario: the owner sets a Bot's guaranteed share of the room (issue
@@ -1329,6 +1398,11 @@ func TestTasksShowWhyATaskWaits(t *testing.T) {
 	out, err = w.cmd(t, "runs", "show", run.ID)
 	require.NoError(t, err)
 	assert.Contains(t, out, "    waiting: no connected node can run its agent")
+}
+
+func TestDiskWaitUsesPlainLanguage(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "no suitable node has enough measured free disk space", waitingLine(orchestration.ReasonNodesLowDisk))
 }
 
 // pi's environment names its chat; the Runs it creates record it.

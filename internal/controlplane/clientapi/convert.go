@@ -32,11 +32,20 @@ func val[T any](p *T) T {
 }
 
 func toRun(r orchestration.Run) openapi.Run {
+	var review *openapi.ReviewStall
+	if stall := r.ReviewStall; stall != nil {
+		review = &openapi.ReviewStall{
+			TaskId: stall.TaskID, PullRequest: stall.PullRequest, Verdict: openapi.ReviewStallVerdict(stall.Verdict),
+			MergeState: stall.MergeState, Mergeable: stall.Mergeable, Checks: openapi.ReviewStallChecks(stall.Checks),
+			WaitingForOwner: stall.WaitingForOwner,
+		}
+	}
+
 	return openapi.Run{
 		Id: r.ID, Objective: r.Objective, Status: openapi.RunStatus(r.Status), CreatedBy: r.CreatedBy,
 		Repo: ptr(r.Repo), RepoHost: ptr(r.RepoHost), Base: ptr(r.Base),
 		CoordinatorTokenId: ptr(r.CoordinatorTokenID), ChatId: ptr(r.ChatID), Bot: ptr(r.Bot), Uses: usesOf(r.Uses),
-		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt, ReviewStall: review,
 	}
 }
 
@@ -56,6 +65,7 @@ func toTask(t orchestration.Task) openapi.Task {
 
 	return openapi.Task{
 		Id: t.ID, RunId: t.RunID, Position: t.Position, Profile: t.Profile, Spec: t.Spec,
+		Kind:    openapi.TaskKind(t.Kind),
 		Runtime: ptr(t.Runtime), Model: ptr(t.Model), Effort: ptr(t.Effort),
 		Status: openapi.TaskStatus(t.Status), BlockedReason: reason, FailureCount: t.FailureCount,
 		Result: ptr(t.Result), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, FinishedAt: t.FinishedAt,
@@ -97,6 +107,7 @@ func toDispatch(d orchestration.Dispatch) openapi.Dispatch {
 		Id: d.ID, TaskId: d.TaskID, NodeId: d.NodeID, Status: openapi.DispatchStatus(d.Status), Epoch: d.Epoch,
 		FailureClass: ptr(string(d.FailureClass)), UnknownCause: ptr(string(d.UnknownCause)),
 		Model: ptr(d.Model), Effort: ptr(d.Effort), ProfileVersionId: ptr(d.ProfileVersionID),
+		ChainEntry: d.ChainEntry, Runtime: ptr(d.Runtime),
 		FallbackFor: ptr(d.FallbackFor), FallbackUntil: d.FallbackUntil, Handoff: ptr(d.Handoff),
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 		StartedAt: d.StartedAt, ProgressAt: d.ProgressAt, SettledAt: d.SettledAt, WaitingSince: d.WaitingSince,
@@ -164,10 +175,20 @@ func toNode(n orchestration.Node) openapi.Node {
 		Id: n.ID, Name: n.Name, Status: openapi.NodeStatus(n.Status), MaxDispatches: ptr(n.MaxDispatches),
 		Reserved: toResources(n.Reserved), Allocatable: toResources(n.Allocatable), Requested: toResources(n.Requested),
 		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System),
-		Stats: toNodeStats(n.Stats), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
+		Stats: toNodeStats(n.Stats), Disk: toNodeDisk(n.Disk), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 		Terminal: ptr(n.Terminal), Device: ptr(openapi.NodeDevice(n.Device)), Kvm: ptr(n.KVM),
 		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools),
+	}
+}
+
+func toNodeDisk(d *orchestration.DiskStatus) *openapi.NodeDisk {
+	if d == nil {
+		return nil
+	}
+
+	return &openapi.NodeDisk{
+		FreeBytes: d.FreeBytes, FloorBytes: d.FloorBytes, TrimBytes: d.TrimBytes, At: d.At, AgeMs: d.AgeMS,
 	}
 }
 
@@ -262,6 +283,7 @@ func float32Ptr(v *float64) *float32 {
 func fromNewTask(t openapi.NewTask) orchestration.NewTask {
 	return orchestration.NewTask{
 		Ref: t.Ref, Profile: val(t.Profile), Spec: t.Spec, Runtime: val(t.Runtime), Model: val(t.Model),
+		Kind: string(val(t.Kind)), ReviewOf: val(t.ReviewOf),
 		Effort:    val(t.Effort),
 		DependsOn: val(t.DependsOn),
 	}
