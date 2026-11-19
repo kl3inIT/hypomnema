@@ -10,9 +10,9 @@ export function connectKeys(keys: GatewayKey[], chosen?: string) {
 }
 
 // toolNote is the line under a tool's file on what it turns on: for Claude Code and Codex, that /model lists the
-// key's models (Claude Code's gateway model discovery; Codex's model_catalog_url), and for omp how its model is
-// named, since its file sets no default.
-export function toolNote(tool: GatewayTool, model: string) {
+// key's models (Claude Code's gateway model discovery; Codex's model_catalog_url), and for omp what each of its two
+// files does, and for OpenCode that its provider lists every model.
+export function toolNote(tool: GatewayTool, model: string): string {
   switch (tool) {
     case "claude_code":
       return (
@@ -25,8 +25,14 @@ export function toolNote(tool: GatewayTool, model: string) {
         "reasoning levels. Keep a config.toml you already have and add these lines."
       )
     case "omp":
-      return model ? `Start omp with --model hypomnema/${model}, or pick it in /model.` : ""
+      return (
+        "models.yml reads every model of the key from the gateway (proxy discovery); config.yml makes " +
+        `hypomnema/${model || "<model>"} the default. Merge them into the files you already have.`
+      )
     case "opencode":
-      return ""
+      return (
+        "The provider lists every model of the key, and model is the default. Merge it into an " +
+        "opencode.json you already have."
+      )
   }
 }

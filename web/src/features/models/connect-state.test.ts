@@ -28,13 +28,13 @@ describe("Connect a tool's keys", () => {
 })
 
 describe("a tool's note", () => {
-  it("says what the file turns on, and how omp names its model", () => {
+  it("says what the file turns on, and what omp's two files do", () => {
     expect(toolNote("claude_code", "m")).toContain("CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY")
     expect(toolNote("codex", "m")).toContain("model_catalog_url")
-    expect(toolNote("omp", "claude-subscription/claude-opus-5-5")).toBe(
-      "Start omp with --model hypomnema/claude-subscription/claude-opus-5-5, or pick it in /model.",
+    expect(toolNote("omp", "claude-subscription/claude-opus-5-5")).toContain(
+      "config.yml makes hypomnema/claude-subscription/claude-opus-5-5 the default",
     )
-    expect(toolNote("omp", "")).toBe("")
-    expect(toolNote("opencode", "m")).toBe("")
+    expect(toolNote("omp", "")).toContain("hypomnema/<model> the default")
+    expect(toolNote("opencode", "m")).toContain("every model of the key")
   })
 })

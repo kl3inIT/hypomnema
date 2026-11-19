@@ -56,7 +56,7 @@ const tools: { id: GatewayTool; runtime: string; name: string; description: stri
     id: "omp",
     runtime: "omp",
     name: "omp",
-    description: "oh-my-pi, on each model's own wire, as the workers run it.",
+    description: "oh-my-pi, with every model of the key read from the gateway.",
   },
   {
     id: "opencode",
@@ -140,7 +140,11 @@ function ToolCard({
     gcTime: 0,
   })
   const data = config.data
-  const note = toolNote(tool.id, data?.model ?? "")
+  // The file shown and copied is only ever the answer for the key, model and tool chosen now (review of PR #922):
+  // while another key's or model's is being read, the earlier answer is kept for the pickers alone, and its file,
+  // which may hold a key with more access, is neither shown nor copied.
+  const current = data && !config.isPlaceholderData && data.tool === tool.id ? data : undefined
+  const note = current ? toolNote(tool.id, current.model) : ""
 
   return (
     <section aria-label={tool.name}>
@@ -185,7 +189,7 @@ function ToolCard({
                 <FieldLabel htmlFor={`${id}-model`}>Model</FieldLabel>
                 <Select
                   value={data?.model ?? ""}
-                  disabled={!data || data.models.length === 0}
+                  disabled={!current || current.models.length === 0}
                   onValueChange={(value) => value && setModel(value)}
                 >
                   <SelectTrigger id={`${id}-model`} width="full">
@@ -214,7 +218,13 @@ function ToolCard({
               </Field>
             </div>
             <ErrorAlert error={config.error} />
-            {data && data.models.length === 0 && (
+            {!current && config.isFetching && (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner />
+                Writing the file…
+              </p>
+            )}
+            {current && current.models.length === 0 && (
               <Alert>
                 <TriangleAlert />
                 <AlertDescription>
@@ -223,7 +233,7 @@ function ToolCard({
                 </AlertDescription>
               </Alert>
             )}
-            {data && !data.key_stored && (
+            {current && !current.key_stored && (
               <Alert>
                 <TriangleAlert />
                 <AlertDescription>
@@ -232,7 +242,7 @@ function ToolCard({
                 </AlertDescription>
               </Alert>
             )}
-            {data?.files.map((file) => (
+            {current?.files.map((file) => (
               <CodeBlock key={file.path} size="sm">
                 <CodeBlockHeader>
                   <CodeBlockTitle>{file.path}</CodeBlockTitle>
