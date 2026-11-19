@@ -248,7 +248,7 @@ func TestListModelsOverHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, status)
 	assert.JSONEq(t, fmt.Sprintf(
 		`{"object":"list","data":[{"id":"gpt-sol","object":"model","created":%d,"owned_by":"hypomnema",`+
-			`"display_name":"gpt-sol"}],"has_more":false}`, created),
+			`"name":"gpt-sol","display_name":"gpt-sol","supported_endpoint_types":["openai"]}],"has_more":false}`, created),
 		body)
 
 	status, body = get(everything)

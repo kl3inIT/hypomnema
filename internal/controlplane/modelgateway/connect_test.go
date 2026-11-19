@@ -3,15 +3,18 @@ package modelgateway_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/BurntSushi/toml"
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
+	"github.com/kl3inIT/hypomnema/api"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -124,13 +127,23 @@ func TestTheCodexCatalogListsTheKeysModels(t *testing.T) {
 
 	assert.Equal(t, "opencode-go/kimi-k3", kimi.Slug)
 	require.NotNil(t, kimi.BaseInstructions)
-	assert.Contains(t, *kimi.BaseInstructions, "Codex", "Codex's instructions for a model it does not know")
+	assert.Equal(t, "You are Codex, a coding agent. You and the user share one workspace.", *kimi.BaseInstructions,
+		"CLIProxyAPI's short instructions for a model Codex does not bundle")
 	assert.Equal(t, int64(272000), kimi.ContextWindow, "Codex's window for a model it does not know")
 	assert.Equal(t, "unified_exec", kimi.ShellType)
 	assert.Empty(t, kimi.Levels)
 
 	status, _ = serve(t, g, "/v1/codex/models", "")
 	assert.Equal(t, http.StatusUnauthorized, status)
+
+	// The answer is what api/openapi.yaml says of it (GetCodexModelCatalog).
+	spec, err := openapi3.NewLoader().LoadFromData(api.Spec)
+	require.NoError(t, err)
+
+	var decoded any
+	require.NoError(t, json.Unmarshal(body, &decoded))
+	require.NoError(t, spec.Components.Schemas["CodexModelCatalog"].Value.VisitJSON(decoded,
+		openapi3.MultiErrors()))
 }
 
 // Scenario: Claude Code lists the key's models with gateway model discovery (issue #907): each has a display name,
@@ -147,9 +160,14 @@ func TestTheModelListHasDisplayNamesAndALimit(t *testing.T) {
 
 	type list struct {
 		Data []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-			Description string `json:"description"`
+			ID            string   `json:"id"`
+			Name          string   `json:"name"`
+			DisplayName   string   `json:"display_name"`
+			Description   string   `json:"description"`
+			EndpointTypes []string `json:"supported_endpoint_types"`
+			ContextLength *int64   `json:"context_length"`
+			Reasoning     *bool    `json:"reasoning"`
+			Levels        []string `json:"supported_reasoning_levels"`
 		} `json:"data"`
 		HasMore bool `json:"has_more"`
 	}
@@ -166,6 +184,20 @@ func TestTheModelListHasDisplayNamesAndALimit(t *testing.T) {
 	assert.Equal(t, "codex-subscription/GPT-6.1-Sol", all.Data[1].DisplayName)
 	assert.NotEmpty(t, all.Data[1].Description, "Codex's words for its model")
 	assert.Equal(t, "opencode-go/glm-5.3", all.Data[2].DisplayName, "a name of no known family stays as it is")
+
+	// What omp's proxy discovery reads: a Claude subscription's model on Messages first, the rest on chat; the
+	// window and the levels when known.
+	opus, sol, glm := all.Data[0], all.Data[1], all.Data[2]
+	assert.Equal(t, opus.DisplayName, opus.Name)
+	assert.Equal(t, []string{"anthropic", "openai"}, opus.EndpointTypes)
+	assert.Equal(t, []string{"openai"}, sol.EndpointTypes)
+	require.NotNil(t, sol.ContextLength)
+	assert.Equal(t, int64(500000), *sol.ContextLength)
+	require.NotNil(t, sol.Reasoning)
+	assert.True(t, *sol.Reasoning)
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh"}, sol.Levels)
+	assert.Equal(t, []string{"openai"}, glm.EndpointTypes)
+	assert.Nil(t, glm.ContextLength, "unknown: left out")
 
 	status, body = serve(t, g, "/v1/models?limit=2", key)
 	require.Equal(t, http.StatusOK, status)
@@ -240,29 +272,36 @@ func TestEachToolsFileHoldsTheKeyAndTheModel(t *testing.T) {
 
 	omp, err := g.ToolConfig(ctx, k.ID, modelgateway.ToolOmp, "claude-subscription/claude-opus-5-5", base)
 	require.NoError(t, err)
+	require.Len(t, omp.Files, 2, "models.yml and config.yml")
+	assert.Equal(t, "~/.omp/agent/models.yml", omp.Files[0].Path)
+	assert.Equal(t, "~/.omp/agent/config.yml", omp.Files[1].Path)
 
 	var models struct {
 		Providers map[string]struct {
-			BaseURL string `yaml:"baseUrl"`
-			APIKey  string `yaml:"apiKey"`
-			API     string `yaml:"api"`
-			Models  []struct {
-				ID            string `yaml:"id"`
-				Reasoning     bool   `yaml:"reasoning"`
-				ContextWindow int64  `yaml:"contextWindow"`
-			} `yaml:"models"`
+			BaseURL    string `yaml:"baseUrl"`
+			APIKey     string `yaml:"apiKey"`
+			AuthHeader bool   `yaml:"authHeader"`
+			Discovery  struct {
+				Type string `yaml:"type"`
+			} `yaml:"discovery"`
+			Models []any `yaml:"models"`
 		} `yaml:"providers"`
 	}
 
 	require.NoError(t, yaml.Unmarshal([]byte(omp.Files[0].Content), &models))
 	hyp := models.Providers["hypomnema"]
-	assert.Equal(t, "https://hyp.example", hyp.BaseURL, "a Claude model on Messages, at the root")
-	assert.Equal(t, "anthropic-messages", hyp.API)
+	assert.Equal(t, "https://hyp.example/v1", hyp.BaseURL)
 	assert.Equal(t, secret, hyp.APIKey)
-	require.Len(t, hyp.Models, 1)
-	assert.Equal(t, "claude-subscription/claude-opus-5-5", hyp.Models[0].ID)
-	assert.True(t, hyp.Models[0].Reasoning)
-	assert.Equal(t, int64(1000000), hyp.Models[0].ContextWindow, "the gateway's window, not omp's example")
+	assert.True(t, hyp.AuthHeader)
+	assert.Equal(t, "proxy", hyp.Discovery.Type, "every model of the key, read from /v1/models")
+	assert.Empty(t, hyp.Models, "no model is written down")
+
+	var ompSettings struct {
+		ModelRoles map[string]string `yaml:"modelRoles"`
+	}
+
+	require.NoError(t, yaml.Unmarshal([]byte(omp.Files[1].Content), &ompSettings))
+	assert.Equal(t, "hypomnema/claude-subscription/claude-opus-5-5", ompSettings.ModelRoles["default"])
 
 	opencode, err := g.ToolConfig(ctx, k.ID, modelgateway.ToolOpencode, "codex-subscription/gpt-6.1-sol", base)
 	require.NoError(t, err)
@@ -283,7 +322,11 @@ func TestEachToolsFileHoldsTheKeyAndTheModel(t *testing.T) {
 	assert.Equal(t, "hypomnema/codex-subscription/gpt-6.1-sol", oc.Model)
 	assert.Equal(t, "https://hyp.example/v1", oc.Providers["hypomnema"].Settings.BaseURL)
 	assert.Equal(t, secret, oc.Providers["hypomnema"].Settings.APIKey)
+	assert.Len(t, oc.Providers["hypomnema"].Models, 2, "every model of the key")
 	assert.Contains(t, oc.Providers["hypomnema"].Models, "codex-subscription/gpt-6.1-sol")
+	assert.JSONEq(t, `{"capabilities":{"tools":true,"input":["text"],"output":["text"]},`+
+		`"limit":{"context":1000000,"output":128000}}`,
+		string(oc.Providers["hypomnema"].Models["claude-subscription/claude-opus-5-5"]), "with its own size")
 }
 
 // Scenario: a key made without a stored value gives each file a placeholder in its place and says so; a key that
@@ -317,6 +360,93 @@ func TestAKeyWithoutAStoredValueGivesAPlaceholder(t *testing.T) {
 
 	_, err = g.ToolConfig(ctx, "key_nobody", modelgateway.ToolOmp, "", "http://hyp.example")
 	require.ErrorIs(t, err, modelgateway.ErrNotFound)
+}
+
+// Scenario: a name over a Claude model and then a Codex one (issue #907, review of PR #922). Codex is told the Codex
+// model's window and levels, those of the target /v1/responses serves, not the Claude model's million tokens and
+// max.
+func TestTheCodexCatalogDescribesTheTargetItServes(t *testing.T) {
+	t.Parallel()
+
+	g, _ := newConnectGateway(t)
+
+	_, err := g.ApplyModel(t.Context(), "name: opus-or-sol\ntargets:\n"+
+		"  - {provider: claude-subscription, model: claude-opus-5-5}\n"+
+		"  - {provider: codex-subscription, model: gpt-6.1-sol}\n")
+	require.NoError(t, err)
+
+	_, key, err := g.AddKey(t.Context(), "laptop", []string{"opus-or-sol"}, nil)
+	require.NoError(t, err)
+
+	status, body := serve(t, g, "/v1/codex/models", key)
+	require.Equal(t, http.StatusOK, status, string(body))
+
+	var catalog struct {
+		Models []catalogModel `json:"models"`
+	}
+
+	require.NoError(t, json.Unmarshal(body, &catalog))
+	require.Len(t, catalog.Models, 1)
+	assert.Equal(t, "opus-or-sol", catalog.Models[0].Slug)
+	assert.Equal(t, int64(500000), catalog.Models[0].ContextWindow, "GPT-6.1-Sol's, not Claude Opus's 1000000")
+
+	efforts := []string{}
+	for _, l := range catalog.Models[0].Levels {
+		efforts = append(efforts, l.Effort)
+	}
+
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh"}, efforts, "no max, which Codex is not served")
+}
+
+// Scenario: a key that may use every model, with 300 names over the Codex models (issue #907, the owner's
+// addition 8). Codex ignores a catalog of 1 MiB or more and keeps its bundled one (CLIProxyAPI
+// models_test.go:1710): the catalog stays under it. Only the first entry of each bundled model may keep Codex's own
+// instructions, the others get the short ones, and past the cap the last that keep them give them up too.
+func TestTheCodexCatalogStaysUnderOneMiB(t *testing.T) {
+	t.Parallel()
+
+	g, _ := newConnectGateway(t)
+
+	upstreams := []string{"gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol",
+		"gpt-6.1-sol"}
+	for i := range 300 {
+		_, err := g.ApplyModel(t.Context(), fmt.Sprintf("name: alias-%03d\ntargets: [{provider: codex-subscription, "+
+			"model: %s}]\n", i, upstreams[i%len(upstreams)]))
+		require.NoError(t, err)
+	}
+
+	_, key, err := g.AddKey(t.Context(), "everything", nil, nil)
+	require.NoError(t, err)
+
+	status, body := serve(t, g, "/v1/codex/models", key)
+	require.Equal(t, http.StatusOK, status)
+	assert.Less(t, len(body), 1<<20)
+
+	var catalog struct {
+		Models []struct {
+			Slug             string `json:"slug"`
+			BaseInstructions string `json:"base_instructions"`
+			ModelMessages    struct {
+				Template string `json:"instructions_template"`
+			} `json:"model_messages"`
+		} `json:"models"`
+	}
+
+	require.NoError(t, json.Unmarshal(body, &catalog))
+	require.Len(t, catalog.Models, 300+len(upstreams)+1, "the aliases, the Codex models and kimi-k3")
+
+	full := 0
+
+	for _, m := range catalog.Models {
+		require.NotEmpty(t, m.ModelMessages.Template, m.Slug)
+
+		if len(m.ModelMessages.Template) > 1000 {
+			full++
+		}
+	}
+
+	assert.Positive(t, full, "Codex's own instructions are kept where they fit")
+	assert.Less(t, full, len(upstreams), "once a bundled model at most, and not all of them past the cap")
 }
 
 // Scenario: a model's name reads as the web client writes it (web/src/lib/model-name.ts).

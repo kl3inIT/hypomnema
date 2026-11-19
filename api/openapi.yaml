@@ -2195,6 +2195,43 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GatewayToolConfig" }
         default: { $ref: "#/components/responses/Error" }
+  /v1/codex/models:
+    servers:
+      - url: /
+        description: The model gateway, at the control plane's origin, not under /api/v1.
+    get:
+      operationId: GetCodexModelCatalog
+      tags: [gateway]
+      summary: The models a gateway key may call from the Codex CLI, as Codex's own catalog
+      description: >-
+        Served by the model gateway, not the client API (issue #907): it takes
+        a gateway key (`Authorization: Bearer hyp_gateway_v1_…` or
+        `x-api-key`), which the client API refuses, and no client token. It is
+        what a Codex provider's `model_catalog_url` names: the models the key
+        may use that `/v1/responses` serves, each Codex's own entry
+        (ModelInfo, codex-rs `protocol/src/openai_models.rs`) for the model
+        behind it under the gateway's name, with the window and effort levels
+        of that target. The body stays under 1 MiB, past which Codex keeps its
+        bundled catalog.
+      security:
+        - gatewayKey: []
+      parameters:
+        - name: client_version
+          in: query
+          required: false
+          description: The Codex CLI's version, which Codex sends; the catalog does not depend on it.
+          schema: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CodexModelCatalog" }
+        "401":
+          description: No key, or not a working gateway key, in OpenAI's error shape.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayError" }
   /gateway/usage:
     get:
       operationId: GetGatewayUsage
@@ -4915,6 +4952,14 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+    gatewayKey:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: >-
+        A model gateway key (hyp_gateway_v1_…), in `x-api-key` or as `Authorization: Bearer <key>`, which Codex
+        sends. Only the gateway's own routes take it; the client API refuses it, and the gateway refuses a client
+        token.
   parameters:
     MeetingID:
       name: meeting_id
@@ -7784,6 +7829,55 @@ components:
         files:
           type: array
           items: { $ref: "#/components/schemas/GatewayToolFile" }
+    CodexModelCatalog:
+      type: object
+      description: Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
+      required: [models]
+      properties:
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/CodexModelInfo" }
+    CodexModelInfo:
+      type: object
+      description: >-
+        One of Codex's ModelInfo; the fields below are the ones the gateway sets, every other field is Codex's
+        bundled entry's as written. Codex's `description` and `default_reasoning_level` (the level it starts at,
+        one of supported_reasoning_levels) are a string or null.
+      required: [slug, display_name, supported_reasoning_levels, visibility, supported_in_api, priority]
+      additionalProperties: true
+      properties:
+        slug: { type: string, description: The gateway's name for the model. }
+        display_name: { type: string }
+        context_window: { type: integer, format: int64 }
+        max_context_window: { type: integer, format: int64 }
+        supported_reasoning_levels:
+          type: array
+          items:
+            type: object
+            required: [effort, description]
+            properties:
+              effort: { type: string }
+              description: { type: string }
+        input_modalities:
+          type: array
+          items: { type: string }
+        visibility: { type: string }
+        supported_in_api: { type: boolean }
+        priority: { type: integer }
+        base_instructions: { type: string }
+        model_messages: { type: object, additionalProperties: true }
+    GatewayError:
+      type: object
+      description: The model gateway's errors, in OpenAI's shape.
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message, type, code]
+          properties:
+            message: { type: string }
+            type: { type: string }
+            code: { type: string }
     GatewayKeyValue:
       type: object
       required: [secret]

@@ -102,6 +102,21 @@ func (s *Service) ToolConfig(ctx context.Context, keyID string, tool Tool, model
 		}
 	}
 
+	// OpenCode's file names every model of the key, as 9router's OpenCode card does (OpenCodeToolCard.js:86-111);
+	// omp's reads them from the gateway itself (OmpDiscovery).
+	if tool == ToolOpencode {
+		for _, m := range models {
+			r, err := s.Resolve(ctx, m)
+			if err != nil {
+				return ToolConfig{}, err
+			}
+
+			gw.Others = append(gw.Others, agentconfig.Model{
+				ID: m.Name, ContextWindow: deref(r.ContextWindow.Value), MaxOutput: deref(r.MaxOutput.Value),
+			})
+		}
+	}
+
 	if row.SecretVersionID.Valid {
 		if gw.Key, err = s.KeyValue(ctx, keyID); err != nil {
 			return ToolConfig{}, err
@@ -110,12 +125,9 @@ func (s *Service) ToolConfig(ctx context.Context, keyID string, tool Tool, model
 		out.KeyStored = true
 	}
 
-	file, err := toolFile(tool, gw)
-	if err != nil {
+	if out.Files, err = toolFiles(tool, gw); err != nil {
 		return ToolConfig{}, err
 	}
-
-	out.Files = []ToolFile{file}
 
 	return out, nil
 }
@@ -150,27 +162,26 @@ func deref[T any](p *T) T {
 	return *p
 }
 
-// toolFile is a tool's file at the path the tool reads it from: Claude Code's user settings
+// toolFiles are a tool's files at the paths the tool reads them from: Claude Code's user settings
 // (llm-gateway-connect, "Set in a settings file"), Codex's config.toml (9router's CodexToolCard.js), omp's agent
-// directory (omp docs/models.md) and OpenCode's global configuration (opencode config.mdx).
-func toolFile(tool Tool, gw agentconfig.Gateway) (ToolFile, error) {
-	var (
-		f   ToolFile
-		err error
-	)
-
+// directory, its models.yml with proxy discovery and its config.yml with the default model (omp docs/models.md), and
+// OpenCode's global configuration (opencode config.mdx).
+func toolFiles(tool Tool, gw agentconfig.Gateway) ([]ToolFile, error) {
 	switch tool {
 	case ToolClaudeCode:
-		f.Path, f.Format = "~/.claude/settings.json", "json"
-		f.Content, err = agentconfig.ClaudeSettings(gw)
-	case ToolCodex:
-		f.Path, f.Format, f.Content = "~/.codex/config.toml", "toml", agentconfig.CodexConfig(gw)
-	case ToolOmp:
-		f.Path, f.Format, f.Content = "~/.omp/agent/models.yml", "yaml", agentconfig.OmpModels(gw)
-	case ToolOpencode:
-		f.Path, f.Format = "~/.config/opencode/opencode.json", "json"
-		f.Content, err = agentconfig.OpencodeFile(gw)
-	}
+		content, err := agentconfig.ClaudeSettings(gw)
 
-	return f, err
+		return []ToolFile{{Path: "~/.claude/settings.json", Format: "json", Content: content}}, err
+	case ToolCodex:
+		return []ToolFile{{Path: "~/.codex/config.toml", Format: "toml", Content: agentconfig.CodexConfig(gw)}}, nil
+	case ToolOmp:
+		return []ToolFile{
+			{Path: "~/.omp/agent/models.yml", Format: "yaml", Content: agentconfig.OmpDiscovery(gw)},
+			{Path: "~/.omp/agent/config.yml", Format: "yaml", Content: agentconfig.OmpSettings(gw)},
+		}, nil
+	default:
+		content, err := agentconfig.OpencodeFile(gw)
+
+		return []ToolFile{{Path: "~/.config/opencode/opencode.json", Format: "json", Content: content}}, err
+	}
 }

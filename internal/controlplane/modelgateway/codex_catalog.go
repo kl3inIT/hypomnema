@@ -1,6 +1,7 @@
 package modelgateway
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -8,6 +9,8 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/agentconfig"
 )
 
 // The Codex CLI's model catalog (issue #907). Codex lists in /model the models of its own catalog: the one bundled
@@ -18,13 +21,25 @@ import (
 // the models a key may call on /v1/responses, the one route Codex speaks, as such a catalog: each entry is Codex's
 // own bundled entry for the model behind it (codexmodels/models.json, from Codex rust-v0.169.1; third_party/codex),
 // or Codex's own entry for a model it does not know (models-manager/src/model_info.rs model_info_from_slug), renamed
-// to the gateway's name and given the gateway's window, inputs and effort levels where the gateway knows them.
+// to the gateway's name and given the gateway's window, inputs and effort levels where the gateway knows them,
+// read from the target /v1/responses serves.
+//
+// Codex 0.156 and later ignore a catalog of 1 MiB or more and keep their bundled one, as CLIProxyAPI found
+// (internal/client/codex/models/models.go:719-722, models_test.go:1710): the instructions are most of an entry
+// (about 60 KiB of a bundled one's 65), so, as CLIProxyAPI does, only the first entry of each bundled model keeps
+// Codex's own; a model Codex does not bundle, and a second name for the same model, get CLIProxyAPI's short ones,
+// and when the whole is still too big the last entries that keep their own give them up until it fits.
 
 //go:embed codexmodels/models.json
 var codexBundledModels []byte
 
-//go:embed codexmodels/prompt.md
-var codexBaseInstructions string
+// codexCatalogLimit is the size Codex takes a catalog up to (CLIProxyAPI's test: below 1 MiB).
+const codexCatalogLimit = 1 << 20
+
+// codexCompactInstructions are the instructions of an entry that does not keep Codex's own, CLIProxyAPI's
+// (MIT License, https://github.com/router-for-me/CLIProxyAPI, db7f177: internal/client/codex/models/models.go:583
+// codexClientFallbackInstructions).
+const codexCompactInstructions = "You are Codex, a coding agent. You and the user share one workspace."
 
 // codexEntry is one ModelInfo of a Codex catalog, every field kept as Codex wrote it but those set here.
 type codexEntry map[string]json.RawMessage
@@ -67,14 +82,12 @@ type codexLevel struct {
 }
 
 // codexUnknownModel is what Codex gives a model it does not know (models-manager/src/model_info.rs
-// model_info_from_slug at rust-v0.169.1), its instructions those of prompt.md (BASE_INSTRUCTIONS), but listed in
-// the picker.
+// model_info_from_slug at rust-v0.169.1), but listed in the picker and with the short instructions.
 func codexUnknownModel() codexEntry {
 	fields := map[string]any{
 		"description": nil, "default_reasoning_level": nil, "supported_reasoning_levels": []any{},
 		"shell_type": "unified_exec", "visibility": "list", "supported_in_api": true, "priority": 99,
 		"additional_speed_tiers": []any{}, "service_tiers": []any{}, "availability_nux": nil, "upgrade": nil,
-		"base_instructions":                 codexBaseInstructions,
 		"include_skills_usage_instructions": false, "include_plugin_usage_instructions": false,
 		"include_apps_usage_instructions": false, "default_reasoning_summary": "auto",
 		"support_verbosity": false, "default_verbosity": nil, "apply_patch_tool_type": nil,
@@ -89,7 +102,19 @@ func codexUnknownModel() codexEntry {
 		out.set(k, v)
 	}
 
+	out.compact()
+
 	return out
+}
+
+// compact gives an entry the short instructions in both the fields Codex reads them from, as CLIProxyAPI's
+// useCompactCodexClientInstructions does (models.go:587-598): a catalog entry needs one of them.
+func (e codexEntry) compact() {
+	e.set("base_instructions", codexCompactInstructions)
+	e.set("model_messages", map[string]any{
+		"instructions_template": codexCompactInstructions, "instructions_variables": nil, "approvals": nil,
+		"collaboration_modes": nil, "auto_review": nil, "permissions": nil, "multi_agent": nil,
+	})
 }
 
 func (e codexEntry) set(key string, v any) {
@@ -140,35 +165,85 @@ func (s *Service) CodexModels(ctx context.Context, k Key) ([]Model, error) {
 	}), nil
 }
 
-// CodexCatalog is the catalog of the models a key may call from Codex, in the gateway's order.
-func (s *Service) CodexCatalog(ctx context.Context, k Key) ([]codexEntry, error) {
+// CodexCatalog is the catalog of the models a key may call from Codex, in the gateway's order, encoded below
+// codexCatalogLimit.
+func (s *Service) CodexCatalog(ctx context.Context, k Key) ([]byte, error) {
 	models, err := s.CodexModels(ctx, k)
 	if err != nil {
 		return nil, err
 	}
 
-	out := make([]codexEntry, 0, len(models))
+	entries := make([]codexEntry, 0, len(models))
+	full := []int{}
+	kept := map[string]bool{}
 
 	for i, m := range models {
 		target, kind, _ := s.responsesTarget(ctx, m)
 
-		resolved, err := s.Resolve(ctx, m)
+		resolved, err := s.resolveTarget(ctx, m, target)
 		if err != nil {
 			return nil, err
 		}
 
-		out = append(out, codexCatalogEntry(m.Name, i, target.UpstreamModel, kind, resolved))
+		entry, bundled := codexCatalogEntry(m.Name, i, target.UpstreamModel, kind, resolved)
+
+		switch {
+		case !bundled:
+		case kept[target.UpstreamModel]:
+			entry.compact()
+		default:
+			kept[target.UpstreamModel] = true
+			full = append(full, i)
+		}
+
+		entries = append(entries, entry)
 	}
 
-	return out, nil
+	for {
+		body, err := encodeCatalog(entries)
+		if err != nil || len(body) < codexCatalogLimit || len(full) == 0 {
+			return body, err
+		}
+
+		entries[full[len(full)-1]].compact()
+		full = full[:len(full)-1]
+	}
 }
 
-// codexCatalogEntry is the catalog entry of one gateway model whose target is upstream at a provider of the kind.
-func codexCatalogEntry(name string, order int, upstream, kind string, r Resolved) codexEntry {
+// resolveTarget gives a model's attributes as served from one of its targets: the model's own when the target is
+// its first, which they are resolved for (Resolve); else the target's alone, so that a name over a Claude model
+// and then a Codex one tells Codex the Codex model's window and levels.
+func (s *Service) resolveTarget(ctx context.Context, m Model, t Target) (Resolved, error) {
+	if len(m.Targets) > 0 && m.Targets[0] == t {
+		return s.Resolve(ctx, m)
+	}
+
+	return s.Resolve(ctx, Model{Name: m.Name, Capability: m.Capability, Targets: []Target{t}})
+}
+
+// encodeCatalog writes a catalog as Codex reads it, its instructions' < and > as they are.
+func encodeCatalog(entries []codexEntry) ([]byte, error) {
+	var out bytes.Buffer
+
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+
+	if err := enc.Encode(map[string]any{"models": entries}); err != nil {
+		return nil, fmt.Errorf("encoding the Codex catalog: %w", err)
+	}
+
+	return out.Bytes(), nil
+}
+
+// codexCatalogEntry is the catalog entry of one gateway model whose target is upstream at a provider of the kind,
+// and whether it is Codex's bundled entry for the model.
+func codexCatalogEntry(name string, order int, upstream, kind string, r Resolved) (codexEntry, bool) {
 	bundled, levels := codexBundle()
 
 	entry := codexUnknownModel()
-	if b, ok := bundled[upstream]; ok {
+	b, found := bundled[upstream]
+
+	if found {
 		entry = codexEntry{}
 		for k, v := range b {
 			entry[k] = v
@@ -199,7 +274,7 @@ func codexCatalogEntry(name string, order int, upstream, kind string, r Resolved
 
 	setCodexEfforts(entry, kind, r, levels)
 
-	return entry
+	return entry, found
 }
 
 // setCodexEfforts gives an entry the effort levels the gateway gives its model, each with the words Codex has for
@@ -264,36 +339,54 @@ func (s *Server) codexModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	models, err := s.svc.CodexCatalog(r.Context(), k)
+	body, err := s.svc.CodexCatalog(r.Context(), k)
 	if err != nil {
 		s.internal(w, r, "modelgateway.codex_models_failed", err)
 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body) // The client went away; nothing is left to tell it.
 }
 
-// description is what the gateway can say of a model beyond its name: Codex's own words for a Codex
-// subscription's model it bundles.
-func (s *Service) description(ctx context.Context, m Model) string {
+// listed is a model as GET /v1/models lists it (modelItem): its first target says its wire and Codex's
+// description of it, and Resolve its window and levels.
+func (s *Service) listed(ctx context.Context, m Model) (modelItem, error) {
+	item := modelItem{
+		ID: m.Name, Object: "model", Created: m.CreatedAt.Unix(), OwnedBy: "hypomnema", Name: DisplayName(m.Name),
+		DisplayName: DisplayName(m.Name), SupportedEndpointTypes: []string{"openai"},
+	}
+
+	r, err := s.Resolve(ctx, m)
+	if err != nil {
+		return modelItem{}, err
+	}
+
+	item.ContextLength, item.Reasoning = r.ContextWindow.Value, r.Reasoning.Value
+	if r.Efforts.Value != nil {
+		item.SupportedReasoningLevels = *r.Efforts.Value
+	}
+
 	if len(m.Targets) == 0 {
-		return ""
+		return item, nil
 	}
 
-	bundled, _ := codexBundle()
-
-	b, ok := bundled[m.Targets[0].UpstreamModel]
-	if !ok {
-		return ""
+	p, err := s.providers(ctx, m.Targets[0].Provider)
+	if err != nil {
+		return item, nil //nolint:nilerr // a provider that is gone says nothing more of the model
 	}
 
-	if p, err := s.providers(ctx, m.Targets[0].Provider); err != nil || p.Kind != "codex_subscription" {
-		return ""
+	if agentconfig.Wires[p.Kind] == agentconfig.WireMessages {
+		item.SupportedEndpointTypes = []string{"anthropic", "openai"}
 	}
 
-	var description string
-	_ = json.Unmarshal(b["description"], &description)
+	if bundled, _ := codexBundle(); p.Kind == "codex_subscription" {
+		if entry, found := bundled[m.Targets[0].UpstreamModel]; found {
+			_ = json.Unmarshal(entry["description"], &item.Description)
+		}
+	}
 
-	return description
+	return item, nil
 }

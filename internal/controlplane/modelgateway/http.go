@@ -284,14 +284,23 @@ type modelList struct {
 
 // modelItem is a model as OpenAI lists it, with Anthropic's display_name and the description Claude Code adds to
 // its /model picker with gateway model discovery (llm-gateway-protocol, "Model discovery": data[].id, optional
-// display_name and description).
+// display_name and description), and what omp's proxy discovery reads of a row (omp
+// packages/coding-agent/src/config/model-discovery.ts discoverProxyModels, docs/models.md "Proxy discovery"): its
+// name, the wires it is served on (supported_endpoint_types, "anthropic" before "openai" for a model whose
+// subscription speaks Messages, as agentconfig.Wires gives a worker its wire), its window (context_length) and its
+// reasoning and effort levels (reasoning, supported_reasoning_levels). A value the gateway does not know is left out.
 type modelItem struct {
-	ID          string `json:"id"`
-	Object      string `json:"object"`
-	Created     int64  `json:"created"`
-	OwnedBy     string `json:"owned_by"`
-	DisplayName string `json:"display_name"`
-	Description string `json:"description,omitempty"`
+	ID                       string   `json:"id"`
+	Object                   string   `json:"object"`
+	Created                  int64    `json:"created"`
+	OwnedBy                  string   `json:"owned_by"`
+	Name                     string   `json:"name"`
+	DisplayName              string   `json:"display_name"`
+	Description              string   `json:"description,omitempty"`
+	SupportedEndpointTypes   []string `json:"supported_endpoint_types"`
+	ContextLength            *int64   `json:"context_length,omitempty"`
+	Reasoning                *bool    `json:"reasoning,omitempty"`
+	SupportedReasoningLevels []string `json:"supported_reasoning_levels,omitempty"`
 }
 
 // listModels answers GET /v1/models with the models the key may use. A limit, as Claude Code asks
@@ -316,10 +325,14 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, m := range models {
-		out.Data = append(out.Data, modelItem{
-			ID: m.Name, Object: "model", Created: m.CreatedAt.Unix(), OwnedBy: "hypomnema",
-			DisplayName: DisplayName(m.Name), Description: s.svc.description(r.Context(), m),
-		})
+		item, err := s.svc.listed(r.Context(), m)
+		if err != nil {
+			s.internal(w, r, "modelgateway.list_models_failed", err)
+
+			return
+		}
+
+		out.Data = append(out.Data, item)
 	}
 
 	writeJSON(w, http.StatusOK, out)

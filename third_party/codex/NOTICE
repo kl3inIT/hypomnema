@@ -7,11 +7,11 @@ https://github.com/openai/codex at rust-v0.169.1
 
 What is taken from it here (issue #907), unchanged:
 - codex-rs/models-manager/models.json, Codex's bundled model catalog, as
-  internal/controlplane/modelgateway/codexmodels/models.json;
-- codex-rs/models-manager/prompt.md, the instructions Codex gives a model it
-  does not know (models-manager/src/model_info.rs BASE_INSTRUCTIONS), as
-  internal/controlplane/modelgateway/codexmodels/prompt.md.
+  internal/controlplane/modelgateway/codexmodels/models.json.
 
-The model gateway serves them back to the Codex CLI as its catalog, each entry
-renamed to the gateway's model and given the gateway's window and effort levels
-(internal/controlplane/modelgateway/codex_catalog.go).
+The model gateway serves its entries back to the Codex CLI as its catalog,
+each renamed to the gateway's model and given the gateway's window and effort
+levels, some with short instructions in place of Codex's own to stay under the
+size Codex reads (internal/controlplane/modelgateway/codex_catalog.go). The
+control plane's release carries this notice and the license beside its
+binaries (deploy/release/release-controlplane.sh).

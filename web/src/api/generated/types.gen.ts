@@ -2513,6 +2513,50 @@ export type GatewayToolConfig = {
   files: Array<GatewayToolFile>;
 };
 
+/**
+ * Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
+ */
+export type CodexModelCatalog = {
+  models: Array<CodexModelInfo>;
+};
+
+/**
+ * One of Codex's ModelInfo; the fields below are the ones the gateway sets, every other field is Codex's bundled entry's as written. Codex's `description` and `default_reasoning_level` (the level it starts at, one of supported_reasoning_levels) are a string or null.
+ */
+export type CodexModelInfo = {
+  /**
+   * The gateway's name for the model.
+   */
+  slug: string;
+  display_name: string;
+  context_window?: number;
+  max_context_window?: number;
+  supported_reasoning_levels: Array<{
+    effort: string;
+    description: string;
+  }>;
+  input_modalities?: Array<string>;
+  visibility: string;
+  supported_in_api: boolean;
+  priority: number;
+  base_instructions?: string;
+  model_messages?: {
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
+/**
+ * The model gateway's errors, in OpenAI's shape.
+ */
+export type GatewayError = {
+  error: {
+    message: string;
+    type: string;
+    code: string;
+  };
+};
+
 export type GatewayKeyValue = {
   secret: string;
 };

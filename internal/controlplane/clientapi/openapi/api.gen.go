@@ -3390,6 +3390,32 @@ type ChatWake struct {
 // ChatWakeEvent defines model for ChatWake.Event.
 type ChatWakeEvent string
 
+// CodexModelCatalog Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
+type CodexModelCatalog struct {
+	Models []CodexModelInfo `json:"models"`
+}
+
+// CodexModelInfo One of Codex's ModelInfo; the fields below are the ones the gateway sets, every other field is Codex's bundled entry's as written. Codex's `description` and `default_reasoning_level` (the level it starts at, one of supported_reasoning_levels) are a string or null.
+type CodexModelInfo struct {
+	BaseInstructions *string                 `json:"base_instructions,omitempty"`
+	ContextWindow    *int64                  `json:"context_window,omitempty"`
+	DisplayName      string                  `json:"display_name"`
+	InputModalities  *[]string               `json:"input_modalities,omitempty"`
+	MaxContextWindow *int64                  `json:"max_context_window,omitempty"`
+	ModelMessages    *map[string]interface{} `json:"model_messages,omitempty"`
+	Priority         int                     `json:"priority"`
+
+	// Slug The gateway's name for the model.
+	Slug                     string `json:"slug"`
+	SupportedInApi           bool   `json:"supported_in_api"`
+	SupportedReasoningLevels []struct {
+		Description string `json:"description"`
+		Effort      string `json:"effort"`
+	} `json:"supported_reasoning_levels"`
+	Visibility           string                 `json:"visibility"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
 // ConnectionAction One thing an agent can do with a Connection, and the owner's answer to it.
 type ConnectionAction struct {
 	// Access Whether the account can really do the action at the service, as last read: granted, missing (a request for it is refused before it is sent, whatever the policy), or unknown (it could not be read; requests go on).
@@ -3637,6 +3663,15 @@ type GatewayEndpoint string
 
 // GatewayEndpointSelection defines model for GatewayEndpointSelection.
 type GatewayEndpointSelection string
+
+// GatewayError The model gateway's errors, in OpenAI's shape.
+type GatewayError struct {
+	Error struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}
 
 // GatewayKey defines model for GatewayKey.
 type GatewayKey struct {
@@ -7855,6 +7890,214 @@ type FetchWebJSONRequestBody = WebFetchRequest
 
 // SearchWebJSONRequestBody defines body for SearchWeb for application/json ContentType.
 type SearchWebJSONRequestBody = WebSearchRequest
+
+// Getter for additional properties for CodexModelInfo. Returns the specified
+// element and whether it was found
+func (a CodexModelInfo) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for CodexModelInfo
+func (a *CodexModelInfo) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for CodexModelInfo to handle AdditionalProperties
+func (a *CodexModelInfo) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["base_instructions"]; found {
+		err = json.Unmarshal(raw, &a.BaseInstructions)
+		if err != nil {
+			return fmt.Errorf("error reading 'base_instructions': %w", err)
+		}
+		delete(object, "base_instructions")
+	}
+
+	if raw, found := object["context_window"]; found {
+		err = json.Unmarshal(raw, &a.ContextWindow)
+		if err != nil {
+			return fmt.Errorf("error reading 'context_window': %w", err)
+		}
+		delete(object, "context_window")
+	}
+
+	if raw, found := object["display_name"]; found {
+		err = json.Unmarshal(raw, &a.DisplayName)
+		if err != nil {
+			return fmt.Errorf("error reading 'display_name': %w", err)
+		}
+		delete(object, "display_name")
+	}
+
+	if raw, found := object["input_modalities"]; found {
+		err = json.Unmarshal(raw, &a.InputModalities)
+		if err != nil {
+			return fmt.Errorf("error reading 'input_modalities': %w", err)
+		}
+		delete(object, "input_modalities")
+	}
+
+	if raw, found := object["max_context_window"]; found {
+		err = json.Unmarshal(raw, &a.MaxContextWindow)
+		if err != nil {
+			return fmt.Errorf("error reading 'max_context_window': %w", err)
+		}
+		delete(object, "max_context_window")
+	}
+
+	if raw, found := object["model_messages"]; found {
+		err = json.Unmarshal(raw, &a.ModelMessages)
+		if err != nil {
+			return fmt.Errorf("error reading 'model_messages': %w", err)
+		}
+		delete(object, "model_messages")
+	}
+
+	if raw, found := object["priority"]; found {
+		err = json.Unmarshal(raw, &a.Priority)
+		if err != nil {
+			return fmt.Errorf("error reading 'priority': %w", err)
+		}
+		delete(object, "priority")
+	}
+
+	if raw, found := object["slug"]; found {
+		err = json.Unmarshal(raw, &a.Slug)
+		if err != nil {
+			return fmt.Errorf("error reading 'slug': %w", err)
+		}
+		delete(object, "slug")
+	}
+
+	if raw, found := object["supported_in_api"]; found {
+		err = json.Unmarshal(raw, &a.SupportedInApi)
+		if err != nil {
+			return fmt.Errorf("error reading 'supported_in_api': %w", err)
+		}
+		delete(object, "supported_in_api")
+	}
+
+	if raw, found := object["supported_reasoning_levels"]; found {
+		err = json.Unmarshal(raw, &a.SupportedReasoningLevels)
+		if err != nil {
+			return fmt.Errorf("error reading 'supported_reasoning_levels': %w", err)
+		}
+		delete(object, "supported_reasoning_levels")
+	}
+
+	if raw, found := object["visibility"]; found {
+		err = json.Unmarshal(raw, &a.Visibility)
+		if err != nil {
+			return fmt.Errorf("error reading 'visibility': %w", err)
+		}
+		delete(object, "visibility")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for CodexModelInfo to handle AdditionalProperties
+func (a CodexModelInfo) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.BaseInstructions != nil {
+		object["base_instructions"], err = json.Marshal(a.BaseInstructions)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'base_instructions': %w", err)
+		}
+	}
+
+	if a.ContextWindow != nil {
+		object["context_window"], err = json.Marshal(a.ContextWindow)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'context_window': %w", err)
+		}
+	}
+
+	object["display_name"], err = json.Marshal(a.DisplayName)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'display_name': %w", err)
+	}
+
+	if a.InputModalities != nil {
+		object["input_modalities"], err = json.Marshal(a.InputModalities)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'input_modalities': %w", err)
+		}
+	}
+
+	if a.MaxContextWindow != nil {
+		object["max_context_window"], err = json.Marshal(a.MaxContextWindow)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'max_context_window': %w", err)
+		}
+	}
+
+	if a.ModelMessages != nil {
+		object["model_messages"], err = json.Marshal(a.ModelMessages)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'model_messages': %w", err)
+		}
+	}
+
+	object["priority"], err = json.Marshal(a.Priority)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'priority': %w", err)
+	}
+
+	object["slug"], err = json.Marshal(a.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'slug': %w", err)
+	}
+
+	object["supported_in_api"], err = json.Marshal(a.SupportedInApi)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'supported_in_api': %w", err)
+	}
+
+	if a.SupportedReasoningLevels != nil {
+		object["supported_reasoning_levels"], err = json.Marshal(a.SupportedReasoningLevels)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'supported_reasoning_levels': %w", err)
+		}
+	}
+
+	object["visibility"], err = json.Marshal(a.Visibility)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'visibility': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
