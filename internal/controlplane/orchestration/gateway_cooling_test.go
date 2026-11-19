@@ -370,9 +370,11 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	require.NoError(t, err)
 	migrations, err := provider(db)
 	require.NoError(t, err)
-	rolledBack, err := migrations.Down(ctx)
+	// Down to the one before 00135, whatever later migrations there are (the Inbox's 00139 is one).
+	rolledBack, err := migrations.DownTo(ctx, 134)
 	require.NoError(t, err)
-	assert.Equal(t, int64(135), rolledBack.Source.Version)
+	require.NotEmpty(t, rolledBack)
+	assert.Equal(t, int64(135), rolledBack[len(rolledBack)-1].Source.Version)
 	assertExistingUsage()
 	var requests int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage`).Scan(&requests))

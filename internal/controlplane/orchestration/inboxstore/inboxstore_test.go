@@ -877,8 +877,8 @@ func TestEveryChangeIsAnEvent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, o.Work)
 	assert.Empty(t, o.ApprovalID)
-	assert.JSONEq(t, `{"state":"open","work_attempt":null,"work_kind":null,"work_id":null,"work_bot":null,"work_started_at":null,`+
-		`"approval_id":null,"reason":"Expired."}`, string(o.Events[3].After))
+	assert.JSONEq(t, `{"state":"open","work_attempt":null,"work_kind":null,"work_id":null,"work_bot":null,`+
+		`"work_started_at":null,"approval_id":null,"reason":"Expired."}`, string(o.Events[3].After))
 }
 
 // Scenario: only the Bot that started an attempt writes to it; another Bot that gives the attempt's id is
