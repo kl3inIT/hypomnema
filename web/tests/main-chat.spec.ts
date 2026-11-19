@@ -187,8 +187,8 @@ test("an older chat is set as the main chat, and another chat leads back to it",
   const calls = await fakeServer(page)
   await page.goto("/chats/cht_old")
 
-  const back = page.getByRole("link", { name: "Back to main chat" })
-  await expect(back).toHaveAttribute("href", "/chats/cht_1")
+  const back = page.getByRole("button", { name: "Back to main chat" })
+  await expect(back).toBeVisible()
   await shot(page, "main-chat-back")
 
   const actions = async () => {
@@ -233,4 +233,104 @@ test("an older chat is set as the main chat, and another chat leads back to it",
 
   await back.click()
   await expect(page).toHaveURL(/\/chats\/cht_old$/)
+})
+
+// actionsOf opens coordinator's menu in the sidebar, behind ≡ on a phone.
+async function actionsOf(page: Page) {
+  await openMenu(page)
+  const nav = page.getByRole("navigation", { name: "Bots" })
+  await nav.getByRole("link", { name: /coordinator/ }).hover()
+  await nav.getByRole("button", { name: "Actions for coordinator" }).click()
+}
+
+// keep puts panes in this browser's storage before the page loads, as a drag would have left them.
+async function keep(page: Page, panes: object, grid?: object) {
+  await page.addInitScript({
+    content: `localStorage.setItem('hypomnema.panes', ${JSON.stringify(JSON.stringify(panes))})
+      ${grid ? `localStorage.setItem('hypomnema.grid', ${JSON.stringify(JSON.stringify(grid))})` : ""}`,
+  })
+}
+
+// Scenario: on coordinator's main chat's page, the owner had dragged an older chat into the middle of the pane, so it
+// is in front while the address still names the main chat (issue #923). Set as main chat acts on the chat in front,
+// not on the address; back on the former main chat's tab, Back to main chat brings the new main chat in front there.
+test("Set as main chat and Back to main chat follow the chat in front of the page's pane", async ({
+  page,
+}) => {
+  const calls = await fakeServer(page)
+  await keep(page, {
+    "chat-cht_1": {
+      tabs: [
+        { kind: "chat", chat: "cht_1" },
+        { kind: "chat", chat: "cht_old" },
+      ],
+      active: "chat:cht_old",
+    },
+  })
+  await page.goto("/chats/cht_1")
+
+  const back = page.getByRole("button", { name: "Back to main chat" })
+  await expect(back).toBeVisible()
+
+  await actionsOf(page)
+  await page.getByRole("menuitem", { name: /Set as main chat/ }).click()
+  expect(calls).toEqual([{ call: "PATCH /bots/coordinator", body: { main_chat: "cht_old" } }])
+  const drawer = page.getByRole("dialog", { name: "Sidebar" })
+  if (await drawer.isVisible()) {
+    await page.keyboard.press("Escape")
+    await expect(drawer).toBeHidden()
+  }
+  await expect(back).toHaveCount(0)
+
+  await page.getByRole("tab", { name: "Fix the header" }).click()
+  await expect(back).toBeVisible()
+  await back.click()
+  await expect(page.getByRole("tab", { name: "The release plan" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  )
+  await expect(page).toHaveURL(/\/chats\/cht_1$/)
+  await expect(back).toHaveCount(0)
+})
+
+// Scenario: a grid of two panes, coordinator's older chat in one and its Routine's run in the other (issue #923). Each
+// pane leads back to the main chat on its own; the sidebar's menu acts on the chat in front of the pane last used:
+// none on the Routine's run, Set as main chat on the older chat. Back to main chat then brings it into the other pane.
+test("in a grid, each pane leads back to the main chat and the sidebar acts on the pane used", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name === "phone", "a phone shows one chat: there is no grid")
+  const calls = await fakeServer(page)
+  await keep(
+    page,
+    {
+      p1: { tabs: [{ kind: "chat", chat: "cht_old" }], active: "chat:cht_old" },
+      p2: { tabs: [{ kind: "chat", chat: "cht_run" }], active: "chat:cht_run" },
+    },
+    { axis: "columns", children: ["p1", "p2"] },
+  )
+  await page.goto("/grid")
+
+  const pane = (title: string) => page.getByRole("region", { name: title })
+  const back = (title: string) => pane(title).getByRole("button", { name: "Back to main chat" })
+  await expect(back("The release plan")).toBeVisible()
+  await expect(back("Daily digest")).toBeVisible()
+
+  await pane("Daily digest").getByRole("tab", { name: "Daily digest" }).click()
+  await actionsOf(page)
+  await expect(page.getByRole("menuitem", { name: /Delete/ })).toBeVisible()
+  await expect(page.getByRole("menuitem", { name: /Set as main chat/ })).toHaveCount(0)
+  await page.keyboard.press("Escape")
+
+  await pane("The release plan").getByRole("tab", { name: "The release plan" }).click()
+  await actionsOf(page)
+  await page.getByRole("menuitem", { name: /Set as main chat/ }).click()
+  expect(calls).toEqual([{ call: "PATCH /bots/coordinator", body: { main_chat: "cht_old" } }])
+  await expect(back("The release plan")).toHaveCount(0)
+  await shot(page, "main-chat-grid")
+
+  await back("Daily digest").click()
+  const second = page.getByRole("main", { name: "Grid of chats" }).getByRole("region").nth(1)
+  await expect(second.getByRole("tab")).toHaveText(["Daily digest", "The release plan"])
+  await expect(second).toHaveAccessibleName("The release plan")
 })

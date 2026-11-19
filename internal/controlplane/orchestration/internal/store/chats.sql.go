@@ -403,7 +403,8 @@ SELECT
         OR EXISTS (SELECT 1 FROM channel_chats cc WHERE cc.chat_id = c.id)
         OR EXISTS (
             SELECT 1 FROM chat_messages m WHERE m.chat_id = c.id AND m.role = 'owner' AND m.sender_id IS NOT NULL
-        ) AS INTEGER) AS channel
+        )
+        OR c.title LIKE 'Lark: %' AS INTEGER) AS channel
 FROM chats c WHERE c.id = ?1
 `
 
@@ -416,8 +417,9 @@ type GetChatMarksRow struct {
 // run nor a Slack channel's thread (server/main-thread.ts mainThread, server/index.ts mainThreadTasks). routine: the
 // chat was opened for a Routine's run (routine_runs), or with a Routine's prompt, which runs pruned later leave
 // behind (orchestration/routines.go promptNotice). channel: a Lark chat, mapped to a person or a group of a Channel
-// (channel_chats), a group's (channel_group, which a group's later chats keep after a reset), or one someone other
-// than the owner wrote in (sender_id, migration 00087). ListChats reads the same marks by the same rules.
+// (channel_chats), a group's (channel_group, which a group's later chats keep after a reset), one someone other
+// than the owner wrote in (sender_id, migration 00087), or one titled "Lark: <name>", another person's direct chat
+// from before 00087 whose mapping a /new moved, as migration 00138 tells them. ListChats reads the same marks by the same rules.
 func (q *Queries) GetChatMarks(ctx context.Context, id string) (GetChatMarksRow, error) {
 	row := q.db.QueryRowContext(ctx, getChatMarks, id)
 	var i GetChatMarksRow
@@ -926,7 +928,8 @@ SELECT chats.id, chats.title, chats.created_at, chats.updated_at, chats.bot_id, 
            OR EXISTS (
                SELECT 1 FROM chat_messages m
                WHERE m.chat_id = chats.id AND m.role = 'owner' AND m.sender_id IS NOT NULL
-           ) AS INTEGER) AS channel,
+           )
+           OR chats.title LIKE 'Lark: %' AS INTEGER) AS channel,
        CAST(coalesce((
            SELECT substr(m.text, 1, 400) FROM chat_messages m
            WHERE m.chat_id = chats.id AND m.role IN ('owner', 'coordinator') AND trim(m.text) <> ''
@@ -946,17 +949,12 @@ WHERE (CAST(?1 AS TEXT) = '' OR chats.bot_id = CAST(?1 AS TEXT))
         OR chats.id IN (
             SELECT (
                 SELECT l.id FROM chats l
-                WHERE l.bot_id = b.id AND l.channel_group = 0
+                WHERE l.bot_id = b.id
                   AND NOT EXISTS (SELECT 1 FROM routine_runs rr WHERE rr.chat_id = l.id)
                   AND NOT EXISTS (
                       SELECT 1 FROM chat_messages m
                       WHERE m.chat_id = l.id AND m.kind = 'wake' AND m.event_seq IS NULL AND m.to_coordinator = 1
                         AND m.text LIKE 'Routine %'
-                  )
-                  AND NOT EXISTS (SELECT 1 FROM channel_chats cc WHERE cc.chat_id = l.id)
-                  AND NOT EXISTS (
-                      SELECT 1 FROM chat_messages m
-                      WHERE m.chat_id = l.id AND m.role = 'owner' AND m.sender_id IS NOT NULL
                   )
                 ORDER BY l.updated_at DESC, l.id LIMIT 1
             )
@@ -984,7 +982,7 @@ type ListChatsRow struct {
 // latest line of the owner or its Bot (issue #471): the sidebar's row of a Bot shows its main chat's. A reply of
 // thinking alone has no text and is passed over. The first page (@skip 0) also carries every Bot's main chat, every
 // chat an Approval waits in and, of a Bot with no main chat, the chat it opens (issue #923: its latest that is
-// neither a Routine's nor a Lark chat), whatever their age, so that a Bot's row is whole: a page later on does not.
+// not a Routine's run), whatever their age, so that a Bot's row is whole: a page later on does not.
 // Each chat carries the marks GetChatMarks reads, by the same rules.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listChats, arg.Bot, arg.Skip, arg.Lim)

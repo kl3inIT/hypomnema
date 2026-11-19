@@ -43,13 +43,13 @@ export function botSections(bots: readonly Bot[], chats: readonly Chat[]): BotSe
 }
 
 // opensTo is the chat a Bot opens to (issue #923): its main chat; with none, its most recently active chat that is
-// neither a Routine's run nor a Lark chat, as OpenMausBot's botOpensTo falls back to the thread last open
-// (src/state/thread-navigation.ts) and its main thread is never a routine's run nor a channel's thread
-// (server/main-thread.ts, server/index.ts mainThreadTasks), as OpenClaw opens an agent's latest active session and
-// Hermes Desktop the last session. None when the Bot has no such chat: then it opens an empty chat with the Bot.
-// chats are the Bot's, newest first.
+// not a Routine's run (a Lark chat included, the owner's own direct chat among them), as OpenMausBot's botOpensTo
+// falls back to the thread last open (src/state/thread-navigation.ts) and its main thread is never a routine's run
+// (server/main-thread.ts), as OpenClaw opens an agent's latest active session and Hermes Desktop the last session.
+// None when the Bot has no chat but Routines' runs, or none at all: then it opens an empty chat with the Bot, as the
+// approved design says. chats are the Bot's, newest first.
 export function opensTo(mainChat: string | undefined, chats: readonly Chat[]): string | undefined {
-  return mainChat ?? chats.find((c) => !c.routine && !c.channel)?.id
+  return mainChat ?? chats.find((c) => !c.routine)?.id
 }
 
 // rowChat is the chat a Bot's row opens (issue #471): the chat the Bot opens to (opensTo), as OpenClaw's Home and

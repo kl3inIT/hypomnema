@@ -183,7 +183,8 @@ OpenMausBot's "Set as main thread", `mainThreadChoice` in its `PATCH /api/bots/:
 there, a Routine's chat and a Lark chat; the web's Bot row menu and `hypomnema chats main <chat>` send it. Opening
 another chat to read it (a card, a question, an approval, a link) does not move the main chat. A chat carries
 `routine` (opened for a Routine's run: named by a run, or opened with a Routine's prompt) and `channel` (a Lark chat:
-mapped in `channel_chats`, a group's, or one someone other than the owner wrote in), read in `GetChat` and in a list
+mapped in `channel_chats`, a group's, one someone other than the owner wrote in, or one titled "Lark: <name>", as
+migration 138 tells another person's chat from before sender ids), read in `GetChat` and in a list
 by the same rules (`queries/chats.sql` `GetChatMarks`); neither is ever a main chat. The migration chose each Bot's main chat among its chats that are not a
 Lark chat (no `channel_chats` row), a Lark group's (`channel_group`), another person's (a person message with a
 sender, or a title "Lark: <name>"), a Lark chat a `/new` moved away from (an owner message with a file Lark sent,
@@ -192,7 +193,7 @@ Routine's prompt): the one with the owner's latest message, then the one active 
 chat. An owner's Lark direct chat that a `/new` left with text alone keeps no mark of Lark, so a Bot a Channel talks
 to got no main chat from the migration (owner, 2026-11-19): its first message from the web or the CLI makes one. `GET /chats?bot=` lists one Bot's chats, a page at a time
 (`offset`); the first page also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with
-no main chat, its latest chat that is neither a Routine's nor a Lark chat (the chat it opens, issue #923), whatever
+no main chat, its latest chat that is not a Routine's run (the chat it opens, issue #923), whatever
 their age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
 has its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
 `chats.provider`, `model`, `effort`, migration 66, each NULL for its Bot's): `POST /chats` takes them and `PATCH
@@ -4879,7 +4880,7 @@ Node (`internal/node`):
     OpenMausBot's order: Waiting for you (a pending Approval in one of its chats, or a Task of one of its Runs in
     Needs you), No signal (its newest chat has no pi to answer), Working (a chat working, or a Dispatch of its
     Runs live); idle says nothing. A line under the status says why. The card opens the chat the Bot opens to:
-    its main chat (issue #471), else its latest chat that is neither a Routine's nor a Lark chat (issue #923), else
+    its main chat (issue #471), else its latest chat that is not a Routine's run (issue #923), else
     a new chat with that Bot (`/?bot=`).
   - A machine's card: its state, "n of max" Dispatches, and a line a live Dispatch (starting, running or
     stopping) with the runtime's mark, the Task's first line and what its worker does now, or how long it has
@@ -5032,15 +5033,21 @@ Node (`internal/node`):
     it opens to (`Chat.last_line`, else its title; "No chat yet" for a Bot with none; read again when a chat's stream
     brings a line), and "Needs you", "Working" or the time.
     Clicking it opens the chat the Bot opens to (`opensTo` in `web/src/features/shell/bot-rows.ts`, issue #923, after
-    OpenMausBot's `botOpensTo`): its main chat; with none, its most recently active chat that is neither a Routine's
-    nor a Lark chat; New chat with that Bot picked (`/?bot=`) only when it has no such chat. When another chat of the
+    OpenMausBot's `botOpensTo`): its main chat; with none, its most recently active chat that is not a Routine's run
+    (a Lark chat included); New chat with that Bot picked (`/?bot=`) only when it has no chat but Routines' runs, or
+    none. When another chat of the
     Bot waits on the owner and that chat does not, the row opens the newest such chat. Dragging the row carries the
     chat it opens to the grid. The Bot row's menu (issue #484, after t3code's thread menu), shown on hover or focus
     and always on a phone, carries Set as main chat for the chat being viewed when it is the Bot's (issue #923, a
     star, disabled with "This is already the main chat" on the main one, absent on a Routine's or a Lark chat), and
     the Delete ("Delete chat") of the chat the row opens to, which asks first and, for the open chat, then opens New
-    chat with its Bot. A chat's own page has "Back to main chat" at the end of its tab strip while it shows another
-    chat of a Bot that has a main chat (OpenMausBot's "Back to your chat"). The Bot's page lists its other chats ("Other chats",
+    chat with its Bot. The chat being viewed is the chat in front of a pane, not the address: on a chat's page, the
+    tab in front of its pane (a chat dragged into its middle comes in front while the address stays; `useSoloChat`
+    in `web/src/features/workbench/solo-chat.ts`, read by the sidebar and the phone's drawer); in the grid, the tab in
+    front of the pane last pointed at or focused, the first pane until then. Each pane has "Back to main chat" at
+    the end of its tab strip while the chat in front is another chat of a Bot that has a main chat (OpenMausBot's
+    "Back to your chat"): it brings the main chat in front in that pane, and on a chat's page whose pane does not
+    have it, opens its page. The Bot's page lists its other chats ("Other chats",
     `GET /chats?bot=`, 100 at a time with Show more), each with the same menu; on the Bots page a Bot's name opens
     the chat it opens to and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
     their links (`/chats/<id>`). The phone's start page lists the same Bots.

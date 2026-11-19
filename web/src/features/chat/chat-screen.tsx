@@ -13,10 +13,10 @@ import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import { AppSidebar } from "@/features/shell/app-shell"
 import { MenuButton, PageHeader } from "@/components/page-header"
+import { useSoloChat } from "@/features/workbench/solo-chat"
 import { SoloPane } from "@/features/workbench/solo-pane"
 
 import { AttachDrop } from "./attach-drop"
-import { BackToMainChat } from "./back-to-main"
 import { useAttachments } from "./attachments"
 import { ChatModelControls } from "./chat-model-picker"
 import { useDraftChoice } from "./chat-model-state"
@@ -33,9 +33,12 @@ import { useStartChat } from "./start-chat"
 // screen offers the Bots when there are several, and an open chat's header names its Bot. The start screen chooses
 // its chat's id when it opens (issue #357), so that files are attached there before the chat is made.
 export function ChatScreen({ chatId, bot }: { chatId?: string; bot?: string }) {
+  const viewed = useSoloChat(chatId)
+
   return (
     <>
-      <AppSidebar currentChat={chatId} />
+      {/* The sidebar knows the chat in front of the page's pane as the one being viewed (issue #923). */}
+      <AppSidebar currentChat={viewed} />
       {chatId ? <OpenChat key={chatId} chatId={chatId} /> : <NewChat initialBot={bot} />}
     </>
   )
@@ -111,11 +114,11 @@ function NewChat({ initialBot }: { initialBot?: string }) {
 }
 
 // OpenChat is a chat's own page: its pane, whose tabs are the top of the page with no header above them (issue
-// #235); at the strip's end, the way back to the Bot's main chat from another of its chats (issue #923).
+// #235).
 function OpenChat({ chatId }: { chatId: string }) {
   return (
     <main className="relative flex min-w-0 flex-1 flex-col">
-      <SoloPane chat={chatId} start={<MenuButton />} end={<BackToMainChat chatId={chatId} />} />
+      <SoloPane chat={chatId} start={<MenuButton />} />
     </main>
   )
 }

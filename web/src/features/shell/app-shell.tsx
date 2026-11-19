@@ -24,6 +24,7 @@ import { useBrowser } from "@/features/browser/browser-state"
 import { useDevice } from "@/features/device/device-state"
 import { gridPanes } from "@/features/workbench/grid-layout"
 import { paneChats } from "@/features/workbench/pane"
+import { useSoloChat } from "@/features/workbench/solo-chat"
 import { useBench, useGridOffered } from "@/features/workbench/use-grid"
 import { cn } from "@/lib/utils"
 
@@ -136,6 +137,8 @@ export function AppSidebar({ currentChat }: { currentChat?: string }) {
 export function AppDrawer() {
   const { isMobile, setOpenMobile } = useSidebar()
   const { chatId } = useParams({ strict: false })
+  // The chat in front of the chat page's pane is the one being viewed (issue #923), as beside the page on a desktop.
+  const viewed = useSoloChat(chatId)
   if (!isMobile) return null
 
   // Every place and chat in the sidebar is a link; a button in it (a Bot's toggle, a menu) leaves the drawer open.
@@ -147,7 +150,7 @@ export function AppDrawer() {
     <Sidebar>
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the links inside take the keyboard; Enter on one is a click that bubbles here */}
       <div className="flex min-h-0 flex-1 flex-col" onClick={closeOnLink}>
-        <SidebarContents currentChat={chatId} />
+        <SidebarContents currentChat={viewed} />
       </div>
     </Sidebar>
   )

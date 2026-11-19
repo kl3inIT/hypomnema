@@ -10,8 +10,8 @@ import (
 
 // Scenario: the owner makes an older chat of a Bot its main chat (issue #923). The chat chosen becomes the main
 // chat and the former one stays as it was; a chat of another Bot, one that is not there, a Routine's chat, a Lark
-// chat mapped to a person, a Lark group's chat and one another person wrote in are refused and leave the main chat
-// where it was; a Bot that is not there is not found. Each chat says what it is when read alone and in a list.
+// chat mapped to a person, a Lark group's chat, one another person wrote in and another person's titled "Lark: <name>"
+// (migration 00138) are refused and leave the main chat where it was; a Bot that is not there is not found. Each chat says what it is when read alone and in a list.
 func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	t.Parallel()
 
@@ -31,6 +31,10 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	group, err := w.s.CreateChatWithID(ctx, "", "", "a Lark group", ChatModel{})
 	require.NoError(t, err)
 	wrote, err := w.s.CreateChatWithID(ctx, "", "", "a DM a /new left", ChatModel{})
+	require.NoError(t, err)
+	// Another person's direct chat from before migration 00087, whose mapping a /new moved: its title alone says so,
+	// as migration 00138 reads it.
+	titled, err := w.s.CreateChatWithID(ctx, "", "", "Lark: Someone", ChatModel{})
 	require.NoError(t, err)
 
 	for _, stmt := range []string{
@@ -63,7 +67,7 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	assert.Equal(t, home.ID, got.ID, "the former main chat stays")
 
 	missing := "cht_aaaaaaaaaaaaaaaaaaaaaaaaaa"
-	for _, refused := range []string{side.ID, missing, routine.ID, person.ID, group.ID, wrote.ID} {
+	for _, refused := range []string{side.ID, missing, routine.ID, person.ID, group.ID, wrote.ID, titled.ID} {
 		_, err := w.s.SetMainChat(ctx, DefaultBotID, refused)
 		require.ErrorIs(t, err, ErrInvalid, refused)
 	}
@@ -77,7 +81,7 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 
 	want := map[string]marks{
 		older.ID: {}, home.ID: {}, routine.ID: {routine: true}, person.ID: {channel: true},
-		group.ID: {channel: true}, wrote.ID: {channel: true},
+		group.ID: {channel: true}, wrote.ID: {channel: true}, titled.ID: {channel: true},
 	}
 
 	read := map[string]marks{}
@@ -102,8 +106,9 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 }
 
 // Scenario: a Bot with no main chat whose chats are all older than the first page of chats (issue #923). The page
-// carries the chat the Bot opens, its latest that is neither a Routine's nor a Lark chat, so that the sidebar opens it
-// rather than an empty chat; not its Routine's chat, newer though it is, nor its older chats.
+// carries the chat the Bot opens, its latest that is not a Routine's run (here the owner's Lark direct chat, which
+// the approved design does not leave out), so that the sidebar opens it rather than an empty chat; not its
+// Routine's chat, newer though it is, nor its older chats.
 func TestTheFirstPageCarriesTheChatABotWithNoMainChatOpens(t *testing.T) {
 	t.Parallel()
 
@@ -118,7 +123,7 @@ func TestTheFirstPageCarriesTheChatABotWithNoMainChatOpens(t *testing.T) {
 	require.NoError(t, err)
 
 	w.clock.now = w.clock.now.Add(time.Minute)
-	latest, err := w.s.CreateChatWithID(ctx, "", "bot_side", "latest", ChatModel{})
+	latest, err := w.s.CreateChatWithID(ctx, "", "bot_side", "the owner's Lark DM", ChatModel{})
 	require.NoError(t, err)
 
 	w.clock.now = w.clock.now.Add(time.Minute)
@@ -130,6 +135,10 @@ func TestTheFirstPageCarriesTheChatABotWithNoMainChatOpens(t *testing.T) {
 			updated_at) VALUES ('rtn_a', 'bot_side', 'digest', 'prompt', 'sum up', 60, 'on', 'owner', 1, 1)`,
 		`INSERT INTO routine_runs (id, routine_id, started_by, state, started_at, chat_id)
 			VALUES ('rrn_a', 'rtn_a', 'schedule', 'running', 1, '` + routine.ID + `')`,
+		`INSERT INTO channels (name, kind, app_id, secret, bot_id, mode, owner_id, created_at, updated_at)
+			VALUES ('lark', 'lark', 'cli_a', 's', 'bot_side', 'owner', 'ou_owner', 1, 1)`,
+		`INSERT INTO channel_chats (external_chat_id, channel, person_id, chat_id, sent_seq, created_at)
+			VALUES ('oc_owner', 'lark', 'ou_owner', '` + latest.ID + `', 0, 1)`,
 	} {
 		_, err := w.db.ExecContext(ctx, stmt)
 		require.NoError(t, err, stmt)

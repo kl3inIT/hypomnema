@@ -3989,7 +3989,7 @@ export type Chat = {
    */
   routine: boolean;
   /**
-   * A Lark chat (issue #923): a person's or a group's at a Channel, or one someone other than the owner wrote in; it is never its Bot's main chat.
+   * A Lark chat (issue #923): a person's or a group's at a Channel, one someone other than the owner wrote in, or one titled "Lark: <name>" (another person's from before sender ids); it is never its Bot's main chat.
    */
   channel: boolean;
   created_at: string;
@@ -11547,7 +11547,7 @@ export type ListChatsData = {
      */
     bot?: string;
     /**
-     * How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with no main chat, its latest chat that is neither a Routine's nor a Lark chat (issue #923), whatever their age, so that a client showing Bots has them all.
+     * How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with no main chat, its latest chat that is not a Routine's run (issue #923), whatever their age, so that a client showing Bots has them all.
      */
     offset?: number;
   };

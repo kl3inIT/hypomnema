@@ -88,7 +88,7 @@ type Chat struct {
 	// LastLine is the first line of its latest message of the owner or its Bot, read in a list only (issue #471).
 	LastLine string
 	// Routine says the chat was opened for a Routine's run, and Channel that it is a Lark chat: a person's or a
-	// group's at a Channel, or one someone other than the owner wrote in (issue #923). Neither is ever a Bot's main
+	// group's at a Channel, one someone other than the owner wrote in, or one titled "Lark: <name>" (issue #923). Neither is ever a Bot's main
 	// chat, as OpenMausBot's main thread is never a routine's run nor a channel's thread (server/main-thread.ts,
 	// server/index.ts mainThreadTasks).
 	Routine   bool
@@ -560,7 +560,8 @@ func (s *Service) SetMainChat(ctx context.Context, bot, chatID string) (Bot, err
 
 // ListChats returns a page of the chats, of one Bot when bot names one, the most recently active first, after
 // skipping offset of them, each with its last line and its marks. The first page also carries every Bot's main chat,
-// every chat an Approval waits in and the chat a Bot with no main chat opens (issue #923), whatever their age
+// every chat an Approval waits in and the chat a Bot with no main chat opens, its latest that is not a Routine's run
+// (issue #923), whatever their age
 // (queries/chats.sql ListChats).
 func (s *Service) ListChats(ctx context.Context, bot string, limit, offset int) ([]Chat, error) {
 	rows, err := s.read().ListChats(ctx, store.ListChatsParams{

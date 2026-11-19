@@ -3147,7 +3147,7 @@ type Chat struct {
 	// Bot The id of the Bot the chat talks with.
 	Bot string `json:"bot"`
 
-	// Channel A Lark chat (issue #923): a person's or a group's at a Channel, or one someone other than the owner wrote in; it is never its Bot's main chat.
+	// Channel A Lark chat (issue #923): a person's or a group's at a Channel, one someone other than the owner wrote in, or one titled "Lark: <name>" (another person's from before sender ids); it is never its Bot's main chat.
 	Channel bool `json:"channel"`
 
 	// ContextUsage How full the chat's context window is, as pi last reported it after a turn or a compaction (issue #384; pi's get_session_stats). Absent from a chat before pi first reported it.
@@ -7066,7 +7066,7 @@ type ListChatsParams struct {
 	// Bot Only the chats of the Bot of this id (issue
 	Bot *string `form:"bot,omitempty" json:"bot,omitempty"`
 
-	// Offset How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with no main chat, its latest chat that is neither a Routine's nor a Lark chat (issue #923), whatever their age, so that a client showing Bots has them all.
+	// Offset How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with no main chat, its latest chat that is not a Routine's run (issue #923), whatever their age, so that a client showing Bots has them all.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 

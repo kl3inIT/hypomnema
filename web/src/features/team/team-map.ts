@@ -87,7 +87,7 @@ export function teamBots({
     const working = own.filter((c) => c.working)
     const base = { id: bot.id, name: bot.name, model: bot.model, provider: bot.provider }
     // A click on a Bot opens its main chat (issue #471), whichever chat moved last; with none, its latest chat that
-    // is neither a Routine's nor a Lark chat (issue #923, shell/bot-rows.ts opensTo).
+    // is not a Routine's run (issue #923, shell/bot-rows.ts opensTo).
     const home = opensTo(bot.main_chat, own)
 
     if (asking.length > 0 || needs.length > 0) {

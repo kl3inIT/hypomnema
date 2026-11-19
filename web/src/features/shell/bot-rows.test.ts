@@ -131,10 +131,10 @@ test("a Bot's row opens its main chat, or the chat that waits on the owner", () 
   expect(rowChat({ bot: "coordinator", chats }, new Set(["old"]))).toBe("old")
 })
 
-// Scenario: the chat a Bot opens to (issue #923). Its main chat when it has one, whatever moved later; with none, its
-// most recently active chat that is neither a Routine's run nor a Lark chat, never an empty chat while it has one;
-// an empty chat only when it has no such chat.
-test("a Bot opens its main chat, else its latest chat that is not a Routine's or a Lark chat", () => {
+// Scenario: the chat a Bot opens to (issue #923). Its main chat when it has one, whatever moved later; with none,
+// its most recently active chat that is not a Routine's run, a Lark chat included, never an empty chat while it has
+// one; an empty chat only when it has no chat but Routines' runs, or none.
+test("a Bot opens its main chat, else its latest chat that is not a Routine's run", () => {
   const chats = [
     chat("run", "writer", "2026-11-13T09:00:00Z", { routine: true }),
     chat("lark", "writer", "2026-11-12T09:00:00Z", { channel: true }),
@@ -143,11 +143,12 @@ test("a Bot opens its main chat, else its latest chat that is not a Routine's or
   ]
 
   expect(opensTo("older", chats)).toBe("older")
-  expect(opensTo(undefined, chats)).toBe("latest")
-  expect(opensTo(undefined, chats.slice(0, 2))).toBeUndefined()
+  expect(opensTo(undefined, chats)).toBe("lark")
+  expect(opensTo(undefined, chats.slice(1, 2))).toBe("lark")
+  expect(opensTo(undefined, chats.slice(0, 1))).toBeUndefined()
   expect(opensTo(undefined, [])).toBeUndefined()
 
   const row = { bot: "writer", chats }
-  expect(rowChat(row, new Set())).toBe("latest")
+  expect(rowChat(row, new Set())).toBe("lark")
   expect(rowChat(row, new Set(["run"]))).toBe("run")
 })

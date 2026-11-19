@@ -166,11 +166,12 @@ describe("a Bot's status", () => {
     })
   })
 
-  it("opens its main chat when idle, whichever chat moved last; with none, its latest chat (issue #923)", () => {
+  it("opens its main chat when idle, whichever chat moved last; with none, its latest not a Routine's (#923)", () => {
     const chats = [
       chat("home", "reporter", { updated_at: "2026-11-12T09:00:00Z" }),
       chat("lark", "reporter", { updated_at: "2026-11-13T09:00:00Z", channel: true }),
-      chat("draft", "coordinator", { updated_at: "2026-11-12T09:00:00Z" }),
+      chat("draft", "coordinator", { updated_at: "2026-11-11T09:00:00Z" }),
+      chat("dm", "coordinator", { updated_at: "2026-11-12T09:00:00Z", channel: true }),
       chat("run", "coordinator", { updated_at: "2026-11-13T09:00:00Z", routine: true }),
       chat("run2", "researcher", { updated_at: "2026-11-13T09:00:00Z", routine: true }),
     ]
@@ -182,7 +183,7 @@ describe("a Bot's status", () => {
     })
 
     expect(team.find((b) => b.name === "reporter")?.chat).toBe("home")
-    expect(team.find((b) => b.name === "coordinator")?.chat).toBe("draft")
+    expect(team.find((b) => b.name === "coordinator")?.chat).toBe("dm")
     expect(team.find((b) => b.name === "researcher")?.chat).toBeUndefined()
   })
 })
