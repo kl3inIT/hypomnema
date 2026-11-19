@@ -141,9 +141,8 @@ func TestKillRecordedSignalsBackgroundChildAfterShimAndWorkerExit(t *testing.T) 
 	requireProcessStopped(t, child)
 }
 
-func TestKillRecordedSignalsOrphanedGroupWhenWorkerPIDWasReused(t *testing.T) {
-	t.Parallel()
-	root, child := startOrphanedGroupFixture(t)
+func startUnrelatedProcess(t *testing.T) int {
+	t.Helper()
 	unrelated := exec.CommandContext(t.Context(), "sleep", "30")
 	detach(unrelated)
 	require.NoError(t, unrelated.Start())
@@ -151,7 +150,13 @@ func TestKillRecordedSignalsOrphanedGroupWhenWorkerPIDWasReused(t *testing.T) {
 		_ = unrelated.Process.Kill()
 		_ = unrelated.Wait()
 	})
-	pid := unrelated.Process.Pid
+	return unrelated.Process.Pid
+}
+
+func TestKillRecordedSignalsOrphanedGroupWhenWorkerPIDWasReused(t *testing.T) {
+	t.Parallel()
+	root, child := startOrphanedGroupFixture(t)
+	pid := startUnrelatedProcess(t)
 	stat, err := readProcStat(pid)
 	require.NoError(t, err)
 	require.Greater(t, stat.started, int64(1))
@@ -166,16 +171,25 @@ func TestKillRecordedSignalsOrphanedGroupWhenWorkerPIDWasReused(t *testing.T) {
 	assert.NotEqual(t, "Z", stat.state)
 }
 
+func TestKillRecordedRejectsMatchingWorkerOutsideShimGroupAndSession(t *testing.T) {
+	t.Parallel()
+	root, child := startOrphanedGroupFixture(t)
+	require.NoError(t, recordWorker(root, startUnrelatedProcess(t)))
+
+	err := KillRecorded(root.Name())
+	requireProcessKeepsRunning(t, child)
+	require.ErrorContains(t, err, "orphaned shim group identity does not match")
+}
+
 func TestKillRecordedDoesNotSignalOrphanedLegacyGroup(t *testing.T) {
 	t.Parallel()
 	root, child := startOrphanedGroupFixture(t)
 	require.NoError(t, root.Remove(identityFile))
 	require.NoError(t, root.Remove(workerIdentityFile))
 
-	require.Error(t, KillRecorded(root.Name()))
-	stat, err := readProcStat(child)
-	require.NoError(t, err)
-	assert.NotEqual(t, "Z", stat.state)
+	err := KillRecorded(root.Name())
+	requireProcessKeepsRunning(t, child)
+	require.Error(t, err)
 }
 
 func TestMatchesSessionMember(t *testing.T) {
@@ -205,4 +219,12 @@ func requireProcessStopped(t *testing.T, pid int) {
 		stat, err := readProcStat(pid)
 		return os.IsNotExist(err) || (err == nil && stat.state == "Z")
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func requireProcessKeepsRunning(t *testing.T, pid int) {
+	t.Helper()
+	require.Never(t, func() bool {
+		stat, err := readProcStat(pid)
+		return err != nil || stat.state == "Z"
+	}, 200*time.Millisecond, 10*time.Millisecond, "process %d stopped", pid)
 }
