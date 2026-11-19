@@ -182,8 +182,8 @@ Lark chat (no `channel_chats` row), a Lark group's (`channel_group`), another pe
 sender, or a title "Lark: <name>"), a Lark chat a `/new` moved away from (an owner message with a file Lark sent,
 kept under its `om_` message id, or a heard voice message) or a Routine's (named by a run, or opened with a
 Routine's prompt): the one with the owner's latest message, then the one active latest; a Bot with none has no main
-chat. An owner's Lark direct chat that a `/new` left with text alone keeps no mark of Lark and stays a candidate;
-it is no longer mapped and relays nothing. `GET /chats?bot=` lists one Bot's chats, a page at a time
+chat. An owner's Lark direct chat that a `/new` left with text alone keeps no mark of Lark, so a Bot a Channel talks
+to got no main chat from the migration (owner, 2026-11-19): its first message from the web or the CLI makes one. `GET /chats?bot=` lists one Bot's chats, a page at a time
 (`offset`); the first page also carries every Bot's main chat and every chat an Approval waits in, whatever their
 age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
 has its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;

@@ -13,7 +13,8 @@
 --
 -- An owner's Lark direct chat that a /new left behind with text alone keeps no mark of Lark (its rows are the
 -- owner's, as the web's are, and channel_messages forgets message ids after a day): it cannot be told from a web
--- chat and stays a candidate. It is no longer mapped, so it relays nothing to Lark.
+-- chat. So a Bot that a Channel talks to gets no main chat here (owner, 2026-11-19): its first message from the web
+-- or the CLI makes one, and its chats stay on its page.
 
 -- +goose Up
 ALTER TABLE bots ADD COLUMN main_chat TEXT REFERENCES chats (id);
@@ -21,6 +22,7 @@ ALTER TABLE bots ADD COLUMN main_chat TEXT REFERENCES chats (id);
 UPDATE bots SET main_chat = (
     SELECT c.id FROM chats c
     WHERE c.bot_id = bots.id
+      AND NOT EXISTS (SELECT 1 FROM channels ch WHERE ch.bot_id = bots.id)
       AND c.channel_group = 0
       AND NOT EXISTS (SELECT 1 FROM channel_chats cc WHERE cc.chat_id = c.id)
       AND NOT EXISTS (SELECT 1 FROM routine_runs rr WHERE rr.chat_id = c.id)

@@ -22,7 +22,7 @@ import (
 // (still mapped), another person's Lark DM whose mapping a /new replaced, a Lark group's chat, and two Routine
 // chats, one whose run was pruned; every chat but the CLI's has a later owner line. Its main chat is the CLI's. A Bot
 // whose chats tie on the owner's latest line takes the one active last; a chat with no owner line loses to one with
-// any; a Bot with no chat, or only Lark and Routine chats, has none. No other row changes.
+// any; a Bot with no chat, or only Lark and Routine chats, or one a Channel talks to, has none. No other row changes.
 func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 	t.Parallel()
 
@@ -39,9 +39,16 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 	main := DefaultBotID
 	stmts := []string{
 		`INSERT INTO bots (id, name, created_at, updated_at) VALUES ('bot_tie', 'tie', 1, 1), ('bot_none', 'none', 1, 1),
-			('bot_side', 'side', 1, 1), ('bot_quiet', 'quiet', 1, 1)`,
+			('bot_side', 'side', 1, 1), ('bot_quiet', 'quiet', 1, 1), ('bot_lark', 'lark', 1, 1)`,
+		// The Channel talks to bot_lark now; the main Bot's Lark chats stay its own, as a Channel moved to another
+		// Bot leaves them.
 		`INSERT INTO channels (name, kind, app_id, secret, bot_id, mode, owner_id, created_at, updated_at)
-			VALUES ('lark', 'lark', 'cli_a', 's', '` + main + `', 'owner', 'ou_owner', 1, 1)`,
+			VALUES ('lark', 'lark', 'cli_a', 's', 'bot_lark', 'owner', 'ou_owner', 1, 1)`,
+
+		// A Bot a Channel talks to gets no main chat (owner, 2026-11-19): a chat that looks like the web's may be
+		// its owner's Lark DM that a /new left with text alone.
+		chatRow("cht_lark_bot_web", "bot_lark", 0, 7000),
+		msgRow("cht_lark_bot_web", "owner", "", "plain text", "NULL", 7000) + `, NULL)`,
 
 		// The main Bot's chats.
 		chatRow("cht_web", main, 0, 9000),
@@ -129,6 +136,7 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 
 	for bot, want := range map[string]string{
 		main: "cht_cli", "bot_tie": "cht_tie_new", "bot_none": "", "bot_side": "", "bot_quiet": "cht_quiet",
+		"bot_lark": "",
 	} {
 		var got sql.NullString
 		require.NoError(t, db.QueryRowContext(ctx, `SELECT main_chat FROM bots WHERE id = ?`, bot).Scan(&got))
