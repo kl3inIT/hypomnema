@@ -2375,6 +2375,29 @@ export type Account = {
    * When the access token ends, when that is known; it is renewed before then.
    */
   token_expires_at?: string;
+  verification?: AccountVerification;
+};
+
+/**
+ * Google wants the account verified (issue #822): it answered a call under it with 403 VALIDATION_REQUIRED. The gateway passes the account over until next_try_at, then tries it again; a call that works, or signing in again, clears this.
+ */
+export type AccountVerification = {
+  /**
+   * The latest link Google gave, where the owner verifies the account.
+   */
+  url?: string;
+  /**
+   * Google's own words.
+   */
+  message?: string;
+  /**
+   * When Google first asked, since the account last worked.
+   */
+  asked_at: string;
+  /**
+   * When the account is tried again, after 10 minutes, 1 hour, 6 hours, then every day.
+   */
+  next_try_at: string;
 };
 
 export type GatewayKey = {
@@ -2825,13 +2848,17 @@ export type AccountLimits = {
    */
   read_at?: string;
   /**
-   * Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed.
+   * Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed; Google wants the account verified first.
    */
-  unavailable?: 'not_given' | 'sign_in' | 'resting' | 'failed';
+  unavailable?: 'not_given' | 'sign_in' | 'resting' | 'failed' | 'verification';
   /**
    * What went wrong, in the server's words, when the call failed.
    */
   detail?: string;
+  /**
+   * Where the owner verifies the account, when unavailable is verification and Google gave a link.
+   */
+  verification_url?: string;
 };
 
 export type GatewayModelTarget = {

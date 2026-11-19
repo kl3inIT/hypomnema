@@ -7594,6 +7594,30 @@ components:
           type: string
           format: date-time
           description: When the access token ends, when that is known; it is renewed before then.
+        verification: { $ref: "#/components/schemas/AccountVerification" }
+    AccountVerification:
+      type: object
+      description: >-
+        Google wants the account verified (issue #822): it answered a call under
+        it with 403 VALIDATION_REQUIRED. The gateway passes the account over
+        until next_try_at, then tries it again; a call that works, or signing
+        in again, clears this.
+      required: [asked_at, next_try_at]
+      properties:
+        url:
+          type: string
+          description: The latest link Google gave, where the owner verifies the account.
+        message:
+          type: string
+          description: Google's own words.
+        asked_at:
+          type: string
+          format: date-time
+          description: When Google first asked, since the account last worked.
+        next_try_at:
+          type: string
+          format: date-time
+          description: When the account is tried again, after 10 minutes, 1 hour, 6 hours, then every day.
     GatewayKey:
       type: object
       required: [id, name, prefix, models, endpoints, created_at]
@@ -8121,14 +8145,19 @@ components:
           description: When the vendor gave this reading.
         unavailable:
           type: string
-          enum: [not_given, sign_in, resting, failed]
+          enum: [not_given, sign_in, resting, failed, verification]
           description: >-
             Why there are no windows: this kind of account says none; the
             account has no sign-in here that can ask; the vendor asked to wait;
-            the call failed.
+            the call failed; Google wants the account verified first.
         detail:
           type: string
           description: What went wrong, in the server's words, when the call failed.
+        verification_url:
+          type: string
+          description: >-
+            Where the owner verifies the account, when unavailable is
+            verification and Google gave a link.
     GatewayModelTarget:
       type: object
       required: [provider, upstream_model]

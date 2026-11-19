@@ -370,8 +370,8 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	require.NoError(t, err)
 	migrations, err := provider(db)
 	require.NoError(t, err)
-	// Down to the version before cooling, whatever was added after it (issue #471's 00138 is newer).
-	rolledBack, err := migrations.DownTo(ctx, 132)
+	// Down to just before 135, whatever migrations came after it (as seedinstructions_test.go does).
+	rolledBack, err := migrations.DownTo(ctx, 134)
 	require.NoError(t, err)
 	require.NotEmpty(t, rolledBack)
 	assert.Equal(t, int64(135), rolledBack[len(rolledBack)-1].Source.Version)
