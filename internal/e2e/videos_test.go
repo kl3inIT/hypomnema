@@ -175,7 +175,7 @@ func newVideoRig(t *testing.T) *videoRig {
 
 	mux := http.NewServeMux()
 	agentapi.New(svc, nil, logger).WithVideos(vs, store).Register(mux)
-	require.NoError(t, clientapi.New(svc, logger, stop).WithVideos(vs).Register(mux))
+	require.NoError(t, clientapi.New(svc, logger, stop).WithTakes(ownerTakes{store}).WithVideos(vs).Register(mux))
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -367,6 +367,8 @@ func TestAWorkerMakesAVideoTheOwnerApproves(t *testing.T) {
 			{http.MethodPost, rev1 + "/approve", ""},
 			{http.MethodPost, rev1 + "/changes", `{"note":"x"}`},
 			{http.MethodDelete, base, ""},
+			{http.MethodGet, "/studio/items", ""},
+			{http.MethodGet, "/takes/" + r.take + "/thumbnail.jpg", ""},
 		} {
 			status, _, _ := r.api(token, c.method, c.path, c.body, nil)
 			assert.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, status, "%s %s", c.method, c.path)
@@ -406,6 +408,36 @@ func TestAWorkerMakesAVideoTheOwnerApproves(t *testing.T) {
 
 	status, _, _ = r.api(r.owner, http.MethodGet, base+"/revisions/2/video.mp4", "", nil)
 	assert.Equal(t, http.StatusNotFound, status)
+
+	// The Studio lists the video, in review, with its first frame, and the two takes with theirs (issue #818,
+	// row 12); a take's first frame is made for the owner.
+	status, _, body = r.api(r.owner, http.MethodGet, "/studio/items?kind=video&state=review", "", nil)
+	require.Equal(t, http.StatusOK, status, string(body))
+
+	var studio struct {
+		Data []struct {
+			ID        string `json:"id"`
+			State     string `json:"state"`
+			Take      string `json:"take"`
+			Thumbnail string `json:"thumbnail"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(body, &studio))
+	require.Len(t, studio.Data, 1)
+	assert.Equal(t, id, studio.Data[0].ID)
+	assert.Equal(t, r.take, studio.Data[0].Take)
+	assert.Equal(t, "/api/v1"+rev1+"/thumbnail.jpg", studio.Data[0].Thumbnail)
+
+	status, _, body = r.api(r.owner, http.MethodGet, "/studio/items?kind=take", "", nil)
+	require.Equal(t, http.StatusOK, status, string(body))
+	require.NoError(t, json.Unmarshal(body, &studio))
+	require.Len(t, studio.Data, 2)
+
+	status, header, body = r.api(r.owner, http.MethodGet, strings.TrimPrefix(studio.Data[0].Thumbnail, "/api/v1"),
+		"", nil)
+	require.Equal(t, http.StatusOK, status, string(body))
+	assert.Equal(t, "image/jpeg", header.Get("Content-Type"))
+	assert.Equal(t, "first frame", string(body))
 
 	// Changes with an edited line: revision 1 is changes_requested with the note, revision 2 is made.
 	status, _, body = r.api(r.owner, http.MethodPost, rev1+"/changes",

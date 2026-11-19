@@ -96,7 +96,7 @@ func newAntigravityGateway(
 				Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, APIKeyRef: p.APIKeyRef, Models: p.Models,
 			}, nil
 		},
-		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil })
+		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil }).WithKeyVault(testKeyVault(t, db))
 
 	for _, model := range []string{
 		flash, "name: pro\ntargets: [{provider: antigravity-subscription, model: gemini-3.1-pro-high}]\n",

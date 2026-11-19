@@ -131,6 +131,8 @@ func (s *Service) make(parent context.Context, r store.VideoRevision) {
 	dir := s.revDir(r.VideoID, rev.Rev)
 	started := time.Now()
 
+	defer s.dropProgress(r.VideoID, rev.Rev)
+
 	warnings, length, err := s.build(ctx, r.VideoID, rev, dir)
 	if err == nil {
 		err = s.finish(ctx, r.VideoID, rev.Rev, length, warnings)
@@ -220,7 +222,12 @@ func (s *Service) build(ctx context.Context, id string, rev Revision, dir string
 
 	defer func() { _ = os.RemoveAll(work) }()
 
-	said, err := s.speak(ctx, rev.Lines, rev.Voice)
+	// Each stage counts its scenes from none, as aidemo's runSubStage resets its count (src/mcp/jobs.ts:201-205).
+	total := len(scenes)
+	stage := func(n int) { s.setProgress(id, rev.Rev, n, total) }
+	stage(0)
+
+	said, err := s.speak(ctx, rev.Lines, rev.Voice, stage)
 	if err != nil {
 		return nil, 0, at(Voicing, err)
 	}
@@ -237,6 +244,8 @@ func (s *Service) build(ctx context.Context, id string, rev Revision, dir string
 		return nil, 0, at(Voicing, err)
 	}
 
+	stage(0)
+
 	tools, err := s.cfg.Tools(ctx)
 	if err != nil {
 		return nil, 0, at(Composing, fmt.Errorf("ffmpeg is not installed: %w", err))
@@ -244,7 +253,7 @@ func (s *Service) build(ctx context.Context, id string, rev Revision, dir string
 
 	in := compose.Input{
 		Dir: filepath.Dir(takeJSON), Voice: said.clips, Aspect: compose.Aspect(rev.Aspect),
-		Work: filepath.Join(work, "compose"), Out: filepath.Join(work, "composed.mp4"),
+		Work: filepath.Join(work, "compose"), Out: filepath.Join(work, "composed.mp4"), Progress: stage,
 	}
 	if take.Screen != nil {
 		in.Screen = compose.Size{Width: take.Screen.Width, Height: take.Screen.Height}
@@ -262,7 +271,9 @@ func (s *Service) build(ctx context.Context, id string, rev Revision, dir string
 			return nil, 0, at(Composing, err)
 		}
 
-		ass, err := s.captions(ctx, said.clips, made, filepath.Join(work, "captions.ass"))
+		stage(0)
+
+		ass, err := s.captions(ctx, said.clips, made, filepath.Join(work, "captions.ass"), stage)
 		if err != nil {
 			return nil, 0, at(Captioning, err)
 		}
@@ -295,8 +306,10 @@ func (s *Service) build(ctx context.Context, id string, rev Revision, dir string
 }
 
 // captions transcribes each scene's clip with its words' times, builds the
-// cues on the video's time and writes them as an ASS file (row 6).
-func (s *Service) captions(ctx context.Context, clips []string, made compose.Result, out string) (string, error) {
+// cues on the video's time and writes them as an ASS file (row 6). done is
+// told how many scenes are transcribed, after each.
+func (s *Service) captions(ctx context.Context, clips []string, made compose.Result, out string, done func(n int),
+) (string, error) {
 	if len(made.Scenes) != len(clips) {
 		return "", fmt.Errorf("the video has %d scenes and %d clips", len(made.Scenes), len(clips))
 	}
@@ -330,6 +343,7 @@ func (s *Service) captions(ctx context.Context, clips []string, made compose.Res
 			StartMs: sc.OutStartMs, EndMs: sc.OutStartMs + sc.OutLengthMs,
 			Words: captions.Words(pieces, t.Provider == speech.ProviderSoniox),
 		})
+		done(len(scenes))
 	}
 
 	cues, err := captions.Build(scenes, captions.Default)

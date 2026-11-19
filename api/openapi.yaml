@@ -668,6 +668,61 @@ paths:
             video/mp4:
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
+  /takes/{take_id}/thumbnail.jpg:
+    parameters:
+      - $ref: "#/components/parameters/TakeID"
+    get:
+      operationId: ReadTakeThumbnail
+      summary: An available take's first frame, as a JPEG, for its card in the Studio (owner only; issue #818)
+      description: >-
+        Made from its first segment with the control plane's ffmpeg the first time it is asked for, and kept with
+        the take. Not found while the take is filmed or when it failed; unavailable while ffmpeg is not installed.
+      responses:
+        "200":
+          description: The picture.
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /studio/items:
+    get:
+      operationId: ListStudioItems
+      summary: The takes and videos of the Studio, the newest first, one page at a time (owner only; issue #818)
+      description: >-
+        A summary of each take and each video, in a stable order: the newest first, then by id, then by kind. The
+        filters and the search are applied before the page is cut, and a page goes on after the last item of the
+        one before, so an item made between two pages is not read twice. A video's state, length and thumbnail are
+        its latest revision's; its Bot is the agent that filmed its take.
+      parameters:
+        - name: kind
+          in: query
+          schema: { type: string, enum: [take, video] }
+        - name: state
+          in: query
+          description: >-
+            A group of states: in_progress (a take filmed, paused, finishing or uploading; a revision queued or
+            being made), review (a revision awaiting review), approved, or failed (a take or revision that failed,
+            and a revision changes were asked of).
+          schema: { type: string, enum: [in_progress, review, approved, failed] }
+        - name: q
+          in: query
+          description: Words the title or the Bot's name holds, in any case.
+          schema: { type: string, maxLength: 200 }
+        - name: cursor
+          in: query
+          description: The next_cursor of the previous page.
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: limit
+          in: query
+          description: "At most this many items; absent: 50."
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: One page of items.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StudioItemList" }
+        default: { $ref: "#/components/responses/Error" }
   /takes/{take_id}/archive:
     parameters:
       - $ref: "#/components/parameters/TakeID"
@@ -2033,7 +2088,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: CreateGatewayKey
-      summary: Make a gateway key; its value is answered this once; only the owner
+      summary: Make a gateway key and keep its value encrypted; only the owner
       requestBody:
         required: true
         content:
@@ -2052,12 +2107,52 @@ paths:
         in: path
         required: true
         schema: { type: string, minLength: 1, maxLength: 64 }
+    patch:
+      operationId: UpdateGatewayKey
+      summary: Edit an owner-made key without changing its value; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GatewayKeyUpdate" }
+      responses:
+        "200":
+          description: The updated key, without its value.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayKey" }
+        default: { $ref: "#/components/responses/Error" }
     delete:
       operationId: RevokeGatewayKey
       summary: Revoke a gateway key; a client using it is refused from now on; only the owner
       responses:
         "204":
-          description: Revoked.
+          description: Revoked and its stored value removed.
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/keys/{key_id}/value:
+    parameters:
+      - name: key_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    get:
+      operationId: GetGatewayKeyValue
+      summary: Read the stored value of an owner-made key; only the owner
+      responses:
+        "200":
+          description: The key's value.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              description: Always `no-store`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayKeyValue" }
+        "404":
+          description: No active owner-made key with a stored value has this id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/Error" }
   /gateway/usage:
     get:
@@ -7301,8 +7396,49 @@ components:
         warnings:
           type: array
           items: { type: string }
+        progress: { $ref: "#/components/schemas/VideoProgress" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    VideoProgress:
+      type: object
+      description: >-
+        While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's
+        job status counts them. Absent in any other state.
+      required: [scenes_done, scenes_total]
+      properties:
+        scenes_done: { type: integer }
+        scenes_total: { type: integer }
+    StudioItemList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/StudioItem" }
+        next_cursor:
+          type: string
+          description: Present when more items follow.
+    StudioItem:
+      type: object
+      description: A take or a video as the Studio's card shows it (issue #818, row 12).
+      required: [kind, id, title, bot, created_at, length_ms, state]
+      properties:
+        kind: { type: string, enum: [take, video] }
+        id: { type: string }
+        title: { type: string }
+        bot: { type: string, description: The agent that filmed the take, as the logs name agents. }
+        created_at: { type: string, format: date-time }
+        length_ms: { type: integer, format: int64, description: "A take's length; a video's latest revision's, 0 until made." }
+        state:
+          type: string
+          description: A take's state, or the state of a video's latest revision.
+        take: { type: string, description: A video's take. }
+        rev: { type: integer, description: A video's latest revision. }
+        thumbnail:
+          type: string
+          description: >-
+            Where its first frame is read, under /api/v1/ (owner only): an available take's, or the latest made
+            revision's of a video. Absent while there is none.
     VideoMake:
       type: object
       additionalProperties: false
@@ -7403,6 +7539,9 @@ components:
         prefix:
           type: string
           description: The key's start, to tell keys apart; empty for a key made before it was kept.
+        masked_value:
+          type: string
+          description: The first six and last four characters with the rest masked; absent when no value is stored.
         models:
           type: array
           items: { type: string }
@@ -7442,11 +7581,30 @@ components:
           description: The model names it may use; every model when left out or empty.
         endpoints:
           type: array
-          maxItems: 3
+          maxItems: 4
           items: { $ref: "#/components/schemas/GatewayEndpoint" }
           description: >-
             What it may use besides chat; every kind when left out, none when empty. A key that may use every
             kind should leave it out, so a kind added later is given too.
+    GatewayKeyUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
+          description: The new name; when omitted the name is unchanged.
+        models:
+          type: array
+          maxItems: 200
+          items: { type: string, minLength: 1, maxLength: 128 }
+          description: The new list of model names; empty means every model, omitted means unchanged.
+        endpoints:
+          type: array
+          maxItems: 4
+          items: { $ref: "#/components/schemas/GatewayEndpoint" }
+          description: The new list of kinds besides chat; empty means none, omitted means unchanged.
     GatewayEndpoint:
       type: string
       enum: [search, fetch, images, audio]
@@ -7461,7 +7619,12 @@ components:
         key: { $ref: "#/components/schemas/GatewayKey" }
         secret:
           type: string
-          description: The key's value, answered this once; only its hash is kept.
+          description: The key's value, also kept encrypted in the vault.
+    GatewayKeyValue:
+      type: object
+      required: [secret]
+      properties:
+        secret: { type: string }
     GatewayUsageCounts:
       type: object
       required: [requests, failed, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cost_micros,

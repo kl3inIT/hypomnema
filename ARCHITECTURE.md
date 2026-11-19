@@ -854,8 +854,8 @@ sequenceDiagram
     pause, the steps and chapters (autodemo's rule) seek, and it downloads and deletes (`web/src/features/takes`).
     A seek into a segment's still tail lands just before its last frame (`last_frame_ms`), as Chromium does not
     seek into a file's last sample.
-  - Making a video of a take (issue #818; parts 1 and 2 of 3: the compose core, then the revisions, runner, voice,
-    captions and access; the Studio page and the take and video tabs are part 3). The control plane installs a pinned
+  - Making a video of a take (issue #818, in three parts: the compose core; the revisions, runner, voice, captions
+    and access; the Studio page and the take and video tabs). The control plane installs a pinned
     static ffmpeg and ffprobe (`internal/controlplane/videos/ffmpeg`, BtbN/FFmpeg-Builds' GPL build n9.0.2 for
     linux/amd64 and linux/arm64, as a node installs scrcpy-server): at start, in the background, unless
     `HYPOMNEMA_FFMPEG=0`, into `ffmpeg/` beside the database, the file's size and SHA-256 checked, ffmpeg, ffprobe
@@ -903,7 +903,9 @@ sequenceDiagram
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
     word in #FFD400 (demotape's highlight and word timing normalize, ported), and burns it in with the font of
     part 1 (`compose.Burn`). A scene with no word times fails the revision at `captioning`; with captions off the
-    stage is skipped. The first frame is the revision's thumbnail. Everything is made in
+    stage is skipped. While a revision is voiced, composed or captioned, it says how many of its scenes that
+    stage has done (`progress {scenes_done, scenes_total}`, kept in memory as aidemo's job keeps its count, reset at
+    each stage). The first frame is the revision's thumbnail. Everything is made in
     `videos/<video>/<rev>/.work/`, the thumbnail then the MP4 renamed into place only once whole; any failure
     removes the revision's folder. A video with a revision queued or being made is not deleted, nor is its take
     (409).
@@ -919,6 +921,24 @@ sequenceDiagram
     latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
     (`PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `hypomnema audio voice <provider> [voice]`; the
     column `voice` of `gateway_audio_providers`). The speech the runner asks is not recorded on a gateway key.
+  - The Studio (issue #818, row 12): one owner listing of takes and videos, `GET /studio/items?kind=&state=&q=
+    &cursor=&limit=` (`clientapi/studio.go`, owner tokens only), each a summary (kind, id, title, the Bot that
+    filmed the take, created_at, length, state, a video's take and latest revision, a thumbnail URL), in the order
+    (created_at desc, id, kind), the kind, the state group (`in_progress`, `review`, `approved`, `failed`, the last
+    with changes_requested; an available take is in none) and the search of titles and Bots applied before the page
+    is cut; a page (at most 100, 50 by default) goes on after the cursor of the last item, so an item made between
+    pages is not read twice. A video's state, length and thumbnail are its latest revision's (the thumbnail the
+    latest made one's). `GET /takes/{id}/thumbnail.jpg` is an available take's first frame, made from its first
+    segment with the videos' ffmpeg the first time it is asked for and kept in the take's folder (503 while ffmpeg
+    is not installed). The web client has Studio in Places (`web/src/features/studio`, route `/studio`), built like
+    Machines: cards or a table, the kind and state chips, a search, "Show more" for the next page, read again every
+    3 s while an item shown is in progress; a card shows the first frame, or a placeholder with REC or PAUSED while
+    the take is filmed. `/studio/takes/:id` and `/studio/videos/:id` open a take's and a video's tab on a page of
+    their own. A take's tab has Make video (voice, captions, 9:16 or 16:9, an Idempotency-Key), and Video once it
+    has one; in a pane the video opens as a `video` tab beside the take's. A video's tab follows the revision being
+    made, stage by stage and scene by scene, a failure with its stage, its cause and Make again; a made revision
+    plays with its lines editable and a note, Approve and Request changes, a switch between revisions and the MP4's
+    download.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -3000,9 +3020,14 @@ capabilities do not exist yet.
   at, in dollars per million tokens. `PUT /gateway/models/{model}/attributes` (the owner's; a slash in the name as
   `%2F`) sets them in the model's YAML, keeping the rest of it; one left out comes from models.dev again. The Models
   page lists the gateway's models with them, each with an edit form whose empty fields show models.dev's values.
-- A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
-  public model names it may use (`*`: every model). It is not a client token: the client API refuses it, and
-  `tokens add` cannot make one.
+- A gateway key (`hyp_gateway_v1_…`, the client tokens' format) authenticates by its SHA-256, with the public
+  models (`*`: every model) and other endpoints it may use. It is not a client token: the client API refuses it,
+  and `tokens add` cannot make one. A new owner-made key also points to an encrypted vault version (issue #887);
+  creating the key and storing the version commit together and revoking it removes the secret without removing
+  usage. Only the owner may `GET /gateway/keys/{key_id}/value` (not cached) or `PATCH /gateway/keys/{key_id}` to
+  change its name, models or endpoints without changing its value, id or usage. The Gateway keys page masks all
+  but the first six and last four characters and offers show/hide and copy as 9router does. Older keys can be
+  edited but have only a prefix and no value to read. Dispatch, chat and Bot keys cannot be edited or read here.
 - A Dispatch whose model the gateway serves gets a key of its own (issue #107, as the git host's token travels):
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
@@ -4275,8 +4300,10 @@ The owner's commands:
     `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
-    table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images|none]` prints a gateway key once, with `gateway keys list` and
-    `gateway keys revoke <id>`; `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
+    table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
+    owner key (requires the vault). `gateway keys set <id>` takes `--name`, `--models` and `--endpoints`;
+    `gateway keys show-value <id>` reads its value again. `gateway keys list` never prints the value;
+    `gateway keys revoke <id>` stops the key. `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
     manage the owner's find→replace rules for the Antigravity system instruction (issue #591; a JSON array of
     `{find, with}`, applied in order, an empty `with` deleting the text), empty by default and applied to the
     system instruction only, as CLIProxyAPI's `sensitive-words-replace`; `gateway usage [--limit N]` lists the

@@ -1694,6 +1694,24 @@ func (e SpeakRequestFormat) Valid() bool {
 	}
 }
 
+// Defines values for StudioItemKind.
+const (
+	StudioItemKindTake  StudioItemKind = "take"
+	StudioItemKindVideo StudioItemKind = "video"
+)
+
+// Valid indicates whether the value is a known member of the StudioItemKind enum.
+func (e StudioItemKind) Valid() bool {
+	switch e {
+	case StudioItemKindTake:
+		return true
+	case StudioItemKindVideo:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SupersetChartDataSource.
 const (
 	Built SupersetChartDataSource = "built"
@@ -2330,6 +2348,48 @@ func (e ListMeetingActionsParamsState) Valid() bool {
 	case ListMeetingActionsParamsStateDone:
 		return true
 	case ListMeetingActionsParamsStateOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListStudioItemsParamsKind.
+const (
+	ListStudioItemsParamsKindTake  ListStudioItemsParamsKind = "take"
+	ListStudioItemsParamsKindVideo ListStudioItemsParamsKind = "video"
+)
+
+// Valid indicates whether the value is a known member of the ListStudioItemsParamsKind enum.
+func (e ListStudioItemsParamsKind) Valid() bool {
+	switch e {
+	case ListStudioItemsParamsKindTake:
+		return true
+	case ListStudioItemsParamsKindVideo:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListStudioItemsParamsState.
+const (
+	ListStudioItemsParamsStateApproved   ListStudioItemsParamsState = "approved"
+	ListStudioItemsParamsStateFailed     ListStudioItemsParamsState = "failed"
+	ListStudioItemsParamsStateInProgress ListStudioItemsParamsState = "in_progress"
+	ListStudioItemsParamsStateReview     ListStudioItemsParamsState = "review"
+)
+
+// Valid indicates whether the value is a known member of the ListStudioItemsParamsState enum.
+func (e ListStudioItemsParamsState) Valid() bool {
+	switch e {
+	case ListStudioItemsParamsStateApproved:
+		return true
+	case ListStudioItemsParamsStateFailed:
+		return true
+	case ListStudioItemsParamsStateInProgress:
+		return true
+	case ListStudioItemsParamsStateReview:
 		return true
 	default:
 		return false
@@ -3263,7 +3323,7 @@ type ConnectionUse struct {
 type CreatedGatewayKey struct {
 	Key GatewayKey `json:"key"`
 
-	// Secret The key's value, answered this once; only its hash is kept.
+	// Secret The key's value, also kept encrypted in the vault.
 	Secret string `json:"secret"`
 }
 
@@ -3460,6 +3520,9 @@ type GatewayKey struct {
 	// LastUsedAt When the gateway last served a request with it; absent when never.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 
+	// MaskedValue The first six and last four characters with the rest masked; absent when no value is stored.
+	MaskedValue *string `json:"masked_value,omitempty"`
+
 	// Models The model names it may use; `*` is every model.
 	Models []string `json:"models"`
 	Name   string   `json:"name"`
@@ -3474,6 +3537,23 @@ type GatewayKeyList struct {
 
 	// LiveWorkerKeys How many keys made for a Dispatch or a chat's pi work now.
 	LiveWorkerKeys int `json:"live_worker_keys"`
+}
+
+// GatewayKeyUpdate defines model for GatewayKeyUpdate.
+type GatewayKeyUpdate struct {
+	// Endpoints The new list of kinds besides chat; empty means none, omitted means unchanged.
+	Endpoints *[]GatewayEndpoint `json:"endpoints,omitempty"`
+
+	// Models The new list of model names; empty means every model, omitted means unchanged.
+	Models *[]string `json:"models,omitempty"`
+
+	// Name The new name; when omitted the name is unchanged.
+	Name *string `json:"name,omitempty"`
+}
+
+// GatewayKeyValue defines model for GatewayKeyValue.
+type GatewayKeyValue struct {
+	Secret string `json:"secret"`
 }
 
 // GatewayModel defines model for GatewayModel.
@@ -5771,6 +5851,42 @@ type SpeakerSuggestion struct {
 	Track MeetingTrack `json:"track"`
 }
 
+// StudioItem A take or a video as the Studio's card shows it (issue
+type StudioItem struct {
+	// Bot The agent that filmed the take
+	Bot       string         `json:"bot"`
+	CreatedAt time.Time      `json:"created_at"`
+	Id        string         `json:"id"`
+	Kind      StudioItemKind `json:"kind"`
+
+	// LengthMs A take's length; a video's latest revision's, 0 until made.
+	LengthMs int64 `json:"length_ms"`
+
+	// Rev A video's latest revision.
+	Rev *int `json:"rev,omitempty"`
+
+	// State A take's state, or the state of a video's latest revision.
+	State string `json:"state"`
+
+	// Take A video's take.
+	Take *string `json:"take,omitempty"`
+
+	// Thumbnail Where its first frame is read, under /api/v1/ (owner only): an available take's, or the latest made revision's of a video. Absent while there is none.
+	Thumbnail *string `json:"thumbnail,omitempty"`
+	Title     string  `json:"title"`
+}
+
+// StudioItemKind defines model for StudioItem.Kind.
+type StudioItemKind string
+
+// StudioItemList defines model for StudioItemList.
+type StudioItemList struct {
+	Data []StudioItem `json:"data"`
+
+	// NextCursor Present when more items follow.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
 // SupersetAnswer defines model for SupersetAnswer.
 type SupersetAnswer struct {
 	// Action The action the request was, such as superset.charts.read.
@@ -6226,6 +6342,12 @@ type VideoMake struct {
 // VideoMakeAspect Absent: 9:16.
 type VideoMakeAspect string
 
+// VideoProgress While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
+type VideoProgress struct {
+	ScenesDone  int `json:"scenes_done"`
+	ScenesTotal int `json:"scenes_total"`
+}
+
 // VideoRevision One make of the video, never changed once made: queued, then voicing, composing and captioning (skipped without captions) as the runner makes it, then review; approved or changes_requested by the owner; failed at a stage with its cause, interrupted when the control plane stopped while it was made.
 type VideoRevision struct {
 	Aspect      VideoRevisionAspect `json:"aspect"`
@@ -6246,6 +6368,9 @@ type VideoRevision struct {
 
 	// Parent The revision it was made from.
 	Parent *int `json:"parent,omitempty"`
+
+	// Progress While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
+	Progress *VideoProgress `json:"progress,omitempty"`
 
 	// Provider The provider that spoke every scene.
 	Provider  *string            `json:"provider,omitempty"`
@@ -7163,6 +7288,29 @@ type SearchSkillsParams struct {
 	Owner *string `form:"owner,omitempty" json:"owner,omitempty"`
 }
 
+// ListStudioItemsParams defines parameters for ListStudioItems.
+type ListStudioItemsParams struct {
+	Kind *ListStudioItemsParamsKind `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// State A group of states: in_progress (a take filmed, paused, finishing or uploading; a revision queued or being made), review (a revision awaiting review), approved, or failed (a take or revision that failed, and a revision changes were asked of).
+	State *ListStudioItemsParamsState `form:"state,omitempty" json:"state,omitempty"`
+
+	// Q Words the title or the Bot's name holds, in any case.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// Cursor The next_cursor of the previous page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit At most this many items; absent: 50.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListStudioItemsParamsKind defines parameters for ListStudioItems.
+type ListStudioItemsParamsKind string
+
+// ListStudioItemsParamsState defines parameters for ListStudioItems.
+type ListStudioItemsParamsState string
+
 // ReadTakeSegmentParams defines parameters for ReadTakeSegment.
 type ReadTakeSegmentParams struct {
 	Range *string `json:"Range,omitempty"`
@@ -7302,6 +7450,9 @@ type SetImageProviderJSONRequestBody = ImageProviderChange
 
 // CreateGatewayKeyJSONRequestBody defines body for CreateGatewayKey for application/json ContentType.
 type CreateGatewayKeyJSONRequestBody = NewGatewayKey
+
+// UpdateGatewayKeyJSONRequestBody defines body for UpdateGatewayKey for application/json ContentType.
+type UpdateGatewayKeyJSONRequestBody = GatewayKeyUpdate
 
 // SetGatewayModelAttributesJSONRequestBody defines body for SetGatewayModelAttributes for application/json ContentType.
 type SetGatewayModelAttributesJSONRequestBody = GatewayModelSettings
@@ -8477,14 +8628,14 @@ type ClientInterface interface {
 	// Corresponds with GET /gateway/keys (the `ListGatewayKeys` operationId).
 	ListGatewayKeys(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateGatewayKeyWithBody Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /gateway/keys (the `CreateGatewayKey` operationId).
 	CreateGatewayKeyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -8495,6 +8646,25 @@ type ClientInterface interface {
 	//
 	// Corresponds with DELETE /gateway/keys/{key_id} (the `RevokeGatewayKey` operationId).
 	RevokeGatewayKey(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateGatewayKeyWithBody Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKeyWithBody(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKey(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+	//
+	// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+	GetGatewayKeyValue(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	//
@@ -9873,6 +10043,13 @@ type ClientInterface interface {
 	// Corresponds with GET /skills/{skill}/revisions/{revision}/files (the `ListSkillFiles` operationId).
 	ListSkillFiles(ctx context.Context, skill SkillName, revision int, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListStudioItems The takes and videos of the Studio, the newest first, one page at a time (owner only; issue
+	//
+	// A summary of each take and each video, in a stable order: the newest first, then by id, then by kind. The filters and the search are applied before the page is cut, and a page goes on after the last item of the one before, so an item made between two pages is not read twice. A video's state, length and thumbnail are its latest revision's; its Bot is the agent that filmed its take.
+	//
+	// Corresponds with GET /studio/items (the `ListStudioItems` operationId).
+	ListStudioItems(ctx context.Context, params *ListStudioItemsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
 	//
 	// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
@@ -9903,6 +10080,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
 	ReadTakeSegment(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadTakeThumbnail An available take's first frame, as a JPEG, for its card in the Studio (owner only; issue
+	//
+	// Made from its first segment with the control plane's ffmpeg the first time it is asked for, and kept with the take. Not found while the take is filmed or when it failed; unavailable while ffmpeg is not installed.
+	//
+	// Corresponds with GET /takes/{take_id}/thumbnail.jpg (the `ReadTakeThumbnail` operationId).
+	ReadTakeThumbnail(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListTasks The Tasks a board shows, most recently changed first
 	//
@@ -12278,7 +12462,7 @@ func (c *Client) ListGatewayKeys(ctx context.Context, reqEditors ...RequestEdito
 	return c.Client.Do(req)
 }
 
-// CreateGatewayKeyWithBody Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes any type of body and a specified content type.
 //
@@ -12295,7 +12479,7 @@ func (c *Client) CreateGatewayKeyWithBody(ctx context.Context, contentType strin
 	return c.Client.Do(req)
 }
 
-// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes a body of the `application/json` content type.
 //
@@ -12317,6 +12501,55 @@ func (c *Client) CreateGatewayKey(ctx context.Context, body CreateGatewayKeyJSON
 // Corresponds with DELETE /gateway/keys/{key_id} (the `RevokeGatewayKey` operationId).
 func (c *Client) RevokeGatewayKey(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRevokeGatewayKeyRequest(c.Server, keyId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateGatewayKeyWithBody Edit an owner-made key without changing its value; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *Client) UpdateGatewayKeyWithBody(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateGatewayKeyRequestWithBody(c.Server, keyId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *Client) UpdateGatewayKey(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateGatewayKeyRequest(c.Server, keyId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+//
+// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+func (c *Client) GetGatewayKeyValue(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetGatewayKeyValueRequest(c.Server, keyId)
 	if err != nil {
 		return nil, err
 	}
@@ -15614,6 +15847,23 @@ func (c *Client) ListSkillFiles(ctx context.Context, skill SkillName, revision i
 	return c.Client.Do(req)
 }
 
+// ListStudioItems The takes and videos of the Studio, the newest first, one page at a time (owner only; issue
+//
+// A summary of each take and each video, in a stable order: the newest first, then by id, then by kind. The filters and the search are applied before the page is cut, and a page goes on after the last item of the one before, so an item made between two pages is not read twice. A video's state, length and thumbnail are its latest revision's; its Bot is the agent that filmed its take.
+//
+// Corresponds with GET /studio/items (the `ListStudioItems` operationId).
+func (c *Client) ListStudioItems(ctx context.Context, params *ListStudioItemsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListStudioItemsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
 //
 // A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
@@ -15685,6 +15935,23 @@ func (c *Client) GetTakeArchive(ctx context.Context, takeId TakeID, reqEditors .
 // Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
 func (c *Client) ReadTakeSegment(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReadTakeSegmentRequest(c.Server, takeId, file, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReadTakeThumbnail An available take's first frame, as a JPEG, for its card in the Studio (owner only; issue
+//
+// Made from its first segment with the control plane's ffmpeg the first time it is asked for, and kept with the take. Not found while the take is filmed or when it failed; unavailable while ffmpeg is not installed.
+//
+// Corresponds with GET /takes/{take_id}/thumbnail.jpg (the `ReadTakeThumbnail` operationId).
+func (c *Client) ReadTakeThumbnail(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadTakeThumbnailRequest(c.Server, takeId)
 	if err != nil {
 		return nil, err
 	}
@@ -20629,6 +20896,87 @@ func NewRevokeGatewayKeyRequest(server string, keyId string) (*http.Request, err
 	}
 
 	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateGatewayKeyRequest calls the generic UpdateGatewayKey builder with application/json body
+func NewUpdateGatewayKeyRequest(server string, keyId string, body UpdateGatewayKeyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateGatewayKeyRequestWithBody(server, keyId, "application/json", bodyReader)
+}
+
+// NewUpdateGatewayKeyRequestWithBody constructs an http.Request for the UpdateGatewayKey method, with any body, and a specified content type
+func NewUpdateGatewayKeyRequestWithBody(server string, keyId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "key_id", keyId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/keys/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetGatewayKeyValueRequest constructs an http.Request for the GetGatewayKeyValue method
+func NewGetGatewayKeyValueRequest(server string, keyId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "key_id", keyId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/keys/%s/value", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -27098,6 +27446,108 @@ func NewListSkillFilesRequest(server string, skill SkillName, revision int) (*ht
 	return req, nil
 }
 
+// NewListStudioItemsRequest constructs an http.Request for the ListStudioItems method
+func NewListStudioItemsRequest(server string, params *ListStudioItemsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/studio/items")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Kind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Q != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "q", *params.Q, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListTakesRequest constructs an http.Request for the ListTakes method
 func NewListTakesRequest(server string) (*http.Request, error) {
 	var err error
@@ -27278,6 +27728,40 @@ func NewReadTakeSegmentRequest(server string, takeId TakeID, file string, params
 			req.Header.Set("Range", headerParam0)
 		}
 
+	}
+
+	return req, nil
+}
+
+// NewReadTakeThumbnailRequest constructs an http.Request for the ReadTakeThumbnail method
+func NewReadTakeThumbnailRequest(server string, takeId TakeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "take_id", takeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/takes/%s/thumbnail.jpg", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return req, nil
@@ -29054,14 +29538,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /gateway/keys (the `ListGatewayKeys` operationId).
 	ListGatewayKeysWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListGatewayKeysResponse, error)
 
-	// CreateGatewayKeyWithBodyWithResponse Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /gateway/keys (the `CreateGatewayKey` operationId).
 	CreateGatewayKeyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateGatewayKeyResponse, error)
 
-	// CreateGatewayKeyWithResponse Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -29074,6 +29558,27 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with DELETE /gateway/keys/{key_id} (the `RevokeGatewayKey` operationId).
 	RevokeGatewayKeyWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*RevokeGatewayKeyResponse, error)
+
+	// UpdateGatewayKeyWithBodyWithResponse Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKeyWithBodyWithResponse(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error)
+
+	// UpdateGatewayKeyWithResponse Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKeyWithResponse(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error)
+
+	// GetGatewayKeyValueWithResponse Read the stored value of an owner-made key; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+	GetGatewayKeyValueWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*GetGatewayKeyValueResponse, error)
 
 	// ListGatewayModelsWithResponse The models the gateway serves, each with the targets it is served from, in order
 	//
@@ -30634,6 +31139,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /skills/{skill}/revisions/{revision}/files (the `ListSkillFiles` operationId).
 	ListSkillFilesWithResponse(ctx context.Context, skill SkillName, revision int, reqEditors ...RequestEditorFn) (*ListSkillFilesResponse, error)
 
+	// ListStudioItemsWithResponse The takes and videos of the Studio, the newest first, one page at a time (owner only; issue
+	//
+	// A summary of each take and each video, in a stable order: the newest first, then by id, then by kind. The filters and the search are applied before the page is cut, and a page goes on after the last item of the one before, so an item made between two pages is not read twice. A video's state, length and thumbnail are its latest revision's; its Bot is the agent that filmed its take.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /studio/items (the `ListStudioItems` operationId).
+	ListStudioItemsWithResponse(ctx context.Context, params *ListStudioItemsParams, reqEditors ...RequestEditorFn) (*ListStudioItemsResponse, error)
+
 	// ListTakesWithResponse The takes agents filmed of the phone, the newest first (owner only; issue
 	//
 	// A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
@@ -30674,6 +31188,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /takes/{take_id}/segments/{file} (the `ReadTakeSegment` operationId).
 	ReadTakeSegmentWithResponse(ctx context.Context, takeId TakeID, file string, params *ReadTakeSegmentParams, reqEditors ...RequestEditorFn) (*ReadTakeSegmentResponse, error)
+
+	// ReadTakeThumbnailWithResponse An available take's first frame, as a JPEG, for its card in the Studio (owner only; issue
+	//
+	// Made from its first segment with the control plane's ffmpeg the first time it is asked for, and kept with the take. Not found while the take is filmed or when it failed; unavailable while ffmpeg is not installed.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /takes/{take_id}/thumbnail.jpg (the `ReadTakeThumbnail` operationId).
+	ReadTakeThumbnailWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*ReadTakeThumbnailResponse, error)
 
 	// ListTasksWithResponse The Tasks a board shows, most recently changed first
 	//
@@ -35268,6 +35791,116 @@ func (r RevokeGatewayKeyResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RevokeGatewayKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateGatewayKeyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GatewayKey
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateGatewayKeyResponse) GetJSON200() *GatewayKey {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpdateGatewayKeyResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateGatewayKeyResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateGatewayKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateGatewayKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateGatewayKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetGatewayKeyValueResponse200Headers the declared response headers of an HTTP 200 response for GetGatewayKeyValue
+type GetGatewayKeyValueResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetGatewayKeyValueResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GatewayKeyValue
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetGatewayKeyValueResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetGatewayKeyValueResponse) GetJSON200() *GatewayKeyValue {
+	return r.JSON200
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetGatewayKeyValueResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetGatewayKeyValueResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetGatewayKeyValueResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetGatewayKeyValueResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetGatewayKeyValueResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetGatewayKeyValueResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -42005,6 +42638,54 @@ func (r ListSkillFilesResponse) ContentType() string {
 	return ""
 }
 
+type ListStudioItemsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *StudioItemList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListStudioItemsResponse) GetJSON200() *StudioItemList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListStudioItemsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListStudioItemsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListStudioItemsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListStudioItemsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListStudioItemsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListTakesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -42218,6 +42899,47 @@ func (r ReadTakeSegmentResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ReadTakeSegmentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReadTakeThumbnailResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReadTakeThumbnailResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReadTakeThumbnailResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadTakeThumbnailResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadTakeThumbnailResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReadTakeThumbnailResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -44787,7 +45509,7 @@ func (c *ClientWithResponses) ListGatewayKeysWithResponse(ctx context.Context, r
 	return ParseListGatewayKeysResponse(rsp)
 }
 
-// CreateGatewayKeyWithBodyWithResponse Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -44800,7 +45522,7 @@ func (c *ClientWithResponses) CreateGatewayKeyWithBodyWithResponse(ctx context.C
 	return ParseCreateGatewayKeyResponse(rsp)
 }
 
-// CreateGatewayKeyWithResponse Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -44824,6 +45546,45 @@ func (c *ClientWithResponses) RevokeGatewayKeyWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseRevokeGatewayKeyResponse(rsp)
+}
+
+// UpdateGatewayKeyWithBodyWithResponse Edit an owner-made key without changing its value; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *ClientWithResponses) UpdateGatewayKeyWithBodyWithResponse(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error) {
+	rsp, err := c.UpdateGatewayKeyWithBody(ctx, keyId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateGatewayKeyResponse(rsp)
+}
+
+// UpdateGatewayKeyWithResponse Edit an owner-made key without changing its value; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *ClientWithResponses) UpdateGatewayKeyWithResponse(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error) {
+	rsp, err := c.UpdateGatewayKey(ctx, keyId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateGatewayKeyResponse(rsp)
+}
+
+// GetGatewayKeyValueWithResponse Read the stored value of an owner-made key; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+func (c *ClientWithResponses) GetGatewayKeyValueWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*GetGatewayKeyValueResponse, error) {
+	rsp, err := c.GetGatewayKeyValue(ctx, keyId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetGatewayKeyValueResponse(rsp)
 }
 
 // ListGatewayModelsWithResponse The models the gateway serves, each with the targets it is served from, in order
@@ -47531,6 +48292,21 @@ func (c *ClientWithResponses) ListSkillFilesWithResponse(ctx context.Context, sk
 	return ParseListSkillFilesResponse(rsp)
 }
 
+// ListStudioItemsWithResponse The takes and videos of the Studio, the newest first, one page at a time (owner only; issue
+//
+// A summary of each take and each video, in a stable order: the newest first, then by id, then by kind. The filters and the search are applied before the page is cut, and a page goes on after the last item of the one before, so an item made between two pages is not read twice. A video's state, length and thumbnail are its latest revision's; its Bot is the agent that filmed its take.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /studio/items (the `ListStudioItems` operationId).
+func (c *ClientWithResponses) ListStudioItemsWithResponse(ctx context.Context, params *ListStudioItemsParams, reqEditors ...RequestEditorFn) (*ListStudioItemsResponse, error) {
+	rsp, err := c.ListStudioItems(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListStudioItemsResponse(rsp)
+}
+
 // ListTakesWithResponse The takes agents filmed of the phone, the newest first (owner only; issue
 //
 // A take is what an agent filmed of the node's phone with video_start, video_say and video_stop: one or more segments of fragmented MP4 (H.264), placed one after another on the take's timeline, and the steps the agent said, each at its time on that timeline. A take is kept until the owner deletes it.
@@ -47600,6 +48376,21 @@ func (c *ClientWithResponses) ReadTakeSegmentWithResponse(ctx context.Context, t
 		return nil, err
 	}
 	return ParseReadTakeSegmentResponse(rsp)
+}
+
+// ReadTakeThumbnailWithResponse An available take's first frame, as a JPEG, for its card in the Studio (owner only; issue
+//
+// Made from its first segment with the control plane's ffmpeg the first time it is asked for, and kept with the take. Not found while the take is filmed or when it failed; unavailable while ffmpeg is not installed.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /takes/{take_id}/thumbnail.jpg (the `ReadTakeThumbnail` operationId).
+func (c *ClientWithResponses) ReadTakeThumbnailWithResponse(ctx context.Context, takeId TakeID, reqEditors ...RequestEditorFn) (*ReadTakeThumbnailResponse, error) {
+	rsp, err := c.ReadTakeThumbnail(ctx, takeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadTakeThumbnailResponse(rsp)
 }
 
 // ListTasksWithResponse The Tasks a board shows, most recently changed first
@@ -50950,6 +51741,92 @@ func ParseRevokeGatewayKeyResponse(rsp *http.Response) (*RevokeGatewayKeyRespons
 		}
 		response.JSONDefault = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseUpdateGatewayKeyResponse parses an HTTP response from a UpdateGatewayKeyWithResponse call
+func ParseUpdateGatewayKeyResponse(rsp *http.Response) (*UpdateGatewayKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateGatewayKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GatewayKey
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetGatewayKeyValueResponse parses an HTTP response from a GetGatewayKeyValueWithResponse call
+func ParseGetGatewayKeyValueResponse(rsp *http.Response) (*GetGatewayKeyValueResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetGatewayKeyValueResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GatewayKeyValue
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetGatewayKeyValueResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil
@@ -55622,6 +56499,39 @@ func ParseListSkillFilesResponse(rsp *http.Response) (*ListSkillFilesResponse, e
 	return response, nil
 }
 
+// ParseListStudioItemsResponse parses an HTTP response from a ListStudioItemsWithResponse call
+func ParseListStudioItemsResponse(rsp *http.Response) (*ListStudioItemsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListStudioItemsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest StudioItemList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListTakesResponse parses an HTTP response from a ListTakesWithResponse call
 func ParseListTakesResponse(rsp *http.Response) (*ListTakesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -55752,6 +56662,32 @@ func ParseReadTakeSegmentResponse(rsp *http.Response) (*ReadTakeSegmentResponse,
 	}
 
 	response := &ReadTakeSegmentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReadTakeThumbnailResponse parses an HTTP response from a ReadTakeThumbnailWithResponse call
+func ParseReadTakeThumbnailResponse(rsp *http.Response) (*ReadTakeThumbnailResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadTakeThumbnailResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -56557,12 +57493,18 @@ type ServerInterface interface {
 	// ListGatewayKeys The gateway keys the owner made, not revoked; only the owner
 	// (GET /gateway/keys)
 	ListGatewayKeys(w http.ResponseWriter, r *http.Request)
-	// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 	// (POST /gateway/keys)
 	CreateGatewayKey(w http.ResponseWriter, r *http.Request)
 	// RevokeGatewayKey Revoke a gateway key; a client using it is refused from now on; only the owner
 	// (DELETE /gateway/keys/{key_id})
 	RevokeGatewayKey(w http.ResponseWriter, r *http.Request, keyId string)
+	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+	// (PATCH /gateway/keys/{key_id})
+	UpdateGatewayKey(w http.ResponseWriter, r *http.Request, keyId string)
+	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+	// (GET /gateway/keys/{key_id}/value)
+	GetGatewayKeyValue(w http.ResponseWriter, r *http.Request, keyId string)
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	// (GET /gateway/models)
 	ListGatewayModels(w http.ResponseWriter, r *http.Request)
@@ -56989,6 +57931,9 @@ type ServerInterface interface {
 	// ListSkillFiles The files of one revision of a skill, by path
 	// (GET /skills/{skill}/revisions/{revision}/files)
 	ListSkillFiles(w http.ResponseWriter, r *http.Request, skill SkillName, revision int)
+	// ListStudioItems The takes and videos of the Studio, the newest first, one page at a time (owner only; issue
+	// (GET /studio/items)
+	ListStudioItems(w http.ResponseWriter, r *http.Request, params ListStudioItemsParams)
 	// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
 	// (GET /takes)
 	ListTakes(w http.ResponseWriter, r *http.Request)
@@ -57004,6 +57949,9 @@ type ServerInterface interface {
 	// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
 	// (GET /takes/{take_id}/segments/{file})
 	ReadTakeSegment(w http.ResponseWriter, r *http.Request, takeId TakeID, file string, params ReadTakeSegmentParams)
+	// ReadTakeThumbnail An available take's first frame, as a JPEG, for its card in the Studio (owner only; issue
+	// (GET /takes/{take_id}/thumbnail.jpg)
+	ReadTakeThumbnail(w http.ResponseWriter, r *http.Request, takeId TakeID)
 	// ListTasks The Tasks a board shows, most recently changed first
 	// (GET /tasks)
 	ListTasks(w http.ResponseWriter, r *http.Request, params ListTasksParams)
@@ -60094,6 +61042,58 @@ func (siw *ServerInterfaceWrapper) RevokeGatewayKey(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RevokeGatewayKey(w, r, keyId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateGatewayKey operation middleware
+func (siw *ServerInterfaceWrapper) UpdateGatewayKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key_id" -------------
+	var keyId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key_id", r.PathValue("key_id"), &keyId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateGatewayKey(w, r, keyId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGatewayKeyValue operation middleware
+func (siw *ServerInterfaceWrapper) GetGatewayKeyValue(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key_id" -------------
+	var keyId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key_id", r.PathValue("key_id"), &keyId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGatewayKeyValue(w, r, keyId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -64502,6 +65502,91 @@ func (siw *ServerInterfaceWrapper) ListSkillFiles(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListStudioItems operation middleware
+func (siw *ServerInterfaceWrapper) ListStudioItems(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListStudioItemsParams
+
+	// ------------- Optional query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListStudioItems(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTakes operation middleware
 func (siw *ServerInterfaceWrapper) ListTakes(w http.ResponseWriter, r *http.Request) {
 
@@ -64644,6 +65729,32 @@ func (siw *ServerInterfaceWrapper) ReadTakeSegment(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReadTakeSegment(w, r, takeId, file, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadTakeThumbnail operation middleware
+func (siw *ServerInterfaceWrapper) ReadTakeThumbnail(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "take_id" -------------
+	var takeId TakeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "take_id", r.PathValue("take_id"), &takeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "take_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadTakeThumbnail(w, r, takeId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -65298,6 +66409,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/takes/{take_id}", wrapper.DeleteTake)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}", wrapper.GetTake)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/segments/{file}", wrapper.ReadTakeSegment)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/thumbnail.jpg", wrapper.ReadTakeThumbnail)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/studio/items", wrapper.ListStudioItems)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/archive", wrapper.GetTakeArchive)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos", wrapper.ListVideos)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos", wrapper.MakeVideo)
@@ -65369,6 +66482,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/keys", wrapper.ListGatewayKeys)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/keys", wrapper.CreateGatewayKey)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/gateway/keys/{key_id}", wrapper.RevokeGatewayKey)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/gateway/keys/{key_id}", wrapper.UpdateGatewayKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/keys/{key_id}/value", wrapper.GetGatewayKeyValue)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/usage", wrapper.GetGatewayUsage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/usage/requests", wrapper.ListGatewayRequests)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/web-search", wrapper.GetWebSearch)
@@ -69285,6 +70400,109 @@ type RevokeGatewayKeydefaultJSONResponse struct {
 }
 
 func (response RevokeGatewayKeydefaultJSONResponse) VisitRevokeGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGatewayKeyRequestObject struct {
+	KeyId string `json:"key_id"`
+	Body  *UpdateGatewayKeyJSONRequestBody
+}
+
+type UpdateGatewayKeyResponseObject interface {
+	VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error
+}
+
+type UpdateGatewayKey200JSONResponse GatewayKey
+
+func (response UpdateGatewayKey200JSONResponse) VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGatewayKeydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateGatewayKeydefaultJSONResponse) VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayKeyValueRequestObject struct {
+	KeyId string `json:"key_id"`
+}
+
+type GetGatewayKeyValueResponseObject interface {
+	VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error
+}
+
+type GetGatewayKeyValue200ResponseHeaders struct {
+	CacheControl *string
+}
+
+type GetGatewayKeyValue200JSONResponse struct {
+	Body    GatewayKeyValue
+	Headers GetGatewayKeyValue200ResponseHeaders
+}
+
+func (response GetGatewayKeyValue200JSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayKeyValue404JSONResponse Error
+
+func (response GetGatewayKeyValue404JSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayKeyValuedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetGatewayKeyValuedefaultJSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -74905,6 +76123,45 @@ func (response ListSkillFilesdefaultJSONResponse) VisitListSkillFilesResponse(w 
 	return err
 }
 
+type ListStudioItemsRequestObject struct {
+	Params ListStudioItemsParams
+}
+
+type ListStudioItemsResponseObject interface {
+	VisitListStudioItemsResponse(w http.ResponseWriter) error
+}
+
+type ListStudioItems200JSONResponse StudioItemList
+
+func (response ListStudioItems200JSONResponse) VisitListStudioItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListStudioItemsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListStudioItemsdefaultJSONResponse) VisitListStudioItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTakesRequestObject struct {
 }
 
@@ -75116,6 +76373,51 @@ type ReadTakeSegmentdefaultJSONResponse struct {
 }
 
 func (response ReadTakeSegmentdefaultJSONResponse) VisitReadTakeSegmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadTakeThumbnailRequestObject struct {
+	TakeId TakeID `json:"take_id"`
+}
+
+type ReadTakeThumbnailResponseObject interface {
+	VisitReadTakeThumbnailResponse(w http.ResponseWriter) error
+}
+
+type ReadTakeThumbnail200ImagejpegResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response ReadTakeThumbnail200ImagejpegResponse) VisitReadTakeThumbnailResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadTakeThumbnaildefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ReadTakeThumbnaildefaultJSONResponse) VisitReadTakeThumbnailResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -76062,12 +77364,18 @@ type StrictServerInterface interface {
 	// ListGatewayKeys The gateway keys the owner made, not revoked; only the owner
 	// (GET /gateway/keys)
 	ListGatewayKeys(ctx context.Context, request ListGatewayKeysRequestObject) (ListGatewayKeysResponseObject, error)
-	// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 	// (POST /gateway/keys)
 	CreateGatewayKey(ctx context.Context, request CreateGatewayKeyRequestObject) (CreateGatewayKeyResponseObject, error)
 	// RevokeGatewayKey Revoke a gateway key; a client using it is refused from now on; only the owner
 	// (DELETE /gateway/keys/{key_id})
 	RevokeGatewayKey(ctx context.Context, request RevokeGatewayKeyRequestObject) (RevokeGatewayKeyResponseObject, error)
+	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+	// (PATCH /gateway/keys/{key_id})
+	UpdateGatewayKey(ctx context.Context, request UpdateGatewayKeyRequestObject) (UpdateGatewayKeyResponseObject, error)
+	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+	// (GET /gateway/keys/{key_id}/value)
+	GetGatewayKeyValue(ctx context.Context, request GetGatewayKeyValueRequestObject) (GetGatewayKeyValueResponseObject, error)
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	// (GET /gateway/models)
 	ListGatewayModels(ctx context.Context, request ListGatewayModelsRequestObject) (ListGatewayModelsResponseObject, error)
@@ -76494,6 +77802,9 @@ type StrictServerInterface interface {
 	// ListSkillFiles The files of one revision of a skill, by path
 	// (GET /skills/{skill}/revisions/{revision}/files)
 	ListSkillFiles(ctx context.Context, request ListSkillFilesRequestObject) (ListSkillFilesResponseObject, error)
+	// ListStudioItems The takes and videos of the Studio, the newest first, one page at a time (owner only; issue
+	// (GET /studio/items)
+	ListStudioItems(ctx context.Context, request ListStudioItemsRequestObject) (ListStudioItemsResponseObject, error)
 	// ListTakes The takes agents filmed of the phone, the newest first (owner only; issue
 	// (GET /takes)
 	ListTakes(ctx context.Context, request ListTakesRequestObject) (ListTakesResponseObject, error)
@@ -76509,6 +77820,9 @@ type StrictServerInterface interface {
 	// ReadTakeSegment One segment of an available take, for the owner's player (owner only)
 	// (GET /takes/{take_id}/segments/{file})
 	ReadTakeSegment(ctx context.Context, request ReadTakeSegmentRequestObject) (ReadTakeSegmentResponseObject, error)
+	// ReadTakeThumbnail An available take's first frame, as a JPEG, for its card in the Studio (owner only; issue
+	// (GET /takes/{take_id}/thumbnail.jpg)
+	ReadTakeThumbnail(ctx context.Context, request ReadTakeThumbnailRequestObject) (ReadTakeThumbnailResponseObject, error)
 	// ListTasks The Tasks a board shows, most recently changed first
 	// (GET /tasks)
 	ListTasks(ctx context.Context, request ListTasksRequestObject) (ListTasksResponseObject, error)
@@ -79296,6 +80610,65 @@ func (sh *strictHandler) RevokeGatewayKey(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RevokeGatewayKeyResponseObject); ok {
 		if err := validResponse.VisitRevokeGatewayKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateGatewayKey operation middleware
+func (sh *strictHandler) UpdateGatewayKey(w http.ResponseWriter, r *http.Request, keyId string) {
+	var request UpdateGatewayKeyRequestObject
+
+	request.KeyId = keyId
+
+	var body UpdateGatewayKeyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateGatewayKey(ctx, request.(UpdateGatewayKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateGatewayKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateGatewayKeyResponseObject); ok {
+		if err := validResponse.VisitUpdateGatewayKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetGatewayKeyValue operation middleware
+func (sh *strictHandler) GetGatewayKeyValue(w http.ResponseWriter, r *http.Request, keyId string) {
+	var request GetGatewayKeyValueRequestObject
+
+	request.KeyId = keyId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGatewayKeyValue(ctx, request.(GetGatewayKeyValueRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGatewayKeyValue")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGatewayKeyValueResponseObject); ok {
+		if err := validResponse.VisitGetGatewayKeyValueResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -83319,6 +84692,32 @@ func (sh *strictHandler) ListSkillFiles(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// ListStudioItems operation middleware
+func (sh *strictHandler) ListStudioItems(w http.ResponseWriter, r *http.Request, params ListStudioItemsParams) {
+	var request ListStudioItemsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListStudioItems(ctx, request.(ListStudioItemsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListStudioItems")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListStudioItemsResponseObject); ok {
+		if err := validResponse.VisitListStudioItemsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListTakes operation middleware
 func (sh *strictHandler) ListTakes(w http.ResponseWriter, r *http.Request) {
 	var request ListTakesRequestObject
@@ -83442,6 +84841,32 @@ func (sh *strictHandler) ReadTakeSegment(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReadTakeSegmentResponseObject); ok {
 		if err := validResponse.VisitReadTakeSegmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadTakeThumbnail operation middleware
+func (sh *strictHandler) ReadTakeThumbnail(w http.ResponseWriter, r *http.Request, takeId TakeID) {
+	var request ReadTakeThumbnailRequestObject
+
+	request.TakeId = takeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadTakeThumbnail(ctx, request.(ReadTakeThumbnailRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadTakeThumbnail")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadTakeThumbnailResponseObject); ok {
+		if err := validResponse.VisitReadTakeThumbnailResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

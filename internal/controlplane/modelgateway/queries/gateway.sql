@@ -27,8 +27,10 @@ SELECT * FROM gateway_model_targets WHERE model = @model ORDER BY position;
 DELETE FROM gateway_models WHERE name = @name;
 
 -- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at)
-VALUES (@id, @name, @key_hash, @key_prefix, @models, @endpoints, @dispatch_id, @chat_id, @bot_id, @now);
+INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at,
+                          secret_version_id, masked_value)
+VALUES (@id, @name, @key_hash, @key_prefix, @models, @endpoints, @dispatch_id, @chat_id, @bot_id, @now,
+        @secret_version_id, @masked_value);
 
 -- name: RevokeGatewayKeysOfChat :execrows
 UPDATE gateway_keys SET revoked_at = @now WHERE chat_id = @chat_id AND revoked_at IS NULL;
@@ -51,6 +53,16 @@ SELECT DISTINCT dispatch_id FROM gateway_keys WHERE dispatch_id IS NOT NULL AND 
 -- name: GetGatewayKey :one
 SELECT * FROM gateway_keys WHERE id = @id;
 
+-- name: GetLiveOwnerGatewayKey :one
+SELECT * FROM gateway_keys WHERE id = @id AND revoked_at IS NULL
+  AND dispatch_id IS NULL AND chat_id IS NULL AND bot_id IS NULL;
+
+-- name: UpdateGatewayKey :one
+UPDATE OR IGNORE gateway_keys
+SET name = coalesce(sqlc.narg(name), name), models = coalesce(sqlc.narg(models), models),
+    endpoints = coalesce(sqlc.narg(endpoints), endpoints)
+WHERE id = @id RETURNING *;
+
 -- The key a Dispatch's worker uses now: its newest that works (issue #354).
 -- name: GetLiveGatewayKeyOfDispatch :one
 SELECT * FROM gateway_keys WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL
@@ -70,8 +82,12 @@ SELECT * FROM gateway_keys ORDER BY name;
 -- name: GatewayKeysLastUsed :many
 SELECT key_id, CAST(MAX(created_at) AS INTEGER) AS last_used FROM gateway_usage GROUP BY key_id;
 
+-- name: GatewayKeyLastUsed :one
+SELECT created_at FROM gateway_usage WHERE key_id = @key_id ORDER BY created_at DESC LIMIT 1;
+
 -- name: RevokeGatewayKey :execrows
-UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
+UPDATE gateway_keys SET revoked_at = @now, secret_version_id = NULL, masked_value = ''
+WHERE id = @id AND revoked_at IS NULL;
 
 -- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,

@@ -2,6 +2,7 @@ package modelgateway_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -60,9 +62,20 @@ func newGateway(t *testing.T) *modelgateway.Service {
 		}
 
 		return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Models: p.Models}, nil
-	}, func(context.Context, string) (string, error) { return "", nil })
+	}, func(context.Context, string) (string, error) { return "", nil }).WithKeyVault(testKeyVault(t, db))
 
 	return g
+}
+
+func testKeyVault(t *testing.T, db *sql.DB) *vault.Service {
+	t.Helper()
+
+	entry, err := vault.GenerateKey("test")
+	require.NoError(t, err)
+	keyring, err := vault.ParseKeyring(entry, "test")
+	require.NoError(t, err)
+
+	return vault.New(db, fixedClock{}, platform.NewID, keyring, nil)
 }
 
 const solModel = "name: gpt-sol\ntargets:\n  - provider: router\n    model: cx/gpt-6.1-sol\n"

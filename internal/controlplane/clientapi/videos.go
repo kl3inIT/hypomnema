@@ -78,6 +78,10 @@ func videoOf(v videos.Video) openapi.Video {
 			Model: nonZero(r.Model), UsedVoice: nonZero(r.UsedVoice), FailedStage: nonZero(r.FailedStage),
 			FailedCause: nonZero(r.FailedCause), Note: nonZero(r.Note),
 		}
+		if r.Progress != nil {
+			rev.Progress = &openapi.VideoProgress{ScenesDone: r.Progress.ScenesDone, ScenesTotal: r.Progress.ScenesTotal}
+		}
+
 		out.Revisions = append(out.Revisions, rev)
 	}
 
