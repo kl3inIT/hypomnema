@@ -4791,9 +4791,10 @@ Node (`internal/node`):
   shim from claiming permission to launch. Stop also revokes that permission before a spawned shim can write
   its PID. A saved PID alone is not enough to signal a process group. On Linux, if the shim and its worker have
   both exited, the node checks the recorded boot ID and looks for a surviving process in the shim's recorded
-  group and session before signaling it. On macOS, the node does not signal an orphaned group after its shim
-  has exited because it cannot verify that group's identity. Any remaining children and the Dispatch's temp
-  may therefore remain until those children exit. The shim socket uses the configured home
+  group and session before signaling it, even if the worker's PID has been reused. The node does not signal
+  an orphaned group on macOS or for a legacy shim without `shim.identity` after the shim exits, because it
+  cannot verify the group's identity. Any remaining children and the Dispatch's temp may therefore remain
+  until those children exit. The shim socket uses the configured home
   path so a short symlink alias remains usable even when the resolved path is too long for Unix sockets. Disk
   maintenance never removes state or its sidecars, accounts, shim records and journals,
   Conversations, Transcripts, Git mirrors and branches, the binary and configuration, or system logs.

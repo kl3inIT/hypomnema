@@ -88,31 +88,16 @@ func TestKillRecordedSignalsVerifiedGroupAfterLeaderExits(t *testing.T) {
 	require.Error(t, leader.Wait())
 	require.False(t, Alive(group))
 	require.False(t, GroupGone(group))
-	bad, err := json.Marshal(workerIdentity{PID: worker.PID, Started: worker.Started + 1})
-	require.NoError(t, err)
-	require.NoError(t, root.WriteFile(workerIdentityFile, bad, 0o600))
-	require.ErrorContains(t, KillRecorded(dir), "identity does not match")
-	stat, err = readProcStat(worker.PID)
-	require.NoError(t, err)
-	require.NotEqual(t, "Z", stat.state)
-
-	good, err := json.Marshal(worker)
-	require.NoError(t, err)
-	require.NoError(t, root.WriteFile(workerIdentityFile, good, 0o600))
 	require.NoError(t, KillRecorded(dir))
-	require.Eventually(t, func() bool {
-		stat, err := readProcStat(worker.PID)
-		return os.IsNotExist(err) || (err == nil && stat.state == "Z")
-	}, 5*time.Second, 10*time.Millisecond)
+	requireProcessStopped(t, worker.PID)
 }
 
-func TestKillRecordedSignalsBackgroundChildAfterShimAndWorkerExit(t *testing.T) {
-	t.Parallel()
+func startOrphanedGroupFixture(t *testing.T) (*os.Root, int) {
+	t.Helper()
 	shell, err := exec.LookPath("sh")
 	require.NoError(t, err)
 	root, leader := startIdentityFixture(t, shell, "-c",
 		`/bin/sleep 30 >/dev/null 2>&1 </dev/null & printf '%s' "$!" > child`)
-	dir := root.Name()
 	require.NoError(t, leader.Wait())
 	group := leader.Process.Pid
 	require.False(t, Alive(group))
@@ -133,6 +118,13 @@ func TestKillRecordedSignalsBackgroundChildAfterShimAndWorkerExit(t *testing.T) 
 	require.Equal(t, int64(group), stat.group)
 	require.Equal(t, int64(group), stat.session)
 	require.NotEqual(t, "Z", stat.state)
+	return root, child
+}
+
+func TestKillRecordedSignalsBackgroundChildAfterShimAndWorkerExit(t *testing.T) {
+	t.Parallel()
+	root, child := startOrphanedGroupFixture(t)
+	dir := root.Name()
 
 	recorded, err := root.ReadFile(identityFile)
 	require.NoError(t, err)
@@ -146,8 +138,93 @@ func TestKillRecordedSignalsBackgroundChildAfterShimAndWorkerExit(t *testing.T) 
 	require.NoError(t, root.WriteFile(identityFile, recorded, 0o600))
 
 	require.NoError(t, KillRecorded(dir))
+	requireProcessStopped(t, child)
+}
+
+func startUnrelatedProcess(t *testing.T) int {
+	t.Helper()
+	unrelated := exec.CommandContext(t.Context(), "sleep", "30")
+	detach(unrelated)
+	require.NoError(t, unrelated.Start())
+	t.Cleanup(func() {
+		_ = unrelated.Process.Kill()
+		_ = unrelated.Wait()
+	})
+	return unrelated.Process.Pid
+}
+
+func TestKillRecordedSignalsOrphanedGroupWhenWorkerPIDWasReused(t *testing.T) {
+	t.Parallel()
+	root, child := startOrphanedGroupFixture(t)
+	pid := startUnrelatedProcess(t)
+	stat, err := readProcStat(pid)
+	require.NoError(t, err)
+	require.Greater(t, stat.started, int64(1))
+	encoded, err := json.Marshal(workerIdentity{PID: pid, Started: stat.started - 1})
+	require.NoError(t, err)
+	require.NoError(t, root.WriteFile(workerIdentityFile, encoded, 0o600))
+
+	require.NoError(t, KillRecorded(root.Name()))
+	requireProcessStopped(t, child)
+	stat, err = readProcStat(pid)
+	require.NoError(t, err)
+	assert.NotEqual(t, "Z", stat.state)
+}
+
+func TestKillRecordedRejectsMatchingWorkerOutsideShimGroupAndSession(t *testing.T) {
+	t.Parallel()
+	root, child := startOrphanedGroupFixture(t)
+	require.NoError(t, recordWorker(root, startUnrelatedProcess(t)))
+
+	err := KillRecorded(root.Name())
+	requireProcessKeepsRunning(t, child)
+	require.ErrorContains(t, err, "orphaned shim group identity does not match")
+}
+
+func TestKillRecordedDoesNotSignalOrphanedLegacyGroup(t *testing.T) {
+	t.Parallel()
+	root, child := startOrphanedGroupFixture(t)
+	require.NoError(t, root.Remove(identityFile))
+	require.NoError(t, root.Remove(workerIdentityFile))
+
+	err := KillRecorded(root.Name())
+	requireProcessKeepsRunning(t, child)
+	require.Error(t, err)
+}
+
+func TestMatchesSessionMember(t *testing.T) {
+	t.Parallel()
+	identity := processIdentity{PID: 42, Group: 42, Session: 42, Started: 100}
+	for _, test := range []struct {
+		name string
+		stat procStat
+		want bool
+	}{
+		{name: "same group and session at same tick", stat: procStat{group: 42, session: 42, started: 100}, want: true},
+		{name: "same group and session at later tick", stat: procStat{group: 42, session: 42, started: 101}, want: true},
+		{name: "different group", stat: procStat{group: 43, session: 42, started: 101}},
+		{name: "different session", stat: procStat{group: 42, session: 43, started: 101}},
+		{name: "older than leader", stat: procStat{group: 42, session: 42, started: 99}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.want, matchesSessionMember(test.stat, identity))
+		})
+	}
+}
+
+func requireProcessStopped(t *testing.T, pid int) {
+	t.Helper()
 	require.Eventually(t, func() bool {
-		stat, err := readProcStat(child)
+		stat, err := readProcStat(pid)
 		return os.IsNotExist(err) || (err == nil && stat.state == "Z")
 	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func requireProcessKeepsRunning(t *testing.T, pid int) {
+	t.Helper()
+	require.Never(t, func() bool {
+		stat, err := readProcStat(pid)
+		return err != nil || stat.state == "Z"
+	}, 200*time.Millisecond, 10*time.Millisecond, "process %d stopped", pid)
 }
