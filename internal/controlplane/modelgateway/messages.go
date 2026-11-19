@@ -189,6 +189,7 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 	var (
 		chat          *chatRequest
 		imagesOmitted bool
+		cooling       modelCooling
 	)
 
 	for i := 0; i < len(attempts); i++ {
@@ -236,6 +237,9 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 
 				return
 			}
+			if cooling.add(err) {
+				continue
+			}
 
 			s.logger.WarnContext(ctx, "a gateway target gave no answer",
 				slog.String("event", "modelgateway.target_failed"), slog.String("provider", a.upstream.Provider),
@@ -245,6 +249,7 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 		}
 
 		record.Status = resp.StatusCode
+		cooling.other = true
 
 		if !imagesOmitted && s.omitRefusedImages(ctx, resp, &call) {
 			// The same target is asked again, without the images (issue #796).
@@ -280,6 +285,11 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 		return
 	}
 
+	if resp := s.coolingResponse(ctx, r.URL.Path, cooling, record); resp != nil {
+		relayCooling(w, resp)
+		_ = resp.Body.Close()
+		return
+	}
 	record.Outcome = OutcomeTransportError
 
 	writeAnthropicError(w, http.StatusBadGateway, typeServer, "",
@@ -387,7 +397,7 @@ func chatFromMessages(raw []byte) (chatRequest, error) {
 
 // claudeMessages passes a request to a Claude subscription under its accounts.
 func (s *Server) claudeMessages(ctx context.Context, call messagesCall, upstreamModel string) (*http.Response, error) {
-	return s.underAccounts(ctx, claudeAccountRuntime, call.session, nil,
+	return s.underModelAccounts(ctx, claudeAccountRuntime, call.session, nil, nil,
 		func(token AccountToken) (*http.Response, error) {
 			resp, err := s.messagesCall(ctx, &token, call, upstreamModel)
 			if err != nil {

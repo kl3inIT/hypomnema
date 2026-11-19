@@ -102,4 +102,5 @@ type GatewayUsageDaily struct {
 	EstimatedPromptTokens int64
 	MeasuredPromptTokens  int64
 	MeasuredCachedTokens  int64
+	NoAccount             int64
 }

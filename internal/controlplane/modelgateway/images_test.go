@@ -65,6 +65,10 @@ func (a *imageAccounts) TokenAfterRefusal(
 	return refused, nil
 }
 
+func (*imageAccounts) FirstFree(context.Context, string, func(string) time.Time) (time.Time, error) {
+	return time.Time{}, nil
+}
+
 func (a *imageAccounts) CoolDown(_ context.Context, _, id string, _ time.Time, _ string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
