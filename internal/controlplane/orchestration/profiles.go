@@ -1341,9 +1341,11 @@ type resolved struct {
 	// handoff says the backup takes over work another worker began.
 	handoff bool
 	// req is what a worker of the profile version asks of a node (issue #731).
-	req        request
-	chain      []roleEntry
-	chainIndex int
+	req          request
+	chain        []roleEntry
+	chainIndex   int
+	gatewayUntil int64
+	gatewayRoute string
 }
 
 func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, error) {
@@ -1372,6 +1374,9 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 		}
 		r, err := resolveRoleEntry(ctx, q, version, task, chain, int(last.ChainEntry.Int64)-1)
 		r.fallbackFor, r.fallbackUntil = last.FallbackFor.String, last.FallbackUntil.Int64
+		if FailureClass(last.FailureClass.String) == FailureRateLimited {
+			r.gatewayUntil = last.ResetsAt.Int64
+		}
 		return r, err
 	case v.Runtime == roleRuntime && last.ProfileVersionID.Valid:
 		version, err := q.GetProfileVersion(ctx, last.ProfileVersionID.String)
@@ -1447,10 +1452,18 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 			model = GatewayModelName(row.Kind, provider, model)
 		}
 	}
+	var route string
+	if gateway {
+		var err error
+		route, err = gatewayRoute(ctx, q, runtime, model)
+		if err != nil {
+			return resolved{}, err
+		}
+	}
 
 	return resolved{
 		runtime: runtime, model: model,
 		effort: or(task.Effort.String, v.Effort.String), profile: v.Profile, versionID: v.ID, gateway: gateway,
-		accounts: accounts, req: requestOf(v),
+		accounts: accounts, req: requestOf(v), gatewayRoute: route,
 	}, nil
 }

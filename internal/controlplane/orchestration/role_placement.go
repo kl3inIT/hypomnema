@@ -8,16 +8,15 @@ import (
 )
 
 func (p *placement) roleCoolingUntil(r resolved) int64 {
-	runtime := r.runtime
 	if r.gateway {
-		runtime = r.accounts
+		return p.gatewayCoolingUntil(r)
 	}
 	var earliest int64
 	for _, account := range p.accounts {
-		if account.Runtime != runtime || AccountStatus(account.Status) != AccountActive || runsOnNode(account) == r.gateway {
+		if account.Runtime != r.runtime || AccountStatus(account.Status) != AccountActive || !runsOnNode(account) {
 			continue
 		}
-		until := p.cooling[[2]string{runtime, account.ID}]
+		until := p.cooling[[2]string{r.runtime, account.ID}]
 		if until == 0 {
 			return 0
 		}
@@ -59,7 +58,8 @@ func placeRoleBackup(ctx context.Context, q *store.Queries, p *placement, task s
 	for index := current.chainIndex + 1; index < len(current.chain); index++ {
 		backup, err := resolveRoleEntry(ctx, q, version, task, current.chain, index)
 		if errors.Is(err, errRoleEntry) {
-			return nil, current, err.Error(), nil
+			reason = err.Error()
+			continue
 		}
 		if err != nil {
 			return nil, current, reason, err
@@ -75,13 +75,15 @@ func placeRoleBackup(ctx context.Context, q *store.Queries, p *placement, task s
 				return nil, current, wait, nil
 			}
 			if spec == nil {
-				return nil, current, "role handoff unavailable: " + backup.runtime + "/" + backup.model, nil
+				reason = "role handoff unavailable: " + backup.runtime + "/" + backup.model
+				continue
 			}
 		} else {
 			var wait string
 			spec, wait = placeNew(p, task, backup, host.asking(backup), recentExpiries)
 			if spec == nil {
-				return nil, current, wait, nil
+				reason = wait
+				continue
 			}
 		}
 		backup.fallbackFor, backup.fallbackUntil, backup.handoff = task.Profile, max(until, task.UpdatedAt), started

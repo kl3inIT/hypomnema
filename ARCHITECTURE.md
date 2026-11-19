@@ -3421,10 +3421,18 @@ capabilities do not exist yet.
   - Not built: OpenCode Zen, the "Extra Usage" balance, Go's prices in the price book (a Go model is unpriced unless
     its name is Anthropic's, Google's or OpenAI's), a per-model wire for pi's `models.json` (pi speaks chat to a Go
     model), moving the `ocg/*` models off 9Router on zm (#670).
+- When all usable accounts for a model on a text route are cooling (issue #803), the gateway answers 429
+  `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
+  `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
+  account cooldowns. A rate-limited role Task tries its next usable entry in the same worktree or waits for that
+  reset and shows the model and reset time as the wait reason. A Codex `response.failed` usage limit also cools
+  the account and records the same fact if no account is free, before the unchanged event reaches the client.
+  Without a gateway fact, the Task uses the existing rate-limit cooldown before retrying the same entry.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
-  were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
-  status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
+  were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`, `no_account`),
+  the HTTP status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
   seen in a stream). When it reported none they are bytes divided by four and marked as estimated.
+  `no_account` is counted separately in the Models usage report; it is not a provider failure or part of Answered.
   Since migration 00058 a row also holds the subscription account of the last attempt (`account_id`, empty for an
   API provider; noted on the request's context by the loop over accounts) and, for a request that failed, the
   provider's message (`error`, at most 500 characters: `error.message` of its body, else the body; a set sentence
@@ -3466,7 +3474,7 @@ capabilities do not exist yet.
   With each row the same transaction upserts `gateway_usage_daily`, the daily ledger (after LiteLLM's
   `LiteLLM_DailyUserSpend`): a row a UTC day, caller (a Bot's id, `workers`, `chats` or `owner`, as the usage by
   key groups keys, naming none), model, provider, upstream model and account, with requests, ok, failed,
-  client_gone, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
+  client_gone, `no_account`, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
   `ok_duration_ms`, `ttft_ms` (with `ttft_count`), `generation_ms` and `generation_tokens`. The purge never touches
   it; migration 00121 filled it from the rows then kept.
   The ledger also keeps measured input/cache tokens and estimated request/input counts. The split starts from
