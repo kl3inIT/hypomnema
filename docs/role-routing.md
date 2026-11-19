@@ -52,3 +52,6 @@ oh-my-opencode. The latter is cited for its approach, with original wording here
   [Apache 2.0 license](../third_party/openmausbot/LICENSE).
 - oh-my-opencode (`code-yeongyu/oh-my-opencode` at `be84607`), Sustainable Use License 1.0: references to its
   plan-consultant, plan-reviewer and category rules identify the source of those ideas.
+- Cursor's pstack and orchestrate plugins (`cursor/plugins` at `e58dd04`), MIT: pstack Copyright (c) 2026 Lauren
+  Tan, orchestrate Copyright (c) 2026 Cursor. The reviewer's proof, evidence level and plan rules (issue #952)
+  cite their verifier and review playbooks for the approach, in original wording here.

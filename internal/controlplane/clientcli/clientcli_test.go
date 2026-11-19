@@ -903,10 +903,24 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	assert.Contains(t, out, `gh pr comment <url> --body
    "@coderabbitai review"`, "the coordinator may ask CodeRabbit on an important pull request")
 	assert.Contains(t, out, "CodeRabbit is never a condition of its own")
+	for _, want := range []string{
+		"A P0 or P1, and so\n   `incorrect`, needs proof at the head",
+		"`Head: <sha>` (the commit the verdict covers), `Evidence: <level>`",
+		"only `git diff <reviewed_sha>..<head>`",
+		"is a flake: it gets one rerun and an issue",
+	} {
+		assert.Contains(t, out, want, "reviews converge faster (issue #952)")
+	}
+
+	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "recovery")
+	require.NoError(t, err)
+	assert.Contains(t, out, "never offer a third identical attempt", "retries by failure class (issue #952)")
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator")
 	require.NoError(t, err)
 	assert.Contains(t, out, "it\n  is never a merge condition")
+	assert.Contains(t, out, "For a bug fix, ask for a test that fails without the fix, committed before the fix",
+		"a disputed finding is settled by a test (issue #952)")
 
 	_, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "nothing")
 	require.ErrorIs(t, err, ErrUsage)

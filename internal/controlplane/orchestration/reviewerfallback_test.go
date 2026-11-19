@@ -32,6 +32,27 @@ func TestDeploymentProfilesDoNotPinModels(t *testing.T) {
 	}
 }
 
+// Scenario (issue #952): the reviewer's sample blocks only on what it proved at the head, holds the change to
+// the spec alone and names its evidence level; its sources stay in comments, out of the instruction.
+func TestTheReviewerSampleBlocksOnlyOnProof(t *testing.T) {
+	t.Parallel()
+
+	var sample profileSource
+	require.NoError(t, decodeStrict(deployProfile(t, "reviewer.yaml"), &sample))
+
+	for _, want := range []string{
+		"The spec is the whole bar",
+		"A P0 or P1, and so an incorrect verdict, needs proof at the head commit",
+		"A problem the base already has does not block unless the change copies it or newly reaches it.",
+		"blocked (you could not run it; never a pass)",
+		"Verify only that its cited code exists",
+	} {
+		assert.Contains(t, sample.Instruction, want)
+	}
+
+	assert.NotContains(t, sample.Instruction, "pstack", "sources are comments")
+}
+
 // Scenario (issue #756, split of PR #786): the gateway now ends a Codex worker's turn with a usage limit when every
 // Codex account cools, and the node reports it as rate_limited with no reset. A legacy reviewer profile is not
 // started on Codex again at once: it waits RateLimitCooldown, then runs again.

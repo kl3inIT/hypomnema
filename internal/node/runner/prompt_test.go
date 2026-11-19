@@ -34,6 +34,10 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 		d.Offer.Profile = role
 		prompt := Prompt(d)
 		assert.Contains(t, prompt, "Do not edit project files")
+		assert.Contains(t, prompt, "You may run code to check a claim (the tests, a repro script) in a scratch "+
+			"place: a copy of this worktree or a temporary directory", "a reviewer may run a repro (issue #952)")
+		assert.Contains(t, prompt, "Tracked files stay unchanged.")
+		assert.NotContains(t, prompt, "is a flake", "a read-only worker fixes no check")
 		assert.NotContains(t, prompt, "gh pr create")
 		assert.NotContains(t, prompt, "publish_branch")
 		assert.NotContains(t, prompt, "Do not end your turn on a plan")
@@ -85,6 +89,12 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 		"CI: report the pushed commit and finish", "CI is waited for with one command, or not at all (issue #894)")
 	assert.Less(t, strings.Index(p, "never with a polling loop"), strings.Index(p, "Task (implementer):"),
 		"the rules come before the task, for the prompt cache (issue #672)")
+	assert.Contains(t, p, "Fix only the failures your diff causes. A red check that fails outside your diff and "+
+		"is also red on the base, or green on one rerun, is a flake: rerun it once, do not fix it in this pull "+
+		"request, and open an issue", "a flake earns one fresh build (issue #952)")
+	assert.Contains(t, p, "For a bug fix, commit a test that fails without the fix first, then the fix",
+		"the failing test lands before the fix (issue #952)")
+	assert.NotContains(t, p, "You may run code to check a claim", "a writer has its worktree for that")
 	assert.Contains(t, p, "outcome is unknown")
 	assert.Contains(t, p, "The owner answered the question you asked at `finish`.\n"+
 		"You asked: PR #7 is green. Merge it?\nThe answer: merge")
@@ -241,7 +251,8 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 		"On a conflict (mergeStateStatus is DIRTY), merge main into your branch, resolve it keeping the intent " +
 			"of both sides, rerun the checks the merge affects and push",
 		"`gh pr merge <url> --auto --merge --match-head-commit <sha>`, where <sha> is the commit you pushed",
-		"`gh pr checks <url> --required --watch`; fix a red one at its cause and push",
+		"`gh pr checks <url> --required --watch`; fix a red one your diff causes and push, rerun a flake once " +
+			"as the rules say",
 		"Once they are green, call `finish` without waiting longer",
 	} {
 		assert.Contains(t, p, want)
