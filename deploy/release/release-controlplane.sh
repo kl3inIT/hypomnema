@@ -7,24 +7,35 @@
 # beside it, as third_party-codex-LICENSE and third_party-codex-NOTICE (Apache License 2.0, section 4 (a) and (d)).
 #
 #   release-controlplane.sh <version> <owner/repository> <go build ldflags>
+#
+# DIST names another folder than dist/. RELEASE_DRY_RUN=1 builds nothing and needs neither build: it writes only the
+# files that go beside the binaries, which a test checks (internal/controlplane/modelgateway/release_test.go).
 set -eu
 
 version=$1
 repo=$2
 ldflags=$3
+dist=${DIST:-dist}
+dry=${RELEASE_DRY_RUN:-}
 
-test -f web/dist/index.html || { echo "build the web client first (make web-build)" >&2; exit 1; }
-test -s bridges/zalo/dist/bridge.cjs || { echo "build the Zalo bridge first (make zalo-bridge-build)" >&2; exit 1; }
-mkdir -p dist
+if [ -z "$dry" ]; then
+  test -f web/dist/index.html || { echo "build the web client first (make web-build)" >&2; exit 1; }
+  test -s bridges/zalo/dist/bridge.cjs || { echo "build the Zalo bridge first (make zalo-bridge-build)" >&2; exit 1; }
+fi
+mkdir -p "$dist"
 
 for platform in linux-amd64 linux-arm64; do
   binary=hypomnema-$platform
+  if [ -n "$dry" ]; then
+    echo "would build $dist/$binary and $dist/controlplane-$platform.txt ($version, $repo)"
+    continue
+  fi
   GOOS=${platform%-*} GOARCH=${platform#*-} CGO_ENABLED=0 \
-    go build -trimpath -ldflags "$ldflags" -o "dist/$binary" ./cmd/hypomnema
-  sum=$(sha256sum "dist/$binary")
+    go build -trimpath -ldflags "$ldflags" -o "$dist/$binary" ./cmd/hypomnema
+  sum=$(sha256sum "$dist/$binary")
   printf 'version=%s\nurl=https://github.com/%s/releases/download/%s/%s\nsha256=%s\n' \
-    "$version" "$repo" "$version" "$binary" "${sum%% *}" > "dist/controlplane-$platform.txt"
+    "$version" "$repo" "$version" "$binary" "${sum%% *}" > "$dist/controlplane-$platform.txt"
 done
 
-cp third_party/codex/LICENSE dist/third_party-codex-LICENSE
-cp third_party/codex/NOTICE dist/third_party-codex-NOTICE
+cp third_party/codex/LICENSE "$dist/third_party-codex-LICENSE"
+cp third_party/codex/NOTICE "$dist/third_party-codex-NOTICE"

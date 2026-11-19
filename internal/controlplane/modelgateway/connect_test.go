@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -46,6 +47,15 @@ func newConnectGateway(t *testing.T) (g, bare *modelgateway.Service) {
 func serve(t *testing.T, g *modelgateway.Service, path, key string) (int, []byte) {
 	t.Helper()
 
+	rec := serveRecorded(t, g, path, key)
+
+	return rec.Code, rec.Body.Bytes()
+}
+
+// serveRecorded is serve with the whole answer, its headers too.
+func serveRecorded(t *testing.T, g *modelgateway.Service, path, key string) *httptest.ResponseRecorder {
+	t.Helper()
+
 	mux := http.NewServeMux()
 	modelgateway.NewServer(g, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"),
 		modelgateway.Config{}).Register(mux)
@@ -58,7 +68,7 @@ func serve(t *testing.T, g *modelgateway.Service, path, key string) (int, []byte
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
-	return rec.Code, rec.Body.Bytes()
+	return rec
 }
 
 // catalogModel is the part of Codex's ModelInfo (codex-rs/protocol/src/openai_models.rs) the tests read.
@@ -418,9 +428,11 @@ func TestTheCodexCatalogStaysUnderOneMiB(t *testing.T) {
 	_, key, err := g.AddKey(t.Context(), "everything", nil, nil)
 	require.NoError(t, err)
 
-	status, body := serve(t, g, "/v1/codex/models", key)
-	require.Equal(t, http.StatusOK, status)
+	rec := serveRecorded(t, g, "/v1/codex/models", key)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.Bytes()
 	assert.Less(t, len(body), 1<<20)
+	assert.Equal(t, "0", rec.Header().Get(modelgateway.CodexCatalogOmittedHeader), "every model fits once compact")
 
 	var catalog struct {
 		Models []struct {
@@ -447,6 +459,99 @@ func TestTheCodexCatalogStaysUnderOneMiB(t *testing.T) {
 
 	assert.Positive(t, full, "Codex's own instructions are kept where they fit")
 	assert.Less(t, full, len(upstreams), "once a bundled model at most, and not all of them past the cap")
+}
+
+// Scenario: a key that may use every model, with 700 names over the Codex models (review of PR #922): even with
+// every entry compact the catalog would be about 2 MB. It lists the entries that fit, under 1 MiB: the
+// subscriptions' own models first, then the table's names in order, and says how many it left out.
+func TestTheCodexCatalogListsWhatFitsWhenEvenCompactIsTooBig(t *testing.T) {
+	t.Parallel()
+
+	g, _ := newConnectGateway(t)
+
+	upstreams := []string{"gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol",
+		"gpt-6.1-sol"}
+	for i := range 700 {
+		_, err := g.ApplyModel(t.Context(), fmt.Sprintf("name: alias-%03d\ntargets: [{provider: codex-subscription, "+
+			"model: %s}]\n", i, upstreams[i%len(upstreams)]))
+		require.NoError(t, err)
+	}
+
+	_, key, err := g.AddKey(t.Context(), "everything", nil, nil)
+	require.NoError(t, err)
+
+	rec := serveRecorded(t, g, "/v1/codex/models", key)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Less(t, rec.Body.Len(), 1<<20)
+
+	var catalog struct {
+		Models []struct {
+			Slug string `json:"slug"`
+		} `json:"models"`
+	}
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &catalog))
+
+	total := 700 + len(upstreams) + 1 // the aliases, the Codex models and kimi-k3
+	listed := len(catalog.Models)
+	require.Less(t, listed, total, "some are left out")
+	assert.Equal(t, strconv.Itoa(total-listed), rec.Header().Get(modelgateway.CodexCatalogOmittedHeader))
+
+	slugs := map[string]bool{}
+	for _, m := range catalog.Models {
+		slugs[m.Slug] = true
+	}
+
+	for _, upstream := range upstreams {
+		assert.True(t, slugs["codex-subscription/"+upstream], "a subscription's own model comes first: "+upstream)
+	}
+
+	assert.True(t, slugs["opencode-go/kimi-k3"])
+
+	aliases := listed - len(upstreams) - 1
+	require.Positive(t, aliases)
+
+	for i := range 700 {
+		assert.Equal(t, i < aliases, slugs[fmt.Sprintf("alias-%03d", i)], "the table's names in order: %d", i)
+	}
+}
+
+// Scenario: the catalog's route is in api/openapi.yaml as the gateway's (review of PR #922): GET /v1/codex/models
+// at the control plane's origin, taking a gateway key (gatewayKey) and never the client API's token (bearerAuth).
+func TestTheCodexCatalogIsInTheContract(t *testing.T) {
+	t.Parallel()
+
+	spec, err := openapi3.NewLoader().LoadFromData(api.Spec)
+	require.NoError(t, err)
+
+	item := spec.Paths.Find("/v1/codex/models")
+	require.NotNil(t, item, "the route is described")
+	require.NotNil(t, item.Get, "as a GET")
+	require.NotEmpty(t, item.Servers)
+	assert.Equal(t, "/", item.Servers[0].URL, "at the origin, not under the client API's /api/v1")
+	assert.Contains(t, item.Get.Tags, "gateway")
+
+	require.NotNil(t, item.Get.Security, "its own security, not the client API's default")
+
+	schemes := []string{}
+	for _, requirement := range *item.Get.Security {
+		for name := range requirement {
+			schemes = append(schemes, name)
+		}
+	}
+
+	assert.Equal(t, []string{"gatewayKey"}, schemes)
+
+	scheme := spec.Components.SecuritySchemes["gatewayKey"]
+	require.NotNil(t, scheme, "the gatewayKey scheme is defined")
+	assert.Equal(t, "apiKey", scheme.Value.Type)
+	assert.Equal(t, "header", scheme.Value.In)
+	assert.Equal(t, "x-api-key", scheme.Value.Name)
+	assert.NotNil(t, spec.Components.SecuritySchemes["bearerAuth"], "the client API's own scheme stays apart")
+	require.NotNil(t, item.Get.Responses.Status(http.StatusOK))
+	ok := item.Get.Responses.Status(http.StatusOK).Value
+	assert.Equal(t, "#/components/schemas/CodexModelCatalog", ok.Content.Get("application/json").Schema.Ref)
+	assert.Contains(t, ok.Headers, modelgateway.CodexCatalogOmittedHeader)
 }
 
 // Scenario: a model's name reads as the web client writes it (web/src/lib/model-name.ts).

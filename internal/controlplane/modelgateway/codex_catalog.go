@@ -6,8 +6,11 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agentconfig"
@@ -28,10 +31,16 @@ import (
 // (internal/client/codex/models/models.go:719-722, models_test.go:1710): the instructions are most of an entry
 // (about 60 KiB of a bundled one's 65), so, as CLIProxyAPI does, only the first entry of each bundled model keeps
 // Codex's own; a model Codex does not bundle, and a second name for the same model, get CLIProxyAPI's short ones,
-// and when the whole is still too big the last entries that keep their own give them up until it fits.
+// and when the whole is still too big the last entries that keep their own give them up until it fits. When it is
+// too big even then, only the entries that fit are listed (trimCatalog, our own inference: no reference goes past
+// compacting).
 
 //go:embed codexmodels/models.json
 var codexBundledModels []byte
+
+// CodexCatalogOmittedHeader says how many of the key's models the catalog leaves out to stay below
+// codexCatalogLimit (trimCatalog); 0 when it lists them all.
+const CodexCatalogOmittedHeader = "X-Hypomnema-Omitted-Models"
 
 // codexCatalogLimit is the size Codex takes a catalog up to (CLIProxyAPI's test: below 1 MiB).
 const codexCatalogLimit = 1 << 20
@@ -166,11 +175,11 @@ func (s *Service) CodexModels(ctx context.Context, k Key) ([]Model, error) {
 }
 
 // CodexCatalog is the catalog of the models a key may call from Codex, in the gateway's order, encoded below
-// codexCatalogLimit.
-func (s *Service) CodexCatalog(ctx context.Context, k Key) ([]byte, error) {
+// codexCatalogLimit, and how many of the models it leaves out to stay below it.
+func (s *Service) CodexCatalog(ctx context.Context, k Key) ([]byte, int, error) {
 	models, err := s.CodexModels(ctx, k)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	entries := make([]codexEntry, 0, len(models))
@@ -182,7 +191,7 @@ func (s *Service) CodexCatalog(ctx context.Context, k Key) ([]byte, error) {
 
 		resolved, err := s.resolveTarget(ctx, m, target)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		entry, bundled := codexCatalogEntry(m.Name, i, target.UpstreamModel, kind, resolved)
@@ -201,13 +210,93 @@ func (s *Service) CodexCatalog(ctx context.Context, k Key) ([]byte, error) {
 
 	for {
 		body, err := encodeCatalog(entries)
-		if err != nil || len(body) < codexCatalogLimit || len(full) == 0 {
-			return body, err
+		if err != nil || len(body) < codexCatalogLimit {
+			return body, 0, err
+		}
+
+		if len(full) == 0 {
+			return trimCatalog(models, entries)
 		}
 
 		entries[full[len(full)-1]].compact()
 		full = full[:len(full)-1]
 	}
+}
+
+// trimCatalog lists the entries that fit below codexCatalogLimit when every one is compact and the whole still does
+// not fit, and says how many are left out. Which come first is our own choice, not a reference's (CLIProxyAPI and
+// Codex stop at compacting the instructions; none trims a catalog): a subscription's own models, served under
+// "<subscription>/<model>", before the names made in the gateway's table over them, then by name, so that the same
+// key gets the same list. The entries kept stay in the gateway's order.
+func trimCatalog(models []Model, entries []codexEntry) ([]byte, int, error) {
+	order := make([]int, len(models))
+	for i := range order {
+		order[i] = i
+	}
+
+	slices.SortStableFunc(order, func(a, b int) int {
+		// A subscription's model has no YAML of its own (subscriptionModelOf); a name made in the table has.
+		if ownA, ownB := models[a].Source == "", models[b].Source == ""; ownA != ownB {
+			if ownA {
+				return -1
+			}
+
+			return 1
+		}
+
+		return strings.Compare(models[a].Name, models[b].Name)
+	})
+
+	// The body is {"models":[…]} and a newline: each entry adds its own length and a comma.
+	size := len(`{"models":[]}`) + 1
+	chosen := make([]bool, len(entries))
+	taken := 0
+
+	for _, i := range order {
+		encoded, err := encodeEntry(entries[i])
+		if err != nil {
+			return nil, 0, err
+		}
+
+		add := len(encoded)
+		if taken > 0 {
+			add++
+		}
+
+		if size+add >= codexCatalogLimit {
+			break
+		}
+
+		size += add
+		chosen[i] = true
+		taken++
+	}
+
+	kept := make([]codexEntry, 0, taken)
+
+	for i, e := range entries {
+		if chosen[i] {
+			kept = append(kept, e)
+		}
+	}
+
+	body, err := encodeCatalog(kept)
+
+	return body, len(entries) - taken, err
+}
+
+// encodeEntry is one entry as encodeCatalog writes it.
+func encodeEntry(e codexEntry) ([]byte, error) {
+	var out bytes.Buffer
+
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+
+	if err := enc.Encode(e); err != nil {
+		return nil, fmt.Errorf("encoding a Codex catalog entry: %w", err)
+	}
+
+	return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
 }
 
 // resolveTarget gives a model's attributes as served from one of its targets: the model's own when the target is
@@ -339,13 +428,20 @@ func (s *Server) codexModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := s.svc.CodexCatalog(r.Context(), k)
+	body, omitted, err := s.svc.CodexCatalog(r.Context(), k)
 	if err != nil {
 		s.internal(w, r, "modelgateway.codex_models_failed", err)
 
 		return
 	}
 
+	if omitted > 0 {
+		s.logger.WarnContext(r.Context(), "the Codex catalog leaves models out to stay under 1 MiB",
+			slog.String("event", "modelgateway.codex_models_trimmed"), slog.String("key", k.ID),
+			slog.Int("omitted", omitted))
+	}
+
+	w.Header().Set(CodexCatalogOmittedHeader, strconv.Itoa(omitted))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body) // The client went away; nothing is left to tell it.

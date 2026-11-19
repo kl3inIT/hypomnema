@@ -3289,7 +3289,11 @@ capabilities do not exist yet.
   first). The body stays under 1 MiB, past which Codex keeps its bundled catalog (as CLIProxyAPI found): only the
   first entry of each bundled model keeps Codex's instructions, a model Codex does not bundle and a second name for
   the same one get CLIProxyAPI's short ones, and when it is still too big the last entries that keep theirs give
-  them up. Codex then lists the models in `/model` instead of its bundled ones, and a level it sends is one the
+  them up. When even every entry compact is too big (hundreds of names), only the entries that fit are listed, the
+  subscriptions' own models before the table's names, then by name (our own choice: no reference trims a catalog);
+  the answer's `X-Hypomnema-Omitted-Models` says how many were left out (0 when none) and the gateway logs it. The
+  release script's dry run (`RELEASE_DRY_RUN=1`) is how a test checks that Codex's license and notice go out with
+  the control plane. Codex then lists the models in `/model` instead of its bundled ones, and a level it sends is one the
   gateway passes on.
 - Settings → Connect a tool (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
   Claude Code, Codex, omp and OpenCode with a key (the owner's keys whose value is stored; a key opened with its

@@ -2224,6 +2224,13 @@ paths:
       responses:
         "200":
           description: The catalog.
+          headers:
+            X-Hypomnema-Omitted-Models:
+              description: >-
+                How many of the key's models are left out to keep the body under 1 MiB, once every entry's
+                instructions are short (the subscriptions' own models are kept before the table's names); 0 when
+                none is.
+              schema: { type: integer, minimum: 0 }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CodexModelCatalog" }
