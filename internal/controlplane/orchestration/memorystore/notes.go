@@ -82,7 +82,7 @@ type Command struct {
 	NewPath    string  `json:"new_path,omitempty"`
 }
 
-// Dir is whose memory directory: an agent's or a Bot's.
+// Dir is whose memory directory: the owner's, an agent's or a Bot's.
 type Dir struct {
 	kind string
 	name string
@@ -93,6 +93,9 @@ func AgentDir(name string) Dir { return Dir{kind: ofAgent, name: name} }
 
 // BotDir is the directory of a Bot, by its id.
 func BotDir(id string) Dir { return Dir{kind: ofBot, name: id} }
+
+// OwnerDir contains only the shared USER.md, with no agent's index or notes.
+func OwnerDir() Dir { return Dir{kind: ofOwner} }
 
 // Note is a note's path under /memories, its size, and when it was written.
 type Note struct {
@@ -167,6 +170,7 @@ func fixed(rel string) bool { return rel == IndexFile || rel == OwnerFile }
 type dirState struct {
 	index, owner string
 	notes        []store.ListMemoryNotesRow
+	ownerOnly    bool
 }
 
 func (d dirState) note(rel string) bool {
@@ -189,16 +193,21 @@ func (s *Store) readDir(ctx context.Context, q *store.Queries, dir Dir) (dirStat
 		err error
 	)
 
-	if d.index, err = readIndex(ctx, q, dir); err != nil {
-		return dirState{}, err
-	}
-
 	owner, err := readMemory(ctx, q, ofOwner, "")
 	if err != nil {
 		return dirState{}, err
 	}
 
 	d.owner = owner.Text
+	d.ownerOnly = dir.kind == ofOwner
+
+	if d.ownerOnly {
+		return d, nil
+	}
+
+	if d.index, err = readIndex(ctx, q, dir); err != nil {
+		return dirState{}, err
+	}
 
 	if d.notes, err = q.ListMemoryNotes(ctx, store.ListMemoryNotesParams{Kind: dir.kind, Name: dir.name}); err != nil {
 		return dirState{}, fmt.Errorf("listing the notes of %s: %w", dirNoun(dir), err)
@@ -403,6 +412,20 @@ func setNote(ctx context.Context, q *store.Queries, dir Dir, rel, text string, n
 // Run runs one command of the memory tool in a directory and returns its result. What the agent can fix is a
 // CommandError; a change's result ends with how full the memory is (Usage).
 func (s *Store) Run(ctx context.Context, dir Dir, c Command) (string, error) {
+	if dir.kind == ofOwner {
+		rel, err := relPath(c.Path)
+		if err != nil {
+			return "", err
+		}
+
+		switch {
+		case c.Command == View && (rel == "" || rel == OwnerFile):
+		case (c.Command == Insert || c.Command == StrReplace) && rel == OwnerFile:
+		default:
+			return "", refusef("Use view, insert or str_replace on %s", full(OwnerFile))
+		}
+	}
+
 	if c.Command == View {
 		q := s.read()
 
@@ -758,7 +781,11 @@ func (d dirState) listing(rel string) string {
 	var files []line
 
 	if rel == "" {
-		files = append(files, line{IndexFile, len(d.index)}, line{OwnerFile, len(d.owner)})
+		if !d.ownerOnly {
+			files = append(files, line{IndexFile, len(d.index)})
+		}
+
+		files = append(files, line{OwnerFile, len(d.owner)})
 	}
 
 	for _, n := range d.notes {
@@ -852,16 +879,20 @@ func (d dirState) usage(owner bool) string {
 		b.WriteString("\n")
 	}
 
-	part(IndexFile, utf8.RuneCountInString(d.index), MaxMemory, "characters",
-		"move detail into notes and keep one line for each in MEMORY.md, merge entries that say the same thing "+
-			"and remove stale ones")
+	if !d.ownerOnly {
+		part(IndexFile, utf8.RuneCountInString(d.index), MaxMemory, "characters",
+			"move detail into notes and keep one line for each in MEMORY.md, merge entries that say the same thing "+
+				"and remove stale ones")
+	}
 
 	if owner {
 		part(OwnerFile, utf8.RuneCountInString(d.owner), MaxOwnerMemory, "characters",
 			"merge entries that say the same thing and remove stale ones")
 	}
 
-	part("Notes", len(d.notes), MaxNotes, "files", "merge notes on one subject and delete stale ones")
+	if !d.ownerOnly {
+		part("Notes", len(d.notes), MaxNotes, "files", "merge notes on one subject and delete stale ones")
+	}
 
 	return strings.TrimSuffix(b.String(), "\n")
 }

@@ -31,3 +31,13 @@ sql:
         emit_empty_slices: true
         emit_result_struct_pointers: false
         omit_unused_structs: true
+  - engine: sqlite
+    schema: internal/controlplane/orchestration/migrations
+    queries: internal/controlplane/videos/queries
+    gen:
+      go:
+        package: store
+        out: internal/controlplane/videos/internal/store
+        emit_empty_slices: true
+        emit_result_struct_pointers: false
+        omit_unused_structs: true

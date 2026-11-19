@@ -50,7 +50,7 @@ func TestTheOwnerKeepsWordsOverTheAPI(t *testing.T) {
 	work.Work(ctx)
 
 	id := up.JSON201.Id
-	named, err := owner.NameMeetingSpeakerWithResponse(ctx, id, "2", openapi.SpeakerName{Name: "Laura"})
+	named, err := owner.NameMeetingSpeakerWithResponse(ctx, id, "2", nil, openapi.SpeakerName{Name: "Laura"})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, named.StatusCode(), string(named.Body))
 

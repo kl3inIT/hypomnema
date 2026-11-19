@@ -164,6 +164,10 @@ func merge(t, said devicetool.Take) devicetool.Take {
 		t.DurationMs = said.DurationMs
 	}
 
+	if said.Screen != nil {
+		t.Screen = said.Screen
+	}
+
 	if said.Segments != nil {
 		t.Segments = said.Segments
 	}

@@ -58,7 +58,8 @@ type Server struct {
 	// coordinator reports whether pi works on a chat; nil when none runs.
 	coordinator Coordinator
 	// takes are the takes agents filmed of the phone (takes.go); nil: none.
-	takes Takes
+	takes  Takes
+	videos Videos
 	// machines creates and removes provider machines; nil when the control plane wired none.
 	machines Machines
 	// terminals reaches a node for a terminal; nil when the control plane wired none.
@@ -74,6 +75,10 @@ type Server struct {
 	phone      Phone
 	phoneViews viewTickets
 	tickets    terminalTickets
+	// meetingTickets are the tickets to record a meeting's tracks (meetinglive.go).
+	meetingTickets meetingTickets
+	// trackIdle ends a track that sends no audio for this long; zero: meetingIdle. Tests shorten it.
+	trackIdle time.Duration
 	// frames are the addresses folder pages' files load from in their locked frames (issue #402).
 	frames artifactFrames
 	// browser is the browser every agent shares; nil when the control plane has none.
@@ -169,12 +174,14 @@ type GatewayModels interface {
 	SetAttributes(ctx context.Context, name string, a modelgateway.Attributes) (modelgateway.Model, error)
 }
 
-// GatewayKeys makes, lists and revokes the keys clients give the gateway
+// GatewayKeys manages the keys clients give the gateway
 // (modelgateway.Service).
 type GatewayKeys interface {
 	ListKeys(ctx context.Context) ([]modelgateway.Key, error)
 	AddKey(ctx context.Context, name string, models []string, endpoints []modelgateway.Endpoint,
 	) (modelgateway.Key, string, error)
+	UpdateKey(ctx context.Context, id string, change modelgateway.KeyUpdate) (modelgateway.Key, error)
+	KeyValue(ctx context.Context, id string) (string, error)
 	RevokeKey(ctx context.Context, id string) error
 }
 
@@ -319,6 +326,8 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	mux.HandleFunc("GET "+BasePath+"/terminals/{ticket}", s.terminalSocket)
 	mux.HandleFunc("GET "+BasePath+"/browser/views/{ticket}", s.browserViewSocket)
 	mux.HandleFunc("GET "+BasePath+"/device/views/{ticket}", s.phoneViewSocket)
+	// A track of a meeting recorded live (issue #820): the ticket names the meeting and the track.
+	mux.HandleFunc("GET "+BasePath+"/meetings/{meeting_id}/stream/{ticket}", s.meetingSocket)
 	// A folder page's files, for its sandboxed frame, which sends no sign-in: the token in the address is the
 	// permission (issue #402).
 	mux.HandleFunc(artifactFilesPath+"{token}/{path...}", s.artifactFiles)

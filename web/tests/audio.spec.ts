@@ -13,7 +13,7 @@ type Key = {
   resting_until?: string
   last_used_at?: string
 }
-type Link = { provider: Provider; on: boolean; state: string; keys: Key[] }
+type Link = { provider: Provider; on: boolean; state: string; keys: Key[]; voice?: string }
 type KindLink = {
   provider: Provider
   on: boolean
@@ -77,6 +77,17 @@ async function fakeServer(page: Page) {
     const call = `${request.method()} ${path}`
     const json = (body: unknown, status = 200) =>
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
+
+    if (request.method() === "PUT" && path.endsWith("/voice")) {
+      const provider = path.split("/")[4] as Provider
+      const { voice } = request.postDataJSON() as { voice: string }
+      calls.push(`${call} ${JSON.stringify({ voice })}`)
+      world.providers = world.providers.map((l) =>
+        l.provider === provider ? { ...l, voice: voice || undefined } : l,
+      )
+
+      return json(answer())
+    }
 
     if (request.method() === "PUT" && path.startsWith("/gateway/audio/providers/")) {
       const provider = path.split("/").pop() as Provider
@@ -215,4 +226,28 @@ test("the owner orders text to speech apart from speech to text", async ({ page,
   await expect(page.getByText("ElevenLabs is asked first for text to speech")).toBeVisible()
   expect(calls).toContain("PUT /gateway/audio/order/tts elevenlabs,soniox")
   await shot(page, "audio-reordered")
+})
+
+// Scenario: the owner sets the voice Soniox speaks videos of takes with (issue #818): it is sent for Soniox only, and
+// ElevenLabs keeps its own default. The field fits a phone.
+test("the owner sets a provider's voice for videos", async ({ page }) => {
+  const { calls, world } = await fakeServer(page)
+  await page.goto("/settings/audio")
+
+  const soniox = row(page, "Soniox, text to speech")
+  await soniox.getByRole("textbox", { name: "Voice for videos" }).fill("Linh")
+  await soniox.getByRole("button", { name: "Save Soniox's voice for videos" }).click()
+
+  await expect(page.getByText("Soniox speaks videos with Linh")).toBeVisible()
+  expect(calls).toContain(`PUT /gateway/audio/providers/soniox/voice {"voice":"Linh"}`)
+  expect(world.providers.find((l) => l.provider === "elevenlabs")?.voice).toBeUndefined()
+  await expect(
+    row(page, "ElevenLabs, text to speech").getByRole("textbox", { name: "Voice for videos" }),
+  ).toHaveValue("")
+  await expect(
+    row(page, "Soniox, speech to text").getByRole("textbox", { name: "Voice for videos" }),
+  ).toHaveCount(0)
+
+  expect(await fits(page)).toBe(true)
+  await shot(page, "audio-voice")
 })

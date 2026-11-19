@@ -14,6 +14,7 @@ import { Route as GridRouteImport } from './routes/grid'
 import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as MeetingsRouteImport } from './routes/meetings'
 import { Route as RoutinesRouteImport } from './routes/routines'
+import { Route as StudioRouteImport } from './routes/studio'
 import { Route as TeamRouteImport } from './routes/team'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
 import { Route as AgentsNameRouteImport } from './routes/agents.$name'
@@ -44,6 +45,8 @@ import { Route as SettingsWebSearchRouteImport } from './routes/settings.web-sea
 import { Route as MachinesNodeIdTerminalRouteImport } from './routes/machines_.$nodeId.terminal'
 import { Route as SettingsSkillsIndexRouteImport } from './routes/settings.skills.index'
 import { Route as SettingsSkillsNameRouteImport } from './routes/settings.skills.$name'
+import { Route as StudioTakesTakeIdRouteImport } from './routes/studio_.takes.$takeId'
+import { Route as StudioVideosVideoIdRouteImport } from './routes/studio_.videos.$videoId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -68,6 +71,11 @@ const MeetingsRoute = MeetingsRouteImport.update({
 const RoutinesRoute = RoutinesRouteImport.update({
   id: '/routines',
   path: '/routines',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudioRoute = StudioRouteImport.update({
+  id: '/studio',
+  path: '/studio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TeamRoute = TeamRouteImport.update({
@@ -220,6 +228,16 @@ const SettingsSkillsNameRoute = SettingsSkillsNameRouteImport.update({
   path: '/settings/skills/$name',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StudioTakesTakeIdRoute = StudioTakesTakeIdRouteImport.update({
+  id: '/studio_/takes/$takeId',
+  path: '/studio/takes/$takeId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudioVideosVideoIdRoute = StudioVideosVideoIdRouteImport.update({
+  id: '/studio_/videos/$videoId',
+  path: '/studio/videos/$videoId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -227,6 +245,7 @@ export interface FileRoutesByFullPath {
   '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
+  '/studio': typeof StudioRoute
   '/team': typeof TeamRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
@@ -256,6 +275,8 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
   '/settings/skills/$name': typeof SettingsSkillsNameRoute
+  '/studio/takes/$takeId': typeof StudioTakesTakeIdRoute
+  '/studio/videos/$videoId': typeof StudioVideosVideoIdRoute
   '/settings/skills/': typeof SettingsSkillsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -264,6 +285,7 @@ export interface FileRoutesByTo {
   '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
+  '/studio': typeof StudioRoute
   '/team': typeof TeamRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
@@ -293,6 +315,8 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
   '/settings/skills/$name': typeof SettingsSkillsNameRoute
+  '/studio/takes/$takeId': typeof StudioTakesTakeIdRoute
+  '/studio/videos/$videoId': typeof StudioVideosVideoIdRoute
   '/settings/skills': typeof SettingsSkillsIndexRoute
 }
 export interface FileRoutesById {
@@ -302,6 +326,7 @@ export interface FileRoutesById {
   '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
+  '/studio': typeof StudioRoute
   '/team': typeof TeamRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
@@ -331,6 +356,8 @@ export interface FileRoutesById {
   '/settings/': typeof SettingsIndexRoute
   '/machines_/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
   '/settings/skills/$name': typeof SettingsSkillsNameRoute
+  '/studio_/takes/$takeId': typeof StudioTakesTakeIdRoute
+  '/studio_/videos/$videoId': typeof StudioVideosVideoIdRoute
   '/settings/skills/': typeof SettingsSkillsIndexRoute
 }
 export interface FileRouteTypes {
@@ -341,6 +368,7 @@ export interface FileRouteTypes {
     | '/machines'
     | '/meetings'
     | '/routines'
+    | '/studio'
     | '/team'
     | '/agents/$name'
     | '/agents/new'
@@ -370,6 +398,8 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/machines/$nodeId/terminal'
     | '/settings/skills/$name'
+    | '/studio/takes/$takeId'
+    | '/studio/videos/$videoId'
     | '/settings/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -378,6 +408,7 @@ export interface FileRouteTypes {
     | '/machines'
     | '/meetings'
     | '/routines'
+    | '/studio'
     | '/team'
     | '/agents/$name'
     | '/agents/new'
@@ -407,6 +438,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/machines/$nodeId/terminal'
     | '/settings/skills/$name'
+    | '/studio/takes/$takeId'
+    | '/studio/videos/$videoId'
     | '/settings/skills'
   id:
     | '__root__'
@@ -415,6 +448,7 @@ export interface FileRouteTypes {
     | '/machines'
     | '/meetings'
     | '/routines'
+    | '/studio'
     | '/team'
     | '/agents/$name'
     | '/agents/new'
@@ -444,6 +478,8 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/machines_/$nodeId/terminal'
     | '/settings/skills/$name'
+    | '/studio_/takes/$takeId'
+    | '/studio_/videos/$videoId'
     | '/settings/skills/'
   fileRoutesById: FileRoutesById
 }
@@ -453,6 +489,7 @@ export interface RootRouteChildren {
   MachinesRoute: typeof MachinesRoute
   MeetingsRoute: typeof MeetingsRoute
   RoutinesRoute: typeof RoutinesRoute
+  StudioRoute: typeof StudioRoute
   TeamRoute: typeof TeamRoute
   AgentsNameRoute: typeof AgentsNameRoute
   AgentsNewRoute: typeof AgentsNewRoute
@@ -482,6 +519,8 @@ export interface RootRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
   MachinesNodeIdTerminalRoute: typeof MachinesNodeIdTerminalRoute
   SettingsSkillsNameRoute: typeof SettingsSkillsNameRoute
+  StudioTakesTakeIdRoute: typeof StudioTakesTakeIdRoute
+  StudioVideosVideoIdRoute: typeof StudioVideosVideoIdRoute
   SettingsSkillsIndexRoute: typeof SettingsSkillsIndexRoute
 }
 
@@ -520,6 +559,13 @@ declare module '@tanstack/react-router' {
       path: '/routines'
       fullPath: '/routines'
       preLoaderRoute: typeof RoutinesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/studio': {
+      id: '/studio'
+      path: '/studio'
+      fullPath: '/studio'
+      preLoaderRoute: typeof StudioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/team': {
@@ -732,6 +778,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSkillsNameRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/studio_/takes/$takeId': {
+      id: '/studio_/takes/$takeId'
+      path: '/studio/takes/$takeId'
+      fullPath: '/studio/takes/$takeId'
+      preLoaderRoute: typeof StudioTakesTakeIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/studio_/videos/$videoId': {
+      id: '/studio_/videos/$videoId'
+      path: '/studio/videos/$videoId'
+      fullPath: '/studio/videos/$videoId'
+      preLoaderRoute: typeof StudioVideosVideoIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -741,6 +801,7 @@ const rootRouteChildren: RootRouteChildren = {
   MachinesRoute: MachinesRoute,
   MeetingsRoute: MeetingsRoute,
   RoutinesRoute: RoutinesRoute,
+  StudioRoute: StudioRoute,
   TeamRoute: TeamRoute,
   AgentsNameRoute: AgentsNameRoute,
   AgentsNewRoute: AgentsNewRoute,
@@ -770,6 +831,8 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsIndexRoute: SettingsIndexRoute,
   MachinesNodeIdTerminalRoute: MachinesNodeIdTerminalRoute,
   SettingsSkillsNameRoute: SettingsSkillsNameRoute,
+  StudioTakesTakeIdRoute: StudioTakesTakeIdRoute,
+  StudioVideosVideoIdRoute: StudioVideosVideoIdRoute,
   SettingsSkillsIndexRoute: SettingsSkillsIndexRoute,
 }
 export const routeTree = rootRouteImport

@@ -89,12 +89,15 @@ type Input struct {
 	// Captions is an ASS file timed on the video made, burned in at the end; empty for none.
 	Captions string
 	Aspect   Aspect
-	// Screen is the size of the phone's screen, in the pixels a step's tap is in; needed when a step has a tap.
+	// Screen is the size of the phone's screen, in the pixels a step's tap is in; zero: not known, and the taps get
+	// no ring (a take filmed before the node recorded its screen).
 	Screen Size
 	// Work is a folder for what is made on the way, which the caller removes.
 	Work string
 	// Out is where the finished MP4 is renamed to; nothing is written there before it is whole.
 	Out string
+	// Progress, when set, is told how many scenes are cut and fitted to their voice, after each.
+	Progress func(done int)
 }
 
 // SceneResult is how a scene was made, in the take's time (Keeps) and in the video's (OutStartMs, OutLengthMs,
@@ -167,12 +170,6 @@ func Compose(ctx context.Context, tools ffmpeg.Tools, in Input) (Result, error) 
 		return Result{}, err
 	}
 
-	for _, sc := range scenes {
-		if sc.Tap != nil && (in.Screen.Width <= 0 || in.Screen.Height <= 0) {
-			return Result{}, errors.New("a step has a tap, and the screen's size to place it is not given")
-		}
-	}
-
 	segs, err := segments(take, in.Dir)
 	if err != nil {
 		return Result{}, err
@@ -184,6 +181,10 @@ func Compose(ctx context.Context, tools ffmpeg.Tools, in Input) (Result, error) 
 
 	c := &composer{run: runner{tools: tools, dir: in.Work}, in: in, size: size, segs: segs, lengthMs: TakeLengthMs(take)}
 
+	for _, sc := range scenes {
+		c.noScreen = c.noScreen || sc.Tap != nil && (in.Screen.Width <= 0 || in.Screen.Height <= 0)
+	}
+
 	return c.compose(ctx, scenes)
 }
 
@@ -194,6 +195,8 @@ type composer struct {
 	segs     []segment
 	lengthMs int64
 	result   Result
+	// noScreen: the screen's size is not known, and the taps were left out.
+	noScreen bool
 }
 
 // ring is a tap's ring placed on the video.
@@ -204,6 +207,10 @@ type ring struct {
 
 func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) {
 	c.result = Result{Size: c.size}
+
+	if c.noScreen {
+		c.warn("the take does not say its screen's size, so its taps get no ring")
+	}
 
 	freezes, failed := c.freezes(ctx)
 
@@ -221,6 +228,10 @@ func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) 
 
 		res.OutStartMs = cursor
 
+		if c.noScreen {
+			res.RingAtMs = nil
+		}
+
 		if res.RingAtMs != nil {
 			at := cursor + *res.RingAtMs
 			res.RingAtMs = &at
@@ -231,6 +242,10 @@ func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) 
 		cursor += res.OutLengthMs
 		sceneFiles = append(sceneFiles, file)
 		c.result.Scenes = append(c.result.Scenes, res)
+
+		if c.in.Progress != nil {
+			c.in.Progress(i + 1)
+		}
 	}
 
 	video, err := c.concat(ctx, sceneFiles, "content.mp4", "scenes")
@@ -597,29 +612,77 @@ func (c *composer) mux(ctx context.Context, video string) (string, error) {
 
 // stageCaptions copies the captions and the fonts into the work folder.
 func (c *composer) stageCaptions() error {
-	if err := copyFile(c.in.Captions, filepath.Join(c.in.Work, "captions.ass")); err != nil {
+	return stageCaptions(c.in.Captions, c.in.Work, c.run.tools.FontsDir)
+}
+
+// stageCaptions copies an ASS file and the fonts into a work folder, as captions.ass and fonts/: ffmpeg reads them
+// there by relative names, which need no escaping in a filter's option.
+func stageCaptions(captions, work, fontsDir string) error {
+	if err := copyFile(captions, filepath.Join(work, "captions.ass")); err != nil {
 		return fmt.Errorf("reading the captions: %w", err)
 	}
 
-	fonts := filepath.Join(c.in.Work, "fonts")
+	fonts := filepath.Join(work, "fonts")
 	if err := os.MkdirAll(fonts, 0o700); err != nil {
 		return err
 	}
 
-	entries, err := os.ReadDir(c.run.tools.FontsDir)
+	entries, err := os.ReadDir(fontsDir)
 	if err != nil {
 		return fmt.Errorf("reading the fonts: %w", err)
 	}
 
 	for _, e := range entries {
 		if e.Type().IsRegular() {
-			if err := copyFile(filepath.Join(c.run.tools.FontsDir, e.Name()), filepath.Join(fonts, e.Name())); err != nil {
+			if err := copyFile(filepath.Join(fontsDir, e.Name()), filepath.Join(fonts, e.Name())); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+// Burn burns an ASS file's captions into a made video, its sound copied as it
+// is (issue #818, row 6: the captions are timed on the video Compose made, so
+// they are burned after it). The result is written in work, as burned.mp4,
+// and its path returned.
+func Burn(ctx context.Context, tools ffmpeg.Tools, video, captions, work string) (string, error) {
+	paths := []*string{&video, &captions, &work}
+	for _, p := range paths {
+		abs, err := filepath.Abs(*p)
+		if err != nil {
+			return "", err
+		}
+
+		*p = abs
+	}
+
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		return "", err
+	}
+
+	if err := stageCaptions(captions, work, tools.FontsDir); err != nil {
+		return "", err
+	}
+
+	run := runner{tools: tools, dir: work}
+	out := filepath.Join(work, "burned.mp4")
+	args := append([]string{"-i", video, "-vf", "subtitles=filename=captions.ass:fontsdir=fonts", "-map", "0:v",
+		"-map", "0:a"}, encodeArgs...)
+	args = append(args, "-c:a", "copy", "-movflags", "+faststart", out)
+
+	return out, run.ffmpeg(ctx, args...)
+}
+
+// Thumbnail writes a video's first frame as a JPEG.
+func Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string) error {
+	return runner{tools: tools}.ffmpeg(ctx, "-i", video, "-frames:v", "1", "-q:v", "3", "-f", "image2", out)
+}
+
+// LengthMs is a media file's length, in ms, as ffprobe reads it.
+func LengthMs(ctx context.Context, tools ffmpeg.Tools, file string) (int64, error) {
+	return runner{tools: tools}.durationMs(ctx, file)
 }
 
 func copyFile(from, to string) error {

@@ -702,6 +702,10 @@ export type AudioProviderLink = {
   resting_until?: string;
   rest?: WebSearchRest;
   /**
+   * The voice it speaks a video with when none is asked; absent, its own default.
+   */
+  voice?: string;
+  /**
    * Its keys, in the order a request asks them now.
    */
   keys: Array<AudioKey>;
@@ -750,6 +754,10 @@ export type AudioTally = {
    * The characters spoken.
    */
   characters: number;
+};
+
+export type AudioVoice = {
+  voice: string;
 };
 
 export type AudioProviderChange = {
@@ -2157,6 +2165,156 @@ export type TakePause = {
   at_ms: number;
 };
 
+export type VideoList = {
+  data: Array<Video>;
+};
+
+/**
+ * A video made of one take (issue
+ */
+export type Video = {
+  id: string;
+  /**
+   * The take it is made of.
+   */
+  take: string;
+  title: string;
+  /**
+   * The agent's key that asked for it first
+   */
+  made_by: string;
+  made_by_name: string;
+  created_at: string;
+  /**
+   * The approved revision; absent when none is.
+   */
+  approved?: number;
+  revisions: Array<VideoRevision>;
+};
+
+/**
+ * One make of the video, never changed once made: queued, then voicing, composing and captioning (skipped without captions) as the runner makes it, then review; approved or changes_requested by the owner; failed at a stage with its cause, interrupted when the control plane stopped while it was made.
+ */
+export type VideoRevision = {
+  rev: number;
+  /**
+   * The revision it was made from.
+   */
+  parent?: number;
+  state: 'queued' | 'voicing' | 'composing' | 'captioning' | 'review' | 'approved' | 'changes_requested' | 'failed';
+  /**
+   * What each scene's voice says, a scene a step of the take (steps said at once are one).
+   */
+  lines: Array<string>;
+  /**
+   * The voice asked for; absent
+   */
+  voice?: string;
+  captions: boolean;
+  aspect: '9:16' | '16:9';
+  /**
+   * The provider that spoke every scene.
+   */
+  provider?: string;
+  model?: string;
+  /**
+   * The voice it spoke with; absent
+   */
+  used_voice?: string;
+  length_ms: number;
+  /**
+   * The stage it failed at.
+   */
+  failed_stage?: string;
+  failed_cause?: string;
+  /**
+   * What the owner asked for when he asked for changes.
+   */
+  note?: string;
+  warnings: Array<string>;
+  progress?: VideoProgress;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
+ */
+export type VideoProgress = {
+  scenes_done: number;
+  scenes_total: number;
+};
+
+export type StudioItemList = {
+  data: Array<StudioItem>;
+  /**
+   * Present when more items follow.
+   */
+  next_cursor?: string;
+};
+
+/**
+ * A take or a video as the Studio's card shows it (issue
+ */
+export type StudioItem = {
+  kind: 'take' | 'video';
+  id: string;
+  title: string;
+  /**
+   * The agent that filmed the take
+   */
+  bot: string;
+  created_at: string;
+  /**
+   * A take's length; a video's latest revision's, 0 until made.
+   */
+  length_ms: number;
+  /**
+   * A take's state, or the state of a video's latest revision.
+   */
+  state: string;
+  /**
+   * A video's take.
+   */
+  take?: string;
+  /**
+   * A video's latest revision.
+   */
+  rev?: number;
+  /**
+   * Where its first frame is read, under /api/v1/ (owner only): an available take's, or the latest made revision's of a video. Absent while there is none.
+   */
+  thumbnail?: string;
+};
+
+export type VideoMake = {
+  take: string;
+  /**
+   * The video's title, on its first make; absent: the take's.
+   */
+  title?: string;
+  /**
+   * Absent: 9:16.
+   */
+  aspect?: '9:16' | '16:9';
+  /**
+   * Absent: true.
+   */
+  captions?: boolean;
+  /**
+   * Absent: each provider's set on Settings → Audio.
+   */
+  voice?: string;
+};
+
+export type VideoChanges = {
+  /**
+   * Each scene's line, edited; as many as the revision has.
+   */
+  lines?: Array<string>;
+  note?: string;
+};
+
 export type DeviceList = {
   data: Array<DeviceNode>;
   /**
@@ -2227,6 +2385,10 @@ export type GatewayKey = {
    */
   prefix: string;
   /**
+   * The first six and last four characters with the rest masked; absent when no value is stored.
+   */
+  masked_value?: string;
+  /**
    * The model names it may use; `*` is every model.
    */
   models: Array<string>;
@@ -2264,6 +2426,21 @@ export type NewGatewayKey = {
   endpoints?: Array<GatewayEndpoint>;
 };
 
+export type GatewayKeyUpdate = {
+  /**
+   * The new name; when omitted the name is unchanged.
+   */
+  name?: string;
+  /**
+   * The new list of model names; empty means every model, omitted means unchanged.
+   */
+  models?: Array<string>;
+  /**
+   * The new list of kinds besides chat; empty means none, omitted means unchanged.
+   */
+  endpoints?: Array<GatewayEndpoint>;
+};
+
 /**
  * A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits, audio is /v1/audio/transcriptions, /v1/audio/speech and /v1/audio/voices.
  */
@@ -2272,8 +2449,12 @@ export type GatewayEndpoint = 'search' | 'fetch' | 'images' | 'audio';
 export type CreatedGatewayKey = {
   key: GatewayKey;
   /**
-   * The key's value, answered this once; only its hash is kept.
+   * The key's value, also kept encrypted in the vault.
    */
+  secret: string;
+};
+
+export type GatewayKeyValue = {
   secret: string;
 };
 
@@ -4133,9 +4314,46 @@ export type ChatMessageList = {
 };
 
 /**
- * Where the meeting's transcription stands.
+ * Where the meeting's transcription stands; a live meeting is recording until it ends.
  */
-export type MeetingState = 'transcribing' | 'transcribed' | 'failed';
+export type MeetingState = 'recording' | 'transcribing' | 'transcribed' | 'failed';
+
+/**
+ * How the meeting came, uploaded or recorded live.
+ */
+export type MeetingSource = 'upload' | 'live';
+
+/**
+ * How a live meeting is held; online records the microphone and a shared tab.
+ */
+export type MeetingKind = 'online' | 'in_person';
+
+/**
+ * What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+ */
+export type MeetingTrack = 'file' | 'mic' | 'tab';
+
+export type MeetingLiveTrack = 'mic' | 'tab';
+
+export type NewLiveMeeting = {
+  kind: MeetingKind;
+  /**
+   * An ISO 639-1 code, such as vi; absent, the provider finds it.
+   */
+  language?: string;
+  /**
+   * Absent
+   */
+  title?: string;
+  /**
+   * Who is in the meeting; they help name the speakers.
+   */
+  people?: Array<string>;
+};
+
+export type MeetingTrackRequest = {
+  track: MeetingLiveTrack;
+};
 
 /**
  * Where its notes stand; waiting is for the transcript.
@@ -4166,10 +4384,15 @@ export type MeetingNotes = {
 };
 
 export type MeetingSpeaker = {
+  track: MeetingTrack;
   /**
-   * The voice's label
+   * The voice's label on its track, the provider's or m1, m2… for one the owner made.
    */
   label: string;
+  /**
+   * The owner's own voice
+   */
+  owner: boolean;
   /**
    * The name shown
    */
@@ -4197,8 +4420,13 @@ export type Meeting = {
   file_name: string;
   media_type: string;
   size: number;
+  /**
+   * Its length; while it records, what is kept so far, where a resumed recording goes on.
+   */
   duration_ms: number;
   state: MeetingState;
+  source: MeetingSource;
+  kind?: MeetingKind;
   /**
    * Why hearing it failed
    */
@@ -4220,11 +4448,15 @@ export type MeetingList = {
 };
 
 export type MeetingLine = {
+  /**
+   * The line's number
+   */
   n: number;
+  track: MeetingTrack;
   start_ms: number;
   end_ms: number;
   /**
-   * The label of the voice it is shown as.
+   * The label of the voice it is shown as
    */
   speaker: string;
   /**
@@ -4248,6 +4480,7 @@ export type MeetingItem = {
    * The label of the voice that does it
    */
   owner_speaker?: string;
+  owner_track?: MeetingTrack;
   /**
    * The deadline in the words the meeting used.
    */
@@ -4268,6 +4501,7 @@ export type MeetingItem = {
 };
 
 export type SpeakerSuggestion = {
+  track: MeetingTrack;
   label: string;
   /**
    * The name the voice called itself.
@@ -4534,6 +4768,10 @@ export type MemoryOfAgent = string;
 export type SkillName = string;
 
 export type TakeId = string;
+
+export type VideoId = string;
+
+export type VideoRev = number;
 
 export type ArtifactId = string;
 
@@ -5657,6 +5895,76 @@ export type ReadTakeSegmentResponses = {
 
 export type ReadTakeSegmentResponse = ReadTakeSegmentResponses[keyof ReadTakeSegmentResponses];
 
+export type ReadTakeThumbnailData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}/thumbnail.jpg';
+};
+
+export type ReadTakeThumbnailErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadTakeThumbnailError = ReadTakeThumbnailErrors[keyof ReadTakeThumbnailErrors];
+
+export type ReadTakeThumbnailResponses = {
+  /**
+   * The picture.
+   */
+  200: Blob | File;
+};
+
+export type ReadTakeThumbnailResponse = ReadTakeThumbnailResponses[keyof ReadTakeThumbnailResponses];
+
+export type ListStudioItemsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    kind?: 'take' | 'video';
+    /**
+     * A group of states: in_progress (a take filmed, paused, finishing or uploading; a revision queued or being made), review (a revision awaiting review), approved, or failed (a take or revision that failed, and a revision changes were asked of).
+     */
+    state?: 'in_progress' | 'review' | 'approved' | 'failed';
+    /**
+     * Words the title or the Bot's name holds, in any case.
+     */
+    q?: string;
+    /**
+     * The next_cursor of the previous page.
+     */
+    cursor?: string;
+    /**
+     * At most this many items; absent: 50.
+     */
+    limit?: number;
+  };
+  url: '/studio/items';
+};
+
+export type ListStudioItemsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListStudioItemsError = ListStudioItemsErrors[keyof ListStudioItemsErrors];
+
+export type ListStudioItemsResponses = {
+  /**
+   * One page of items.
+   */
+  200: StudioItemList;
+};
+
+export type ListStudioItemsResponse = ListStudioItemsResponses[keyof ListStudioItemsResponses];
+
 export type GetTakeArchiveData = {
   body?: never;
   path: {
@@ -5683,6 +5991,241 @@ export type GetTakeArchiveResponses = {
 };
 
 export type GetTakeArchiveResponse = GetTakeArchiveResponses[keyof GetTakeArchiveResponses];
+
+export type ListVideosData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/videos';
+};
+
+export type ListVideosErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListVideosError = ListVideosErrors[keyof ListVideosErrors];
+
+export type ListVideosResponses = {
+  /**
+   * The videos.
+   */
+  200: VideoList;
+};
+
+export type ListVideosResponse = ListVideosResponses[keyof ListVideosResponses];
+
+export type MakeVideoData = {
+  body: VideoMake;
+  headers?: {
+    /**
+     * Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+     */
+    'Idempotency-Key'?: string;
+  };
+  path?: never;
+  query?: never;
+  url: '/videos';
+};
+
+export type MakeVideoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type MakeVideoError = MakeVideoErrors[keyof MakeVideoErrors];
+
+export type MakeVideoResponses = {
+  /**
+   * The video, with the revision queued.
+   */
+  201: Video;
+};
+
+export type MakeVideoResponse = MakeVideoResponses[keyof MakeVideoResponses];
+
+export type DeleteVideoData = {
+  body?: never;
+  path: {
+    video_id: string;
+  };
+  query?: never;
+  url: '/videos/{video_id}';
+};
+
+export type DeleteVideoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteVideoError = DeleteVideoErrors[keyof DeleteVideoErrors];
+
+export type DeleteVideoResponses = {
+  /**
+   * Deleted.
+   */
+  204: void;
+};
+
+export type DeleteVideoResponse = DeleteVideoResponses[keyof DeleteVideoResponses];
+
+export type GetVideoData = {
+  body?: never;
+  path: {
+    video_id: string;
+  };
+  query?: never;
+  url: '/videos/{video_id}';
+};
+
+export type GetVideoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetVideoError = GetVideoErrors[keyof GetVideoErrors];
+
+export type GetVideoResponses = {
+  /**
+   * The video.
+   */
+  200: Video;
+};
+
+export type GetVideoResponse = GetVideoResponses[keyof GetVideoResponses];
+
+export type ApproveVideoRevisionData = {
+  body?: never;
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/approve';
+};
+
+export type ApproveVideoRevisionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ApproveVideoRevisionError = ApproveVideoRevisionErrors[keyof ApproveVideoRevisionErrors];
+
+export type ApproveVideoRevisionResponses = {
+  /**
+   * The video.
+   */
+  200: Video;
+};
+
+export type ApproveVideoRevisionResponse = ApproveVideoRevisionResponses[keyof ApproveVideoRevisionResponses];
+
+export type RequestVideoChangesData = {
+  body: VideoChanges;
+  headers?: {
+    /**
+     * Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+     */
+    'Idempotency-Key'?: string;
+  };
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/changes';
+};
+
+export type RequestVideoChangesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RequestVideoChangesError = RequestVideoChangesErrors[keyof RequestVideoChangesErrors];
+
+export type RequestVideoChangesResponses = {
+  /**
+   * The video.
+   */
+  200: Video;
+};
+
+export type RequestVideoChangesResponse = RequestVideoChangesResponses[keyof RequestVideoChangesResponses];
+
+export type ReadVideoFileData = {
+  body?: never;
+  headers?: {
+    Range?: string;
+  };
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/video.mp4';
+};
+
+export type ReadVideoFileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadVideoFileError = ReadVideoFileErrors[keyof ReadVideoFileErrors];
+
+export type ReadVideoFileResponses = {
+  /**
+   * The video.
+   */
+  200: Blob | File;
+  /**
+   * The part of the video asked for.
+   */
+  206: Blob | File;
+};
+
+export type ReadVideoFileResponse = ReadVideoFileResponses[keyof ReadVideoFileResponses];
+
+export type ReadVideoThumbnailData = {
+  body?: never;
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/thumbnail.jpg';
+};
+
+export type ReadVideoThumbnailErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadVideoThumbnailError = ReadVideoThumbnailErrors[keyof ReadVideoThumbnailErrors];
+
+export type ReadVideoThumbnailResponses = {
+  /**
+   * The picture.
+   */
+  200: Blob | File;
+};
+
+export type ReadVideoThumbnailResponse = ReadVideoThumbnailResponses[keyof ReadVideoThumbnailResponses];
 
 export type ResumeNodeData = {
   body?: never;
@@ -7486,12 +8029,70 @@ export type RevokeGatewayKeyError = RevokeGatewayKeyErrors[keyof RevokeGatewayKe
 
 export type RevokeGatewayKeyResponses = {
   /**
-   * Revoked.
+   * Revoked and its stored value removed.
    */
   204: void;
 };
 
 export type RevokeGatewayKeyResponse = RevokeGatewayKeyResponses[keyof RevokeGatewayKeyResponses];
+
+export type UpdateGatewayKeyData = {
+  body: GatewayKeyUpdate;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}';
+};
+
+export type UpdateGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UpdateGatewayKeyError = UpdateGatewayKeyErrors[keyof UpdateGatewayKeyErrors];
+
+export type UpdateGatewayKeyResponses = {
+  /**
+   * The updated key, without its value.
+   */
+  200: GatewayKey;
+};
+
+export type UpdateGatewayKeyResponse = UpdateGatewayKeyResponses[keyof UpdateGatewayKeyResponses];
+
+export type GetGatewayKeyValueData = {
+  body?: never;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}/value';
+};
+
+export type GetGatewayKeyValueErrors = {
+  /**
+   * No active owner-made key with a stored value has this id.
+   */
+  404: Error;
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGatewayKeyValueError = GetGatewayKeyValueErrors[keyof GetGatewayKeyValueErrors];
+
+export type GetGatewayKeyValueResponses = {
+  /**
+   * The key's value.
+   */
+  200: GatewayKeyValue;
+};
+
+export type GetGatewayKeyValueResponse = GetGatewayKeyValueResponses[keyof GetGatewayKeyValueResponses];
 
 export type GetGatewayUsageData = {
   body?: never;
@@ -8059,6 +8660,33 @@ export type RemoveAudioKeyResponses = {
 };
 
 export type RemoveAudioKeyResponse = RemoveAudioKeyResponses[keyof RemoveAudioKeyResponses];
+
+export type SetAudioVoiceData = {
+  body: AudioVoice;
+  path: {
+    provider: AudioProvider;
+  };
+  query?: never;
+  url: '/gateway/audio/providers/{provider}/voice';
+};
+
+export type SetAudioVoiceErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetAudioVoiceError = SetAudioVoiceErrors[keyof SetAudioVoiceErrors];
+
+export type SetAudioVoiceResponses = {
+  /**
+   * The providers after the change.
+   */
+  200: Audio;
+};
+
+export type SetAudioVoiceResponse = SetAudioVoiceResponses[keyof SetAudioVoiceResponses];
 
 export type SetAudioOrderData = {
   body: AudioOrder;
@@ -10515,7 +11143,12 @@ export type NameMeetingSpeakerData = {
      */
     label: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * The voice's track; absent, the one track that has the label.
+     */
+    track?: MeetingTrack;
+  };
   url: '/meetings/{meeting_id}/speakers/{label}';
 };
 
@@ -10567,6 +11200,85 @@ export type SetMeetingLineSpeakerResponses = {
 };
 
 export type SetMeetingLineSpeakerResponse = SetMeetingLineSpeakerResponses[keyof SetMeetingLineSpeakerResponses];
+
+export type StartLiveMeetingData = {
+  body: NewLiveMeeting;
+  path?: never;
+  query?: never;
+  url: '/meetings/live';
+};
+
+export type StartLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartLiveMeetingError = StartLiveMeetingErrors[keyof StartLiveMeetingErrors];
+
+export type StartLiveMeetingResponses = {
+  /**
+   * The meeting, recording.
+   */
+  201: Meeting;
+};
+
+export type StartLiveMeetingResponse = StartLiveMeetingResponses[keyof StartLiveMeetingResponses];
+
+export type OpenMeetingTrackData = {
+  body: MeetingTrackRequest;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/tickets';
+};
+
+export type OpenMeetingTrackErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenMeetingTrackError = OpenMeetingTrackErrors[keyof OpenMeetingTrackErrors];
+
+export type OpenMeetingTrackResponses = {
+  /**
+   * The ticket.
+   */
+  201: TerminalTicket;
+};
+
+export type OpenMeetingTrackResponse = OpenMeetingTrackResponses[keyof OpenMeetingTrackResponses];
+
+export type EndLiveMeetingData = {
+  body?: never;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/end';
+};
+
+export type EndLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type EndLiveMeetingError = EndLiveMeetingErrors[keyof EndLiveMeetingErrors];
+
+export type EndLiveMeetingResponses = {
+  /**
+   * The meeting, transcribed.
+   */
+  200: Meeting;
+};
+
+export type EndLiveMeetingResponse = EndLiveMeetingResponses[keyof EndLiveMeetingResponses];
 
 export type UpdateMeetingItemData = {
   body: MeetingItemUpdate;
