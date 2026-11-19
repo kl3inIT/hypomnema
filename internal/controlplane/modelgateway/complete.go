@@ -75,6 +75,7 @@ func (e *CompletionError) Error() string {
 // complete is serveChat without a client to relay to.
 func (s *Server) complete(ctx context.Context, req chatRequest, model Model, keyID string, record *Usage,
 ) ([]byte, error) {
+	var cooling modelCooling
 	for i, target := range model.Targets {
 		last := i == len(model.Targets)-1
 		noteServed(ctx, "")
@@ -88,6 +89,9 @@ func (s *Server) complete(ctx context.Context, req chatRequest, model Model, key
 
 				return nil, ctx.Err()
 			}
+			if cooling.add(err) {
+				continue
+			}
 
 			s.logger.WarnContext(ctx, "a gateway target gave no answer",
 				slog.String("event", "modelgateway.target_failed"), slog.String("provider", target.Provider),
@@ -97,6 +101,7 @@ func (s *Server) complete(ctx context.Context, req chatRequest, model Model, key
 		}
 
 		record.Status = resp.StatusCode
+		cooling.other = true
 
 		if retryable(resp.StatusCode) && !last {
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBytes))
@@ -135,6 +140,10 @@ func (s *Server) complete(ctx context.Context, req chatRequest, model Model, key
 		return body, nil
 	}
 
+	if resp := s.coolingResponse(ctx, "/v1/chat/completions", cooling, record); resp != nil {
+		_ = resp.Body.Close()
+		return nil, &CompletionError{Status: resp.StatusCode, Message: record.Error}
+	}
 	record.Outcome = OutcomeTransportError
 
 	return nil, &CompletionError{Message: fmt.Sprintf("no provider of model %q could be reached", model.Name)}
@@ -168,7 +177,7 @@ func (s *Service) MeetingsKey(ctx context.Context) (string, error) {
 		name = meetingsKeyName + "-" + strconv.Itoa(n)
 	}
 
-	k, _, err := s.AddKey(ctx, name, nil, []Endpoint{EndpointAudio})
+	k, _, err := s.addKey(ctx, name, []string{AllModels}, keyOwner{endpoints: []Endpoint{EndpointAudio}})
 	if err != nil {
 		return "", err
 	}

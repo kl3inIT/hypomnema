@@ -128,6 +128,13 @@ func fakeClaude(mode string) int {
 
 				continue
 			}
+			if mode == "limited" {
+				emit(out, map[string]any{"type": "result", "subtype": "error_during_execution", "is_error": true,
+					"api_error_status": 429, "result": "API error"})
+				exit = 1
+
+				continue
+			}
 
 			if mode != "nofinish" {
 				_ = bridge.Finish(bridgeDir(), bridge.Final{
@@ -228,6 +235,8 @@ func (r *reporter) Started(_ context.Context, processRef, session string) error 
 func (r *reporter) Ask(context.Context, nodeproto.Ask) (string, error) { return "rep_q", nil }
 
 func (r *reporter) AnswerReceived(context.Context, string) error { return nil }
+
+func (r *reporter) PublishedHead(context.Context, nodeproto.PublishedHead) error { return nil }
 
 func (r *reporter) Finished(_ context.Context, f nodeproto.Finished) error {
 	r.mu.Lock()
@@ -381,6 +390,17 @@ func TestFailedTurnIsAWorkerError(t *testing.T) {
 	require.Len(t, r.finished, 1)
 	assert.Equal(t, "worker_error", r.finished[0].Class)
 	assert.Equal(t, "stopped without finish: boom", r.finished[0].Summary)
+}
+
+func TestAPI429IsRateLimitedEvenWithoutAResetEvent(t *testing.T) {
+	t.Parallel()
+	g := newRig(t, "limited")
+	reporter := newReporter("dsp_1")
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch("dsp_1"), reporter))
+	reporter.wait(t)
+	require.Len(t, reporter.finished, 1)
+	assert.Equal(t, "rate_limited", reporter.finished[0].Class)
+	assert.Nil(t, reporter.finished[0].ResetsAt)
 }
 
 // Scenario: Claude Code says at start that the tools server failed (issue

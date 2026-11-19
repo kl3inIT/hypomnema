@@ -39,6 +39,8 @@
 //	hypomnema gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]
 //	                                           make a gateway key; prints it once
 //	hypomnema gateway keys list | revoke <key id>
+//	hypomnema gateway keys set <key id> [--name NAME] [--models a,b|*] [--endpoints search,fetch,images,audio|none|*]
+//	hypomnema gateway keys show-value <key id>
 //	hypomnema gateway usage [--limit N]         the latest requests the gateway served
 //	hypomnema gateway usage --by provider|account [--period 7d]
 //	                                           the text models' speed and reliability

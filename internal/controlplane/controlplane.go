@@ -355,7 +355,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	subscriptions := newSubscriptions(cfg, svc, secrets, logger)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
-		gatewaySecrets(secrets)).WithProviderList(gatewayProviderList(svc)).
+		gatewaySecrets(secrets)).WithKeyVault(secrets).WithProviderList(gatewayProviderList(svc)).
 		WithServedLimits(gatewayServedLimits(subscriptions)).WithServedWire(gatewayServedWire(subscriptions))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
@@ -890,6 +890,11 @@ func (o ownerTakes) Delete(ctx context.Context, id string) error {
 	o.phone.EndTake(ctx, id)
 
 	return o.Store.Delete(id)
+}
+
+// Thumbnail is an available take's first frame, made with the videos' ffmpeg (issue #818, row 12).
+func (o ownerTakes) Thumbnail(ctx context.Context, id string) (string, error) {
+	return o.Store.Thumbnail(ctx, id, o.videos.FirstFrame)
 }
 
 // nodeTerminals lets the client API reach a node for a terminal through the

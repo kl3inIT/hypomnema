@@ -59,11 +59,34 @@ export type Run = {
    */
   uses?: Array<string>;
   finished_at?: string;
+  review_stall?: ReviewStall;
+};
+
+/**
+ * A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
+ */
+export type ReviewStall = {
+  task_id: string;
+  pull_request: string;
+  verdict: 'correct' | 'incorrect' | 'unknown';
+  merge_state: string;
+  mergeable: string;
+  checks: 'PASSING' | 'FAILING' | 'PENDING' | 'UNKNOWN';
+  waiting_for_owner: boolean;
 };
 
 export type RunDetail = Run & {
   usage?: WorkUsage;
+  /**
+   * GitHub branch updates recorded by the nodes that dispatched this Run's Tasks.
+   */
+  published_heads?: Array<PublishedHead>;
   tasks: Array<TaskDetail>;
+};
+
+export type PublishedHead = {
+  branch: string;
+  sha: string;
 };
 
 /**
@@ -2209,8 +2232,59 @@ export type VideoRevision = {
    */
   note?: string;
   warnings: Array<string>;
+  progress?: VideoProgress;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
+ */
+export type VideoProgress = {
+  scenes_done: number;
+  scenes_total: number;
+};
+
+export type StudioItemList = {
+  data: Array<StudioItem>;
+  /**
+   * Present when more items follow.
+   */
+  next_cursor?: string;
+};
+
+/**
+ * A take or a video as the Studio's card shows it (issue
+ */
+export type StudioItem = {
+  kind: 'take' | 'video';
+  id: string;
+  title: string;
+  /**
+   * The agent that filmed the take
+   */
+  bot: string;
+  created_at: string;
+  /**
+   * A take's length; a video's latest revision's, 0 until made.
+   */
+  length_ms: number;
+  /**
+   * A take's state, or the state of a video's latest revision.
+   */
+  state: string;
+  /**
+   * A video's take.
+   */
+  take?: string;
+  /**
+   * A video's latest revision.
+   */
+  rev?: number;
+  /**
+   * Where its first frame is read, under /api/v1/ (owner only): an available take's, or the latest made revision's of a video. Absent while there is none.
+   */
+  thumbnail?: string;
 };
 
 export type VideoMake = {
@@ -2311,6 +2385,10 @@ export type GatewayKey = {
    */
   prefix: string;
   /**
+   * The first six and last four characters with the rest masked; absent when no value is stored.
+   */
+  masked_value?: string;
+  /**
    * The model names it may use; `*` is every model.
    */
   models: Array<string>;
@@ -2348,6 +2426,23 @@ export type NewGatewayKey = {
   endpoints?: Array<GatewayEndpoint>;
 };
 
+export type GatewayKeyUpdate = {
+  /**
+   * The new name; when omitted the name is unchanged.
+   */
+  name?: string;
+  /**
+   * The new list of model names; empty means every model, omitted means unchanged.
+   */
+  models?: Array<string>;
+  /**
+   * The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
+   */
+  endpoints?: Array<GatewayEndpointSelection>;
+};
+
+export type GatewayEndpointSelection = 'search' | 'fetch' | 'images' | 'audio' | '*';
+
 /**
  * A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits, audio is /v1/audio/transcriptions, /v1/audio/speech and /v1/audio/voices.
  */
@@ -2356,8 +2451,12 @@ export type GatewayEndpoint = 'search' | 'fetch' | 'images' | 'audio';
 export type CreatedGatewayKey = {
   key: GatewayKey;
   /**
-   * The key's value, answered this once; only its hash is kept.
+   * The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
    */
+  secret: string;
+};
+
+export type GatewayKeyValue = {
   secret: string;
 };
 
@@ -2392,10 +2491,25 @@ export type GatewayUsageCounts = {
    */
   failed: number;
   /**
-   * Tokens in, those read from the provider's cache included.
+   * All input tokens, including cached and estimated tokens.
    */
   prompt_tokens: number;
+  /**
+   * Input tokens read from the provider's cache on measured requests.
+   */
   cached_tokens: number;
+  /**
+   * Input tokens on measured requests, the denominator for the cache share. Excludes ledger history whose request rows were already purged before the split was recorded.
+   */
+  measured_prompt_tokens: number;
+  /**
+   * Requests with estimated usage. Excludes ledger history whose request rows were already purged before the split was recorded.
+   */
+  estimated_requests: number;
+  /**
+   * Input tokens on those estimated requests, already included in prompt_tokens.
+   */
+  estimated_prompt_tokens: number;
   completion_tokens: number;
   reasoning_tokens: number;
 };
@@ -2444,7 +2558,11 @@ export type GatewayPerformance = {
    */
   client_gone: number;
   /**
-   * The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+   * Requests refused by the gateway because all usable accounts were cooling.
+   */
+  no_account: number;
+  /**
+   * The answered share of answered and failed requests, 0 to 1; absent when there is none.
    */
   success_rate?: number;
   cost_micros: number;
@@ -2505,13 +2623,13 @@ export type GatewayRequest = {
   account_label?: string;
   stream: boolean;
   attempts: number;
-  outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone';
+  outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone' | 'no_account';
   /**
-   * The provider's HTTP status; 0 when it gave none.
+   * The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
    */
   status: number;
   /**
-   * The provider's message for a request that failed.
+   * The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
    */
   error?: string;
   prompt_tokens: number;
@@ -5798,6 +5916,76 @@ export type ReadTakeSegmentResponses = {
 
 export type ReadTakeSegmentResponse = ReadTakeSegmentResponses[keyof ReadTakeSegmentResponses];
 
+export type ReadTakeThumbnailData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}/thumbnail.jpg';
+};
+
+export type ReadTakeThumbnailErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadTakeThumbnailError = ReadTakeThumbnailErrors[keyof ReadTakeThumbnailErrors];
+
+export type ReadTakeThumbnailResponses = {
+  /**
+   * The picture.
+   */
+  200: Blob | File;
+};
+
+export type ReadTakeThumbnailResponse = ReadTakeThumbnailResponses[keyof ReadTakeThumbnailResponses];
+
+export type ListStudioItemsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    kind?: 'take' | 'video';
+    /**
+     * A group of states: in_progress (a take filmed, paused, finishing or uploading; a revision queued or being made), review (a revision awaiting review), approved, or failed (a take or revision that failed, and a revision changes were asked of).
+     */
+    state?: 'in_progress' | 'review' | 'approved' | 'failed';
+    /**
+     * Words the title or the Bot's name holds, in any case.
+     */
+    q?: string;
+    /**
+     * The next_cursor of the previous page.
+     */
+    cursor?: string;
+    /**
+     * At most this many items; absent: 50.
+     */
+    limit?: number;
+  };
+  url: '/studio/items';
+};
+
+export type ListStudioItemsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListStudioItemsError = ListStudioItemsErrors[keyof ListStudioItemsErrors];
+
+export type ListStudioItemsResponses = {
+  /**
+   * One page of items.
+   */
+  200: StudioItemList;
+};
+
+export type ListStudioItemsResponse = ListStudioItemsResponses[keyof ListStudioItemsResponses];
+
 export type GetTakeArchiveData = {
   body?: never;
   path: {
@@ -7862,12 +8050,70 @@ export type RevokeGatewayKeyError = RevokeGatewayKeyErrors[keyof RevokeGatewayKe
 
 export type RevokeGatewayKeyResponses = {
   /**
-   * Revoked.
+   * Revoked and its stored value removed.
    */
   204: void;
 };
 
 export type RevokeGatewayKeyResponse = RevokeGatewayKeyResponses[keyof RevokeGatewayKeyResponses];
+
+export type UpdateGatewayKeyData = {
+  body: GatewayKeyUpdate;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}';
+};
+
+export type UpdateGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UpdateGatewayKeyError = UpdateGatewayKeyErrors[keyof UpdateGatewayKeyErrors];
+
+export type UpdateGatewayKeyResponses = {
+  /**
+   * The updated key, without its value.
+   */
+  200: GatewayKey;
+};
+
+export type UpdateGatewayKeyResponse = UpdateGatewayKeyResponses[keyof UpdateGatewayKeyResponses];
+
+export type GetGatewayKeyValueData = {
+  body?: never;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}/value';
+};
+
+export type GetGatewayKeyValueErrors = {
+  /**
+   * No active owner-made key with a stored value has this id.
+   */
+  404: Error;
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGatewayKeyValueError = GetGatewayKeyValueErrors[keyof GetGatewayKeyValueErrors];
+
+export type GetGatewayKeyValueResponses = {
+  /**
+   * The key's value.
+   */
+  200: GatewayKeyValue;
+};
+
+export type GetGatewayKeyValueResponse = GetGatewayKeyValueResponses[keyof GetGatewayKeyValueResponses];
 
 export type GetGatewayUsageData = {
   body?: never;

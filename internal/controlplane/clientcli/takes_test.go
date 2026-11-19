@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -23,6 +24,12 @@ import (
 type cliTakes struct{ *takes.Store }
 
 func (c cliTakes) Delete(_ context.Context, id string) error { return c.Store.Delete(id) }
+
+func (c cliTakes) Thumbnail(ctx context.Context, id string) (string, error) {
+	return c.Store.Thumbnail(ctx, id, func(_ context.Context, _, out string) error {
+		return os.WriteFile(out, []byte("first frame"), 0o600)
+	})
+}
 
 // Scenario: the owner lists a take an agent filmed, reads its steps,
 // downloads it as a zip of its segment and take.json, and deletes it, with

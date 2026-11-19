@@ -73,8 +73,15 @@
   `docs: summary`: no issue, branch or pull request (owner, 2026-11-07). If the checkout is on another session's
   branch, commit from a temporary worktree on `origin/main`. A design change that affects an open issue also gets a
   comment on that issue.
-- Run `make verify` before pushing. A pull request that adds a migration merges main and runs
-  `make migration-check` again right before it is merged: another may have taken its number meanwhile (#334).
+- Before pushing, once, after the last edit or merge: `make verify-static` and the unit tests of what the change
+  touched (`go test` on the changed packages; for the web client, `pnpm --dir web exec vitest related --run` on the
+  changed files, and `pnpm --dir web typecheck` and `lint`). Do not run the whole suite locally: CI's Unit, Race and
+  browser jobs are the full proof (t3code `AGENTS.md:102,111`, OpenClaw `AGENTS.md:86`, Orca `AGENTS.md:8`, Coder
+  `AGENTS.md:46`; owner, 2026-11-19).
+- Do not merge main into a branch only because main advanced. Merge it for a conflict, for a red check whose cause
+  is on main, or for a migration: a pull request that adds one merges main and runs `make migration-check` again
+  right before it is merged, as another may have taken its number meanwhile (#334). After a merge, rerun only the
+  checks it affects (OpenClaw `AGENTS.md:46`).
 - A merge conflict in generated code (`internal/controlplane/clientapi/openapi/api.gen.go`,
   `web/src/api/generated/*.gen.ts`) is never edited by hand: resolve `api/openapi.yaml` first, take either side of
   the generated files, then run `make openapi-generate`, `make web-api-generate` and `make openapi-check` (#754).

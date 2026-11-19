@@ -854,8 +854,8 @@ sequenceDiagram
     pause, the steps and chapters (autodemo's rule) seek, and it downloads and deletes (`web/src/features/takes`).
     A seek into a segment's still tail lands just before its last frame (`last_frame_ms`), as Chromium does not
     seek into a file's last sample.
-  - Making a video of a take (issue #818; parts 1 and 2 of 3: the compose core, then the revisions, runner, voice,
-    captions and access; the Studio page and the take and video tabs are part 3). The control plane installs a pinned
+  - Making a video of a take (issue #818, in three parts: the compose core; the revisions, runner, voice, captions
+    and access; the Studio page and the take and video tabs). The control plane installs a pinned
     static ffmpeg and ffprobe (`internal/controlplane/videos/ffmpeg`, BtbN/FFmpeg-Builds' GPL build n9.0.2 for
     linux/amd64 and linux/arm64, as a node installs scrcpy-server): at start, in the background, unless
     `HYPOMNEMA_FFMPEG=0`, into `ffmpeg/` beside the database, the file's size and SHA-256 checked, ffmpeg, ffprobe
@@ -903,7 +903,9 @@ sequenceDiagram
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
     word in #FFD400 (demotape's highlight and word timing normalize, ported), and burns it in with the font of
     part 1 (`compose.Burn`). A scene with no word times fails the revision at `captioning`; with captions off the
-    stage is skipped. The first frame is the revision's thumbnail. Everything is made in
+    stage is skipped. While a revision is voiced, composed or captioned, it says how many of its scenes that
+    stage has done (`progress {scenes_done, scenes_total}`, kept in memory as aidemo's job keeps its count, reset at
+    each stage). The first frame is the revision's thumbnail. Everything is made in
     `videos/<video>/<rev>/.work/`, the thumbnail then the MP4 renamed into place only once whole; any failure
     removes the revision's folder. A video with a revision queued or being made is not deleted, nor is its take
     (409).
@@ -919,6 +921,24 @@ sequenceDiagram
     latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
     (`PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `hypomnema audio voice <provider> [voice]`; the
     column `voice` of `gateway_audio_providers`). The speech the runner asks is not recorded on a gateway key.
+  - The Studio (issue #818, row 12): one owner listing of takes and videos, `GET /studio/items?kind=&state=&q=
+    &cursor=&limit=` (`clientapi/studio.go`, owner tokens only), each a summary (kind, id, title, the Bot that
+    filmed the take, created_at, length, state, a video's take and latest revision, a thumbnail URL), in the order
+    (created_at desc, id, kind), the kind, the state group (`in_progress`, `review`, `approved`, `failed`, the last
+    with changes_requested; an available take is in none) and the search of titles and Bots applied before the page
+    is cut; a page (at most 100, 50 by default) goes on after the cursor of the last item, so an item made between
+    pages is not read twice. A video's state, length and thumbnail are its latest revision's (the thumbnail the
+    latest made one's). `GET /takes/{id}/thumbnail.jpg` is an available take's first frame, made from its first
+    segment with the videos' ffmpeg the first time it is asked for and kept in the take's folder (503 while ffmpeg
+    is not installed). The web client has Studio in Places (`web/src/features/studio`, route `/studio`), built like
+    Machines: cards or a table, the kind and state chips, a search, "Show more" for the next page, read again every
+    3 s while an item shown is in progress; a card shows the first frame, or a placeholder with REC or PAUSED while
+    the take is filmed. `/studio/takes/:id` and `/studio/videos/:id` open a take's and a video's tab on a page of
+    their own. A take's tab has Make video (voice, captions, 9:16 or 16:9, an Idempotency-Key), and Video once it
+    has one; in a pane the video opens as a `video` tab beside the take's. A video's tab follows the revision being
+    made, stage by stage and scene by scene, a failure with its stage, its cause and Make again; a made revision
+    plays with its lines editable and a note, Approve and Request changes, a switch between revisions and the MP4's
+    download.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1278,8 +1298,8 @@ sequenceDiagram
     limit), and a change over a limit is refused and changes nothing. `view` lists a directory two levels deep
     with sizes, or a file's numbered lines (`view_range`), cut at 16,000 characters. Each command reads the
     directory again inside its transaction. A Lark group's chat, whose prompt leaves the memory out (issue #246),
-    is not given the tool; nor is any other token (owner, coordinator, a Routine's script), which has no MCP. Its
-    description (what to keep, what to skip, record only checked facts) is fixed per kind, so the tools the
+    is not given the tool. The owner has a directory with only `USER.md`; the coordinator and Routine scripts
+    have no MCP. Its description (what to keep, what to skip, record only checked facts) is fixed per kind, so the tools the
     provider caches stay the same; Anthropic's system-prompt text, which asks to record progress, is not used.
     Which agent changed a memory and with which command is logged, never the text. A node of a release before
     issue #536 defines the old `{target, action, text, match}` tool itself and calls `POST /agent/v1/memory`,
@@ -1929,6 +1949,11 @@ flowchart LR
       `curl`, the same way, through the Integration's proxy: what a pinned tool's own list does not cover, such as
       Search Console, which gws lacks (issue [#617](https://github.com/kl3inIT/hypomnema/issues/617); treg's
       `treg run` and `shell --proxy`, Onyx's egress proxy).
+      On the owner's machine, `hypomnema exec <integration>:<label> -- <command> [args...]` runs the local CLI
+      through the same launcher and tunnel using the saved owner token (issue #888). A pinned worker install is
+      not needed. For example, `hypomnema exec lark:me -- lark-cli im chats get --as user --chat-id <chat-id>`
+      reads a chat using the owner's Lark user Connection. The tunnel checks the Connection and applies the same
+      action policies; the child gets a placeholder, not the owner token or the service token.
     - **Google goes through the service proxy** (issue #154,
       [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
       [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
@@ -2995,9 +3020,17 @@ capabilities do not exist yet.
   at, in dollars per million tokens. `PUT /gateway/models/{model}/attributes` (the owner's; a slash in the name as
   `%2F`) sets them in the model's YAML, keeping the rest of it; one left out comes from models.dev again. The Models
   page lists the gateway's models with them, each with an edit form whose empty fields show models.dev's values.
-- A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
-  public model names it may use (`*`: every model). It is not a client token: the client API refuses it, and
-  `tokens add` cannot make one.
+- A gateway key (`hyp_gateway_v1_…`, the client tokens' format) authenticates by its SHA-256, with the public
+  models (`*`: every model) and other endpoints it may use. It is not a client token: the client API refuses it,
+  and `tokens add` cannot make one. With the vault configured, a new owner-made key also points to an encrypted
+  vault version (issue #887); creating the key and storing the version commit together, and revoking the key
+  removes the secret without removing usage. The Vault lists the key by name as a user of the secret and refuses
+  deletion while it is referenced (issue #893). Only the owner may `GET /gateway/keys/{key_id}/value` (not cached)
+  or `PATCH /gateway/keys/{key_id}` to change its name, models or endpoints without changing its value, id or usage.
+  Setting `endpoints` to `["*"]` restores every kind, including kinds added later. The Gateway keys page masks all
+  but the first six and last four characters and offers show/hide and copy as 9router does. Older keys and keys
+  made without a configured vault can be edited but have only a prefix and no value to read after creation.
+  Dispatch, chat and Bot keys cannot be edited or read here.
 - A Dispatch whose model the gateway serves gets a key of its own (issue #107, as the git host's token travels):
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
@@ -3160,8 +3193,10 @@ capabilities do not exist yet.
   [#626](https://github.com/kl3inIT/hypomnema/issues/626)) and
   `GET /gateway/usage/requests?period=&failed=&offset=&limit=` (the requests, newest first, 50 a page, `has_more`). A
   request failed when it was refused, got no answer or was cut short; a client that left did not fail. Both are the
-  owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by
+  owner's. The page shows the totals, the tokens as stacked bars (other input, input from cache, output), a table by
   model, key or account, and the requests, a row opening a sheet with its fields and the provider's message.
+  The cache share uses only measured requests in the totals and each group; estimated requests and their input
+  tokens are shown separately but stay in the request, token and cost totals (issue #885).
   Its Performance table (issue [#856](https://github.com/kl3inIT/hypomnema/issues/856), after new-api's
   `perf_metrics`, 9router-go's usage by provider and OmniRoute's speed ranking) compares the text models (not
   `web/`, `audio/`, `image/`) by provider and the model it served (`by_provider`) and by subscription account
@@ -3382,10 +3417,18 @@ capabilities do not exist yet.
   - Not built: OpenCode Zen, the "Extra Usage" balance, Go's prices in the price book (a Go model is unpriced unless
     its name is Anthropic's, Google's or OpenAI's), a per-model wire for pi's `models.json` (pi speaks chat to a Go
     model), moving the `ocg/*` models off 9Router on zm (#670).
+- When all usable accounts for a model on a text route are cooling (issue #803), the gateway answers 429
+  `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
+  `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
+  account cooldowns. A rate-limited role Task tries its next usable entry in the same worktree or waits for that
+  reset and shows the model and reset time as the wait reason. A Codex `response.failed` usage limit also cools
+  the account and records the same fact if no account is free, before the unchanged event reaches the client.
+  Without a gateway fact, the Task uses the existing rate-limit cooldown before retrying the same entry.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
-  were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
-  status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
+  were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`, `no_account`),
+  the HTTP status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
   seen in a stream). When it reported none they are bytes divided by four and marked as estimated.
+  `no_account` is counted separately in the Models usage report; it is not a provider failure or part of Answered.
   Since migration 00058 a row also holds the subscription account of the last attempt (`account_id`, empty for an
   API provider; noted on the request's context by the loop over accounts) and, for a request that failed, the
   provider's message (`error`, at most 500 characters: `error.message` of its body, else the body; a set sentence
@@ -3427,9 +3470,13 @@ capabilities do not exist yet.
   With each row the same transaction upserts `gateway_usage_daily`, the daily ledger (after LiteLLM's
   `LiteLLM_DailyUserSpend`): a row a UTC day, caller (a Bot's id, `workers`, `chats` or `owner`, as the usage by
   key groups keys, naming none), model, provider, upstream model and account, with requests, ok, failed,
-  client_gone, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
+  client_gone, `no_account`, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
   `ok_duration_ms`, `ttft_ms` (with `ttft_count`), `generation_ms` and `generation_tokens`. The purge never touches
   it; migration 00121 filled it from the rows then kept.
+  The ledger also keeps measured input/cache tokens and estimated request/input counts. The split starts from
+  requests still kept at migration 00132; older ledger totals remain but do not contribute to the cache share.
+  When a stream ends early, the request row records the provider's stream error code and message, an idle timeout,
+  or that the upstream closed before the protocol's end marker.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. A chat orchestration
   deletes (alone or with its Bot) has its keys revoked in orchestration's transaction by this package's
@@ -3922,8 +3969,8 @@ issues #354, #492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-ev
 [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): each tool the control plane gives agents
 is one definition there (name, description, parameters, handler, and which agent kinds get it), offered by
 Hypomnema's one tools server (`internal/shared/toolsmcp`) to workers and Bots without a node release, as
-OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime its tools over MCP. Both
-servers, a Bot's (`hypomnema mcp`) and a worker's (`hypomnema-node mcp`), list them on `GET /agent/v1/tools` and
+OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime its tools over MCP. The
+servers, `hypomnema mcp` for a Bot or the owner and `hypomnema-node mcp` for a worker, list them on `GET /agent/v1/tools` and
 run one on `POST /agent/v1/tools/call` (`{tool, arguments}`; the answer is the tool's result as MCP has it); a tool
 an agent was not given is a 404 there. The phone's tools stay on their own routes, which both servers list
 beside the one list (see "A phone, on a node that holds one"). The list follows the agent's settings at each
@@ -3935,19 +3982,26 @@ again on it. A turn that calls no tool keeps the list it had. The older routes s
 `POST /agent/v1/gateway/call` (the gateway's tools alone), the browser's routes (the browser's and a worker's
 gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 
-| Tool | Worker | Bot's pi | Owner, coordinator token, Routine script |
+| Tool | Worker | Bot's pi | Owner |
 |---|---|---|---|
-| `memory` (Memories, above) | its agent's `/memories` and `USER.md` | its own Bot's `/memories` and `USER.md`, not in a Lark group's chat | no (`hypomnema memory`) |
-| `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
-| `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
-| `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
-| `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | no (`hypomnema audio`) |
-| `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | no |
-| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
-| the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
-| the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
-| `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | no |
+| `memory` (Memories, above) | its agent's `/memories` and `USER.md` | its own Bot's `/memories` and `USER.md`, not in a Lark group's chat | shared `USER.md` only |
+| `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no chat (`hypomnema artifact show`) |
+| `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no Bot (`hypomnema routines`) |
+| `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | all three |
+| `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | both |
+| `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | yes, while on |
+| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | all Superset Connections |
+| `whatsapp_*`, `zalo_*` (Messaging, above) | no | for its Bot's Connections, reads on the owner's turn | all messaging Connections, sends follow the same approval policy |
+| the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | yes, its own tab per token |
+| the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | yes, when a node holds the phone |
+| `video_make`, `video_get` | its own takes | its own takes | its own takes |
+| `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | yes |
 | `ask`, `finish` (the node's own) | yes | no | no |
+
+The consolidated tool routes give no tools to the coordinator token or Routine scripts. The owner's `hypomnema mcp` and
+`hypomnema tools list` / `tools call` use the token from `client.json` and share the same tool adapter. On the
+owner's machine, add the server with `claude mcp add hypomnema -- hypomnema mcp` or
+`codex mcp add hypomnema -- hypomnema mcp` (see the [CLI guide](README.md#using-your-tools-and-accounts-locally)).
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web`, `hypomnema image` and `hypomnema audio` are.
@@ -3968,8 +4022,8 @@ allowlists to exceptions to `full` so existing access stays the same; unused boo
   call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
   gateway. A worker uses its Dispatch's profile version, capped by the current Bot's policy if the Bot created
   its Run. An owner Run keeps the profile's policy. A Bot's policy is read at each request, so taking a tool away
-  reaches its running pi and workers at their next call. The owner's token, the coordinator token and a Routine's
-  script have no switches (no MCP).
+  reaches its running pi and workers at their next call. The owner's token has tools without switches;
+  the coordinator token and a Routine's script have neither MCP nor switches.
 - Only Hypomnema's own tools: a CLI's built-in tools (Claude Code's Bash, Codex's shell, the node's `ask` and
   `finish`) are not switched here.
 - Set with `profiles apply` (YAML), `bots set --preset report --tools phone --tools-off web_fetch`, or the web's
@@ -4017,11 +4071,13 @@ flowchart LR
         D["agent API: /agent/v1/device<br/>the phone's tools"] --> PH["phone relay<br/>one holder at a time"]
     end
     PH -- "node socket" --> PN["node holding the phone"]
-    P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp"] -- "chat pi's token" --> L
-    B -- "chat pi's token" --> D
+    P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp / tools"] -- "chat pi's or owner's token" --> L
+    B -- "chat pi's or owner's token" --> D
     W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
     N -- "Dispatch key" --> D
-    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact / superset / routines" --> C["client API"] --> G
+    O["Owner"] -- "MCP stdio or CLI" --> B
+    O -- "hypomnema web / image / memory / artifact / superset / routines" --> C["client API"] --> G
+    R["Routine script"] --> C
     C --> M
     C --> A
     C --> SP
@@ -4032,10 +4088,9 @@ flowchart LR
   three, its own `WebSearch` and `WebFetch` disallowed (until 2026-11-15 it kept them and got none); a Codex worker
   keeps its own `web.run` search, which the gateway answers on `/v1/alpha/search`, and gets `web_fetch` and
   `generate_image` (Codex's own `image_gen` is offered only under an OpenAI login); omp and opencode get all three,
-  their own web and image tools off (see their runtime, below). A Bot's pi gets all three (pi has none of its
-  own). A runtime not named, and any other agent (the owner's token, the coordinator token, a Routine's script,
-  which has no MCP and keeps the commands), gets none; a tool this control plane does not have (no web, no images)
-  is not listed.
+  their own web and image tools off (see their runtime, below). A Bot's pi and the owner get all three.
+  An unnamed runtime, a coordinator token, and a Routine's script get none; a tool this control plane does not
+  have (no web, no images) is not listed.
 - How to use them is in their descriptions, not in a skill (no reference teaches a tool with one): `web_search`
   says when to search and to read the pages that answer, `web_fetch` to use it rather than curl or wget and the
   browser (`agent_browser_*`) for a page that needs a sign-in, a script or clicks (issue #723, decision 2.1, as
@@ -4305,8 +4360,10 @@ The owner's commands:
     `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
-    table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images|none]` prints a gateway key once, with `gateway keys list` and
-    `gateway keys revoke <id>`; `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
+    table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
+    owner key. `gateway keys set <id>` takes `--name`, `--models` and `--endpoints` (`*` restores every kind);
+    `gateway keys show-value <id>` reads its value again if stored. `gateway keys list` never prints the value;
+    `gateway keys revoke <id>` stops the key. `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
     manage the owner's find→replace rules for the Antigravity system instruction (issue #591; a JSON array of
     `{find, with}`, applied in order, an empty `with` deleting the text), empty by default and applied to the
     system instruction only, as CLIProxyAPI's `sensitive-words-replace`; `gateway usage [--limit N]` lists the
@@ -4359,12 +4416,27 @@ The owner's commands:
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
   `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
-  and the owner told in one line, with no question; a review first reads
+  and the owner told the verdict and findings, without adding a Task; a review first reads
   what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
   so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
   permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
   nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
-  reported, not replaced. `skills install` writes the stub
+  reported, not replaced.
+  A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
+  in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
+  A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
+  `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
+  the same PR ending incorrect shows as waiting for the owner on the
+  Run card and in the work that needs the owner; the review Task holds the findings. The coordinator checks the
+  current GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
+  with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
+  Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
+  assigned ref, queues an authenticated `published_head` report only for a Git-accepted update, and the control
+  plane records it in the Dispatch's effects. A no-op push, local ref or Task result is not evidence. Both PRs
+  must share a closing issue. Visible closing keywords in Markdown also
+  work when GitHub supplies no closing links. It comments and closes through the existing GitHub tool
+  proxy and its approvals, without deleting a branch.
+  `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). It is the only stub: a stub this binary no longer installs
   (`web-search` and `images` since issue #492; the guides' stubs `google-workspace`, `lark`, `aws`, `superset`
@@ -4588,6 +4660,14 @@ Node (`internal/node`):
       - that a Task asking for research or a design reads the references' code, not only their documents, and
         cites the paths and lines (issue #719, the owner's "Research before design" of this repository's
         `AGENTS.md`, given to every repository on 2026-11-17);
+      - for a worker that writes, how it checks and waits (issue #894, this repository's `AGENTS.md` rule of
+        2026-11-19 given to every repository): the checks of what it changed, once, after its last edit or merge
+        and before pushing, as CI runs the full suite, unless the repository's own instructions say otherwise
+        (after t3code, OpenClaw, Orca and Coder); the base branch merged in only for a conflict, a red check whose
+        cause is on the base, or when the repository's rules ask, with only the affected checks rerun (OpenClaw,
+        oh-my-opencode); CI waited for with one blocking command, never a polling loop (Orca, Coder, Hermes,
+        oh-my-opencode, t3code), and not at all when the spec says a review comes first, since the coordinator's
+        review step waits for CI itself (owner, 2026-11-19);
     - the profile's instruction, the accounts and phone of the Run, then the agent's memory and the one about the
       owner (issue #21);
     - the repository and branch, and the instruction to open a pull request with the host's command:
@@ -4604,7 +4684,8 @@ Node (`internal/node`):
          `only_allow_merge_if_pipeline_succeeds`. When one fails the pull request stays open, the summary's first
          line says what the repository lacks, and no Gate is opened only to ask to merge;
       2. a draft stays open; a conflict (`DIRTY`, `has_conflicts`) is resolved by merging the base, keeping both
-         sides' intent, running the checks again and pushing; on GitLab the merge request must have a pipeline;
+         sides' intent, rerunning the checks the merge affects and pushing; on GitLab the merge request must have a
+         pipeline;
       3. `gh pr merge <url> --auto --merge --match-head-commit <sha>` or
          `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
       4. waiting for the required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`),

@@ -61,8 +61,8 @@ func withMachines(w *world, m *machines) {
 }
 
 // Scenario: an agent runs commands on a node (issue #543). A worker and a
-// Bot's pi are offered the node tools, an owner's or coordinator's token is
-// not. A command reaches the node it names, by name, drained or not, with
+// Bot's pi are offered the node tools, as is the owner; a coordinator token
+// is not. A command reaches the node it names, by name, drained or not, with
 // the node's sudo password from the vault, which is neither logged nor
 // answered; the answer says the exit code and the output, an error when the
 // code is not 0. A node that is not connected, or not known, is refused with
@@ -81,6 +81,8 @@ func TestAnAgentRunsACommandOnTheNodeItNames(t *testing.T) {
 
 	_, coordinator, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
+	_, owner, err := w.svc.AddToken(ctx, "local", bearertoken.Owner)
+	require.NoError(t, err)
 
 	chat, err := w.svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
@@ -91,6 +93,7 @@ func TestAnAgentRunsACommandOnTheNodeItNames(t *testing.T) {
 	nodeTools := []string{agenttool.ToolNodeExec, agenttool.ToolNodeProcess, agenttool.ToolNodeProcessKill}
 	assert.Subset(t, toolNames(w.tools(worker)), nodeTools)
 	assert.Subset(t, toolNames(w.tools(pi)), nodeTools)
+	assert.Subset(t, toolNames(w.tools(owner)), nodeTools)
 	assert.NotContains(t, toolNames(w.tools(coordinator)), agenttool.ToolNodeExec)
 
 	code := 0

@@ -27,6 +27,8 @@ import (
 
 const gatewayUsage = "gateway models apply FILE | gateway models list | gateway models rm <name> | " +
 	"gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none] | gateway keys list | gateway keys revoke <key id> | " +
+	"gateway keys set <key id> [--name NAME] [--models a,b|*] [--endpoints search,fetch,images,audio|none|*] | " +
+	"gateway keys show-value <key id> | " +
 	"gateway antigravity-rewrites list | gateway antigravity-rewrites set FILE | " +
 	"gateway usage [--limit N] | gateway usage --by provider|account [--period 24h|7d|30d|90d|12m]"
 
@@ -58,6 +60,12 @@ func (g gatewayAccounts) Token(
 	ctx context.Context, runtime, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
 	return accountToken(g.subs.Token(ctx, runtime, session, skip...))
+}
+
+func (g gatewayAccounts) FirstFree(
+	ctx context.Context, runtime string, modelReset func(string) time.Time,
+) (time.Time, error) {
+	return g.subs.FirstFree(ctx, runtime, modelReset)
 }
 
 func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
@@ -227,6 +235,25 @@ func (o *owner) gatewayCommand(ctx context.Context, args []string) error {
 		}
 
 		return o.gatewayKeysList(ctx)
+	case "keys set":
+		if len(rest) < 2 {
+			return usage
+		}
+
+		return o.gatewayKeysSet(ctx, rest[0], rest[1:])
+	case "keys show-value":
+		if len(rest) != 1 {
+			return usage
+		}
+
+		value, err := o.gateway.KeyValue(ctx, rest[0])
+		if err != nil {
+			return err
+		}
+
+		o.printf("%s\n", value)
+
+		return nil
 	case "keys revoke":
 		if len(rest) != 1 {
 			return usage
@@ -351,32 +378,79 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
 	}
 
-	var allowed []string
+	allowed := []string{}
 	if *models != "" {
 		allowed = strings.Split(*models, ",")
 	}
 
-	var kinds []modelgateway.Endpoint
-
-	switch *endpoints {
-	case "*":
-	case "none":
-		kinds = []modelgateway.Endpoint{}
-	default:
-		for e := range strings.SplitSeq(*endpoints, ",") {
-			kinds = append(kinds, modelgateway.Endpoint(strings.TrimSpace(e)))
-		}
-	}
-
-	k, secret, err := o.gateway.AddKey(ctx, name, allowed, kinds)
+	k, secret, err := o.gateway.AddKey(ctx, name, allowed, parseKeyEndpoints(*endpoints))
 	if err != nil {
 		return err
 	}
 
 	o.printf("key %s (%s) for %s; %s\n", k.Name, k.ID, keyModels(k), keyEndpoints(k))
-	o.printf("shown only now; give it to the client as its API key and keep it nowhere else:\n%s\n", secret)
+	if k.MaskedValue == "" {
+		o.printf("give it to the client as its API key; the value is not stored, so copy it now:\n%s\n", secret)
+	} else {
+		o.printf("give it to the client as its API key; read it again with gateway keys show-value:\n%s\n", secret)
+	}
 
 	return nil
+}
+
+func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) error {
+	fs := flag.NewFlagSet("gateway keys set", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	name := fs.String("name", "", "the new name")
+	models := fs.String("models", "", "comma-separated models, or * for every model")
+	endpoints := fs.String("endpoints", "", "comma-separated endpoint kinds, none, or * for every kind")
+
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 || fs.NFlag() == 0 {
+		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
+	}
+
+	var change modelgateway.KeyUpdate
+	fs.Visit(func(option *flag.Flag) {
+		switch option.Name {
+		case "name":
+			change.Name = name
+		case "models":
+			change.Models = []string{}
+			if *models != "" {
+				change.Models = strings.Split(*models, ",")
+			}
+		case "endpoints":
+			change.Endpoints = parseKeyEndpoints(*endpoints)
+			if *endpoints == "*" {
+				change.Endpoints = []modelgateway.Endpoint{modelgateway.AllEndpoints}
+			}
+		}
+	})
+
+	key, err := o.gateway.UpdateKey(ctx, id, change)
+	if err != nil {
+		return err
+	}
+
+	o.printf("key %s (%s) for %s; %s\n", key.Name, key.ID, keyModels(key), keyEndpoints(key))
+
+	return nil
+}
+
+func parseKeyEndpoints(value string) []modelgateway.Endpoint {
+	switch value {
+	case "*":
+		return nil
+	case "none":
+		return []modelgateway.Endpoint{}
+	default:
+		var kinds []modelgateway.Endpoint
+		for endpoint := range strings.SplitSeq(value, ",") {
+			kinds = append(kinds, modelgateway.Endpoint(strings.TrimSpace(endpoint)))
+		}
+
+		return kinds
+	}
 }
 
 func (o *owner) gatewayKeysList(ctx context.Context) error {
@@ -407,16 +481,17 @@ func keyModels(k modelgateway.Key) string {
 
 // keyEndpoints says what a key may use besides chat.
 func keyEndpoints(k modelgateway.Key) string {
-	if k.Endpoints == nil {
-		return "search, fetch, images"
+	endpoints := k.Endpoints
+	if endpoints == nil {
+		endpoints = modelgateway.Endpoints
 	}
 
-	if len(k.Endpoints) == 0 {
-		return "no search, fetch or images"
+	if len(endpoints) == 0 {
+		return "chat only"
 	}
 
-	out := make([]string, 0, len(k.Endpoints))
-	for _, e := range k.Endpoints {
+	out := make([]string, 0, len(endpoints))
+	for _, e := range endpoints {
 		out = append(out, string(e))
 	}
 

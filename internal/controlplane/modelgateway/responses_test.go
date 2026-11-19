@@ -47,6 +47,50 @@ const codexAsks = `{"model":"sol","instructions":"You are Codex.","input":[` +
 	`"metadata":{"a":"b"},"service_tier":"fast","reasoning":{"effort":"high","summary":"auto"},` +
 	`"client_metadata":{"x":"y"}}`
 
+func TestResponsesRecordsWhyTheStreamEndedEarly(t *testing.T) {
+	t.Parallel()
+
+	const partial = `{"type":"response.output_text.delta","delta":"hello"}`
+	for _, tc := range []struct {
+		name, failure, reason string
+		idle                  bool
+	}{
+		{"response.failed", `{"type":"response.failed","response":{"error":{"code":"server_error","message":"overloaded"}}}`,
+			"server_error: overloaded", false},
+		{"error", `{"type":"error","code":"context_length_exceeded","message":"input too long"}`,
+			"context_length_exceeded: input too long", false},
+		{"idle timeout", "", "no event for 150ms", true},
+		{"upstream close", "", "upstream closed before response.completed", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			frames := []string{event(partial)}
+			if tc.failure != "" {
+				frames = append(frames, event(tc.failure))
+			}
+
+			backend, _ := codexBackend(t, func(w http.ResponseWriter, r *http.Request) {
+				stream(frames...)(w, r)
+				if tc.idle {
+					<-r.Context().Done()
+				}
+			})
+			cfg := modelgateway.Config{Subscriptions: &accounts{}}
+			if tc.idle {
+				cfg.StreamIdleTimeout = 150 * time.Millisecond
+			}
+			g := newCodexGatewayWithConfig(t, backend, cfg)
+			status, _, body := g.respond(t, g.key, `{"model":"sol","input":"hi"}`)
+			assert.Equal(t, http.StatusOK, status)
+			assert.Equal(t, strings.Join(frames, ""), body)
+			usage := g.lastUsage(t)
+			assert.Equal(t, modelgateway.OutcomeTruncated, usage.Outcome)
+			assert.Equal(t, tc.reason, usage.Error)
+		})
+	}
+}
+
 // Scenario: a Codex CLI worker calls the gateway in its own format. The
 // request goes to the Codex backend under the account logged in on the
 // control plane, as the Codex CLI's own, in the client's session; what the
@@ -155,9 +199,10 @@ func TestAPassedThroughRequestMovesToTheNextAccount(t *testing.T) {
 
 	status, headers, body := alone.respond(t, alone.key, codexAsks)
 	assert.Equal(t, http.StatusTooManyRequests, status)
-	assert.JSONEq(t, limit, body)
+	assert.JSONEq(t, `{"error":{"type":"usage_limit_reached","code":"account_unavailable",`+
+		`"message":"no account of this provider can be used for now","resets_at":`+jsonInt(resets)+`}}`, body)
 	assert.NotEmpty(t, headers.Get("Retry-After"))
-	assert.Equal(t, modelgateway.OutcomeUpstreamError, alone.lastUsage(t).Outcome)
+	assert.Equal(t, modelgateway.OutcomeNoAccount, alone.lastUsage(t).Outcome)
 }
 
 // Scenario: every Codex account already waits for its limit when a Codex CLI

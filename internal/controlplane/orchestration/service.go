@@ -233,6 +233,12 @@ func (s *Service) ListRuns(ctx context.Context, f RunFilter, after *RunCursor, l
 	for _, r := range rows[:min(len(rows), limit)] {
 		run := runFromRow(r.Run)
 		run.Bot = r.Bot
+		if run.Status == RunOpen {
+			run.ReviewStall, err = activeReviewStall(ctx, s.read(), run.ID)
+			if err != nil {
+				return RunPage{}, err
+			}
+		}
 		page.Runs = append(page.Runs, run)
 	}
 
@@ -253,6 +259,12 @@ func (s *Service) GetRun(ctx context.Context, id string) (Run, error) {
 
 	run := runFromRow(row.Run)
 	run.Bot = row.Bot
+	if run.Status == RunOpen {
+		run.ReviewStall, err = activeReviewStall(ctx, s.read(), id)
+		if err != nil {
+			return Run{}, err
+		}
+	}
 
 	return run, nil
 }
@@ -844,9 +856,20 @@ func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 		why = result
 	}
 
+	payload := map[string]any{"from": string(from), "to": string(to), "reason": why}
+	if to == TaskSucceeded {
+		review, err := reviewAfterTask(ctx, q, current, result)
+		if err != nil {
+			return err
+		}
+		if review.TaskID != "" {
+			payload["review"] = review
+		}
+	}
+
 	return emit(ctx, q, now, event{
 		kind: EventTaskStatus, run: current.RunID, task: id,
-		payload: map[string]any{"from": string(from), "to": string(to), "reason": why},
+		payload: payload,
 	})
 }
 

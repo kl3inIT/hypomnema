@@ -55,8 +55,10 @@ type command struct {
 	min, max int
 	summary  string
 	flags    func(fs *flag.FlagSet)
-	// offline commands need no login.
+	// offline commands do not build a client API client.
 	offline bool
+	// literalArgs keeps the child command's separator and flags intact.
+	literalArgs bool
 	// long commands make a request the control plane may hold for the owner's Approval.
 	long bool
 	run  func(ctx context.Context, e *env, fs *flag.FlagSet) error
@@ -98,7 +100,12 @@ func Command(ctx context.Context, home string, args []string, in io.Reader, out 
 	}
 
 	fs := flagSet(c, out)
-	if err := parse(fs, rest); err != nil {
+	parseArgs := parse
+	if c.literalArgs {
+		parseArgs = func(fs *flag.FlagSet, args []string) error { return fs.Parse(args) }
+	}
+
+	if err := parseArgs(fs, rest); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
 		}
