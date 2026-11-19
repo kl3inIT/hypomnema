@@ -41,7 +41,7 @@ function SignedInLayout() {
   }, [])
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={sidebarWasOpen()}>
       <div className="flex h-svh w-full bg-background">
         {session === "signed-in" && (
           <>
@@ -54,4 +54,10 @@ function SignedInLayout() {
       </div>
     </SidebarProvider>
   )
+}
+
+// sidebarWasOpen reads back what SidebarProvider wrote in its cookie when the sidebar was last hidden or shown, as
+// shadcn's guide has a layout pass the cookie as defaultOpen; open unless it was hidden (issue #941).
+function sidebarWasOpen() {
+  return !document.cookie.split("; ").includes("sidebar_state=false")
 }
