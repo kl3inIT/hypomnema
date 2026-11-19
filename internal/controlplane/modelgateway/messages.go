@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/claude"
 )
@@ -442,8 +441,8 @@ func (s *Server) relayFromChat(
 
 	flusher, _ := w.(http.Flusher)
 
-	idle := time.AfterFunc(s.idleTimeout, func() { _ = resp.Body.Close() })
-	defer idle.Stop()
+	idle := watchStreamIdle(resp.Body, s.idleTimeout)
+	defer idle.timer.Stop()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64<<10), maxEventBytes)
@@ -472,15 +471,20 @@ func (s *Server) relayFromChat(
 	}
 
 	clientGone := false
+	var failure string
 
 	for scanner.Scan() {
-		idle.Reset(s.idleTimeout)
+		idle.reset()
 
 		payload, isData := bytes.CutPrefix(scanner.Bytes(), []byte("data:"))
-		if isData && !write(stream.Chunk(payload)) {
-			clientGone = true
+		if isData {
+			noteStreamFailure(&failure, payload)
 
-			break
+			if !write(stream.Chunk(payload)) {
+				clientGone = true
+
+				break
+			}
 		}
 	}
 
@@ -493,12 +497,14 @@ func (s *Server) relayFromChat(
 	}
 
 	switch {
+	case failure != "":
+		record.Outcome, record.Error = OutcomeTruncated, failure
 	case clientGone || r.Context().Err() != nil:
 		record.Outcome = OutcomeClientGone
 	case ended:
 		record.Outcome = OutcomeOK
 	default:
-		record.Outcome = OutcomeTruncated
+		record.Outcome, record.Error = OutcomeTruncated, idle.endReason(scanner.Err(), "the chat stream's end marker")
 	}
 
 	record.Tokens = chatTokens(stream.Usage())
@@ -653,8 +659,8 @@ func (s *Server) relayMessages(w http.ResponseWriter, r *http.Request, asked int
 
 	// A scanner blocks in Read and takes no deadline, so a silent backend is
 	// ended by closing its body, as in the other routes.
-	idle := time.AfterFunc(s.idleTimeout, func() { _ = resp.Body.Close() })
-	defer idle.Stop()
+	idle := watchStreamIdle(resp.Body, s.idleTimeout)
+	defer idle.timer.Stop()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64<<10), maxEventBytes)
@@ -665,14 +671,17 @@ func (s *Server) relayMessages(w http.ResponseWriter, r *http.Request, asked int
 		// answered is when the event that completes the answer was passed on (issue #635).
 		answered bool
 		sent     int
+		failure  string
 	)
 
 	for scanner.Scan() {
-		idle.Reset(s.idleTimeout)
+		idle.reset()
 
 		line := scanner.Bytes()
 
 		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData {
+			noteStreamFailure(&failure, payload)
+
 			switch {
 			case bytes.Contains(payload, []byte(`"message_start"`)), bytes.Contains(payload, []byte(`"message_delta"`)):
 				usage.Note(payload)
@@ -704,12 +713,12 @@ func (s *Server) relayMessages(w http.ResponseWriter, r *http.Request, asked int
 		// The whole answer was passed on; a client that closes once it has read message_stop was answered
 		// (issue #635).
 		record.Outcome = OutcomeOK
+	case failure != "":
+		record.Outcome, record.Error = OutcomeTruncated, failure
 	case clientGone || r.Context().Err() != nil:
 		record.Outcome = OutcomeClientGone
 	default:
-		// The answer ended without message_stop: Anthropic said it failed
-		// inside the stream, or went away. The client has what was sent.
-		record.Outcome = OutcomeTruncated
+		record.Outcome, record.Error = OutcomeTruncated, idle.endReason(scanner.Err(), "message_stop")
 	}
 
 	record.Tokens = messagesTokens(usage)

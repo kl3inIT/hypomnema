@@ -75,15 +75,19 @@ func TestMigrationFillsTheDailyLedgerFromTheRequests(t *testing.T) {
 	for _, stmt := range []string{
 		`INSERT INTO gateway_keys (id, name, key_hash, models, created_at) VALUES ('gwk_1', 'pi', 'h', '["*"]', 1)`,
 		fmt.Sprintf(`INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome,
-			status, prompt_tokens, completion_tokens, cost_micros, duration_ms, created_at)
-			VALUES ('gwu_1', 'gwk_1', 'sol', 'p', 'm', 1, 1, 'ok', 200, 100, 10, 420, 500, %d),
-			       ('gwu_2', 'gwk_1', 'sol', 'p', 'm', 1, 1, 'truncated', 200, 50, 5, NULL, 900, %d),
-			       ('gwu_3', 'gwk_1', 'sol', 'p', 'm', 1, 1, 'ok', 200, 1, 1, 1, 1, %d)`, day+1, day+2, day+86_400_000),
+			status, prompt_tokens, completion_tokens, cached_tokens, estimated, cost_micros, duration_ms, created_at)
+			VALUES ('gwu_1', 'gwk_1', 'sol', 'p', 'm', 1, 1, 'ok', 200, 100, 10, 80, 0, 420, 500, %d),
+			       ('gwu_2', 'gwk_1', 'sol', 'p', 'm', 1, 1, 'truncated', 200, 50, 5, 0, 1, NULL, 900, %d),
+			       ('gwu_3', 'gwk_1', 'sol', 'p', 'm', 1, 1, 'ok', 200, 1, 1, 1, 0, 1, 1, %d)`, day+1, day+2, day-1),
 	} {
 		_, err = db.ExecContext(ctx, stmt)
 		require.NoError(t, err, stmt)
 	}
 
+	_, err = p.UpTo(ctx, 125)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `DELETE FROM gateway_usage WHERE id = 'gwu_3'`)
+	require.NoError(t, err)
 	require.NoError(t, Migrate(ctx, db))
 	require.NoError(t, CheckSchema(ctx, db))
 
@@ -94,9 +98,22 @@ func TestMigrationFillsTheDailyLedgerFromTheRequests(t *testing.T) {
 	assert.Equal(t, []int64{1, 2, 1, 1, 150, 420, 1, 500},
 		[]int64{rows, requests, ok, failed, prompt, cost, unpriced, okMs})
 
+	var estimated, estimatedPrompt, measuredPrompt, measuredCached int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT estimated_requests, estimated_prompt_tokens,
+		measured_prompt_tokens, measured_cached_tokens FROM gateway_usage_daily WHERE day = ?`, day).
+		Scan(&estimated, &estimatedPrompt, &measuredPrompt, &measuredCached))
+	assert.Equal(t, []int64{1, 50, 100, 80}, []int64{estimated, estimatedPrompt, measuredPrompt, measuredCached})
+
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT prompt_tokens, cost_micros, estimated_requests,
+		estimated_prompt_tokens, measured_prompt_tokens, measured_cached_tokens FROM gateway_usage_daily WHERE day < ?`, day).
+		Scan(&prompt, &cost, &estimated, &estimatedPrompt, &measuredPrompt, &measuredCached))
+	assert.Equal(t, []int64{1, 1, 0, 0, 0, 0},
+		[]int64{prompt, cost, estimated, estimatedPrompt, measuredPrompt, measuredCached},
+		"purged requests keep their totals without guessing their measured/estimated split")
+
 	var days int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage_daily`).Scan(&days))
-	assert.Equal(t, 2, days, "the next day has a row of its own")
+	assert.Equal(t, 2, days, "each UTC day has a row of its own")
 
 	_, err = p.DownTo(ctx, 120)
 	require.NoError(t, err)
