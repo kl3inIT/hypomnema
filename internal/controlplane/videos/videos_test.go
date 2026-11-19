@@ -150,13 +150,20 @@ type fakeMaker struct {
 	block    bool
 	inputs   []compose.Input
 	captions []string
+	// during, when set, is called while Compose makes its scenes, after the first.
+	during func()
 }
 
 func (f *fakeMaker) Compose(ctx context.Context, _ ffmpeg.Tools, in compose.Input) (compose.Result, error) {
 	f.mu.Lock()
 	f.inputs = append(f.inputs, in)
-	fail, block := f.fail, f.block
+	fail, block, during := f.fail, f.block, f.during
 	f.mu.Unlock()
+
+	if during != nil && in.Progress != nil {
+		in.Progress(1)
+		during()
+	}
 
 	if block {
 		<-ctx.Done()
@@ -708,4 +715,26 @@ func TestTheRunnerWakesOnAMake(t *testing.T) {
 
 	require.Eventually(t, func() bool { return r.revision(t, v.ID, 1).State == Review }, 5*time.Second,
 		10*time.Millisecond)
+}
+
+// While a revision is made, each stage counts the scenes it has done, as
+// aidemo's job status does: composing the first of two scenes says 1 of 2;
+// once it is made no count is left.
+func TestARevisionBeingMadeSaysItsScenesDone(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	v, _ := r.make(t, "")
+
+	var seen Revision
+
+	r.maker.during = func() { seen = r.revision(t, v.ID, 1) }
+	r.runAll(t)
+
+	assert.Equal(t, Composing, seen.State)
+	assert.Equal(t, &Progress{ScenesDone: 1, ScenesTotal: 2}, seen.Progress)
+
+	made := r.revision(t, v.ID, 1)
+	assert.Equal(t, Review, made.State)
+	assert.Nil(t, made.Progress)
 }

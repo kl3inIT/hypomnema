@@ -78,6 +78,8 @@ var policies = map[string]policy{
 	"DeleteTake":                  {scope: scopeOwner},
 	"ReadTakeSegment":             {scope: scopeOwner, long: true},
 	"GetTakeArchive":              {scope: scopeOwner, long: true},
+	"ReadTakeThumbnail":           {scope: scopeOwner},
+	"ListStudioItems":             {scope: scopeOwner},
 	"ListVideos":                  {scope: scopeOwner},
 	"MakeVideo":                   {scope: scopeOwner},
 	"GetVideo":                    {scope: scopeOwner},

@@ -2,6 +2,7 @@ import {
   Clapperboard,
   FileDiff,
   FileText,
+  Film,
   FolderTree,
   Globe,
   MessageSquarePlus,
@@ -51,6 +52,8 @@ import { FileTab } from "@/features/files/file-tab"
 import { FilesPanel } from "@/features/files/files-panel"
 import { baseName, isUnsaved, useUnsaved } from "@/features/files/files-state"
 import { useChat } from "@/features/shell/chats"
+import { useVideo } from "@/features/studio/studio-state"
+import { VideoView } from "@/features/studio/video-view"
 import { useTake } from "@/features/takes/take-state"
 import { TakeView } from "@/features/takes/take-view"
 import { cn } from "@/lib/utils"
@@ -205,6 +208,8 @@ export function PaneView({
                 )
               case "take":
                 return <TakeTab key={key} take={tab.take} onClose={close} {...common} />
+              case "video":
+                return <VideoTab key={key} video={tab.video} onClose={close} {...common} />
               case "phone":
                 return (
                   <TabButton
@@ -356,7 +361,25 @@ export function PaneView({
             if (tab.kind === "take") {
               return (
                 shown && (
-                  <TakeView key={key} id={tab.take} onClose={() => onChange(closeTab(pane, key))} />
+                  <TakeView
+                    key={key}
+                    id={tab.take}
+                    onClose={() => onChange(closeTab(pane, key))}
+                    // A take's video opens as a tab of the same pane (issue #818).
+                    onOpenVideo={(video) => open({ kind: "video", video })}
+                  />
+                )
+              )
+            }
+            if (tab.kind === "video") {
+              return (
+                shown && (
+                  <VideoView
+                    key={key}
+                    id={tab.video}
+                    onClose={() => onChange(closeTab(pane, key))}
+                    onOpenTake={(take) => open({ kind: "take", take })}
+                  />
                 )
               )
             }
@@ -531,6 +554,23 @@ function TakeTab({ take, onClose, ...props }: TabProps & { take: string }) {
       {...props}
     >
       <Clapperboard className="size-3.5 shrink-0" aria-hidden />
+      <span className="truncate">{title}</span>
+    </TabButton>
+  )
+}
+
+// VideoTab is a video's tab: a film and its title.
+function VideoTab({ video, onClose, ...props }: TabProps & { video: string }) {
+  const title = useVideo(video).data?.title ?? "Video"
+
+  return (
+    <TabButton
+      title={`A video of a take: ${title}`}
+      onClose={onClose}
+      closeLabel={`Close ${title}`}
+      {...props}
+    >
+      <Film className="size-3.5 shrink-0" aria-hidden />
       <span className="truncate">{title}</span>
     </TabButton>
   )
