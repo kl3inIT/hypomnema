@@ -97,6 +97,7 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 
 	// pi's image extension, which the launcher gives pi (issue #675).
 	write(t, filepath.Join(root, "lib", "pi-image-eviction.mts"), "export default function () {}\n", 0o600)
+	write(t, filepath.Join(root, "lib", "pi-read-run.mts"), "export default function () {}\n", 0o600)
 
 	// The control plane's CLI, as the launcher calls it before pi starts. `bots show` names the main Bot as
 	// coordinator and the Bot of the id `+otherBot+` as other, the names their directories had before ids.
@@ -167,6 +168,7 @@ if touch "$H/tools/envs/documents/x" 2> /dev/null; then echo documents=writable;
 		"bwrap=/usr/bin/bwrap":               "bwrap=" + bwrap,
 		"images=/usr/local/lib/hypomnema/pi-image-eviction.mts": "images=" + filepath.Join(root, "lib",
 			"pi-image-eviction.mts"),
+		"read_files=/usr/local/lib/hypomnema/pi-read-run.mts": "read_files=" + filepath.Join(root, "lib", "pi-read-run.mts"),
 	} {
 		require.Equal(t, 1, strings.Count(text, "\n"+from+"\n"), "the launcher says %s once", from)
 		text = strings.Replace(text, "\n"+from+"\n", "\n"+to+"\n", 1)
@@ -292,6 +294,19 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	shared, err := os.ReadFile(filepath.Join(w.userHome, ".hypomnema", "client.json"))
 	require.NoError(t, err)
 	assert.Contains(t, string(shared), "hyp_coordinator_v1_shared", "the coordinator's login is left as it was")
+}
+
+func TestReadRunLauncherMountsPrivateNotesAndNoShell(t *testing.T) {
+	t.Parallel()
+	needBox(t)
+	w := newBoxWorld(t, bwrapPath)
+	seen, stderr, err := w.start(t, "hyp_bot_v1_mine\n{}\n", "--read-run")
+	require.NoError(t, err, stderr)
+	assert.Contains(t, seen["args"], "--no-approve --no-extensions")
+	assert.Contains(t, seen["args"], "--tools routine_read,routine_write,routine_edit,mcp__hypomnema__*")
+	assert.NotContains(t, seen["args"], " --skill ")
+	assert.NoFileExists(t, filepath.Join(w.home, "work", "written"))
+	assert.FileExists(t, filepath.Join(w.home, "run", "cht_mine", "notes", "written"))
 }
 
 // Scenario: a Lark group's chat (issue #246) is started with --group. Its

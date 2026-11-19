@@ -58,6 +58,22 @@ const (
 	ToolZaloSend     = "zalo_send"
 )
 
+const (
+	ToolAccountRead = "account_read"
+	ReadRunRefusal  = "This run reads only; do not try another way."
+)
+
+func ReadRunAllows(tool string) bool {
+	switch tool {
+	case ToolAccountRead, ToolMemory, ToolSupersetDashboards, ToolSupersetDashboard, ToolSupersetChartData,
+		ToolSupersetFilterValues, ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia, ToolWhatsAppHistory,
+		ToolZaloChats, ToolZaloMessages, ToolZaloMedia, ToolZaloHistory:
+		return true
+	default:
+		return false
+	}
+}
+
 // BrowserTools are the browser's tools an agent is offered, out of
 // agent-browser's `core` set (cli/src/mcp.rs, CORE_PROFILE_TOOLS). Each agent
 // has one tab, which the engine opens and closes, so the tab tools and

@@ -68,6 +68,10 @@ WHERE chat_id = @chat_id AND (role = 'owner' OR event_seq IS NOT NULL OR to_coor
 ORDER BY seq DESC
 LIMIT 1;
 
+-- name: IsReadRun :one
+SELECT EXISTS (SELECT 1 FROM chat_messages WHERE chat_id = chats.id AND read_run = 1)
+FROM chats WHERE id = @chat_id;
+
 -- name: ListChatMessages :many
 -- Each wake-up with the event it reports (issue #303): the event never changes, so it is read here rather than kept
 -- on the row. Other rows have empty event columns. An answered Approval's row is read with its Approval, which no

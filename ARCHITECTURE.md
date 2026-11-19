@@ -1603,6 +1603,14 @@ flowchart LR
     #769). A `prompt` Routine may also name a script, which checks first whether the Bot has work (issue #656,
     Hermes's `script` with a `prompt`): its limit is the script's, the Bot's turn has its hour. What runs is set
     whole: a prompt, a script, or both. A Bot with Routines is not removed.
+  - **Access** ([issue #956](https://github.com/kl3inIT/hypomnema/issues/956), migration 00142). `full` is the
+    default, with the usual tool and approval rules. Only the owner may mark a prompt without a script `read`, in
+    the Routine panel or with `hypomnema routines set <name> --access read`. A Bot's later change to the work or
+    schedule clears that grant. The wake-up in each run's new chat records the access then; it is still no owner
+    turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
+    the allowed messaging, Superset and memory reads; pi has no Bash or project extensions and can read and write
+    its private notes, not other files. Nothing asks for approval. Results stay in the run's chat, not in its run
+    record, the chat it was made in, or an alert. See the [morning brief](docs/morning-brief.md).
   - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
     expression with an IANA time zone, which is required (`github.com/robfig/cron/v3` parses it; the zones are
     compiled in). An interval stays on the grid of its first due time (`anchor_at`), also after a failure or
@@ -2203,8 +2211,9 @@ flowchart LR
         Routine's run is no turn of his (`OwnerTurn`); OpenMausBot's `server/cloud-team.ts`, cited here until
         2026-11-19, keeps personal connections out of a team shared with other people and is not the source
         ([research](docs/research/2026-11-19-scheduled-runs-and-owner-accounts.md)). The
-        agent API applies it in its list of accounts and so in the service proxy's check of every request;
-        actions and approvals are the Lark catalog's.
+        agent API applies it in its list of accounts and so in the service proxy's check of every request.
+        An owner-marked read run may use a Connection the Bot may use, through `account_read` without Bash.
+        The proxy allows only catalogued reads that do not need approval; writes never create a card in a read run.
   - Superset is an Integration of kind `account` ([issue #203](https://github.com/kl3inIT/hypomnema/issues/203),
     [research](docs/research/2026-11-12-superset-integration.md)): a third kind beside `oauth` and `app`, for a
     self-hosted service. It has no client and no fixed address: a Connection is one deployment's address, a user
@@ -2533,8 +2542,10 @@ flowchart LR
       Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image of the
       type its bytes say when a model views it, JPEG, PNG, GIF or WebP, else its path with a line saying it was
       omitted, as OpenClaw's `sanitizeContentBlocksImages` does, [issue #760](https://github.com/kl3inIT/hypomnema/issues/760); a voice note
-      with its transcript after its path, see "Incoming voice" under "An agent's tools") and `whatsapp_history`; a worker, a coordinator token and a Routine never. They run only on the
-      owner's turn, read again at each call, but stay listed between his turns: pi lists an MCP server's tools
+      with its transcript after its path, see "Incoming voice" under "An agent's tools") and `whatsapp_history`.
+      A worker and a coordinator token never get them. They run on the owner's turn or in an owner-marked
+      read run (with no `whatsapp_send` or `zalo_send`), and the account is checked at each call. In ordinary
+      chats they stay listed between his turns: pi lists an MCP server's tools
       again only on `list_changed`, so tools taken away on a wake-up never came back on his next turn. A call off
       his turn is refused, except a send he approved once and that has not run (`ApprovedOnce`), which runs on
       that approval, as OpenClaw runs an exec approved later and guards the final effect rather than the list

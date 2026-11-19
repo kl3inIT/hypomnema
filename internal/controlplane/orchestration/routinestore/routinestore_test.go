@@ -46,7 +46,7 @@ func TestTheTxFunctionsUseTheCallersTransaction(t *testing.T) {
 			ScriptText: "#!/bin/sh\n", EveryMinutes: sql.NullInt64{Int64: 60, Valid: true},
 			AnchorAt: sql.NullInt64{Int64: now, Valid: true}, TimeoutSeconds: 600, CreatedBy: "owner",
 			ChatID: sql.NullString{String: "cht_made_in", Valid: true}, NextRunAt: sql.NullInt64{Int64: now, Valid: true},
-			Now: now,
+			Now: now, Access: routinestore.AccessFull,
 		}))
 
 		routines, err := routinestore.CountRoutinesOfBotTx(ctx, q, bot)

@@ -249,6 +249,7 @@ type ChatMessage struct {
 	SenderID      sql.NullString
 	SenderName    sql.NullString
 	Kind          string
+	ReadRun       int64
 }
 
 type ChatQueue struct {
@@ -845,6 +846,7 @@ type Routine struct {
 	Undo           sql.NullString
 	CreatedAt      int64
 	UpdatedAt      int64
+	Access         string
 }
 
 type RoutineGrant struct {

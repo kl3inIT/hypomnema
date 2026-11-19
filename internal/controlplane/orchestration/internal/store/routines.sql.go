@@ -195,7 +195,7 @@ func (q *Queries) DetachRoutinesFromChat(ctx context.Context, chatID string) err
 }
 
 const dueRoutines = `-- name: DueRoutines :many
-SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines WHERE state = 'on' AND next_run_at IS NOT NULL AND next_run_at <= ?1
+SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at, access FROM routines WHERE state = 'on' AND next_run_at IS NOT NULL AND next_run_at <= ?1
 ORDER BY next_run_at, id
 `
 
@@ -237,6 +237,7 @@ func (q *Queries) DueRoutines(ctx context.Context, now sql.NullInt64) ([]Routine
 			&i.Undo,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Access,
 		); err != nil {
 			return nil, err
 		}
@@ -316,7 +317,7 @@ func (q *Queries) FinishRoutineRun(ctx context.Context, arg FinishRoutineRunPara
 }
 
 const getRoutine = `-- name: GetRoutine :one
-SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines WHERE id = ?1
+SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at, access FROM routines WHERE id = ?1
 `
 
 func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
@@ -350,12 +351,13 @@ func (q *Queries) GetRoutine(ctx context.Context, id string) (Routine, error) {
 		&i.Undo,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Access,
 	)
 	return i, err
 }
 
 const getRoutineByName = `-- name: GetRoutineByName :one
-SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines WHERE bot_id = ?1 AND name = ?2
+SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at, access FROM routines WHERE bot_id = ?1 AND name = ?2
 `
 
 type GetRoutineByNameParams struct {
@@ -394,6 +396,7 @@ func (q *Queries) GetRoutineByName(ctx context.Context, arg GetRoutineByNamePara
 		&i.Undo,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Access,
 	)
 	return i, err
 }
@@ -424,9 +427,9 @@ func (q *Queries) GetRoutineRun(ctx context.Context, id string) (RoutineRun, err
 const insertRoutine = `-- name: InsertRoutine :exec
 INSERT INTO routines (id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone,
                       timeout_seconds, state, summary, chat_id, announce, next_run_at, created_by, undo,
-                      created_at, updated_at)
+                      created_at, updated_at, access)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-        ?12, 'on', ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19)
+        ?12, 'on', ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?19, ?20)
 `
 
 type InsertRoutineParams struct {
@@ -449,6 +452,7 @@ type InsertRoutineParams struct {
 	CreatedBy      string
 	Undo           sql.NullString
 	Now            int64
+	Access         string
 }
 
 func (q *Queries) InsertRoutine(ctx context.Context, arg InsertRoutineParams) error {
@@ -472,25 +476,32 @@ func (q *Queries) InsertRoutine(ctx context.Context, arg InsertRoutineParams) er
 		arg.CreatedBy,
 		arg.Undo,
 		arg.Now,
+		arg.Access,
 	)
 	return err
 }
 
 const insertRoutinePrompt = `-- name: InsertRoutinePrompt :exec
-INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
-VALUES (?1, 'system', 'wake', ?2, 1, ?3)
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at, read_run)
+VALUES (?1, 'system', 'wake', ?2, 1, ?3, ?4)
 `
 
 type InsertRoutinePromptParams struct {
-	ChatID string
-	Text   string
-	Now    int64
+	ChatID  string
+	Text    string
+	Now     int64
+	ReadRun int64
 }
 
 // A prompt run's chat opens with the prompt as a wake-up of the control plane, which the coordinator is given
 // though no event of a Run is behind it (issue #267's kinds: a wake-up).
 func (q *Queries) InsertRoutinePrompt(ctx context.Context, arg InsertRoutinePromptParams) error {
-	_, err := q.db.ExecContext(ctx, insertRoutinePrompt, arg.ChatID, arg.Text, arg.Now)
+	_, err := q.db.ExecContext(ctx, insertRoutinePrompt,
+		arg.ChatID,
+		arg.Text,
+		arg.Now,
+		arg.ReadRun,
+	)
 	return err
 }
 
@@ -694,7 +705,7 @@ func (q *Queries) ListRoutineRuns(ctx context.Context, arg ListRoutineRunsParams
 }
 
 const listRoutines = `-- name: ListRoutines :many
-SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at FROM routines
+SELECT id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone, timeout_seconds, revision, state, paused_reason, summary, chat_id, announce, next_run_at, failures, alerted_at, skipped, last_skipped_at, created_by, undo, created_at, updated_at, access FROM routines
 WHERE (CAST(?1 AS TEXT) = '' OR bot_id = ?1)
   AND (CAST(?2 AS TEXT) = '' OR chat_id = ?2)
 ORDER BY created_at, id
@@ -743,6 +754,7 @@ func (q *Queries) ListRoutines(ctx context.Context, arg ListRoutinesParams) ([]R
 			&i.Undo,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Access,
 		); err != nil {
 			return nil, err
 		}
@@ -884,6 +896,21 @@ func (q *Queries) RoutineRunOfChat(ctx context.Context, chatID sql.NullString) (
 	return i, err
 }
 
+const setRoutineAccess = `-- name: SetRoutineAccess :exec
+UPDATE routines SET access = ?1, undo = NULL, updated_at = ?2 WHERE id = ?3
+`
+
+type SetRoutineAccessParams struct {
+	Access string
+	Now    int64
+	ID     string
+}
+
+func (q *Queries) SetRoutineAccess(ctx context.Context, arg SetRoutineAccessParams) error {
+	_, err := q.db.ExecContext(ctx, setRoutineAccess, arg.Access, arg.Now, arg.ID)
+	return err
+}
+
 const setRoutineNextRun = `-- name: SetRoutineNextRun :exec
 UPDATE routines SET next_run_at = ?1 WHERE id = ?2
 `
@@ -977,8 +1004,8 @@ UPDATE routines
 SET kind = ?1, prompt = ?2, script = ?3, script_text = ?4, every_minutes = ?5,
     anchor_at = ?6, cron = ?7, timezone = ?8, timeout_seconds = ?9,
     revision = ?10, summary = ?11, chat_id = ?12, announce = ?13, next_run_at = ?14,
-    undo = ?15, updated_at = ?16
-WHERE id = ?17
+    undo = ?15, updated_at = ?16, access = ?17
+WHERE id = ?18
 `
 
 type UpdateRoutineParams struct {
@@ -998,6 +1025,7 @@ type UpdateRoutineParams struct {
 	NextRunAt      sql.NullInt64
 	Undo           sql.NullString
 	Now            int64
+	Access         string
 	ID             string
 }
 
@@ -1020,6 +1048,7 @@ func (q *Queries) UpdateRoutine(ctx context.Context, arg UpdateRoutineParams) er
 		arg.NextRunAt,
 		arg.Undo,
 		arg.Now,
+		arg.Access,
 		arg.ID,
 	)
 	return err

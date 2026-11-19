@@ -37,6 +37,7 @@ func routineFlags(fs *flag.FlagSet) {
 	fs.String("script", "", "the script's file name (default: --script-file's name)")
 	fs.Int("timeout", 0, "seconds a script may run (default 600)")
 	fs.String("summary", "", "what the work is, in one line")
+	fs.String("access", "", "full or read (owner only; read is for prompts without a script)")
 	fs.String("chat", "", "the chat the routine is made in: where its results and a failure are told")
 	fs.Bool("quiet", false, "a run's result is not told in that chat")
 	jsonFlag(fs)
@@ -138,6 +139,9 @@ func routineSettings(e *env, fs *flag.FlagSet, have *openapi.Routine) (openapi.R
 			set.TimeoutSeconds = &n
 		case "summary":
 			set.Summary = &v
+		case "access":
+			access := openapi.RoutineAccess(v)
+			set.Access = &access
 		case "chat":
 			set.ChatId = &v
 		case "quiet":
@@ -196,6 +200,9 @@ func printRun(e *env, r openapi.RoutineRun) {
 func printRoutine(e *env, bots map[string]string, r *openapi.Routine) {
 	printRoutineLine(e, bots, *r)
 	e.printf("%s\n", r.Sentence)
+	if r.Access == openapi.Read {
+		e.printf("Read-only: results stay in each run's chat.\n")
+	}
 
 	if reason := val(r.PausedReason); reason != "" {
 		e.printf("%s\n", reason)
@@ -209,7 +216,7 @@ func printRoutine(e *env, bots map[string]string, r *openapi.Routine) {
 		e.printf("%d times were skipped while a run was still going; the last at %s\n", r.Skipped, when(r.LastSkippedAt))
 	}
 
-	if chat := val(r.ChatId); chat != "" {
+	if chat := val(r.ChatId); chat != "" && r.Access != openapi.Read {
 		told := "its results are told there"
 		if !r.Announce {
 			told = "its results are not told there"
