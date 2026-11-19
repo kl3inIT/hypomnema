@@ -328,6 +328,7 @@ func TestCodexStreamUsageLimitDoesNotLoop(t *testing.T) {
 
 func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	t.Parallel()
+	const coolingVersion = 135
 	ctx := t.Context()
 	_, db := migratedTo(t, 132)
 	_, err := db.ExecContext(ctx, `
@@ -361,7 +362,7 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	assertExistingUsage()
 	migrations, err := provider(db)
 	require.NoError(t, err)
-	_, err = migrations.UpTo(ctx, 135)
+	_, err = migrations.UpTo(ctx, coolingVersion)
 	require.NoError(t, err)
 	assertExistingUsage()
 	_, err = db.ExecContext(ctx, `
@@ -373,7 +374,7 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	require.NoError(t, err)
 	rolledBack, err := migrations.Down(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, int64(135), rolledBack.Source.Version)
+	assert.Equal(t, int64(coolingVersion), rolledBack.Source.Version)
 	assertExistingUsage()
 	var requests int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage`).Scan(&requests))
