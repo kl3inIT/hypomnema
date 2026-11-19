@@ -277,6 +277,8 @@ type Launcher struct {
 	Key string
 	// ToolsHome is the directory the real tools are installed under.
 	ToolsHome string
+	// ExecTrust is set by the desktop CLI, never by an agent's launcher.
+	ExecTrust *ExecTrust
 	// Chat is the chat a coordinator works in; empty for a worker.
 	Chat string
 	// RunKey is the key of the Routine's run whose script runs the tool;
@@ -458,7 +460,19 @@ func (l Launcher) launch(ctx context.Context, def Def, label string, cmd *exec.C
 	}
 
 	// The tool holds no token: its requests go through the control plane's proxy, which adds it.
-	env, refused, stop, err := l.bridge(fetchCtx, def, integration, label, list.isUser(label))
+	var local *execAuthority
+	if store := userTrustStore(); l.ExecTrust != nil && store != nil {
+		local, err = l.ExecTrust.prepare(ctx, store, l.Stderr)
+		if err != nil {
+			return err
+		}
+	}
+	if local != nil {
+		var finishFetch context.CancelFunc
+		fetchCtx, finishFetch = context.WithTimeout(ctx, launchTimeout)
+		defer finishFetch()
+	}
+	env, refused, stop, err := l.bridge(fetchCtx, def, integration, label, list.isUser(label), local)
 	if err != nil {
 		return err
 	}

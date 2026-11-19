@@ -3,6 +3,8 @@ package agenttool
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 )
@@ -23,8 +26,8 @@ import (
 // opens is carried, as it is, over a websocket to the control plane, which
 // reads the requests in it. A node reaches the control plane this way
 // already, for its socket and its terminal, so no other route is needed, and
-// the coordinator's launcher is the same code. The bridge holds nothing: no
-// token, and not the key of the proxy's certificate.
+// the coordinator's launcher is the same code. Desktop exec unwraps the
+// child's TLS and re-wraps it for the control plane's service proxy instead.
 
 // proxyVariables are what the launcher sets for a proxied tool, and removes
 // first: whatever the agent's environment said of proxies and certificates
@@ -63,9 +66,23 @@ func (r *refusal) said() string {
 // plane opened no stream, if it did not. user says the account is the
 // owner's own sign-in: the tool is given the placeholder as a person's token
 // and held to acting as one.
-func (l Launcher) bridge(ctx context.Context, def Def, integration, label string, user bool,
+func (l Launcher) bridge(ctx context.Context, def Def, integration, label string, user bool, local *execAuthority,
 ) (env []string, refused *refusal, stop func(), err error) {
-	ca, err := l.certificate(ctx)
+	raw, err := l.certificate(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	var secure *bridgeTLS
+	if local != nil {
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM(raw) {
+			return nil, nil, nil, errors.New("the control plane gave an invalid service proxy certificate")
+		}
+		secure = &bridgeTLS{local: local, upstream: roots}
+		raw = local.rootPEM()
+	}
+	ca, err := writeCACert(raw)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -90,7 +107,7 @@ func (l Launcher) bridge(ctx context.Context, def Def, integration, label string
 				return
 			}
 
-			go l.carry(bridgeCtx, conn, target, integration, label, refused)
+			go l.carry(bridgeCtx, conn, target, integration, label, refused, secure)
 		}
 	}()
 
@@ -120,12 +137,11 @@ func (l Launcher) bridge(ctx context.Context, def Def, integration, label string
 	return env, refused, stop, nil
 }
 
-// certificate reads the proxy's certificate into a file the tool is told to
-// trust. It is read on every run: the proxy makes a new one when it starts.
-func (l Launcher) certificate(ctx context.Context) (string, error) {
+// certificate reads the control plane's proxy certificate on every run: the proxy makes a new one when it starts.
+func (l Launcher) certificate(ctx context.Context) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(l.URL, "/")+PathCA, nil)
 	if err != nil {
-		return "", fmt.Errorf("building the request: %w", err)
+		return nil, fmt.Errorf("building the request: %w", err)
 	}
 
 	client := l.Client
@@ -140,16 +156,20 @@ func (l Launcher) certificate(ctx context.Context) (string, error) {
 			err = urlErr.Err
 		}
 
-		return "", fmt.Errorf("the control plane could not be reached: %w", err)
+		return nil, fmt.Errorf("the control plane could not be reached: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // The answer was read or the read failed; closing adds nothing.
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 	if err != nil || resp.StatusCode != http.StatusOK || len(raw) == 0 {
-		return "", errors.New("the control plane gave no certificate for its service proxy; it may be older than " +
+		return nil, errors.New("the control plane gave no certificate for its service proxy; it may be older than " +
 			"this tool's launcher")
 	}
 
+	return raw, nil
+}
+
+func writeCACert(raw []byte) (string, error) {
 	file, err := os.CreateTemp("", "hypomnema-proxy-ca-*.pem")
 	if err != nil {
 		return "", fmt.Errorf("keeping the proxy's certificate: %w", err)
@@ -173,7 +193,9 @@ func (l Launcher) certificate(ctx context.Context) (string, error) {
 
 // carry serves one connection of the tool: it reads the CONNECT, opens the
 // stream to the control plane for that host, and copies bytes both ways.
-func (l Launcher) carry(ctx context.Context, conn net.Conn, target, integration, label string, refused *refusal) {
+func (l Launcher) carry(ctx context.Context, conn net.Conn, target, integration, label string,
+	refused *refusal, secure *bridgeTLS,
+) {
 	defer conn.Close() //nolint:errcheck // Closing a connection that already ended adds nothing.
 
 	reader := bufio.NewReader(conn)
@@ -217,17 +239,89 @@ func (l Launcher) carry(ctx context.Context, conn net.Conn, target, integration,
 	stream := websocket.NetConn(ctx, ws, websocket.MessageBinary)
 	defer stream.Close() //nolint:errcheck // Closing a stream that already ended adds nothing.
 
-	if _, err := io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+	if secure != nil {
+		if err := secure.relay(ctx, conn, reader, stream, req.Host); err != nil {
+			refused.keep(err.Error())
+		}
+		return
+	}
+	if _, err := io.WriteString(conn, connected); err != nil {
 		return
 	}
 
+	copyTunnel(conn, reader, stream)
+}
+
+const connected = "HTTP/1.1 200 Connection Established\r\n\r\n"
+
+func copyTunnel(childWriter io.Writer, childReader io.Reader, upstream io.ReadWriteCloser) {
 	go func() {
-		_, _ = io.Copy(stream, reader)
-		_ = stream.Close()
+		_, _ = io.Copy(upstream, childReader)
+		_ = upstream.Close()
 	}()
 
-	_, _ = io.Copy(conn, stream)
+	_, _ = io.Copy(childWriter, upstream)
 }
+
+type bridgeTLS struct {
+	local    *execAuthority
+	upstream *x509.CertPool
+}
+
+func (b *bridgeTLS) relay(ctx context.Context, conn net.Conn, reader *bufio.Reader, stream net.Conn,
+	address string,
+) error {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || port != "443" {
+		return errors.New("the local service proxy reaches a service over HTTPS only")
+	}
+	leaf, err := b.local.leaf(host)
+	if err != nil {
+		return err
+	}
+
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
+	handshake, cancel := context.WithTimeout(ctx, launchTimeout)
+	defer cancel()
+	if deadline, ok := handshake.Deadline(); ok {
+		if err := conn.SetWriteDeadline(deadline); err != nil {
+			return err
+		}
+	}
+
+	upstream := tls.Client(stream, &tls.Config{
+		ServerName: host, RootCAs: b.upstream, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"},
+	})
+	if err := upstream.HandshakeContext(handshake); err != nil {
+		return fmt.Errorf("verifying the control plane's service proxy: %w", err)
+	}
+
+	if _, err := io.WriteString(conn, connected); err != nil {
+		return err
+	}
+	child := tls.Server(bufferedConn{Conn: conn, reader: reader}, &tls.Config{
+		Certificates: []tls.Certificate{*leaf}, MinVersion: tls.VersionTLS12, NextProtos: []string{"http/1.1"},
+	})
+	if err := child.HandshakeContext(handshake); err != nil {
+		return fmt.Errorf("establishing TLS with the service command: %w", err)
+	}
+	if err := conn.SetWriteDeadline(time.Time{}); err != nil {
+		return err
+	}
+
+	cancel()
+	copyTunnel(child, child, upstream)
+
+	return nil
+}
+
+type bufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c bufferedConn) Read(buf []byte) (int, error) { return c.reader.Read(buf) }
 
 // refusalOf is why the control plane did not open a stream, in its own words.
 func refusalOf(resp *http.Response, err error) string {
