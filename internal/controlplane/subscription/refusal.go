@@ -14,29 +14,39 @@ import (
 // ErrSetupToken says a Claude token added by hand cannot be refreshed.
 var ErrSetupToken = errors.New("a Claude setup token cannot be refreshed")
 
+// ErrTokenUnavailable tells the gateway to try another account for this request.
+var ErrTokenUnavailable = errors.New("the account token is unavailable")
+
 var errTokenTransport = errors.New("token endpoint transport failed")
 
 func (a Account) claudeSetupToken() bool {
 	return a.Runtime == claudeRuntime && a.secretKind == vault.KindGeneric
 }
 
-func unusableToken(ctx context.Context, err error) bool {
+func (s *Service) skipFailedToken(ctx context.Context, a Account, version int, err error) bool {
 	var transport net.Error
 	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, errTokenTransport) || errors.As(err, &transport) || errors.Is(err, io.ErrUnexpectedEOF) ||
-		errors.Is(err, vault.ErrConflict) {
+		errors.Is(err, errTokenTransport) || errors.As(err, &transport) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return false
 	}
-	return errors.Is(err, ErrNoTokens) || errors.Is(err, vault.ErrNotFound) ||
-		errors.Is(err, vault.ErrRefreshFailed) || errors.Is(err, vault.ErrInvalid) || errors.Is(err, vault.ErrTampered)
+
+	switch {
+	case errors.Is(err, vault.ErrLoginRequired), errors.Is(err, vault.ErrRefreshFailed), errors.Is(err, vault.ErrConflict):
+		return true
+	case errors.Is(err, vault.ErrLoginRejected), errors.Is(err, ErrNoTokens), errors.Is(err, vault.ErrNotFound),
+		errors.Is(err, vault.ErrInvalid), errors.Is(err, vault.ErrTampered):
+		s.markLoginRequired(ctx, a, version)
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Service) failedRefusedToken(ctx context.Context, a Account, version int, err error) error {
-	if !unusableToken(ctx, err) {
+	if !s.skipFailedToken(ctx, a, version, err) {
 		return err
 	}
-	s.markLoginRequired(ctx, a, version)
-	return fmt.Errorf("%w: %w", vault.ErrLoginRequired, err)
+	return fmt.Errorf("%w: %w", ErrTokenUnavailable, err)
 }
 
 // MarkTokenRefused records a 401 that remains after retrying a credential.

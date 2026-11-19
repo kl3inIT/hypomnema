@@ -320,7 +320,8 @@ func (c *Codex) Refresh(ctx context.Context, current vault.Payload) (vault.Refre
 
 	if status != http.StatusOK {
 		err := statusError("refreshing the tokens", status, body)
-		if status == http.StatusUnauthorized || slices.Contains(codexDeadGrants, errorCode(body)) {
+		if status == http.StatusUnauthorized ||
+			(status/100 == 4 && status != http.StatusTooManyRequests && slices.Contains(codexDeadGrants, errorCode(body))) {
 			return vault.Refreshed{}, fmt.Errorf("%w: %w", vault.ErrLoginRejected, err)
 		}
 

@@ -89,7 +89,7 @@ func (g gatewayAccounts) TokenAfterRefusal(
 	ctx context.Context, refused modelgateway.AccountToken,
 ) (modelgateway.AccountToken, error) {
 	token, err := g.subs.TokenAfterRefusal(ctx, subsToken(refused))
-	if errors.Is(err, vault.ErrLoginRequired) || errors.Is(err, subscription.ErrSetupToken) {
+	if errors.Is(err, subscription.ErrTokenUnavailable) || errors.Is(err, subscription.ErrSetupToken) {
 		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrTokenUnavailable, err)
 	}
 	return accountToken(token, err)

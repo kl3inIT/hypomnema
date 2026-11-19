@@ -30,13 +30,19 @@ type refusalVendor struct {
 	subscription.Vendor
 	runtime   string
 	err       error
+	before    func(context.Context) error
 	refreshes atomic.Int32
 }
 
 func (v *refusalVendor) Runtime() string { return v.runtime }
 
-func (v *refusalVendor) Refresh(context.Context, vault.Payload) (vault.Refreshed, error) {
+func (v *refusalVendor) Refresh(ctx context.Context, _ vault.Payload) (vault.Refreshed, error) {
 	v.refreshes.Add(1)
+	if v.before != nil {
+		if err := v.before(ctx); err != nil {
+			return vault.Refreshed{}, err
+		}
+	}
 	return vault.Refreshed{
 		Payload: vault.Payload{vault.KeyAccessToken: "renewed", vault.KeyRefreshToken: "renewal"},
 	}, v.err
@@ -56,13 +62,25 @@ func TestGatewayMovesPastUnusableCredentials(t *testing.T) {
 		expiring     bool
 		missing      bool
 		refreshErr   error
+		refreshHTTP  int
+		rotate       bool
 		wantBearers  []string
 		wantRefresh  int32
 		wantSignIn   bool
 		wantFallback bool
 	}{
-		{name: "401 and a failed refresh", refreshErr: errors.New("vendor refused renewal"),
+		{name: "401 and a rejected grant", refreshErr: vault.ErrLoginRejected,
 			wantBearers: []string{"first", "second"}, wantRefresh: 1, wantSignIn: true, wantFallback: true},
+		{name: "401 and a temporary 503 during refresh", refreshHTTP: http.StatusServiceUnavailable,
+			wantBearers: []string{"first", "second"}, wantRefresh: 1, wantFallback: true},
+		{name: "401 and a temporary 429 during refresh", refreshHTTP: http.StatusTooManyRequests,
+			wantBearers: []string{"first", "second"}, wantRefresh: 1, wantFallback: true},
+		{name: "preflight refresh gets 503", runtime: "codex", expiring: true, refreshHTTP: http.StatusServiceUnavailable,
+			wantBearers: []string{"second"}, wantRefresh: 1, wantFallback: true},
+		{name: "preflight refresh gets 429", runtime: "codex", expiring: true, refreshHTTP: http.StatusTooManyRequests,
+			wantBearers: []string{"second"}, wantRefresh: 1, wantFallback: true},
+		{name: "preflight rejected grant lost its lease", expiring: true, rotate: true, refreshErr: vault.ErrLoginRejected,
+			wantBearers: []string{"second"}, wantRefresh: 1, wantFallback: true},
 		{name: "401 again after refresh", wantBearers: []string{"first", "renewed", "second"},
 			wantRefresh: 1, wantSignIn: true, wantFallback: true},
 		{name: "not a token set", runtime: "codex", kind: vault.KindGeneric, expiring: true,
@@ -96,7 +114,14 @@ func TestGatewayMovesPastUnusableCredentials(t *testing.T) {
 			require.NoError(t, err)
 			secrets := vault.New(db, clock, newID, keyring, nil)
 			vendor := &refusalVendor{runtime: runtime, err: tc.refreshErr}
-			subs := subscription.New(orch, secrets, clock, logger, vendor)
+			if tc.rotate {
+				vendor.before = func(ctx context.Context) error {
+					_, err := secrets.Rotate(ctx, "first", vault.Payload{
+						vault.KeyAccessToken: "new-login", vault.KeyRefreshToken: "new-renewal",
+					})
+					return err
+				}
+			}
 
 			add := func(name string, kind vault.Kind, payload vault.Payload, expires time.Time) orchestration.Account {
 				account, err := orch.SaveAccountLogin(ctx,
@@ -124,7 +149,14 @@ func TestGatewayMovesPastUnusableCredentials(t *testing.T) {
 				vault.Payload{vault.KeyAccessToken: "second", vault.KeyRefreshToken: "renewal"}, time.Time{})
 
 			sent := make(chan string, 4)
+			var tokenCalls atomic.Int32
 			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/oauth/token" || r.URL.Path == "/oauth/token" {
+					tokenCalls.Add(1)
+					w.WriteHeader(tc.refreshHTTP)
+					_, _ = io.WriteString(w, `{"error":"invalid_grant"}`)
+					return
+				}
 				bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 				sent <- bearer
 				if bearer != "second" {
@@ -141,6 +173,14 @@ func TestGatewayMovesPastUnusableCredentials(t *testing.T) {
 				_, _ = io.WriteString(w, `{"input_tokens":42}`)
 			}))
 			t.Cleanup(backend.Close)
+			var exchange subscription.Vendor = vendor
+			switch {
+			case tc.refreshHTTP != 0 && runtime == "codex":
+				exchange = subscription.NewCodex(backend.URL, clock)
+			case tc.refreshHTTP != 0:
+				exchange = subscription.NewClaude(subscription.ClaudeOptions{TokenBase: backend.URL}, clock)
+			}
+			subs := subscription.New(orch, secrets, clock, logger, exchange)
 			gateway := modelgateway.New(db, clock, newID, gatewayProviders(orch),
 				func(context.Context, string) (string, error) { return "", nil })
 			_, key, err := gateway.AddKey(ctx, "test", []string{"*"}, nil)
@@ -171,7 +211,7 @@ func TestGatewayMovesPastUnusableCredentials(t *testing.T) {
 				bearers = append(bearers, <-sent)
 			}
 			assert.Equal(t, tc.wantBearers, bearers)
-			assert.Equal(t, tc.wantRefresh, vendor.refreshes.Load())
+			assert.Equal(t, tc.wantRefresh, vendor.refreshes.Load()+tokenCalls.Load())
 
 			account, err := subs.Get(ctx, first.ID)
 			require.NoError(t, err)
@@ -183,8 +223,15 @@ func TestGatewayMovesPastUnusableCredentials(t *testing.T) {
 			} else {
 				assert.Equal(t, subscription.StateActive, account.State)
 			}
-			if tc.expiring {
+			if tc.expiring && kind == vault.KindGeneric {
 				assert.Contains(t, account.Refresh.Error, "is not a token set")
+			}
+			if tc.refreshHTTP != 0 {
+				assert.Contains(t, account.Refresh.Error, fmt.Sprintf("status %d", tc.refreshHTTP))
+				assert.NotNil(t, account.Refresh.RetryAt)
+			}
+			if tc.rotate {
+				assert.Empty(t, account.Refresh.Error)
 			}
 			if kind == vault.KindGeneric && runtime == "claude" {
 				assert.Empty(t, account.Refresh.Error)

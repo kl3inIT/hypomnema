@@ -113,6 +113,40 @@ func newGoGateway(t *testing.T, backend *goBackend, subs modelgateway.Subscripti
 
 const askGo = `{"model":"opencode-go/%s","messages":[{"role":"user","content":"hi"}],"stream":true}`
 
+type goRefusalAccounts struct {
+	accounts
+	refused []modelgateway.AccountToken
+}
+
+func (a *goRefusalAccounts) MarkTokenRefused(_ context.Context, token modelgateway.AccountToken) error {
+	a.refused = append(a.refused, token)
+	return nil
+}
+
+func TestGoMarksTheFirst401AndTriesTheNextKeyWithoutRefresh(t *testing.T) {
+	t.Parallel()
+
+	backend := newGoBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer access-0" {
+			plain(http.StatusUnauthorized, `{"error":{"message":"invalid key"}}`)(w, r)
+			return
+		}
+		stream("data: "+`{"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}`+"\n\n",
+			"data: [DONE]\n\n")(w, r)
+	})
+	subs := &goRefusalAccounts{accounts: accounts{ids: []string{"acc_1", "acc_2"}}}
+	g := newGoGateway(t, backend, subs)
+
+	status, _, body := g.call(t, g.key, fmt.Sprintf(askGo, "glm-5.3"))
+	require.Equal(t, http.StatusOK, status, body)
+	require.Len(t, subs.refused, 1)
+	assert.Equal(t, "acc_1", subs.refused[0].AccountID)
+	assert.Equal(t, 1, subs.refused[0].Version)
+	assert.Zero(t, subs.refreshes)
+	headers, _ := backend.got.last(t)
+	assert.Equal(t, "Bearer acc_2-access-0", headers.Get("Authorization"))
+}
+
 // Scenario: pi chats with three Go models. Each is called on the wire Go's
 // list names for it, under the key's account: GLM on OpenAI's chat with a
 // Bearer key, MiniMax on Anthropic's Messages with x-api-key and the API

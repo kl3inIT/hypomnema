@@ -557,14 +557,9 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 
 		token, err := s.usableToken(ctx, a)
 		if err != nil {
-			if errors.Is(err, vault.ErrLoginRequired) {
-				continue
-			}
-
 			var verify *VerificationError
 			if !errors.As(err, &verify) {
-				if unusableToken(ctx, err) {
-					s.markLoginRequired(ctx, a, a.secretVersion)
+				if s.skipFailedToken(ctx, a, a.secretVersion, err) {
 					continue
 				}
 				return Token{}, err
@@ -1005,6 +1000,9 @@ func (s *Service) refresh(ctx context.Context, a Account, stale int, retry *atom
 		var verify *VerificationError
 		if errors.As(err, &verify) {
 			return verify
+		}
+		if errors.Is(err, vault.ErrConflict) {
+			return err
 		}
 
 		failed := errors.Join(

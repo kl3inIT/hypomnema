@@ -274,7 +274,8 @@ func (a *Antigravity) token(ctx context.Context, doing string, form url.Values) 
 
 	if status != http.StatusOK {
 		err := statusError(doing, status, body)
-		if code := errorCode(body); status == http.StatusUnauthorized || code == "invalid_grant" {
+		if status == http.StatusUnauthorized ||
+			(status/100 == 4 && status != http.StatusTooManyRequests && errorCode(body) == "invalid_grant") {
 			return googleTokens{}, fmt.Errorf("%w: %w", vault.ErrLoginRejected, err)
 		}
 
