@@ -704,13 +704,7 @@ func (s *Server) codexImagePost(
 		return resp, err
 	}
 
-	drain(resp)
-
-	if *token, err = s.accounts.TokenAfterRefusal(ctx, *token); err != nil {
-		return nil, err
-	}
-
-	return send(*token)
+	return s.retryRefusedAccount(ctx, resp, token, false, send)
 }
 
 // antigravityImages makes the images under the Antigravity accounts in turn,
@@ -816,11 +810,7 @@ func (s *Server) antigravityImage(
 
 	resp, err := send(token)
 	if err == nil && resp.StatusCode == http.StatusUnauthorized {
-		drain(resp)
-
-		if token, err = s.accounts.TokenAfterRefusal(ctx, token); err == nil {
-			resp, err = send(token)
-		}
+		resp, err = s.retryRefusedAccount(ctx, resp, &token, false, send)
 	}
 
 	if errors.Is(err, ErrAccountResting) {
