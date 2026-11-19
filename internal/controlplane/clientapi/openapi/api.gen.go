@@ -1736,6 +1736,27 @@ func (e SupersetRequestMethod) Valid() bool {
 	}
 }
 
+// Defines values for TaskKind.
+const (
+	Broad  TaskKind = "broad"
+	Narrow TaskKind = "narrow"
+	Quick  TaskKind = "quick"
+)
+
+// Valid indicates whether the value is a known member of the TaskKind enum.
+func (e TaskKind) Valid() bool {
+	switch e {
+	case Broad:
+		return true
+	case Narrow:
+		return true
+	case Quick:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskStatus.
 const (
 	TaskStatusBlocked   TaskStatus = "blocked"
@@ -1790,6 +1811,51 @@ func (e TokenKind) Valid() bool {
 	}
 }
 
+// Defines values for ToolAccessSource.
+const (
+	ToolAccessConnection ToolAccessSource = "connection"
+	ToolAccessException  ToolAccessSource = "exception"
+	ToolAccessPreset     ToolAccessSource = "preset"
+)
+
+// Valid indicates whether the value is a known member of the ToolAccessSource enum.
+func (e ToolAccessSource) Valid() bool {
+	switch e {
+	case ToolAccessConnection:
+		return true
+	case ToolAccessException:
+		return true
+	case ToolAccessPreset:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolAccessState.
+const (
+	ToolAccessAvailable   ToolAccessState = "available"
+	ToolAccessOff         ToolAccessState = "off"
+	ToolAccessOn          ToolAccessState = "on"
+	ToolAccessUnavailable ToolAccessState = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the ToolAccessState enum.
+func (e ToolAccessState) Valid() bool {
+	switch e {
+	case ToolAccessAvailable:
+		return true
+	case ToolAccessOff:
+		return true
+	case ToolAccessOn:
+		return true
+	case ToolAccessUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ToolDisplay.
 const (
 	ToolDisplayFull ToolDisplay = "full"
@@ -1805,6 +1871,24 @@ func (e ToolDisplay) Valid() bool {
 	case ToolDisplayOff:
 		return true
 	case ToolDisplayOn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ToolPreset.
+const (
+	ToolPresetFull   ToolPreset = "full"
+	ToolPresetReport ToolPreset = "report"
+)
+
+// Valid indicates whether the value is a known member of the ToolPreset enum.
+func (e ToolPreset) Valid() bool {
+	switch e {
+	case ToolPresetFull:
+		return true
+	case ToolPresetReport:
 		return true
 	default:
 		return false
@@ -2635,6 +2719,9 @@ type Bot struct {
 	CreatedAt   time.Time `json:"created_at"`
 	Effort      *string   `json:"effort,omitempty"`
 
+	// Fallbacks Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+	Fallbacks []string `json:"fallbacks"`
+
 	// GuaranteedDispatches The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
 	GuaranteedDispatches int `json:"guaranteed_dispatches"`
 
@@ -2661,8 +2748,11 @@ type Bot struct {
 	Pinned bool `json:"pinned"`
 
 	// Position The Bot's place in the order the owner sets, 0 first (issue #470); the main Bot is first.
-	Position int     `json:"position"`
-	Provider *string `json:"provider,omitempty"`
+	Position int `json:"position"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   ToolPreset `json:"preset"`
+	Provider *string    `json:"provider,omitempty"`
 
 	// Scopes What the Bot may reach of a Connection it may use, keyed integration:label: of a Superset Connection, the dashboards it may read. A Connection not named here is reached whole.
 	Scopes map[string]ConnectionScope `json:"scopes"`
@@ -2673,10 +2763,13 @@ type Bot struct {
 	// SkillsOff The skills given to everyone that the Bot does not get.
 	SkillsOff []string `json:"skills_off"`
 
+	// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+	ToolAccess *ToolAccess `json:"tool_access,omitempty"`
+
 	// ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
 	ToolDisplay ToolDisplay `json:"tool_display"`
 
-	// Tools The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty, every tool a Bot gets. A CLI's own tools are not switched here.
+	// Tools Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
 	Tools []string `json:"tools"`
 
 	// ToolsOff The Hypomnema tools the Bot's pi never gets, each a name or a family; it wins over tools.
@@ -2711,11 +2804,17 @@ type BotSettings struct {
 	Connections *AllowList `json:"connections,omitempty"`
 	Effort      *string    `json:"effort,omitempty"`
 
+	// Fallbacks Ordered gateway models (provider/model); omitted keeps the list, empty clears it.
+	Fallbacks *[]string `json:"fallbacks,omitempty"`
+
 	// GuaranteedDispatches The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
 	GuaranteedDispatches *int    `json:"guaranteed_dispatches,omitempty"`
 	Model                *string `json:"model,omitempty"`
 	Persona              *string `json:"persona,omitempty"`
-	Provider             *string `json:"provider,omitempty"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   *ToolPreset `json:"preset,omitempty"`
+	Provider *string     `json:"provider,omitempty"`
 
 	// Scopes What the Bot may reach of each Connection, as a whole: a Connection left out of the map is reached whole. Left out, the Bot keeps its scopes.
 	Scopes *map[string]ConnectionScope `json:"scopes,omitempty"`
@@ -2729,7 +2828,7 @@ type BotSettings struct {
 	// ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
 	ToolDisplay *ToolDisplay `json:"tool_display,omitempty"`
 
-	// Tools The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out, the Bot keeps those it has.
+	// Tools Additional tools or families; left out, the Bot keeps those it has.
 	Tools *[]string `json:"tools,omitempty"`
 
 	// ToolsOff The tools the Bot turns off, each a name or a family; left out, the Bot keeps those it has.
@@ -3166,7 +3265,10 @@ type Disconnected struct {
 // Dispatch defines model for Dispatch.
 type Dispatch struct {
 	// Activity One line about the newest thing the worker said or did.
-	Activity     *string   `json:"activity,omitempty"`
+	Activity *string `json:"activity,omitempty"`
+
+	// ChainEntry One-based position in the Task's effective routing chain.
+	ChainEntry   *int      `json:"chain_entry,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	Effort       *string   `json:"effort,omitempty"`
 	Epoch        int       `json:"epoch"`
@@ -3188,12 +3290,15 @@ type Dispatch struct {
 	ProfileVersionId *string         `json:"profile_version_id,omitempty"`
 	ProgressAt       *time.Time      `json:"progress_at,omitempty"`
 	Result           *DispatchResult `json:"result,omitempty"`
-	SettledAt        *time.Time      `json:"settled_at,omitempty"`
-	StartedAt        *time.Time      `json:"started_at,omitempty"`
-	Status           DispatchStatus  `json:"status"`
-	TaskId           string          `json:"task_id"`
-	UnknownCause     *string         `json:"unknown_cause,omitempty"`
-	UpdatedAt        time.Time       `json:"updated_at"`
+
+	// Runtime The worker runtime selected by role routing.
+	Runtime      *string        `json:"runtime,omitempty"`
+	SettledAt    *time.Time     `json:"settled_at,omitempty"`
+	StartedAt    *time.Time     `json:"started_at,omitempty"`
+	Status       DispatchStatus `json:"status"`
+	TaskId       string         `json:"task_id"`
+	UnknownCause *string        `json:"unknown_cause,omitempty"`
+	UpdatedAt    time.Time      `json:"updated_at"`
 
 	// WaitingSince Set while the worker waits for an answer.
 	WaitingSince *time.Time `json:"waiting_since,omitempty"`
@@ -4587,15 +4692,19 @@ type NewTask struct {
 	// DependsOn Refs of earlier Tasks in this request, or ids of Tasks already in the Run.
 	DependsOn *[]string `json:"depends_on,omitempty"`
 	Effort    *string   `json:"effort,omitempty"`
+	Kind      *TaskKind `json:"kind,omitempty"`
 	Model     *string   `json:"model,omitempty"`
 
 	// Profile The profile it runs with; implementer when left out.
 	Profile *string `json:"profile,omitempty"`
 
 	// Ref Names the Task within this request, for depends_on.
-	Ref     string  `json:"ref"`
-	Runtime *string `json:"runtime,omitempty"`
-	Spec    string  `json:"spec"`
+	Ref string `json:"ref"`
+
+	// ReviewOf The succeeded Task in this Run a reviewer checks; its vendor is excluded.
+	ReviewOf *string `json:"review_of,omitempty"`
+	Runtime  *string `json:"runtime,omitempty"`
+	Spec     string  `json:"spec"`
 }
 
 // NewTasks defines model for NewTasks.
@@ -4817,8 +4926,11 @@ type Profile struct {
 	MemoryRequestBytes *int64  `json:"memory_request_bytes,omitempty"`
 	Model              *string `json:"model,omitempty"`
 	Name               string  `json:"name"`
-	Provider           *string `json:"provider,omitempty"`
-	Runtime            string  `json:"runtime"`
+
+	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+	Preset   ToolPreset `json:"preset"`
+	Provider *string    `json:"provider,omitempty"`
+	Runtime  string     `json:"runtime"`
 
 	// Skills The skills its workers get beside those given to everyone.
 	Skills []string `json:"skills"`
@@ -4827,7 +4939,10 @@ type Profile struct {
 	SkillsOff []string `json:"skills_off"`
 	Source    string   `json:"source"`
 
-	// Tools The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty, every tool a worker gets. A CLI's own tools are not switched here.
+	// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+	ToolAccess *ToolAccess `json:"tool_access,omitempty"`
+
+	// Tools Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
 	Tools []string `json:"tools"`
 
 	// ToolsOff The Hypomnema tools its workers never get, each a name or a family; it wins over tools.
@@ -4941,6 +5056,22 @@ type Resources struct {
 	// CpuMillis CPU in thousandths of a core.
 	CpuMillis   int64 `json:"cpu_millis"`
 	MemoryBytes int64 `json:"memory_bytes"`
+}
+
+// RoleMetric defines model for RoleMetric.
+type RoleMetric struct {
+	Attempts int64 `json:"attempts"`
+
+	// ChainEntry One-based position in the Task's effective routing chain.
+	ChainEntry *int     `json:"chain_entry,omitempty"`
+	CostMicros int64    `json:"cost_micros"`
+	Failed     int64    `json:"failed"`
+	Kind       TaskKind `json:"kind"`
+	Model      string   `json:"model"`
+	Role       string   `json:"role"`
+	Runtime    string   `json:"runtime"`
+	Succeeded  int64    `json:"succeeded"`
+	Unpriced   int64    `json:"unpriced"`
 }
 
 // Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A prompt Routine may have a script that runs first and wakes the Bot only when it finds work.
@@ -5403,6 +5534,13 @@ type Skill struct {
 	UpdatedAt time.Time        `json:"updated_at"`
 }
 
+// SkillAccess defines model for SkillAccess.
+type SkillAccess struct {
+	Missing bool   `json:"missing"`
+	Name    string `json:"name"`
+	Reason  string `json:"reason"`
+}
+
 // SkillAudit defines model for SkillAudit.
 type SkillAudit struct {
 	Alerts     *int    `json:"alerts,omitempty"`
@@ -5747,6 +5885,7 @@ type Task struct {
 	FailureCount      int            `json:"failure_count"`
 	FinishedAt        *time.Time     `json:"finished_at,omitempty"`
 	Id                string         `json:"id"`
+	Kind              TaskKind       `json:"kind"`
 	Model             *string        `json:"model,omitempty"`
 
 	// NotBefore No new Dispatch starts before it (a back-off or a rate limit).
@@ -5786,6 +5925,7 @@ type TaskDetail struct {
 	// FollowUps More work asked of the Task's worker after it succeeded, oldest first.
 	FollowUps      *[]FollowUp `json:"follow_ups,omitempty"`
 	Id             string      `json:"id"`
+	Kind           TaskKind    `json:"kind"`
 	LatestDispatch *Dispatch   `json:"latest_dispatch,omitempty"`
 	Model          *string     `json:"model,omitempty"`
 
@@ -5807,6 +5947,9 @@ type TaskDetail struct {
 	WaitingReason *string `json:"waiting_reason,omitempty"`
 }
 
+// TaskKind defines model for TaskKind.
+type TaskKind string
+
 // TaskList defines model for TaskList.
 type TaskList struct {
 	Data []Task `json:"data"`
@@ -5824,6 +5967,28 @@ type TerminalTicket struct {
 // TokenKind defines model for TokenKind.
 type TokenKind string
 
+// ToolAccess Saved access in the detail response, before a particular chat or Run applies its own limits.
+type ToolAccess struct {
+	Families []ToolFamilyAccess `json:"families"`
+	Skills   []SkillAccess      `json:"skills"`
+}
+
+// ToolAccessItem defines model for ToolAccessItem.
+type ToolAccessItem struct {
+	Name   string           `json:"name"`
+	Reason string           `json:"reason"`
+	Source ToolAccessSource `json:"source"`
+
+	// State Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+	State ToolAccessState `json:"state"`
+}
+
+// ToolAccessSource defines model for ToolAccessSource.
+type ToolAccessSource string
+
+// ToolAccessState Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+type ToolAccessState string
+
 // ToolDisplay What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
 type ToolDisplay string
 
@@ -5837,6 +6002,18 @@ type ToolFamily struct {
 	Tools   []string `json:"tools"`
 }
 
+// ToolFamilyAccess defines model for ToolFamilyAccess.
+type ToolFamilyAccess struct {
+	Description string           `json:"description"`
+	Name        string           `json:"name"`
+	Reason      string           `json:"reason"`
+	Source      ToolAccessSource `json:"source"`
+
+	// State Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+	State ToolAccessState  `json:"state"`
+	Tools []ToolAccessItem `json:"tools"`
+}
+
 // ToolFamilyList defines model for ToolFamilyList.
 type ToolFamilyList struct {
 	Data []ToolFamily `json:"data"`
@@ -5846,6 +6023,9 @@ type ToolFamilyList struct {
 type ToolNames struct {
 	Data []string `json:"data"`
 }
+
+// ToolPreset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+type ToolPreset string
 
 // TranscribeRequest defines model for TranscribeRequest.
 type TranscribeRequest struct {
@@ -6732,6 +6912,12 @@ type ListQuestionsParams struct {
 	ChatId *string `form:"chat_id,omitempty" json:"chat_id,omitempty"`
 }
 
+// GetRoleMetricsParams defines parameters for GetRoleMetrics.
+type GetRoleMetricsParams struct {
+	// Since Start of the period; defaults to 14 days ago.
+	Since *time.Time `form:"since,omitempty" json:"since,omitempty"`
+}
+
 // ListRoutinesParams defines parameters for ListRoutines.
 type ListRoutinesParams struct {
 	// Bot Only the Routines of the Bot of this id.
@@ -7035,6 +7221,9 @@ type AnswerQuestionJSONRequestBody = Answer
 
 // PutRepoJSONRequestBody defines body for PutRepo for application/json ContentType.
 type PutRepoJSONRequestBody = NewRepo
+
+// PutRoleRoutingJSONRequestBody defines body for PutRoleRouting for application/json ContentType.
+type PutRoleRoutingJSONRequestBody = Source
 
 // PreviewRoutineScheduleJSONRequestBody defines body for PreviewRoutineSchedule for application/json ContentType.
 type PreviewRoutineScheduleJSONRequestBody = RoutineSchedule
@@ -9126,6 +9315,30 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
 	PutRepo(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetRoleRouting The worker role and kind mapping
+	//
+	// Corresponds with GET /role-routing (the `GetRoleRouting` operationId).
+	GetRoleRouting(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutRoleRoutingWithBody Validate and replace the worker role and kind mapping; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+	PutRoleRoutingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutRoleRouting Validate and replace the worker role and kind mapping; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+	PutRoleRouting(ctx context.Context, body PutRoleRoutingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetRoleMetrics Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+	//
+	// Corresponds with GET /role-routing/metrics (the `GetRoleMetrics` operationId).
+	GetRoleMetrics(ctx context.Context, params *GetRoleMetricsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PreviewRoutineScheduleWithBody A schedule in words and its next three times, as a Routine made now would have them
 	//
@@ -14242,6 +14455,70 @@ func (c *Client) PutRepoWithBody(ctx context.Context, name Name, contentType str
 // Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
 func (c *Client) PutRepo(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutRepoRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetRoleRouting The worker role and kind mapping
+//
+// Corresponds with GET /role-routing (the `GetRoleRouting` operationId).
+func (c *Client) GetRoleRouting(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRoleRoutingRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutRoleRoutingWithBody Validate and replace the worker role and kind mapping; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+func (c *Client) PutRoleRoutingWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRoleRoutingRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutRoleRouting Validate and replace the worker role and kind mapping; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+func (c *Client) PutRoleRouting(ctx context.Context, body PutRoleRoutingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRoleRoutingRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetRoleMetrics Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+//
+// Corresponds with GET /role-routing/metrics (the `GetRoleMetrics` operationId).
+func (c *Client) GetRoleMetrics(ctx context.Context, params *GetRoleMetricsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRoleMetricsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -24608,6 +24885,127 @@ func NewPutRepoRequestWithBody(server string, name Name, contentType string, bod
 	return req, nil
 }
 
+// NewGetRoleRoutingRequest constructs an http.Request for the GetRoleRouting method
+func NewGetRoleRoutingRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/role-routing")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutRoleRoutingRequest calls the generic PutRoleRouting builder with application/json body
+func NewPutRoleRoutingRequest(server string, body PutRoleRoutingJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutRoleRoutingRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPutRoleRoutingRequestWithBody constructs an http.Request for the PutRoleRouting method, with any body, and a specified content type
+func NewPutRoleRoutingRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/role-routing")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetRoleMetricsRequest constructs an http.Request for the GetRoleMetrics method
+func NewGetRoleMetricsRequest(server string, params *GetRoleMetricsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/role-routing/metrics")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Since != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "since", *params.Since, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "date-time"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewPreviewRoutineScheduleRequest calls the generic PreviewRoutineSchedule builder with application/json body
 func NewPreviewRoutineScheduleRequest(server string, body PreviewRoutineScheduleJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -28912,6 +29310,34 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
 	PutRepoWithResponse(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRepoResponse, error)
+
+	// GetRoleRoutingWithResponse The worker role and kind mapping
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /role-routing (the `GetRoleRouting` operationId).
+	GetRoleRoutingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetRoleRoutingResponse, error)
+
+	// PutRoleRoutingWithBodyWithResponse Validate and replace the worker role and kind mapping; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+	PutRoleRoutingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRoleRoutingResponse, error)
+
+	// PutRoleRoutingWithResponse Validate and replace the worker role and kind mapping; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+	PutRoleRoutingWithResponse(ctx context.Context, body PutRoleRoutingJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRoleRoutingResponse, error)
+
+	// GetRoleMetricsWithResponse Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /role-routing/metrics (the `GetRoleMetrics` operationId).
+	GetRoleMetricsWithResponse(ctx context.Context, params *GetRoleMetricsParams, reqEditors ...RequestEditorFn) (*GetRoleMetricsResponse, error)
 
 	// PreviewRoutineScheduleWithBodyWithResponse A schedule in words and its next three times, as a Routine made now would have them
 	//
@@ -38661,6 +39087,143 @@ func (r PutRepoResponse) ContentType() string {
 	return ""
 }
 
+type GetRoleRoutingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Source
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetRoleRoutingResponse) GetJSON200() *Source {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetRoleRoutingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetRoleRoutingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetRoleRoutingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetRoleRoutingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetRoleRoutingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutRoleRoutingResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutRoleRoutingResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutRoleRoutingResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutRoleRoutingResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutRoleRoutingResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutRoleRoutingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetRoleMetricsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]RoleMetric
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetRoleMetricsResponse) GetJSON200() *[]RoleMetric {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetRoleMetricsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetRoleMetricsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetRoleMetricsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetRoleMetricsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetRoleMetricsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type PreviewRoutineScheduleResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -44828,6 +45391,58 @@ func (c *ClientWithResponses) PutRepoWithResponse(ctx context.Context, name Name
 		return nil, err
 	}
 	return ParsePutRepoResponse(rsp)
+}
+
+// GetRoleRoutingWithResponse The worker role and kind mapping
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /role-routing (the `GetRoleRouting` operationId).
+func (c *ClientWithResponses) GetRoleRoutingWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetRoleRoutingResponse, error) {
+	rsp, err := c.GetRoleRouting(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetRoleRoutingResponse(rsp)
+}
+
+// PutRoleRoutingWithBodyWithResponse Validate and replace the worker role and kind mapping; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+func (c *ClientWithResponses) PutRoleRoutingWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRoleRoutingResponse, error) {
+	rsp, err := c.PutRoleRoutingWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRoleRoutingResponse(rsp)
+}
+
+// PutRoleRoutingWithResponse Validate and replace the worker role and kind mapping; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /role-routing (the `PutRoleRouting` operationId).
+func (c *ClientWithResponses) PutRoleRoutingWithResponse(ctx context.Context, body PutRoleRoutingJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRoleRoutingResponse, error) {
+	rsp, err := c.PutRoleRouting(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRoleRoutingResponse(rsp)
+}
+
+// GetRoleMetricsWithResponse Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /role-routing/metrics (the `GetRoleMetrics` operationId).
+func (c *ClientWithResponses) GetRoleMetricsWithResponse(ctx context.Context, params *GetRoleMetricsParams, reqEditors ...RequestEditorFn) (*GetRoleMetricsResponse, error) {
+	rsp, err := c.GetRoleMetrics(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetRoleMetricsResponse(rsp)
 }
 
 // PreviewRoutineScheduleWithBodyWithResponse A schedule in words and its next three times, as a Routine made now would have them
@@ -52063,6 +52678,101 @@ func ParsePutRepoResponse(rsp *http.Response) (*PutRepoResponse, error) {
 	return response, nil
 }
 
+// ParseGetRoleRoutingResponse parses an HTTP response from a GetRoleRoutingWithResponse call
+func ParseGetRoleRoutingResponse(rsp *http.Response) (*GetRoleRoutingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetRoleRoutingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Source
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutRoleRoutingResponse parses an HTTP response from a PutRoleRoutingWithResponse call
+func ParsePutRoleRoutingResponse(rsp *http.Response) (*PutRoleRoutingResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutRoleRoutingResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetRoleMetricsResponse parses an HTTP response from a GetRoleMetricsWithResponse call
+func ParseGetRoleMetricsResponse(rsp *http.Response) (*GetRoleMetricsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetRoleMetricsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []RoleMetric
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePreviewRoutineScheduleResponse parses an HTTP response from a PreviewRoutineScheduleWithResponse call
 func ParsePreviewRoutineScheduleResponse(rsp *http.Response) (*PreviewRoutineScheduleResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -54274,6 +54984,15 @@ type ServerInterface interface {
 	// PutRepo Register a repository under a name, or change what the name means; only the owner
 	// (PUT /repos/{name})
 	PutRepo(w http.ResponseWriter, r *http.Request, name Name)
+	// GetRoleRouting The worker role and kind mapping
+	// (GET /role-routing)
+	GetRoleRouting(w http.ResponseWriter, r *http.Request)
+	// PutRoleRouting Validate and replace the worker role and kind mapping; only the owner
+	// (PUT /role-routing)
+	PutRoleRouting(w http.ResponseWriter, r *http.Request)
+	// GetRoleMetrics Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+	// (GET /role-routing/metrics)
+	GetRoleMetrics(w http.ResponseWriter, r *http.Request, params GetRoleMetricsParams)
 	// PreviewRoutineSchedule A schedule in words and its next three times, as a Routine made now would have them
 	// (POST /routine-schedule)
 	PreviewRoutineSchedule(w http.ResponseWriter, r *http.Request)
@@ -60706,6 +61425,67 @@ func (siw *ServerInterfaceWrapper) PutRepo(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// GetRoleRouting operation middleware
+func (siw *ServerInterfaceWrapper) GetRoleRouting(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRoleRouting(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutRoleRouting operation middleware
+func (siw *ServerInterfaceWrapper) PutRoleRouting(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutRoleRouting(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRoleMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetRoleMetrics(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetRoleMetricsParams
+
+	// ------------- Optional query parameter "since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "since", r.URL.Query(), &params.Since, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRoleMetrics(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PreviewRoutineSchedule operation middleware
 func (siw *ServerInterfaceWrapper) PreviewRoutineSchedule(w http.ResponseWriter, r *http.Request) {
 
@@ -62418,6 +63198,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/routines/{routine_id}/runs", wrapper.ListRoutineRuns)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/runs", wrapper.RunRoutine)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/routines/{routine_id}/grants/{integration}/{label}/{action}", wrapper.RevokeRoutineGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/role-routing", wrapper.GetRoleRouting)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/role-routing", wrapper.PutRoleRouting)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/role-routing/metrics", wrapper.GetRoleMetrics)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles", wrapper.ListProfiles)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/profiles/{name}", wrapper.DeleteProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
@@ -70293,6 +71076,116 @@ func (response PutRepodefaultJSONResponse) VisitPutRepoResponse(w http.ResponseW
 	return err
 }
 
+type GetRoleRoutingRequestObject struct {
+}
+
+type GetRoleRoutingResponseObject interface {
+	VisitGetRoleRoutingResponse(w http.ResponseWriter) error
+}
+
+type GetRoleRouting200JSONResponse Source
+
+func (response GetRoleRouting200JSONResponse) VisitGetRoleRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRoleRoutingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetRoleRoutingdefaultJSONResponse) VisitGetRoleRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutRoleRoutingRequestObject struct {
+	Body *PutRoleRoutingJSONRequestBody
+}
+
+type PutRoleRoutingResponseObject interface {
+	VisitPutRoleRoutingResponse(w http.ResponseWriter) error
+}
+
+type PutRoleRouting204Response struct {
+}
+
+func (response PutRoleRouting204Response) VisitPutRoleRoutingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type PutRoleRoutingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutRoleRoutingdefaultJSONResponse) VisitPutRoleRoutingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRoleMetricsRequestObject struct {
+	Params GetRoleMetricsParams
+}
+
+type GetRoleMetricsResponseObject interface {
+	VisitGetRoleMetricsResponse(w http.ResponseWriter) error
+}
+
+type GetRoleMetrics200JSONResponse []RoleMetric
+
+func (response GetRoleMetrics200JSONResponse) VisitGetRoleMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRoleMetricsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetRoleMetricsdefaultJSONResponse) VisitGetRoleMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PreviewRoutineScheduleRequestObject struct {
 	Body *PreviewRoutineScheduleJSONRequestBody
 }
@@ -72854,6 +73747,15 @@ type StrictServerInterface interface {
 	// PutRepo Register a repository under a name, or change what the name means; only the owner
 	// (PUT /repos/{name})
 	PutRepo(ctx context.Context, request PutRepoRequestObject) (PutRepoResponseObject, error)
+	// GetRoleRouting The worker role and kind mapping
+	// (GET /role-routing)
+	GetRoleRouting(ctx context.Context, request GetRoleRoutingRequestObject) (GetRoleRoutingResponseObject, error)
+	// PutRoleRouting Validate and replace the worker role and kind mapping; only the owner
+	// (PUT /role-routing)
+	PutRoleRouting(ctx context.Context, request PutRoleRoutingRequestObject) (PutRoleRoutingResponseObject, error)
+	// GetRoleMetrics Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+	// (GET /role-routing/metrics)
+	GetRoleMetrics(ctx context.Context, request GetRoleMetricsRequestObject) (GetRoleMetricsResponseObject, error)
 	// PreviewRoutineSchedule A schedule in words and its next three times, as a Routine made now would have them
 	// (POST /routine-schedule)
 	PreviewRoutineSchedule(ctx context.Context, request PreviewRoutineScheduleRequestObject) (PreviewRoutineScheduleResponseObject, error)
@@ -78655,6 +79557,87 @@ func (sh *strictHandler) PutRepo(w http.ResponseWriter, r *http.Request, name Na
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutRepoResponseObject); ok {
 		if err := validResponse.VisitPutRepoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRoleRouting operation middleware
+func (sh *strictHandler) GetRoleRouting(w http.ResponseWriter, r *http.Request) {
+	var request GetRoleRoutingRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRoleRouting(ctx, request.(GetRoleRoutingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRoleRouting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRoleRoutingResponseObject); ok {
+		if err := validResponse.VisitGetRoleRoutingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutRoleRouting operation middleware
+func (sh *strictHandler) PutRoleRouting(w http.ResponseWriter, r *http.Request) {
+	var request PutRoleRoutingRequestObject
+
+	var body PutRoleRoutingJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutRoleRouting(ctx, request.(PutRoleRoutingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutRoleRouting")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutRoleRoutingResponseObject); ok {
+		if err := validResponse.VisitPutRoleRoutingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRoleMetrics operation middleware
+func (sh *strictHandler) GetRoleMetrics(w http.ResponseWriter, r *http.Request, params GetRoleMetricsParams) {
+	var request GetRoleMetricsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRoleMetrics(ctx, request.(GetRoleMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRoleMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRoleMetricsResponseObject); ok {
+		if err := validResponse.VisitGetRoleMetricsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -52,7 +52,7 @@ func TestAWorkersPhoneCallGoesToTheNodeThatHoldsThePhone(t *testing.T) {
 	held.mu.Lock()
 	defer held.mu.Unlock()
 
-	assert.Equal(t, []string{`d-dsp_1 device_tap {"target":"#4"}`}, held.calls)
+	assert.Equal(t, []string{`d-` + r.dispatch + ` device_tap {"target":"#4"}`}, held.calls)
 }
 
 // Scenario: the node that holds the phone goes away while it runs a call,
@@ -97,6 +97,7 @@ func TestAPhoneCallFailsAtOnceWhenItsNodeGoesAway(t *testing.T) {
 type phoneRig struct {
 	srv      *httptest.Server
 	key      string
+	dispatch string
 	stopNode func()
 }
 
@@ -159,10 +160,36 @@ func newPhoneRig(t *testing.T, held *fakePhone) *phoneRig {
 		return !errors.Is(err, orchestration.ErrUnavailable)
 	}, wait, 20*time.Millisecond)
 
-	key, err := svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	key, dispatch := phoneDispatch(t, svc)
+
+	return &phoneRig{srv: srv, key: key, dispatch: dispatch, stopNode: stop}
+}
+
+func phoneDispatch(t *testing.T, svc *orchestration.Service) (key, dispatch string) {
+	t.Helper()
+	ctx := t.Context()
+	_, err := svc.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
+	require.NoError(t, err)
+	_, _, err = svc.ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\n"+
+		"model: {provider: gateway}\ntools: [phone]\n")
+	require.NoError(t, err)
+	node, _, err := svc.AddNode(ctx, "worker", 1)
+	require.NoError(t, err)
+	require.NoError(t, svc.NodeHello(ctx, node.ID, orchestration.Hello{WorktreeRoot: "/srv/wt",
+		Runtimes: []orchestration.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}}}))
+	require.NoError(t, svc.NodeHeartbeat(ctx, node.ID))
+	run, err := svc.CreateRun(ctx, orchestration.NewRun{Objective: "test the phone", CreatedBy: "test"})
+	require.NoError(t, err)
+	_, err = svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{{Ref: "phone", Spec: "test the phone"}})
+	require.NoError(t, err)
+	scheduled, err := svc.Schedule(ctx)
+	require.NoError(t, err)
+	require.Len(t, scheduled.Created, 1)
+	dispatch = scheduled.Created[0]
+	key, err = svc.AddAgentSession(ctx, dispatch, nil)
 	require.NoError(t, err)
 
-	return &phoneRig{srv: srv, key: key, stopNode: stop}
+	return key, dispatch
 }
 
 // call is a worker's phone call through the agent API: its answer and status.

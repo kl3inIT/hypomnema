@@ -18,6 +18,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // Profiles (issue #42), after Omnara's agent configs and profiles: a profile
@@ -93,9 +94,11 @@ func GatewayModelName(kind, provider, model string) string {
 	return model
 }
 
-// PiProvider is the one provider of pi's models.json (clientcli pi-models): every model the gateway serves, each
+// PiProvider is the default provider of pi's models.json (clientcli pi-models): every model the gateway serves, each
 // under its gateway name with the wire of its subscription (issue #549).
 const PiProvider = "hypomnema"
+
+const PiFallbackProvider = "hypomnema-fallback"
 
 // PiModel is a chat's model as pi names it: the gateway's name under PiProvider when the gateway serves it, as it
 // was otherwise.
@@ -204,11 +207,9 @@ type Profile struct {
 	// (issue #21).
 	Skills    []string
 	SkillsOff []string
-	// Tools are the only control-plane tools its workers get, when any is
-	// named, and ToolsOff those they never get, each a name or a family
-	// (issue #536; agenttool.ToolSwitches).
-	Tools    []string
-	ToolsOff []string
+	Preset    string
+	Tools     []string
+	ToolsOff  []string
 	// CPURequestMillis and MemoryRequestBytes are what a worker of the profile
 	// asks of a node, from the YAML's requests (issue #731); 0 is the default
 	// for building work, DefaultCPURequestMillis or DefaultMemoryRequest.
@@ -266,6 +267,7 @@ type profileSource struct {
 	Fallbacks   []string `yaml:"fallbacks"`
 	Skills      []string `yaml:"skills"`
 	SkillsOff   []string `yaml:"skills_off"`
+	Preset      string   `yaml:"preset"`
 	Tools       []string `yaml:"tools"`
 	ToolsOff    []string `yaml:"tools_off"`
 	// Requests is what a worker asks of a node (issue #731; requests.go).
@@ -322,7 +324,7 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 	p := Profile{
 		Name: in.Name, Description: strings.TrimSpace(in.Description), Runtime: in.Runtime,
 		Instruction: in.Instruction, Fallbacks: in.Fallbacks, Skills: in.Skills, SkillsOff: in.SkillsOff, Tools: in.Tools,
-		ToolsOff: in.ToolsOff, Source: source,
+		Preset: agenttool.DefaultPreset(in.Preset), ToolsOff: in.ToolsOff, Source: source,
 	}
 	if in.Model != nil {
 		p.Provider, p.Model, p.Effort = in.Model.Provider, in.Model.Name, in.Model.Effort
@@ -364,9 +366,17 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			return err
 		}
 
-		provider, err := checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
-		if err != nil {
-			return fmt.Errorf("profile %s: %w", p.Name, err)
+		provider := ""
+		if p.Runtime == "" && slices.Contains(roles, p.Name) {
+			if in.Model != nil || len(p.Fallbacks) != 0 {
+				return fmt.Errorf("%w: role %s uses role routing, not a profile model or fallbacks", ErrInvalid, p.Name)
+			}
+		} else {
+			var err error
+			provider, err = checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
+			if err != nil {
+				return fmt.Errorf("profile %s: %w", p.Name, err)
+			}
 		}
 
 		if err := checkFallbacks(ctx, q, p); err != nil {
@@ -377,7 +387,7 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			return fmt.Errorf("profile %s: %w", p.Name, err)
 		}
 
-		if err := checkTools(p.Tools, p.ToolsOff); err != nil {
+		if err := checkTools(p.Preset, p.Tools, p.ToolsOff); err != nil {
 			return fmt.Errorf("profile %s: %w", p.Name, err)
 		}
 
@@ -394,6 +404,7 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			return fmt.Errorf("reading profile %s: %w", p.Name, err)
 		case current.Digest == digest && !current.deleted:
 			out = profileFromRow(current.ProfileVersion)
+			out.Source = editableProfileSource(out)
 
 			return nil
 		}
@@ -413,11 +424,11 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 
 		if err := q.InsertProfileVersion(ctx, store.InsertProfileVersionParams{
 			ID: id, Profile: p.Name, Version: current.Version + 1, Source: source, Digest: digest, Description: p.Description,
-			Runtime: p.Runtime, Provider: nullString(p.Provider), Model: nullString(p.Model),
+			Runtime: or(p.Runtime, roleRuntime), Provider: nullString(p.Provider), Model: nullString(p.Model),
 			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction),
 			Fallbacks: strings.Join(p.Fallbacks, ","), Skills: strings.Join(p.Skills, ","),
 			SkillsOff: strings.Join(p.SkillsOff, ","), Tools: strings.Join(p.Tools, ","),
-			ToolsOff: strings.Join(p.ToolsOff, ","), CpuRequestMillis: positive(p.CPURequestMillis),
+			Preset: p.Preset, ToolsOff: strings.Join(p.ToolsOff, ","), CpuRequestMillis: positive(p.CPURequestMillis),
 			MemoryRequestBytes: positive(p.MemoryRequestBytes), Now: now,
 		}); err != nil {
 			return fmt.Errorf("inserting a version of profile %s: %w", p.Name, err)
@@ -675,11 +686,54 @@ func (s *Service) GetProfile(ctx context.Context, name string) (Profile, error) 
 	}
 
 	out := []Profile{profileFromRow(row)}
+	out[0].Source = editableProfileSource(out[0])
 	if err := s.withAvailability(ctx, out); err != nil {
 		return Profile{}, err
 	}
 
 	return out[0], nil
+}
+
+// editableProfileSource projects a migrated tool policy into the editor without rewriting the version's history.
+func editableProfileSource(p Profile) string {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(p.Source), &doc); err != nil || len(doc.Content) != 1 {
+		return p.Source
+	}
+
+	root := doc.Content[0]
+	var source profileSource
+	if root.Kind != yaml.MappingNode || root.Decode(&source) != nil ||
+		agenttool.DefaultPreset(source.Preset) == p.Preset && slices.Equal(source.Tools, p.Tools) &&
+			slices.Equal(source.ToolsOff, p.ToolsOff) {
+		return p.Source
+	}
+
+	var policy yaml.Node
+	if err := policy.Encode(struct {
+		Preset string   `yaml:"preset"`
+		On     []string `yaml:"tools,omitempty"`
+		Off    []string `yaml:"tools_off,omitempty"`
+	}{p.Preset, p.Tools, p.ToolsOff}); err != nil {
+		return p.Source
+	}
+
+	keys := make([]*yaml.Node, 0, len(root.Content)+len(policy.Content))
+	for index := 0; index < len(root.Content); index += 2 {
+		switch root.Content[index].Value {
+		case "preset", "tools", "tools_off":
+		default:
+			keys = append(keys, root.Content[index:index+2]...)
+		}
+	}
+
+	root.Content = append(keys, policy.Content...)
+	raw, err := yaml.Marshal(&doc)
+	if err != nil {
+		return p.Source
+	}
+
+	return string(raw)
 }
 
 // withAvailability says of each profile whether a worker can start under it
@@ -694,6 +748,9 @@ func (s *Service) withAvailability(ctx context.Context, profiles []Profile) erro
 	}
 
 	for i, pr := range profiles {
+		if pr.Runtime == "" {
+			continue
+		}
 		gateway, accounts := false, ""
 
 		if pr.Provider != "" {
@@ -744,19 +801,25 @@ func (s *Service) ListProfileVersions(ctx context.Context, name string) ([]Profi
 
 	out := make([]Profile, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, profileFromRow(r))
+		profile := profileFromRow(r)
+		profile.Source = editableProfileSource(profile)
+		out = append(out, profile)
 	}
 
 	return out, nil
 }
 
 func profileFromRow(v store.ProfileVersion) Profile {
+	runtime := v.Runtime
+	if runtime == roleRuntime {
+		runtime = ""
+	}
 	return Profile{
-		Name: v.Profile, Description: v.Description, VersionID: v.ID, Version: int(v.Version), Runtime: v.Runtime,
+		Name: v.Profile, Description: v.Description, VersionID: v.ID, Version: int(v.Version), Runtime: runtime,
 		Provider: v.Provider.String,
 		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
 		Fallbacks: splitNames(v.Fallbacks), Skills: splitNames(v.Skills), SkillsOff: splitNames(v.SkillsOff),
-		Tools: splitNames(v.Tools), ToolsOff: splitNames(v.ToolsOff), CreatedAt: millis(v.CreatedAt),
+		Preset: v.Preset, Tools: splitNames(v.Tools), ToolsOff: splitNames(v.ToolsOff), CreatedAt: millis(v.CreatedAt),
 		CPURequestMillis: v.CpuRequestMillis.Int64, MemoryRequestBytes: v.MemoryRequestBytes.Int64,
 	}
 }
@@ -1215,10 +1278,30 @@ func (s *Service) ListModels(ctx context.Context) ([]Model, error) {
 }
 
 // checkTaskProfile checks a new Task's profile and its overrides together.
-func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask) error {
+func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask, vendor string) error {
 	v, err := q.CurrentProfileVersion(ctx, nt.Profile)
 	if err != nil {
 		return fmt.Errorf("task %q: %w", nt.Ref, missingProfile(ctx, q, err, nt.Profile))
+	}
+	if v.Runtime == roleRuntime || vendor != "" {
+		if nt.Profile == "reviewer" && nt.ReviewOf == "" {
+			return fmt.Errorf("%w: reviewer Task %q needs review_of", ErrInvalid, nt.Ref)
+		}
+		if nt.Effort != "" && !slices.Contains(Efforts, nt.Effort) {
+			return fmt.Errorf("%w: unknown effort %q", ErrInvalid, nt.Effort)
+		}
+		if nt.Runtime != "" || nt.Model != "" {
+			task := store.Task{Profile: nt.Profile, Kind: nt.Kind, AuthorVendor: vendor,
+				Runtime: nullString(nt.Runtime), Model: nullString(nt.Model), Effort: nullString(nt.Effort)}
+			chain, err := chosenRoleChain(ctx, q, task)
+			if err != nil {
+				return err
+			}
+			if len(chain) == 0 {
+				return fmt.Errorf("%w: requested runtime %s is not in the Task's role chain", ErrInvalid, nt.Runtime)
+			}
+		}
+		return nil
 	}
 
 	if nt.Runtime == "" && nt.Model == "" && nt.Effort == "" {
@@ -1258,7 +1341,9 @@ type resolved struct {
 	// handoff says the backup takes over work another worker began.
 	handoff bool
 	// req is what a worker of the profile version asks of a node (issue #731).
-	req request
+	req        request
+	chain      []roleEntry
+	chainIndex int
 }
 
 func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, error) {
@@ -1276,6 +1361,24 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 	case errors.Is(err, sql.ErrNoRows):
 	case err != nil:
 		return resolved{}, fmt.Errorf("reading the last dispatch of task %s: %w", task.ID, err)
+	case last.RoleChain != "":
+		chain, err := dispatchRoleChain(last)
+		if err != nil {
+			return resolved{}, err
+		}
+		version, err := q.GetProfileVersion(ctx, last.ProfileVersionID.String)
+		if err != nil {
+			return resolved{}, notFound(err, "profile version", last.ProfileVersionID.String)
+		}
+		r, err := resolveRoleEntry(ctx, q, version, task, chain, int(last.ChainEntry.Int64)-1)
+		r.fallbackFor, r.fallbackUntil = last.FallbackFor.String, last.FallbackUntil.Int64
+		return r, err
+	case v.Runtime == roleRuntime && last.ProfileVersionID.Valid:
+		version, err := q.GetProfileVersion(ctx, last.ProfileVersionID.String)
+		if err != nil {
+			return resolved{}, notFound(err, "profile version", last.ProfileVersionID.String)
+		}
+		return resolveVersion(ctx, q, task, version)
 	case last.FallbackFor.Valid && last.ProfileVersionID.Valid:
 		conv, open, err := openConversation(ctx, q, task.ID)
 		if err != nil {
@@ -1293,6 +1396,16 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 
 			return r, err
 		}
+	}
+	if v.Runtime == roleRuntime || task.AuthorVendor != "" {
+		chain, err := chosenRoleChain(ctx, q, task)
+		if err != nil {
+			return resolved{}, err
+		}
+		if len(chain) == 0 {
+			return resolved{}, fmt.Errorf("%w: no entry for %s/%s matches the Task", errRoleEntry, task.Profile, task.Kind)
+		}
+		return resolveRoleEntry(ctx, q, v, task, chain, 0)
 	}
 
 	return resolveVersion(ctx, q, task, v)

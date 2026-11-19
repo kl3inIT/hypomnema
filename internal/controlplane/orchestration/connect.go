@@ -187,6 +187,7 @@ type Offer struct {
 	TaskID     string `json:"task_id"`
 	RunID      string `json:"run_id"`
 	Profile    string `json:"profile"`
+	RoleRouted bool   `json:"role_routed,omitempty"`
 	// Instruction is the profile's, added to the worker's built-in instructions.
 	Instruction string `json:"instruction,omitempty"`
 	// Memory is what the agent keeps across its workers, and OwnerMemory what
@@ -383,8 +384,9 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 	return Offer{
 		ModelAPI:   api,
 		DispatchID: d.ID, TaskID: task.ID, RunID: run.ID, Profile: task.Profile, Instruction: instruction,
-		Spec: spec,
-		Repo: run.Repo.String, RepoHost: host, RepoKind: kind, RepoSSHURL: sshURL,
+		RoleRouted: d.ChainEntry.Valid,
+		Spec:       spec,
+		Repo:       run.Repo.String, RepoHost: host, RepoKind: kind, RepoSSHURL: sshURL,
 		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
 		Model: d.Model.String, Effort: d.Effort.String, Uses: splitUses(run.Uses), Skills: skills,

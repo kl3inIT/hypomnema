@@ -134,6 +134,10 @@ func (s *Server) gatewayTools(ctx context.Context, a agent) []string {
 		return nil
 	}
 
+	return s.configuredGatewayTools(ctx, named)
+}
+
+func (s *Server) configuredGatewayTools(ctx context.Context, named []string) []string {
 	var out []string
 
 	museOn := s.museOn(ctx)

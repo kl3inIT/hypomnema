@@ -45,9 +45,9 @@ UPDATE profiles SET updated_at = @now, deleted_at = @now WHERE name = @name;
 -- name: InsertProfileVersion :exec
 INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
                               instruction, fallbacks, skills, skills_off, tools, tools_off, cpu_request_millis,
-                              memory_request_bytes, created_at)
+                              memory_request_bytes, preset, created_at)
 VALUES (@id, @profile, @version, @source, @digest, @description, @runtime, @provider, @model, @effort, @instruction,
-        @fallbacks, @skills, @skills_off, @tools, @tools_off, @cpu_request_millis, @memory_request_bytes, @now);
+        @fallbacks, @skills, @skills_off, @tools, @tools_off, @cpu_request_millis, @memory_request_bytes, @preset, @now);
 
 -- name: GetProfileVersion :one
 SELECT * FROM profile_versions WHERE id = @id;
@@ -99,8 +99,11 @@ WHERE t.profile = @profile
 SELECT name FROM bots WHERE workers IS NOT NULL AND ',' || workers || ',' LIKE '%,' || @profile || ',%' ORDER BY name;
 
 -- name: ToolSwitchesOfDispatch :one
--- The tool switches of the profile version a Dispatch runs with (issue #536); none for one made before profiles.
-SELECT v.tools, v.tools_off FROM dispatches d JOIN profile_versions v ON v.id = d.profile_version_id
+SELECT coalesce(v.preset, 'full') AS preset, coalesce(v.tools, '') AS tools, coalesce(v.tools_off, '') AS tools_off,
+       coalesce(r.bot_id, '') AS bot_id, coalesce(b.preset, '') AS bot_preset,
+       coalesce(b.tools, '') AS bot_tools, coalesce(b.tools_off, '') AS bot_tools_off
+FROM dispatches d JOIN tasks t ON t.id = d.task_id JOIN runs r ON r.id = t.run_id
+LEFT JOIN profile_versions v ON v.id = d.profile_version_id LEFT JOIN bots b ON b.id = r.bot_id
 WHERE d.id = @dispatch_id;
 
 -- name: DeleteProvider :execrows

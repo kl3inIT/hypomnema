@@ -39,7 +39,8 @@ type accounts struct {
 	// quota is what the vendor says is left of each account's quota per model.
 	quota map[string]map[string]float64
 
-	refreshes int
+	refreshes  int
+	refreshErr error
 	// cooling and reason are the last cooldown; cooled holds each account's,
 	// and waits how long each one was, in order.
 	cooling   time.Time
@@ -104,6 +105,9 @@ func (a *accounts) TokenAfterRefusal(
 	a.mu.Lock()
 	a.refreshes++
 	a.mu.Unlock()
+	if a.refreshErr != nil {
+		return modelgateway.AccountToken{}, a.refreshErr
+	}
 
 	// The same account, whatever comes before it.
 	all := a.ids

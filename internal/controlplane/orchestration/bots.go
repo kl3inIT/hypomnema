@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // DefaultBotID is the id of the main Bot, the one that is always there: a chat that names no other talks with it,
@@ -55,23 +57,22 @@ const (
 // Profile, which is a worker's recipe.
 type Bot struct {
 	// ID never changes; Name is shown and may change (issue #466).
-	ID       string
-	Name     string
-	Provider string
-	Model    string
-	Effort   string
-	Persona  string
+	ID        string
+	Name      string
+	Provider  string
+	Model     string
+	Fallbacks []string
+	Effort    string
+	Persona   string
 	// Memory is the Bot's entries, one per line.
 	Memory string
 	// Skills are the skills the Bot gets beside those given to everyone;
 	// SkillsOff the ones given to everyone it does not get (issue #21).
 	Skills    []string
 	SkillsOff []string
-	// Tools are the only control-plane tools its pi gets, when any is named,
-	// and ToolsOff those it never gets, each a name or a family (issue #536;
-	// agenttool.ToolSwitches).
-	Tools    []string
-	ToolsOff []string
+	Preset    string
+	Tools     []string
+	ToolsOff  []string
 	// Connections are the Connections the Bot may use and Workers the
 	// profiles it may give work to (issue #169, part 3; botaccess.go).
 	Connections AllowList
@@ -97,9 +98,10 @@ type Bot struct {
 func botFromRow(r store.Bot) Bot {
 	return Bot{
 		ID: r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
-		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
-		Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff), Connections: allowListOf(r.Connections),
-		Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
+		Fallbacks: splitNames(r.Fallbacks),
+		Persona:   r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
+		Preset: r.Preset, Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff),
+		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
 		GuaranteedDispatches: int(r.GuaranteedDispatches.Int64),
 		Position:             int(r.Position), Pinned: r.Pinned != 0, Scopes: scopesOf(r.ConnectionScopes),
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
@@ -301,16 +303,96 @@ func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
 	}
 
 	b.Provider = provider
+	b.Preset = agenttool.DefaultPreset(b.Preset)
+
+	if err := checkBotFallbacks(ctx, q, b); err != nil {
+		return err
+	}
 
 	if err := checkSkills(ctx, q, b.Skills, b.SkillsOff); err != nil {
 		return err
 	}
 
-	if err := checkTools(b.Tools, b.ToolsOff); err != nil {
+	if err := checkTools(b.Preset, b.Tools, b.ToolsOff); err != nil {
 		return err
 	}
 
 	return checkAllowLists(ctx, q, *b, had)
+}
+
+func checkBotFallbacks(ctx context.Context, q *store.Queries, b *Bot) error {
+	if len(b.Fallbacks) == 0 {
+		return nil
+	}
+	if len(b.Fallbacks) > MaxFallbacks {
+		return fmt.Errorf("%w: a bot can have at most %d fallbacks", ErrInvalid, MaxFallbacks)
+	}
+	if b.Model == "" {
+		return fmt.Errorf("%w: choose a primary model before adding fallbacks", ErrInvalid)
+	}
+
+	primary, err := gatewayBotModel(ctx, q, b.Provider, b.Model)
+	if err != nil {
+		return err
+	}
+
+	seen := map[string]bool{primary: true}
+	for _, ref := range b.Fallbacks {
+		provider, model, _ := strings.Cut(ref, "/")
+		if provider == "" || model == "" || strings.ContainsAny(ref, ",\r\n") || strings.TrimSpace(ref) != ref {
+			return fmt.Errorf("%w: fallback %q must be provider/model", ErrInvalid, ref)
+		}
+		if _, err := checkModel(ctx, q, botRuntime, provider, model, ""); err != nil {
+			return err
+		}
+		name, err := gatewayBotModel(ctx, q, provider, model)
+		if err != nil {
+			return err
+		}
+		if seen[name] {
+			return fmt.Errorf("%w: fallback %q repeats a model in the chain", ErrInvalid, ref)
+		}
+		seen[name] = true
+	}
+	return nil
+}
+
+func gatewayBotModel(ctx context.Context, q *store.Queries, provider, model string) (string, error) {
+	row, err := q.GetProvider(ctx, provider)
+	if err != nil {
+		return "", notFound(err, "provider", provider)
+	}
+	if !throughGateway(row.Kind) {
+		return "", fmt.Errorf("%w: bot fallbacks require gateway models; %s/%s is not one", ErrInvalid, provider, model)
+	}
+	return GatewayModelName(row.Kind, provider, model), nil
+}
+
+func (s *Service) ChatFallbacks(ctx context.Context, chatID, requested string) ([]string, error) {
+	chat, err := s.GetChat(ctx, chatID)
+	if err != nil || chat.Choice.Model != "" {
+		return nil, err
+	}
+	bot, err := s.GetBot(ctx, chat.Bot)
+	if err != nil || len(bot.Fallbacks) == 0 {
+		return nil, err
+	}
+	primary, err := s.PiModel(ctx, ChatModel{Provider: bot.Provider, Model: bot.Model})
+	if err != nil || primary.Provider != PiProvider || primary.Model != requested {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(bot.Fallbacks))
+	for _, ref := range bot.Fallbacks {
+		provider, model, _ := strings.Cut(ref, "/")
+		name, err := gatewayBotModel(ctx, s.read(), provider, model)
+		if err == nil {
+			names = append(names, name)
+		} else if !errors.Is(err, ErrNotFound) && !errors.Is(err, ErrInvalid) {
+			return nil, err
+		}
+	}
+	return names, nil
 }
 
 func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
@@ -320,9 +402,11 @@ func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 
 	err := q.InsertBot(ctx, store.InsertBotParams{
 		ID: b.ID, Name: b.Name, Provider: nullString(b.Provider), Model: nullString(b.Model),
-		Effort: nullString(b.Effort), Persona: b.Persona, Skills: strings.Join(b.Skills, ","),
+		Fallbacks: strings.Join(b.Fallbacks, ","),
+		Effort:    nullString(b.Effort), Persona: b.Persona, Skills: strings.Join(b.Skills, ","),
 		SkillsOff: strings.Join(b.SkillsOff, ","), Tools: strings.Join(b.Tools, ","),
-		ToolsOff: strings.Join(b.ToolsOff, ","), Connections: b.Connections.stored(), Workers: b.Workers.stored(),
+		Preset: agenttool.DefaultPreset(b.Preset), ToolsOff: strings.Join(b.ToolsOff, ","),
+		Connections: b.Connections.stored(), Workers: b.Workers.stored(),
 		ToolDisplay: string(b.ToolDisplay), ConnectionScopes: storedScopes(b.Scopes),
 		GuaranteedDispatches: storedLimit(b.GuaranteedDispatches), Now: now,
 	})
@@ -340,8 +424,9 @@ func updateBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 
 	return q.UpdateBot(ctx, store.UpdateBotParams{
 		Provider: nullString(b.Provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
-		Persona: b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
-		Tools: strings.Join(b.Tools, ","), ToolsOff: strings.Join(b.ToolsOff, ","),
+		Fallbacks: strings.Join(b.Fallbacks, ","),
+		Persona:   b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
+		Preset: agenttool.DefaultPreset(b.Preset), Tools: strings.Join(b.Tools, ","), ToolsOff: strings.Join(b.ToolsOff, ","),
 		Connections: b.Connections.stored(), Workers: b.Workers.stored(), ToolDisplay: string(b.ToolDisplay),
 		ConnectionScopes: storedScopes(b.Scopes), GuaranteedDispatches: storedLimit(b.GuaranteedDispatches), Now: now,
 		ID: b.ID,

@@ -149,6 +149,8 @@ type Bot struct {
 	ToolsOff             string
 	ConnectionScopes     sql.NullString
 	GuaranteedDispatches sql.NullInt64
+	Fallbacks            string
+	Preset               string
 }
 
 type Channel struct {
@@ -332,6 +334,8 @@ type Dispatch struct {
 	FollowUpID       sql.NullString
 	CpuMillis        int64
 	MemoryBytes      int64
+	RoleChain        string
+	ChainEntry       sql.NullInt64
 }
 
 type DispatchEffect struct {
@@ -721,6 +725,7 @@ type ProfileVersion struct {
 	ToolsOff           string
 	CpuRequestMillis   sql.NullInt64
 	MemoryRequestBytes sql.NullInt64
+	Preset             string
 }
 
 type Provider struct {
@@ -775,6 +780,11 @@ type Repo struct {
 
 type RestartBoot struct {
 	At int64
+}
+
+type RoleRouting struct {
+	ID     int64
+	Source string
 }
 
 type Routine struct {
@@ -941,6 +951,8 @@ type Task struct {
 	NotBefore         sql.NullInt64
 	CancelRequestedAt sql.NullInt64
 	WaitingReason     sql.NullString
+	Kind              string
+	AuthorVendor      string
 }
 
 type TaskDep struct {
