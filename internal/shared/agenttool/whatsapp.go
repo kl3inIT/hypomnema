@@ -16,6 +16,8 @@ type WhatsAppSendCall struct {
 	ReplyTo  string `json:"reply_to,omitempty"`
 	File     []byte `json:"file,omitempty"`
 	FileName string `json:"file_name,omitempty"`
+	// Mentions are the members a whatsapp_send tags, by their ids as whatsapp_messages gives a sender (issue #852).
+	Mentions []string `json:"mentions,omitempty"`
 }
 
 // SendsAFile says a tool sends a file of the folder the agent works in, which its tools server reads into

@@ -3,7 +3,8 @@ package whatsapp
 // Sending as the owner (issue #645), as wacli sends (internal/wa/send.go, cmd/wacli/send_file.go, send.go): a text
 // as a conversation message; a file uploaded as an image, a video, an audio or a document by its type
 // (resolveSendMediaType, detectSendFileMIME), with the text as its caption; a reply quotes the message it answers
-// with its sender (buildTextReplyContextInfo). What is sent is kept in the mirror as the owner's, as wacli stores
+// with its sender (buildTextReplyContextInfo); members tagged are listed in the same context's MentionedJID, as
+// mautrix-whatsapp sends a mention (pkg/msgconv/from-matrix.go: generateContextInfo, convertPill), issue #852. What is sent is kept in the mirror as the owner's, as wacli stores
 // what it sends: a linked device is not sent back its own messages. Whether it may be sent at all is the control
 // plane's decision (serviceproxy.Judge), made before this is called.
 
@@ -14,6 +15,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,16 +38,21 @@ func (a *account) Send(ctx context.Context, out messaging.Outgoing) (messaging.M
 		return messaging.Message{}, errors.New("whatsapp: a message needs a text or a file")
 	}
 
-	if !a.client.IsConnected() {
-		return messaging.Message{}, errors.New("whatsapp: the session is not connected now; try again later")
-	}
-
-	quote, err := a.quote(ctx, chat, out.ReplyTo)
+	mentioned, err := mentionJIDs(out.Text, out.Mentions)
 	if err != nil {
 		return messaging.Message{}, err
 	}
 
-	msg, err := a.build(ctx, out, quote)
+	if !a.client.IsConnected() {
+		return messaging.Message{}, errors.New("whatsapp: the session is not connected now; try again later")
+	}
+
+	info, err := a.contextInfo(ctx, chat, out.ReplyTo, mentioned)
+	if err != nil {
+		return messaging.Message{}, err
+	}
+
+	msg, err := a.build(ctx, out, info)
 	if err != nil {
 		return messaging.Message{}, err
 	}
@@ -80,6 +87,61 @@ func (a *account) Send(ctx context.Context, out messaging.Outgoing) (messaging.M
 		QuotedID: out.ReplyTo, FileName: out.FileName}, nil
 }
 
+// contextInfo is what a message says of its context: the message it quotes and the members it tags, or nil when
+// it does neither.
+func (a *account) contextInfo(ctx context.Context, chat types.JID, replyTo string, mentioned []string,
+) (*waE2E.ContextInfo, error) {
+	info, err := a.quote(ctx, chat, replyTo)
+	if err != nil || len(mentioned) == 0 {
+		return info, err
+	}
+
+	if info == nil {
+		info = &waE2E.ContextInfo{}
+	}
+
+	info.MentionedJID = mentioned
+
+	return info, nil
+}
+
+// mentionJIDs are the JIDs of the members a message tags, given by a JID (a number's or a LID) or a bare number,
+// once its text writes @ and each one's user part; a member it does not write is refused rather than sent untagged.
+func mentionJIDs(text string, mentions []string) ([]string, error) {
+	if missing := messaging.UntaggedMentions(text, mentions); len(missing) > 0 {
+		return nil, fmt.Errorf("whatsapp: the text does not write @%s for %s: a member is tagged only where the "+
+			"text writes @ and the number of their id", messaging.MentionUser(missing[0]), missing[0])
+	}
+
+	jids := make([]string, 0, len(mentions))
+
+	for _, id := range mentions {
+		id = strings.TrimSpace(id)
+
+		jid := types.NewJID(messaging.MentionUser(id), types.DefaultUserServer)
+		if strings.Contains(id, "@") {
+			parsed, err := types.ParseJID(id)
+			if err != nil {
+				return nil, fmt.Errorf("whatsapp: %q is not a member's id", id)
+			}
+
+			jid = parsed.ToNonAD()
+		}
+
+		if (jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer) ||
+			strings.Trim(jid.User, "0123456789") != "" {
+			return nil, fmt.Errorf("whatsapp: %q is not a member's id: give it as whatsapp_messages gives a "+
+				"sender, such as 84339013010@s.whatsapp.net or 168453096898812@lid", id)
+		}
+
+		if !slices.Contains(jids, jid.String()) {
+			jids = append(jids, jid.String())
+		}
+	}
+
+	return jids, nil
+}
+
 // quote is the context of a reply: the message answered and who sent it, as the mirror keeps it.
 func (a *account) quote(ctx context.Context, chat types.JID, replyTo string) (*waE2E.ContextInfo, error) {
 	replyTo = strings.TrimSpace(replyTo)
@@ -105,7 +167,7 @@ func (a *account) quote(ctx context.Context, chat types.JID, replyTo string) (*w
 	}, nil
 }
 
-// build is the message: a text, or a file uploaded with its caption.
+// build is the message: a text, or a file uploaded with its caption, in the context given (a quote, mentions).
 func (a *account) build(ctx context.Context, out messaging.Outgoing, quote *waE2E.ContextInfo) (*waE2E.Message, error) {
 	if len(out.File) == 0 {
 		if quote == nil {

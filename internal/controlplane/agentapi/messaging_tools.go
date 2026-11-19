@@ -41,6 +41,8 @@ type messagingService struct {
 	chats, messages, media, history, send string
 	chatsAbout, historyAbout              string
 	historyStart, historyNone             string
+	// tags says its send tags members of a group (mentions, issue #852): WhatsApp's does.
+	tags bool
 }
 
 // messagingServices are the services whose accounts Bots use; their tools are named after them.
@@ -54,6 +56,7 @@ var messagingServices = []messagingService{
 			"(50 by default, 500 at most), and keep them. The phone must be online; it decides what it sends.",
 		historyStart: "The phone says the chat has none older: this is its start.",
 		historyNone:  "Nothing older came: the owner's phone may hold no more of this chat.",
+		tags:         true,
 	},
 	{
 		integration: "zalo", name: "Zalo",
@@ -180,6 +183,29 @@ func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
 	chat := map[string]any{"type": "string", "description": "The chat's id, as " + m.chats + " lists it."}
 	limit := map[string]any{"type": "integer", "minimum": 1, "maximum": 500}
 
+	sender, tagging := "sender", ""
+	send := map[string]any{
+		"chat":     chat,
+		"text":     map[string]any{"type": "string", "description": "The message, or the file's caption."},
+		"path":     map[string]any{"type": "string", "description": "A file in the folder you work in."},
+		"reply_to": map[string]any{"type": "string", "description": "The id of the message it answers."},
+	}
+
+	if m.tags {
+		// As mautrix-whatsapp tags a member: "@" + the JID's user part in the text, the JID in MentionedJID
+		// (pkg/msgconv/from-matrix.go, convertPill).
+		sender = "sender (their id, which " + m.send + "'s mentions takes)"
+		tagging = " To tag members of a group, list their ids in mentions, as " + m.messages + " gives a " +
+			"sender, and write @ and the number of each id in text where they are tagged: @84339013010 for " +
+			"84339013010@s.whatsapp.net, @168453096898812 for 168453096898812@lid. A name or a number in text " +
+			"alone tags no one."
+		send["mentions"] = map[string]any{
+			"type": "array", "items": map[string]any{"type": "string"},
+			"description": "The members it tags, by their ids as " + m.messages + " gives a sender; text writes " +
+				"@ and the number of each.",
+		}
+	}
+
 	return []agenttool.BrowserTool{
 		{
 			Name: m.chats,
@@ -191,8 +217,8 @@ func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
 		{
 			Name: m.messages,
 			Description: "Read the owner's " + m.name + " messages, the latest first: of one chat, or matching a search " +
-				"of their text, caption, file name, chat or sender, or both. Each has its id, chat, sender, time, " +
-				"text, what it replies to, its media (type, caption, file name, whether its file is kept), and " +
+				"of their text, caption, file name, chat or sender, or both. Each has its id, chat, " + sender +
+				", time, text, what it replies to, its media (type, caption, file name, whether its file is kept), and " +
 				"whether it was edited or deleted. Use it to read a chat or find a message; before (RFC 3339) pages " +
 				"back, and for what is older than the oldest kept, use " + m.history + " first. " + untrusted,
 			InputSchema: with(map[string]any{
@@ -224,13 +250,8 @@ func (m messagingService) tools(labels []string) []agenttool.BrowserTool {
 				"you work in (path, at most 5 MB) with text as its caption, replying to reply_to when given. Use it " +
 				"only to send what the owner asked for; a reply to him goes in this chat instead. It waits for " +
 				"his approval unless he set it to run; when it waits, tell him in one line and end your turn, then " +
-				"call it again unchanged once he answers.",
-			InputSchema: with(map[string]any{
-				"chat":     chat,
-				"text":     map[string]any{"type": "string", "description": "The message, or the file's caption."},
-				"path":     map[string]any{"type": "string", "description": "A file in the folder you work in."},
-				"reply_to": map[string]any{"type": "string", "description": "The id of the message it answers."},
-			}, "chat"),
+				"call it again unchanged once he answers." + tagging,
+			InputSchema: with(send, "chat"),
 		},
 	}
 }
@@ -468,12 +489,13 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 ) {
 	var in agenttool.WhatsAppSendCall
 	if json.Unmarshal(orEmpty(raw), &in) != nil {
-		answerTool(w, m.send+" takes {chat, text, path, reply_to}", true)
+		answerTool(w, m.send+" takes {chat, text, path, reply_to, mentions}", true)
 
 		return
 	}
 
 	in.Chat = strings.TrimSpace(in.Chat)
+	in.Mentions = slices.DeleteFunc(in.Mentions, func(id string) bool { return strings.TrimSpace(id) == "" })
 
 	switch {
 	case in.Chat == "":
@@ -490,6 +512,18 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 		return
 	case len(in.File) > artifactpack.MaxTotal:
 		answerTool(w, "the file is larger than 5 MB", true)
+
+		return
+	case len(in.Mentions) > 0 && !m.tags:
+		answerTool(w, m.send+" does not tag members yet; send it without mentions", true)
+
+		return
+	}
+
+	// A member the text does not write @ for would be sent untagged: refused before the owner is asked (#852).
+	if missing := messaging.UntaggedMentions(in.Text, in.Mentions); len(missing) > 0 {
+		answerTool(w, fmt.Sprintf("the text does not write @%s for %s: write @ and the number of each id in "+
+			"mentions where it is tagged; nothing was sent", messaging.MentionUser(missing[0]), missing[0]), true)
 
 		return
 	}
@@ -519,10 +553,21 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 		fields = append(fields, orchestration.Field{Label: "Replying to", Value: in.ReplyTo})
 	}
 
+	if len(in.Mentions) > 0 {
+		fields = append(fields, orchestration.Field{
+			Label: "Tagging", Value: strings.Join(s.messagingMemberNames(ctx, m, label, in.Chat, in.Mentions), ", "),
+		})
+	}
+
 	file := sha256.Sum256(in.File)
-	hash := sha256.Sum256([]byte(strings.Join([]string{
-		label, in.Chat, in.Text, in.ReplyTo, in.FileName, hex.EncodeToString(file[:]),
-	}, "\x00")))
+	parts := []string{label, in.Chat, in.Text, in.ReplyTo, in.FileName, hex.EncodeToString(file[:])}
+
+	if len(in.Mentions) > 0 {
+		// Only a send that tags hashes its mentions, so an approval of a send without them stays the same.
+		parts = append(parts, strings.Join(in.Mentions, "\x01"))
+	}
+
+	hash := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 
 	if !onTurn {
 		// Off his turn only what he approved once runs, on that approval (issue #748).
@@ -564,6 +609,7 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 
 	sent, err := s.messaging.Send(ctx, m.integration, label, messaging.Outgoing{
 		Chat: in.Chat, Text: in.Text, ReplyTo: in.ReplyTo, File: in.File, FileName: in.FileName,
+		Mentions: in.Mentions,
 	})
 	if err != nil {
 		s.answerErr(w, r, err)
@@ -587,6 +633,40 @@ func (s *Server) messagingChatName(ctx context.Context, m messagingService, labe
 
 	return chat
 }
+
+// messagingMemberNames are the members a send tags as the owner reads them in an approval: each one's name as
+// their latest messages kept in the chat give it, with their id, or the id alone.
+func (s *Server) messagingMemberNames(ctx context.Context, m messagingService, label, chat string,
+	ids []string,
+) []string {
+	names := map[string]string{}
+
+	if msgs, err := s.messaging.Messages(ctx, m.integration, label, messaging.Query{
+		Chat: chat, Limit: maxMemberMessages,
+	}); err == nil {
+		for _, msg := range msgs {
+			if _, ok := names[msg.Sender]; !ok && msg.SenderName != "" {
+				names[msg.Sender] = msg.SenderName
+			}
+		}
+	}
+
+	out := make([]string, 0, len(ids))
+
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if name := names[id]; name != "" {
+			out = append(out, name+" ("+id+")")
+		} else {
+			out = append(out, id)
+		}
+	}
+
+	return out
+}
+
+// maxMemberMessages is how many of a chat's latest messages are looked through for the names of members tagged.
+const maxMemberMessages = 500
 
 // maxBackfillChats is how many of the latest chats are looked through for a chat's name.
 const maxBackfillChats = 500
