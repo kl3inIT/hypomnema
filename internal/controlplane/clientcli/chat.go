@@ -354,6 +354,33 @@ func chatsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	})
 }
 
+// chatsMain makes a chat its Bot's main chat (issue #923), the web's Set as main chat: the chat names its Bot.
+func chatsMain(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	c, err := e.api.GetChatWithResponse(ctx, id)
+	if err != nil {
+		return fmt.Errorf("reading chat %s: %w", id, err)
+	}
+
+	if c.JSON200 == nil {
+		return apiError("reading chat "+id, c.StatusCode(), c.JSONDefault)
+	}
+
+	bot := c.JSON200.Bot
+
+	resp, err := e.api.RenameBotWithResponse(ctx, bot, openapi.BotChange{MainChat: &id})
+	if err != nil {
+		return fmt.Errorf("making chat %s the main chat of bot %s: %w", id, bot, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("making chat "+id+" the main chat of bot "+bot, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() { e.printf("chat %s is the main chat of bot %s\n", id, bot) })
+}
+
 func durationFlag(fs *flag.FlagSet, name string) time.Duration {
 	d, _ := time.ParseDuration(str(fs, name))
 

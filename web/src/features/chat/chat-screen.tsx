@@ -16,6 +16,7 @@ import { MenuButton, PageHeader } from "@/components/page-header"
 import { SoloPane } from "@/features/workbench/solo-pane"
 
 import { AttachDrop } from "./attach-drop"
+import { BackToMainChat } from "./back-to-main"
 import { useAttachments } from "./attachments"
 import { ChatModelControls } from "./chat-model-picker"
 import { useDraftChoice } from "./chat-model-state"
@@ -110,11 +111,11 @@ function NewChat({ initialBot }: { initialBot?: string }) {
 }
 
 // OpenChat is a chat's own page: its pane, whose tabs are the top of the page with no header above them (issue
-// #235).
+// #235); at the strip's end, the way back to the Bot's main chat from another of its chats (issue #923).
 function OpenChat({ chatId }: { chatId: string }) {
   return (
     <main className="relative flex min-w-0 flex-1 flex-col">
-      <SoloPane chat={chatId} start={<MenuButton />} />
+      <SoloPane chat={chatId} start={<MenuButton />} end={<BackToMainChat chatId={chatId} />} />
     </main>
   )
 }

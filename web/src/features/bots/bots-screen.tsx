@@ -7,6 +7,8 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { effortLabel } from "@/features/agents/profiles-state"
 import { IntegrationMark } from "@/features/settings/service-cards"
+import { opensTo } from "@/features/shell/bot-rows"
+import { useChats } from "@/features/shell/chats"
 import { useHostKinds, useServices } from "@/features/settings/use-integrations"
 import { PageHeader, PageHeading } from "@/components/page-header"
 import { modelIsId } from "@/lib/model-name"
@@ -196,11 +198,18 @@ function BotCard({ bot, names }: { bot: Bot; names: Record<string, string> }) {
   )
 }
 
-// BotLink is a Bot's name as a link to its main chat, as every link to a Bot is (issue #471), or to a new chat with it
-// when it has none; its settings are the Settings link beside it.
+// BotLink is a Bot's name as a link to the chat it opens to, as every link to a Bot is: its main chat (issue #471),
+// or with none its latest chat (issue #923, shell/bot-rows.ts opensTo), or a new chat with it when it has no chat;
+// its settings are the Settings link beside it.
 function BotLink({ bot, className }: { bot: Bot; className?: string }) {
-  return bot.main_chat ? (
-    <Link to="/chats/$chatId" params={{ chatId: bot.main_chat }} className={className}>
+  const chats = useChats().data ?? []
+  const home = opensTo(
+    bot.main_chat,
+    chats.filter((c) => c.bot === bot.id),
+  )
+
+  return home ? (
+    <Link to="/chats/$chatId" params={{ chatId: home }} className={className}>
       {bot.name}
     </Link>
   ) : (

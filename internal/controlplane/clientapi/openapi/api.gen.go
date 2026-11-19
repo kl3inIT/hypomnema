@@ -3024,7 +3024,9 @@ type Bot struct {
 
 // BotChange defines model for BotChange.
 type BotChange struct {
-	Name *string `json:"name,omitempty"`
+	// MainChat The id of one of the Bot's chats, which becomes its main chat (issue #923): the web's Set as main chat and `hypomnema chats main`; only the owner. A chat of another Bot, a Routine's chat and a Lark chat are refused (400). The former main chat stays as it was.
+	MainChat *string `json:"main_chat,omitempty"`
+	Name     *string `json:"name,omitempty"`
 
 	// Pinned Listed in the sidebar's Pinned section, under the main Bot; only the owner.
 	Pinned *bool `json:"pinned,omitempty"`
@@ -3145,6 +3147,9 @@ type Chat struct {
 	// Bot The id of the Bot the chat talks with.
 	Bot string `json:"bot"`
 
+	// Channel A Lark chat (issue #923): a person's or a group's at a Channel, or one someone other than the owner wrote in; it is never its Bot's main chat.
+	Channel bool `json:"channel"`
+
 	// ContextUsage How full the chat's context window is, as pi last reported it after a turn or a compaction (issue #384; pi's get_session_stats). Absent from a chat before pi first reported it.
 	ContextUsage *ChatContextUsage `json:"context_usage,omitempty"`
 
@@ -3163,7 +3168,10 @@ type Chat struct {
 	Model *string `json:"model,omitempty"`
 
 	// Provider Where the chat's own model is found; absent with the model.
-	Provider  *string   `json:"provider,omitempty"`
+	Provider *string `json:"provider,omitempty"`
+
+	// Routine The chat was opened for a Routine's run (issue #923); it is never its Bot's main chat.
+	Routine   bool      `json:"routine"`
 	Title     string    `json:"title"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -7058,7 +7066,7 @@ type ListChatsParams struct {
 	// Bot Only the chats of the Bot of this id (issue
 	Bot *string `form:"bot,omitempty" json:"bot,omitempty"`
 
-	// Offset How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+	// Offset How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with no main chat, its latest chat that is neither a Routine's nor a Lark chat (issue #923), whatever their age, so that a client showing Bots has them all.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
@@ -8191,18 +8199,18 @@ type ClientInterface interface {
 	// Corresponds with GET /bots/{bot_id} (the `GetBot` operationId).
 	GetBot(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RenameBotWithBody Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBotWithBody Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 	//
-	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned. Only the owner chooses a Bot's main chat (issue #923).
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PATCH /bots/{bot_id} (the `RenameBot` operationId).
 	RenameBotWithBody(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RenameBot Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBot Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 	//
-	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned. Only the owner chooses a Bot's main chat (issue #923).
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -11197,9 +11205,9 @@ func (c *Client) GetBot(ctx context.Context, botId BotID, reqEditors ...RequestE
 	return c.Client.Do(req)
 }
 
-// RenameBotWithBody Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+// RenameBotWithBody Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 //
-// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned. Only the owner chooses a Bot's main chat (issue #923).
 //
 // Takes any type of body and a specified content type.
 //
@@ -11216,9 +11224,9 @@ func (c *Client) RenameBotWithBody(ctx context.Context, botId BotID, contentType
 	return c.Client.Do(req)
 }
 
-// RenameBot Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+// RenameBot Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 //
-// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned. Only the owner chooses a Bot's main chat (issue #923).
 //
 // Takes a body of the `application/json` content type.
 //
@@ -29155,18 +29163,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /bots/{bot_id} (the `GetBot` operationId).
 	GetBotWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*GetBotResponse, error)
 
-	// RenameBotWithBodyWithResponse Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBotWithBodyWithResponse Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 	//
-	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned. Only the owner chooses a Bot's main chat (issue #923).
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /bots/{bot_id} (the `RenameBot` operationId).
 	RenameBotWithBodyWithResponse(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenameBotResponse, error)
 
-	// RenameBotWithResponse Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBotWithResponse Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 	//
-	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned. Only the owner chooses a Bot's main chat (issue #923).
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -44693,9 +44701,9 @@ func (c *ClientWithResponses) GetBotWithResponse(ctx context.Context, botId BotI
 	return ParseGetBotResponse(rsp)
 }
 
-// RenameBotWithBodyWithResponse Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+// RenameBotWithBodyWithResponse Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 //
-// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned. Only the owner chooses a Bot's main chat (issue #923).
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -44708,9 +44716,9 @@ func (c *ClientWithResponses) RenameBotWithBodyWithResponse(ctx context.Context,
 	return ParseRenameBotResponse(rsp)
 }
 
-// RenameBotWithResponse Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+// RenameBotWithResponse Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 //
-// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned. Only the owner chooses a Bot's main chat (issue #923).
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -57765,7 +57773,7 @@ type ServerInterface interface {
 	// GetBot A Bot, with its persona and memory
 	// (GET /bots/{bot_id})
 	GetBot(w http.ResponseWriter, r *http.Request, botId BotID)
-	// RenameBot Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBot Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 	// (PATCH /bots/{bot_id})
 	RenameBot(w http.ResponseWriter, r *http.Request, botId BotID)
 	// PutBot Change a Bot's settings; the owner, or the main Bot from its chat
@@ -77733,7 +77741,7 @@ type StrictServerInterface interface {
 	// GetBot A Bot, with its persona and memory
 	// (GET /bots/{bot_id})
 	GetBot(ctx context.Context, request GetBotRequestObject) (GetBotResponseObject, error)
-	// RenameBot Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBot Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
 	// (PATCH /bots/{bot_id})
 	RenameBot(ctx context.Context, request RenameBotRequestObject) (RenameBotResponseObject, error)
 	// PutBot Change a Bot's settings; the owner, or the main Bot from its chat

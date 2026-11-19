@@ -162,6 +162,19 @@ export function usePinBot() {
   )
 }
 
+// useSetMainChat makes one of a Bot's chats its main chat (issue #923), as OpenMausBot's "Set as main thread"
+// patches the bot's mainThreadChoice (src/components/SidebarBotMenu.tsx; Apache License 2.0): the Bot points at it at
+// once, and back when the server refuses.
+export function useSetMainChat() {
+  return useBotsChange(
+    (bots, { id, chat }: { id: string; chat: string }) =>
+      bots.map((bot) => (bot.id === id ? { ...bot, main_chat: chat } : bot)),
+    async ({ id, chat }) => {
+      await renameBot({ path: { bot_id: id }, body: { main_chat: chat } })
+    },
+  )
+}
+
 // useSetBotMemory replaces a Bot's whole memory with the owner's text, a line an entry.
 export function useSetBotMemory() {
   const saved = useSaved()

@@ -307,7 +307,8 @@ func chatMessageList(msgs []orchestration.ChatMessage, after int64, display orch
 func (s *Server) toChat(c orchestration.Chat) openapi.Chat {
 	out := openapi.Chat{
 		Id: c.ID, Title: c.Title, Bot: c.Bot, Provider: opt(c.Choice.Provider), Model: opt(c.Choice.Model),
-		Effort: opt(c.Choice.Effort), LastLine: opt(c.LastLine), CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Effort: opt(c.Choice.Effort), LastLine: opt(c.LastLine), Routine: c.Routine, Channel: c.Channel,
+		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 
 	if s.coordinator != nil {

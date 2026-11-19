@@ -42,14 +42,25 @@ export function botSections(bots: readonly Bot[], chats: readonly Chat[]): BotSe
   }
 }
 
-// rowChat is the chat a Bot's row opens (issue #471): its main chat, as OpenClaw's Home and Hermes Desktop's Bot
-// Chat open one chat per agent, unless another chat of the Bot waits on the owner and the main chat does not; then
-// that chat, the newest such, so that the row's Needs you leads to what needs him. None when the Bot has no main
-// chat and none waits: the row starts a chat with the Bot.
-export function rowChat(row: BotRow, waiting: ReadonlySet<string>): string | undefined {
-  if (row.mainChat && waiting.has(row.mainChat)) return row.mainChat
+// opensTo is the chat a Bot opens to (issue #923): its main chat; with none, its most recently active chat that is
+// neither a Routine's run nor a Lark chat, as OpenMausBot's botOpensTo falls back to the thread last open
+// (src/state/thread-navigation.ts) and its main thread is never a routine's run nor a channel's thread
+// (server/main-thread.ts, server/index.ts mainThreadTasks), as OpenClaw opens an agent's latest active session and
+// Hermes Desktop the last session. None when the Bot has no such chat: then it opens an empty chat with the Bot.
+// chats are the Bot's, newest first.
+export function opensTo(mainChat: string | undefined, chats: readonly Chat[]): string | undefined {
+  return mainChat ?? chats.find((c) => !c.routine && !c.channel)?.id
+}
 
-  return row.chats.find((c) => waiting.has(c.id))?.id ?? row.mainChat
+// rowChat is the chat a Bot's row opens (issue #471): the chat the Bot opens to (opensTo), as OpenClaw's Home and
+// Hermes Desktop's Bot Chat open one chat per agent, unless another chat of the Bot waits on the owner and that chat
+// does not; then that chat, the newest such, so that the row's Needs you leads to what needs him. None when the Bot
+// has no chat it opens to and none waits: the row starts a chat with the Bot.
+export function rowChat(row: BotRow, waiting: ReadonlySet<string>): string | undefined {
+  const home = opensTo(row.mainChat, row.chats)
+  if (home && waiting.has(home)) return home
+
+  return row.chats.find((c) => waiting.has(c.id))?.id ?? home
 }
 
 // reorderBots is the Bots as the server orders them after a reorder that names some of them: those named take, in

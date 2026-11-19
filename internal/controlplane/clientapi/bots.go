@@ -166,8 +166,10 @@ func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.B
 	return bot
 }
 
-// RenameBot gives a Bot another name, or pins or unpins it (issue #470). Only the owner pins: the order and the
-// pins are how his sidebar lists the Bots, not a Bot's setting the main Bot changes.
+// RenameBot gives a Bot another name, pins or unpins it (issue #470), or chooses its main chat (issue #923). Only
+// the owner pins and chooses the main chat: the order, the pins and the chat a click on a Bot opens are how his
+// sidebar lists the Bots, not a Bot's setting the main Bot changes, as OpenMausBot refuses mainThreadChoice to any
+// client but the owner's (server/routes/bot-patch.test.ts).
 func (s *Server) RenameBot(ctx context.Context, req openapi.RenameBotRequestObject,
 ) (openapi.RenameBotResponseObject, error) {
 	chat, err := setupChat(principal(ctx))
@@ -177,6 +179,10 @@ func (s *Server) RenameBot(ctx context.Context, req openapi.RenameBotRequestObje
 
 	if req.Body.Pinned != nil && chat != "" {
 		return nil, fmt.Errorf("%w: only the owner pins a bot", errForbidden)
+	}
+
+	if req.Body.MainChat != nil && chat != "" {
+		return nil, fmt.Errorf("%w: only the owner chooses a bot's main chat", errForbidden)
 	}
 
 	b, err := s.svc.GetBot(ctx, req.BotId)
@@ -198,6 +204,12 @@ func (s *Server) RenameBot(ctx context.Context, req openapi.RenameBotRequestObje
 
 	if req.Body.Pinned != nil {
 		if b, err = s.svc.PinBot(ctx, req.BotId, *req.Body.Pinned); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.Body.MainChat != nil {
+		if b, err = s.svc.SetMainChat(ctx, req.BotId, *req.Body.MainChat); err != nil {
 			return nil, err
 		}
 	}

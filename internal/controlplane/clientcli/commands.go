@@ -197,6 +197,12 @@ var commands = []command{
 		flags:   jsonFlag, run: chatsRemove,
 	},
 	{
+		name: "chats main", args: "<chat>", min: 1, max: 1,
+		summary: "make a chat its Bot's main chat, the one `hypomnema chat` and a click on the Bot open; " +
+			"not a Routine's or a Lark chat (owner)",
+		flags: jsonFlag, run: chatsMain,
+	},
+	{
 		name: "hosts list", summary: "the git hosts a Run can be on", flags: jsonFlag, run: hostsList,
 	},
 	{

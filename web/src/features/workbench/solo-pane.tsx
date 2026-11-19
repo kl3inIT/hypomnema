@@ -11,7 +11,15 @@ import { newPaneId, setBench, setPane, soloId, useGridOffered, usePane } from ".
 // else was opened in it is kept in this browser. Closing the chat's tab leaves the page for where the rest of the
 // pane goes (`closeHome` in ./moves.ts), as Orca closes any tab. A tab dropped on a side of it makes a grid of two
 // panes, this one and the tab's; one dropped in its middle joins it.
-export function SoloPane({ chat, start }: { chat: string; start?: ReactNode }) {
+export function SoloPane({
+  chat,
+  start,
+  end,
+}: {
+  chat: string
+  start?: ReactNode
+  end?: ReactNode
+}) {
   const id = soloId(chat)
   const navigate = useNavigate()
   const offered = useGridOffered()
@@ -62,6 +70,7 @@ export function SoloPane({ chat, start }: { chat: string; start?: ReactNode }) {
           }
         }}
         start={start}
+        end={end}
         // A tab opened beside the chat makes a grid of two, as a tab dropped on its side does (issue #528).
         beside={
           offered

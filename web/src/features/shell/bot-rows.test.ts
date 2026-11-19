@@ -2,16 +2,19 @@ import { expect, test } from "vitest"
 
 import type { Bot, Chat } from "@/api/generated/types.gen"
 
-import { botSections, reorderBots, rowChat } from "./bot-rows"
+import { botSections, opensTo, reorderBots, rowChat } from "./bot-rows"
 
-const chat = (id: string, bot: string, updated: string): Chat => ({
+const chat = (id: string, bot: string, updated: string, m: Partial<Chat> = {}): Chat => ({
   id,
   title: id,
   bot,
   working: false,
   coordinator: true,
+  routine: false,
+  channel: false,
   created_at: "2026-11-01T00:00:00Z",
   updated_at: updated,
+  ...m,
 })
 
 const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
@@ -126,4 +129,25 @@ test("a Bot's row opens its main chat, or the chat that waits on the owner", () 
   expect(rowChat(row, new Set(["old", "home"]))).toBe("home")
   expect(rowChat({ bot: "writer", chats: [] }, new Set())).toBeUndefined()
   expect(rowChat({ bot: "coordinator", chats }, new Set(["old"]))).toBe("old")
+})
+
+// Scenario: the chat a Bot opens to (issue #923). Its main chat when it has one, whatever moved later; with none, its
+// most recently active chat that is neither a Routine's run nor a Lark chat, never an empty chat while it has one;
+// an empty chat only when it has no such chat.
+test("a Bot opens its main chat, else its latest chat that is not a Routine's or a Lark chat", () => {
+  const chats = [
+    chat("run", "writer", "2026-11-13T09:00:00Z", { routine: true }),
+    chat("lark", "writer", "2026-11-12T09:00:00Z", { channel: true }),
+    chat("latest", "writer", "2026-11-11T09:00:00Z"),
+    chat("older", "writer", "2026-11-10T09:00:00Z"),
+  ]
+
+  expect(opensTo("older", chats)).toBe("older")
+  expect(opensTo(undefined, chats)).toBe("latest")
+  expect(opensTo(undefined, chats.slice(0, 2))).toBeUndefined()
+  expect(opensTo(undefined, [])).toBeUndefined()
+
+  const row = { bot: "writer", chats }
+  expect(rowChat(row, new Set())).toBe("latest")
+  expect(rowChat(row, new Set(["run"]))).toBe("run")
 })

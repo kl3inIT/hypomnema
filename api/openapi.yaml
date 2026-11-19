@@ -2695,12 +2695,13 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     patch:
       operationId: RenameBot
-      summary: Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+      summary: Give a Bot another name, pin or unpin it, or choose its main chat; the owner, or the main Bot from its chat for a name
       description: >-
         Its id, chats, Routines, Channels and memory stay. A name another Bot
         has is refused. A rename by the main Bot is recorded in its chat as a
         setup change the owner can undo. Only the owner pins or unpins a Bot
-        (issue #470); the main Bot, always first, is not pinned.
+        (issue #470); the main Bot, always first, is not pinned. Only the
+        owner chooses a Bot's main chat (issue #923).
       requestBody:
         required: true
         content:
@@ -4330,8 +4331,9 @@ paths:
         - name: offset
           in: query
           description: >-
-            How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat
-            and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+            How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat,
+            every chat an Approval waits in and, of a Bot with no main chat, its latest chat that is neither a
+            Routine's nor a Lark chat (issue #923), whatever their age, so that a client showing Bots has them all.
           schema: { type: integer, minimum: 0 }
       responses:
         "200":
@@ -8820,6 +8822,12 @@ components:
         pinned:
           type: boolean
           description: Listed in the sidebar's Pinned section, under the main Bot; only the owner.
+        main_chat:
+          type: string
+          description: >-
+            The id of one of the Bot's chats, which becomes its main chat (issue #923): the web's Set as main chat and
+            `hypomnema chats main`; only the owner. A chat of another Bot, a Routine's chat and a Lark chat are refused
+            (400). The former main chat stays as it was.
     BotOrder:
       type: object
       additionalProperties: false
@@ -9345,7 +9353,7 @@ components:
         binary: { type: boolean }
     Chat:
       type: object
-      required: [id, title, bot, working, coordinator, created_at, updated_at]
+      required: [id, title, bot, working, coordinator, routine, channel, created_at, updated_at]
       properties:
         id: { type: string }
         title: { type: string }
@@ -9371,6 +9379,15 @@ components:
           description: >-
             The first line of its latest message of the owner or its Bot, at most 120 characters (issue #471); in a
             list only, absent before either wrote.
+        routine:
+          type: boolean
+          description: >-
+            The chat was opened for a Routine's run (issue #923); it is never its Bot's main chat.
+        channel:
+          type: boolean
+          description: >-
+            A Lark chat (issue #923): a person's or a group's at a Channel, or one someone other than the owner wrote
+            in; it is never its Bot's main chat.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     ChatContextUsage:
