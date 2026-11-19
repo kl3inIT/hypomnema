@@ -3353,6 +3353,11 @@ capabilities do not exist yet.
     home is a hash over all the runtime's accounts sorted by id, so a cooldown is a detour, not a move.
   - Inside one request the next account is tried when one answers 401 (after one refresh of its tokens), 402, 403,
     429, 502, 503 or 504, each account once and only before anything was sent to the client (9router-go, CLIProxyAPI).
+    A missing access token, a non-transport refresh failure, or a 401 that remains after refresh makes that version
+    of the credential require a new sign-in. It is skipped now and on later requests, and shows as such in the
+    accounts list and web settings. Cancellation and transport errors do not mark it. Claude setup tokens are
+    sent unchanged, without refresh or a sign-in mark from this path. From: 9router-go `fallback.go`, CLIProxyAPI
+    `conductor_execution.go` and `conductor_refresh.go`, and omp `auth/select.ts` and `auth/refresh.ts` (#849).
     When none serves, the client gets the last refusal; when none could even be tried, a 429 with `Retry-After` to
     the time the first is free (CLIProxyAPI). For Codex accounts, when the first is free in more than a minute
     (OpenClaw's `maxRetryDelayMs`, past which a 429 fails over), that 429 has the backend's own shape for a used-up

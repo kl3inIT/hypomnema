@@ -402,13 +402,13 @@ func (c *Codex) post(ctx context.Context, path, contentType string, body []byte)
 			err = urlErr.Err // The address is ours to say; net/http would repeat it.
 		}
 
-		return 0, nil, fmt.Errorf("calling %s%s: %w", c.issuer, path, err)
+		return 0, nil, fmt.Errorf("calling %s%s: %w: %w", c.issuer, path, errTokenTransport, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // The answer was read or the read failed; closing adds nothing.
 
 	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
 	if err != nil {
-		return 0, nil, fmt.Errorf("reading the answer of %s: %w", path, err)
+		return 0, nil, fmt.Errorf("reading the answer of %s: %w: %w", path, errTokenTransport, err)
 	}
 
 	return resp.StatusCode, answer, nil

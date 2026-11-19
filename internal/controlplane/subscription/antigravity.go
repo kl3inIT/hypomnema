@@ -618,13 +618,13 @@ func (a *Antigravity) do(req *http.Request) (int, []byte, error) {
 			err = urlErr.Err // The address may carry a code; net/http would repeat it.
 		}
 
-		return 0, nil, fmt.Errorf("calling %s: %w", req.URL.Host, err)
+		return 0, nil, fmt.Errorf("calling %s: %w: %w", req.URL.Host, errTokenTransport, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // The answer was read or the read failed; closing adds nothing.
 
 	answer, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
 	if err != nil {
-		return 0, nil, fmt.Errorf("reading the answer of %s: %w", req.URL.Host, err)
+		return 0, nil, fmt.Errorf("reading the answer of %s: %w: %w", req.URL.Host, errTokenTransport, err)
 	}
 
 	return resp.StatusCode, answer, nil
