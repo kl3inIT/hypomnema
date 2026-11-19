@@ -183,6 +183,49 @@ func TestMirrorFetchDoesNotStartAutomaticMaintenance(t *testing.T) {
 	assert.NotContains(t, string(trace), `"name":"gc"`)
 }
 
+func TestMirrorCleanWaitsForTheSameLock(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	if !diskguard.ScopeAvailable() {
+		t.Skip("filesystem confinement is unavailable")
+	}
+
+	dir := realTempDir(t)
+	origin(t, dir)
+	maker := Maker{Root: filepath.Join(dir, "node")}
+	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+	require.NoError(t, err)
+	src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
+	path := filepath.Join(maker.Root, "worktrees", "run_1", "task")
+	require.NoError(t, maker.Ensure(t.Context(), src, "main", "task", path))
+	stopped := func() bool { return true }
+
+	for _, held := range []string{"worktree", "mirror"} {
+		var lock *mirrorLock
+		if held == "worktree" {
+			state, err := maker.lockPath("worktree", path)
+			require.NoError(t, err)
+			lock, err = openMirrorLock(t.Context(), state)
+			require.NoError(t, err)
+		} else {
+			lock, err = maker.lockMirror(t.Context(), maker.mirrorPath(src.Repo))
+			require.NoError(t, err)
+		}
+
+		blocked, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		err = maker.Clean(blocked, path, true, stopped)
+		cancel()
+		require.ErrorIs(t, err, context.DeadlineExceeded, "the %s lock is held", held)
+		assert.FileExists(t, filepath.Join(path, ".git"))
+		require.NoError(t, lock.Close())
+	}
+
+	require.NoError(t, maker.Clean(t.Context(), path, true, stopped))
+	assert.NoDirExists(t, path)
+}
+
 func TestFetchRetriesARefLockErrorOnlyOnce(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the test uses a shell executable in PATH")

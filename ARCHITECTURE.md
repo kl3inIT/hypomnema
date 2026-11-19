@@ -4799,7 +4799,8 @@ Node (`internal/node`):
   crosses mounts, and removes the Run directory only if empty. Git cleanup keeps checkouts with tracked changes,
   untracked files, or hidden index entries; ignored files do not prevent removal.
   `git worktree remove` runs without force in a filesystem sandbox (Linux Landlock or macOS
-  `sandbox-exec`); if confinement is unavailable, the checkout is kept.
+  `sandbox-exec`); if confinement is unavailable, the checkout is kept. Cleanup holds the worktree path's lock, and
+  the mirror's lock around `git worktree remove`, the same locks Dispatch setup takes (issue #868).
   Open Runs keep their worktrees for follow-ups.
 - Setup and the worker get private `TMPDIR`, `TEMP`, `TMP` and `GOTMPDIR` under `run/<dispatch>/tmp`. The node also reclaims
   that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
