@@ -4,6 +4,7 @@ go 1.27.4
 
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.3
+	github.com/BurntSushi/toml v1.6.0
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/aws/aws-sdk-go-v2 v1.48.0
 	github.com/aws/aws-sdk-go-v2/credentials v1.21.0
