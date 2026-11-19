@@ -1,7 +1,8 @@
 package diskguard
 
 import (
-	"context"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,63 +52,99 @@ func TestTempSweepKeepsWholeTreesWithFreshProtectedOrOpenEntries(t *testing.T) {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	})
-	outside := realTempDir(t)
-	link := filepath.Join(root, "symlink")
-	require.NoError(t, os.Symlink(outside, link))
+	proc := realTempDir(t)
+	for _, pid := range []int{os.Getpid(), cmd.Process.Pid} {
+		name := strconv.Itoa(pid)
+		require.NoError(t, os.Symlink(filepath.Join("/proc", name), filepath.Join(proc, name)))
+	}
 	ctx := WithProtection(t.Context(), protected)
-	require.NoError(t, sweepTemp(ctx, root, "", before, func(context.Context) (processFiles, error) {
-		open := make(processFiles)
-		if err := open.addProcess("/proc/self"); err != nil {
-			return nil, err
-		}
-		return open, open.addProcess(filepath.Join("/proc", strconv.Itoa(cmd.Process.Pid)))
+	scans := 0
+	require.NoError(t, sweepTemp(ctx, root, "", before, func() (processFiles, error) {
+		scans++
+		open, skipped, err := allProcessFiles(ctx, proc, os.Geteuid())
+		assert.Zero(t, skipped)
+		return open, err
 	}))
+	assert.Equal(t, 1, scans)
 	assert.NoDirExists(t, stale)
 	assert.DirExists(t, protected)
 	assert.FileExists(t, fresh)
 	assert.FileExists(t, opened)
 	assert.FileExists(t, mapped)
 	assert.DirExists(t, cwd)
-	_, err = os.Lstat(link)
-	require.NoError(t, err)
-	assert.DirExists(t, outside)
 }
 
-func TestTempSweepKeepsStaleEntriesWhenProcIsUnreadable(t *testing.T) {
+func TestTempSweepSkipsForeignAndOpaqueProcesses(t *testing.T) {
 	t.Parallel()
 	root := realTempDir(t)
-	stale := filepath.Join(root, "stale")
 	old := time.Now().Add(-7 * time.Hour)
-	require.NoError(t, os.WriteFile(stale, nil, 0o600))
-	require.NoError(t, os.Chtimes(stale, old, old))
-	err := sweepTemp(t.Context(), root, "", time.Now().Add(-6*time.Hour), func(context.Context) (processFiles, error) {
-		return nil, os.ErrPermission
-	})
-	require.ErrorIs(t, err, os.ErrPermission)
-	assert.FileExists(t, stale)
+	proc := realTempDir(t)
+	stale := filepath.Join(root, "stale")
+	observed := filepath.Join(root, "observed")
+	agent := filepath.Join(root, "agent")
+	for _, dir := range []string{stale, observed, agent} {
+		require.NoError(t, os.Mkdir(dir, 0o700))
+	}
+	socket := filepath.Join(agent, "sock")
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, listener.Close()) })
+	for _, path := range []string{stale, observed, agent, socket} {
+		require.NoError(t, os.Chtimes(path, old, old))
+	}
+	uid := os.Geteuid()
+	for _, process := range []struct {
+		pid string
+		uid int
+	}{{"1", uid + 1}, {"2", uid}} {
+		path := filepath.Join(proc, process.pid)
+		task := filepath.Join(path, "task", process.pid)
+		require.NoError(t, os.MkdirAll(task, 0o700))
+		status := fmt.Sprintf("Name:\ttest\nUid:\t%d\t%d\t%d\t%d\n", process.uid, process.uid, process.uid, process.uid)
+		require.NoError(t, os.WriteFile(filepath.Join(path, "status"), []byte(status), 0o600))
+		require.NoError(t, os.Symlink("maps", filepath.Join(path, "maps")))
+		if process.uid == uid {
+			require.NoError(t, os.Symlink(observed, filepath.Join(task, "cwd")))
+		}
+	}
+	require.NoError(t, sweepTemp(t.Context(), root, "", time.Now().Add(-6*time.Hour), func() (processFiles, error) {
+		open, skipped, err := allProcessFiles(t.Context(), proc, uid)
+		assert.Equal(t, 1, skipped)
+		return open, err
+	}))
+	assert.NoDirExists(t, stale)
+	assert.DirExists(t, observed)
+	_, err = os.Lstat(socket)
+	require.NoError(t, err)
 }
 
-func TestProcessScanSkipsUnreadablePIDsAndKeepsReadableReferences(t *testing.T) {
+func TestTempSweepNeverFollowsSymlinks(t *testing.T) {
 	t.Parallel()
-	proc := t.TempDir()
-	for _, pid := range []string{"1", "2"} {
-		require.NoError(t, os.Mkdir(filepath.Join(proc, pid), 0o700))
+	root := realTempDir(t)
+	outside := realTempDir(t)
+	data := filepath.Join(outside, "data")
+	require.NoError(t, os.WriteFile(data, []byte("keep"), 0o600))
+	old := time.Now().Add(-7 * time.Hour)
+	require.NoError(t, os.Chtimes(data, old, old))
+	require.NoError(t, os.Chtimes(outside, old, old))
+	stale := filepath.Join(root, "stale")
+	require.NoError(t, os.Mkdir(stale, 0o700))
+	top := filepath.Join(root, "top-link")
+	inner := filepath.Join(stale, "inner-link")
+	for _, link := range []string{top, inner} {
+		require.NoError(t, os.Symlink(outside, link))
+		stamp := unix.NsecToTimespec(old.UnixNano())
+		require.NoError(t, unix.UtimesNanoAt(unix.AT_FDCWD, link, []unix.Timespec{stamp, stamp}, unix.AT_SYMLINK_NOFOLLOW))
 	}
-	identity := fileIdentity{device: 12, inode: 34}
-	open, err := readProcessFiles(t.Context(), proc, os.Geteuid(), func(open processFiles, path string) error {
-		if filepath.Base(path) == "1" {
-			return &os.PathError{Op: "open", Path: filepath.Join(path, "maps"), Err: os.ErrPermission}
-		}
-		open[identity] = struct{}{}
-		return nil
-	})
+	require.NoError(t, os.Chtimes(stale, old, old))
+	require.NoError(t, sweepTemp(t.Context(), root, "", time.Now().Add(-6*time.Hour), func() (processFiles, error) {
+		return make(processFiles), nil
+	}))
+	assert.NoDirExists(t, stale)
+	target, err := os.Readlink(top)
 	require.NoError(t, err)
-	assert.Contains(t, open, identity)
-
-	open, err = readProcessFiles(t.Context(), proc, os.Geteuid()+1, func(processFiles, string) error {
-		t.Error("a PID of another UID should not be inspected")
-		return nil
-	})
+	assert.Equal(t, outside, target)
+	content, err := os.ReadFile(data) //nolint:gosec // test fixture
 	require.NoError(t, err)
-	assert.Empty(t, open)
+	assert.Equal(t, "keep", string(content))
 }

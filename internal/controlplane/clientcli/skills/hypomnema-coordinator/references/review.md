@@ -80,7 +80,13 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    - `## Still disputed`: each finding the author did not fix and said why, or none.
 
    Ask the reviewer to say, for each earlier finding, whether it is fixed, still open or disputed, and to report
-   new findings as before. After round 3, if any P0 or P1 remains, give the owner a one-line report with the verdict
+   new findings as before.
+   <!-- Three rounds: Codex codex-rs/ext/guardian-reviewer/src/lib.rs:87 (MAX_REVIEW_ATTEMPTS = 3) and
+   oh-my-opencode packages/memory-core/src/reflection/completion-validation.ts:127 (MAX_REPAIR_ROUNDS = 3, then
+   stop); both run their rounds with no human approval in between. Hermes agent/background_review.py:249 caps the
+   iterations inside one review, not the rounds. No reference has a one-line report to the owner after the last
+   round (owner, 2026-11-18, issue #871). -->
+   After round 3, if any P0 or P1 remains, give the owner a one-line report with the verdict
    and remaining blockers, then stop without waiting for an answer (issue #871). Leave the Run and pull request open
    with auto-merge off and add no Task. The "Waiting for you" label may stay until work is added or the Run ends.
 

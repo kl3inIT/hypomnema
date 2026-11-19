@@ -4685,7 +4685,7 @@ Node (`internal/node`):
   after a replayed accept. Disk probes time out off the message loop. A declined offer keeps its Conversation,
   answered Gate and recovery or handoff note, and does not count as a backup turn.
 - The hello enables the policy for an upgraded node. The heartbeat reports available bytes, the floor, effective
-  trim threshold; the control plane dates samples on receipt. Migration `00133_node_disk.sql` keeps these
+  trim threshold; the control plane dates samples on receipt. Migration `00136_node_disk.sql` keeps these
   fields independently of CPU and RAM. A missing sample or one at least 30 seconds old blocks new work on
   a policy-enabled node. Old nodes that
   have never advertised the policy still take work. Machines shows the age and thresholds, “Not measured” for a
@@ -4732,10 +4732,15 @@ Node (`internal/node`):
 - On Linux, a pass also checks top-level entries of `/tmp` and a separate real `os.TempDir()`. It keeps a whole
   entry unless it and its descendants belong to the node UID and all mtimes predate `disk.temp_max_age_hours`
   (6 hours by default). It keeps top-level symlinks, special files, mount boundaries and protected paths. Before
-  removing an eligible tree it checks file identities against `/proc` descriptors, working directories,
-  process roots and mappings of readable processes owned by the node UID. Unreadable processes are skipped.
-  A `/proc` check is a snapshot, not a lock against new opens. The shared sweep is skipped on macOS and other
-  non-Linux hosts. [Reference comparison](docs/research/2026-11-19-node-cache-and-temp-cleanup.md).
+  removing eligible entries it takes one `/proc` snapshot per pass, shared across both roots. It matches the
+  node UID against process status and checks visible descriptors, working directories, process roots and
+  mappings by file identity. Like tmpwatch's `fuser` check, it does not let another user's process block the
+  sweep. If a process cannot be fully inspected (for example a non-dumpable agent), the node logs the count
+  and still keeps any references it could see, as well as trees with sockets or other special files. It cannot
+  detect a reference visible only to a foreign UID or an opaque process, and the snapshot does not lock against
+  new opens. A failed `go env` probe skips Go cache trimming, not the shared sweep; the sweep still protects cache
+  paths known from the environment, user Go settings and defaults. The shared sweep is skipped on macOS and
+  other non-Linux hosts. [Reference comparison](docs/research/2026-11-19-node-cache-and-temp-cleanup.md).
 
 ## Web client
 

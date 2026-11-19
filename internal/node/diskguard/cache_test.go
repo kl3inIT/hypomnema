@@ -174,7 +174,6 @@ func TestGoCacheOnAnotherMountIsNeverTrimmed(t *testing.T) {
 }
 
 func TestGoCachePressureTrimsWhenWorktreeRootIsASymlink(t *testing.T) {
-	t.Parallel()
 	home := realTempDir(t)
 	worktrees := filepath.Join(home, "worktrees")
 	link := filepath.Join(home, "linked-worktrees")
@@ -188,8 +187,15 @@ func TestGoCachePressureTrimsWhenWorktreeRootIsASymlink(t *testing.T) {
 	old := time.Now().Add(-goCacheAge - time.Hour)
 	require.NoError(t, os.Chtimes(entry, old, old))
 
-	caches := Caches{WorktreeRoot: link, Logger: slog.New(slog.DiscardHandler)}
-	caches.trimGoCache(t.Context(), cache, caches.worktreeVolume(), func() bool { return true })
+	t.Setenv("GOCACHE", cache)
+	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
+	t.Setenv("GOENV", "off")
+	caches := Caches{
+		Policy: Policy{FloorBytes: 1<<63 - 1}, WorktreeRoot: link, UserHome: home, Logger: slog.New(slog.DiscardHandler),
+	}
+	caches.trim(t.Context(), func(func()) {}, func(context.Context, string, string, time.Time, *slog.Logger) error {
+		return nil
+	})
 	assert.NoFileExists(t, entry)
 }
 
@@ -250,6 +256,30 @@ func TestConfiguredGoCacheTrimKeepsModuleCache(t *testing.T) {
 			assert.NoFileExists(t, entry)
 		}
 	}
+}
+
+func TestTempSweepRunsWhenGoEnvFails(t *testing.T) {
+	home := realTempDir(t)
+	bin := filepath.Join(home, ".local", "bin")
+	require.NoError(t, os.MkdirAll(bin, 0o700))
+	fakeGo := filepath.Join(bin, "go")
+	require.NoError(t, os.WriteFile(fakeGo, []byte("#!/bin/sh\nexit 1\n"), 0o700)) //nolint:gosec // fake go
+	build, module := filepath.Join(home, "build"), filepath.Join(home, "module")
+	goenv := filepath.Join(home, "go.env")
+	require.NoError(t, os.WriteFile(goenv, []byte("GOMODCACHE="+module+"\n"), 0o600))
+	t.Setenv("GOENV", goenv)
+	t.Setenv("GOCACHE", build)
+	t.Setenv("GOMODCACHE", "")
+	caches := Caches{UserHome: home, WorktreeRoot: home, Policy: DefaultPolicy(), Logger: slog.New(slog.DiscardHandler)}
+	called := false
+	caches.trim(t.Context(), func(func()) {}, func(ctx context.Context, _, _ string, _ time.Time, _ *slog.Logger) error {
+		called = true
+		paths, _ := ctx.Value(protectionKey{}).([]string)
+		assert.Contains(t, paths, build)
+		assert.Contains(t, paths, module)
+		return nil
+	})
+	assert.True(t, called)
 }
 
 func TestGoCacheContinuesAfterAnUndeletableEntry(t *testing.T) {
