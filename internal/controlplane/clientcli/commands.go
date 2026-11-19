@@ -582,9 +582,29 @@ var commands = []command{
 	},
 	{
 		name: "mcp", offline: true,
-		summary: "Hypomnema's tools for a Bot's pi (web_search, web_fetch, generate_image, the audio_* and the " +
-			"others) as an MCP server on standard input and output; pi's mcp.json starts it",
-		run: mcpServe,
+		summary: "Hypomnema's tools for the login in client.json, as an MCP server on standard input and output",
+		run:     mcpServe,
+	},
+	{
+		name: "tools list", offline: true,
+		summary: "List the tools the control plane gives this login",
+		flags:   jsonFlag,
+		run:     toolsList,
+	},
+	{
+		name: "tools call", args: "<tool>", min: 1, max: 1, offline: true,
+		summary: "Call a tool with a JSON object from a file or standard input",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("args-file", "", "read arguments from a JSON file (- for standard input); defaults to {}")
+			jsonFlag(fs)
+		},
+		run: toolsCall,
+	},
+	{
+		name: "exec", args: "<integration>:<label> -- <command> [args...]", min: 3, max: -1, offline: true,
+		literalArgs: true,
+		summary:     "Run a local service CLI through a Connection's proxy with no service credentials on this machine",
+		run:         execService,
 	},
 	{
 		name:    "model-key",

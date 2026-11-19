@@ -2311,6 +2311,10 @@ export type GatewayKey = {
    */
   prefix: string;
   /**
+   * The first six and last four characters with the rest masked; absent when no value is stored.
+   */
+  masked_value?: string;
+  /**
    * The model names it may use; `*` is every model.
    */
   models: Array<string>;
@@ -2348,6 +2352,21 @@ export type NewGatewayKey = {
   endpoints?: Array<GatewayEndpoint>;
 };
 
+export type GatewayKeyUpdate = {
+  /**
+   * The new name; when omitted the name is unchanged.
+   */
+  name?: string;
+  /**
+   * The new list of model names; empty means every model, omitted means unchanged.
+   */
+  models?: Array<string>;
+  /**
+   * The new list of kinds besides chat; empty means none, omitted means unchanged.
+   */
+  endpoints?: Array<GatewayEndpoint>;
+};
+
 /**
  * A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits, audio is /v1/audio/transcriptions, /v1/audio/speech and /v1/audio/voices.
  */
@@ -2356,8 +2375,12 @@ export type GatewayEndpoint = 'search' | 'fetch' | 'images' | 'audio';
 export type CreatedGatewayKey = {
   key: GatewayKey;
   /**
-   * The key's value, answered this once; only its hash is kept.
+   * The key's value, also kept encrypted in the vault.
    */
+  secret: string;
+};
+
+export type GatewayKeyValue = {
   secret: string;
 };
 
@@ -7897,12 +7920,70 @@ export type RevokeGatewayKeyError = RevokeGatewayKeyErrors[keyof RevokeGatewayKe
 
 export type RevokeGatewayKeyResponses = {
   /**
-   * Revoked.
+   * Revoked and its stored value removed.
    */
   204: void;
 };
 
 export type RevokeGatewayKeyResponse = RevokeGatewayKeyResponses[keyof RevokeGatewayKeyResponses];
+
+export type UpdateGatewayKeyData = {
+  body: GatewayKeyUpdate;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}';
+};
+
+export type UpdateGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UpdateGatewayKeyError = UpdateGatewayKeyErrors[keyof UpdateGatewayKeyErrors];
+
+export type UpdateGatewayKeyResponses = {
+  /**
+   * The updated key, without its value.
+   */
+  200: GatewayKey;
+};
+
+export type UpdateGatewayKeyResponse = UpdateGatewayKeyResponses[keyof UpdateGatewayKeyResponses];
+
+export type GetGatewayKeyValueData = {
+  body?: never;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}/value';
+};
+
+export type GetGatewayKeyValueErrors = {
+  /**
+   * No active owner-made key with a stored value has this id.
+   */
+  404: Error;
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGatewayKeyValueError = GetGatewayKeyValueErrors[keyof GetGatewayKeyValueErrors];
+
+export type GetGatewayKeyValueResponses = {
+  /**
+   * The key's value.
+   */
+  200: GatewayKeyValue;
+};
+
+export type GetGatewayKeyValueResponse = GetGatewayKeyValueResponses[keyof GetGatewayKeyValueResponses];
 
 export type GetGatewayUsageData = {
   body?: never;

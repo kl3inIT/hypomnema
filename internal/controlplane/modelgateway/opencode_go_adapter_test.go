@@ -94,6 +94,7 @@ func newGoGateway(t *testing.T, backend *goBackend, subs modelgateway.Subscripti
 			}, nil
 		},
 		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil }).
+		WithKeyVault(testKeyVault(t, db)).
 		WithServedWire(func(_ context.Context, kind, upstream string) (string, bool) {
 			wire, ok := goWires[upstream]
 
