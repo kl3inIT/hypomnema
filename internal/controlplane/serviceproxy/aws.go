@@ -40,7 +40,9 @@ const AWSID = "aws"
 
 // awsHost is a host of AWS's own: a service's endpoint, a bucket's, a
 // region's. Every one is reached; what a role may do there is AWS's to say.
-var awsHost = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+amazonaws\.com(\.cn)?$`)
+const awsDNS = "amazonaws.com"
+
+var awsHost = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+` + regexp.QuoteMeta(awsDNS) + `(\.cn)?$`)
 
 // awsMinting are the operations that give credentials, by service.
 var awsMinting = map[string][]string{

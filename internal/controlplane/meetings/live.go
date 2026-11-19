@@ -333,8 +333,15 @@ func (t *Track) end(ctx context.Context) bool {
 	t.mu.Unlock()
 
 	if live != nil {
-		// The stream was finished or closed; what it gave is kept, at most endWait, even when ctx has ended.
-		wait, cancel := context.WithTimeout(context.WithoutCancel(ctx), endWait)
+		// The stream was finished or closed; what it gave is kept, at most endWait, even when ctx was canceled (the
+		// socket dropped). A deadline ctx has is kept: the meeting's end gives its tracks one endWait in all, which
+		// their Finish may have used already (the review of #840).
+		deadline := time.Now().Add(t.svc.lastWords)
+		if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+			deadline = d
+		}
+
+		wait, cancel := context.WithDeadline(context.WithoutCancel(ctx), deadline)
 
 		select {
 		case <-live.Done():
@@ -430,7 +437,7 @@ func (s *Service) End(ctx context.Context, id string) (meetingstore.Meeting, err
 
 // end finishes a meeting's tracks, keeps their audio as its recording and ends it; true when this call ended it.
 func (s *Service) end(ctx context.Context, id string, tracks []*Track) (bool, error) {
-	finishing, cancel := context.WithTimeout(context.WithoutCancel(ctx), endWait)
+	finishing, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.lastWords)
 
 	var wg sync.WaitGroup
 	for _, t := range tracks {

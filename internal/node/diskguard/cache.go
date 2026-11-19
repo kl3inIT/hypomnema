@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shirou/gopsutil/v4/disk"
-
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -41,21 +39,17 @@ func (c Caches) worktreeVolume() string {
 }
 
 func (c Caches) Trim(ctx context.Context, whileIdle func(func())) {
-	c.trim(ctx, whileIdle, sweepSystemTemp)
-}
-
-func (c Caches) trim(ctx context.Context, whileIdle func(func()),
-	sweep func(context.Context, string, string, time.Time, *slog.Logger) error,
-) {
 	if ctx.Err() != nil {
 		return
 	}
 
 	space, _ := c.Policy.Measure(ctx, c.WorktreeRoot)
-	pressure := space.FreeBytes != nil && *space.FreeBytes < space.TrimBytes
+	if space.FreeBytes == nil || *space.FreeBytes >= space.TrimBytes {
+		return
+	}
 	volume := c.worktreeVolume()
 	needsRoom := func() bool {
-		if !pressure || !RealDir(volume) || ctx.Err() != nil {
+		if !RealDir(volume) || ctx.Err() != nil {
 			return false
 		}
 		space, target := c.Policy.Measure(ctx, c.WorktreeRoot)
@@ -71,16 +65,7 @@ func (c Caches) trim(ctx context.Context, whileIdle func(func()),
 			c.trimGoCache(WithProtection(ctx, module), root, volume, needsRoom)
 		}
 	}
-	guard := WithProtection(ctx, c.WorktreeRoot)
-	if module != "" {
-		guard = WithProtection(guard, module)
-	}
-	guard = WithProtection(guard, locations...)
-	before := time.Now().Add(-time.Duration(c.Policy.TempMaxAgeHours) * time.Hour)
-	if err := sweep(guard, c.NodeHome, c.UserHome, before, c.Logger); err != nil {
-		c.Logger.WarnContext(ctx, "could not sweep shared temporary files", slog.Any("error", err))
-	}
-	if !pressure || !RealDir(c.UserHome) {
+	if !RealDir(c.UserHome) {
 		return
 	}
 	c.Logger.WarnContext(ctx, "worktree volume is below the disk trim threshold",
@@ -188,18 +173,12 @@ func (c Caches) fallbackGoCaches(paths []string, cause error) ([]string, string,
 }
 
 func (c Caches) trimGoCache(ctx context.Context, root, worktreeVolume string, needsRoom func() bool) {
-	if !RealDir(root) {
+	if !RealDir(root) || !SameVolume(worktreeVolume, root) {
 		return
 	}
 	protected, err := deletionIdentities(ctx, root, c.NodeHome, "", false)
 	if err == nil {
-		limit := c.Policy.GoCacheMaxBytes
-		if usage, usageErr := disk.UsageWithContext(ctx, root); usageErr == nil && usage.Total > 0 {
-			limit = min(limit, share(int64(min(usage.Total, 1<<63-1)), 10))
-		}
-		err = trimGo(ctx, root, root, time.Now().Add(-goCacheAge), func() bool {
-			return SameVolume(worktreeVolume, root) && needsRoom()
-		}, limit, protected)
+		err = trimGo(ctx, worktreeVolume, root, time.Now().Add(-goCacheAge), needsRoom, protected)
 	}
 	if err != nil {
 		c.Logger.WarnContext(ctx, "could not trim the Go build cache", slog.String("path", root), slog.Any("error", err))
@@ -214,21 +193,10 @@ type cacheEntry struct {
 	executable os.FileInfo
 }
 
-func (entry cacheEntry) size() int64 {
-	if entry.executable != nil {
-		return entry.executable.Size()
-	}
-	return entry.info.Size()
-}
-
 func trimGo(ctx context.Context, volumePath, root string, olderThan time.Time, needsRoom func() bool,
-	limit int64, protected []os.FileInfo,
+	protected []os.FileInfo,
 ) error {
-	if !RealDir(root) || !SameVolume(volumePath, root) {
-		return nil
-	}
-	pressure := needsRoom()
-	if limit == 0 && !pressure {
+	if !RealDir(root) || !SameVolume(volumePath, root) || !needsRoom() {
 		return nil
 	}
 
@@ -250,7 +218,6 @@ func trimGo(ctx context.Context, volumePath, root string, olderThan time.Time, n
 	}
 
 	var candidates []cacheEntry
-	var size int64
 	for _, bucket := range buckets {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -260,15 +227,10 @@ func trimGo(ctx context.Context, volumePath, root string, olderThan time.Time, n
 			continue
 		}
 		var err error
-		var bucketSize int64
-		candidates, bucketSize, err = scanGoBucket(cache, mount, bucket.Name(), protected, candidates)
+		candidates, err = scanGoBucket(cache, mount, bucket.Name(), protected, candidates)
 		if err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		size += bucketSize
-	}
-	if !pressure && size <= limit {
-		return nil
 	}
 
 	slices.SortFunc(candidates, func(first, second cacheEntry) int {
@@ -277,19 +239,19 @@ func trimGo(ctx context.Context, volumePath, root string, olderThan time.Time, n
 
 	var removalErr error
 	for start := 0; start < len(candidates); start += goCacheBatch {
-		pressure = pressure && needsRoom()
+		if !needsRoom() {
+			break
+		}
 		for _, entry := range candidates[start:min(start+goCacheBatch, len(candidates))] {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 
-			if (limit == 0 || size <= limit) && (!pressure || !entry.info.ModTime().Before(olderThan)) {
+			if !entry.info.ModTime().Before(olderThan) {
 				return removalErr
 			}
-			removed, err := removeGoEntry(ctx, cache, mount, entry, protected)
-			if removed || os.IsNotExist(err) {
-				size -= entry.size()
-			} else if err != nil && removalErr == nil {
+			err := removeGoEntry(ctx, cache, mount, entry, protected)
+			if err != nil && !os.IsNotExist(err) && removalErr == nil {
 				removalErr = err
 			}
 		}
@@ -299,22 +261,21 @@ func trimGo(ctx context.Context, volumePath, root string, olderThan time.Time, n
 }
 
 func scanGoBucket(cache *os.Root, mount mountID, bucket string, protected []os.FileInfo, candidates []cacheEntry) (
-	[]cacheEntry, int64, error,
+	[]cacheEntry, error,
 ) {
 	dir, err := openChild(cache, bucket)
 	if err != nil {
-		return candidates, 0, err
+		return candidates, err
 	}
 	defer dir.Close() //nolint:errcheck // directory handle
 	info, err := dir.Stat(".")
 	if err != nil || sameIdentity(info, protected) || checkMountAt(dir, ".", mount) != nil {
-		return candidates, 0, err
+		return candidates, err
 	}
 	files, err := fs.ReadDir(dir.FS(), ".")
 	if err != nil {
-		return candidates, 0, err
+		return candidates, err
 	}
-	var size int64
 	for _, file := range files {
 		name := file.Name()
 		hash, suffix, ok := strings.Cut(name, "-")
@@ -336,10 +297,9 @@ func scanGoBucket(cache *os.Root, mount mountID, bucket string, protected []os.F
 				continue
 			}
 		}
-		size += candidate.size()
 		candidates = append(candidates, candidate)
 	}
-	return candidates, size, nil
+	return candidates, nil
 }
 
 func goExecutable(bucket *os.Root, mount mountID, name string, expected os.FileInfo) os.FileInfo {
@@ -367,21 +327,21 @@ func goExecutable(bucket *os.Root, mount mountID, name string, expected os.FileI
 
 func removeGoEntry(ctx context.Context, cache *os.Root, mount mountID, entry cacheEntry,
 	protected []os.FileInfo,
-) (bool, error) {
+) error {
 	root, err := openChild(cache, entry.bucket)
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer root.Close() //nolint:errcheck // directory handle
 	if info, err := root.Stat("."); err != nil || !os.SameFile(info, entry.bucketInfo) {
-		return false, err
+		return err
 	}
 	if err := checkMountAt(root, ".", mount); err != nil {
-		return false, err
+		return err
 	}
 	info, err := root.Lstat(entry.name)
 	if err != nil || !unchangedCacheEntry(info, entry.info) {
-		return false, err
+		return err
 	}
 	walk := removalWalk{mount: mount, protected: protected, guard: func(current os.FileInfo) error {
 		if unchangedCacheEntry(current, entry.info) ||
@@ -390,8 +350,7 @@ func removeGoEntry(ctx context.Context, cache *os.Root, mount mountID, entry cac
 		}
 		return errors.New("cache entry changed")
 	}}
-	err = walk.visit(ctx, root, entry.name, info)
-	return err == nil, err
+	return walk.visit(ctx, root, entry.name, info)
 }
 
 func unchangedCacheEntry(current, expected os.FileInfo) bool {

@@ -69,7 +69,7 @@ func newFakeSpeech() *fakeSpeech {
 	return &fakeSpeech{spoken: map[string]int{}, down: map[string]bool{}, failAfter: map[string]int{}}
 }
 
-func (f *fakeSpeech) Speak(_ context.Context, req speech.SpeakRequest) (speech.Speech, error) {
+func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakRequest) (speech.Speech, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -97,7 +97,8 @@ func (f *fakeSpeech) Speak(_ context.Context, req speech.SpeakRequest) (speech.S
 	return speech.Speech{Audio: []byte(req.Input), Provider: req.Provider}, nil
 }
 
-func (f *fakeSpeech) Transcribe(_ context.Context, req speech.TranscribeRequest) (speech.Transcript, error) {
+func (f *fakeSpeech) Transcribe(_ context.Context, _ AudioSource, req speech.TranscribeRequest,
+) (speech.Transcript, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -602,6 +603,7 @@ func TestChangedLinesReuseTheOtherClips(t *testing.T) {
 	assert.Equal(t, Review, r.revision(t, v.ID, 2).State)
 	assert.Equal(t, 1, r.speech.count(speech.ProviderSoniox, "Mở ứng dụng"), "the unchanged line's clip is reused")
 	assert.Equal(t, 1, r.speech.count(speech.ProviderSoniox, "Chạm nút Đăng nhập"))
+	assert.Equal(t, 3, r.speech.heard, "only the changed clip is transcribed")
 	assert.Len(t, r.maker.inputs, 2, "the video is composed again whole")
 
 	_, err = r.svc.RequestChanges(t.Context(), v.ID, 2, ChangeRequest{Lines: []string{"one"}})
@@ -614,6 +616,7 @@ func TestChangedLinesReuseTheOtherClips(t *testing.T) {
 	assert.Equal(t, 2, rev.Parent)
 	r.runAll(t)
 	assert.Equal(t, 1, r.speech.count(speech.ProviderSoniox, "Chạm nút Đăng nhập"))
+	assert.Equal(t, 3, r.speech.heard, "the same clips reuse their word times")
 }
 
 // One revision is approved at a time; an approved revision is never changed by a change request.

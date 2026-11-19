@@ -607,6 +607,11 @@ var commands = []command{
 		run:         execService,
 	},
 	{
+		name: "exec remove-ca", offline: true,
+		summary: "Remove the local service proxy CA from your trust store and CLI home",
+		run:     removeExecCA,
+	},
+	{
 		name:    "model-key",
 		summary: "the model gateway's key of the chat pi runs for; pi's models.json runs this at each request",
 		run:     modelKey,

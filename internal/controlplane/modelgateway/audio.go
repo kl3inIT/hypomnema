@@ -450,7 +450,9 @@ func (s *Server) audioFailed(w http.ResponseWriter, r *http.Request, err error) 
 
 // AudioCall is one audio request, to be recorded on a key.
 type AudioCall struct {
-	KeyID string
+	KeyID    string
+	VideoID  string
+	VideoRev int
 	// Kind is speech.KindSTT or speech.KindTTS.
 	Kind string
 	// Provider and Model answered; empty when none did.
@@ -474,6 +476,7 @@ func (s *Service) RecordAudioCall(ctx context.Context, c AudioCall) error {
 	u := Usage{
 		KeyID: c.KeyID, Provider: c.Provider, UpstreamModel: c.Model, Attempts: len(c.Failures) + 1,
 		Outcome: OutcomeOK, Status: http.StatusOK, Audio: c.Audio, Characters: c.Characters, Duration: c.Duration,
+		VideoID: c.VideoID, VideoRev: c.VideoRev,
 	}
 
 	var (

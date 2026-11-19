@@ -47,8 +47,10 @@ const maxGraphQLTokens = 20000
 // githubAPI is the host gh and the REST and GraphQL APIs are on; githubUploads is where a release's asset is
 // uploaded (the operation's own servers in the description).
 const (
-	githubAPI     = "api.github.com"
-	githubUploads = "uploads.github.com"
+	githubAPI        = "api.github.com"
+	githubUploads    = "uploads.github.com"
+	githubBlobDNS    = "blob.core.windows.net"
+	githubBlobPrefix = "productionresultssa"
 )
 
 // githubLogHosts are where GitHub sends a log's download (a redirect from
@@ -57,7 +59,7 @@ const (
 // is added there.
 var (
 	githubResults = "results-receiver.actions.githubusercontent.com"
-	githubBlob    = regexp.MustCompile(`^productionresultssa[0-9]{1,3}\.blob\.core\.windows\.net$`)
+	githubBlob    = regexp.MustCompile(`^` + githubBlobPrefix + `[0-9]{1,3}\.` + regexp.QuoteMeta(githubBlobDNS) + `$`)
 )
 
 //go:embed github_operations.json

@@ -63,8 +63,8 @@ type toneSpeech struct {
 	tools ffmpeg.Tools
 }
 
-func (s toneSpeech) Speak(ctx context.Context, req speech.SpeakRequest) (speech.Speech, error) {
-	if _, err := s.fakeSpeech.Speak(ctx, req); err != nil {
+func (s toneSpeech) Speak(ctx context.Context, source AudioSource, req speech.SpeakRequest) (speech.Speech, error) {
+	if _, err := s.fakeSpeech.Speak(ctx, source, req); err != nil {
 		return speech.Speech{}, err
 	}
 
@@ -84,7 +84,8 @@ func (s toneSpeech) Speak(ctx context.Context, req speech.SpeakRequest) (speech.
 	return speech.Speech{Audio: raw, Provider: req.Provider}, nil
 }
 
-func (s toneSpeech) Transcribe(ctx context.Context, req speech.TranscribeRequest) (speech.Transcript, error) {
+func (s toneSpeech) Transcribe(ctx context.Context, source AudioSource, _ speech.TranscribeRequest,
+) (speech.Transcript, error) {
 	s.fakeSpeech.mu.Lock()
 	line := ""
 	if len(s.fakeSpeech.lines) > 0 {
@@ -92,7 +93,7 @@ func (s toneSpeech) Transcribe(ctx context.Context, req speech.TranscribeRequest
 	}
 	s.fakeSpeech.mu.Unlock()
 
-	return s.fakeSpeech.Transcribe(ctx, speech.TranscribeRequest{Audio: speech.Audio{
+	return s.fakeSpeech.Transcribe(ctx, source, speech.TranscribeRequest{Audio: speech.Audio{
 		Size: int64(len(line)), Open: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader(line)), nil },
 	}})
 }

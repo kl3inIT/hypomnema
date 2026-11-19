@@ -152,7 +152,7 @@ func TestGoCacheTrimStopsAtTargetAndKeepsNewAndUnknownFiles(t *testing.T) {
 	require.NoError(t, trimGo(t.Context(), root, root, now.Add(-goCacheAge), func() bool {
 		checks++
 		return checks <= 2
-	}, 0, nil))
+	}, nil))
 	assert.NoFileExists(t, paths[0])
 	assert.NoFileExists(t, paths[goCacheBatch-1])
 	assert.FileExists(t, paths[goCacheBatch])
@@ -170,7 +170,7 @@ func TestGoCacheOnAnotherMountIsNeverTrimmed(t *testing.T) {
 	require.NoError(t, trimGo(t.Context(), volume, "/dev/shm", time.Now(), func() bool {
 		t.Error("a cache on a different mount must not be inspected or trimmed")
 		return false
-	}, 0, nil))
+	}, nil))
 }
 
 func TestGoCachePressureTrimsWhenWorktreeRootIsASymlink(t *testing.T) {
@@ -191,43 +191,13 @@ func TestGoCachePressureTrimsWhenWorktreeRootIsASymlink(t *testing.T) {
 	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
 	t.Setenv("GOENV", "off")
 	caches := Caches{
-		Policy: Policy{FloorBytes: 1<<63 - 1}, WorktreeRoot: link, UserHome: home, Logger: slog.New(slog.DiscardHandler),
+		Policy: Policy{FloorBytes: 1}, WorktreeRoot: link, UserHome: home, Logger: slog.New(slog.DiscardHandler),
 	}
-	caches.trim(t.Context(), func(func()) {}, func(context.Context, string, string, time.Time, *slog.Logger) error {
-		return nil
-	})
+	caches.Trim(t.Context(), func(func()) { t.Error("must not prune without disk pressure") })
+	require.FileExists(t, entry)
+	caches.Policy.FloorBytes = 1<<63 - 1
+	caches.Trim(t.Context(), func(func()) {})
 	assert.NoFileExists(t, entry)
-}
-
-func TestGoCacheCapTrimsRecentEntriesOldestFirstWithoutPressure(t *testing.T) {
-	t.Parallel()
-	root := realTempDir(t)
-	bucket := filepath.Join(root, "01")
-	require.NoError(t, os.Mkdir(bucket, 0o700))
-	now := time.Now()
-	var entries []string
-	for index := range 3 {
-		entry := filepath.Join(bucket, fmt.Sprintf("01%062x-d", index))
-		require.NoError(t, os.WriteFile(entry, []byte("data"), 0o600))
-		lastUse := now.Add(-time.Duration(3-index) * time.Minute)
-		require.NoError(t, os.Chtimes(entry, lastUse, lastUse))
-		entries = append(entries, entry)
-	}
-	require.NoError(t, trimGo(t.Context(), root, root, now.Add(-goCacheAge), func() bool { return false }, 8, nil))
-	assert.NoFileExists(t, entries[0])
-	assert.FileExists(t, entries[1])
-	assert.FileExists(t, entries[2])
-}
-
-func TestGoCacheCapIncludesExecutableOutputs(t *testing.T) {
-	t.Parallel()
-	root := realTempDir(t)
-	bucket := filepath.Join(root, "01")
-	output := filepath.Join(bucket, fmt.Sprintf("01%062x-d", 0))
-	require.NoError(t, os.MkdirAll(output, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(output, "tool"), []byte("executable"), 0o600))
-	require.NoError(t, trimGo(t.Context(), root, root, time.Time{}, func() bool { return false }, 4, nil))
-	assert.NoDirExists(t, output)
 }
 
 func TestConfiguredGoCacheTrimKeepsModuleCache(t *testing.T) {
@@ -238,7 +208,6 @@ func TestConfiguredGoCacheTrimKeepsModuleCache(t *testing.T) {
 	t.Setenv("GOMODCACHE", module)
 	t.Setenv("GOENV", "off")
 	caches := Caches{UserHome: home, Policy: DefaultPolicy(), Logger: slog.New(slog.DiscardHandler)}
-	caches.Policy.GoCacheMaxBytes = 1
 	roots, mod, err := caches.goCaches(t.Context())
 	require.NoError(t, err)
 	require.Contains(t, roots, custom)
@@ -249,37 +218,15 @@ func TestConfiguredGoCacheTrimKeepsModuleCache(t *testing.T) {
 		require.NoError(t, os.MkdirAll(bucket, 0o700))
 		entry := filepath.Join(bucket, fmt.Sprintf("01%062x-d", 0))
 		require.NoError(t, os.WriteFile(entry, []byte("bytes"), 0o600))
-		caches.trimGoCache(WithProtection(t.Context(), mod), root, home, func() bool { return false })
+		old := time.Now().Add(-goCacheAge - time.Hour)
+		require.NoError(t, os.Chtimes(entry, old, old))
+		caches.trimGoCache(WithProtection(t.Context(), mod), root, home, func() bool { return true })
 		if root == module {
 			assert.FileExists(t, entry)
 		} else {
 			assert.NoFileExists(t, entry)
 		}
 	}
-}
-
-func TestTempSweepRunsWhenGoEnvFails(t *testing.T) {
-	home := realTempDir(t)
-	bin := filepath.Join(home, ".local", "bin")
-	require.NoError(t, os.MkdirAll(bin, 0o700))
-	fakeGo := filepath.Join(bin, "go")
-	require.NoError(t, os.WriteFile(fakeGo, []byte("#!/bin/sh\nexit 1\n"), 0o700)) //nolint:gosec // fake go
-	build, module := filepath.Join(home, "build"), filepath.Join(home, "module")
-	goenv := filepath.Join(home, "go.env")
-	require.NoError(t, os.WriteFile(goenv, []byte("GOMODCACHE="+module+"\n"), 0o600))
-	t.Setenv("GOENV", goenv)
-	t.Setenv("GOCACHE", build)
-	t.Setenv("GOMODCACHE", "")
-	caches := Caches{UserHome: home, WorktreeRoot: home, Policy: DefaultPolicy(), Logger: slog.New(slog.DiscardHandler)}
-	called := false
-	caches.trim(t.Context(), func(func()) {}, func(ctx context.Context, _, _ string, _ time.Time, _ *slog.Logger) error {
-		called = true
-		paths, _ := ctx.Value(protectionKey{}).([]string)
-		assert.Contains(t, paths, build)
-		assert.Contains(t, paths, module)
-		return nil
-	})
-	assert.True(t, called)
 }
 
 func TestGoCacheContinuesAfterAnUndeletableEntry(t *testing.T) {
@@ -301,7 +248,7 @@ func TestGoCacheContinuesAfterAnUndeletableEntry(t *testing.T) {
 	}
 	require.NoError(t, os.Chmod(blocked, 0o500))                      //nolint:gosec // directory needs to be searchable
 	t.Cleanup(func() { assert.NoError(t, os.Chmod(blocked, 0o700)) }) //nolint:gosec // restore the test directory
-	err := trimGo(t.Context(), root, root, now.Add(-goCacheAge), func() bool { return true }, 0, nil)
+	err := trimGo(t.Context(), root, root, now.Add(-goCacheAge), func() bool { return true }, nil)
 	require.ErrorIs(t, err, os.ErrPermission)
 	assert.FileExists(t, entries[0])
 	assert.NoFileExists(t, entries[1])

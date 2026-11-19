@@ -13,23 +13,18 @@ import (
 )
 
 type Policy struct {
-	FloorBytes      int64 `json:"floor_bytes"`
-	TrimPercent     int   `json:"trim_percent"`
-	TargetPercent   int   `json:"target_percent"`
-	GoCacheMaxBytes int64 `json:"go_cache_max_bytes"`
-	TempMaxAgeHours int   `json:"temp_max_age_hours"`
+	FloorBytes    int64 `json:"floor_bytes"`
+	TrimPercent   int   `json:"trim_percent"`
+	TargetPercent int   `json:"target_percent"`
 }
 
 func DefaultPolicy() Policy {
-	return Policy{FloorBytes: 5 << 30, TrimPercent: 15, TargetPercent: 20, GoCacheMaxBytes: 8 << 30, TempMaxAgeHours: 6}
+	return Policy{FloorBytes: 5 << 30, TrimPercent: 15, TargetPercent: 20}
 }
 
 func (p Policy) Validate() error {
 	if p.FloorBytes <= 0 || p.TrimPercent <= 0 || p.TargetPercent <= p.TrimPercent || p.TargetPercent > 100 {
 		return errors.New("disk policy needs floor_bytes > 0 and 0 < trim_percent < target_percent <= 100")
-	}
-	if p.GoCacheMaxBytes <= 0 || p.TempMaxAgeHours <= 0 || p.TempMaxAgeHours > int((1<<63-1)/time.Hour) {
-		return errors.New("disk policy needs go_cache_max_bytes > 0 and a positive, representable temp_max_age_hours")
 	}
 
 	return nil

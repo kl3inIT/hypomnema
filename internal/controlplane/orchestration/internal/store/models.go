@@ -504,6 +504,8 @@ type GatewayUsage struct {
 	WebSearches        int64
 	Images             int64
 	TtftMs             sql.NullInt64
+	VideoID            string
+	VideoRev           int64
 }
 
 type GatewayUsageDaily struct {

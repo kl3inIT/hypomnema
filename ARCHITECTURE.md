@@ -941,7 +941,8 @@ sequenceDiagram
     the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
     latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
     (`PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `hypomnema audio voice <provider> [voice]`; the
-    column `voice` of `gateway_audio_providers`). The speech the runner asks is not recorded on a gateway key.
+    column `voice` of `gateway_audio_providers`). The runner records speech and transcription through the gateway's
+    audio usage path (see "Audio").
   - The Studio (issue #818, row 12): one owner listing of takes and videos, `GET /studio/items?kind=&state=&q=
     &cursor=&limit=` (`clientapi/studio.go`, owner tokens only), each a summary (kind, id, title, the Bot that
     filmed the take, created_at, length, state, a video's take and latest revision, a thumbnail URL), in the order
@@ -1979,6 +1980,14 @@ flowchart LR
       not needed. For example, `hypomnema exec lark:me -- lark-cli im chats get --as user --chat-id <chat-id>`
       reads a chat using the owner's Lark user Connection. The tunnel checks the Connection and applies the same
       action policies; the child gets a placeholder, not the owner token or the service token.
+      On Windows and macOS, `exec` terminates TLS on loopback and verifies a second TLS connection through the
+      same tunnel with the control plane's CA. The child sees a per-user CA trusted in CurrentUser\Root or the
+      login keychain. Only name-constrained issuing keys are kept with the CA certificate under the CLI's
+      private `exec-ca` directory; the root signing key is discarded. The issuing certificates carry the DNS
+      constraints in bounded groups so they also fit the macOS chain validator's limit. They cover the service CLI
+      catalogs, including connected GitLab hosts reported by the control plane. `hypomnema exec remove-ca` untrusts
+      the exact root and deletes the keys.
+      On Linux the child still verifies the control plane's temporary CA through `SSL_CERT_FILE`.
     - **Google goes through the service proxy** (issue #154,
       [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
       [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
@@ -3835,6 +3844,11 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   or `audio/tts` when none was asked), with `audio_ms` heard or `characters` spoken (migration 00103, OmniRoute's
   billing units), 0 on a failure; a request refused before any provider is not recorded. `GET /gateway/requests`
   gives them as `audio_seconds` and `characters`, and the Usage page shows them in their units (issue #723).
+  Video calls (issue #909) carry `video_id` and `video_rev` in the usage row and count on the revision requester's
+  key: `videos` for the owner, the Dispatch's or the chat's newest key for agents (a revoked usage-only key if
+  none exists). The runner caches the caption word times beside each voice clip, so a cache hit calls neither
+  provider again when both are present. A clip voiced before its word times were cached is transcribed on its
+  first use with captions.
 - What the owner sets (`gateway_audio_providers`, migration 00103: `provider`, `off`, `stt_position`,
   `tts_position`; read and written only by the gateway): one switch a provider for both kinds and each kind's order.
   `GET /gateway/audio` (any token) lists the providers with their switch, `state` (`ready`, `resting` when every key
@@ -4740,7 +4754,7 @@ Node (`internal/node`):
   after a replayed accept. Disk probes time out off the message loop. A declined offer keeps its Conversation,
   answered Gate and recovery or handoff note, and does not count as a backup turn.
 - The hello enables the policy for an upgraded node. The heartbeat reports available bytes, the floor, effective
-  trim threshold; the control plane dates samples on receipt. Migration `00139_node_disk.sql` keeps these
+  trim threshold; the control plane dates samples on receipt. Migration `00141_node_disk.sql` keeps these
   fields independently of CPU and RAM. A missing sample or one at least 30 seconds old blocks new work on
   a policy-enabled node. Old nodes that
   have never advertised the policy still take work. Machines shows the age and thresholds, “Not measured” for a
@@ -4772,30 +4786,17 @@ Node (`internal/node`):
   path so a short symlink alias remains usable even when the resolved path is too long for Unix sockets. Disk
   maintenance never removes state or its sidecars, accounts, shim records and journals,
   Conversations, Transcripts, Git mirrors and branches, the binary and configuration, or system logs.
-- On each maintenance pass with a protected-path confirmation, the node caps standard Go build cache entries
-  in `~/.cache/go-build` and the effective `GOCACHE`, per cache, to the smaller of `disk.go_cache_max_bytes`
-  (8 GiB by default) and 10% of that cache's volume. It removes the least recently used entries by mtime,
-  including newer entries if needed for the cap, and skips an entry that changed after inspection. Below the
-  trim threshold it also removes entries older than five days plus one hour on the affected mount, remeasuring
-  in batches to the target. It checks for an idle node before invoking native
+- Below the trim threshold, with protected paths confirmed, the node trims standard Go build cache entries in
+  `~/.cache/go-build` and the effective `GOCACHE` on the affected mount. It removes entries older than five days
+  plus one hour in oldest-first order, skips entries that changed after inspection, and remeasures in batches
+  until it reaches the target. It checks for an idle node before invoking native
   `pnpm store prune` on the default worker store. It rejects symlinks and cross-mount entries and confines the
   command with the same platform sandbox; the worker's `dlx` cache is not pruned. The pnpm store must be on the affected mount.
   Go module, toolchain
   and fuzz caches are not touched. Playwright's own GC remains part of its browser install, not this sweep.
   If the eligible cleanup cannot make enough room, the warning and admission floor remain. The policy does not
   protect free space on a separate cache or temp volume.
-- On Linux, a pass also checks top-level entries of `/tmp` and a separate real `os.TempDir()`. It keeps a whole
-  entry unless it and its descendants belong to the node UID and all mtimes predate `disk.temp_max_age_hours`
-  (6 hours by default). It keeps top-level symlinks, special files, mount boundaries and protected paths. Before
-  removing eligible entries it takes one `/proc` snapshot per pass, shared across both roots. It matches the
-  node UID against process status and checks visible descriptors, working directories, process roots and
-  mappings by file identity. Like tmpwatch's `fuser` check, it does not let another user's process block the
-  sweep. If a process cannot be fully inspected (for example a non-dumpable agent), the node logs the count
-  and still keeps any references it could see, as well as trees with sockets or other special files. It cannot
-  detect a reference visible only to a foreign UID or an opaque process, and the snapshot does not lock against
-  new opens. A failed `go env` probe skips Go cache trimming, not the shared sweep; the sweep still protects cache
-  paths known from the environment, user Go settings and defaults. The shared sweep is skipped on macOS and
-  other non-Linux hosts. [Reference comparison](docs/research/2026-11-19-node-cache-and-temp-cleanup.md).
+- The node does not sweep shared `/tmp` or `os.TempDir()`. Dispatch cleanup is limited to its own temporary directory.
 
 ## Web client
 

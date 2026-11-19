@@ -24,7 +24,3 @@ func lockFile(path string) (func(), error) {
 
 	return func() { _ = f.Close() }, nil
 }
-
-// syncDisk flushes every file to the disk, Hermes's os.sync() before a
-// selection is written (pm/environments.py, flush_before_selecting).
-func syncDisk() { syscall.Sync() }
