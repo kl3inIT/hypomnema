@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/cloudcode"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
+	"github.com/kl3inIT/hypomnema/internal/shared/agentconfig"
 )
 
 // The gateway's HTTP API speaks OpenAI's shapes, so any OpenAI client works
@@ -129,6 +131,8 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 // Register adds the gateway's routes to a mux.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", s.listModels)
+	// Codex's catalog of the key's models, at its provider's model_catalog_url (codex_catalog.go, issue #907).
+	mux.HandleFunc("GET "+agentconfig.CodexCatalogPath, s.codexModels)
 	mux.HandleFunc("POST /v1/chat/completions", longAnswer(s.chatCompletions))
 	mux.HandleFunc("POST /v1/responses", longAnswer(s.responses))
 	mux.HandleFunc("POST /v1/messages", longAnswer(s.messages))
@@ -270,19 +274,28 @@ func (s *Server) internal(w http.ResponseWriter, r *http.Request, event string, 
 	writeError(w, http.StatusInternalServerError, typeServer, "internal_error", "internal error")
 }
 
+// modelList is OpenAI's model list, which Anthropic's has the same data of (GET /v1/models, `data`, `has_more`),
+// so that Claude Code reads it too (issue #907).
 type modelList struct {
-	Object string      `json:"object"`
-	Data   []modelItem `json:"data"`
+	Object  string      `json:"object"`
+	Data    []modelItem `json:"data"`
+	HasMore bool        `json:"has_more"`
 }
 
+// modelItem is a model as OpenAI lists it, with Anthropic's display_name and the description Claude Code adds to
+// its /model picker with gateway model discovery (llm-gateway-protocol, "Model discovery": data[].id, optional
+// display_name and description).
 type modelItem struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	OwnedBy string `json:"owned_by"`
+	ID          string `json:"id"`
+	Object      string `json:"object"`
+	Created     int64  `json:"created"`
+	OwnedBy     string `json:"owned_by"`
+	DisplayName string `json:"display_name"`
+	Description string `json:"description,omitempty"`
 }
 
-// listModels answers GET /v1/models with the models the key may use.
+// listModels answers GET /v1/models with the models the key may use. A limit, as Claude Code asks
+// (`?limit=1000`) and Anthropic's API takes, gives the first ones and says whether there are more.
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	k, ok := s.authenticate(w, r)
 	if !ok {
@@ -297,9 +310,15 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := modelList{Object: "list", Data: make([]modelItem, 0, len(models))}
+
+	if limit, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && limit > 0 && limit < len(models) {
+		models, out.HasMore = models[:limit], true
+	}
+
 	for _, m := range models {
 		out.Data = append(out.Data, modelItem{
 			ID: m.Name, Object: "model", Created: m.CreatedAt.Unix(), OwnedBy: "hypomnema",
+			DisplayName: DisplayName(m.Name), Description: s.svc.description(r.Context(), m),
 		})
 	}
 

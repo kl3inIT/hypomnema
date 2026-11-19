@@ -2154,6 +2154,47 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/keys/{key_id}/connect/{tool}:
+    parameters:
+      - name: key_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+      - name: tool
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/GatewayTool" }
+    get:
+      operationId: GetGatewayToolConfig
+      summary: The file that points a tool at the gateway with an owner-made key; only the owner
+      description: >-
+        Settings → Connect a tool (issue #907). The file names one of the
+        models the key may use from the tool (Codex: those /v1/responses
+        serves), the one asked for or else the first, and holds the key's
+        value when it is stored; else a placeholder, and `key_stored` is
+        false. Not cached: it may hold the key.
+      parameters:
+        - name: base_url
+          in: query
+          required: true
+          description: The gateway's origin as the tool will reach it, such as the web page's own.
+          schema: { type: string, minLength: 1, maxLength: 2048 }
+        - name: model
+          in: query
+          required: false
+          description: The model the file names; one the key may not use from the tool is the first it may.
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: The tool's configuration.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              description: Always `no-store`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayToolConfig" }
+        default: { $ref: "#/components/responses/Error" }
   /gateway/usage:
     get:
       operationId: GetGatewayUsage
@@ -7649,6 +7690,35 @@ components:
           type: string
           description: >-
             The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
+    GatewayTool:
+      type: string
+      description: A tool Settings → Connect a tool writes a file for.
+      enum: [claude_code, codex, omp, opencode]
+    GatewayToolFile:
+      type: object
+      required: [path, content, format]
+      properties:
+        path: { type: string, description: Where the tool reads the file, such as ~/.codex/config.toml. }
+        content: { type: string }
+        format: { type: string, description: "The file's format: json, toml or yaml." }
+    GatewayToolConfig:
+      type: object
+      required: [tool, models, model, key_stored, files]
+      properties:
+        tool: { $ref: "#/components/schemas/GatewayTool" }
+        models:
+          type: array
+          description: The models the key may use from the tool, by name.
+          items: { type: string }
+        model:
+          type: string
+          description: The model the files name; empty when the key may use none from the tool.
+        key_stored:
+          type: boolean
+          description: The files hold the key's value; false, a placeholder in its place.
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayToolFile" }
     GatewayKeyValue:
       type: object
       required: [secret]

@@ -3217,7 +3217,31 @@ capabilities do not exist yet.
   31 days and every revoked key no request names any more; a live key is never deleted (issue
   [#628](https://github.com/kl3inIT/hypomnema/issues/628), as Coder's dbpurge deletes expired API keys).
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
-  errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
+  errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key. Each model has a `display_name`
+  (the web client's `modelName` rule, `modelgateway/display.go`) and, for a Codex subscription's model Codex
+  bundles, Codex's `description`, which Claude Code adds to `/model` with gateway model discovery; `?limit=N` gives
+  the first N and `has_more` (issue #907; Claude Code asks `?limit=1000`).
+- `GET /v1/codex/models` (issue #907, `modelgateway/codex_catalog.go`) is the key's catalog in Codex's own format
+  (`{"models": [ModelInfo…]}`, codex-rs `protocol/src/openai_models.rs`), for a Codex provider's
+  `model_catalog_url`: the models the key may use that `/v1/responses` serves, in the gateway's order, each Codex's
+  bundled entry for the model behind it (`modelgateway/codexmodels/models.json` and `prompt.md`, Codex
+  `rust-v0.169.1`, third_party/codex) or Codex's entry for a model it does not know, renamed to the gateway's name,
+  listed in the picker, without an upgrade, notice or review model, and given the gateway's window, inputs and effort
+  levels where it knows them (else the entry's levels the provider takes; the default stays Codex's when offered,
+  else medium, else the first). Codex then lists them in `/model` instead of its bundled models, and a level it
+  sends is one the gateway passes on.
+- Settings → Connect a tool (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
+  Claude Code, Codex, omp and OpenCode with a key (the owner's keys whose value is stored; a key opened with its
+  row's Connect on Gateway keys even without, its file then holding `<your gateway key>`), a model the key may use
+  from the tool, and the file with its path and a copy button. `GET /gateway/keys/{key_id}/connect/{tool}?base_url=
+  &model=` (the owner's, `no-store`) answers the models, the model chosen (the one asked when offered, else the
+  first; `<model>` when none), `key_stored` and the files, written by `internal/shared/agentconfig`, which also
+  writes the workers' omp and OpenCode files (`internal/node/acp/agents.go`): `~/.claude/settings.json` (the env
+  block: the gateway's root, the key, the model pinned for Opus, Sonnet and Haiku, model discovery on, the model's
+  window as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`), `~/.codex/config.toml` (the provider `hypomnema` on Responses with
+  `model_catalog_url` and the key as `experimental_bearer_token`, no WebSocket), `~/.omp/agent/models.yml` (the
+  model on its subscription's wire with its window, largest output and reasoning) and
+  `~/.config/opencode/opencode.json`. Nothing is written onto the machine the tool runs on.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
   read as a map of its top-level keys, the model's name is replaced by the provider's and everything else goes
   through, each value as the bytes the client sent. The client's headers are not forwarded; the provider's key comes
@@ -4488,7 +4512,8 @@ Node (`internal/node`):
   table: the command (`omp acp`, `opencode acp`) and the configuration written under
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
-  own, away from the user's and the project's). Each CLI's own web and image tools are off, so that the worker has
+  own, away from the user's and the project's); the part that names the gateway is `internal/shared/agentconfig`'s,
+  which writes Settings → Connect a tool's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
   the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
   opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
   out of its tools. Neither is given an image model. A turn is `initialize`, `session/new` with the tools server as an

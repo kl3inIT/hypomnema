@@ -1,0 +1,17 @@
+OpenAI Codex
+Copyright 2025 OpenAI
+
+Used under the Apache License 2.0 (third_party/codex/LICENSE). Source:
+https://github.com/openai/codex at rust-v0.169.1
+(c376cf7396eff83ce4c6ac61b9553df142e7a0be).
+
+What is taken from it here (issue #907), unchanged:
+- codex-rs/models-manager/models.json, Codex's bundled model catalog, as
+  internal/controlplane/modelgateway/codexmodels/models.json;
+- codex-rs/models-manager/prompt.md, the instructions Codex gives a model it
+  does not know (models-manager/src/model_info.rs BASE_INSTRUCTIONS), as
+  internal/controlplane/modelgateway/codexmodels/prompt.md.
+
+The model gateway serves them back to the Codex CLI as its catalog, each entry
+renamed to the gateway's model and given the gateway's window and effort levels
+(internal/controlplane/modelgateway/codex_catalog.go).
