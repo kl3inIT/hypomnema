@@ -5079,6 +5079,19 @@ components:
           items: { type: string }
           description: The Connections the Run's workers may use, each as integration:label.
         finished_at: { type: string, format: date-time }
+        review_stall: { $ref: "#/components/schemas/ReviewStall" }
+    ReviewStall:
+      type: object
+      description: A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
+      required: [task_id, pull_request, verdict, merge_state, mergeable, checks, waiting_for_owner]
+      properties:
+        task_id: { type: string }
+        pull_request: { type: string }
+        verdict: { type: string, enum: [correct, incorrect, unknown] }
+        merge_state: { type: string }
+        mergeable: { type: string }
+        checks: { type: string, enum: [PASSING, FAILING, PENDING, UNKNOWN] }
+        waiting_for_owner: { type: boolean }
     RunDetail:
       allOf:
         - $ref: "#/components/schemas/Run"
@@ -5086,9 +5099,19 @@ components:
           required: [tasks]
           properties:
             usage: { $ref: "#/components/schemas/WorkUsage" }
+            published_heads:
+              description: GitHub branch updates recorded by the nodes that dispatched this Run's Tasks.
+              type: array
+              items: { $ref: "#/components/schemas/PublishedHead" }
             tasks:
               type: array
               items: { $ref: "#/components/schemas/TaskDetail" }
+    PublishedHead:
+      type: object
+      required: [branch, sha]
+      properties:
+        branch: { type: string }
+        sha: { type: string }
     WorkUsage:
       type: object
       description: >-

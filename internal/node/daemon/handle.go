@@ -387,6 +387,12 @@ func (w *Worker) AnswerReceived(ctx context.Context, questionID string) error {
 	return err
 }
 
+// PublishedHead records an update sent to the Git host by the node.
+func (w *Worker) PublishedHead(ctx context.Context, head nodeproto.PublishedHead) error {
+	_, err := w.report(ctx, nodeproto.ReportPublishedHead, head)
+	return err
+}
+
 // Finished reports the worker's outcome.
 func (w *Worker) Finished(ctx context.Context, f nodeproto.Finished) error { return w.finish(ctx, f) }
 

@@ -32,11 +32,20 @@ func val[T any](p *T) T {
 }
 
 func toRun(r orchestration.Run) openapi.Run {
+	var review *openapi.ReviewStall
+	if stall := r.ReviewStall; stall != nil {
+		review = &openapi.ReviewStall{
+			TaskId: stall.TaskID, PullRequest: stall.PullRequest, Verdict: openapi.ReviewStallVerdict(stall.Verdict),
+			MergeState: stall.MergeState, Mergeable: stall.Mergeable, Checks: openapi.ReviewStallChecks(stall.Checks),
+			WaitingForOwner: stall.WaitingForOwner,
+		}
+	}
+
 	return openapi.Run{
 		Id: r.ID, Objective: r.Objective, Status: openapi.RunStatus(r.Status), CreatedBy: r.CreatedBy,
 		Repo: ptr(r.Repo), RepoHost: ptr(r.RepoHost), Base: ptr(r.Base),
 		CoordinatorTokenId: ptr(r.CoordinatorTokenID), ChatId: ptr(r.ChatID), Bot: ptr(r.Bot), Uses: usesOf(r.Uses),
-		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
+		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt, ReviewStall: review,
 	}
 }
 
