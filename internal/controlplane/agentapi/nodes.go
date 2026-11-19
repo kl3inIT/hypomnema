@@ -45,17 +45,16 @@ type nodeExec struct {
 	sudo  SudoPassword
 }
 
-// WithNodeExec gives workers and Bots' pis the node tools.
+// WithNodeExec wires the node tools for the owner, workers and Bots' pis.
 func (s *Server) WithNodeExec(nodes Nodes, link NodeLink, sudo SudoPassword) *Server {
 	s.exec = &nodeExec{nodes: nodes, link: link, sudo: sudo}
 
 	return s
 }
 
-// hasNodeTools says whether the agent gets the node tools: a worker and a
-// Bot's pi, the kinds that have Hypomnema's tools server.
+// hasNodeTools says whether the caller gets the installed node tools.
 func (s *Server) hasNodeTools(a agent) bool {
-	return s.exec != nil && (a.dispatchID != "" || (a.chatID != "" && a.bot != ""))
+	return s.exec != nil && a.hasAgentTools()
 }
 
 var nodeTools = []string{agenttool.ToolNodeExec, agenttool.ToolNodeProcess, agenttool.ToolNodeProcessKill}

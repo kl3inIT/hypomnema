@@ -204,6 +204,16 @@ type agent struct {
 // who is whose the agent's gateway calls are.
 func (a agent) who() Who { return Who{DispatchID: a.dispatchID, ChatID: a.chatID} }
 
+func (a agent) isBotPi() bool { return a.chatID != "" && a.bot != "" }
+
+func (a agent) hasAgentTools() bool { return a.owner || a.dispatchID != "" || a.isBotPi() }
+
+func (a agent) proxyCaller() serviceproxy.Caller {
+	return serviceproxy.Caller{
+		Name: a.name, DispatchID: a.dispatchID, Coordinator: a.coordinator, ChatID: a.chatID,
+	}
+}
+
 var errNoCredential = errors.New("the agent's credential is missing or no longer works")
 
 // authenticate reads the bearer token and says who it is.
@@ -331,9 +341,7 @@ func (s *Server) Caller(r *http.Request) (serviceproxy.Caller, error) {
 		return serviceproxy.Caller{}, err
 	}
 
-	return serviceproxy.Caller{
-		Name: a.name, DispatchID: a.dispatchID, Coordinator: a.coordinator, ChatID: a.chatID,
-	}, nil
+	return a.proxyCaller(), nil
 }
 
 // May reports whether the request's agent may use a Connection through the
