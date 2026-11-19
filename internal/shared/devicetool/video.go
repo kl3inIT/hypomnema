@@ -36,16 +36,24 @@ const (
 	VideoPause  = "video_pause"
 	VideoResume = "video_resume"
 	VideoEnd    = "video_end"
+
+	// VideoMake and VideoGet make a take into a video and read it (issue #818, row 11). They are the control
+	// plane's own tools, not the phone's: a video is made apart from the phone and its lease, so they are neither
+	// routed to the phone nor among IsVideo's.
+	VideoMake = "video_make"
+	VideoGet  = "video_get"
 )
 
 // Routed says whether a tool's name is one of the phone's, which a worker's
 // tools server and a Bot's pass to the phone's routes.
 func Routed(name string) bool {
-	return strings.HasPrefix(name, Prefix) || strings.HasPrefix(name, VideoPrefix)
+	return strings.HasPrefix(name, Prefix) || IsVideo(name)
 }
 
-// IsVideo says whether a tool is one of the video tools.
-func IsVideo(name string) bool { return strings.HasPrefix(name, VideoPrefix) }
+// IsVideo says whether a tool is one of the phone's video tools.
+func IsVideo(name string) bool {
+	return strings.HasPrefix(name, VideoPrefix) && name != VideoMake && name != VideoGet
+}
 
 // Limits of the video tools' arguments.
 const (

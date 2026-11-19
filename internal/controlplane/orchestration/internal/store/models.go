@@ -404,6 +404,7 @@ type GatewayAudioProvider struct {
 	SttPosition sql.NullInt64
 	TtsPosition sql.NullInt64
 	UpdatedAt   int64
+	Voice       string
 }
 
 type GatewayImageProvider struct {
@@ -974,6 +975,39 @@ type User struct {
 	PasswordHash string
 	CreatedAt    int64
 	UpdatedAt    int64
+}
+
+type Video struct {
+	ID         string
+	TakeID     string
+	Title      string
+	MadeBy     string
+	MadeByName string
+	CreatedAt  int64
+}
+
+type VideoRevision struct {
+	VideoID     string
+	Rev         int64
+	Parent      sql.NullInt64
+	State       string
+	Lines       string
+	Voice       string
+	Captions    int64
+	Aspect      string
+	Provider    string
+	Model       string
+	UsedVoice   string
+	LengthMs    int64
+	FailedStage string
+	FailedCause string
+	Note        string
+	Warnings    string
+	RequestedBy string
+	RequestID   string
+	RequestHash string
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 type WebSession struct {
