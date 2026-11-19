@@ -109,7 +109,7 @@ func newGatewayDB(t *testing.T) (*modelgateway.Service, *sql.DB) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	return modelgateway.New(db, fixedClock{}, platform.NewID, nil, nil), db
+	return modelgateway.New(db, fixedClock{}, platform.NewID, nil, nil).WithKeyVault(testKeyVault(t, db)), db
 }
 
 // sample records one request to a text model an hour before the fixed clock's now.

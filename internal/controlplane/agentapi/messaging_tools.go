@@ -108,17 +108,17 @@ func (s *Server) WithJudge(j Judge) *Server {
 	return s
 }
 
-// WithMessaging gives Bots the messaging tools.
+// WithMessaging gives the owner and Bots the messaging tools.
 func (s *Server) WithMessaging(m Messaging) *Server {
 	s.messaging = m
 
 	return s
 }
 
-// messagingLabels are a service's Connections an agent has the tools of: a Bot's pi only, and only those its Bot
-// was given, whoever's turn it is (onTurn says which it may use now).
+// messagingLabels are all the owner's accounts, or the ones a Bot's pi was given, whoever's turn it is
+// (onTurn says which it may use now).
 func (s *Server) messagingLabels(ctx context.Context, a agent, m messagingService) ([]string, error) {
-	if s.messaging == nil || a.chatID == "" || a.bot == "" {
+	if s.messaging == nil || !(a.owner || a.isBotPi()) {
 		return nil, nil
 	}
 
@@ -137,7 +137,7 @@ func (s *Server) messagingLabels(ctx context.Context, a agent, m messagingServic
 	return labels, nil
 }
 
-// messagingToolList is every service's tools a Bot is offered.
+// messagingToolList is every messaging service's tools the caller is offered.
 func (s *Server) messagingToolList(ctx context.Context, a agent) []agenttool.BrowserTool {
 	var out []agenttool.BrowserTool
 
@@ -245,7 +245,7 @@ type messagingArgs struct {
 	Count   int    `json:"count"`
 }
 
-// messagingCall runs one of a service's tools for a Bot that may use the account.
+// messagingCall runs one of a service's tools for a caller that may use the account.
 func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, m messagingService, labels []string,
 	call agenttool.BrowserCall,
 ) {
@@ -544,7 +544,7 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 	}
 
 	err := s.judge.Judge(ctx, serviceproxy.Act{
-		Caller:      serviceproxy.Caller{Name: a.name, Coordinator: true, ChatID: a.chatID},
+		Caller:      a.proxyCaller(),
 		Integration: m.integration, Label: label, ChatID: a.chatID, Action: m.integration + ".send",
 		Subject: name, Fields: fields, Hash: hex.EncodeToString(hash[:]),
 	})

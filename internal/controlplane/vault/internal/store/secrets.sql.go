@@ -47,6 +47,26 @@ func (q *Queries) DeleteSecretVersionsBefore(ctx context.Context, arg DeleteSecr
 	return err
 }
 
+const getSecretByID = `-- name: GetSecretByID :one
+SELECT id, name, kind, metadata, current_version_id, created_at, updated_at, login_required_at FROM secrets WHERE id = ?1
+`
+
+func (q *Queries) GetSecretByID(ctx context.Context, id string) (Secret, error) {
+	row := q.db.QueryRowContext(ctx, getSecretByID, id)
+	var i Secret
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Kind,
+		&i.Metadata,
+		&i.CurrentVersionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.LoginRequiredAt,
+	)
+	return i, err
+}
+
 const getSecretByName = `-- name: GetSecretByName :one
 SELECT id, name, kind, metadata, current_version_id, created_at, updated_at, login_required_at FROM secrets WHERE name = ?1
 `
