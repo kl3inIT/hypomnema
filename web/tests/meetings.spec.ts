@@ -7,6 +7,19 @@ import { shot } from "./shot.js"
 // word fixed in the transcript, the Actions tab, Settings' Meetings group (issue #762: the dictionary and the notes
 // model) and the way back from Settings. The notes have no format to pick: they are sectioned by topic (issue #771).
 
+// Recording live (issue #820) uses the browser's microphone, which Chromium fakes with a tone, granted without asking;
+// a page's launch options are the file's, as each forces its own browser.
+test.use({
+  permissions: ["microphone"],
+  launchOptions: {
+    args: [
+      "--use-fake-ui-for-media-stream",
+      "--use-fake-device-for-media-stream",
+      "--autoplay-policy=no-user-gesture-required",
+    ],
+  },
+})
+
 function at(daysAgo: number, hour: number, minute = 0) {
   const d = new Date()
   d.setDate(d.getDate() - daysAgo)
@@ -15,7 +28,15 @@ function at(daysAgo: number, hour: number, minute = 0) {
   return d.toISOString()
 }
 
-type Speaker = { label: string; name: string; named: boolean; talk_ms: number; share: number }
+type Speaker = {
+  track: string
+  owner: boolean
+  label: string
+  name: string
+  named: boolean
+  talk_ms: number
+  share: number
+}
 
 function meeting(id: string, title: string, over: object = {}) {
   return {
@@ -28,6 +49,8 @@ function meeting(id: string, title: string, over: object = {}) {
     size: 1000,
     duration_ms: 42 * 60_000,
     state: "transcribed",
+    source: "upload",
+    kind: undefined as string | undefined,
     provider: "soniox",
     model: "stt-async-v5",
     created_at: at(0, 9, 30),
@@ -47,6 +70,7 @@ function meeting(id: string, title: string, over: object = {}) {
 const lines = [
   {
     n: 1,
+    track: "file",
     start_ms: 12_000,
     end_ms: 19_000,
     speaker: "1",
@@ -55,6 +79,7 @@ const lines = [
   },
   {
     n: 2,
+    track: "file",
     start_ms: 20_000,
     end_ms: 64_000,
     speaker: "2",
@@ -63,6 +88,7 @@ const lines = [
   },
   {
     n: 3,
+    track: "file",
     start_ms: 65_000,
     end_ms: 80_000,
     speaker: "3",
@@ -71,6 +97,7 @@ const lines = [
   },
   {
     n: 4,
+    track: "file",
     start_ms: 724_000,
     end_ms: 740_000,
     speaker: "2",
@@ -79,6 +106,7 @@ const lines = [
   },
   {
     n: 5,
+    track: "file",
     start_ms: 741_000,
     end_ms: 746_000,
     speaker: "2",
@@ -89,9 +117,33 @@ const lines = [
 
 function world() {
   const speakers: Speaker[] = [
-    { label: "1", name: "You", named: true, talk_ms: 7_000, share: 0.09 },
-    { label: "2", name: "Kai", named: true, talk_ms: 60_000, share: 0.73 },
-    { label: "3", name: "Speaker 3", named: false, talk_ms: 15_000, share: 0.18 },
+    {
+      track: "file",
+      owner: false,
+      label: "1",
+      name: "You",
+      named: true,
+      talk_ms: 7_000,
+      share: 0.09,
+    },
+    {
+      track: "file",
+      owner: false,
+      label: "2",
+      name: "Kai",
+      named: true,
+      talk_ms: 60_000,
+      share: 0.73,
+    },
+    {
+      track: "file",
+      owner: false,
+      label: "3",
+      name: "Speaker 3",
+      named: false,
+      talk_ms: 15_000,
+      share: 0.18,
+    },
   ]
   const weekly = meeting("mtg_weekly", "Weekly sync with Kai", {
     people: ["Laura", "Kai"],
@@ -150,8 +202,24 @@ function world() {
         duration_ms: 58 * 60_000,
         notes: { state: "writing", summary: "", sections: [] },
         speakers: [
-          { label: "1", name: "Speaker 1", named: false, talk_ms: 1, share: 0.5 },
-          { label: "2", name: "Speaker 2", named: false, talk_ms: 1, share: 0.5 },
+          {
+            track: "file",
+            owner: false,
+            label: "1",
+            name: "Speaker 1",
+            named: false,
+            talk_ms: 1,
+            share: 0.5,
+          },
+          {
+            track: "file",
+            owner: false,
+            label: "2",
+            name: "Speaker 2",
+            named: false,
+            talk_ms: 1,
+            share: 0.5,
+          },
         ],
       }),
       meeting("mtg_minh", "1:1 with Minh", {
@@ -160,8 +228,24 @@ function world() {
         actions: 2,
         open_actions: 0,
         speakers: [
-          { label: "1", name: "You", named: true, talk_ms: 1, share: 0.4 },
-          { label: "2", name: "Minh", named: true, talk_ms: 1, share: 0.6 },
+          {
+            track: "file",
+            owner: false,
+            label: "1",
+            name: "You",
+            named: true,
+            talk_ms: 1,
+            share: 0.4,
+          },
+          {
+            track: "file",
+            owner: false,
+            label: "2",
+            name: "Minh",
+            named: true,
+            talk_ms: 1,
+            share: 0.6,
+          },
         ],
       }),
       meeting("mtg_lost", "Client call, Nov 3", {
@@ -204,6 +288,8 @@ function silence() {
 async function fakeServer(page: Page) {
   const w = world()
   const calls: string[] = []
+  // The lines of the meetings recorded live (issue #820), as the fake track sockets keep them.
+  const live = new Map<string, (typeof lines)[number][]>()
   const words = () => ({
     data: [
       ...w.words.map((word) => ({ word, from: "owner", sent: true })),
@@ -219,11 +305,11 @@ async function fakeServer(page: Page) {
 
     return {
       meeting: m,
-      lines: id === "mtg_weekly" ? lines : [],
+      lines: id === "mtg_weekly" ? lines : (live.get(id) ?? []),
       items: id === "mtg_weekly" ? w.items : [],
       suggestions:
         id === "mtg_weekly" && m.speakers.some((s) => s.label === "3" && !s.named)
-          ? [{ label: "3", name: "Laura", line: 3 }]
+          ? [{ track: "file", owner: false, label: "3", name: "Laura", line: 3 }]
           : [],
     }
   }
@@ -281,6 +367,53 @@ async function fakeServer(page: Page) {
       w.meetings.unshift(made)
 
       return json(made, 201)
+    }
+
+    if (call === "POST /meetings/live") {
+      const body = request.postDataJSON() as { kind: string; language?: string; people?: string[] }
+      calls.push(`${call} ${body.kind} ${body.language ?? "auto"} ${(body.people ?? []).join(",")}`)
+      const made = meeting(`mtg_live${w.meetings.length}`, "Meeting", {
+        titled: false,
+        state: "recording",
+        source: "live",
+        kind: body.kind,
+        provider: undefined,
+        file_name: "recording.wav",
+        size: 0,
+        created_at: new Date().toISOString(),
+        duration_ms: 0,
+        notes: { state: "waiting", summary: "", sections: [] },
+        people: body.people ?? [],
+      })
+      w.meetings.unshift(made)
+
+      return json(made, 201)
+    }
+
+    const tickets = path.match(/^\/meetings\/([^/]+)\/tickets$/)
+    if (request.method() === "POST" && tickets) {
+      const { track } = request.postDataJSON() as { track: string }
+      calls.push(`${call} ${track}`)
+
+      return json(
+        { ticket: `tk-${track}-${calls.length}`, expires_at: new Date().toISOString() },
+        201,
+      )
+    }
+
+    const end = path.match(/^\/meetings\/([^/]+)\/end$/)
+    if (request.method() === "POST" && end) {
+      calls.push(call)
+      const m = w.meetings.find((x) => x.id === end[1])!
+      Object.assign(m, {
+        state: "transcribed",
+        provider: "soniox",
+        duration_ms: Math.max(m.duration_ms, 4_000),
+        size: 192_044,
+        notes: { state: "writing", summary: "", sections: [] },
+      })
+
+      return json(m)
     }
 
     const recording = path.match(/^\/meetings\/([^/]+)\/recording$/)
@@ -418,7 +551,66 @@ async function fakeServer(page: Page) {
     }
   })
 
-  return { calls, world: w }
+  // A track's socket: ready, then for the first audio a preview and a line kept, at the meeting's time of the
+  // socket's offset; the end is answered finished.
+  const sockets: string[] = []
+  await page.routeWebSocket(/\/api\/v1\/meetings\/[^/]+\/stream\//, (ws) => {
+    const url = new URL(ws.url())
+    const id = url.pathname.split("/")[4]!
+    const track = url.searchParams.get("track") ?? "mic"
+    const offset = Number(url.searchParams.get("offset"))
+    sockets.push(`${id} ${track} ${offset}`)
+    let heard = false
+    ws.send(JSON.stringify({ type: "ready" }))
+    ws.onMessage((message) => {
+      if (typeof message === "string") {
+        if ((JSON.parse(message) as { type: string }).type === "end") {
+          ws.send(JSON.stringify({ type: "finished" }))
+          void ws.close()
+        }
+
+        return
+      }
+      if (heard) return
+      heard = true
+      const m = w.meetings.find((x) => x.id === id)!
+      const kept = live.get(id) ?? []
+      const said =
+        track === "tab"
+          ? "Kai here, the landing page is on staging."
+          : "Shall we start the launch review?"
+      const start = offset + (track === "tab" ? 1_000 : 3_000)
+      const l = {
+        n: kept.length + 1,
+        track,
+        start_ms: start,
+        end_ms: start + 1_500,
+        speaker: "1",
+        heard: "1",
+        text: said,
+      }
+      live.set(
+        id,
+        [...kept, l].toSorted((a, b) => a.start_ms - b.start_ms),
+      )
+      if (!m.speakers.some((sp) => sp.track === track)) {
+        const mine = m.kind === "online" && track === "mic"
+        m.speakers.push({
+          track,
+          owner: mine,
+          label: "1",
+          name: mine ? "You" : "Speaker 1",
+          named: false,
+          talk_ms: 1_500,
+          share: 0.5,
+        })
+      }
+      ws.send(JSON.stringify({ type: "preview", track, speaker: "1", text: said.split(" ")[0] }))
+      setTimeout(() => ws.send(JSON.stringify({ type: "line", line: l })), 300)
+    })
+  })
+
+  return { calls, sockets, world: w }
 }
 
 const fits = (page: Page) =>
@@ -731,4 +923,152 @@ test("Back to app returns to the page the owner came from", async ({ page, isMob
   await page.goto("/settings/dictionary")
   await page.getByRole("link", { name: "Back to app" }).click()
   await expect(page).toHaveURL(/127\.0\.0\.1:4173\/$/)
+})
+
+// Recording a meeting live (issue #820).
+test.describe("recording a meeting live", () => {
+  // Scenario: the owner records a meeting in person: the dialog asks where it is held (online is offered only where a
+  // tab's sound can be shared, which a phone cannot), the language and the people. The meeting's page opens on the
+  // recording bar with the time and the microphone's meter; what is being said shows, then the line kept, in the
+  // transcript's turn layout with its voice's badge. Stopping asks first, keeps the last words and ends the meeting,
+  // which lands transcribed, its notes being written, with the player.
+  test("the owner records a meeting in person and stops it", async ({ page, isMobile }) => {
+    const { calls, sockets } = await fakeServer(page)
+    await page.goto("/meetings")
+
+    await page.getByRole("button", { name: "Record" }).first().click()
+    const dialog = page.getByRole("dialog", { name: "Record a meeting" })
+    if (isMobile) {
+      await expect(dialog.getByRole("radio", { name: /Online/ })).toBeDisabled()
+      await expect(dialog).toContainText(
+        "A tab's sound can be shared only from Chrome or Edge on a computer.",
+      )
+      await expect(dialog.getByRole("radio", { name: /In person/ })).toBeChecked()
+    } else {
+      await expect(dialog.getByRole("radio", { name: /Online/ })).toBeChecked()
+      await dialog.getByRole("radio", { name: /In person/ }).check()
+    }
+    await dialog.getByLabel("Language").click()
+    await page.getByRole("option", { name: "English" }).click()
+    await dialog.getByRole("button", { name: "More details" }).click()
+    await dialog.getByLabel("People").fill("Kai, Laura")
+    await shot(page, "meetings-record")
+
+    await dialog.getByRole("button", { name: "Start recording" }).click()
+
+    const bar = page.getByRole("region", { name: "Recording" })
+    await expect(bar).toBeVisible()
+    await expect(bar.getByTestId("meter-mic")).toContainText("Microphone")
+    await expect(bar.getByTestId("meter-tab")).toHaveCount(0)
+    const transcript = page.getByRole("list", { name: "Live transcript" })
+    await expect(transcript.getByTestId("transcript-line")).toHaveText([
+      "Shall we start the launch review?",
+    ])
+    await expect(transcript.getByTestId("transcript-turn")).toContainText("Speaker 1")
+    await expect(page.locator("[data-slot=meeting-player]")).toHaveCount(0)
+    await expect(transcript.getByTestId("transcript-preview")).toHaveCount(0)
+    expect(calls).toContain("POST /meetings/live in_person en Kai,Laura")
+    expect(sockets).toEqual([expect.stringMatching(/^mtg_live\d+ mic 0$/)])
+    expect(await fits(page)).toBe(true)
+    await shot(page, "meetings-recording")
+
+    await bar.getByRole("button", { name: "Stop" }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Stop and end" }).click()
+
+    await expect(page.getByRole("region", { name: "Recording" })).toHaveCount(0)
+    await expect(page.locator("[data-slot=meeting-player]")).toBeVisible()
+    const progress = page.getByTestId("meeting-progress")
+    await expect(progress).toContainText("Recorded")
+    await expect(progress).toContainText("Writing notes")
+    expect(calls.filter((c) => c.endsWith("/end"))).toHaveLength(1)
+    await page.getByRole("tab", { name: "Transcript" }).click()
+    await expect(page.getByRole("list", { name: "Transcript" })).toContainText(
+      "Shall we start the launch review?",
+    )
+    expect(await fits(page)).toBe(true)
+    await shot(page, "meetings-recorded")
+  })
+
+  // Scenario: online, on a computer: the microphone and the shared tab are two tracks, each with its meter and its
+  // socket; the microphone is the owner, "You", the tab's voice "Speaker 1"; the tab's line, said first, is read
+  // first though it was kept second.
+  test("the owner records an online meeting with the shared tab", async ({ page, isMobile }) => {
+    test.skip(isMobile, "a phone cannot share a tab's sound")
+    // The share picker stands for a tab that plays a tone, as Chromium's fake devices give no tab.
+    await page.addInitScript({
+      content: `navigator.mediaDevices.getDisplayMedia = async () => {
+        const context = new AudioContext()
+        const tone = context.createOscillator()
+        const out = context.createMediaStreamDestination()
+        tone.connect(out)
+        tone.start()
+        const video = document.createElement("canvas").captureStream(1).getVideoTracks()
+        return new MediaStream([...video, ...out.stream.getAudioTracks()])
+      }`,
+    })
+    const { calls, sockets } = await fakeServer(page)
+    await page.goto("/meetings")
+
+    await page.getByRole("button", { name: "Record" }).first().click()
+    const dialog = page.getByRole("dialog", { name: "Record a meeting" })
+    await dialog.getByRole("button", { name: "Start recording" }).click()
+
+    const bar = page.getByRole("region", { name: "Recording" })
+    await expect(bar.getByTestId("meter-mic")).toContainText("You")
+    await expect(bar.getByTestId("meter-tab")).toContainText("Meeting tab")
+    const transcript = page.getByRole("list", { name: "Live transcript" })
+    await expect(transcript.getByTestId("transcript-line")).toHaveText([
+      "Kai here, the landing page is on staging.",
+      "Shall we start the launch review?",
+    ])
+    await expect(transcript.getByTestId("transcript-turn").nth(0)).toContainText("Speaker 1")
+    await expect(transcript.getByTestId("transcript-turn").nth(1)).toContainText("You")
+    expect(calls).toContain("POST /meetings/live online auto ")
+    expect(sockets.map((x) => x.split(" ").slice(1).join(" ")).toSorted()).toEqual([
+      "mic 0",
+      "tab 0",
+    ])
+    await shot(page, "meetings-recording-online")
+
+    await bar.getByRole("button", { name: "Stop" }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Stop and end" }).click()
+    await expect(page.locator("[data-slot=meeting-player]")).toBeVisible()
+  })
+
+  // Scenario: a meeting was left recording (its tab was closed): its page says so with what was kept and offers
+  // Resume recording, which records again where the meeting was, on its clock, or End.
+  test("the owner resumes a meeting left recording", async ({ page }) => {
+    const { world: w, sockets } = await fakeServer(page)
+    w.meetings.unshift(
+      meeting("mtg_left", "Design review", {
+        state: "recording",
+        source: "live",
+        kind: "in_person",
+        provider: undefined,
+        size: 0,
+        duration_ms: 65_000,
+        notes: { state: "waiting", summary: "", sections: [] },
+      }),
+    )
+    await page.goto("/meetings/mtg_left")
+
+    const left = page.getByTestId("not-recording")
+    await expect(left).toContainText("left recording at 1:05")
+    await expect(left.getByRole("button", { name: "End meeting" })).toBeVisible()
+    await shot(page, "meetings-left-recording")
+    await left.getByRole("button", { name: "Resume recording" }).click()
+
+    const bar = page.getByRole("region", { name: "Recording" })
+    await expect(bar).toBeVisible()
+    await expect(bar.getByRole("timer")).toContainText(/^1:0[5-9]$/)
+    await expect(page.getByTestId("transcript-line")).toHaveText([
+      "Shall we start the launch review?",
+    ])
+    expect(sockets).toEqual(["mtg_left mic 65000"])
+    await expect(page.getByTestId("transcript-turn")).toContainText("1:08")
+
+    await bar.getByRole("button", { name: "Stop" }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Stop and end" }).click()
+    await expect(page.locator("[data-slot=meeting-player]")).toBeVisible()
+  })
 })
