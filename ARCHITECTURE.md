@@ -4685,7 +4685,7 @@ Node (`internal/node`):
   after a replayed accept. Disk probes time out off the message loop. A declined offer keeps its Conversation,
   answered Gate and recovery or handoff note, and does not count as a backup turn.
 - The hello enables the policy for an upgraded node. The heartbeat reports available bytes, the floor, effective
-  trim threshold; the control plane dates samples on receipt. Migration `00133_node_disk.sql` keeps these
+  trim threshold; the control plane dates samples on receipt. Migration `00136_node_disk.sql` keeps these
   fields independently of CPU and RAM. A missing sample or one at least 30 seconds old blocks new work on
   a policy-enabled node. Old nodes that
   have never advertised the policy still take work. Machines shows the age and thresholds, “Not measured” for a
