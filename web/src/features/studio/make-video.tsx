@@ -6,6 +6,7 @@ import "@/api/client"
 import {
   getVideoQueryKey,
   listStudioItemsInfiniteQueryKey,
+  listVideosQueryKey,
   makeVideoMutation,
 } from "@/api/generated/@tanstack/react-query.gen"
 import type { Video, VideoMake } from "@/api/generated/types.gen"
@@ -58,6 +59,8 @@ export function MakeVideo({
     onSuccess: (video) => {
       queryClient.setQueryData(getVideoQueryKey({ path: { video_id: video.id } }), video)
       void queryClient.invalidateQueries({ queryKey: listStudioItemsInfiniteQueryKey() })
+      // The take's tab finds its video in the list.
+      void queryClient.invalidateQueries({ queryKey: listVideosQueryKey() })
       setOpen(false)
       onMade(video)
     },
@@ -130,8 +133,8 @@ export function MakeVideo({
                 aria-labelledby={`${formId}-aspect`}
                 value={[aspect]}
                 onValueChange={(next: string[]) => next[0] && setAspect(next[0] as Aspect)}
-                variant="outline"
-                spacing={0}
+                variant="choice"
+                spacing={1}
               >
                 <ToggleGroupItem value="9:16" aria-label="9:16, upright">
                   9:16

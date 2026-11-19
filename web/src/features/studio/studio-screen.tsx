@@ -261,6 +261,7 @@ function StudioCard({ item }: { item: StudioItem }) {
   return (
     <article
       data-testid="studio-item"
+      data-id={`${item.kind}:${item.id}`}
       aria-label={item.title}
       className="relative flex flex-col rounded-xl border bg-card text-card-foreground transition-colors hover:border-foreground/30"
     >

@@ -17,6 +17,7 @@ import {
   deleteVideoMutation,
   getVideoQueryKey,
   listStudioItemsInfiniteQueryKey,
+  listVideosQueryKey,
   makeVideoMutation,
   requestVideoChangesMutation,
 } from "@/api/generated/@tanstack/react-query.gen"
@@ -90,6 +91,7 @@ export function VideoView({
     ...deleteVideoMutation(),
     onSuccess: () => {
       void refresh()
+      void queryClient.invalidateQueries({ queryKey: listVideosQueryKey() })
       queryClient.removeQueries({ queryKey: getVideoQueryKey({ path: { video_id: id } }) })
       onClose()
     },
@@ -393,134 +395,140 @@ function Made({
   const error = approve.error ?? changes.error
 
   return (
-    <div className="@container/video flex min-h-0 min-w-0 flex-1 flex-col @3xl/video:flex-row">
-      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-muted p-3">
-        {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- the captions are burned into the picture */}
-        <video
-          key={rev.rev}
-          src={videoUrl(video.id, rev.rev)}
-          poster={posterUrl(video.id, rev.rev)}
-          aria-label={`The video ${video.title}, revision ${rev.rev}`}
-          data-testid="video-player"
-          controls
-          playsInline
-          preload="metadata"
-          className="max-h-full max-w-full rounded-lg bg-black shadow-lg"
-        />
-      </div>
-      <aside
-        aria-label="Review"
-        className="flex max-h-[55%] min-h-0 shrink-0 flex-col overflow-y-auto border-t @3xl/video:max-h-none @3xl/video:w-96 @3xl/video:border-s @3xl/video:border-t-0"
-      >
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <h2 className="text-xs font-medium text-muted-foreground">Revision {rev.rev}</h2>
-          <Badge variant={stateTone("video", rev.state)}>{stateName("video", rev.state)}</Badge>
-          {rev.parent !== undefined && (
-            <span className="text-xs text-muted-foreground">from revision {rev.parent}</span>
-          )}
+    // The container is the outer box: a container query styles what is inside it, not the container itself.
+    <div className="@container/video flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col @3xl/video:flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-muted p-3">
+          {/* oxlint-disable-next-line jsx-a11y/media-has-caption -- the captions are burned into the picture */}
+          <video
+            key={rev.rev}
+            src={videoUrl(video.id, rev.rev)}
+            poster={posterUrl(video.id, rev.rev)}
+            aria-label={`The video ${video.title}, revision ${rev.rev}`}
+            data-testid="video-player"
+            controls
+            playsInline
+            preload="metadata"
+            className="max-h-full max-w-full rounded-lg bg-black shadow-lg"
+          />
         </div>
-        {rev.note && (
-          <p className="border-b px-3 py-2 text-sm">
-            <span className="block text-xs font-medium text-muted-foreground">Your note</span>
-            {rev.note}
-          </p>
-        )}
-        {rev.warnings.length > 0 && (
-          <ul className="border-b px-3 py-2 text-xs text-muted-foreground">
-            {rev.warnings.map((w) => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
-        )}
-        <form
-          className="flex flex-col gap-3 px-3 py-3"
-          onSubmit={(event) => {
-            event.preventDefault()
-            changes.mutate({
-              path,
-              headers: { "Idempotency-Key": key },
-              body: { ...(edited ? { lines: lines.map((l) => l.trim()) } : {}), note: note.trim() },
-            })
-          }}
+        <aside
+          aria-label="Review"
+          className="flex max-h-[55%] min-h-0 shrink-0 flex-col overflow-y-auto border-t @3xl/video:max-h-none @3xl/video:w-96 @3xl/video:border-s @3xl/video:border-t-0"
         >
-          <fieldset className="flex flex-col gap-2" disabled={!reviewable}>
-            <legend className="pb-1 text-xs font-medium text-muted-foreground">
-              What each scene says
-            </legend>
-            {lines.map((line, i) => (
-              <label key={i} className="flex items-start gap-2 text-sm">
-                <span className="w-4 shrink-0 pt-2 text-end text-xs text-muted-foreground tabular-nums">
-                  {i + 1}
-                </span>
-                <Textarea
-                  aria-label={`Scene ${i + 1}`}
-                  value={line}
-                  maxLength={1000}
-                  rows={1}
-                  onChange={(event) =>
-                    setLines(lines.map((l, k) => (k === i ? event.target.value : l)))
-                  }
-                />
-              </label>
-            ))}
-          </fieldset>
-          {reviewable && (
-            <>
-              <div className="flex flex-col gap-1.5 text-sm">
-                <label
-                  htmlFor={`note-${video.id}-${rev.rev}`}
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  Note for the agent
-                </label>
-                <Textarea
-                  id={`note-${video.id}-${rev.rev}`}
-                  value={note}
-                  maxLength={4000}
-                  placeholder="What to change"
-                  onChange={(event) => setNote(event.target.value)}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {edited
-                  ? "Request changes makes a new revision with your lines; the voice of each line kept is reused."
-                  : "A note alone is kept for the agent and makes no new revision."}
-              </p>
-              {error && (
-                <p role="alert" className="text-sm text-destructive">
-                  {errorText(error)}
-                </p>
-              )}
-              <div className="flex flex-wrap gap-2">
-                {rev.state === "review" && (
-                  <Button
-                    type="button"
-                    disabled={approve.isPending || edited}
-                    title={edited ? "Your lines changed: request changes instead" : undefined}
-                    onClick={() => approve.mutate({ path })}
-                  >
-                    {approve.isPending ? <Spinner data-icon="inline-start" /> : <Check />}
-                    Approve
-                  </Button>
-                )}
-                <Button
-                  type="submit"
-                  variant="outline"
-                  disabled={changes.isPending || emptyLine || (!edited && note.trim() === "")}
-                >
-                  {changes.isPending && <Spinner data-icon="inline-start" />}
-                  Request changes
-                </Button>
-              </div>
-            </>
-          )}
-          {rev.state === "approved" && (
-            <p className="text-sm text-muted-foreground">
-              Approved. An approved revision is never changed; make a new one from its take.
+          <div className="flex items-center gap-2 border-b px-3 py-2">
+            <h2 className="text-xs font-medium text-muted-foreground">Revision {rev.rev}</h2>
+            <Badge variant={stateTone("video", rev.state)}>{stateName("video", rev.state)}</Badge>
+            {rev.parent !== undefined && (
+              <span className="text-xs text-muted-foreground">from revision {rev.parent}</span>
+            )}
+          </div>
+          {rev.note && (
+            <p className="border-b px-3 py-2 text-sm">
+              <span className="block text-xs font-medium text-muted-foreground">Your note</span>
+              {rev.note}
             </p>
           )}
-        </form>
-      </aside>
+          {rev.warnings.length > 0 && (
+            <ul className="border-b px-3 py-2 text-xs text-muted-foreground">
+              {rev.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
+          <form
+            className="flex flex-col gap-3 px-3 py-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              changes.mutate({
+                path,
+                headers: { "Idempotency-Key": key },
+                body: {
+                  ...(edited ? { lines: lines.map((l) => l.trim()) } : {}),
+                  note: note.trim(),
+                },
+              })
+            }}
+          >
+            <fieldset className="flex flex-col gap-2" disabled={!reviewable}>
+              <legend className="pb-1 text-xs font-medium text-muted-foreground">
+                What each scene says
+              </legend>
+              {lines.map((line, i) => (
+                <label key={i} className="flex items-start gap-2 text-sm">
+                  <span className="w-4 shrink-0 pt-2 text-end text-xs text-muted-foreground tabular-nums">
+                    {i + 1}
+                  </span>
+                  <Textarea
+                    aria-label={`Scene ${i + 1}`}
+                    value={line}
+                    maxLength={1000}
+                    rows={1}
+                    onChange={(event) =>
+                      setLines(lines.map((l, k) => (k === i ? event.target.value : l)))
+                    }
+                  />
+                </label>
+              ))}
+            </fieldset>
+            {reviewable && (
+              <>
+                <div className="flex flex-col gap-1.5 text-sm">
+                  <label
+                    htmlFor={`note-${video.id}-${rev.rev}`}
+                    className="text-xs font-medium text-muted-foreground"
+                  >
+                    Note for the agent
+                  </label>
+                  <Textarea
+                    id={`note-${video.id}-${rev.rev}`}
+                    value={note}
+                    maxLength={4000}
+                    placeholder="What to change"
+                    onChange={(event) => setNote(event.target.value)}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {edited
+                    ? "Request changes makes a new revision with your lines; the voice of each line kept is reused."
+                    : "A note alone is kept for the agent and makes no new revision."}
+                </p>
+                {error && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {errorText(error)}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {rev.state === "review" && (
+                    <Button
+                      type="button"
+                      disabled={approve.isPending || edited}
+                      title={edited ? "Your lines changed: request changes instead" : undefined}
+                      onClick={() => approve.mutate({ path })}
+                    >
+                      {approve.isPending ? <Spinner data-icon="inline-start" /> : <Check />}
+                      Approve
+                    </Button>
+                  )}
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={changes.isPending || emptyLine || (!edited && note.trim() === "")}
+                  >
+                    {changes.isPending && <Spinner data-icon="inline-start" />}
+                    Request changes
+                  </Button>
+                </div>
+              </>
+            )}
+            {rev.state === "approved" && (
+              <p className="text-sm text-muted-foreground">
+                Approved. An approved revision is never changed; make a new one from its take.
+              </p>
+            )}
+          </form>
+        </aside>
+      </div>
     </div>
   )
 }
