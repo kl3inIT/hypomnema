@@ -3190,8 +3190,10 @@ capabilities do not exist yet.
   [#626](https://github.com/kl3inIT/hypomnema/issues/626)) and
   `GET /gateway/usage/requests?period=&failed=&offset=&limit=` (the requests, newest first, 50 a page, `has_more`). A
   request failed when it was refused, got no answer or was cut short; a client that left did not fail. Both are the
-  owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by
+  owner's. The page shows the totals, the tokens as stacked bars (other input, input from cache, output), a table by
   model, key or account, and the requests, a row opening a sheet with its fields and the provider's message.
+  The cache share uses only measured requests in the totals and each group; estimated requests and their input
+  tokens are shown separately but stay in the request, token and cost totals (issue #885).
   Its Performance table (issue [#856](https://github.com/kl3inIT/hypomnema/issues/856), after new-api's
   `perf_metrics`, 9router-go's usage by provider and OmniRoute's speed ranking) compares the text models (not
   `web/`, `audio/`, `image/`) by provider and the model it served (`by_provider`) and by subscription account
@@ -3460,6 +3462,10 @@ capabilities do not exist yet.
   client_gone, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
   `ok_duration_ms`, `ttft_ms` (with `ttft_count`), `generation_ms` and `generation_tokens`. The purge never touches
   it; migration 00121 filled it from the rows then kept.
+  The ledger also keeps measured input/cache tokens and estimated request/input counts. The split starts from
+  requests still kept at migration 00132; older ledger totals remain but do not contribute to the cache share.
+  When a stream ends early, the request row records the provider's stream error code and message, an idle timeout,
+  or that the upstream closed before the protocol's end marker.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. A chat orchestration
   deletes (alone or with its Bot) has its keys revoked in orchestration's transaction by this package's
