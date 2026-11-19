@@ -24,6 +24,8 @@ func Alive(pid int) bool {
 	return true
 }
 
+func GroupGone(int) bool { return false }
+
 // Kill kills the shim; on Windows its worker is not in a group.
 func Kill(pid int) error {
 	if pid <= 0 {

@@ -328,6 +328,7 @@ func TestCodexStreamUsageLimitDoesNotLoop(t *testing.T) {
 
 func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	t.Parallel()
+	const coolingVersion = 135
 	ctx := t.Context()
 	_, db := migratedTo(t, 132)
 	_, err := db.ExecContext(ctx, `
@@ -359,7 +360,10 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 			[]int{requests, estimatedRequests, estimatedPrompt, measuredPrompt, measuredCached})
 	}
 	assertExistingUsage()
-	require.NoError(t, Migrate(ctx, db))
+	migrations, err := provider(db)
+	require.NoError(t, err)
+	_, err = migrations.UpTo(ctx, coolingVersion)
+	require.NoError(t, err)
 	assertExistingUsage()
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO gateway_usage
@@ -368,13 +372,10 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 		UPDATE gateway_usage_daily SET requests = requests + 1, no_account = 1;
 	`)
 	require.NoError(t, err)
-	migrations, err := provider(db)
-	require.NoError(t, err)
-	// Down to just before 135, whatever migrations came after it (as seedinstructions_test.go does).
-	rolledBack, err := migrations.DownTo(ctx, 134)
+	rolledBack, err := migrations.DownTo(ctx, coolingVersion-1)
 	require.NoError(t, err)
 	require.NotEmpty(t, rolledBack)
-	assert.Equal(t, int64(135), rolledBack[len(rolledBack)-1].Source.Version)
+	assert.Equal(t, int64(coolingVersion), rolledBack[len(rolledBack)-1].Source.Version)
 	assertExistingUsage()
 	var requests int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage`).Scan(&requests))

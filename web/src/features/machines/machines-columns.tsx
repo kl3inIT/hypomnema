@@ -19,6 +19,7 @@ import { MachineActions } from "./machine-actions"
 import { Meter } from "@/components/meter"
 import {
   Amount,
+  DiskCell,
   GpuRows,
   WithAmount,
   IndicatorDot,
@@ -27,14 +28,7 @@ import {
   StateText,
 } from "./machine-cells"
 import { RuntimeList } from "./runtime-list"
-import {
-  diskPercent,
-  gpuTitle,
-  loadPercent,
-  memoryPercent,
-  percent,
-  usedOfTotal,
-} from "./machines-state"
+import { gpuTitle, loadPercent, memoryPercent, percent, usedOfTotal } from "./machines-state"
 
 // The columns of the Machines page, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx): one
@@ -129,23 +123,9 @@ export const columns: Column[] = [
   {
     id: "disk",
     name: "Disk",
-    hint: "Space used on the volume that holds the worktrees.",
+    hint: "Space available to the worker on the volume that holds the worktrees.",
     Icon: HardDrive,
-    cell: (node) => {
-      const value = diskPercent(node)
-      if (value === undefined) return none
-
-      return (
-        <WithAmount used={node.stats?.disk_used_bytes} total={node.system?.disk_bytes}>
-          <Meter
-            label="Disk"
-            value={value}
-            connected={node.connected}
-            title={usedOfTotal(node.stats?.disk_used_bytes, node.system?.disk_bytes)}
-          />
-        </WithAmount>
-      )
-    },
+    cell: (node) => <DiskCell node={node} />,
   },
   {
     id: "gpu",
