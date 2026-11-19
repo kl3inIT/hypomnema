@@ -26,7 +26,7 @@ import (
 // ListChats returns the chats, of one Bot when the request names one, the most recently active first.
 func (s *Server) ListChats(ctx context.Context, req openapi.ListChatsRequestObject,
 ) (openapi.ListChatsResponseObject, error) {
-	chats, err := s.svc.ListChats(ctx, val(req.Params.Bot), val(req.Params.Limit))
+	chats, err := s.svc.ListChats(ctx, val(req.Params.Bot), val(req.Params.Limit), val(req.Params.Offset))
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,10 @@ func (s *Server) CreateChat(ctx context.Context, req openapi.CreateChatRequestOb
 // OpenMainChat returns a Bot's main chat, made when the Bot has none (issue #471): what `hypomnema chat` writes to.
 func (s *Server) OpenMainChat(ctx context.Context, req openapi.OpenMainChatRequestObject,
 ) (openapi.OpenMainChatResponseObject, error) {
-	chat, made, err := s.svc.OpenMainChat(ctx, val(req.Body.Bot))
+	b := req.Body
+	chat, made, err := s.svc.OpenMainChat(ctx, val(b.Bot), val(b.Id), val(b.Title), orchestration.ChatModel{
+		Provider: val(b.Provider), Model: val(b.Model), Effort: val(b.Effort),
+	})
 	if err != nil {
 		return nil, err
 	}

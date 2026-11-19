@@ -16,8 +16,10 @@ WHERE id = @id;
 SELECT * FROM chats WHERE id = @id;
 
 -- name: ListChats :many
--- The chats, of one Bot when @bot names one, each with the start of its latest line of the owner or its Bot (issue
--- #471): the sidebar's row of a Bot shows its main chat's. A reply of thinking alone has no text and is passed over.
+-- A page of the chats, of one Bot when @bot names one, the most recently active first, each with the start of its
+-- latest line of the owner or its Bot (issue #471): the sidebar's row of a Bot shows its main chat's. A reply of
+-- thinking alone has no text and is passed over. The first page (@skip 0) also carries every Bot's main chat and
+-- every chat an Approval waits in, whatever their age, so that a Bot's row is whole: a page later on does not.
 SELECT sqlc.embed(chats),
        CAST(coalesce((
            SELECT substr(m.text, 1, 400) FROM chat_messages m
@@ -25,8 +27,19 @@ SELECT sqlc.embed(chats),
            ORDER BY m.seq DESC LIMIT 1
        ), '') AS TEXT) AS last_text
 FROM chats
-WHERE CAST(@bot AS TEXT) = '' OR chats.bot_id = CAST(@bot AS TEXT)
-ORDER BY chats.updated_at DESC, chats.id LIMIT @lim;
+WHERE (CAST(@bot AS TEXT) = '' OR chats.bot_id = CAST(@bot AS TEXT))
+  AND (
+    chats.id IN (
+        SELECT p.id FROM chats p
+        WHERE CAST(@bot AS TEXT) = '' OR p.bot_id = CAST(@bot AS TEXT)
+        ORDER BY p.updated_at DESC, p.id LIMIT @lim OFFSET @skip
+    )
+    OR (CAST(@skip AS INTEGER) = 0 AND (
+        chats.id IN (SELECT b.main_chat FROM bots b WHERE b.main_chat IS NOT NULL)
+        OR chats.id IN (SELECT a.chat_id FROM approvals a WHERE a.status = 'pending' AND a.chat_id IS NOT NULL)
+    ))
+  )
+ORDER BY chats.updated_at DESC, chats.id;
 
 -- name: SetBotMainChat :exec
 -- The chat becomes its Bot's main chat (issue #471): the web's New chat, the CLI's --new, or the first message to a

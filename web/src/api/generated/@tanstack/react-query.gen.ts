@@ -4299,6 +4299,36 @@ export const listChatsOptions = (options?: Options<ListChatsData>) => queryOptio
   queryKey: listChatsQueryKey(options)
 });
 
+export const listChatsInfiniteQueryKey = (options?: Options<ListChatsData>): QueryKey<Options<ListChatsData>> => createQueryKey('listChats', options, true);
+
+/**
+ * The owner's chats with the coordinator, the most recently active first
+ */
+export const listChatsInfiniteOptions = (options?: Options<ListChatsData>) => {
+  const opts = infiniteQueryOptions<ListChatsResponse, ListChatsError, InfiniteData<ListChatsResponse>, QueryKey<Options<ListChatsData>>, number | Pick<QueryKey<Options<ListChatsData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
+  // @ts-ignore
+  {
+    queryFn: async ({ pageParam, queryKey, signal }) => {
+      // @ts-ignore
+      const page: Pick<QueryKey<Options<ListChatsData>>[0], 'body' | 'headers' | 'path' | 'query'> = typeof pageParam === 'object' ? pageParam : {
+        query: {
+          offset: pageParam
+        }
+      };
+      const params = createInfiniteParams(queryKey, page);
+      const { data } = await listChats({
+        ...options,
+        ...params,
+        signal,
+        throwOnError: true
+      });
+      return data;
+    },
+    queryKey: listChatsInfiniteQueryKey(options)
+  });
+  return opts as Omit<typeof opts, 'initialData'>;
+};
+
 /**
  * Start a chat with the coordinator
  *
@@ -4321,7 +4351,7 @@ export const createChatMutation = (options?: Partial<Options<CreateChatData>>): 
 /**
  * A Bot's main chat, made when it has none
  *
- * The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+ * The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
  */
 export const openMainChatMutation = (options?: Partial<Options<OpenMainChatData>>): UseMutationOptions<OpenMainChatResponse, OpenMainChatError, Options<OpenMainChatData>> => {
   const mutationOptions: UseMutationOptions<OpenMainChatResponse, OpenMainChatError, Options<OpenMainChatData>> = {

@@ -174,7 +174,7 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("chat", "", "the chat to use (default the Bot's main chat)")
 			fs.String("bot", "", "the Bot to write to, by its id from bots list (default the main Bot)")
-			fs.Bool("new", false, "start a new chat, which becomes the Bot's main chat")
+			fs.Bool("new", false, "start a new chat, which becomes the Bot's main chat (as the message /new)")
 			fs.String("text-file", "", "read the message from this file, or - for standard input")
 			fs.String("timeout", "10m", "stop printing replies after this long")
 			fs.Int("last", 20, "without a message, how many messages to show")
@@ -185,6 +185,8 @@ var commands = []command{
 		name: "chats", summary: "the chats with the coordinator, the most recently active first",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("bot", "", "only the chats of this Bot, by its id from bots list")
+			fs.Int("offset", 0, "skip this many chats, for the next page; the first page also lists every Bot's "+
+				"main chat and every chat an approval waits in")
 			jsonFlag(fs)
 		},
 		run: chatsList,

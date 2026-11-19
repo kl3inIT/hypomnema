@@ -312,3 +312,44 @@ test("a Bot's row is still dragged to the grid", async ({ page, isMobile }) => {
   await expect(page).toHaveURL(/\/grid$/)
   expect(orders).toEqual([])
 })
+
+// Scenario: the owner has coordinator's main chat open when its Bot answers (issue #471): the row's last line
+// follows the answer without a reload, as the chats are read again when a line comes.
+test("a Bot's row shows its main chat's newest line as the Bot answers", async ({ page }) => {
+  await fakeServer(page)
+  let listed = 0
+  let replied = false
+  // Registered after fakeServer, so these answer first: the list, with the line the answer leaves; the chat's
+  // stream, which answers once the list was read.
+  await page.route("**/api/v1/chats", async (route) => {
+    listed++
+    const now = chats.map((c) =>
+      c.id === "cht_2" && replied ? { ...c, last_line: "The menu is under the logo now" } : c,
+    )
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: now }) })
+  })
+  await page.route("**/api/v1/chats/cht_2/stream*", async (route) => {
+    if (replied) {
+      return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
+    }
+    await expect.poll(() => listed).toBeGreaterThan(0)
+    replied = true
+    const answer = {
+      seq: 2,
+      chat_id: "cht_2",
+      role: "coordinator",
+      text: "The menu is under the logo now",
+      created_at: new Date().toISOString(),
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: `id: 2\nevent: message\ndata: ${JSON.stringify(answer)}\n\n`,
+    })
+  })
+
+  await page.goto("/chats/cht_2")
+  await expect(page.getByText("The menu is under the logo now").first()).toBeVisible()
+  await openMenu(page)
+  await expect(botRow(page, "coordinator")).toContainText("The menu is under the logo now")
+})

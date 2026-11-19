@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,6 +52,11 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 		chatRow("cht_group", main, 1, 9700),
 		chatRow("cht_routine", main, 0, 9800),
 		chatRow("cht_pruned", main, 0, 9900),
+		// The owner's Lark direct chats that a /new left behind: no mapping, his own rows, a file Lark sent (kept
+		// under its message id) in one and a voice message in the other.
+		chatRow("cht_lark_file", main, 0, 9950),
+		chatRow("cht_lark_voice", main, 0, 9960),
+		chatRow("cht_lark_named", main, 0, 9970),
 		`INSERT INTO channel_chats (external_chat_id, channel, person_id, chat_id, sent_seq, created_at)
 			VALUES ('oc_owner', 'lark', 'ou_owner', 'cht_dm_owner', 0, 1)`,
 		`INSERT INTO routines (id, bot_id, name, kind, prompt, timeout_seconds, state, created_by, created_at,
@@ -73,6 +79,12 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 		msgRow("cht_routine", "owner", "", "and also this", "NULL", 9800) + `, NULL)`,
 		msgRow("cht_pruned", "system", "wake", `Routine "old" (rtn_x) runs by hand, now.`, "NULL", 9000) + `, NULL)`,
 		msgRow("cht_pruned", "owner", "", "keep going", "NULL", 9900) + `, NULL)`,
+		msgRow("cht_lark_file", "owner", "", "here is the deck", "NULL", 9950) +
+			`, '[{"name":"q3.pdf","path":"attachments/cht_lark_file/om_x1-q3.pdf","size":1}]')`,
+		msgRow("cht_lark_voice", "owner", "", "\"call the bank\"\n[voice message, transcribed]", "NULL", 9960) +
+			`, NULL)`,
+		`UPDATE chats SET title = 'Lark: Minh' WHERE id = 'cht_lark_named'`,
+		msgRow("cht_lark_named", "owner", "", "hello", "NULL", 9970) + `, NULL)`,
 		`UPDATE chat_messages SET to_coordinator = 1 WHERE kind = 'wake'`,
 		`INSERT INTO runs (id, objective, status, created_by, chat_id, bot_id, created_at, updated_at)
 			VALUES ('run_live', 'tiles', 'open', 'coordinator', 'cht_web', '` + main + `', 2600, 2600)`,
@@ -204,13 +216,13 @@ func TestABotsMainChatPointer(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	first, made, err := w.s.OpenMainChat(ctx, "")
+	first, made, err := w.s.OpenMainChat(ctx, "", "", "", ChatModel{})
 	require.NoError(t, err)
 	assert.True(t, made, "the main Bot had no main chat")
 	assert.Equal(t, DefaultBotID, first.Bot)
 	assert.Equal(t, first.ID, mainChatOf(t, w.s, DefaultBotID))
 
-	same, made, err := w.s.OpenMainChat(ctx, DefaultBotID)
+	same, made, err := w.s.OpenMainChat(ctx, DefaultBotID, "", "", ChatModel{})
 	require.NoError(t, err)
 	assert.False(t, made)
 	assert.Equal(t, first.ID, same.ID)
@@ -238,15 +250,15 @@ func TestABotsMainChatPointer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, mainChatOf(t, w.s, DefaultBotID), "deleting the main chat clears it")
 
-	again, made, err := w.s.OpenMainChat(ctx, "")
+	again, made, err := w.s.OpenMainChat(ctx, "", "", "", ChatModel{})
 	require.NoError(t, err)
 	assert.True(t, made, "the next message makes another")
 	assert.NotEqual(t, first.ID, again.ID, "a hidden chat is not taken back as the main chat")
 
-	_, _, err = w.s.OpenMainChat(ctx, "bot_none")
+	_, _, err = w.s.OpenMainChat(ctx, "bot_none", "", "", ChatModel{})
 	require.ErrorIs(t, err, ErrNotFound)
 
-	chats, err := w.s.ListChats(ctx, DefaultBotID, 0)
+	chats, err := w.s.ListChats(ctx, DefaultBotID, 0, 0)
 	require.NoError(t, err)
 	require.Len(t, chats, 2)
 
@@ -274,7 +286,7 @@ func TestConcurrentFirstMessagesMakeOneMainChat(t *testing.T) {
 
 	for i := range writers {
 		wg.Go(func() {
-			c, _, err := w.s.OpenMainChat(ctx, "")
+			c, _, err := w.s.OpenMainChat(ctx, "", "", "", ChatModel{})
 			assert.NoError(t, err)
 
 			ids[i] = c.ID
@@ -287,7 +299,7 @@ func TestConcurrentFirstMessagesMakeOneMainChat(t *testing.T) {
 		assert.Equal(t, ids[0], id)
 	}
 
-	chats, err := w.s.ListChats(ctx, DefaultBotID, 0)
+	chats, err := w.s.ListChats(ctx, DefaultBotID, 0, 0)
 	require.NoError(t, err)
 	assert.Len(t, chats, 1)
 }
@@ -299,4 +311,60 @@ func mainChatOf(t *testing.T, s *Service, bot string) string {
 	require.NoError(t, err)
 
 	return b.MainChat
+}
+
+// Scenario: the sidebar reads the first page of chats (issue #471). A Bot's main chat and a chat an Approval waits
+// in are older than the page, yet both are on it, with the main chat's last line; a later page does not carry them
+// again, and the Bot's chats page through the rest.
+func TestTheFirstPageOfChatsCarriesMainAndWaitingChats(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	home, _, err := w.s.OpenMainChat(ctx, "", "", "", ChatModel{})
+	require.NoError(t, err)
+	_, err = w.s.AddChatMessage(ctx, home.ID, ChatOwner, "the long-running topic")
+	require.NoError(t, err)
+
+	waiting, err := w.s.CreateChat(ctx, "", "waits")
+	require.NoError(t, err)
+	_, err = w.db.ExecContext(ctx, `INSERT INTO approvals (id, integration, label, action, action_name, chat_id,
+		asked_by, title, payload, match_hash, status, created_at) VALUES ('apr_wait', 'lark', 'me', 'send', 'Send', ?,
+		'pi', 'Send it', '{}', 'h', 'pending', 1)`, waiting.ID)
+	require.NoError(t, err)
+
+	newer := make([]string, 0, 3)
+
+	for range 3 {
+		w.clock.now = w.clock.now.Add(time.Minute)
+
+		c, err := w.s.CreateChat(ctx, "", "newer")
+		require.NoError(t, err)
+
+		newer = append(newer, c.ID)
+	}
+
+	first, err := w.s.ListChats(ctx, "", 2, 0)
+	require.NoError(t, err)
+
+	lines := map[string]string{}
+	for _, c := range first {
+		lines[c.ID] = c.LastLine
+	}
+
+	assert.Equal(t, map[string]string{
+		newer[2]: "", newer[1]: "", home.ID: "the long-running topic", waiting.ID: "",
+	}, lines, "the newest two, the main chat and the chat that waits")
+
+	next, err := w.s.ListChats(ctx, DefaultBotID, 2, 2)
+	require.NoError(t, err)
+
+	ids := []string{}
+	for _, c := range next {
+		ids = append(ids, c.ID)
+	}
+
+	assert.Equal(t, []string{newer[0]}, ids[:1], "the next page goes on from the third newest")
+	assert.Len(t, next, 2, "and carries nothing twice")
 }

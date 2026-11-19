@@ -83,8 +83,7 @@ export function TeamScreen({
     }
   }, [task, cards, chatList])
 
-  // A Bot opens its chat that waits on the owner, else its main chat (issue #471), else a new chat with it
-  // (OpenMausBot's openBot).
+  // A Bot opens its main chat (issue #471), else a new chat with it (OpenMausBot's openBot).
   const openBot = (bot: TeamBot) =>
     bot.chat
       ? void navigate({ to: "/chats/$chatId", params: { chatId: bot.chat } })

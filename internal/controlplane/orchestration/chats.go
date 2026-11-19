@@ -382,60 +382,49 @@ func IsChatID(id string) bool { return platform.IsID(ChatIDPrefix, id) }
 // (issue #369, as t3code's draft thread keeps its model); an empty one is the
 // Bot's.
 func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string, m ChatModel) (Chat, error) {
-	return s.createChat(ctx, id, bot, title, m, false)
+	chat, _, err := s.createChat(ctx, id, bot, title, m, notMain)
+	return chat, err
 }
 
-// StartMainChat is CreateChatWithID for the web's New chat and the CLI's --new (issue #471): the chat made becomes
-// its Bot's main chat, the one a click on the Bot opens, as OpenClaw's /new starts a new session under the agent's
-// main key (docs/concepts/session.md). The Bot's former main chat stays as it was, with its id and whatever still
-// runs in it; it is only no longer the Bot's row. Lark's chats and a Routine's never take this path.
+// StartMainChat is CreateChatWithID for the web's New chat and the CLI's --new or /new (issue #471): the chat made
+// becomes its Bot's main chat, the one a click on the Bot opens, as OpenClaw's /new starts a new session under the
+// agent's main key (docs/concepts/session.md). The Bot's former main chat stays as it was, with its id and whatever
+// still runs in it; it is only no longer the Bot's row. Lark's chats and a Routine's never take this path.
 func (s *Service) StartMainChat(ctx context.Context, id, bot, title string, m ChatModel) (Chat, error) {
-	return s.createChat(ctx, id, bot, title, m, true)
+	chat, _, err := s.createChat(ctx, id, bot, title, m, moveMain)
+	return chat, err
 }
 
 // OpenMainChat returns a Bot's main chat, the main Bot's when bot is empty, making it when the Bot has none (issue
-// #471): a Bot that never had one, or whose main chat was deleted. It reads and makes in one write, so the web and
-// the CLI writing to a Bot at once end in one main chat. made says it was made now.
-func (s *Service) OpenMainChat(ctx context.Context, bot string) (chat Chat, made bool, err error) {
-	if bot == "" {
-		bot = DefaultBotID
-	}
-
-	var id string
-
-	err = s.write(ctx, func(q *store.Queries, now int64) error {
-		row, err := q.GetBot(ctx, bot)
-		if err != nil {
-			return notFound(err, "bot", bot)
-		}
-
-		if row.MainChat.Valid {
-			id, made = row.MainChat.String, false
-
-			return nil
-		}
-
-		id, made = s.newID(ChatIDPrefix), true
-		if err := q.InsertChat(ctx, store.InsertChatParams{ID: id, Title: untitled, Bot: bot, Now: now}); err != nil {
-			return err
-		}
-
-		return q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(id), Bot: bot})
-	})
-	if err != nil {
-		return Chat{}, false, fmt.Errorf("opening the main chat of bot %s: %w", bot, err)
-	}
-
-	chat, err = s.GetChat(ctx, id)
-
-	return chat, made, err
+// #471): a Bot that never had one, or whose main chat was deleted. The chat made takes the id, title and model given,
+// as CreateChatWithID's, so that the web's first message, whose files were put under the id its page chose, makes
+// it; a Bot that has a main chat keeps it as it is, and the id, title and model given are not used. It reads and
+// makes in one write, so the web and the CLI writing to a Bot at once end in one main chat. made says it was made
+// now.
+func (s *Service) OpenMainChat(ctx context.Context, bot, id, title string, m ChatModel) (chat Chat, made bool,
+	err error,
+) {
+	return s.createChat(ctx, id, bot, title, m, mainIfNone)
 }
 
-func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatModel, main bool) (Chat, error) {
+// mainMode says what a chat made does to its Bot's main chat.
+type mainMode int
+
+const (
+	// notMain leaves it: a Lark chat, a test's.
+	notMain mainMode = iota
+	// moveMain makes the chat the main chat.
+	moveMain
+	// mainIfNone returns the main chat when the Bot has one, and makes the chat its main chat when not.
+	mainIfNone
+)
+
+func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatModel, mode mainMode,
+) (Chat, bool, error) {
 	if id == "" {
 		id = s.newID(ChatIDPrefix)
 	} else if !IsChatID(id) {
-		return Chat{}, fmt.Errorf("%w: a chat id is %q followed by 26 characters of a-z and 2-7", ErrInvalid,
+		return Chat{}, false, fmt.Errorf("%w: a chat id is %q followed by 26 characters of a-z and 2-7", ErrInvalid,
 			ChatIDPrefix+"_")
 	}
 
@@ -449,12 +438,21 @@ func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatM
 	}
 
 	if len(title) > 200 {
-		return Chat{}, fmt.Errorf("%w: a chat title is at most 200 characters", ErrInvalid)
+		return Chat{}, false, fmt.Errorf("%w: a chat title is at most 200 characters", ErrInvalid)
 	}
 
+	made := true
+
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		if _, err := q.GetBot(ctx, bot); err != nil {
+		row, err := q.GetBot(ctx, bot)
+		if err != nil {
 			return notFound(err, "bot", bot)
+		}
+
+		if mode == mainIfNone && row.MainChat.Valid {
+			id, made = row.MainChat.String, false
+
+			return nil
 		}
 
 		if _, err := q.GetChat(ctx, id); err == nil {
@@ -475,16 +473,18 @@ func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatM
 			return err
 		}
 
-		if !main {
+		if mode == notMain {
 			return nil
 		}
 
 		return q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(id), Bot: bot})
 	}); err != nil {
-		return Chat{}, fmt.Errorf("creating a chat: %w", err)
+		return Chat{}, false, fmt.Errorf("creating a chat: %w", err)
 	}
 
-	return s.GetChat(ctx, id)
+	chat, err := s.GetChat(ctx, id)
+
+	return chat, made, err
 }
 
 // GetChat returns one chat.
@@ -497,10 +497,13 @@ func (s *Service) GetChat(ctx context.Context, id string) (Chat, error) {
 	return chatFromRow(row), nil
 }
 
-// ListChats returns the chats, of one Bot when bot names one, the most recently active first, each with its last
-// line.
-func (s *Service) ListChats(ctx context.Context, bot string, limit int) ([]Chat, error) {
-	rows, err := s.read().ListChats(ctx, store.ListChatsParams{Bot: bot, Lim: int64(pageLimit(limit))})
+// ListChats returns a page of the chats, of one Bot when bot names one, the most recently active first, after
+// skipping offset of them, each with its last line. The first page also carries every Bot's main chat and every chat
+// an Approval waits in, whatever their age (queries/chats.sql ListChats).
+func (s *Service) ListChats(ctx context.Context, bot string, limit, offset int) ([]Chat, error) {
+	rows, err := s.read().ListChats(ctx, store.ListChatsParams{
+		Bot: bot, Lim: int64(pageLimit(limit)), Skip: int64(max(offset, 0)),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("listing chats: %w", err)
 	}

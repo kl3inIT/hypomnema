@@ -32,12 +32,18 @@ func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		text = t
 	}
 
+	// /new, as at Lark and in the web's chat, is --new without a message (issue #471).
+	fresh := boolean(fs, "new")
+	if strings.EqualFold(strings.TrimSpace(text), "/new") {
+		fresh, text = true, ""
+	}
+
 	bot := str(fs, "bot")
-	if (bot != "" || boolean(fs, "new")) && str(fs, "chat") != "" {
+	if (bot != "" || fresh) && str(fs, "chat") != "" {
 		return errors.New("--chat names a chat, whose Bot is fixed; --bot and --new pick a Bot's main chat")
 	}
 
-	if strings.TrimSpace(text) == "" && !boolean(fs, "new") && str(fs, "chat") == "" {
+	if strings.TrimSpace(text) == "" && !fresh && str(fs, "chat") == "" {
 		// Reading makes no chat: a Bot with no main chat has nothing to show.
 		id, err := mainChatOf(ctx, e, bot)
 		if err != nil {
@@ -58,7 +64,7 @@ func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return showChat(ctx, e, c, number(fs, "last"))
 	}
 
-	c, err := pickChat(ctx, e, str(fs, "chat"), boolean(fs, "new"), bot, chatTitle(text))
+	c, err := pickChat(ctx, e, str(fs, "chat"), fresh, bot, chatTitle(text))
 	if err != nil {
 		return err
 	}
@@ -298,6 +304,10 @@ func chatsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	params := openapi.ListChatsParams{}
 	if bot := str(fs, "bot"); bot != "" {
 		params.Bot = &bot
+	}
+
+	if offset := number(fs, "offset"); offset > 0 {
+		params.Offset = &offset
 	}
 
 	r, err := e.api.ListChatsWithResponse(ctx, &params)

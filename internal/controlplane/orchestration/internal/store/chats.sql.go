@@ -887,13 +887,25 @@ SELECT chats.id, chats.title, chats.created_at, chats.updated_at, chats.bot_id, 
            ORDER BY m.seq DESC LIMIT 1
        ), '') AS TEXT) AS last_text
 FROM chats
-WHERE CAST(?1 AS TEXT) = '' OR chats.bot_id = CAST(?1 AS TEXT)
-ORDER BY chats.updated_at DESC, chats.id LIMIT ?2
+WHERE (CAST(?1 AS TEXT) = '' OR chats.bot_id = CAST(?1 AS TEXT))
+  AND (
+    chats.id IN (
+        SELECT p.id FROM chats p
+        WHERE CAST(?1 AS TEXT) = '' OR p.bot_id = CAST(?1 AS TEXT)
+        ORDER BY p.updated_at DESC, p.id LIMIT ?3 OFFSET ?2
+    )
+    OR (CAST(?2 AS INTEGER) = 0 AND (
+        chats.id IN (SELECT b.main_chat FROM bots b WHERE b.main_chat IS NOT NULL)
+        OR chats.id IN (SELECT a.chat_id FROM approvals a WHERE a.status = 'pending' AND a.chat_id IS NOT NULL)
+    ))
+  )
+ORDER BY chats.updated_at DESC, chats.id
 `
 
 type ListChatsParams struct {
-	Bot string
-	Lim int64
+	Bot  string
+	Skip int64
+	Lim  int64
 }
 
 type ListChatsRow struct {
@@ -901,10 +913,12 @@ type ListChatsRow struct {
 	LastText string
 }
 
-// The chats, of one Bot when @bot names one, each with the start of its latest line of the owner or its Bot (issue
-// #471): the sidebar's row of a Bot shows its main chat's. A reply of thinking alone has no text and is passed over.
+// A page of the chats, of one Bot when @bot names one, the most recently active first, each with the start of its
+// latest line of the owner or its Bot (issue #471): the sidebar's row of a Bot shows its main chat's. A reply of
+// thinking alone has no text and is passed over. The first page (@skip 0) also carries every Bot's main chat and
+// every chat an Approval waits in, whatever their age, so that a Bot's row is whole: a page later on does not.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
-	rows, err := q.db.QueryContext(ctx, listChats, arg.Bot, arg.Lim)
+	rows, err := q.db.QueryContext(ctx, listChats, arg.Bot, arg.Skip, arg.Lim)
 	if err != nil {
 		return nil, err
 	}

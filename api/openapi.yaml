@@ -4006,6 +4006,12 @@ paths:
           in: query
           description: Only the chats of the Bot of this id (issue #471), as its page lists them.
           schema: { type: string }
+        - name: offset
+          in: query
+          description: >-
+            How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat
+            and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+          schema: { type: integer, minimum: 0 }
       responses:
         "200":
           description: The chats.
@@ -4039,7 +4045,9 @@ paths:
       description: >-
         The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or
         whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients
-        writing to the Bot at once end in one main chat.
+        writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes
+        here with the id its page chose; when another client made the main chat meanwhile, that one is answered
+        (200), with its own id.
       requestBody:
         required: true
         content:
@@ -8610,10 +8618,23 @@ components:
     MainChatRequest:
       type: object
       additionalProperties: false
+      description: >-
+        The Bot whose main chat is asked for. The other fields are the chat's when the Bot has none and it is made
+        now (the web's first message to a Bot with no main chat, whose files were put under the id its page chose);
+        a main chat that exists keeps its own.
       properties:
         bot:
           type: string
           description: The id of the Bot; the main Bot when left out.
+        id:
+          type: string
+          description: >-
+            The id of the chat made, as NewChat's; refused when malformed (400) or taken by another chat (409). A new
+            id when left out.
+        title: { type: string, maxLength: 200 }
+        provider: { type: string, description: Where the model is found. }
+        model: { type: string, description: The chat's own model; its Bot's when left out. }
+        effort: { type: string, description: The chat's own effort; its Bot's when left out. }
     ChatDeleted:
       type: object
       additionalProperties: false

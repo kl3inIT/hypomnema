@@ -144,15 +144,15 @@ describe("a Bot's status", () => {
     })
   })
 
-  it("waits for the owner while a worker of its Run asks him, found through the chat when the Run names no Bot", () => {
+  it("waits for the owner while a worker of its Run asks him, and opens its main chat, not the one that waits", () => {
     const r = run("run_1", { chat_id: "c1" })
     const t = task("t1", r.id, {
       latest_dispatch: dispatch("n1", { waiting_since: "2026-11-13T11:56:00Z" }),
     })
     const cards = boardCards(board([t], [r]), [question("q1", t)])
     const [coordinator] = teamBots({
-      bots,
-      chats: [chat("c1", "coordinator")],
+      bots: [bot("coordinator", { main_chat: "home" })],
+      chats: [chat("c1", "coordinator"), chat("home", "coordinator")],
       approvals: [],
       cards,
     })
@@ -160,7 +160,7 @@ describe("a Bot's status", () => {
     expect(coordinator).toMatchObject({
       activity: "waiting-on-you",
       reason: "A worker asks you a question",
-      chat: "c1",
+      chat: "home",
     })
   })
 

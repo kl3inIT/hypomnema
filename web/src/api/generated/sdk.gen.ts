@@ -2551,7 +2551,7 @@ export const createChat = <ThrowOnError extends boolean = true>(options: Options
 /**
  * A Bot's main chat, made when it has none
  *
- * The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+ * The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
  */
 export const openMainChat = <ThrowOnError extends boolean = true>(options: Options<OpenMainChatData, ThrowOnError>): RequestResult<OpenMainChatResponses, OpenMainChatErrors, ThrowOnError> => (options.client ?? client).post<OpenMainChatResponses, OpenMainChatErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

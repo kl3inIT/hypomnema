@@ -1335,6 +1335,15 @@ func TestChatWritesToTheBotsMainChat(t *testing.T) {
 
 	w.jsonCmd(t, &chats, "", "chats", "--bot", maps.Id)
 	assert.Empty(t, chats.Data, "reading a Bot with no main chat made none")
+
+	// /new is --new without a message: a new main chat, and nothing sent.
+	started, err := w.cmd(t, "chat", "--bot", vmap.Id, "/new")
+	require.NoError(t, err)
+	startedID := regexp.MustCompile(`chat (cht_\w+)`).FindStringSubmatch(started)[1]
+	assert.NotContains(t, started, "you: /new")
+	w.jsonCmd(t, &bot, "", "bots", "show", vmap.Id)
+	assert.Equal(t, startedID, val(bot.MainChat), "/new moves the main chat")
+	assert.NotEqual(t, freshID, startedID)
 }
 
 // Scenario: the owner sets a Bot's guaranteed share of the room (issue

@@ -67,37 +67,70 @@ func TestABotsMainChatThroughTheAPI(t *testing.T) {
 	errorCode(t, unknown.Body, unknown.StatusCode(), http.StatusNotFound)
 }
 
-// Scenario: the web's New chat and the CLI write to a Bot with no main chat at the same moment (issue #471).
-// Whichever comes first, the Bot ends with one main chat, the web's: the CLI's call either made a chat that the web's
-// then replaced, or found the web's.
-func TestNewChatAndTheCLIAtOnceEndInOneMainChat(t *testing.T) {
+// Scenario: the web's page is open on a Bot with no main chat, with an id chosen for its first message, when the CLI
+// writes to the Bot first and makes its main chat (issue #471). The web's first message then finds that main chat
+// (200, its own id) and makes no second chat: both messages are in one chat. Sent at the same moment, whichever
+// comes first, they end in one chat too.
+func TestTheWebAndTheCLIFirstMessagesEndInOneChat(t *testing.T) {
 	t.Parallel()
 
-	for range 5 {
+	w := newWorld(t)
+	owner, _ := w.token("owner", bearertoken.Owner)
+	ctx := t.Context()
+
+	cli, err := owner.OpenMainChatWithResponse(ctx, openapi.MainChatRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, cli.JSON201, "%s", cli.Body)
+
+	draft := "cht_" + strings.Repeat("c", 26)
+	web, err := owner.OpenMainChatWithResponse(ctx, openapi.MainChatRequest{
+		Id: &draft, Title: ptr("from the web"), Effort: ptr("high"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, web.JSON200, "the main chat the CLI made: %s", web.Body)
+	assert.Equal(t, cli.JSON201.Id, web.JSON200.Id)
+	assert.Nil(t, web.JSON200.Effort, "the main chat keeps its own model and effort")
+
+	listed, err := owner.ListChatsWithResponse(ctx, &openapi.ListChatsParams{Bot: ptr(orchestration.DefaultBotID)})
+	require.NoError(t, err)
+	require.NotNil(t, listed.JSON200)
+	assert.Len(t, listed.JSON200.Data, 1, "no second chat")
+
+	for i := range 5 {
 		w := newWorld(t)
 		owner, _ := w.token("owner", bearertoken.Owner)
-		ctx := t.Context()
-
-		id := "cht_" + strings.Repeat("b", 26)
+		id := "cht_" + strings.Repeat(string(rune('d'+i)), 26)
 
 		var (
-			wg     sync.WaitGroup
-			web    *openapi.CreateChatResponse
-			cli    *openapi.OpenMainChatResponse
-			webErr error
-			cliErr error
+			wg             sync.WaitGroup
+			web, cli       *openapi.OpenMainChatResponse
+			webErr, cliErr error
 		)
 
-		wg.Go(func() { web, webErr = owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id}) })
+		wg.Go(func() { web, webErr = owner.OpenMainChatWithResponse(ctx, openapi.MainChatRequest{Id: &id}) })
 		wg.Go(func() { cli, cliErr = owner.OpenMainChatWithResponse(ctx, openapi.MainChatRequest{}) })
 		wg.Wait()
 
 		require.NoError(t, webErr)
 		require.NoError(t, cliErr)
-		require.NotNil(t, web.JSON201, "%s", web.Body)
-		assert.True(t, cli.JSON200 != nil || cli.JSON201 != nil, "%s", cli.Body)
-		assert.Equal(t, id, mainChat(t, owner, orchestration.DefaultBotID))
+		assert.Equal(t, openedChat(t, web), openedChat(t, cli), "one chat")
+		assert.Equal(t, openedChat(t, web), mainChat(t, owner, orchestration.DefaultBotID))
 	}
+}
+
+func openedChat(t *testing.T, r *openapi.OpenMainChatResponse) string {
+	t.Helper()
+
+	switch {
+	case r.JSON200 != nil:
+		return r.JSON200.Id
+	case r.JSON201 != nil:
+		return r.JSON201.Id
+	}
+
+	require.Failf(t, "no chat", "%d %s", r.StatusCode(), r.Body)
+
+	return ""
 }
 
 func mainChat(t *testing.T, c *openapi.ClientWithResponses, bot string) string {

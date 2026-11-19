@@ -3937,10 +3937,23 @@ type MachineProviderList struct {
 	Data []MachineProvider `json:"data"`
 }
 
-// MainChatRequest defines model for MainChatRequest.
+// MainChatRequest The Bot whose main chat is asked for. The other fields are the chat's when the Bot has none and it is made now (the web's first message to a Bot with no main chat, whose files were put under the id its page chose); a main chat that exists keeps its own.
 type MainChatRequest struct {
 	// Bot The id of the Bot; the main Bot when left out.
 	Bot *string `json:"bot,omitempty"`
+
+	// Effort The chat's own effort; its Bot's when left out.
+	Effort *string `json:"effort,omitempty"`
+
+	// Id The id of the chat made, as NewChat's; refused when malformed (400) or taken by another chat (409). A new id when left out.
+	Id *string `json:"id,omitempty"`
+
+	// Model The chat's own model; its Bot's when left out.
+	Model *string `json:"model,omitempty"`
+
+	// Provider Where the model is found.
+	Provider *string `json:"provider,omitempty"`
+	Title    *string `json:"title,omitempty"`
 }
 
 // Me defines model for Me.
@@ -6461,6 +6474,9 @@ type ListChatsParams struct {
 
 	// Bot Only the chats of the Bot of this id (issue
 	Bot *string `form:"bot,omitempty" json:"bot,omitempty"`
+
+	// Offset How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // ListChatMessagesParams defines parameters for ListChatMessages.
@@ -7752,7 +7768,7 @@ type ClientInterface interface {
 
 	// OpenMainChatWithBody A Bot's main chat, made when it has none
 	//
-	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -7761,7 +7777,7 @@ type ClientInterface interface {
 
 	// OpenMainChat A Bot's main chat, made when it has none
 	//
-	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -10874,7 +10890,7 @@ func (c *Client) CreateChat(ctx context.Context, body CreateChatJSONRequestBody,
 
 // OpenMainChatWithBody A Bot's main chat, made when it has none
 //
-// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
 //
 // Takes any type of body and a specified content type.
 //
@@ -10893,7 +10909,7 @@ func (c *Client) OpenMainChatWithBody(ctx context.Context, contentType string, b
 
 // OpenMainChat A Bot's main chat, made when it has none
 //
-// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -17479,6 +17495,18 @@ func NewListChatsRequest(server string, params *ListChatsParams) (*http.Request,
 		if params.Bot != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -27407,7 +27435,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenMainChatWithBodyWithResponse A Bot's main chat, made when it has none
 	//
-	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -27416,7 +27444,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenMainChatWithResponse A Bot's main chat, made when it has none
 	//
-	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -42175,7 +42203,7 @@ func (c *ClientWithResponses) CreateChatWithResponse(ctx context.Context, body C
 
 // OpenMainChatWithBodyWithResponse A Bot's main chat, made when it has none
 //
-// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -42190,7 +42218,7 @@ func (c *ClientWithResponses) OpenMainChatWithBodyWithResponse(ctx context.Conte
 
 // OpenMainChatWithResponse A Bot's main chat, made when it has none
 //
-// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat.
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -55988,6 +56016,19 @@ func (siw *ServerInterfaceWrapper) ListChats(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bot"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
 		}
 		return
 	}

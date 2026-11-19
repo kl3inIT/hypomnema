@@ -930,7 +930,7 @@ func (w *world) watched(name, chatID string) routinestore.Routine {
 func (w *world) chats() int {
 	w.t.Helper()
 
-	all, err := w.svc.ListChats(w.t.Context(), "", 0)
+	all, err := w.svc.ListChats(w.t.Context(), "", 0, 0)
 	require.NoError(w.t, err)
 
 	return len(all)

@@ -23,7 +23,8 @@ export type TeamBot = {
   activity: BotActivity
   // One plain line saying why the status is what it is; nothing when the Bot is idle.
   reason?: string
-  // The chat a click opens: the one that waits on the owner, else the Bot's main chat (issue #471); none starts one.
+  // The chat a click opens: the Bot's main chat, as every link to a Bot (issue #471); none starts one. The chat that
+  // waits on the owner is reached from the sidebar's row and from the work under the map.
   chat?: string
 }
 
@@ -101,7 +102,7 @@ export function teamBots({
                 ? "A worker asks you a question"
                 : `${questions.length} questions wait for you`
               : `${plural(needs.length, "Task needs", "Tasks need")} you`,
-        chat: asking[0]?.chat_id ?? needs.find((c) => c.run.chat_id)?.run.chat_id ?? home,
+        chat: home,
       }
     }
 

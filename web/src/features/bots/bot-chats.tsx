@@ -1,10 +1,12 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { MessagesSquare } from "lucide-react"
 
 import "@/api/client"
-import { listChatsOptions } from "@/api/generated/@tanstack/react-query.gen"
+import { listChatsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
+import { listChats } from "@/api/generated/sdk.gen"
 import type { Bot } from "@/api/generated/types.gen"
+import { Button } from "@/components/ui/button"
 import { usePending } from "@/features/approvals/use-approvals"
 import { ChatMenu } from "@/features/shell/chat-menu"
 import { since } from "@/lib/time"
@@ -13,11 +15,20 @@ import { since } from "@/lib/time"
 // row that opens its main chat, and every other chat (a former main chat, a Lark chat, a Routine's run) keeps its id,
 // its work and its address and opens from here, as OpenMausBot keeps a bot's threads reachable when the sidebar hides
 // them (Apache License 2.0, https://github.com/milind-soni/OpenMausBot; src/lib/thread-preferences.ts). A plain
-// list, newest first, each with its menu to delete it; a chat that waits on the owner says so.
+// list, newest first, each with its menu to delete it, read a page at a time; a chat that waits on the owner says so.
+const pageSize = 100
+
 export function BotChats({ bot }: { bot: Bot }) {
-  const chats = useQuery({
-    ...listChatsOptions({ query: { bot: bot.id, limit: 500 } }),
-    select: (page) => page.data,
+  // Pages of 100, newest first: Show more reads the next (GET /chats?bot=&offset=), as far back as the Bot goes.
+  const chats = useInfiniteQuery({
+    queryKey: listChatsQueryKey({ query: { bot: bot.id, limit: pageSize } }),
+    queryFn: async ({ pageParam, signal }) =>
+      (await listChats({ query: { bot: bot.id, limit: pageSize, offset: pageParam }, signal })).data
+        .data,
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) =>
+      last.length < pageSize ? undefined : pages.length * pageSize,
+    select: (data) => [...new Map(data.pages.flat().map((c) => [c.id, c])).values()],
   })
   const pending = usePending()
   const waiting = new Set(pending.data?.flatMap((a) => (a.chat_id ? [a.chat_id] : [])))
@@ -79,6 +90,18 @@ export function BotChats({ bot }: { bot: Bot }) {
             </li>
           ))}
         </ul>
+      )}
+      {chats.hasNextPage && (
+        <div className="self-start">
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={chats.isFetchingNextPage}
+            onClick={() => void chats.fetchNextPage()}
+          >
+            Show more
+          </Button>
+        </div>
       )}
     </section>
   )

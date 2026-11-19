@@ -5,9 +5,15 @@
 --
 -- The main chat of a Bot that has chats is chosen among its candidates: not a Lark chat (no row in channel_chats),
 -- not a Lark group's chat (channel_group, which a group's later chats keep after a reset), not the chat of someone
--- other than the owner (a person message with a sender, migration 00087), and not a Routine's chat (named by a run,
+-- other than the owner (a person message with a sender, migration 00087, or a title "Lark: <name>"), not a Lark
+-- chat whose mapping a /new moved to a newer chat (an owner message with a file Lark sent, kept under its message id
+-- om_..., channels/received.go, or a voice message heard, speech/voice.go), and not a Routine's chat (named by a run,
 -- or opened with a Routine's prompt, which runs pruned later leave behind). The candidate with the owner's latest
 -- message wins, then the one active latest, then the greatest id. No chat's id or content changes.
+--
+-- An owner's Lark direct chat that a /new left behind with text alone keeps no mark of Lark (its rows are the
+-- owner's, as the web's are, and channel_messages forgets message ids after a day): it cannot be told from a web
+-- chat and stays a candidate. It is no longer mapped, so it relays nothing to Lark.
 
 -- +goose Up
 ALTER TABLE bots ADD COLUMN main_chat TEXT REFERENCES chats (id);
@@ -25,6 +31,15 @@ UPDATE bots SET main_chat = (
         )
       AND NOT EXISTS (
             SELECT 1 FROM chat_messages m WHERE m.chat_id = c.id AND m.role = 'owner' AND m.sender_id IS NOT NULL
+        )
+      AND c.title NOT LIKE 'Lark: %'
+      AND NOT EXISTS (
+            SELECT 1 FROM chat_messages m
+            WHERE m.chat_id = c.id AND m.role = 'owner'
+              AND (m.attachments LIKE '%"attachments/' || c.id || '/om\_%' ESCAPE '\'
+                   OR m.text LIKE '%[voice message, transcribed]%'
+                   OR m.text LIKE '%[voice message could not be transcribed]%'
+                   OR m.text LIKE '%[voice message came through empty%')
         )
     ORDER BY coalesce((
             SELECT max(m.created_at) FROM chat_messages m

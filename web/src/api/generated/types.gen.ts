@@ -3491,11 +3491,31 @@ export type NewChat = {
   effort?: string;
 };
 
+/**
+ * The Bot whose main chat is asked for. The other fields are the chat's when the Bot has none and it is made now (the web's first message to a Bot with no main chat, whose files were put under the id its page chose); a main chat that exists keeps its own.
+ */
 export type MainChatRequest = {
   /**
    * The id of the Bot; the main Bot when left out.
    */
   bot?: string;
+  /**
+   * The id of the chat made, as NewChat's; refused when malformed (400) or taken by another chat (409). A new id when left out.
+   */
+  id?: string;
+  title?: string;
+  /**
+   * Where the model is found.
+   */
+  provider?: string;
+  /**
+   * The chat's own model; its Bot's when left out.
+   */
+  model?: string;
+  /**
+   * The chat's own effort; its Bot's when left out.
+   */
+  effort?: string;
 };
 
 /**
@@ -10731,6 +10751,10 @@ export type ListChatsData = {
      * Only the chats of the Bot of this id (issue
      */
     bot?: string;
+    /**
+     * How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+     */
+    offset?: number;
   };
   url: '/chats';
 };
