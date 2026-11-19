@@ -438,6 +438,13 @@ type GatewayModel struct {
 	UpdatedAt  int64
 }
 
+type GatewayModelCooling struct {
+	Route      string
+	Model      string
+	ObservedAt int64
+	ResetsAt   int64
+}
+
 type GatewayModelTarget struct {
 	Model         string
 	Position      int64
@@ -522,6 +529,7 @@ type GatewayUsageDaily struct {
 	EstimatedPromptTokens int64
 	MeasuredPromptTokens  int64
 	MeasuredCachedTokens  int64
+	NoAccount             int64
 }
 
 type GitHost struct {

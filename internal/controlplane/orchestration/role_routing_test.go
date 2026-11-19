@@ -31,12 +31,6 @@ func roleWorld(t *testing.T) *world {
 	return w
 }
 
-func (w *world) coolRoleAccount(runtime string) {
-	w.t.Helper()
-	err := w.s.CoolAccount(w.t.Context(), runtime, "acc_gateway_"+runtime, t0.Add(time.Hour), "rate_limited")
-	require.NoError(w.t, err)
-}
-
 func TestRoleMatrixRoutesKindsAndValidatesAtomically(t *testing.T) {
 	t.Parallel()
 	w := roleWorld(t)
@@ -107,8 +101,8 @@ func TestRoleHandoffPinsEntryAndSharesMemory(t *testing.T) {
 	key := "gwk_role_first"
 	w.gatewayKey(key, first.ID)
 	w.gatewayRequest("usage_role_first", key, true)
-	w.coolRoleAccount("claude")
 	end := t0.Add(time.Hour)
+	w.gatewayCooling("/v1/messages", first.Model, end)
 	require.NoError(t, w.finish(firstCall, Outcome{Class: FailureRateLimited, ResetsAt: &end}))
 	created = w.schedule().Created
 	require.Len(t, created, 1, "wait: %s", w.task(task.ID).WaitingReason)
@@ -151,7 +145,7 @@ func TestRoleRoutingWaitsForPinsAndReportsMissingModels(t *testing.T) {
 	t.Parallel()
 	w := roleWorld(t)
 	ctx := t.Context()
-	w.coolRoleAccount("claude")
+	w.gatewayCooling("/v1/messages", "claude-subscription/claude-opus-5-5", t0.Add(time.Hour))
 	tasks := w.tasks(
 		NewTask{Ref: "strict", Runtime: "claude", Spec: "wait"},
 		NewTask{Ref: "default", Spec: "fall back"},
@@ -160,7 +154,8 @@ func TestRoleRoutingWaitsForPinsAndReportsMissingModels(t *testing.T) {
 	require.Len(t, created, 1)
 	dispatch := w.dispatchOf(created[0])
 	assert.Equal(t, tasks[1].ID, dispatch.TaskID)
-	assert.Equal(t, "accounts_cooling", w.task(tasks[0].ID).WaitingReason)
+	wantReason := "no account free for claude-subscription/claude-opus-5-5 until " + t0.Add(time.Hour).Format(time.RFC3339)
+	assert.Equal(t, wantReason, w.task(tasks[0].ID).WaitingReason)
 	assert.Equal(t, "codex", dispatch.Runtime)
 	assert.False(t, dispatch.Handoff)
 

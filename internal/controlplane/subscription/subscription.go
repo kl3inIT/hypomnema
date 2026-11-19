@@ -475,7 +475,7 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 	var ofRuntime []Account
 
 	for _, a := range accounts {
-		if a.Runtime == runtime && a.Status == orchestration.AccountActive && a.State == StateActive {
+		if a.usableBy(runtime) {
 			ofRuntime = append(ofRuntime, a)
 		}
 	}
@@ -530,6 +530,40 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 	}
 
 	return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
+}
+
+func (a Account) usableBy(runtime string) bool {
+	return a.Runtime == runtime && a.Status == orchestration.AccountActive && a.State == StateActive
+}
+
+func (s *Service) FirstFree(ctx context.Context, runtime string, modelReset func(string) time.Time) (time.Time, error) {
+	accounts, err := s.List(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	now := s.clock.Now()
+	var first time.Time
+	for _, account := range accounts {
+		if !account.usableBy(runtime) {
+			continue
+		}
+		var reset time.Time
+		if account.CoolingUntil != nil {
+			reset = *account.CoolingUntil
+		}
+		if modelReset != nil {
+			if until := modelReset(account.ID); until.After(reset) {
+				reset = until
+			}
+		}
+		if !reset.After(now) {
+			return time.Time{}, nil
+		}
+		if first.IsZero() || reset.Before(first) {
+			first = reset
+		}
+	}
+	return first, nil
 }
 
 // NoteQuota records what an account's vendor said is left of its quota, from

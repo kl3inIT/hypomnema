@@ -868,17 +868,20 @@ func (e GatewayModelSource) Valid() bool {
 
 // Defines values for GatewayRequestOutcome.
 const (
-	ClientGone     GatewayRequestOutcome = "client_gone"
-	Ok             GatewayRequestOutcome = "ok"
-	TransportError GatewayRequestOutcome = "transport_error"
-	Truncated      GatewayRequestOutcome = "truncated"
-	UpstreamError  GatewayRequestOutcome = "upstream_error"
+	ClientGone       GatewayRequestOutcome = "client_gone"
+	GatewayNoAccount GatewayRequestOutcome = "no_account"
+	Ok               GatewayRequestOutcome = "ok"
+	TransportError   GatewayRequestOutcome = "transport_error"
+	Truncated        GatewayRequestOutcome = "truncated"
+	UpstreamError    GatewayRequestOutcome = "upstream_error"
 )
 
 // Valid indicates whether the value is a known member of the GatewayRequestOutcome enum.
 func (e GatewayRequestOutcome) Valid() bool {
 	switch e {
 	case ClientGone:
+		return true
+	case GatewayNoAccount:
 		return true
 	case Ok:
 		return true
@@ -3748,15 +3751,18 @@ type GatewayPerformance struct {
 	LatencyP95Ms *int64 `json:"latency_p95_ms,omitempty"`
 
 	// Model The model the provider served; empty for an account.
-	Model    string `json:"model"`
-	Ok       int64  `json:"ok"`
-	Provider string `json:"provider"`
-	Requests int64  `json:"requests"`
+	Model string `json:"model"`
+
+	// NoAccount Requests refused by the gateway because all usable accounts were cooling.
+	NoAccount int64  `json:"no_account"`
+	Ok        int64  `json:"ok"`
+	Provider  string `json:"provider"`
+	Requests  int64  `json:"requests"`
 
 	// Runtime An account's runtime (claude, codex, antigravity).
 	Runtime *string `json:"runtime,omitempty"`
 
-	// SuccessRate The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+	// SuccessRate The answered share of answered and failed requests, 0 to 1; absent when there is none.
 	SuccessRate *float32 `json:"success_rate,omitempty"`
 
 	// TokensPerSecond The median of the requests' output tokens a second; from the ledger, all tokens over all time.
@@ -3792,7 +3798,7 @@ type GatewayRequest struct {
 	CreatedAt  time.Time `json:"created_at"`
 	DurationMs int64     `json:"duration_ms"`
 
-	// Error The provider's error or the reason the request ended early, when available.
+	// Error The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
 	Error *string `json:"error,omitempty"`
 
 	// Estimated The provider reported no usage; the counts are the sizes divided by four.
@@ -3816,7 +3822,7 @@ type GatewayRequest struct {
 	Provider        string `json:"provider"`
 	ReasoningTokens int64  `json:"reasoning_tokens"`
 
-	// Status The provider's HTTP status; 0 when it gave none.
+	// Status The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
 	Status int  `json:"status"`
 	Stream bool `json:"stream"`
 

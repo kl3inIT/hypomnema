@@ -114,6 +114,12 @@ func (a *antigravityState) wait(account, model string, until time.Time) {
 	}
 }
 
+func (a *antigravityState) modelReset(account, model string) time.Time {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.waiting[account+"\x00"+model]
+}
+
 func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall) (*http.Response, error) {
 	if s.accounts == nil {
 		return nil, fmt.Errorf("%w: provider %q has no accounts to run under", ErrNoAccount, call.upstream.Provider)
@@ -124,10 +130,11 @@ func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall)
 
 	// An account near the end of its quota for this model is used after the others.
 	nearQuota := func(token AccountToken) bool { return s.accountState.nearQuota(token.AccountID, model, now) }
+	modelReset := func(account string) time.Time { return s.antigravity.modelReset(account, model) }
 
 	// Antigravity carries no per-account prompt cache through the gateway, so it
 	// round-robins (session empty) and leans on nearQuota ranking instead.
-	resp, err := s.underAccounts(ctx, antigravityRuntime, "", nearQuota,
+	resp, err := s.underModelAccounts(ctx, antigravityRuntime, "", nearQuota, modelReset,
 		func(token AccountToken) (*http.Response, error) {
 			return s.antigravityAttempt(ctx, call, token)
 		})
