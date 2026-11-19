@@ -2209,8 +2209,59 @@ export type VideoRevision = {
    */
   note?: string;
   warnings: Array<string>;
+  progress?: VideoProgress;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
+ */
+export type VideoProgress = {
+  scenes_done: number;
+  scenes_total: number;
+};
+
+export type StudioItemList = {
+  data: Array<StudioItem>;
+  /**
+   * Present when more items follow.
+   */
+  next_cursor?: string;
+};
+
+/**
+ * A take or a video as the Studio's card shows it (issue
+ */
+export type StudioItem = {
+  kind: 'take' | 'video';
+  id: string;
+  title: string;
+  /**
+   * The agent that filmed the take
+   */
+  bot: string;
+  created_at: string;
+  /**
+   * A take's length; a video's latest revision's, 0 until made.
+   */
+  length_ms: number;
+  /**
+   * A take's state, or the state of a video's latest revision.
+   */
+  state: string;
+  /**
+   * A video's take.
+   */
+  take?: string;
+  /**
+   * A video's latest revision.
+   */
+  rev?: number;
+  /**
+   * Where its first frame is read, under /api/v1/ (owner only): an available take's, or the latest made revision's of a video. Absent while there is none.
+   */
+  thumbnail?: string;
 };
 
 export type VideoMake = {
@@ -5847,6 +5898,76 @@ export type ReadTakeSegmentResponses = {
 };
 
 export type ReadTakeSegmentResponse = ReadTakeSegmentResponses[keyof ReadTakeSegmentResponses];
+
+export type ReadTakeThumbnailData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}/thumbnail.jpg';
+};
+
+export type ReadTakeThumbnailErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadTakeThumbnailError = ReadTakeThumbnailErrors[keyof ReadTakeThumbnailErrors];
+
+export type ReadTakeThumbnailResponses = {
+  /**
+   * The picture.
+   */
+  200: Blob | File;
+};
+
+export type ReadTakeThumbnailResponse = ReadTakeThumbnailResponses[keyof ReadTakeThumbnailResponses];
+
+export type ListStudioItemsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    kind?: 'take' | 'video';
+    /**
+     * A group of states: in_progress (a take filmed, paused, finishing or uploading; a revision queued or being made), review (a revision awaiting review), approved, or failed (a take or revision that failed, and a revision changes were asked of).
+     */
+    state?: 'in_progress' | 'review' | 'approved' | 'failed';
+    /**
+     * Words the title or the Bot's name holds, in any case.
+     */
+    q?: string;
+    /**
+     * The next_cursor of the previous page.
+     */
+    cursor?: string;
+    /**
+     * At most this many items; absent: 50.
+     */
+    limit?: number;
+  };
+  url: '/studio/items';
+};
+
+export type ListStudioItemsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListStudioItemsError = ListStudioItemsErrors[keyof ListStudioItemsErrors];
+
+export type ListStudioItemsResponses = {
+  /**
+   * One page of items.
+   */
+  200: StudioItemList;
+};
+
+export type ListStudioItemsResponse = ListStudioItemsResponses[keyof ListStudioItemsResponses];
 
 export type GetTakeArchiveData = {
   body?: never;
