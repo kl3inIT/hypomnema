@@ -2147,7 +2147,7 @@ export const listGatewayKeysOptions = (options?: Options<ListGatewayKeysData>) =
 });
 
 /**
- * Make a gateway key and keep its value encrypted; only the owner
+ * Make a gateway key and keep its value encrypted if the vault is configured; only the owner
  */
 export const createGatewayKeyMutation = (options?: Partial<Options<CreateGatewayKeyData>>): UseMutationOptions<CreateGatewayKeyResponse, CreateGatewayKeyError, Options<CreateGatewayKeyData>> => {
   const mutationOptions: UseMutationOptions<CreateGatewayKeyResponse, CreateGatewayKeyError, Options<CreateGatewayKeyData>> = {

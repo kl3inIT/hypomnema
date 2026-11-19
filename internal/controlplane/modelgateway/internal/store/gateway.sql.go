@@ -1481,21 +1481,23 @@ func (q *Queries) SetGatewaySearchPosition(ctx context.Context, arg SetGatewaySe
 const updateGatewayKey = `-- name: UpdateGatewayKey :one
 UPDATE OR IGNORE gateway_keys
 SET name = coalesce(?1, name), models = coalesce(?2, models),
-    endpoints = coalesce(?3, endpoints)
-WHERE id = ?4 RETURNING id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value
+    endpoints = CASE WHEN CAST(?3 AS BOOLEAN) THEN ?4 ELSE endpoints END
+WHERE id = ?5 RETURNING id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value
 `
 
 type UpdateGatewayKeyParams struct {
-	Name      sql.NullString
-	Models    sql.NullString
-	Endpoints sql.NullString
-	ID        string
+	Name         sql.NullString
+	Models       sql.NullString
+	SetEndpoints bool
+	Endpoints    sql.NullString
+	ID           string
 }
 
 func (q *Queries) UpdateGatewayKey(ctx context.Context, arg UpdateGatewayKeyParams) (GatewayKey, error) {
 	row := q.db.QueryRowContext(ctx, updateGatewayKey,
 		arg.Name,
 		arg.Models,
+		arg.SetEndpoints,
 		arg.Endpoints,
 		arg.ID,
 	)

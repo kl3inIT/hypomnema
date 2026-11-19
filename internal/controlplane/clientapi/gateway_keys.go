@@ -88,7 +88,7 @@ func (s *Server) GetGatewayKeyValue(ctx context.Context, req openapi.GetGatewayK
 	}, nil
 }
 
-func gatewayEndpoints(endpoints *[]openapi.GatewayEndpoint) []modelgateway.Endpoint {
+func gatewayEndpoints[Endpoint ~string](endpoints *[]Endpoint) []modelgateway.Endpoint {
 	if endpoints == nil {
 		return nil
 	}

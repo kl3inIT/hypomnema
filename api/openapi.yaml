@@ -2033,7 +2033,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: CreateGatewayKey
-      summary: Make a gateway key and keep its value encrypted; only the owner
+      summary: Make a gateway key and keep its value encrypted if the vault is configured; only the owner
       requestBody:
         required: true
         content:
@@ -7507,8 +7507,13 @@ components:
         endpoints:
           type: array
           maxItems: 4
-          items: { $ref: "#/components/schemas/GatewayEndpoint" }
-          description: The new list of kinds besides chat; empty means none, omitted means unchanged.
+          items: { $ref: "#/components/schemas/GatewayEndpointSelection" }
+          description: >-
+            The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means
+            every kind, including kinds added later. The wildcard cannot be combined with named kinds.
+    GatewayEndpointSelection:
+      type: string
+      enum: [search, fetch, images, audio, "*"]
     GatewayEndpoint:
       type: string
       enum: [search, fetch, images, audio]
@@ -7523,7 +7528,8 @@ components:
         key: { $ref: "#/components/schemas/GatewayKey" }
         secret:
           type: string
-          description: The key's value, also kept encrypted in the vault.
+          description: >-
+            The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
     GatewayKeyValue:
       type: object
       required: [secret]

@@ -1229,7 +1229,7 @@ export const listGatewayKeys = <ThrowOnError extends boolean = true>(options?: O
 });
 
 /**
- * Make a gateway key and keep its value encrypted; only the owner
+ * Make a gateway key and keep its value encrypted if the vault is configured; only the owner
  */
 export const createGatewayKey = <ThrowOnError extends boolean = true>(options: Options<CreateGatewayKeyData, ThrowOnError>): RequestResult<CreateGatewayKeyResponses, CreateGatewayKeyErrors, ThrowOnError> => (options.client ?? client).post<CreateGatewayKeyResponses, CreateGatewayKeyErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

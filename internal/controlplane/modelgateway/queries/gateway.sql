@@ -60,7 +60,7 @@ SELECT * FROM gateway_keys WHERE id = @id AND revoked_at IS NULL
 -- name: UpdateGatewayKey :one
 UPDATE OR IGNORE gateway_keys
 SET name = coalesce(sqlc.narg(name), name), models = coalesce(sqlc.narg(models), models),
-    endpoints = coalesce(sqlc.narg(endpoints), endpoints)
+    endpoints = CASE WHEN CAST(sqlc.arg(set_endpoints) AS BOOLEAN) THEN sqlc.narg(endpoints) ELSE endpoints END
 WHERE id = @id RETURNING *;
 
 -- The key a Dispatch's worker uses now: its newest that works (issue #354).

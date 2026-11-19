@@ -2362,10 +2362,12 @@ export type GatewayKeyUpdate = {
    */
   models?: Array<string>;
   /**
-   * The new list of kinds besides chat; empty means none, omitted means unchanged.
+   * The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
    */
-  endpoints?: Array<GatewayEndpoint>;
+  endpoints?: Array<GatewayEndpointSelection>;
 };
+
+export type GatewayEndpointSelection = 'search' | 'fetch' | 'images' | 'audio' | '*';
 
 /**
  * A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits, audio is /v1/audio/transcriptions, /v1/audio/speech and /v1/audio/voices.
@@ -2375,7 +2377,7 @@ export type GatewayEndpoint = 'search' | 'fetch' | 'images' | 'audio';
 export type CreatedGatewayKey = {
   key: GatewayKey;
   /**
-   * The key's value, also kept encrypted in the vault.
+   * The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
    */
   secret: string;
 };
