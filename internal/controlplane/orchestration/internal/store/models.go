@@ -562,6 +562,8 @@ type Meeting struct {
 	Model      string
 	CreatedAt  int64
 	UpdatedAt  int64
+	Source     string
+	Kind       string
 }
 
 type MeetingItem struct {
@@ -577,11 +579,13 @@ type MeetingItem struct {
 	Quote        sql.NullString
 	Line         sql.NullInt64
 	StartMs      sql.NullInt64
+	OwnerTrack   sql.NullString
 }
 
 type MeetingLine struct {
 	MeetingID string
 	N         int64
+	Track     string
 	StartMs   int64
 	EndMs     int64
 	Speaker   string
@@ -610,6 +614,7 @@ type MeetingSetting struct {
 
 type MeetingSpeaker struct {
 	MeetingID string
+	Track     string
 	Label     string
 	Position  int64
 	Name      sql.NullString

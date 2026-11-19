@@ -256,7 +256,9 @@ func TestAnUploadIsHeardWithItsSpeakersAndWrittenUp(t *testing.T) {
 	assert.Equal(t, 2800*time.Millisecond, d.Meeting.Speakers[0].Talk)
 	assert.Equal(t, 3500*time.Millisecond, d.Meeting.Speakers[1].Talk)
 
-	assert.Equal(t, []meetings.Suggestion{{Label: "2", Name: "Lan", Line: 2}}, d.Suggestions)
+	assert.Equal(t, []meetings.Suggestion{
+		{Track: meetingstore.TrackFile, Label: "2", Name: "Lan", Line: 2},
+	}, d.Suggestions)
 
 	n := d.Meeting.Notes
 	assert.Equal(t, meetingstore.NotesReady, n.State)
@@ -314,7 +316,7 @@ func TestVoicesAreNamedForTheMeetingOrOneLineAndMergeByName(t *testing.T) {
 	m := w.upload(t, meetings.Upload{})
 	w.svc.Work(ctx)
 
-	require.NoError(t, w.svc.NameSpeaker(ctx, m.ID, "2", "Lan"))
+	require.NoError(t, w.svc.NameSpeaker(ctx, m.ID, "", "2", "Lan"))
 
 	actions, err := w.svc.Actions(ctx, "lan", nil)
 	require.NoError(t, err)
@@ -340,7 +342,7 @@ func TestVoicesAreNamedForTheMeetingOrOneLineAndMergeByName(t *testing.T) {
 	assert.Equal(t, []string{"Lan", "Minh"}, shownNames(d.Meeting.Speakers))
 
 	// Calling Minh "Lan" for the whole meeting merges the two.
-	require.NoError(t, w.svc.NameSpeaker(ctx, m.ID, "m1", "Lan"))
+	require.NoError(t, w.svc.NameSpeaker(ctx, m.ID, "", "m1", "Lan"))
 
 	d, err = w.svc.Get(ctx, m.ID)
 	require.NoError(t, err)
@@ -352,7 +354,7 @@ func TestVoicesAreNamedForTheMeetingOrOneLineAndMergeByName(t *testing.T) {
 		assert.Equal(t, "2", l.Speaker)
 	}
 
-	require.ErrorIs(t, w.svc.NameSpeaker(ctx, m.ID, "9", "Nobody"), orchestration.ErrNotFound)
+	require.ErrorIs(t, w.svc.NameSpeaker(ctx, m.ID, "", "9", "Nobody"), orchestration.ErrNotFound)
 	require.ErrorIs(t, w.svc.SetLineSpeaker(ctx, m.ID, 1, ""), orchestration.ErrInvalid)
 }
 
