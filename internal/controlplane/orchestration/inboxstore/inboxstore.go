@@ -163,9 +163,12 @@ const (
 	WorkRun  = "run"
 )
 
-// Work is a Bot's current attempt at a to-do: its chat or a Run. Bot is the Bot that started it and StartedAt
-// when, set by Start. An attempt holds one to-do at a time.
+// Work is a Bot's current attempt at a to-do, set by Start: Attempt is its own id, which the Bot's writes carry
+// (Change.Attempt) and an Approval it asks records (orchestration.NewApproval.AttemptID); Kind and ID are its chat
+// or Run, where it works, which may hold attempts at other to-dos too; Bot is the Bot that started it and StartedAt
+// when.
 type Work struct {
+	Attempt   string
 	Kind      string
 	ID        string
 	Bot       string
@@ -863,7 +866,7 @@ func fromRow(r store.Todo) (Todo, error) {
 	}
 
 	if r.WorkKind.Valid {
-		t.Work = &Work{Kind: r.WorkKind.String, ID: r.WorkID.String, Bot: r.WorkBot.String,
+		t.Work = &Work{Attempt: r.WorkAttempt.String, Kind: r.WorkKind.String, ID: r.WorkID.String, Bot: r.WorkBot.String,
 			StartedAt: storeutil.Millis(r.WorkStartedAt.Int64)}
 	}
 

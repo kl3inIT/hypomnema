@@ -67,13 +67,13 @@ func allowed(from, to string, actor Actor) error {
 }
 
 // Change is what every mutation carries: who makes it, the to-do, the revision the caller read and, for a Bot on an
-// item in doing or review, the id of its attempt. A stale revision or another attempt's id is a conflict and
-// changes nothing.
+// item in doing or review, the id of its attempt (Work.Attempt, which Start gave). A stale revision or another
+// attempt's id is a conflict and changes nothing.
 type Change struct {
 	Actor    Actor
 	ID       string
 	Revision int
-	WorkID   string
+	Attempt  string
 	// Chat is the chat with the owner a Bot acts in, taken by the caller from the Bot's authenticated session as the
 	// Actor is, never from a field the Bot sends; empty when it acts elsewhere. The owner's message in it is evidence
 	// when the Bot records for him.
@@ -104,12 +104,13 @@ func (s *Store) change(
 				c.Revision)
 		}
 
-		// The fence of an attempt (Hermes's ownership fence): a Bot writes to an item in doing or review only with
-		// the id of the attempt on it, so an attempt the owner closed or that ended writes nothing more; and only the
-		// Bot that started the attempt does (Hermes's claimer check), not another Bot that knows its id.
-		if c.Actor.Kind == Bot && (cur.State == Doing || cur.State == Review || c.WorkID != "") {
-			if c.WorkID != cur.WorkID.String {
-				return fmt.Errorf("%w: to-do %s is not in the attempt %q", storeerr.ErrConflict, c.ID, c.WorkID)
+		// The fence of an attempt (Hermes's ownership fence, its claim_lock): a Bot writes to an item in doing or
+		// review only with the id of the attempt on it, so an attempt the owner closed, that ended, or that a later
+		// one replaced writes nothing more, even from the same chat or Run; and only the Bot that started the attempt
+		// does (Hermes's claimer check), not another Bot that knows its id.
+		if c.Actor.Kind == Bot && (cur.State == Doing || cur.State == Review || c.Attempt != "") {
+			if c.Attempt != cur.WorkAttempt.String {
+				return fmt.Errorf("%w: to-do %s is not in the attempt %q", storeerr.ErrConflict, c.ID, c.Attempt)
 			}
 
 			if c.Actor.ID != cur.WorkBot.String {
@@ -140,8 +141,8 @@ func (s *Store) change(
 			next.SnoozedUntil.Valid = false
 
 			if next.State != Doing && next.State != Review {
-				next.WorkKind.Valid, next.WorkID.Valid, next.WorkBot.Valid = false, false, false
-				next.WorkStartedAt.Valid = false
+				next.WorkAttempt.Valid, next.WorkKind.Valid, next.WorkID.Valid = false, false, false
+				next.WorkBot.Valid, next.WorkStartedAt.Valid = false, false
 			}
 
 			if next.State != Review {
@@ -153,8 +154,8 @@ func (s *Store) change(
 			Title: next.Title, Notes: next.Notes, DoneWhen: next.DoneWhen, DueKind: next.DueKind,
 			DueDate: next.DueDate, DueZone: next.DueZone, DueAt: next.DueAt, OverdueAt: next.OverdueAt,
 			AssigneeKind: next.AssigneeKind, Assignee: next.Assignee, State: next.State,
-			SnoozedUntil: next.SnoozedUntil, WorkKind: next.WorkKind, WorkID: next.WorkID, WorkBot: next.WorkBot,
-			WorkStartedAt: next.WorkStartedAt, ApprovalID: next.ApprovalID, DoneByKind: next.DoneByKind, DoneBy: next.DoneBy,
+			SnoozedUntil: next.SnoozedUntil, WorkAttempt: next.WorkAttempt, WorkKind: next.WorkKind, WorkID: next.WorkID,
+			WorkBot: next.WorkBot, WorkStartedAt: next.WorkStartedAt, ApprovalID: next.ApprovalID, DoneByKind: next.DoneByKind, DoneBy: next.DoneBy,
 			RecordedByKind: next.RecordedByKind, RecordedBy: next.RecordedBy, ClosedHow: next.ClosedHow,
 			CloseReason: next.CloseReason, Evidence: next.Evidence, ClosedAt: next.ClosedAt,
 			DuplicateOf: next.DuplicateOf, Now: now, ID: cur.ID, Revision: cur.Revision, FromState: cur.State,
@@ -205,11 +206,11 @@ func (s *Store) Accept(ctx context.Context, c Change) (Todo, error) {
 		})
 }
 
-// Start puts the Bot assigned on an open to-do, in the attempt w (its chat or a Run). Only an open item starts: an
-// item in review leaves it only by its Approval's answer (ApprovalApproved, ApprovalEnded). An attempt holds one
-// item at a time, as Hermes binds a worker's session to one task's run (gateway/session_kanban.py): another item
-// doing or in review in the same chat or Run is released, closed or answered first, so an Approval asked in the
-// attempt is this item's.
+// Start puts the Bot assigned on an open to-do, in a new attempt in w (its chat or a Run). Only an open item starts:
+// an item in review leaves it only by its Approval's answer (ApprovalApproved, ApprovalEnded). The attempt gets its
+// own id (Work.Attempt), as Hermes binds a worker's session to its task, run and claim, not to the chat
+// (gateway/session_kanban.py): the Bot's later writes carry it and so does an Approval it asks, so several items
+// may be worked on in one chat or Run, each waiting only for its own Approval.
 func (s *Store) Start(ctx context.Context, c Change, w Work) (Todo, error) {
 	if (w.Kind != WorkChat && w.Kind != WorkRun) || w.ID == "" || len(w.ID) > MaxID {
 		return Todo{}, fmt.Errorf("%w: an attempt is a chat or a Run, by its id", storeerr.ErrInvalid)
@@ -220,7 +221,7 @@ func (s *Store) Start(ctx context.Context, c Change, w Work) (Todo, error) {
 	}
 
 	return s.change(ctx, c, EventState,
-		func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (map[string]any, error) {
+		func(_ *store.Queries, cur store.Todo, next *store.Todo, now int64) (map[string]any, error) {
 			if cur.State != Open {
 				return nil, fmt.Errorf("%w: to-do %s is %s, not open", storeerr.ErrConflict, cur.ID, cur.State)
 			}
@@ -229,18 +230,8 @@ func (s *Store) Start(ctx context.Context, c Change, w Work) (Todo, error) {
 				return nil, fmt.Errorf("%w: only the Bot assigned starts to-do %s", storeerr.ErrForbidden, cur.ID)
 			}
 
-			other, err := q.GetTodoInAttempt(ctx, store.GetTodoInAttemptParams{
-				WorkKind: nullString(w.Kind), WorkID: nullString(w.ID)})
-
-			switch {
-			case err == nil:
-				return nil, fmt.Errorf("%w: the %s %s is on to-do %s; one item at a time", storeerr.ErrConflict, w.Kind,
-					w.ID, other)
-			case !errors.Is(err, sql.ErrNoRows):
-				return nil, fmt.Errorf("reading the item of the %s %s: %w", w.Kind, w.ID, err)
-			}
-
 			next.State = Doing
+			next.WorkAttempt = nullString(s.newID("att"))
 			next.WorkKind, next.WorkID = nullString(w.Kind), nullString(w.ID)
 			next.WorkBot = nullString(c.Actor.ID)
 			next.WorkStartedAt = sql.NullInt64{Int64: now, Valid: true}
@@ -250,9 +241,9 @@ func (s *Store) Start(ctx context.Context, c Change, w Work) (Todo, error) {
 }
 
 // LinkApproval puts a doing to-do in review while the pending Approval approvalID, asked by its attempt, waits for
-// the owner; the system does it. An item has one pending Approval: a second is refused, and so is one asked in
-// another chat or Run than the item's attempt, or asked there before the attempt started (another item's, or an
-// earlier attempt's). An attempt holds one item at a time (Start), so what it asked since it started is the item's.
+// the owner; the system does it. An item has one pending Approval: a second is refused, and so is one its current
+// attempt did not ask (the Approval's AttemptID is another or none): another item's in the same chat or Run, an
+// earlier attempt's at this item, or one asked outside any attempt. The chat or Run is only where the attempt works.
 func (s *Store) LinkApproval(ctx context.Context, c Change, approvalID string) (Todo, error) {
 	return s.change(ctx, c, EventLinkedApproval,
 		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
@@ -274,12 +265,7 @@ func (s *Store) LinkApproval(ctx context.Context, c Change, approvalID string) (
 				return nil, fmt.Errorf("%w: to-do %s is %s, not doing", storeerr.ErrConflict, cur.ID, cur.State)
 			}
 
-			asked := a.ChatID
-			if cur.WorkKind.String == WorkRun {
-				asked = a.RunID
-			}
-
-			if !asked.Valid || asked.String != cur.WorkID.String || a.CreatedAt < cur.WorkStartedAt.Int64 {
+			if !a.AttemptID.Valid || a.AttemptID.String != cur.WorkAttempt.String {
 				return nil, fmt.Errorf("%w: Approval %s was not asked in the attempt on to-do %s", storeerr.ErrConflict,
 					a.ID, cur.ID)
 			}
@@ -737,7 +723,7 @@ func fields(r store.Todo) map[string]any {
 
 	for k, v := range map[string]any{
 		"due_date": r.DueDate, "due_zone": r.DueZone, "due_at": r.DueAt, "snoozed_until": r.SnoozedUntil,
-		"source_id": r.SourceID, "source_account": r.SourceAccount, "work_kind": r.WorkKind, "work_id": r.WorkID,
+		"source_id": r.SourceID, "source_account": r.SourceAccount, "work_attempt": r.WorkAttempt, "work_kind": r.WorkKind, "work_id": r.WorkID,
 		"work_bot": r.WorkBot, "work_started_at": r.WorkStartedAt, "approval_id": r.ApprovalID,
 		"done_by_kind": r.DoneByKind, "done_by": r.DoneBy, "recorded_by_kind": r.RecordedByKind,
 		"recorded_by": r.RecordedBy, "closed_how": r.ClosedHow, "closed_at": r.ClosedAt,

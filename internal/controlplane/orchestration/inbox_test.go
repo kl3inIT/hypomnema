@@ -12,8 +12,8 @@ import (
 )
 
 // Scenario: the Inbox's migration on a database that already holds data (issue #845): a Bot, a chat and a pending
-// Approval made before it stay, and the new tables take a to-do that is given to that Bot and waits for that
-// Approval.
+// Approval made before it stay; the Approval, asked by no attempt, is no to-do's, even one started in its chat at
+// the same moment; and the new tables take a to-do given to that Bot that waits for an Approval its attempt asks.
 func TestInboxMigrationOnADatabaseWithData(t *testing.T) {
 	t.Parallel()
 
@@ -24,7 +24,7 @@ func TestInboxMigrationOnADatabaseWithData(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 126)
+	_, err = p.UpTo(ctx, 135) // main's last before the Inbox's 00139.
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot_id, created_at, updated_at)
@@ -53,8 +53,20 @@ func TestInboxMigrationOnADatabaseWithData(t *testing.T) {
 		inboxstore.Work{Kind: inboxstore.WorkChat, ID: "cht_1"})
 	require.NoError(t, err)
 
-	td, err = s.Inbox().LinkApproval(ctx, inboxstore.Change{
-		Actor: inboxstore.Actor{Kind: inboxstore.System}, ID: td.ID, Revision: td.Revision}, "apr_1")
+	system := inboxstore.Actor{Kind: inboxstore.System}
+	_, err = s.Inbox().LinkApproval(ctx, inboxstore.Change{Actor: system, ID: td.ID, Revision: td.Revision}, "apr_1")
+	require.ErrorIs(t, err, ErrConflict, "an Approval made before the Inbox is no attempt's")
+
+	asked, granted, err := s.AskApproval(ctx, NewApproval{
+		Integration: "google", Label: "work", Action: "gmail.send", ActionName: "Send mail", ChatID: "cht_1",
+		AttemptID: td.Work.Attempt, AskedBy: "pi", Title: "Send mail", MatchHash: "h",
+	})
+	require.NoError(t, err)
+	require.False(t, granted)
+	assert.NotEqual(t, "apr_1", asked.ID, "the same request in an attempt is its own Approval")
+	assert.Equal(t, td.Work.Attempt, asked.AttemptID)
+
+	td, err = s.Inbox().LinkApproval(ctx, inboxstore.Change{Actor: system, ID: td.ID, Revision: td.Revision}, asked.ID)
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.Review, td.State)
 

@@ -80,6 +80,7 @@ type Approval struct {
 	RoutineRunID sql.NullString
 	Standing     int64
 	Expired      int64
+	AttemptID    sql.NullString
 }
 
 type Artifact struct {
@@ -1005,6 +1006,7 @@ type Todo struct {
 	SourceRef       sql.NullString
 	CreatedByKind   string
 	CreatedBy       string
+	WorkAttempt     sql.NullString
 	WorkKind        sql.NullString
 	WorkID          sql.NullString
 	WorkBot         sql.NullString

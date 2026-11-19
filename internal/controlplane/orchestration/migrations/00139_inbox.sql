@@ -40,13 +40,16 @@ CREATE TABLE todos (
     -- Who created it (owner, bot, system) and which one.
     created_by_kind  TEXT    NOT NULL CHECK (created_by_kind IN ('owner', 'bot', 'system')),
     created_by       TEXT    NOT NULL DEFAULT '',
-    -- The Bot's current attempt while doing or review: its chat or Run, the Bot that started it and when. An
-    -- attempt holds one item at a time (todos_attempt), so an Approval asked in it since it started is the item's.
+    -- The Bot's current attempt while doing or review: work_attempt its own id, given by Start, which a Bot's
+    -- write carries and an Approval it asks records (approvals.attempt_id); its chat or Run, where it works, as
+    -- context only; the Bot that started it and when. As Hermes binds a worker's session to its task, run and
+    -- claim, not to a chat (gateway/session_kanban.py).
+    work_attempt     TEXT,
     work_kind        TEXT    CHECK (work_kind IN ('chat', 'run')),
     work_id          TEXT,
     work_bot         TEXT,
     work_started_at  INTEGER,
-    -- The one pending Approval while review.
+    -- The one pending Approval while review, asked in the item's attempt.
     approval_id      TEXT,
     -- Who did it (me, person, bot) and who recorded it, kept apart.
     done_by_kind     TEXT    CHECK (done_by_kind IN ('me', 'person', 'bot')),
@@ -72,10 +75,10 @@ CREATE TABLE todos (
             AND overdue_at = due_at)),
     CHECK ((assignee_kind IN ('me', 'unknown')) = (assignee = '')),
     CHECK (snoozed_until IS NULL OR state IN ('proposed', 'open')),
-    CHECK ((state IN ('doing', 'review')) = (work_kind IS NOT NULL AND work_id IS NOT NULL AND work_bot IS NOT NULL
-        AND work_started_at IS NOT NULL)),
-    CHECK ((work_kind IS NULL) = (work_id IS NULL) AND (work_kind IS NULL) = (work_bot IS NULL)
-        AND (work_kind IS NULL) = (work_started_at IS NULL)),
+    CHECK ((state IN ('doing', 'review')) = (work_attempt IS NOT NULL AND work_kind IS NOT NULL
+        AND work_id IS NOT NULL AND work_bot IS NOT NULL AND work_started_at IS NOT NULL)),
+    CHECK ((work_attempt IS NULL) = (work_kind IS NULL) AND (work_kind IS NULL) = (work_id IS NULL)
+        AND (work_kind IS NULL) = (work_bot IS NULL) AND (work_kind IS NULL) = (work_started_at IS NULL)),
     CHECK ((state = 'review') = (approval_id IS NOT NULL)),
     CHECK ((state = 'duplicate') = (duplicate_of IS NOT NULL)),
     CHECK (duplicate_of IS NULL OR duplicate_of <> id),
@@ -87,8 +90,6 @@ CREATE TABLE todos (
 ) STRICT;
 
 CREATE UNIQUE INDEX todos_idempotency ON todos (idempotency_key) WHERE idempotency_key IS NOT NULL;
--- One item in an attempt at a time (Hermes binds a worker's session to one task's run, gateway/session_kanban.py).
-CREATE UNIQUE INDEX todos_attempt ON todos (work_kind, work_id) WHERE work_id IS NOT NULL;
 CREATE INDEX todos_state_due ON todos (state, overdue_at, created_at);
 CREATE INDEX todos_duplicate_of ON todos (duplicate_of) WHERE duplicate_of IS NOT NULL;
 
@@ -108,7 +109,13 @@ CREATE TABLE todo_events (
 
 CREATE INDEX todo_events_todo ON todo_events (todo_id, id);
 
+-- The attempt at a to-do that asked an Approval (todos.work_attempt), when one did: the Approval the item waits for
+-- is one its attempt asked, and a request repeated in another attempt is a new Approval. NULL for any other asker.
+ALTER TABLE approvals ADD COLUMN attempt_id TEXT;
+
 -- +goose Down
+ALTER TABLE approvals DROP COLUMN attempt_id;
+
 DROP TABLE todo_events;
 
 DROP TABLE todos;

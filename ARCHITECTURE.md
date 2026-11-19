@@ -2026,7 +2026,10 @@ flowchart LR
       was asked and how far it reaches, and `ChatMessage.approval` gives the Approval's title, action, answer,
       scope and time, read with the row. When it is answered after its request ended, the coordinator is woken
       with that same row (`to_coordinator=1`, once), or the question the worker waits on is answered, and the
-      repeat of the same request, recognized by its decoded content and not its bytes, passes once. Only the owner's token lists and answers Approvals
+      repeat of the same request, recognized by its decoded content and not its bytes, passes once. An Approval
+      asked in an attempt at an Inbox to-do records it (`approvals.attempt_id`, migration 00139; set through
+      `NewApproval.AttemptID`, which no tool passes yet), and the same request in another attempt, or in none, is
+      another Approval. Only the owner's token lists and answers Approvals
       (`GET /approvals`, `POST /approvals/{id}/decision`; `hypomnema approvals`) and sets an action's answer
       (`.../connections/{label}/actions`; `hypomnema integrations actions`). On the web an Approval is a card
       above the message box of the chat that asked, whose row in the sidebar says it needs the owner, and in the
@@ -3914,7 +3917,7 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migration 00132; issues #838 and #845, part 1 of the Inbox): the store of the
+Inbox (`orchestration/inboxstore`, migration 00139; issues #838 and #845, part 1 of the Inbox): the store of the
 to-dos that have to happen, whoever does them, and its state machine. Built is the store only.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
@@ -3925,9 +3928,10 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
   `routine` with its run, `lark` or `zalo` with the chat's id at the service and its message as a `lark_message` or
   `zalo_message` reference, and for `zalo` the owner's account the chat is in (`source_account`), as the Zalo store
   keys a message by account, chat and id; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt
-  (`work_kind` `chat` or `run`, `work_id`, `work_bot`, the Bot that started it, and `work_started_at`) while doing or
-  review, one item per attempt at a time (a unique index); `approval_id` while review, the Approval linked, which
-  was pending and asked in the attempt when it was linked and may since be decided while the item waits for
+  while doing or review (`work_attempt`, its own id given by `Start`; `work_kind` `chat` or `run` and `work_id`,
+  where it works, which may hold attempts at other items too; `work_bot`, the Bot that started it, and
+  `work_started_at`); `approval_id` while review, the Approval linked, which was pending and asked by the item's
+  attempt (`approvals.attempt_id`) when it was linked and may since be decided while the item waits for
   `ApprovalApproved` or `ApprovalEnded`; the close
   (`done_by_kind`/`done_by` apart from `recorded_by_kind`/`recorded_by`, `closed_how`, `close_reason`, `evidence`
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
@@ -3938,9 +3942,10 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
 - Transitions (`inboxstore/transitions.go`, the `transitions` table lists every move and who may make it): the
   owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from the owner's
   Lark or Zalo chats adds proposed ones, which stay proposed until the owner accepts, drops or marks them duplicate;
-  the Bot assigned starts an open item, and only an open one, in a chat or Run no other item is doing or in review
-  in (`Start`); the system puts a doing item in review with one pending Approval asked in the item's attempt (its
-  chat or Run, since the attempt started; `LinkApproval`) and back
+  the Bot assigned starts an open item, and only an open one, in a chat or Run, in a new attempt with its own id,
+  as Hermes binds a worker's session to its task, run and claim (`gateway/session_kanban.py`), so several items
+  may be worked on in one chat or Run (`Start`); the system puts a doing item in review with one pending Approval
+  its current attempt asked, whatever chat or Run it came from (`LinkApproval`) and back
   to doing once it is approved, or open once it is rejected or expired, the only ways out of review; the Bot of the
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
   owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message

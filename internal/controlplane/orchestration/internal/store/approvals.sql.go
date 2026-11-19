@@ -108,7 +108,7 @@ func (q *Queries) DeleteActionPolicy(ctx context.Context, arg DeleteActionPolicy
 }
 
 const getApproval = `-- name: GetApproval :one
-SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired FROM approvals WHERE id = ?1
+SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired, attempt_id FROM approvals WHERE id = ?1
 `
 
 func (q *Queries) GetApproval(ctx context.Context, id string) (Approval, error) {
@@ -137,15 +137,16 @@ func (q *Queries) GetApproval(ctx context.Context, id string) (Approval, error) 
 		&i.RoutineRunID,
 		&i.Standing,
 		&i.Expired,
+		&i.AttemptID,
 	)
 	return i, err
 }
 
 const insertApproval = `-- name: InsertApproval :exec
 INSERT INTO approvals (id, integration, label, action, action_name, dispatch_id, task_id, run_id, chat_id, asked_by,
-                       title, payload, match_hash, routine_id, routine_run_id, created_at)
+                       title, payload, match_hash, routine_id, routine_run_id, attempt_id, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-        ?11, ?12, ?13, ?14, ?15, ?16)
+        ?11, ?12, ?13, ?14, ?15, ?16, ?17)
 `
 
 type InsertApprovalParams struct {
@@ -164,6 +165,7 @@ type InsertApprovalParams struct {
 	MatchHash    string
 	RoutineID    sql.NullString
 	RoutineRunID sql.NullString
+	AttemptID    sql.NullString
 	Now          int64
 }
 
@@ -184,6 +186,7 @@ func (q *Queries) InsertApproval(ctx context.Context, arg InsertApprovalParams) 
 		arg.MatchHash,
 		arg.RoutineID,
 		arg.RoutineRunID,
+		arg.AttemptID,
 		arg.Now,
 	)
 	return err
@@ -228,7 +231,7 @@ func (q *Queries) ListActionPolicies(ctx context.Context, arg ListActionPolicies
 }
 
 const listApprovals = `-- name: ListApprovals :many
-SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired FROM approvals
+SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired, attempt_id FROM approvals
 WHERE (CAST(?1 AS TEXT) = '' OR status = ?1)
   AND (CAST(?2 AS TEXT) = '' OR chat_id = ?2)
   AND (CAST(?3 AS TEXT) = '' OR task_id = ?3)
@@ -284,6 +287,7 @@ func (q *Queries) ListApprovals(ctx context.Context, arg ListApprovalsParams) ([
 			&i.RoutineRunID,
 			&i.Standing,
 			&i.Expired,
+			&i.AttemptID,
 		); err != nil {
 			return nil, err
 		}
@@ -299,7 +303,7 @@ func (q *Queries) ListApprovals(ctx context.Context, arg ListApprovalsParams) ([
 }
 
 const listApprovalsByMatch = `-- name: ListApprovalsByMatch :many
-SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired FROM approvals
+SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired, attempt_id FROM approvals
 WHERE match_hash = ?1 AND integration = ?2 AND label = ?3 AND action = ?4
 ORDER BY created_at DESC, id DESC
 `
@@ -349,6 +353,7 @@ func (q *Queries) ListApprovalsByMatch(ctx context.Context, arg ListApprovalsByM
 			&i.RoutineRunID,
 			&i.Standing,
 			&i.Expired,
+			&i.AttemptID,
 		); err != nil {
 			return nil, err
 		}

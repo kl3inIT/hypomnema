@@ -80,6 +80,8 @@ type Approval struct {
 	// RoutineID and RoutineRunID are set when a Routine's run asked.
 	RoutineID    string
 	RoutineRunID string
+	// AttemptID is the attempt at an Inbox to-do that asked (inboxstore's Work.Attempt), when one did.
+	AttemptID string
 	// AskedBy names the agent in words: "pi" or "worker".
 	AskedBy string
 	Title   string
@@ -105,10 +107,14 @@ type NewApproval struct {
 	ChatID      string
 	// RunKey is the key of the Routine's run whose script asks, which its
 	// launcher was given; a prompt run is known by its chat.
-	RunKey  string
-	AskedBy string
-	Title   string
-	Payload []Field
+	RunKey string
+	// AttemptID is the attempt at an Inbox to-do the request is made in (inboxstore's Work.Attempt), empty when
+	// none: the Approval records it, so the item waits only for what its own attempt asked
+	// (inboxstore.Store.LinkApproval), and the same request in another attempt is another Approval.
+	AttemptID string
+	AskedBy   string
+	Title     string
+	Payload   []Field
 	// MatchHash is a digest of the decoded request: a repeat of the same
 	// request has the same one, whatever its bytes.
 	MatchHash string
@@ -161,8 +167,10 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 		}
 
 		for _, row := range same {
-			// Only what the same Run or the same chat asked: an approval never crosses to another.
-			if row.RunID.String != runID || row.ChatID.String != n.ChatID || row.RoutineRunID.String != routineRunID {
+			// Only what the same Run or the same chat asked, in the same attempt at a to-do: an approval never
+			// crosses to another (Hermes binds a session to its task's run, gateway/session_kanban.py).
+			if row.RunID.String != runID || row.ChatID.String != n.ChatID || row.RoutineRunID.String != routineRunID ||
+				row.AttemptID.String != n.AttemptID {
 				continue
 			}
 
@@ -191,7 +199,8 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 			ID: id, Integration: n.Integration, Label: n.Label, Action: n.Action, ActionName: n.ActionName,
 			DispatchID: nullString(n.DispatchID), TaskID: nullString(taskID), RunID: nullString(runID),
 			ChatID: nullString(n.ChatID), AskedBy: n.AskedBy, Title: n.Title, Payload: string(payload),
-			MatchHash: n.MatchHash, RoutineID: nullString(routineID), RoutineRunID: nullString(routineRunID), Now: now,
+			MatchHash: n.MatchHash, RoutineID: nullString(routineID), RoutineRunID: nullString(routineRunID),
+			AttemptID: nullString(n.AttemptID), Now: now,
 		}); err != nil {
 			return fmt.Errorf("recording the approval: %w", err)
 		}
@@ -647,7 +656,7 @@ func approvalFromRow(row store.Approval) (Approval, error) {
 	}
 
 	return Approval{
-		RoutineID: row.RoutineID.String, RoutineRunID: row.RoutineRunID.String,
+		RoutineID: row.RoutineID.String, RoutineRunID: row.RoutineRunID.String, AttemptID: row.AttemptID.String,
 		ID: row.ID, Integration: row.Integration, Label: row.Label, Action: row.Action, ActionName: row.ActionName,
 		DispatchID: row.DispatchID.String, TaskID: row.TaskID.String, RunID: row.RunID.String,
 		ChatID: row.ChatID.String, AskedBy: row.AskedBy, Title: row.Title, Payload: payload,

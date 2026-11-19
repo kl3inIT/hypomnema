@@ -97,27 +97,33 @@ func by(actor inboxstore.Actor, t inboxstore.Todo) inboxstore.Change {
 func inAttempt(actor inboxstore.Actor, t inboxstore.Todo) inboxstore.Change {
 	c := by(actor, t)
 	if t.Work != nil {
-		c.WorkID = t.Work.ID
+		c.Attempt = t.Work.Attempt
 	}
 
 	return c
 }
 
-// approval adds an Approval in a status, asked in kai's chat.
-func (w *world) approval(t *testing.T, id, status string) string {
+// approval adds an Approval in a status, asked now in kai's chat by the attempt at item td.
+func (w *world) approval(t *testing.T, id, status string, td inboxstore.Todo) string {
 	t.Helper()
 
-	return w.approvalIn(t, id, status, w.chat, "")
+	attempt := ""
+	if td.Work != nil {
+		attempt = td.Work.Attempt
+	}
+
+	return w.approvalIn(t, id, status, attempt, w.chat, "")
 }
 
-// approvalIn adds an Approval in a status, asked now in a chat or a Run.
-func (w *world) approvalIn(t *testing.T, id, status, chatID, runID string) string {
+// approvalIn adds an Approval in a status, asked now by an attempt (none when empty) in a chat or a Run.
+func (w *world) approvalIn(t *testing.T, id, status, attempt, chatID, runID string) string {
 	t.Helper()
 
 	_, err := w.db.ExecContext(t.Context(), `INSERT INTO approvals (id, integration, label, action, action_name,
-		chat_id, run_id, asked_by, title, payload, match_hash, status, created_at) VALUES (?, 'google', 'work',
-		'gmail.send', 'Send mail', nullif(?, ''), nullif(?, ''), 'pi', 'Send mail', '[]', 'h', 'pending', ?)`,
-		id, chatID, runID, w.clock.now.UnixMilli())
+		chat_id, run_id, attempt_id, asked_by, title, payload, match_hash, status, created_at) VALUES (?, 'google',
+		'work', 'gmail.send', 'Send mail', nullif(?, ''), nullif(?, ''), nullif(?, ''), 'pi', 'Send mail', '[]', 'h',
+		'pending', ?)`,
+		id, chatID, runID, attempt, w.clock.now.UnixMilli())
 	require.NoError(t, err)
 	w.decide(t, id, status)
 
@@ -198,7 +204,7 @@ func (w *world) review(t *testing.T) inboxstore.Todo {
 	t.Helper()
 
 	d := w.doing(t)
-	td, err := w.inbox.LinkApproval(t.Context(), by(system, d), w.approval(t, "apr_"+d.ID, "pending"))
+	td, err := w.inbox.LinkApproval(t.Context(), by(system, d), w.approval(t, "apr_"+d.ID, "pending", d))
 	require.NoError(t, err)
 
 	return td
@@ -292,10 +298,14 @@ func TestTransitions(t *testing.T) {
 			return w.review(t), nil
 		}, nil, inboxstore.Review},
 		{"system links a second approval", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.LinkApproval(t.Context(), by(system, w.review(t)), w.approval(t, "apr_2", "pending"))
+			r := w.review(t)
+
+			return w.inbox.LinkApproval(t.Context(), by(system, r), w.approval(t, "apr_2", "pending", r))
 		}, storeerr.ErrConflict, ""},
 		{"system links an answered approval", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.LinkApproval(t.Context(), by(system, w.doing(t)), w.approval(t, "apr_2", "approved"))
+			d := w.doing(t)
+
+			return w.inbox.LinkApproval(t.Context(), by(system, d), w.approval(t, "apr_2", "approved", d))
 		}, storeerr.ErrConflict, ""},
 		// review → doing: the system once the Approval is approved.
 		{"approved goes on", func(t *testing.T, w *world) (inboxstore.Todo, error) {
@@ -475,7 +485,7 @@ func TestTransitions(t *testing.T) {
 	}
 }
 
-// Scenario: a refused change writes nothing: a stale revision, another attempt's work id, and a Bot writing to its
+// Scenario: a refused change writes nothing: a stale revision, another attempt's id, and a Bot writing to its
 // attempt after the owner closed the item (the fence) all conflict, and the item keeps its revision and history.
 func TestStaleWritesConflictAndWriteNoEvent(t *testing.T) {
 	t.Parallel()
@@ -489,9 +499,9 @@ func TestStaleWritesConflictAndWriteNoEvent(t *testing.T) {
 	require.ErrorIs(t, err, storeerr.ErrConflict, "a stale revision")
 
 	other := inAttempt(bot(w.kai), d)
-	other.WorkID = "cht_other"
+	other.Attempt = "att_other"
 	_, err = w.inbox.Release(ctx, other, "Not me.")
-	require.ErrorIs(t, err, storeerr.ErrConflict, "another attempt's work id")
+	require.ErrorIs(t, err, storeerr.ErrConflict, "another attempt's id")
 
 	_, err = w.inbox.Release(ctx, by(bot(w.kai), d), "No id.")
 	require.ErrorIs(t, err, storeerr.ErrConflict, "a Bot on a doing item names its attempt")
@@ -867,11 +877,11 @@ func TestEveryChangeIsAnEvent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, o.Work)
 	assert.Empty(t, o.ApprovalID)
-	assert.JSONEq(t, `{"state":"open","work_kind":null,"work_id":null,"work_bot":null,"work_started_at":null,`+
+	assert.JSONEq(t, `{"state":"open","work_attempt":null,"work_kind":null,"work_id":null,"work_bot":null,"work_started_at":null,`+
 		`"approval_id":null,"reason":"Expired."}`, string(o.Events[3].After))
 }
 
-// Scenario: only the Bot that started an attempt writes to it; another Bot that gives the attempt's work id is
+// Scenario: only the Bot that started an attempt writes to it; another Bot that gives the attempt's id is
 // refused, and nothing is written.
 func TestOnlyTheBotOfTheAttemptWritesToIt(t *testing.T) {
 	t.Parallel()
@@ -965,33 +975,31 @@ func TestABotRecordsForTheOwnerOnlyWithHisMessage(t *testing.T) {
 	require.NoError(t, err, "his message in the chat of the attempt")
 }
 
-// Scenario: the Approval an item waits for is one its attempt asked: a pending Approval of another chat or Run, or
-// of none, is refused and writes nothing; one of the attempt's Run is linked.
+// Scenario: the Approval an item waits for is one its attempt asked, whatever chat or Run it was asked in: a pending
+// Approval of the item's Run or chat asked by no attempt or by another, or of another chat, is refused and writes
+// nothing; the one its attempt asked in its Run is linked.
 func TestLinkApprovalTakesOnlyTheAttemptsApproval(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
 	w := newWorld(t)
-	d := w.doing(t)
-
-	for _, a := range []string{
-		w.approvalIn(t, "apr_chat", "pending", "cht_other", ""),
-		w.approvalIn(t, "apr_run", "pending", "", "run_1"),
-		w.approvalIn(t, "apr_none", "pending", "", ""),
-	} {
-		_, err := w.inbox.LinkApproval(ctx, by(system, d), a)
-		require.ErrorIs(t, err, storeerr.ErrConflict, a)
-	}
-
-	w.unchanged(t, d)
-
 	run, err := w.inbox.Start(ctx, by(bot(w.kai), w.open(t)), inboxstore.Work{Kind: inboxstore.WorkRun, ID: "run_1"})
 	require.NoError(t, err)
 
-	_, err = w.inbox.LinkApproval(ctx, by(system, run), "apr_chat")
-	require.ErrorIs(t, err, storeerr.ErrConflict, "a chat's Approval on a Run's attempt")
+	for _, a := range []string{
+		w.approvalIn(t, "apr_run_none", "pending", "", "", "run_1"),
+		w.approvalIn(t, "apr_run_other", "pending", "att_other", "", "run_1"),
+		w.approvalIn(t, "apr_chat", "pending", "", "cht_other", ""),
+		w.approvalIn(t, "apr_none", "pending", "", "", ""),
+	} {
+		_, err := w.inbox.LinkApproval(ctx, by(system, run), a)
+		require.ErrorIs(t, err, storeerr.ErrConflict, a)
+	}
 
-	linked, err := w.inbox.LinkApproval(ctx, by(system, run), "apr_run")
+	w.unchanged(t, run)
+
+	linked, err := w.inbox.LinkApproval(ctx, by(system, run),
+		w.approvalIn(t, "apr_run", "pending", run.Work.Attempt, "", "run_1"))
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.Review, linked.State)
 }
@@ -1046,38 +1054,59 @@ func idsOf(items []inboxstore.Todo) []string {
 	return ids
 }
 
-// Scenario: an attempt holds one item at a time, and the Approval an item waits for was asked in its attempt since
-// it started (Codex review of #848, 2026-11-19): a second item does not start in a chat another item is doing in,
-// and an Approval asked there before the item's attempt started, for the item before it, is refused and writes
-// nothing.
+// Scenario: each attempt has its own id and the Approval an item waits for is one its own attempt asked (Codex
+// review of #848 at 2bf0ee1, 2026-11-19; Hermes binds a session to task, run and claim, gateway/session_kanban.py):
+// Kai works on two items in one chat at once; an Approval the contract's attempt asked in the same millisecond, and
+// one asked in the chat after both started by no attempt, are refused for the invoice and write nothing; each item
+// links its own; and after the invoice is released and started again in the same chat, its earlier attempt's
+// Approval is refused and the old attempt's id writes nothing.
 func TestAnApprovalIsTheItemsOfItsAttempt(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
 	w := newWorld(t)
 	contract := w.doing(t)
-	invoice := w.open(t)
 
-	_, err := w.inbox.Start(ctx, by(bot(w.kai), invoice), inboxstore.Work{Kind: inboxstore.WorkChat, ID: w.chat})
-	require.ErrorIs(t, err, storeerr.ErrConflict, "a second item in the chat's attempt")
+	invoice, err := w.inbox.Start(ctx, by(bot(w.kai), w.open(t)),
+		inboxstore.Work{Kind: inboxstore.WorkChat, ID: w.chat})
+	require.NoError(t, err, "a second item in the same chat")
+	assert.NotEqual(t, contract.Work.Attempt, invoice.Work.Attempt, "each attempt has its own id")
+	assert.Equal(t, contract.Work.StartedAt, invoice.Work.StartedAt, "both in the same millisecond")
+
+	forContract := w.approval(t, "apr_contract", "pending", contract)
+	unrelated := w.approvalIn(t, "apr_unrelated", "pending", "", w.chat, "")
+
+	for _, a := range []string{forContract, unrelated} {
+		_, err = w.inbox.LinkApproval(ctx, by(system, invoice), a)
+		require.ErrorIs(t, err, storeerr.ErrConflict, a)
+	}
+
 	w.unchanged(t, invoice)
 
-	asked := w.approval(t, "apr_contract", "pending")
-	_, err = w.inbox.Release(ctx, inAttempt(bot(w.kai), contract), "Later.")
+	linked, err := w.inbox.LinkApproval(ctx, by(system, contract), forContract)
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Review, linked.State, "the contract waits for its own")
+
+	earlier := w.approval(t, "apr_invoice_1", "pending", invoice)
+	released, err := w.inbox.Release(ctx, inAttempt(bot(w.kai), invoice), "Later.")
 	require.NoError(t, err)
 
-	w.clock.now = w.clock.now.Add(time.Second)
-	invoice, err = w.inbox.Start(ctx, by(bot(w.kai), invoice), inboxstore.Work{Kind: inboxstore.WorkChat, ID: w.chat})
-	require.NoError(t, err, "the chat is free once the first item left it")
-	assert.Equal(t, w.clock.now, invoice.Work.StartedAt)
-
-	_, err = w.inbox.LinkApproval(ctx, by(system, invoice), asked)
-	require.ErrorIs(t, err, storeerr.ErrConflict, "the contract's Approval, asked before this attempt")
-	w.unchanged(t, invoice)
-
-	linked, err := w.inbox.LinkApproval(ctx, by(system, invoice), w.approval(t, "apr_invoice", "pending"))
+	again, err := w.inbox.Start(ctx, by(bot(w.kai), released), inboxstore.Work{Kind: inboxstore.WorkChat, ID: w.chat})
 	require.NoError(t, err)
-	assert.Equal(t, "apr_invoice", linked.ApprovalID)
+	assert.NotEqual(t, invoice.Work.Attempt, again.Work.Attempt, "a new attempt, a new id")
+
+	_, err = w.inbox.LinkApproval(ctx, by(system, again), earlier)
+	require.ErrorIs(t, err, storeerr.ErrConflict, "the earlier attempt's Approval")
+
+	stale := inAttempt(bot(w.kai), invoice)
+	stale.Revision = again.Revision
+	_, err = w.inbox.Release(ctx, stale, "From the old attempt.")
+	require.ErrorIs(t, err, storeerr.ErrConflict, "the earlier attempt's id, in the same chat")
+	w.unchanged(t, again)
+
+	linked, err = w.inbox.LinkApproval(ctx, by(system, again), w.approval(t, "apr_invoice_2", "pending", again))
+	require.NoError(t, err)
+	assert.Equal(t, "apr_invoice_2", linked.ApprovalID)
 }
 
 // Scenario: the owner gives a doing item to another only once its attempt ended (Codex review of #848,
@@ -1104,7 +1133,7 @@ func TestReassigningWaitsForTheAttempt(t *testing.T) {
 	started, err := w.inbox.Start(ctx, by(bot(w.lan), given), inboxstore.Work{Kind: inboxstore.WorkRun, ID: "run_lan"})
 	require.NoError(t, err)
 
-	old := inboxstore.Change{Actor: bot(w.kai), ID: d.ID, Revision: started.Revision, WorkID: d.Work.ID}
+	old := inboxstore.Change{Actor: bot(w.kai), ID: d.ID, Revision: started.Revision, Attempt: d.Work.Attempt}
 	_, err = w.inbox.Done(ctx, old, inboxstore.Closing{
 		DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai}, How: inboxstore.ClosedByBot, Evidence: prLink})
 	require.ErrorIs(t, err, storeerr.ErrConflict, "Kai's old attempt")
