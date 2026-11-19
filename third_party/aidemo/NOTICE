@@ -32,3 +32,9 @@ compose.go); from src/ffmpeg.ts, runFfmpeg, probeDurationMs and
 probeFreezeSpans (ffmpeg.go); from src/voice.ts, GAP_MS and
 assembleNarration (keep.go, compose.go). Each file says what it took, and how
 it differs.
+
+Part 2 of issue #818 ports, in Go, from src/captions.ts the cue rules
+(DEFAULT_SEG, CONJUNCTIONS, groupWords, splitRun, mergeShort, cueText,
+endsClause, endsSentence) into internal/controlplane/videos/captions, and from
+src/voice.ts the voice cache (voiceHash and the reuse of a scene's clip) into
+internal/controlplane/videos (voice.go).

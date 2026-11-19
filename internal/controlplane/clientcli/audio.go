@@ -225,6 +225,10 @@ func (e *env) printAudio(a *openapi.Audio) {
 
 		e.printf("%s\t%s\n", p.Provider, state)
 
+		if p.Voice != nil {
+			e.printf("\tvoice for videos %s\n", *p.Voice)
+		}
+
 		for _, k := range p.Keys {
 			state := string(k.State)
 			if k.State == openapi.AudioKeyStateResting {

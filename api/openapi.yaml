@@ -681,6 +681,146 @@ paths:
             application/zip:
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
+  /videos:
+    get:
+      operationId: ListVideos
+      summary: The videos made of takes, the newest first, each with its revisions (owner only; issue #818)
+      description: >-
+        A video is made of one take: its dead time cut, a Vietnamese voice for each step, captions and a ring at
+        each tap. Each make or change request adds a revision, made one at a time by the control plane's runner:
+        queued, voicing, composing, captioning, then review; the owner approves one revision or asks for changes.
+      responses:
+        "200":
+          description: The videos.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: MakeVideo
+      summary: Make a take into a video, or a new revision of its video (owner only)
+      description: >-
+        The take must be available and have steps. The take's first make creates its video; a later make adds a
+        revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already
+        made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait
+        in the queue; one more is refused with conflict.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VideoMake" }
+      responses:
+        "201":
+          description: The video, with the revision queued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Video" }
+        default: { $ref: "#/components/responses/Error" }
+  /videos/{video_id}:
+    parameters:
+      - $ref: "#/components/parameters/VideoID"
+    get:
+      operationId: GetVideo
+      summary: A video with its revisions (owner only)
+      responses:
+        "200":
+          description: The video.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Video" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteVideo
+      summary: Delete a video, its revisions and their files (owner only)
+      description: Refused with conflict while one of its revisions is queued or being made.
+      responses:
+        "204":
+          description: Deleted.
+        default: { $ref: "#/components/responses/Error" }
+  /videos/{video_id}/revisions/{rev}/approve:
+    parameters:
+      - $ref: "#/components/parameters/VideoID"
+      - $ref: "#/components/parameters/VideoRev"
+    post:
+      operationId: ApproveVideoRevision
+      summary: Approve a revision in review; the one approved before goes back to review (owner only)
+      description: An approved revision is approved already.
+      responses:
+        "200":
+          description: The video.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Video" }
+        default: { $ref: "#/components/responses/Error" }
+  /videos/{video_id}/revisions/{rev}/changes:
+    parameters:
+      - $ref: "#/components/parameters/VideoID"
+      - $ref: "#/components/parameters/VideoRev"
+    post:
+      operationId: RequestVideoChanges
+      summary: Ask for changes to a revision in review (owner only)
+      description: >-
+        The revision becomes changes_requested, with the note for the agent. When lines are given and differ from
+        the revision's, a new revision is queued with them: the voice of each unchanged line is reused, and the
+        video is made again whole. A note alone starts nothing. An approved revision is never changed: asking
+        for changes to one is refused with conflict.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VideoChanges" }
+      responses:
+        "200":
+          description: The video.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Video" }
+        default: { $ref: "#/components/responses/Error" }
+  /videos/{video_id}/revisions/{rev}/video.mp4:
+    parameters:
+      - $ref: "#/components/parameters/VideoID"
+      - $ref: "#/components/parameters/VideoRev"
+    get:
+      operationId: ReadVideoFile
+      summary: A made revision's MP4, to play or download (owner only)
+      description: >-
+        Served with Range requests (206 Partial Content), in any state after it was made: review, approved or
+        changes_requested.
+      parameters:
+        - name: Range
+          in: header
+          required: false
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: The video.
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        "206":
+          description: The part of the video asked for.
+          content:
+            video/mp4:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /videos/{video_id}/revisions/{rev}/thumbnail.jpg:
+    parameters:
+      - $ref: "#/components/parameters/VideoID"
+      - $ref: "#/components/parameters/VideoRev"
+    get:
+      operationId: ReadVideoThumbnail
+      summary: A made revision's first frame, as a JPEG (owner only)
+      responses:
+        "200":
+          description: The picture.
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
   /nodes/{node_id}/resume:
     parameters:
       - $ref: "#/components/parameters/NodeID"
@@ -2362,6 +2502,28 @@ paths:
       responses:
         "200":
           description: The providers without the key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Audio" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/audio/providers/{provider}/voice:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/AudioProvider" }
+    put:
+      operationId: SetAudioVoice
+      summary: Set the voice a provider speaks a video with when none is asked; only the owner
+      description: Empty sets it back to the provider's own default. It counts from the next revision made.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AudioVoice" }
+      responses:
+        "200":
+          description: The providers after the change.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Audio" }
@@ -4702,6 +4864,16 @@ components:
       in: path
       required: true
       schema: { type: string, pattern: "^tk_[0-9a-f]{16}$" }
+    VideoID:
+      name: video_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^vid_[0-9a-z]{1,40}$" }
+    VideoRev:
+      name: rev
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
     ArtifactID:
       name: artifact_id
       in: path
@@ -5587,6 +5759,9 @@ components:
             not_set_up: no key in the vault. off: the owner switched it off.
         resting_until: { type: string, format: date-time }
         rest: { $ref: "#/components/schemas/WebSearchRest" }
+        voice:
+          type: string
+          description: The voice it speaks a video with when none is asked; absent, its own default.
         keys:
           type: array
           description: Its keys, in the order a request asks them now.
@@ -5634,6 +5809,12 @@ components:
           type: integer
           format: int64
           description: The characters spoken.
+    AudioVoice:
+      type: object
+      additionalProperties: false
+      required: [voice]
+      properties:
+        voice: { type: string, maxLength: 100 }
     AudioProviderChange:
       type: object
       additionalProperties: false
@@ -7108,6 +7289,79 @@ components:
       required: [at_ms]
       properties:
         at_ms: { type: integer, format: int64 }
+    VideoList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Video" }
+    Video:
+      type: object
+      description: A video made of one take (issue #818), with its revisions, the oldest first.
+      required: [id, take, title, made_by, made_by_name, created_at, revisions]
+      properties:
+        id: { type: string }
+        take: { type: string, description: The take it is made of. }
+        title: { type: string }
+        made_by: { type: string, description: The agent's key that asked for it first, or owner. }
+        made_by_name: { type: string }
+        created_at: { type: string, format: date-time }
+        approved: { type: integer, description: The approved revision; absent when none is. }
+        revisions:
+          type: array
+          items: { $ref: "#/components/schemas/VideoRevision" }
+    VideoRevision:
+      type: object
+      description: >-
+        One make of the video, never changed once made: queued, then voicing, composing and captioning (skipped
+        without captions) as the runner makes it, then review; approved or changes_requested by the owner; failed
+        at a stage with its cause, interrupted when the control plane stopped while it was made.
+      required: [rev, state, lines, captions, aspect, length_ms, warnings, created_at, updated_at]
+      properties:
+        rev: { type: integer }
+        parent: { type: integer, description: The revision it was made from. }
+        state:
+          type: string
+          enum: [queued, voicing, composing, captioning, review, approved, changes_requested, failed]
+        lines:
+          type: array
+          description: What each scene's voice says, a scene a step of the take (steps said at once are one).
+          items: { type: string }
+        voice: { type: string, description: The voice asked for; absent, each provider's set on Settings → Audio. }
+        captions: { type: boolean }
+        aspect: { type: string, enum: ["9:16", "16:9"] }
+        provider: { type: string, description: The provider that spoke every scene. }
+        model: { type: string }
+        used_voice: { type: string, description: The voice it spoke with; absent, the provider's default. }
+        length_ms: { type: integer, format: int64 }
+        failed_stage: { type: string, description: The stage it failed at. }
+        failed_cause: { type: string }
+        note: { type: string, description: What the owner asked for when he asked for changes. }
+        warnings:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    VideoMake:
+      type: object
+      additionalProperties: false
+      required: [take]
+      properties:
+        take: { type: string, pattern: "^tk_[0-9a-f]{16}$" }
+        title: { type: string, maxLength: 200, description: "The video's title, on its first make; absent: the take's." }
+        aspect: { type: string, enum: ["9:16", "16:9"], description: "Absent: 9:16." }
+        captions: { type: boolean, description: "Absent: true." }
+        voice: { type: string, maxLength: 100, description: "Absent: each provider's set on Settings → Audio." }
+    VideoChanges:
+      type: object
+      additionalProperties: false
+      properties:
+        lines:
+          type: array
+          description: Each scene's line, edited; as many as the revision has.
+          items: { type: string, maxLength: 1000 }
+        note: { type: string, maxLength: 4000 }
     DeviceList:
       type: object
       required: [data, held]

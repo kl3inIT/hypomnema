@@ -32,6 +32,14 @@ func (s *Service) AudioSettings(ctx context.Context) (speech.Settings, error) {
 		if r.Off != 0 {
 			out.Off = append(out.Off, r.Provider)
 		}
+
+		if r.Voice != "" {
+			if out.Voices == nil {
+				out.Voices = map[string]string{}
+			}
+
+			out.Voices[r.Provider] = r.Voice
+		}
 	}
 
 	placed := func(position func(store.GatewayAudioProvider) sql.NullInt64) []string {
@@ -72,6 +80,32 @@ func (s *Service) SetAudioProvider(ctx context.Context, provider string, on bool
 			Provider: provider, Off: flag(!on), Now: now,
 		}); err != nil {
 			return fmt.Errorf("switching audio provider %s: %w", provider, err)
+		}
+
+		return nil
+	})
+}
+
+// MaxVoice bounds a provider's voice: a name or a provider's voice id.
+const MaxVoice = 100
+
+// SetAudioVoice keeps the voice a provider speaks a video with when none is asked (issue #818, row 5); empty: the
+// provider's own default.
+func (s *Service) SetAudioVoice(ctx context.Context, provider, voice string) error {
+	voice = strings.TrimSpace(voice)
+
+	switch {
+	case !slices.Contains(speech.Providers(), provider):
+		return fmt.Errorf("%w: no audio provider %q", ErrNotFound, provider)
+	case len(voice) > MaxVoice || strings.ContainsFunc(voice, func(r rune) bool { return r < ' ' }):
+		return fmt.Errorf("%w: a voice is a name of at most %d characters", ErrInvalid, MaxVoice)
+	}
+
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		if err := q.SetGatewayAudioVoice(ctx, store.SetGatewayAudioVoiceParams{
+			Provider: provider, Voice: voice, Now: now,
+		}); err != nil {
+			return fmt.Errorf("setting audio provider %s's voice: %w", provider, err)
 		}
 
 		return nil
