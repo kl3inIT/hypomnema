@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"bytes"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -13,7 +14,26 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 )
+
+func TestMain(tests *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == diskguard.ScopedSubcommand {
+		if err := diskguard.ScopedExec(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	os.Exit(tests.Run())
+}
+
+func realTempDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	return path
+}
 
 // lockedBuffer is a log the node writes while the test reads it.
 type lockedBuffer struct {
@@ -48,7 +68,7 @@ func declaring(t *testing.T, file string) (Maker, Source, string, *lockedBuffer)
 		t.Skip("no shell is installed")
 	}
 
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	origin(t, filepath.Join(dir, "origin"))
 
 	src := filepath.Join(dir, "origin", "kl3inIT", "second-bite")
@@ -91,11 +111,74 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a continued Conversation")
 	assert.Equal(t, 1, runs(), "a worktree that exists is not set up again")
 
-	require.NoError(t, m.Remove(t.Context(), repo, path))
+	stopped := func() bool { return true }
+	require.NoError(t, git(t.Context(), path, nil, "config", "status.showUntrackedFiles", "no"))
+	require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "untracked")
+	assert.Equal(t, 1, runs(), "a dirty worktree is kept")
+	require.NoError(t, os.WriteFile(filepath.Join(path, "ignored"), nil, 0o600))
+	excludes := filepath.Join(t.TempDir(), "exclude")
+	require.NoError(t, os.WriteFile(excludes, []byte("ignored\n"), 0o600))
+	require.NoError(t, git(t.Context(), path, nil, "config", "core.excludesFile", excludes))
+	require.NoError(t, os.Remove(filepath.Join(path, "setup.log")))
+	require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "ignored")
+	require.FileExists(t, filepath.Join(path, "ignored"))
+	require.NoError(t, os.Remove(filepath.Join(path, "ignored")))
+	tracked := filepath.Join(path, "README.md")
+	for _, flag := range []string{"assume-unchanged", "skip-worktree"} {
+		require.NoError(t, git(t.Context(), path, nil, "update-index", "--"+flag, "README.md"))
+		require.NoError(t, os.WriteFile(tracked, []byte("not committed\n"), 0o600))
+		require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "hide tracked changes")
+		assert.FileExists(t, tracked)
+		require.NoError(t, git(t.Context(), path, nil, "update-index", "--no-"+flag, "README.md"))
+		require.NoError(t, git(t.Context(), path, nil, "checkout", "--", "README.md"))
+	}
+	if !diskguard.ScopeAvailable() {
+		t.Skip("Landlock is not available for the native command")
+	}
+	require.NoError(t, m.Clean(t.Context(), path, true, stopped))
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a retry")
 	assert.Equal(t, 1, runs(), "a worktree made anew is set up again")
 
 	assert.Empty(t, logged.String(), "a script that succeeds logs nothing")
+}
+
+func TestRepositorySetupUsesDispatchGoTemp(t *testing.T) {
+	t.Parallel()
+	m, repo, path, _ := declaring(t, "scripts:\n  setup: |\n    printf '%s' \"$GOTMPDIR\" > go-temp\n")
+	m.TempDir = realTempDir(t)
+	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path))
+	value, err := os.ReadFile(filepath.Join(path, "go-temp")) //nolint:gosec // test worktree
+	require.NoError(t, err)
+	assert.Equal(t, m.TempDir, string(value))
+}
+
+func TestLinkedWorktreeCanBeCleanedThroughCanonicalNodeHome(t *testing.T) {
+	t.Parallel()
+	if !diskguard.ScopeAvailable() {
+		t.Skip("filesystem confinement is unavailable")
+	}
+	m, repo, _, _ := declaring(t, "scripts: {}\n")
+	require.NoError(t, os.MkdirAll(m.Root, 0o700))
+	alias := filepath.Join(realTempDir(t), "home-alias")
+	require.NoError(t, os.Symlink(m.Root, alias))
+	logical := filepath.Join(alias, "worktrees", "run_1", "tsk_1")
+	physical := filepath.Join(m.Root, "worktrees", "run_1", "tsk_1")
+	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", logical))
+	require.NoError(t, m.Clean(t.Context(), physical, true, func() bool { return true }))
+	assert.NoDirExists(t, physical)
+}
+
+func TestDisposableWorktreeCannotContainNodeHome(t *testing.T) {
+	t.Parallel()
+	root := realTempDir(t)
+	target := filepath.Join(root, "run", "task")
+	home := filepath.Join(target, "node")
+	require.NoError(t, os.MkdirAll(home, 0o700))
+	state := filepath.Join(home, "state.db")
+	require.NoError(t, os.WriteFile(state, []byte("must survive"), 0o600))
+	maker := Maker{Root: home}
+	require.ErrorContains(t, maker.Clean(t.Context(), target, false, func() bool { return true }), "protected path")
+	assert.FileExists(t, state)
 }
 
 // Scenario: a setup script that fails does not fail the Dispatch. The worktree

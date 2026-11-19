@@ -1825,6 +1825,10 @@ flowchart LR
   gateway serves), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
+  Before scoring, the scheduler also applies the [node's disk policy](#node-disk-policy-issue-859), including on
+  continuations, handoffs and direct Dispatch creation. If disk prevents placement, the Task waits with
+  `nodes_low_disk` and can resume without anyone acting. A node that declines an offer for disk pressure returns
+  the Task to this wait without counting a failure. Lease renewals, stops, reports and reattachments still work.
   Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00100; from OpenMausBot's
   queued reason, `server/host/queued-reason.ts`, and Coder's place in the queue, `ProvisionerStatusAlert.tsx`),
   written only when it changed and without touching the Task's `updated_at`, from which `unplaceable` counts, and
@@ -4597,6 +4601,68 @@ Node (`internal/node`):
   login shell and as Orca adds it for its agents, so what the setup installed wins over an older copy on the
   machine; a Dispatch's Connections put their tools' directory before it. Not built: the script's failure in the
   transcript, and asking the owner before a script runs the first time (Orca).
+
+### Node disk policy (issue #859)
+
+- The node measures bytes available to its user (`Bavail`, not capacity minus used) on the worktree volume. In
+  `config.json`, `disk.floor_bytes` defaults to 5 GiB, `disk.trim_percent` to 15 and `disk.target_percent` to 20.
+  The floor must be positive and `0 < trim_percent < target_percent <= 100`. The effective trim threshold and
+  target are each the greater of the configured floor and their share of the volume. Exactly at the floor still
+  takes work. The node measures again before recording an accept and before starting a new worker, including
+  after a replayed accept. Disk probes time out off the message loop. A declined offer keeps its Conversation,
+  answered Gate and recovery or handoff note, and does not count as a backup turn.
+- The hello enables the policy for an upgraded node. The heartbeat reports available bytes, the floor, effective
+  trim threshold; the control plane dates samples on receipt. Migration `00132_node_disk.sql` keeps these
+  fields independently of CPU and RAM. A missing sample or one at least 30 seconds old blocks new work on
+  a policy-enabled node. Old nodes that
+  have never advertised the policy still take work. Machines shows the age and thresholds, “Not measured” for a
+  missing or stale sample, amber below the trim threshold and red below the floor, independently of connectivity.
+- After connecting and every five minutes, the node scans its managed `<worktree root>/<run>/<task>` directories,
+  including Runs that ended while it was offline. A reconnect waits for any previous pass to stop before
+  starting its pass. The default root under a node home alias is scanned at its real location, while
+  confirmations still use the registered path.
+  In batches over the node link, orchestration confirms the exact Conversation node and path, a finished or
+  canceled Run, and no unsettled Dispatch there. It also sends paths still needed by open Runs or unsettled
+  Dispatches. If a confirmation is too large for one message, the node retries smaller batches; it keeps a
+  worktree whose individual confirmation still does not fit. If the protected list alone does not fit, it
+  skips cleanup for that pass. The node compares real paths and filesystem
+  identities, including mounts below protected paths,
+  against every deletion target. It keeps ambiguous targets and protects the node home, except for explicitly
+  managed worktrees, Dispatch temp directories, and the particular Git worktree's registration. It rechecks
+  local Dispatches and shim process groups and skips the shim requirement for a recorded disk decline before
+  launch. It removes files relative to pinned directory handles, checking their identities against the protected
+  set during traversal so the node home, `repos/` or `run/` renamed into the deletion tree is kept. It neither follows symlinks nor
+  crosses mounts, and removes the Run directory only if empty. Git cleanup keeps checkouts with ignored, untracked, or hidden
+  index entries. `git worktree remove` runs without force in a filesystem sandbox (Linux Landlock or macOS
+  `sandbox-exec`); if confinement is unavailable, the checkout is kept.
+  Open Runs keep their worktrees for follow-ups.
+- Setup and the worker get private `TMPDIR`, `TEMP`, `TMP` and `GOTMPDIR` under `run/<dispatch>/tmp`. The node also reclaims
+  that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
+  shim from claiming permission to launch. Stop also revokes that permission before a spawned shim can write
+  its PID. A saved PID alone is not enough to signal a process group. The shim socket uses the configured home
+  path so a short symlink alias remains usable even when the resolved path is too long for Unix sockets. Disk
+  maintenance never removes state or its sidecars, accounts, shim records and journals,
+  Conversations, Transcripts, Git mirrors and branches, the binary and configuration, or system logs.
+- On each maintenance pass with a protected-path confirmation, the node caps standard Go build cache entries
+  in `~/.cache/go-build` and the effective `GOCACHE`, per cache, to the smaller of `disk.go_cache_max_bytes`
+  (8 GiB by default) and 10% of that cache's volume. It removes the least recently used entries by mtime,
+  including newer entries if needed for the cap, and skips an entry that changed after inspection. Below the
+  trim threshold it also removes entries older than five days plus one hour on the affected mount, remeasuring
+  in batches to the target. It checks for an idle node before invoking native
+  `pnpm store prune` on the default worker store. It rejects symlinks and cross-mount entries and confines the
+  command with the same platform sandbox; the worker's `dlx` cache is not pruned. The pnpm store must be on the affected mount.
+  Go module, toolchain
+  and fuzz caches are not touched. Playwright's own GC remains part of its browser install, not this sweep.
+  If the eligible cleanup cannot make enough room, the warning and admission floor remain. The policy does not
+  protect free space on a separate cache or temp volume.
+- On Linux, a pass also checks top-level entries of `/tmp` and a separate real `os.TempDir()`. It keeps a whole
+  entry unless it and its descendants belong to the node UID and all mtimes predate `disk.temp_max_age_hours`
+  (6 hours by default). It keeps top-level symlinks, special files, mount boundaries and protected paths. Before
+  removing an eligible tree it checks file identities against `/proc` descriptors, working directories,
+  process roots and mappings. If a live process cannot be inspected (including an unreadable foreign UID),
+  the sweep stops without deleting that candidate; unprivileged services may therefore keep all leftovers.
+  A `/proc` check is a snapshot, not a lock against new opens. The shared sweep is skipped on macOS and other
+  non-Linux hosts. [Reference comparison](docs/research/2026-11-19-node-cache-and-temp-cleanup.md).
 
 ## Web client
 

@@ -152,7 +152,7 @@ export type Task = {
   not_before?: string;
   cancel_requested_at?: string;
   /**
-   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_disk (fitting nodes do not have a fresh disk sample at or above their floor), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
    */
   waiting_reason?: string;
 };
@@ -426,6 +426,7 @@ export type Node = {
   runtimes: Array<Runtime>;
   system?: NodeSystem;
   stats?: NodeStats;
+  disk?: NodeDisk;
   /**
    * The git hosts the node reached when it last tried. Absent for a node that has not said, which is taken to reach every host. A Task on a host goes only to a node that reaches it.
    */
@@ -1228,6 +1229,23 @@ export type MachineProvider = {
 
 export type MachineProviderList = {
   data: Array<MachineProvider>;
+};
+
+export type NodeDisk = {
+  /**
+   * Bytes available to the node user, absent when not measured or stale.
+   */
+  free_bytes?: number;
+  floor_bytes: number;
+  trim_bytes: number;
+  /**
+   * When the node measured the sample.
+   */
+  at?: string;
+  /**
+   * Age of the disk sample when this response was produced.
+   */
+  age_ms?: number;
 };
 
 /**

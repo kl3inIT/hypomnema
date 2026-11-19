@@ -329,7 +329,7 @@ func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) 
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes FROM nodes WHERE id = ?1
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at FROM nodes WHERE id = ?1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -375,6 +375,11 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.MaxDispatches,
 		&i.ReservedCpuMillis,
 		&i.ReservedMemoryBytes,
+		&i.DiskPolicy,
+		&i.DiskFreeBytes,
+		&i.DiskFloorBytes,
+		&i.DiskTrimBytes,
+		&i.DiskSampleAt,
 	)
 	return i, err
 }
@@ -671,7 +676,7 @@ func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToke
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes FROM nodes WHERE status <> 'deleted' ORDER BY name
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at FROM nodes WHERE status <> 'deleted' ORDER BY name
 `
 
 // Every node that has not been removed.
@@ -724,6 +729,11 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.MaxDispatches,
 			&i.ReservedCpuMillis,
 			&i.ReservedMemoryBytes,
+			&i.DiskPolicy,
+			&i.DiskFreeBytes,
+			&i.DiskFloorBytes,
+			&i.DiskTrimBytes,
+			&i.DiskSampleAt,
 		); err != nil {
 			return nil, err
 		}
@@ -789,10 +799,11 @@ SET updated_at = ?1, last_seen_at = ?1, worktree_root = ?2, runtimes = ?3,
     daemon_version = ?4, os = ?5, arch = ?6, cpus = ?7, memory_bytes = ?8,
     disk_bytes = ?9, unavailable_at = NULL, terminal = ?10,
     device = ?11, kvm = ?12,
+    disk_policy = max(disk_policy, ?13), disk_free_bytes = NULL, disk_sample_at = NULL,
     machine_error = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN NULL ELSE machine_error END,
     machine_state = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN 'ready' ELSE machine_state END,
     machine_power = CASE WHEN machine_power = 'starting' THEN NULL ELSE machine_power END
-WHERE id = ?13 AND status <> 'deleted'
+WHERE id = ?14 AND status <> 'deleted'
 `
 
 type NodeHelloParams struct {
@@ -808,6 +819,7 @@ type NodeHelloParams struct {
 	Terminal      int64
 	Device        string
 	Kvm           int64
+	DiskPolicy    interface{}
 	ID            string
 }
 
@@ -826,6 +838,7 @@ func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (int64, er
 		arg.Terminal,
 		arg.Device,
 		arg.Kvm,
+		arg.DiskPolicy,
 		arg.ID,
 	)
 	if err != nil {
@@ -1028,6 +1041,34 @@ type SetAccountStatusParams struct {
 
 func (q *Queries) SetAccountStatus(ctx context.Context, arg SetAccountStatusParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setAccountStatus, arg.Now, arg.Status, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setNodeDisk = `-- name: SetNodeDisk :execrows
+UPDATE nodes SET disk_policy = 1, disk_free_bytes = ?1, disk_floor_bytes = ?2,
+    disk_trim_bytes = ?3, disk_sample_at = ?4
+WHERE id = ?5 AND status <> 'deleted'
+`
+
+type SetNodeDiskParams struct {
+	DiskFreeBytes  sql.NullInt64
+	DiskFloorBytes sql.NullInt64
+	DiskTrimBytes  sql.NullInt64
+	DiskSampleAt   sql.NullInt64
+	ID             string
+}
+
+func (q *Queries) SetNodeDisk(ctx context.Context, arg SetNodeDiskParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setNodeDisk,
+		arg.DiskFreeBytes,
+		arg.DiskFloorBytes,
+		arg.DiskTrimBytes,
+		arg.DiskSampleAt,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}

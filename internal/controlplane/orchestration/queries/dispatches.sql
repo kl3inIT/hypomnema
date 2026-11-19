@@ -36,18 +36,18 @@ VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @gate_qu
 
 -- name: CountFallbacksOfTask :one
 -- The Dispatches of a Task that ran under a backup of its profile: a Task is handed off once.
-SELECT count(*) FROM dispatches WHERE task_id = @task_id AND fallback_for IS NOT NULL;
+SELECT count(*) FROM dispatches WHERE task_id = @task_id AND fallback_for IS NOT NULL AND declined_low_disk = 0;
 
 -- name: PreviousDispatchOfTask :one
 -- The Dispatch of a Task before this one: the worker a hand-off takes over from.
 SELECT p.* FROM dispatches p JOIN dispatches d ON d.task_id = p.task_id
-WHERE d.id = @id AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.rowid < d.rowid))
+WHERE d.id = @id AND p.declined_low_disk = 0 AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.rowid < d.rowid))
 ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1;
 
 -- name: CountFallbacksOfRun :one
 -- The Dispatches of a Run that ran under a backup of a profile in one stretch of its limit.
 SELECT count(*) FROM dispatches d JOIN tasks t ON t.id = d.task_id
-WHERE t.run_id = @run_id AND d.fallback_for = @fallback_for AND d.fallback_until = @fallback_until;
+WHERE t.run_id = @run_id AND d.fallback_for = @fallback_for AND d.fallback_until = @fallback_until AND d.declined_low_disk = 0;
 
 -- name: GetDispatch :one
 SELECT * FROM dispatches WHERE id = @id;
@@ -71,6 +71,21 @@ WHERE task_id = @task_id AND status IN ('queued', 'starting', 'running', 'stoppi
 
 -- name: LastDispatchOfConversation :one
 SELECT * FROM dispatches WHERE conversation_id = @conversation_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
+
+-- name: WorktreeDispatches :many
+SELECT d.id, d.status, d.accepted_at, d.settled_at, d.declined_low_disk, t.id AS task_id, r.id AS run_id, r.status AS run_status, r.repo
+FROM conversations c JOIN dispatches d ON d.conversation_id = c.id
+JOIN tasks t ON c.task_id = t.id JOIN runs r ON t.run_id = r.id
+WHERE c.node_id = @node_id AND c.worktree = @worktree;
+
+-- name: ConversationHadAnotherAccept :one
+SELECT EXISTS (SELECT 1 FROM dispatches
+WHERE conversation_id = @conversation_id AND id != @id AND accepted_at IS NOT NULL AND declined_low_disk = 0);
+
+-- name: ProtectedWorktrees :many
+SELECT DISTINCT c.worktree FROM conversations c JOIN tasks t ON t.id = c.task_id JOIN runs r ON r.id = t.run_id
+WHERE c.node_id = @node_id AND (r.status = 'open' OR EXISTS (
+  SELECT 1 FROM dispatches d WHERE d.conversation_id = c.id AND d.settled_at IS NULL));
 
 -- name: AcceptDispatch :execrows
 UPDATE dispatches
@@ -170,11 +185,14 @@ RETURNING id, node_id;
 
 -- name: NodesWithRecentTaskExpiries :many
 SELECT DISTINCT node_id FROM dispatches
-WHERE task_id = @task_id AND status = 'expired' AND settled_at >= CAST(@since AS INTEGER);
+WHERE task_id = @task_id AND status = 'expired' AND declined_low_disk = 0 AND settled_at >= CAST(@since AS INTEGER);
 
 -- name: CountRecentNodeExpiries :one
 SELECT count(*) FROM dispatches
-WHERE node_id = @node_id AND status = 'expired' AND settled_at >= CAST(@since AS INTEGER);
+WHERE node_id = @node_id AND status = 'expired' AND declined_low_disk = 0 AND settled_at >= CAST(@since AS INTEGER);
+
+-- name: MarkDispatchDeclinedLowDisk :exec
+UPDATE dispatches SET declined_low_disk = 1 WHERE id = @id;
 
 -- name: GetReceipt :one
 SELECT * FROM receipts WHERE caller = @caller AND request_id = @request_id;

@@ -336,6 +336,7 @@ type Dispatch struct {
 	MemoryBytes      int64
 	RoleChain        string
 	ChainEntry       sql.NullInt64
+	DeclinedLowDisk  int64
 }
 
 type DispatchEffect struct {
@@ -686,6 +687,11 @@ type Node struct {
 	MaxDispatches       sql.NullInt64
 	ReservedCpuMillis   int64
 	ReservedMemoryBytes int64
+	DiskPolicy          int64
+	DiskFreeBytes       sql.NullInt64
+	DiskFloorBytes      sql.NullInt64
+	DiskTrimBytes       sql.NullInt64
+	DiskSampleAt        sql.NullInt64
 }
 
 type NodeToken struct {

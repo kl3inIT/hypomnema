@@ -24,16 +24,21 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 // File names inside a shim's directory.
 const (
-	SpecFile    = "spec.json"
-	JournalFile = "journal.jsonl"
-	SocketFile  = "in.sock"
-	ExitFile    = "exit.json"
-	PIDFile     = "shim.pid"
-	StderrFile  = "stderr.log"
+	SpecFile      = "spec.json"
+	JournalFile   = "journal.jsonl"
+	SocketFile    = "in.sock"
+	ExitFile      = "exit.json"
+	PIDFile       = "shim.pid"
+	StderrFile    = "stderr.log"
+	PreparingFile = "preparing"
+	LaunchingFile = "launching"
+	ClaimedFile   = "launch-claimed"
 )
 
 // CloseLine is the line that closes the worker's stdin.
@@ -72,7 +77,21 @@ func WriteSpec(dir string, s Spec) error {
 }
 
 // Main runs the shim over dir until its worker exits.
-func Main(ctx context.Context, dir string) error {
+func Main(ctx context.Context, socketDir string) error {
+	dir, err := realShimDir(socketDir)
+	if err != nil {
+		return err
+	}
+	if err := recordPID(dir); err != nil {
+		return fmt.Errorf("writing the pid file: %w", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, PreparingFile)); err == nil {
+		if err := os.Rename(filepath.Join(dir, LaunchingFile), filepath.Join(dir, ClaimedFile)); err != nil {
+			return fmt.Errorf("claiming permission to start the worker: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	raw, err := os.ReadFile(filepath.Join(dir, SpecFile)) //nolint:gosec // the daemon's own directory
 	if err != nil {
 		return fmt.Errorf("reading the spec: %w", err)
@@ -87,10 +106,6 @@ func Main(ctx context.Context, dir string) error {
 	// not needed once the worker runs.
 	if err := os.Remove(filepath.Join(dir, SpecFile)); err != nil {
 		return fmt.Errorf("removing the spec: %w", err)
-	}
-
-	if err := os.WriteFile(filepath.Join(dir, PIDFile), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
-		return fmt.Errorf("writing the pid file: %w", err)
 	}
 
 	//nolint:gosec // the daemon's own directory
@@ -109,11 +124,15 @@ func Main(ctx context.Context, dir string) error {
 
 	_ = os.Remove(filepath.Join(dir, SocketFile))
 
-	ln, err := (&net.ListenConfig{}).Listen(ctx, "unix", filepath.Join(dir, SocketFile))
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(socketDir, SocketFile), Net: "unix"})
 	if err != nil {
 		return fmt.Errorf("listening on the input socket: %w", err)
 	}
-	defer ln.Close() //nolint:errcheck // the shim is exiting
+	ln.SetUnlinkOnClose(false)
+	defer func() {
+		_ = ln.Close()
+		_ = os.Remove(filepath.Join(dir, SocketFile))
+	}()
 
 	cmd := exec.CommandContext(ctx, spec.Argv[0], spec.Argv[1:]...) //nolint:gosec // the daemon's own spec
 	cmd.Env, cmd.Dir, cmd.Stderr = spec.Env, spec.Dir, stderr
@@ -298,6 +317,131 @@ func PID(dir string) (int, error) {
 	}
 
 	return strconv.Atoi(string(raw))
+}
+
+const identityFile = "shim.identity"
+
+type processIdentity struct {
+	PID     int
+	Started int64
+	Dir     string
+}
+
+func startedAt(pid int) (int64, error) {
+	proc, err := process.NewProcess(int32(pid)) //nolint:gosec // an operating-system process id fits int32
+	if err != nil {
+		return 0, err
+	}
+	return proc.CreateTime()
+}
+
+func recordPID(dir string) error {
+	pid := os.Getpid()
+	started, err := startedAt(pid)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(processIdentity{PID: pid, Started: started, Dir: dir})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, identityFile), raw, 0o600); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, PIDFile), []byte(strconv.Itoa(pid)), 0o600)
+}
+
+func KillRecorded(dir string) error {
+	dir, err := realShimDir(dir)
+	if err != nil {
+		return err
+	}
+	pid, err := PID(dir)
+	if err != nil || pid <= 1 {
+		return err
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, identityFile)) //nolint:gosec // the daemon's own directory
+	if errors.Is(err, os.ErrNotExist) {
+		return killLegacy(dir, pid)
+	}
+	if err != nil {
+		return err
+	}
+	var identity processIdentity
+	if err := json.Unmarshal(raw, &identity); err != nil {
+		return err
+	}
+	started, err := startedAt(pid)
+	if err != nil {
+		return err
+	}
+	identityDir, pathErr := realShimDir(identity.Dir)
+	if pid != identity.PID || pathErr != nil || identityDir != dir || started <= 0 || started != identity.Started {
+		return errors.New("shim process identity does not match")
+	}
+	return Kill(pid)
+}
+
+func RevokeLaunch(dir string) error {
+	dir, err := realShimDir(dir)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close() //nolint:errcheck // directory handle
+	if err := root.Remove(LaunchingFile); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return KillRecorded(dir)
+}
+
+func realShimDir(dir string) (string, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	if filepath.Base(filepath.Dir(dir)) == "run" {
+		home, err := filepath.EvalSymlinks(filepath.Dir(filepath.Dir(dir)))
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(home, "run", filepath.Base(dir))
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil || resolved != dir {
+		return "", errors.New("the shim directory is not a real path")
+	}
+	return dir, nil
+}
+
+func killLegacy(dir string, pid int) error {
+	info, err := os.Lstat(filepath.Join(dir, PIDFile))
+	if err != nil || !info.Mode().IsRegular() {
+		return errors.New("legacy shim PID file is not regular")
+	}
+	proc, err := process.NewProcess(int32(pid)) //nolint:gosec // operating-system process id
+	if err != nil {
+		return err
+	}
+	started, err := proc.CreateTime()
+	if err != nil || started <= 0 || started > info.ModTime().UnixMilli() {
+		return errors.New("legacy PID was reused or could not be verified")
+	}
+	argv, err := proc.CmdlineSlice()
+	if err != nil || len(argv) != 4 || argv[1] != "shim" || argv[2] != "--dir" {
+		return errors.New("legacy PID does not belong to the Dispatch shim")
+	}
+	actual, err := realShimDir(argv[3])
+	if err != nil || actual != dir {
+		return errors.New("legacy PID does not belong to the Dispatch shim")
+	}
+	if current, err := startedAt(pid); err != nil || current != started {
+		return errors.New("legacy PID identity changed")
+	}
+	return Kill(pid)
 }
 
 // Start starts `exe shim --dir dir` detached from the caller, with no stdio,

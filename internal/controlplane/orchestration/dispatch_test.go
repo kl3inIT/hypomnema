@@ -536,6 +536,13 @@ func TestReattachIsRefusedOnceTheOutcomeIsSettled(t *testing.T) {
 	next := w.dispatch(task.ID)
 	assert.True(t, next.Recovery)
 	assert.NotEqual(t, d.ConversationID, next.ConversationID)
+	require.NoError(t, w.s.DeclineLowDisk(t.Context(), w.call(next, 0), w.diskSample(0)))
+	conv := next.ConversationID
+	assert.Equal(t, ConversationOpen, w.conversation(conv).Status)
+	require.NoError(t, w.s.NodeDisk(t.Context(), w.node.ID, w.diskSample(testDiskFloor)))
+	next, err = w.create(task.ID, DispatchSpec{Continue: true})
+	require.NoError(t, err)
+	assert.Equal(t, conv, next.ConversationID, "the declined recovery keeps the replacement Conversation")
 
 	acc, err := w.s.AcceptDispatch(t.Context(), w.call(next, 0))
 	require.NoError(t, err)

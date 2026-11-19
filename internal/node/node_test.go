@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 )
 
 // Scenario: installing a node. The token comes from a file and lands only in
@@ -26,6 +28,7 @@ func TestInitWritesAPrivateConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, Config{
 		URL: "https://hypomnema.example", Token: "hyn_abc123", WorktreeRoot: filepath.Join(home, "worktrees"),
+		Disk: diskguard.DefaultPolicy(),
 	}, cfg)
 
 	if runtime.GOOS != "windows" {
