@@ -22,7 +22,7 @@ BINARIES := hypomnema hypomnema-node
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-verify: verify-static unit race ## The gate to run before every push
+verify: verify-static unit race ## The Go checks: static, unit, race; before a push, run only those of what changed
 
 verify-static: fmt-check tidy-check lint deps-check sqlc-check openapi-check migration-check
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -50,7 +51,32 @@ func TestCleanupKeepsAnOpenRunWithABindMountOfAClosedRunsSubdirectory(t *testing
 	assert.False(t, SameVolume(child, alias), "a bind mount has its own mount ID")
 	for _, protected := range []string{open, alias} {
 		ctx := WithProtection(t.Context(), protected)
-		require.ErrorContains(t, RemoveTree(ctx, closed, func() bool { return true }), "protected filesystem identity")
+		require.ErrorContains(t, RemoveTree(ctx, closed, func() bool { return true }), "protected")
 		assert.FileExists(t, filepath.Join(alias, "resume.txt"))
 	}
+}
+
+func TestMountRootAllowsCleanupUnlessItOverlapsAProtectedPath(t *testing.T) {
+	t.Parallel()
+	root := realTempDir(t)
+	active := filepath.Join(root, "active")
+	subvolume := filepath.Join(root, "subvolume")
+	bind := filepath.Join(root, "bind")
+	protectedBind := filepath.Join(root, "protected-bind")
+	for _, dir := range []string{active, subvolume, bind, protectedBind} {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "candidate"), 0o700))
+	}
+	mounts, err := readMountedPaths(strings.NewReader(strings.Join([]string{
+		"11 1 0:44 /@ / rw - btrfs /dev/test rw",
+		"12 11 0:45 /@worktrees " + subvolume + " rw - btrfs /dev/test rw",
+		"13 11 0:44 /@/closed " + bind + " rw - btrfs /dev/test rw",
+		"14 11 0:44 /@" + filepath.Join(active, "candidate") + " " + protectedBind + " rw - btrfs /dev/test rw",
+	}, "\n")))
+	require.NoError(t, err)
+	for _, dir := range []string{subvolume, bind} {
+		_, err := checkedIdentities(t.Context(), filepath.Join(dir, "candidate"), []string{active}, mounts, nil, true)
+		require.NoError(t, err)
+	}
+	_, err = checkedIdentities(t.Context(), filepath.Join(protectedBind, "candidate"), []string{active}, mounts, nil, true)
+	require.ErrorContains(t, err, "protected mount path")
 }

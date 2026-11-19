@@ -19,8 +19,9 @@ func WithProtection(ctx context.Context, paths ...string) context.Context {
 }
 
 type mountedPath struct {
-	path  string
-	alias bool
+	path   string
+	root   string
+	device string
 }
 
 func containsPath(parent, child string) bool {
@@ -104,11 +105,6 @@ func deletionIdentities(ctx context.Context, target, home, allowed string, inspe
 func checkedIdentities(ctx context.Context, target string, paths []string, mounts []mountedPath,
 	homeIdentity os.FileInfo, inspect bool, managedAncestors ...os.FileInfo,
 ) ([]os.FileInfo, error) {
-	for _, mount := range mounts {
-		if mount.alias && containsPath(mount.path, target) {
-			return nil, fmt.Errorf("cannot establish original ancestry of mounted deletion target: %s", target)
-		}
-	}
 	roots, ancestors, err := protectedIdentities(ctx, target, paths, mounts)
 	if err != nil {
 		return nil, err
@@ -160,6 +156,7 @@ func checkedIdentities(ctx context.Context, target string, paths []string, mount
 func protectedIdentities(ctx context.Context, target string, paths []string, mounts []mountedPath) (
 	roots, ancestors []os.FileInfo, err error,
 ) {
+	targetLocations := mountLocations(target, mounts)
 	for _, path := range paths {
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
@@ -170,6 +167,11 @@ func protectedIdentities(ctx context.Context, target string, paths []string, mou
 		}
 		if containsPath(target, resolved) || containsPath(resolved, target) {
 			return nil, nil, fmt.Errorf("deletion overlaps protected path %s", path)
+		}
+		for _, protected := range mountLocations(resolved, mounts) {
+			if overlapsMount(targetLocations, protected) {
+				return nil, nil, fmt.Errorf("deletion overlaps protected mount path %s", path)
+			}
 		}
 		for dir := resolved; ; dir = filepath.Dir(dir) {
 			info, err := os.Stat(dir)
@@ -187,6 +189,9 @@ func protectedIdentities(ctx context.Context, target string, paths []string, mou
 		}
 		for _, mount := range mounts {
 			if containsPath(resolved, mount.path) {
+				if mount.device != "" && overlapsMount(targetLocations, mountLocation{mount.device, mount.root}) {
+					return nil, nil, fmt.Errorf("deletion overlaps protected mount path %s", mount.path)
+				}
 				info, err := os.Stat(mount.path)
 				if err != nil {
 					return nil, nil, err
@@ -196,6 +201,35 @@ func protectedIdentities(ctx context.Context, target string, paths []string, mou
 		}
 	}
 	return roots, ancestors, nil
+}
+
+type mountLocation struct {
+	device string
+	path   string
+}
+
+func mountLocations(path string, mounts []mountedPath) []mountLocation {
+	var locations []mountLocation
+	deepest := 0
+	for _, mount := range mounts {
+		if mount.device == "" || len(mount.path) < deepest || !containsPath(mount.path, path) {
+			continue
+		}
+		if len(mount.path) > deepest {
+			locations = locations[:0]
+			deepest = len(mount.path)
+		}
+		inside := filepath.Join(mount.root, strings.TrimPrefix(path, mount.path))
+		locations = append(locations, mountLocation{mount.device, inside})
+	}
+	return locations
+}
+
+func overlapsMount(locations []mountLocation, protected mountLocation) bool {
+	return slices.ContainsFunc(locations, func(target mountLocation) bool {
+		return target.device == protected.device &&
+			(containsPath(target.path, protected.path) || containsPath(protected.path, target.path))
+	})
 }
 
 func sameIdentity(info os.FileInfo, identities []os.FileInfo) bool {

@@ -114,13 +114,13 @@ func cleanStatus(ctx context.Context, gitPath, path string) error {
 	}
 	args := []string{"--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.ignoreStat=false",
 		"-c", "core.trustCtime=true", "-c", "core.checkStat=default", "-c", "core.fileMode=true", "-C", path, "status", "--porcelain=v1",
-		"--untracked-files=all", "--ignored=matching", "--ignore-submodules=none"}
+		"--untracked-files=all", "--ignore-submodules=none"}
 	status, err := exec.CommandContext(ctx, gitPath, args...).Output() //nolint:gosec // checked worktree
 	if err != nil {
 		return err
 	}
 	if len(status) != 0 {
-		return errors.New("worktree contains tracked, untracked, or ignored changes")
+		return errors.New("worktree contains tracked or untracked changes")
 	}
 	return nil
 }

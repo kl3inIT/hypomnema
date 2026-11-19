@@ -35,6 +35,11 @@ type Caches struct {
 	Logger       *slog.Logger
 }
 
+func (c Caches) worktreeVolume() string {
+	path, _ := filepath.EvalSymlinks(ExistingDir(c.WorktreeRoot))
+	return path
+}
+
 func (c Caches) Trim(ctx context.Context, whileIdle func(func())) {
 	if ctx.Err() != nil {
 		return
@@ -42,14 +47,14 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) {
 
 	space, _ := c.Policy.Measure(ctx, c.WorktreeRoot)
 	pressure := space.FreeBytes != nil && *space.FreeBytes < space.TrimBytes
-	volume := ExistingDir(c.WorktreeRoot)
+	volume := c.worktreeVolume()
 	needsRoom := func() bool {
 		if !pressure || !RealDir(volume) || ctx.Err() != nil {
 			return false
 		}
 		space, target := c.Policy.Measure(ctx, c.WorktreeRoot)
 		return space.FreeBytes != nil && *space.FreeBytes < target &&
-			SameVolume(volume, ExistingDir(c.WorktreeRoot))
+			SameVolume(volume, c.worktreeVolume())
 	}
 
 	locations, module, err := c.goCaches(ctx)

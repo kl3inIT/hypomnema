@@ -5,7 +5,7 @@
 // the shim's journal from a saved offset and hands each line to the turn of
 // the worker's Runtime, which knows its CLI; the turn's state is saved with
 // the offset, so a new daemon's turn knows what the lines before it said
-// (issue #403). The worker talks back through two MCP tools
+// (issue #403). The worker talks back through MCP tools
 // (internal/node/workertools) over the bridge directory: ask,
 // whose questions and answers the Supervisor relays, and finish, whose report
 // is the outcome. A worker that exits without finish fails, as Orca reports a
@@ -35,7 +35,6 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
-	"github.com/kl3inIT/hypomnema/internal/node/gitssh"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
@@ -137,6 +136,7 @@ type Worker struct {
 	r         daemon.Reporter
 	turn      Turn
 	logger    *slog.Logger
+	offer     nodeproto.Offer
 	cancel    context.CancelFunc
 	// done is closed when the worker's journal reader returned.
 	done chan struct{}
@@ -283,23 +283,9 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	var hostEnv []string
 
 	if o.Repo != "" {
-		src, err := worktree.SourceOf(o.RepoHost, o.RepoKind, o.Repo, o.RepoToken)
+		src, err := s.repoSource(o)
 		if err != nil {
 			return err
-		}
-
-		// A repository registered with an SSH address is cloned over SSH, with the control plane's key that
-		// the helper asks for with the Dispatch's own key (issue #625).
-		if o.RepoSSHURL != "" {
-			if s.URL == "" || o.AgentKey == "" {
-				return errors.New("the repository is cloned over SSH, but the node has no key or control plane " +
-					"address to ask for the SSH key with")
-			}
-
-			src, err = src.OverSSH(o.RepoSSHURL, gitssh.Env(s.Exe, s.URL, o.AgentKey))
-			if err != nil {
-				return err
-			}
 		}
 
 		// The worker's git, gh and glab act with the host's token, when the offer carried one.
@@ -337,6 +323,11 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	if err := transcript.SetFormat(dir, launch.Format); err != nil {
 		return err
 	}
+	if canPublish(o) {
+		if err := bridge.EnablePublish(bridge.Dir(dir)); err != nil {
+			return err
+		}
+	}
 
 	if err := ctx.Err(); err != nil {
 		return err
@@ -368,7 +359,7 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		return err
 	}
 
-	s.watch(ctx, &Worker{id: d.ID, dir: dir, socketDir: socketDir, pid: pid, r: r, turn: launch.Turn})
+	s.watch(ctx, &Worker{id: d.ID, dir: dir, socketDir: socketDir, pid: pid, r: r, turn: launch.Turn, offer: o})
 
 	return nil
 }
@@ -413,7 +404,9 @@ func (s *Supervisor) Adopt(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	}
 
 	_, state := readCheckpoint(dir)
-	w := &Worker{id: d.ID, dir: dir, socketDir: s.socketDir(d.ID), r: r, turn: rt.Adopted(state), started: true}
+	w := &Worker{
+		id: d.ID, dir: dir, socketDir: s.socketDir(d.ID), r: r, turn: rt.Adopted(state), started: true, offer: d.Offer,
+	}
 
 	pid, err := shim.PID(dir)
 	if err != nil {
@@ -601,6 +594,7 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 		if n > 0 {
 			writeCheckpoint(w.dir, offset, w.turn.State())
 		}
+		s.relayPublish(ctx, w)
 
 		if err != nil {
 			s.Logger.WarnContext(ctx, "reading a worker's journal",

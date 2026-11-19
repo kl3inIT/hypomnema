@@ -86,3 +86,28 @@ func TestTempSweepKeepsStaleEntriesWhenProcIsUnreadable(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrPermission)
 	assert.FileExists(t, stale)
 }
+
+func TestProcessScanSkipsUnreadablePIDsAndKeepsReadableReferences(t *testing.T) {
+	t.Parallel()
+	proc := t.TempDir()
+	for _, pid := range []string{"1", "2"} {
+		require.NoError(t, os.Mkdir(filepath.Join(proc, pid), 0o700))
+	}
+	identity := fileIdentity{device: 12, inode: 34}
+	open, err := readProcessFiles(t.Context(), proc, os.Geteuid(), func(open processFiles, path string) error {
+		if filepath.Base(path) == "1" {
+			return &os.PathError{Op: "open", Path: filepath.Join(path, "maps"), Err: os.ErrPermission}
+		}
+		open[identity] = struct{}{}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Contains(t, open, identity)
+
+	open, err = readProcessFiles(t.Context(), proc, os.Geteuid()+1, func(processFiles, string) error {
+		t.Error("a PID of another UID should not be inspected")
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Empty(t, open)
+}

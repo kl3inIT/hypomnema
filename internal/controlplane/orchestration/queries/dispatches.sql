@@ -219,6 +219,19 @@ WHERE dispatch_effects.phase = 'intent' AND excluded.phase = 'done' AND dispatch
 -- name: ListEffects :many
 SELECT * FROM dispatch_effects WHERE dispatch_id = @dispatch_id ORDER BY seq;
 
+-- name: RecordPublishedHead :exec
+INSERT INTO dispatch_effects (dispatch_id, seq, kind, ref, phase, payload, created_at, updated_at)
+SELECT @dispatch_id, (SELECT coalesce(max(seq), 0) + 1 FROM dispatch_effects WHERE dispatch_id = @dispatch_id),
+       'git_push', @branch, 'done', @sha, @now, @now
+WHERE NOT EXISTS (SELECT 1 FROM dispatch_effects WHERE dispatch_id = @dispatch_id
+                  AND kind = 'git_push' AND ref = @branch AND phase = 'done' AND payload = @sha);
+
+-- name: ListPublishedHeads :many
+SELECT DISTINCT e.ref AS branch, CAST(e.payload AS TEXT) AS sha
+FROM tasks t JOIN dispatches d ON d.task_id = t.id JOIN dispatch_effects e ON e.dispatch_id = d.id
+WHERE t.run_id = @run_id AND e.kind = 'git_push' AND e.phase = 'done' AND e.payload IS NOT NULL
+ORDER BY branch, sha;
+
 -- name: RecordResource :exec
 INSERT INTO dispatch_resources (dispatch_id, kind, ref, custody, created_at)
 VALUES (@dispatch_id, @kind, @ref, @custody, @now)

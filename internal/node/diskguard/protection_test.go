@@ -27,7 +27,7 @@ func TestProtectedDescendantMountIdentityPreventsDeletion(t *testing.T) {
 	require.NoError(t, os.Symlink(child, mount))
 	paths := []string{open}
 	require.NoError(t, Protect(WithProtection(t.Context(), paths...), closed, "", ""))
-	_, err = checkedIdentities(t.Context(), closed, paths, []mountedPath{{path: mount, alias: true}}, nil, true)
+	_, err = checkedIdentities(t.Context(), closed, paths, []mountedPath{{path: mount}}, nil, true)
 	require.ErrorContains(t, err, "protected filesystem identity")
 	assert.FileExists(t, file)
 }

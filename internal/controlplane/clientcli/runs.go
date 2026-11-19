@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
 func createRun(ctx context.Context, e *env, nr openapi.NewRun, idempotencyKey *string) (openapi.Run, error) {
@@ -86,6 +87,33 @@ func getRun(ctx context.Context, e *env, id string) (openapi.RunDetail, error) {
 	}
 
 	return *resp.JSON200, nil
+}
+
+// RunOwnsReplacement checks the coordinator's Run before its launcher can close a superseded PR.
+func RunOwnsReplacement(ctx context.Context, cfg Config, runID, prURL, branch, sha string) (bool, error) {
+	api, err := newClient(cfg, requestTimeout)
+	if err != nil {
+		return false, err
+	}
+	run, err := getRun(ctx, &env{api: api}, runID)
+	if err != nil {
+		return false, err
+	}
+	return runOwnsReplacement(run, prURL, branch, sha), nil
+}
+
+func runOwnsReplacement(run openapi.RunDetail, prURL, branch, sha string) bool {
+	pr, ok := githost.ParseRequest(prURL, githost.KnownKind)
+	if !ok || pr.Repo.Host != githost.GitHubHost || branch == "" || sha == "" || run.PublishedHeads == nil ||
+		val(run.RepoHost) != pr.Repo.Host || !strings.EqualFold(val(run.Repo), pr.Repo.Path) {
+		return false
+	}
+	for _, head := range *run.PublishedHeads {
+		if branch == head.Branch && sha == head.Sha {
+			return true
+		}
+	}
+	return false
 }
 
 func runsShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -272,6 +300,12 @@ func nextSteps(ctx context.Context, e *env, out *Waited) error {
 
 	if run.Status != openapi.RunStatusOpen {
 		out.Done = true
+
+		return nil
+	}
+
+	if run.ReviewStall != nil {
+		add("hypomnema skills get hypomnema-coordinator --reference review")
 
 		return nil
 	}

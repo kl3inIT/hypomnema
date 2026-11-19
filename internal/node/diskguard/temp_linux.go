@@ -98,17 +98,12 @@ func sweepTemp(ctx context.Context, path, home string, before time.Time,
 }
 
 func allProcessFiles(ctx context.Context) (processFiles, error) {
-	mounts, err := os.ReadFile("/proc/self/mountinfo")
-	if err != nil {
-		return nil, err
-	}
-	for line := range strings.SplitSeq(string(mounts), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) > 6 && fields[4] == "/proc" && strings.Contains(line, "hidepid=") {
-			return nil, errors.New("cannot inspect all live processes on a restricted /proc mount")
-		}
-	}
-	entries, err := os.ReadDir("/proc")
+	return readProcessFiles(ctx, "/proc", os.Geteuid(), processFiles.addProcess)
+}
+
+func readProcessFiles(ctx context.Context, proc string, uid int, add func(processFiles, string) error,
+) (processFiles, error) {
+	entries, err := os.ReadDir(proc)
 	if err != nil {
 		return nil, err
 	}
@@ -120,11 +115,26 @@ func allProcessFiles(ctx context.Context) (processFiles, error) {
 		if _, err := strconv.ParseUint(entry.Name(), 10, 32); err != nil {
 			continue
 		}
-		if err := open.addProcess(filepath.Join("/proc", entry.Name())); err != nil && !processGone(err) {
+		info, err := entry.Info()
+		if processUnreadable(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		identity, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || int(identity.Uid) != uid {
+			continue
+		}
+		if err := add(open, filepath.Join(proc, entry.Name())); err != nil && !processUnreadable(err) {
 			return nil, fmt.Errorf("cannot verify open files of process %s: %w", entry.Name(), err)
 		}
 	}
 	return open, nil
+}
+
+func processUnreadable(err error) bool {
+	return processGone(err) || errors.Is(err, fs.ErrPermission)
 }
 
 func (open processFiles) addProcess(path string) error {

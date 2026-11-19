@@ -55,6 +55,29 @@ test.each([
   expect(card?.column).toBe(want)
 })
 
+test("only the review at the cap is a waiting-for-you item", () => {
+  const review = task("review", "run_1", {
+    status: "succeeded",
+    result: "Verdict: incorrect\n[P1] Data is lost.",
+  })
+  const earlier = task("earlier", "run_1", { status: "succeeded" })
+  const stalled = run("run_1", {
+    review_stall: {
+      task_id: review.id,
+      pull_request: "https://github.com/owner/repo/pull/840",
+      verdict: "incorrect",
+      merge_state: "BLOCKED",
+      mergeable: "MERGEABLE",
+      checks: "PASSING",
+      waiting_for_owner: true,
+    },
+  })
+  const cards = boardCards(board([earlier, review], [stalled]))
+
+  expect(cards.map((card) => card.column)).toEqual(["done", "you"])
+  expect(cards.find((card) => card.column === "you")?.task.result).toContain("[P1] Data is lost.")
+})
+
 // Scenario: a question to pi shows on its card but does not wait for the owner; an answered one shows nowhere.
 test("only an open question to the owner waits for the owner", () => {
   const t1 = task("t1", "run_1")

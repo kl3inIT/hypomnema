@@ -173,6 +173,26 @@ func TestGoCacheOnAnotherMountIsNeverTrimmed(t *testing.T) {
 	}, 0, nil))
 }
 
+func TestGoCachePressureTrimsWhenWorktreeRootIsASymlink(t *testing.T) {
+	t.Parallel()
+	home := realTempDir(t)
+	worktrees := filepath.Join(home, "worktrees")
+	link := filepath.Join(home, "linked-worktrees")
+	require.NoError(t, os.Mkdir(worktrees, 0o700))
+	require.NoError(t, os.Symlink(worktrees, link))
+	cache := filepath.Join(home, "go-build")
+	bucket := filepath.Join(cache, "01")
+	require.NoError(t, os.MkdirAll(bucket, 0o700))
+	entry := filepath.Join(bucket, fmt.Sprintf("01%062x-d", 0))
+	require.NoError(t, os.WriteFile(entry, []byte("bytes"), 0o600))
+	old := time.Now().Add(-goCacheAge - time.Hour)
+	require.NoError(t, os.Chtimes(entry, old, old))
+
+	caches := Caches{WorktreeRoot: link, Logger: slog.New(slog.DiscardHandler)}
+	caches.trimGoCache(t.Context(), cache, caches.worktreeVolume(), func() bool { return true })
+	assert.NoFileExists(t, entry)
+}
+
 func TestGoCacheCapTrimsRecentEntriesOldestFirstWithoutPressure(t *testing.T) {
 	t.Parallel()
 	root := realTempDir(t)

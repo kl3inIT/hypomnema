@@ -3,6 +3,7 @@ package diskguard
 import (
 	"bufio"
 	"errors"
+	"io"
 	"os"
 	"strings"
 
@@ -17,15 +18,21 @@ func mountedPaths() ([]mountedPath, error) {
 		return nil, err
 	}
 	defer file.Close() //nolint:errcheck // read-only mount table
+	return readMountedPaths(file)
+}
+
+func readMountedPaths(reader io.Reader) ([]mountedPath, error) {
 	decode := strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
 	var mounts []mountedPath
-	scan := bufio.NewScanner(file)
+	scan := bufio.NewScanner(reader)
 	for scan.Scan() {
 		fields := strings.Fields(scan.Text())
 		if len(fields) < 6 {
 			return nil, errors.New("invalid mount table entry")
 		}
-		mounts = append(mounts, mountedPath{path: decode.Replace(fields[4]), alias: fields[3] != "/"})
+		mounts = append(mounts, mountedPath{
+			path: decode.Replace(fields[4]), root: decode.Replace(fields[3]), device: fields[2],
+		})
 	}
 	return mounts, scan.Err()
 }

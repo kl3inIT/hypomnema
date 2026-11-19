@@ -360,3 +360,16 @@ func TestBlockedDiskProbeDoesNotHoldNodeMessages(t *testing.T) {
 		return err == nil && len(reports) == 1 && reports[0].Kind == nodeproto.ReportLowDisk
 	}, 2*probeLimit, 20*time.Millisecond)
 }
+
+func TestAcceptedStartReturnsLowDiskReportError(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db, err := statedb.Open(ctx, filepath.Join(t.TempDir(), "state.db"), time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	free := int64(0)
+	d := New(Config{Disk: func(context.Context) nodeproto.DiskSpace {
+		return nodeproto.DiskSpace{FreeBytes: &free, FloorBytes: 5 << 30, TrimBytes: 15 << 30}
+	}}, db, nil, slog.New(slog.DiscardHandler))
+	require.ErrorIs(t, d.startAccepted(ctx, statedb.Dispatch{ID: platform.NewID("dsp")}), statedb.ErrNotFound)
+}

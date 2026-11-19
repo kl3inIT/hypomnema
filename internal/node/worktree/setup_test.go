@@ -120,10 +120,10 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 	require.NoError(t, os.WriteFile(excludes, []byte("ignored\n"), 0o600))
 	require.NoError(t, git(t.Context(), path, nil, "config", "core.excludesFile", excludes))
 	require.NoError(t, os.Remove(filepath.Join(path, "setup.log")))
-	require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "ignored")
-	require.FileExists(t, filepath.Join(path, "ignored"))
-	require.NoError(t, os.Remove(filepath.Join(path, "ignored")))
 	tracked := filepath.Join(path, "README.md")
+	require.NoError(t, os.WriteFile(tracked, []byte("not committed\n"), 0o600))
+	require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "tracked")
+	require.NoError(t, git(t.Context(), path, nil, "checkout", "--", "README.md"))
 	for _, flag := range []string{"assume-unchanged", "skip-worktree"} {
 		require.NoError(t, git(t.Context(), path, nil, "update-index", "--"+flag, "README.md"))
 		require.NoError(t, os.WriteFile(tracked, []byte("not committed\n"), 0o600))
@@ -135,7 +135,8 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 	if !diskguard.ScopeAvailable() {
 		t.Skip("Landlock is not available for the native command")
 	}
-	require.NoError(t, m.Clean(t.Context(), path, true, stopped))
+	require.NoError(t, m.Clean(t.Context(), path, true, stopped), "ignored files do not prevent removal")
+	require.NoDirExists(t, path)
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a retry")
 	assert.Equal(t, 1, runs(), "a worktree made anew is set up again")
 

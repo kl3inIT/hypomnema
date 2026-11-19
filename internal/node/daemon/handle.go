@@ -270,45 +270,52 @@ func (d *Daemon) start(h statedb.Dispatch) {
 			d.mu.Unlock()
 			cancel()
 		}()
-		for !d.diskWorkers.TryRLock() {
-			select {
-			case <-ctx.Done():
-				_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
-				return
-			case <-time.After(50 * time.Millisecond):
-			}
-		}
-		defer d.diskWorkers.RUnlock()
-
-		if ctx.Err() == nil && d.cfg.Disk != nil {
-			if disk := d.measureDisk(ctx); !disk.AllowsWork() && ctx.Err() == nil {
-				_ = d.worker(h.ID).end(ctx, nodeproto.ReportLowDisk, disk)
-				return
-			}
-		}
-		if ctx.Err() != nil {
-			_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
-			return
-		}
-		err := d.runner.Start(ctx, h, d.worker(h.ID))
-		if ctx.Err() != nil && d.base.Err() == nil {
-			if err != nil {
-				_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
-			} else {
-				d.runner.Stop(h.ID)
-			}
-			return
-		}
-		if err != nil {
-			if err := d.worker(h.ID).finish(ctx, nodeproto.Finished{
-				Class: "start_failed", Summary: err.Error(), Exit: nodeproto.Exit{Kind: "not_started"},
-			}); err != nil {
-				d.logger.WarnContext(ctx, "reporting a failed start",
-					slog.String("event", "node.start_report_failed"), slog.String("dispatch_id", h.ID),
-					slog.String("error", err.Error()))
-			}
+		if err := d.startAccepted(ctx, h); err != nil && ctx.Err() == nil {
+			d.logger.WarnContext(ctx, "could not queue a low-disk report",
+				slog.String("event", "node.start_report_failed"), slog.String("dispatch_id", h.ID), slog.Any("error", err))
 		}
 	})
+}
+
+func (d *Daemon) startAccepted(ctx context.Context, h statedb.Dispatch) error {
+	for !d.diskWorkers.TryRLock() {
+		select {
+		case <-ctx.Done():
+			_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
+			return nil
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	defer d.diskWorkers.RUnlock()
+
+	if ctx.Err() == nil && d.cfg.Disk != nil {
+		if disk := d.measureDisk(ctx); !disk.AllowsWork() && ctx.Err() == nil {
+			return d.worker(h.ID).end(ctx, nodeproto.ReportLowDisk, disk)
+		}
+	}
+	if ctx.Err() != nil {
+		_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
+		return nil
+	}
+	err := d.runner.Start(ctx, h, d.worker(h.ID))
+	if ctx.Err() != nil && d.base.Err() == nil {
+		if err != nil {
+			_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
+		} else {
+			d.runner.Stop(h.ID)
+		}
+		return nil
+	}
+	if err != nil {
+		if err := d.worker(h.ID).finish(ctx, nodeproto.Finished{
+			Class: "start_failed", Summary: err.Error(), Exit: nodeproto.Exit{Kind: "not_started"},
+		}); err != nil {
+			d.logger.WarnContext(ctx, "reporting a failed start",
+				slog.String("event", "node.start_report_failed"), slog.String("dispatch_id", h.ID),
+				slog.String("error", err.Error()))
+		}
+	}
+	return nil
 }
 
 func (d *Daemon) stop(id string) {
@@ -384,6 +391,12 @@ func (w *Worker) Ask(ctx context.Context, a nodeproto.Ask) (string, error) {
 func (w *Worker) AnswerReceived(ctx context.Context, questionID string) error {
 	_, err := w.report(ctx, nodeproto.ReportAnswerAck, nodeproto.AnswerAck{QuestionID: questionID})
 
+	return err
+}
+
+// PublishedHead records an update sent to the Git host by the node.
+func (w *Worker) PublishedHead(ctx context.Context, head nodeproto.PublishedHead) error {
+	_, err := w.report(ctx, nodeproto.ReportPublishedHead, head)
 	return err
 }
 

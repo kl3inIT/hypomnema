@@ -55,6 +55,9 @@ export function runState(run: RunDetail, asking: ReadonlySet<string>): DockState
   // A Run that ended stays docked only when a wake-up's chip asked to see it.
   if (run.status === "finished") return { word: "Finished", tone: "done", icon: "done" }
   if (run.status === "canceled") return { word: "Canceled", tone: "quiet", icon: "canceled" }
+  if (run.review_stall?.waiting_for_owner)
+    return { word: "Waiting for you", tone: "needs-you", icon: "question" }
+  if (run.review_stall) return { word: "Stalled after review", tone: "quiet", icon: "blocked" }
 
   const states = run.tasks.map((t) => taskState(t, asking.has(t.id)))
 

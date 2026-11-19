@@ -25,6 +25,7 @@ require (
 	github.com/ulikunitz/xz v0.5.15
 	github.com/vektah/gqlparser/v2 v2.5.27
 	github.com/xuri/excelize/v2 v2.11.1
+	github.com/yuin/goldmark v1.8.2
 	go.mau.fi/libsignal v0.2.2
 	go.mau.fi/whatsmeow v0.0.0-20261113220833-ecc39170bc14
 	go.yaml.in/yaml/v3 v3.0.6

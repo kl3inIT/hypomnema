@@ -105,6 +105,13 @@ func (s *Server) call(ctx context.Context, call orchestration.NodeCall, r nodepr
 		return nil, svc.RecordEffect(ctx, call, orchestration.Effect{
 			Seq: p.Seq, Kind: p.Kind, Ref: p.Ref, Phase: orchestration.EffectPhase(p.Phase), Payload: p.Payload,
 		})
+	case nodeproto.ReportPublishedHead:
+		p, err := decode[nodeproto.PublishedHead](r.Payload)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, svc.RecordPublishedHead(ctx, call, orchestration.PublishedHead{Branch: p.Branch, SHA: p.SHA})
 	case nodeproto.ReportResource, nodeproto.ReportReleaseResource:
 		p, err := decode[nodeproto.Resource](r.Payload)
 		if err != nil {
