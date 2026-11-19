@@ -421,9 +421,7 @@ const (
 
 func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatModel, mode mainMode,
 ) (Chat, bool, error) {
-	if id == "" {
-		id = s.newID(ChatIDPrefix)
-	} else if !IsChatID(id) {
+	if id != "" && !IsChatID(id) {
 		return Chat{}, false, fmt.Errorf("%w: a chat id is %q followed by 26 characters of a-z and 2-7", ErrInvalid,
 			ChatIDPrefix+"_")
 	}
@@ -453,6 +451,11 @@ func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatM
 			id, made = row.MainChat.String, false
 
 			return nil
+		}
+
+		// A new id is made under the write, as every id the Service makes is.
+		if id == "" {
+			id = s.newID(ChatIDPrefix)
 		}
 
 		if _, err := q.GetChat(ctx, id); err == nil {
