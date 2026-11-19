@@ -85,6 +85,8 @@ var (
 	ErrNotFound = errors.New("no such video")
 	ErrConflict = errors.New("the video is not in a state for this")
 	ErrInvalid  = errors.New("invalid video request")
+	// ErrUnavailable reports what cannot be done now, such as before ffmpeg is installed.
+	ErrUnavailable = errors.New("not available now")
 	// ErrIdempotency reports a request id used before for another request.
 	ErrIdempotency = errors.New("the request id was used for another request")
 )
@@ -116,23 +118,35 @@ func (v Video) Approved() (Revision, bool) {
 
 // Revision is one make of a video.
 type Revision struct {
-	Rev         int       `json:"rev"`
-	Parent      int       `json:"parent,omitempty"`
-	State       string    `json:"state"`
-	Lines       []string  `json:"lines"`
-	Voice       string    `json:"voice,omitempty"`
-	Captions    bool      `json:"captions"`
-	Aspect      string    `json:"aspect"`
-	Provider    string    `json:"provider,omitempty"`
-	Model       string    `json:"model,omitempty"`
-	UsedVoice   string    `json:"used_voice,omitempty"`
-	LengthMs    int64     `json:"length_ms"`
-	FailedStage string    `json:"failed_stage,omitempty"`
-	FailedCause string    `json:"failed_cause,omitempty"`
-	Note        string    `json:"note,omitempty"`
-	Warnings    []string  `json:"warnings"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Rev         int      `json:"rev"`
+	Parent      int      `json:"parent,omitempty"`
+	State       string   `json:"state"`
+	Lines       []string `json:"lines"`
+	Voice       string   `json:"voice,omitempty"`
+	Captions    bool     `json:"captions"`
+	Aspect      string   `json:"aspect"`
+	Provider    string   `json:"provider,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	UsedVoice   string   `json:"used_voice,omitempty"`
+	LengthMs    int64    `json:"length_ms"`
+	FailedStage string   `json:"failed_stage,omitempty"`
+	FailedCause string   `json:"failed_cause,omitempty"`
+	Note        string   `json:"note,omitempty"`
+	Warnings    []string `json:"warnings"`
+	// Progress is how far the stage it is at has come, while it is made.
+	Progress  *Progress `json:"progress,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Progress is how many of a revision's scenes the stage it is at has done,
+// as aidemo's job status counts them (src/mcp/jobs.ts:64-67, scenesTotal and
+// scenesDone, reset at each sub-stage). It is kept in memory, as aidemo's
+// job is: a revision being made when the control plane stops is failed as
+// interrupted at its next start.
+type Progress struct {
+	ScenesDone  int `json:"scenes_done"`
+	ScenesTotal int `json:"scenes_total"`
 }
 
 // Takes are the takes videos are made of (package takes).
@@ -198,6 +212,9 @@ type Service struct {
 	wake chan struct{}
 	// mu orders the writes that read before they write: a make's queue cap and revision number, a delete's check.
 	mu sync.Mutex
+	// progress is the stage's progress of the revision being made, by revKey; pmu guards it.
+	pmu      sync.Mutex
+	progress map[string]Progress
 }
 
 // New returns a Service.
@@ -226,7 +243,7 @@ func New(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("making the videos' folder: %w", err)
 	}
 
-	return &Service{cfg: cfg, db: cfg.DB, wake: make(chan struct{}, 1)}, nil
+	return &Service{cfg: cfg, db: cfg.DB, wake: make(chan struct{}, 1), progress: map[string]Progress{}}, nil
 }
 
 var (
@@ -505,7 +522,12 @@ func (s *Service) withRevisions(ctx context.Context, q *store.Queries, row store
 	}
 
 	for _, r := range revs {
-		v.Revisions = append(v.Revisions, revisionOf(r))
+		rev := revisionOf(r)
+		if Making(rev.State) {
+			rev.Progress = s.progressOf(row.ID, rev.Rev)
+		}
+
+		v.Revisions = append(v.Revisions, rev)
 	}
 
 	if len(v.Revisions) == 0 {
@@ -739,6 +761,17 @@ func (s *Service) Thumbnail(ctx context.Context, id string, rev int) (string, er
 	return s.made(ctx, id, rev, thumbFile)
 }
 
+// FirstFrame writes a picture of a video's first frame to out, with the
+// installed ffmpeg: a take's thumbnail in the Studio (takes.Store.Thumbnail).
+func (s *Service) FirstFrame(ctx context.Context, video, out string) error {
+	tools, err := s.cfg.Tools(ctx)
+	if err != nil {
+		return fmt.Errorf("%w: ffmpeg is not installed: %w", ErrUnavailable, err)
+	}
+
+	return s.cfg.Maker.Thumbnail(ctx, tools, video, out)
+}
+
 func (s *Service) made(ctx context.Context, id string, rev int, name string) (string, error) {
 	v, err := s.Get(ctx, id)
 	if err != nil {
@@ -767,6 +800,36 @@ func (s *Service) made(ctx context.Context, id string, rev int, name string) (st
 
 func (s *Service) revDir(id string, rev int, name ...string) string {
 	return filepath.Join(append([]string{s.cfg.Dir, id, strconv.Itoa(rev)}, name...)...)
+}
+
+func revKey(id string, rev int) string { return id + "/" + strconv.Itoa(rev) }
+
+// setProgress says how many of a revision's scenes its stage has done.
+func (s *Service) setProgress(id string, rev, done, total int) {
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+
+	s.progress[revKey(id, rev)] = Progress{ScenesDone: done, ScenesTotal: total}
+}
+
+// dropProgress forgets a revision's progress, once it is no longer made.
+func (s *Service) dropProgress(id string, rev int) {
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+
+	delete(s.progress, revKey(id, rev))
+}
+
+func (s *Service) progressOf(id string, rev int) *Progress {
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+
+	p, ok := s.progress[revKey(id, rev)]
+	if !ok {
+		return nil
+	}
+
+	return &p
 }
 
 // write runs fn in one transaction.

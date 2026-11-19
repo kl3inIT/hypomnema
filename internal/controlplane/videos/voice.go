@@ -68,8 +68,9 @@ func voiceHash(text, provider, model, voice, lang string) string {
 
 // speak voices each line: the first provider of the owner's order that
 // answers speaks the first, and every other line with it; a clip made before
-// with the same text, provider, model and voice is reused.
-func (s *Service) speak(ctx context.Context, lines []string, asked string) (spoken, error) {
+// with the same text, provider, model and voice is reused. done is told how
+// many lines are voiced, after each.
+func (s *Service) speak(ctx context.Context, lines []string, asked string, done func(n int)) (spoken, error) {
 	set, err := s.settings(ctx)
 	if err != nil {
 		return spoken{}, err
@@ -117,6 +118,8 @@ func (s *Service) speak(ctx context.Context, lines []string, asked string) (spok
 		return spoken{}, fmt.Errorf("scene 1: %s", strings.Join(failures, "; "))
 	}
 
+	done(1)
+
 	for k, line := range lines[1:] {
 		clip, err := s.clip(ctx, line, out.provider, out.voice)
 		if err != nil {
@@ -124,6 +127,7 @@ func (s *Service) speak(ctx context.Context, lines []string, asked string) (spok
 		}
 
 		out.clips = append(out.clips, clip)
+		done(len(out.clips))
 	}
 
 	return out, nil
