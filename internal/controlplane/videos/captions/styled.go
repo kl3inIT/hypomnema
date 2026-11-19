@@ -137,7 +137,7 @@ func (r *renderer) render(ctx context.Context, tools ffmpeg.Tools, cues []Cue, c
 		return nil, err
 	}
 
-	if err := r.fit(ctx, tools, laid); err != nil {
+	if err := r.fit(ctx, tools, cues, laid, chosen, rings); err != nil {
 		return nil, err
 	}
 

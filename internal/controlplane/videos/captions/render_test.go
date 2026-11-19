@@ -1,10 +1,12 @@
 package captions
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -246,7 +248,8 @@ func TestBoxPresetsDrawTheirBox(t *testing.T) {
 
 // sweepTokens are each printable ASCII letter and digit and each Vietnamese letter, lower and upper case, repeated
 // to overflow a block even at the 20 px floor (a narrow glyph is about 5 px there), and the reviews' probes of #943:
-// N×100 (One Word, Word Pair), j×999 (Minimal), a×999 (Bar), W×100, I×1000, ﬃ×35.
+// N×100 (One Word, Word Pair), j×999 (Minimal), a×999 (Bar), W×100, I×1000, ﬃ×35, and an i with eight graves
+// stacked on it, then forty i, eight graves again (One Word drew it 684 px, measured 662).
 func sweepTokens(w int) []string {
 	n := int(math.Ceil(2.2 * SafeFraction * float64(w) / 5))
 
@@ -271,13 +274,18 @@ func sweepTokens(w int) []string {
 		}
 	}
 
+	// The third review's: marks stacked on a letter at both ends reach far above the line, past where it was
+	// measured then.
+	marks := strings.Repeat("\u0300", 8)
+
 	return append(out, strings.Repeat("N", 100), strings.Repeat("j", 999), strings.Repeat("a", 999),
-		strings.Repeat("W", 100), strings.Repeat("I", 1000), strings.Repeat("ﬃ", 35))
+		strings.Repeat("W", 100), strings.Repeat("I", 1000), strings.Repeat("ﬃ", 35),
+		"i"+marks+strings.Repeat("i", 40)+marks)
 }
 
-// burnEach burns an ASS file whose cue i shows from i s to i+0.8 s, and returns the frame at i+0.5 s of each, cut
-// to rows [y0, y1), and what ffmpeg logged.
-func burnEach(t *testing.T, tl ffmpeg.Tools, ass string, w, h, n, y0, y1 int) ([]*image.NRGBA, string) {
+// burnEach burns an ASS file whose cue i shows from i s to i+0.8 s, and gives each, whole, its frame at i+0.5 s, one
+// at a time, as they are read; it returns what ffmpeg logged.
+func burnEach(t *testing.T, tl ffmpeg.Tools, ass string, w, h, n int, each func(i int, img *image.NRGBA)) string {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -287,34 +295,41 @@ func burnEach(t *testing.T, tl ffmpeg.Tools, ass string, w, h, n, y0, y1 int) ([
 	//nolint:gosec // The pinned ffmpeg.
 	cmd := exec.CommandContext(t.Context(), tl.FFmpeg, "-nostdin", "-hide_banner", "-loglevel", "info",
 		"-f", "lavfi", "-i", fmt.Sprintf("color=c=0x808080:s=%dx%d:r=2:d=%d", w, h, n),
-		"-vf", fmt.Sprintf(`select=mod(n\,2),format=rgb24,subtitles=filename=captions.ass:fontsdir=fonts,`+
-			`crop=%d:%d:0:%d`, w, y1-y0, y0),
+		"-vf", `select=mod(n\,2),format=rgb24,subtitles=filename=captions.ass:fontsdir=fonts`,
 		"-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1")
 	cmd.Dir = dir
 
-	var stdout, stderr bytes.Buffer
+	var stderr bytes.Buffer
 
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	require.NoError(t, cmd.Run(), stderr.String())
+	cmd.Stderr = &stderr
 
-	size := w * (y1 - y0) * 3
-	require.Equal(t, n*size, stdout.Len(), "one frame a cue")
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
 
-	out := make([]*image.NRGBA, 0, n)
+	in := bufio.NewReaderSize(stdout, 1<<20)
+	raw := make([]byte, w*h*3)
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
 
 	for i := range n {
-		img := image.NewNRGBA(image.Rect(0, 0, w, y1-y0))
-		raw := stdout.Bytes()[i*size : (i+1)*size]
+		if _, err := io.ReadFull(in, raw); err != nil {
+			_ = cmd.Wait()
+			require.NoError(t, err, "frame %d of %d: %s", i, n, stderr.String())
+		}
 
-		for p := range w * (y1 - y0) {
+		for p := range w * h {
 			copy(img.Pix[4*p:], raw[3*p:3*p+3])
 			img.Pix[4*p+3] = 255
 		}
 
-		out = append(out, img)
+		each(i, img)
 	}
 
-	return out, stderr.String()
+	n2, _ := io.Copy(io.Discard, in)
+	require.NoError(t, cmd.Wait(), stderr.String())
+	require.Zero(t, n2, "one frame a cue")
+
+	return stderr.String()
 }
 
 // Every preset's block is at most 0.94 of the width, measured on the pixels libass draws (check 4, the must-fix of
@@ -355,24 +370,16 @@ func TestEveryBlockFitsTheWidthAsDrawn(t *testing.T) {
 				ass, r, frames := rendered(t, tl, p.ID, PositionPreset, w, h, cues, nil)
 				require.Len(t, frames, len(cues), "one block a token")
 
-				y0, y1 := h, 0
-				for _, pf := range frames {
-					y0, y1 = min(y0, int(pf.top)-4), max(y1, int(pf.top+pf.block.h)+4)
-				}
-
-				y0, y1 = max(0, y0), min(h, y1)
-				imgs, log := burnEach(t, tl, ass, w, h, len(cues), y0, y1)
+				log := burnEach(t, tl, ass, w, h, len(cues), func(i int, img *image.NRGBA) {
+					got := drawnWidth(img, r)
+					assert.LessOrEqual(t, got, limit, "%q×%d: %.0f px wide",
+						string([]rune(tokens[i])[0]), len([]rune(tokens[i])), got)
+				})
 
 				for _, l := range strings.Split(log, "\n") {
 					if strings.Contains(l, "fontselect:") {
 						assert.True(t, strings.HasSuffix(l, ", "+ps[p.Font]), "drawn with the preset's font: %s", l)
 					}
-				}
-
-				for i, img := range imgs {
-					got := drawnWidth(img, r)
-					assert.LessOrEqual(t, got, limit, "%q×%d: %.0f px wide",
-						string([]rune(tokens[i])[0]), len([]rune(tokens[i])), got)
 				}
 			})
 		}
