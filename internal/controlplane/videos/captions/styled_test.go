@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/compose"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
 )
 
 // cue is one cue of words said one after another, each lasting each seconds, from 0.
@@ -57,8 +58,8 @@ func TestLegacyIsTheCaptionsOfBefore(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, size := range [][2]int{{720, 1280}, {1280, 720}} {
-		got, err := Render(cues, Look{Preset: Legacy, Position: PositionCenter}, size[0], size[1],
-			[]compose.Ring{{AtMs: 1000, X: 360, Y: 1200, Size: 101}})
+		got, err := Render(t.Context(), ffmpeg.Tools{}, cues, Look{Preset: Legacy, Position: PositionCenter},
+			size[0], size[1], []compose.Ring{{AtMs: 1000, X: 360, Y: 1200, Size: 101}})
 		require.NoError(t, err)
 		assert.Equal(t, ASS(cues, size[0], size[1], Default), got)
 	}
@@ -67,15 +68,19 @@ func TestLegacyIsTheCaptionsOfBefore(t *testing.T) {
 func TestRenderRefusesWhatIsNotThere(t *testing.T) {
 	t.Parallel()
 
-	_, err := Render(nil, Look{Preset: "sparkle"}, 720, 1280, nil)
+	_, err := Render(t.Context(), ffmpeg.Tools{}, nil, Look{Preset: "sparkle"}, 720, 1280, nil)
 	require.ErrorContains(t, err, `"sparkle"`)
 
-	_, err = Render(nil, Look{Preset: "clean", Position: "left"}, 720, 1280, nil)
+	_, err = Render(t.Context(), ffmpeg.Tools{}, nil, Look{Preset: "clean", Position: "left"}, 720, 1280, nil)
 	require.ErrorContains(t, err, `"left"`)
 
-	got, err := Render([]Cue{cue(0.3, "Xin", "chào")}, Look{}, 720, 1280, nil)
+	look, err := resolveLook(Look{})
 	require.NoError(t, err)
-	assert.Contains(t, got, "Style: Text,Be Vietnam Pro Bold,", "no preset is Clean")
+	assert.Equal(t, Look{Preset: "clean", Position: PositionPreset}, look, "no preset is Clean")
+
+	// A preset is fitted by libass's drawing: without ffmpeg, it is refused, never let through unmeasured.
+	_, err = Render(t.Context(), ffmpeg.Tools{}, []Cue{cue(0.3, "Xin", "chào")}, Look{}, 720, 1280, nil)
+	require.ErrorContains(t, err, "ffmpeg is needed")
 }
 
 // onScreen is how long each word is shown, as the frames show it.
@@ -150,21 +155,24 @@ func TestClausePunctuationIsDroppedOnlyWordByWord(t *testing.T) {
 	}
 }
 
-// The width cap, as laid out (issue #908, row 8): a 60-character token at 720 px shrinks to the 20 px floor
-// and is squeezed into 0.94 W, with or without a box.
+// The width cap, as estimated before libass draws it (issue #908, row 8; fit.go then measures what libass drew): a
+// 60-character token at 720 px shrinks to the 20 px floor and is squeezed into 0.94 W, with or without a box.
 func TestTheWidthCapSqueezesAtTheFloor(t *testing.T) {
 	t.Parallel()
 
 	token := strings.Repeat("W", 60)
 
 	for _, preset := range []string{"one-word", "word-pair", "clean", "bar"} {
+		r, err := newRenderer(preset, 720, 1280)
+		require.NoError(t, err)
+
 		frames := placed(t, preset, PositionPreset, 720, 1280, []Cue{cue(1, token)}, nil)
 		require.NotEmpty(t, frames, preset)
 
 		for _, pf := range frames {
 			assert.InDelta(t, MinFontSize, pf.block.em, 1e-9, preset)
 			assert.Less(t, pf.block.fx, 1.0, preset)
-			assert.LessOrEqual(t, pf.block.w+inkEdgePx, 0.94*720, preset)
+			assert.LessOrEqual(t, r.drawn(pf.block), 0.94*720, preset)
 		}
 	}
 
@@ -256,8 +264,10 @@ func TestOnlyWhatTheFontDrawsIsShown(t *testing.T) {
 
 	for preset, tc := range map[string]struct{ words, want []string }{
 		"one-word": {[]string{"ﬃﬃ", "Ổn✅", "😀😀", "định"}, []string{"FFIFFI", "ỔN", "ĐỊNH"}},
-		"clean":    {[]string{"ﬃ→", "Ổn✅", "😀😀", "định"}, []string{"ffi", "Ổn", "định"}},
-		"mono":     {[]string{"ＡＢＣ", "Ổn✅", "😀😀", "định"}, []string{"ABC", "Ổn", "định"}},
+		// Unicode's full uppercase, as demotape's Swift uppercased() (CaptionBurner.swift, line 435): ß is SS.
+		"word-pair": {[]string{"straße", "ﬀ"}, []string{"STRASSE", "FF"}},
+		"clean":     {[]string{"ﬃ→", "Ổn✅", "😀😀", "định"}, []string{"ffi", "Ổn", "định"}},
+		"mono":      {[]string{"ＡＢＣ", "Ổn✅", "😀😀", "định"}, []string{"ABC", "Ổn", "định"}},
 	} {
 		var seen []string
 

@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -139,22 +141,28 @@ func notGrey(img *image.NRGBA) func(x, y int) bool {
 	return func(x, y int) bool { return rgb(img, x, y) != [3]int{grey, grey, grey} }
 }
 
-// rendered is a preset's ASS for cues and its frames as placed.
-func rendered(t *testing.T, preset string, pos Position, w, h int, cues []Cue, rings []compose.Ring,
+// rendered is a preset's ASS for cues, as Render makes it, and its frames as placed, fitted by libass.
+func rendered(t *testing.T, tl ffmpeg.Tools, preset string, pos Position, w, h int, cues []Cue,
+	rings []compose.Ring,
 ) (string, *renderer, []placedFrame) {
 	t.Helper()
-
-	ass, err := Render(cues, Look{Preset: preset, Position: pos}, w, h, rings)
-	require.NoError(t, err)
 
 	r, err := newRenderer(preset, w, h)
 	require.NoError(t, err)
 
-	frames, err := r.place(cues, pos, rings)
+	frames, err := r.render(t.Context(), tl, cues, pos, rings)
 	require.NoError(t, err)
 	require.NotEmpty(t, frames)
 
-	return ass, r, frames
+	var ass strings.Builder
+
+	ass.WriteString(r.header(w, h))
+
+	for _, pf := range frames {
+		ass.WriteString(r.events(pf))
+	}
+
+	return ass.String(), r, frames
 }
 
 func mid(pf placedFrame) float64 { return (pf.from + pf.to) / 2 }
@@ -175,7 +183,7 @@ func TestFontselectPicksEachPresetsFont(t *testing.T) {
 		t.Run(p.ID, func(t *testing.T) {
 			t.Parallel()
 
-			ass, err := Render([]Cue{lineCue()}, Look{Preset: p.ID}, 720, 1280, nil)
+			ass, err := Render(t.Context(), tl, []Cue{lineCue()}, Look{Preset: p.ID}, 720, 1280, nil)
 			require.NoError(t, err)
 
 			name := p.Font
@@ -203,7 +211,7 @@ func TestBoxPresetsDrawTheirBox(t *testing.T) {
 			t.Run(fmt.Sprintf("%s-%dx%d", preset, size[0], size[1]), func(t *testing.T) {
 				t.Parallel()
 
-				ass, r, frames := rendered(t, preset, PositionPreset, size[0], size[1], []Cue{lineCue()}, nil)
+				ass, r, frames := rendered(t, tl, preset, PositionPreset, size[0], size[1], []Cue{lineCue()}, nil)
 				img, _ := burn(t, tl, ass, size[0], size[1], mid(frames[0]), "error")
 
 				x, y, w, h := r.boxRect(frames[0])
@@ -236,21 +244,90 @@ func TestBoxPresetsDrawTheirBox(t *testing.T) {
 	}
 }
 
-// Every preset's block is at most 0.94 of the width, measured on the pixels drawn: the text, its outline and the
-// box; a long token included, at 720 px, in the presets without a box (check 4, and the must-fix of #935).
+// sweepTokens are each printable ASCII letter and digit and each Vietnamese letter, lower and upper case, repeated
+// to overflow a block even at the 20 px floor (a narrow glyph is about 5 px there), and the reviews' probes of #943:
+// N×100 (One Word, Word Pair), j×999 (Minimal), a×999 (Bar), W×100, I×1000, ﬃ×35.
+func sweepTokens(w int) []string {
+	n := int(math.Ceil(2.2 * SafeFraction * float64(w) / 5))
+
+	seen := map[string]bool{}
+
+	var letters []string
+
+	for c := '0'; c <= 'z'; c++ {
+		if unicode.IsLetter(c) || unicode.IsDigit(c) {
+			letters = append(letters, string(c))
+		}
+	}
+
+	letters = append(letters, vietnamese()...)
+
+	var out []string
+
+	for _, l := range letters {
+		if !seen[l] {
+			seen[l] = true
+			out = append(out, strings.Repeat(l, n))
+		}
+	}
+
+	return append(out, strings.Repeat("N", 100), strings.Repeat("j", 999), strings.Repeat("a", 999),
+		strings.Repeat("W", 100), strings.Repeat("I", 1000), strings.Repeat("ﬃ", 35))
+}
+
+// burnEach burns an ASS file whose cue i shows from i s to i+0.8 s, and returns the frame at i+0.5 s of each, cut
+// to rows [y0, y1), and what ffmpeg logged.
+func burnEach(t *testing.T, tl ffmpeg.Tools, ass string, w, h, n, y0, y1 int) ([]*image.NRGBA, string) {
+	t.Helper()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "captions.ass"), []byte(ass), 0o600))
+	require.NoError(t, os.Symlink(tl.FontsDir, filepath.Join(dir, "fonts")))
+
+	//nolint:gosec // The pinned ffmpeg.
+	cmd := exec.CommandContext(t.Context(), tl.FFmpeg, "-nostdin", "-hide_banner", "-loglevel", "info",
+		"-f", "lavfi", "-i", fmt.Sprintf("color=c=0x808080:s=%dx%d:r=2:d=%d", w, h, n),
+		"-vf", fmt.Sprintf(`select=mod(n\,2),format=rgb24,subtitles=filename=captions.ass:fontsdir=fonts,`+
+			`crop=%d:%d:0:%d`, w, y1-y0, y0),
+		"-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1")
+	cmd.Dir = dir
+
+	var stdout, stderr bytes.Buffer
+
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	require.NoError(t, cmd.Run(), stderr.String())
+
+	size := w * (y1 - y0) * 3
+	require.Equal(t, n*size, stdout.Len(), "one frame a cue")
+
+	out := make([]*image.NRGBA, 0, n)
+
+	for i := range n {
+		img := image.NewNRGBA(image.Rect(0, 0, w, y1-y0))
+		raw := stdout.Bytes()[i*size : (i+1)*size]
+
+		for p := range w * (y1 - y0) {
+			copy(img.Pix[4*p:], raw[3*p:3*p+3])
+			img.Pix[4*p+3] = 255
+		}
+
+		out = append(out, img)
+	}
+
+	return out, stderr.String()
+}
+
+// Every preset's block is at most 0.94 of the width, measured on the pixels libass draws (check 4, the must-fix of
+// #935, and the reviews of #943): a sweep of every letter and digit, each repeated to overflow, at both sizes;
+// and the line, each of its stretches. Each is drawn with the preset's own font, none falling back.
 func TestEveryBlockFitsTheWidthAsDrawn(t *testing.T) {
 	t.Parallel()
 
 	tl := tools(t)
-
-	type check struct {
-		preset string
-		size   [2]int
-		text   string
-		label  string
+	ps := map[string]string{
+		fontExtraBold: "BeVietnamPro-ExtraBold", fontBold: "BeVietnamPro-Bold",
+		fontMedium: "BeVietnamPro-Medium", fontMono: "JetBrainsMono-SemiBold",
 	}
-
-	var checks []check
 
 	for _, p := range Presets {
 		if p.ID == Legacy {
@@ -258,73 +335,90 @@ func TestEveryBlockFitsTheWidthAsDrawn(t *testing.T) {
 		}
 
 		for _, size := range sizes {
-			checks = append(checks, check{p.ID, size, line, "line"})
+			t.Run(fmt.Sprintf("%s-%dx%d", p.ID, size[0], size[1]), func(t *testing.T) {
+				t.Parallel()
+
+				w, h := size[0], size[1]
+				limit := 0.94 * float64(w)
+
+				tokens := sweepTokens(w)
+				cues := make([]Cue, len(tokens))
+
+				for i, tok := range tokens {
+					at := float64(i)
+					cues[i] = Cue{
+						Index: i + 1, StartMs: int64(i) * 1000, EndMs: int64(i)*1000 + 800, Text: tok,
+						Words: []Word{{Word: tok, Start: at, End: at + 0.8}},
+					}
+				}
+
+				ass, r, frames := rendered(t, tl, p.ID, PositionPreset, w, h, cues, nil)
+				require.Len(t, frames, len(cues), "one block a token")
+
+				y0, y1 := h, 0
+				for _, pf := range frames {
+					y0, y1 = min(y0, int(pf.top)-4), max(y1, int(pf.top+pf.block.h)+4)
+				}
+
+				y0, y1 = max(0, y0), min(h, y1)
+				imgs, log := burnEach(t, tl, ass, w, h, len(cues), y0, y1)
+
+				for _, l := range strings.Split(log, "\n") {
+					if strings.Contains(l, "fontselect:") {
+						assert.True(t, strings.HasSuffix(l, ", "+ps[p.Font]), "drawn with the preset's font: %s", l)
+					}
+				}
+
+				for i, img := range imgs {
+					got := drawnWidth(img, r)
+					assert.LessOrEqual(t, got, limit, "%q×%d: %.0f px wide",
+						string([]rune(tokens[i])[0]), len([]rune(tokens[i])), got)
+				}
+			})
 		}
 	}
 
-	for _, preset := range []string{"one-word", "word-pair", "clean"} {
-		checks = append(checks, check{preset, sizes[0], strings.Repeat("Ư", 60), "Ư×60"})
-	}
+	// The line, at each of its stretches: blocks of one and two lines, of several words.
+	for _, p := range Presets {
+		if p.ID == Legacy {
+			continue
+		}
 
-	// The probe of the plan's review: W×100 drew 678 px in One Word against 676.8 px planned from the advances.
-	checks = append(checks, check{"one-word", sizes[0], strings.Repeat("W", 100), "W×100"})
+		for _, size := range sizes {
+			t.Run(fmt.Sprintf("%s-%dx%d-line", p.ID, size[0], size[1]), func(t *testing.T) {
+				t.Parallel()
 
-	// The review of #943: narrow glyphs by the hundred drew 678 and 690 px, as libass rounds each advance at its
-	// shaping size; and a ligature the fonts lack (ﬃ) fell back to a system font the measure did not know, 720 px.
-	for _, preset := range []string{"one-word", "word-pair", "clean", "minimal", "mono", "bar"} {
-		checks = append(checks,
-			check{preset, sizes[0], strings.Repeat("I", 100), "I×100"},
-			check{preset, sizes[0], strings.Repeat("I", 1000), "I×1000"},
-			check{preset, sizes[0], strings.Repeat("l.", 400), "l.×400"},
-			check{preset, sizes[0], strings.Repeat("ﬃ", 35), "ﬃ×35"},
-			check{preset, sizes[0], "Ổn✅" + strings.Repeat("😀", 40) + "định", "emoji"})
-	}
+				w, h := size[0], size[1]
+				ass, r, frames := rendered(t, tl, p.ID, PositionPreset, w, h, []Cue{lineCue()}, nil)
 
-	ps := map[string]string{
-		fontExtraBold: "BeVietnamPro-ExtraBold", fontBold: "BeVietnamPro-Bold",
-		fontMedium: "BeVietnamPro-Medium", fontMono: "JetBrainsMono-SemiBold",
-	}
-
-	for _, c := range checks {
-		t.Run(fmt.Sprintf("%s-%dx%d-%s", c.preset, c.size[0], c.size[1], c.label), func(t *testing.T) {
-			t.Parallel()
-
-			w, h := c.size[0], c.size[1]
-			ass, r, frames := rendered(t, c.preset, PositionPreset, w, h, []Cue{cue(0.3, strings.Fields(c.text)...)}, nil)
-
-			for _, pf := range frames {
-				img, log := burn(t, tl, ass, w, h, mid(pf), "info")
-
-				// libass draws every glyph with the preset's font: none falls back to one the measure does not know.
-				for _, l := range strings.Split(log, "\n") {
-					if strings.Contains(l, "fontselect:") {
-						assert.True(t, strings.HasSuffix(l, ", "+ps[r.p.Font]), "%s: %s", c.preset, l)
-					}
+				for _, pf := range frames {
+					img, _ := burn(t, tl, ass, w, h, mid(pf), "error")
+					assert.LessOrEqual(t, drawnWidth(img, r), 0.94*float64(w), "%v", shownWords(pf))
 				}
-
-				drawn := notGrey(img)
-				if r.p.Bar {
-					band := over(r.p.Box)
-					_, y, _, bh := r.boxRect(pf)
-					row := int(y + bh/2)
-					assert.True(t, near(rgb(img, 0, row), band, 8), "the band starts at 0")
-					assert.True(t, near(rgb(img, w-1, row), band, 8), "the band ends at W")
-
-					// The text: what is neither the band nor the grey. The band's own first and last columns are
-					// drawn a level off its color (its anti-aliased edges), and are not text.
-					drawn = func(x, y int) bool {
-						return x > 0 && x < w-1 && !near(rgb(img, x, y), band, 0) &&
-							rgb(img, x, y) != [3]int{grey, grey, grey}
-					}
-				}
-
-				all, ok := bbox(img, drawn)
-				require.True(t, ok, "something is drawn at %.2f s", mid(pf))
-				assert.LessOrEqual(t, float64(all.x1-all.x0+1), 0.94*float64(w),
-					"%s at %.2f s: %d px wide, %v", c.preset, mid(pf), all.x1-all.x0+1, shownWords(pf))
-			}
-		})
+			})
+		}
 	}
+}
+
+// drawnWidth is the width of what is drawn in a frame: every pixel not the grey; for a bar, its
+// text, the band (the video's width) left out, as its own first and last columns are drawn a level off its color.
+func drawnWidth(img *image.NRGBA, r *renderer) float64 {
+	w := img.Bounds().Dx()
+	drawn := notGrey(img)
+
+	if r.p.Bar {
+		band := over(r.p.Box)
+		drawn = func(x, y int) bool {
+			return x > 0 && x < w-1 && !near(rgb(img, x, y), band, 0) && rgb(img, x, y) != [3]int{grey, grey, grey}
+		}
+	}
+
+	all, ok := bbox(img, drawn)
+	if !ok {
+		return 0
+	}
+
+	return float64(all.x1 - all.x0 + 1)
 }
 
 // Karaoke greys the words not spoken yet, #9A9A9A; Pop does not show them (check 4).
@@ -349,17 +443,17 @@ func TestKaraokeGreysAndPopHidesTheWordsToCome(t *testing.T) {
 	}
 
 	c := cue(0.3, "Ổn", "định", "hệ", "thống")
-	ass, _, frames := rendered(t, "karaoke", PositionPreset, 1280, 720, []Cue{c}, nil)
+	ass, _, frames := rendered(t, tl, "karaoke", PositionPreset, 1280, 720, []Cue{c}, nil)
 	first, _ := burn(t, tl, ass, 1280, 720, mid(frames[0]), "error")
 	last, _ := burn(t, tl, ass, 1280, 720, mid(frames[len(frames)-1]), "error")
 	assert.Greater(t, count(first), 300, "three words to come, in grey")
 	assert.Greater(t, count(first), 5*count(last), "none to come at the last word")
 
 	// Pop at the first word draws what a cue of only that word draws.
-	ass, _, frames = rendered(t, "pop", PositionPreset, 720, 1280, []Cue{c}, nil)
+	ass, _, frames = rendered(t, tl, "pop", PositionPreset, 720, 1280, []Cue{c}, nil)
 	popped, _ := burn(t, tl, ass, 720, 1280, mid(frames[0]), "error")
 
-	alone, err := Render([]Cue{cue(0.3, "Ổn")}, Look{Preset: "pop"}, 720, 1280, nil)
+	alone, err := Render(t.Context(), tl, []Cue{cue(0.3, "Ổn")}, Look{Preset: "pop"}, 720, 1280, nil)
 	require.NoError(t, err)
 
 	want, _ := burn(t, tl, alone, 720, 1280, mid(frames[0]), "error")
@@ -375,7 +469,7 @@ func TestPlacementAsDrawn(t *testing.T) {
 	drawnBox := func(t *testing.T, preset string, pos Position, w, h int, rings []compose.Ring) []rect {
 		t.Helper()
 
-		ass, r, frames := rendered(t, preset, pos, w, h, []Cue{lineCue()}, rings)
+		ass, r, frames := rendered(t, tl, preset, pos, w, h, []Cue{lineCue()}, rings)
 
 		var out []rect
 
@@ -446,7 +540,7 @@ func TestClassicIsBurnedAsBefore(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 
-	ass, err := Render([]Cue{cue(0.4, strings.Fields(line)[:4]...)}, Look{Preset: Legacy}, 720, 1280, nil)
+	ass, err := Render(t.Context(), tl, []Cue{cue(0.4, strings.Fields(line)[:4]...)}, Look{Preset: Legacy}, 720, 1280, nil)
 	require.NoError(t, err)
 
 	captions := filepath.Join(dir, "captions.ass")

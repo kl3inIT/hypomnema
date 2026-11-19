@@ -13,6 +13,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/captions"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/compose"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/internal/store"
 )
 
@@ -272,7 +273,7 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 
 		stage(0)
 
-		ass, err := s.captions(ctx, source, said.clips, made, filepath.Join(work, "captions.ass"), stage)
+		ass, err := s.captions(ctx, tools, source, said.clips, made, filepath.Join(work, "captions.ass"), stage)
 		if err != nil {
 			return nil, 0, at(Captioning, err)
 		}
@@ -307,8 +308,8 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 // captions transcribes each scene's clip with its words' times, builds the
 // cues on the video's time and writes them as an ASS file (row 6). done is
 // told how many scenes are transcribed, after each.
-func (s *Service) captions(ctx context.Context, source AudioSource, clips []string, made compose.Result, out string,
-	done func(n int),
+func (s *Service) captions(ctx context.Context, tools ffmpeg.Tools, source AudioSource, clips []string,
+	made compose.Result, out string, done func(n int),
 ) (string, error) {
 	if len(made.Scenes) != len(clips) {
 		return "", fmt.Errorf("the video has %d scenes and %d clips", len(made.Scenes), len(clips))
@@ -344,7 +345,8 @@ func (s *Service) captions(ctx context.Context, source AudioSource, clips []stri
 	}
 
 	// Every revision keeps the captions it was made with until a revision stores its look (#908, part 3).
-	ass, err := captions.Render(cues, captions.Look{Preset: captions.Legacy}, made.Size.Width, made.Size.Height, rings)
+	ass, err := captions.Render(ctx, tools, cues, captions.Look{Preset: captions.Legacy}, made.Size.Width,
+		made.Size.Height, rings)
 	if err != nil {
 		return "", err
 	}

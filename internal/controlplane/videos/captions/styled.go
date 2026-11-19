@@ -14,8 +14,8 @@
 // what is shown stays the same is one block of ASS events, burned by libass: the box a \p1 rounded rectangle on
 // layer 0, each line of words an \an8\pos event on layer 1, as agent-demo-video writes one event a state of its
 // growing words. The size is an em, given to libass as its Fontsize through the font's OS/2 metrics (fonts.go),
-// and a line's top is libass's, its ascender; the width cap is on the pixels libass draws (fonts.go, span) and counts
-// the outline, and the box's padding only for a preset with a box (demotape counts the padding always, an
+// and a line's top is libass's, its ascender; the width cap is on the pixels libass draws, each block drawn once
+// by the pinned ffmpeg and measured (fit.go), and counts the outline, and the box's padding only for a preset with a box (demotape counts the padding always, an
 // inference), and the glyphs' ink besides their advances; at the 20 px floor a block still too wide is squeezed
 // with \fscx, where demotape keeps its width and is clipped (an inference). A cue at the bottom flips to the top,
 // whole, while a tap's ring reaches its tallest block (aidemo's flip, tested against the block, not a fixed band).
@@ -49,14 +49,18 @@
 package captions
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/compose"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
 )
 
 // WordByWordMinSeconds is the shortest a word stays on screen in a one- or two-word preset: long enough to read
@@ -92,8 +96,11 @@ type Look struct {
 }
 
 // Render is the captions of a video of width × height as an ASS file, in a look. rings are the taps' rings on
-// the video, which a cue at the bottom keeps clear of. Legacy is the captions as ASS makes them.
-func Render(cues []Cue, look Look, width, height int, rings []compose.Ring) (string, error) {
+// the video, which a cue at the bottom keeps clear of. Every block is drawn once by libass, with the pinned ffmpeg
+// in tools, and fitted to the width as drawn (fit.go). Legacy is the captions as ASS makes them.
+func Render(ctx context.Context, tools ffmpeg.Tools, cues []Cue, look Look, width, height int,
+	rings []compose.Ring,
+) (string, error) {
 	look, err := resolveLook(look)
 	if err != nil {
 		return "", err
@@ -108,7 +115,7 @@ func Render(cues []Cue, look Look, width, height int, rings []compose.Ring) (str
 		return "", err
 	}
 
-	placed, err := r.place(cues, look.Position, rings)
+	placed, err := r.render(ctx, tools, cues, look.Position, rings)
 	if err != nil {
 		return "", err
 	}
@@ -119,6 +126,22 @@ func Render(cues []Cue, look Look, width, height int, rings []compose.Ring) (str
 	}
 
 	return r.header(width, height) + events.String(), nil
+}
+
+// render lays out every cue's frames, fits each block to the width as libass draws it, and places them.
+func (r *renderer) render(ctx context.Context, tools ffmpeg.Tools, cues []Cue, chosen Position,
+	rings []compose.Ring,
+) ([]placedFrame, error) {
+	laid, err := r.layoutCues(cues)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := r.fit(ctx, tools, laid); err != nil {
+		return nil, err
+	}
+
+	return r.placeCues(cues, laid, chosen, rings), nil
 }
 
 // resolveLook fills a look's defaults and checks its ids.
@@ -160,12 +183,20 @@ type placedFrame struct {
 	top float64
 }
 
-// place lays out every cue's frames and places them: at the position, or, for a cue at the bottom that a ring
-// reaches, at the top.
+// place lays out every cue's frames, as estimated, and places them (fit is left out: the tests of the layout that
+// need no ffmpeg).
 func (r *renderer) place(cues []Cue, chosen Position, rings []compose.Ring) ([]placedFrame, error) {
-	pos := r.position(chosen)
+	laid, err := r.layoutCues(cues)
+	if err != nil {
+		return nil, err
+	}
 
-	var out []placedFrame
+	return r.placeCues(cues, laid, chosen, rings), nil
+}
+
+// layoutCues is every cue's frames, each block laid out from the font's measures.
+func (r *renderer) layoutCues(cues []Cue) ([][]frame, error) {
+	out := make([][]frame, 0, len(cues))
 
 	for _, c := range cues {
 		frames, err := r.frames(c)
@@ -173,17 +204,31 @@ func (r *renderer) place(cues []Cue, chosen Position, rings []compose.Ring) ([]p
 			return nil, err
 		}
 
+		out = append(out, frames)
+	}
+
+	return out, nil
+}
+
+// placeCues places every cue's frames: at the position, or, for a cue at the bottom that a ring reaches, at the
+// top.
+func (r *renderer) placeCues(cues []Cue, laid [][]frame, chosen Position, rings []compose.Ring) []placedFrame {
+	pos := r.position(chosen)
+
+	var out []placedFrame
+
+	for k, c := range cues {
 		at := pos
-		if at == PositionBottom && r.ringReaches(c, frames, rings) {
+		if at == PositionBottom && r.ringReaches(c, laid[k], rings) {
 			at = PositionTop
 		}
 
-		for _, fr := range frames {
+		for _, fr := range laid[k] {
 			out = append(out, placedFrame{frame: fr, top: r.top(at, fr.block.h)})
 		}
 	}
 
-	return out, nil
+	return out
 }
 
 func validPosition(p Position) bool {
@@ -228,8 +273,11 @@ type block struct {
 	lines [][]word
 	// em is the type's size in pixels, fx the horizontal squeeze (1 is none).
 	em, fx float64
-	// textW is the widest line's span at em and fx, as libass lays it out, in whole pixels.
-	textW               float64
+	// textW is the widest line's span at em and fx, estimated from the font, in whole pixels.
+	textW float64
+	// drawnText is the widest line's width in the pixels libass drew, its outline and anti-aliased edges
+	// included, once fit has drawn it; 0 before.
+	drawnText           float64
 	padX, padY, outline float64
 	lineH               float64
 	// w and h are the block's size: the box's, or the text's and its outline's.
@@ -368,13 +416,14 @@ func (r *renderer) lines(visible []Word, maxWords int, t float64) [][]word {
 }
 
 // drawable is a word as the preset's font draws it: compatibility forms folded (NFKC: ﬃ to ffi, full-width
-// letters to their own), uppercased when the preset is, and any character the font still has no glyph for left
+// letters to their own), uppercased in full when the preset is (straße to STRASSE), and any character the font still has no glyph for left
 // out, so that libass never falls back to a font of the machine the width is not measured with (the
 // coordinator's choice, 2026-11-19, on the review of #943).
 func (r *renderer) drawable(text string) string {
 	text = norm.NFKC.String(text)
 	if r.p.Uppercase {
-		text = norm.NFC.String(strings.ToUpper(text))
+		// Unicode's full mapping, as Swift's uppercased() in demotape (CaptionBurner.swift, line 435): ß to SS.
+		text = norm.NFC.String(cases.Upper(language.Und).String(text))
 	}
 
 	return strings.Map(func(c rune) rune {
@@ -477,19 +526,35 @@ func (r *renderer) measure(lines [][]word, em, fx float64) (block, error) {
 	return b, nil
 }
 
-// width is a block's width: a box's, the text and its padding, in whole pixels; else the text and its outline.
-// A bar's band is the video's width, and its block is its text.
-func (r *renderer) width(b block) float64 {
-	if r.p.HasBox() && !r.p.Bar {
-		return math.Ceil(b.textW + 2*b.padX - 1e-9)
+// text is a block's widest line in drawn pixels: as libass drew it, once fit has drawn it; before, the estimate,
+// its outline, and the pixel its anti-aliased edges touch on either side.
+func (r *renderer) text(b block) float64 {
+	if b.drawnText > 0 {
+		return b.drawnText
 	}
 
-	return b.textW + 2*b.outline
+	return b.textW + 2*b.outline + inkEdgePx
 }
 
-// drawn is a block's width in the pixels libass draws: its edges, anti-aliased, touch a pixel more on each side
-// (the box's too, as measured with the pinned ffmpeg). The cap is on these pixels, not only the advances (#935).
-func (r *renderer) drawn(b block) float64 { return b.w + inkEdgePx }
+// width is a block's width: a box's, the text and its padding, in whole pixels; else the text as drawn. A bar's
+// band is the video's width, and its block is its text.
+func (r *renderer) width(b block) float64 {
+	if r.p.HasBox() && !r.p.Bar {
+		return math.Ceil(r.text(b) + 2*b.padX - 1e-9)
+	}
+
+	return r.text(b)
+}
+
+// drawn is a block's width in the pixels libass draws: the text's; a box's edges, anti-aliased, touch a pixel more
+// on each side (as measured with the pinned ffmpeg). The cap is on these pixels (#935).
+func (r *renderer) drawn(b block) float64 {
+	if r.p.HasBox() && !r.p.Bar {
+		return b.w + inkEdgePx
+	}
+
+	return b.w
+}
 
 func lineText(line []word) string {
 	texts := make([]string, 0, len(line))
@@ -597,6 +662,15 @@ func (r *renderer) events(pf placedFrame) string {
 		fmt.Fprintf(&out, "Dialogue: 0,%s,%s,Box,,0,0,0,,{\\pos(%s,%s)\\p1}%s{\\p0}\n", //nolint:misspell // ASS.
 			from, to, num(x), num(y), roundedRect(w, h, radius))
 	}
+
+	out.WriteString(r.textEvents(b, top, from, to))
+
+	return out.String()
+}
+
+// textEvents are a block's lines, each an event centered on the video, the block's top at top.
+func (r *renderer) textEvents(b block, top float64, from, to string) string {
+	var out strings.Builder
 
 	for row, line := range b.lines {
 		y := top + b.padY + float64(row)*b.lineH

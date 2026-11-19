@@ -20,7 +20,8 @@ import (
 // (libass a6613d2, libass/ass_font.c: set_font_metrics, lines 355-365, and ass_face_set_size, lines 585-594): a font
 // whose em is to be e pixels is asked for at e × (usWinAscent + usWinDescent) / unitsPerEm. Those come from the
 // OS/2 and head tables, which x/image's sfnt does not expose, so a small reader takes them from the file; the text
-// is measured with sfnt as libass lays it out (span), kerning off (its default, Kerning: no).
+// is estimated with sfnt as libass lays it out (span), kerning off (its default, Kerning: no), and then measured as
+// libass draws it (fit.go).
 
 // metrics are a font's sizes in its own units.
 type metrics struct {
@@ -105,14 +106,14 @@ func (f *face) assSize(em float64) float64 {
 // 1981-2002; ffmpeg's subtitles filter leaves libass's hinting at none).
 const shapeSize = 256
 
-// span is a line's width in pixels, set at an ASS Fontsize of size and squeezed to fx, as libass lays it out: each
-// glyph's advance is FreeType's at shapeSize, loaded with FT_LOAD_DEFAULT and so rounded to a whole pixel there
-// (libass/ass_shaper.c, ass_glyph_metrics_construct, lines 253-274), then scaled by fx × size / shapeSize and
-// rounded to 1/64 px, one glyph at a time (ass_shaper.c, line 656); its ink is the unhinted outline, scaled alike
-// (libass/ass_font.c, lines 782-786). The span runs from the left of the first glyph's ink or of the pen, whichever
-// is further left, to the right of the furthest ink or of the pen after the last advance: libass centers a line on
-// its advances, and a glyph's ink may reach past them (a W's arms). Rounding where libass rounds keeps a line of a
-// thousand narrow glyphs as wide as drawn, which the sum of exact advances fell 14 px short of (the review of #943).
+// span is a line's width in pixels, set at an ASS Fontsize of size and squeezed to fx, estimated as libass lays it
+// out: each glyph's advance at shapeSize rounded to a whole pixel (libass loads it hinted there: ass_shaper.c,
+// ass_glyph_metrics_construct, lines 253-274), then scaled by fx × size / shapeSize and rounded to 1/64 px, one
+// glyph at a time (ass_shaper.c, line 656); its ink the unhinted outline, scaled alike (ass_font.c, lines 782-786).
+// From the left of the first glyph's ink or of the pen, whichever is further left, to the right of the furthest
+// ink or of the pen after the last advance. It is the layout's first guess: the TrueType hinter moves some advances
+// by a pixel more (ExtraBold's N: 126.48 to 127), which only the font's bytecode knows, so what libass draws is
+// measured after (fit.go).
 func (f *face) span(text string, size, fx float64) (float64, error) {
 	var (
 		buf         sfnt.Buffer
