@@ -27,15 +27,15 @@ SELECT count(*) FROM todos t
 WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?2 AS TEXT))))
   AND (CAST(?3 AS TEXT) = '' OR (t.assignee_kind = ?3 AND t.assignee = ?4))
   AND (CAST(?5 AS TEXT) = '' OR t.source_kind = ?5)
-  AND (CAST(?6 AS INTEGER) = 0 OR t.due_at >= ?6)
-  AND (CAST(?7 AS INTEGER) = 0 OR t.due_at < ?7)
-  AND (CAST(?8 AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?9 AS INTEGER))
-  AND (CAST(?10 AS INTEGER) = 0 OR (
+  AND (CAST(?6 AS INTEGER) = 0 OR t.due_at >= CAST(?7 AS INTEGER))
+  AND (CAST(?8 AS INTEGER) = 0 OR t.due_at < CAST(?9 AS INTEGER))
+  AND (CAST(?10 AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?11 AS INTEGER))
+  AND (CAST(?12 AS INTEGER) = 0 OR (
         t.state NOT IN ('done', 'dropped', 'duplicate')
-    AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?9 AS INTEGER))
+    AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?11 AS INTEGER))
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
-      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?9 AS INTEGER)))))
+      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?11 AS INTEGER)))))
 `
 
 type CountTodosParams struct {
@@ -44,7 +44,9 @@ type CountTodosParams struct {
 	AssigneeKind string
 	Assignee     string
 	SourceKind   string
+	HasDueFrom   int64
 	DueFrom      int64
+	HasDueTo     int64
 	DueTo        int64
 	WithSnoozed  int64
 	Now          int64
@@ -59,7 +61,9 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 		arg.AssigneeKind,
 		arg.Assignee,
 		arg.SourceKind,
+		arg.HasDueFrom,
 		arg.DueFrom,
+		arg.HasDueTo,
 		arg.DueTo,
 		arg.WithSnoozed,
 		arg.Now,
@@ -71,7 +75,7 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 }
 
 const getTodo = `-- name: GetTodo :one
-SELECT id, revision, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_quote, source_ref, created_by_kind, created_by, work_kind, work_id, work_bot, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at FROM todos WHERE id = ?1
+SELECT id, revision, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at FROM todos WHERE id = ?1
 `
 
 func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
@@ -94,6 +98,7 @@ func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
 		&i.SnoozedUntil,
 		&i.SourceKind,
 		&i.SourceID,
+		&i.SourceAccount,
 		&i.SourceQuote,
 		&i.SourceRef,
 		&i.CreatedByKind,
@@ -101,6 +106,7 @@ func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
 		&i.WorkKind,
 		&i.WorkID,
 		&i.WorkBot,
+		&i.WorkStartedAt,
 		&i.ApprovalID,
 		&i.DoneByKind,
 		&i.DoneBy,
@@ -120,7 +126,7 @@ func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
 }
 
 const getTodoByIdempotencyKey = `-- name: GetTodoByIdempotencyKey :one
-SELECT id, revision, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_quote, source_ref, created_by_kind, created_by, work_kind, work_id, work_bot, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at FROM todos WHERE idempotency_key = ?1
+SELECT id, revision, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at FROM todos WHERE idempotency_key = ?1
 `
 
 func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (Todo, error) {
@@ -143,6 +149,7 @@ func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sq
 		&i.SnoozedUntil,
 		&i.SourceKind,
 		&i.SourceID,
+		&i.SourceAccount,
 		&i.SourceQuote,
 		&i.SourceRef,
 		&i.CreatedByKind,
@@ -150,6 +157,7 @@ func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sq
 		&i.WorkKind,
 		&i.WorkID,
 		&i.WorkBot,
+		&i.WorkStartedAt,
 		&i.ApprovalID,
 		&i.DoneByKind,
 		&i.DoneBy,
@@ -186,13 +194,30 @@ func (q *Queries) GetTodoChatMessage(ctx context.Context, seq int64) (GetTodoCha
 	return i, err
 }
 
+const getTodoInAttempt = `-- name: GetTodoInAttempt :one
+SELECT id FROM todos WHERE work_kind = ?1 AND work_id = ?2
+`
+
+type GetTodoInAttemptParams struct {
+	WorkKind sql.NullString
+	WorkID   sql.NullString
+}
+
+// The item an attempt holds, if any: one at a time.
+func (q *Queries) GetTodoInAttempt(ctx context.Context, arg GetTodoInAttemptParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTodoInAttempt, arg.WorkKind, arg.WorkID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertTodo = `-- name: InsertTodo :exec
 INSERT INTO todos (id, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
-                   assignee, state, source_kind, source_id, source_quote, source_ref, created_by_kind, created_by,
-                   idempotency_key, idempotency_hash, created_at, updated_at)
+                   assignee, state, source_kind, source_id, source_account, source_quote, source_ref,
+                   created_by_kind, created_by, idempotency_key, idempotency_hash, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
         ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-        ?19, ?20, ?21, ?21)
+        ?19, ?20, ?21, ?22, ?22)
 `
 
 type InsertTodoParams struct {
@@ -210,6 +235,7 @@ type InsertTodoParams struct {
 	State           string
 	SourceKind      string
 	SourceID        string
+	SourceAccount   string
 	SourceQuote     string
 	SourceRef       sql.NullString
 	CreatedByKind   string
@@ -235,6 +261,7 @@ func (q *Queries) InsertTodo(ctx context.Context, arg InsertTodoParams) error {
 		arg.State,
 		arg.SourceKind,
 		arg.SourceID,
+		arg.SourceAccount,
 		arg.SourceQuote,
 		arg.SourceRef,
 		arg.CreatedByKind,
@@ -320,25 +347,25 @@ func (q *Queries) ListTodoEvents(ctx context.Context, arg ListTodoEventsParams) 
 }
 
 const listTodos = `-- name: ListTodos :many
-SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_kind, t.work_id, t.work_bot, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at FROM todos t
+SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at FROM todos t
 WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?2 AS TEXT))))
   AND (CAST(?3 AS TEXT) = '' OR (t.assignee_kind = ?3 AND t.assignee = ?4))
   AND (CAST(?5 AS TEXT) = '' OR t.source_kind = ?5)
-  AND (CAST(?6 AS INTEGER) = 0 OR t.due_at >= ?6)
-  AND (CAST(?7 AS INTEGER) = 0 OR t.due_at < ?7)
-  AND (CAST(?8 AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?9 AS INTEGER))
-  AND (CAST(?10 AS INTEGER) = 0 OR (
+  AND (CAST(?6 AS INTEGER) = 0 OR t.due_at >= CAST(?7 AS INTEGER))
+  AND (CAST(?8 AS INTEGER) = 0 OR t.due_at < CAST(?9 AS INTEGER))
+  AND (CAST(?10 AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?11 AS INTEGER))
+  AND (CAST(?12 AS INTEGER) = 0 OR (
         t.state NOT IN ('done', 'dropped', 'duplicate')
-    AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?9 AS INTEGER))
+    AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?11 AS INTEGER))
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
-      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?9 AS INTEGER)))))
-  AND (CAST(?11 AS INTEGER) = 0
-    OR coalesce(t.due_at, 9223372036854775807) > CAST(?12 AS INTEGER)
-    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?12 AS INTEGER) AND t.created_at > ?13)
-    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?12 AS INTEGER) AND t.created_at = ?13 AND t.id > ?14))
+      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?11 AS INTEGER)))))
+  AND (CAST(?13 AS INTEGER) = 0
+    OR coalesce(t.due_at, 9223372036854775807) > CAST(?14 AS INTEGER)
+    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?14 AS INTEGER) AND t.created_at > ?15)
+    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?14 AS INTEGER) AND t.created_at = ?15 AND t.id > ?16))
 ORDER BY coalesce(t.due_at, 9223372036854775807), t.created_at, t.id
-LIMIT ?15
+LIMIT ?17
 `
 
 type ListTodosParams struct {
@@ -347,7 +374,9 @@ type ListTodosParams struct {
 	AssigneeKind string
 	Assignee     string
 	SourceKind   string
+	HasDueFrom   int64
 	DueFrom      int64
+	HasDueTo     int64
 	DueTo        int64
 	WithSnoozed  int64
 	Now          int64
@@ -368,7 +397,9 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 		arg.AssigneeKind,
 		arg.Assignee,
 		arg.SourceKind,
+		arg.HasDueFrom,
 		arg.DueFrom,
+		arg.HasDueTo,
 		arg.DueTo,
 		arg.WithSnoozed,
 		arg.Now,
@@ -403,6 +434,7 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 			&i.SnoozedUntil,
 			&i.SourceKind,
 			&i.SourceID,
+			&i.SourceAccount,
 			&i.SourceQuote,
 			&i.SourceRef,
 			&i.CreatedByKind,
@@ -410,6 +442,7 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 			&i.WorkKind,
 			&i.WorkID,
 			&i.WorkBot,
+			&i.WorkStartedAt,
 			&i.ApprovalID,
 			&i.DoneByKind,
 			&i.DoneBy,
@@ -443,11 +476,12 @@ UPDATE todos
 SET revision = revision + 1, title = ?1, notes = ?2, done_when = ?3, due_kind = ?4,
     due_date = ?5, due_zone = ?6, due_at = ?7, overdue_at = ?8,
     assignee_kind = ?9, assignee = ?10, state = ?11, snoozed_until = ?12,
-    work_kind = ?13, work_id = ?14, work_bot = ?15, approval_id = ?16, done_by_kind = ?17,
-    done_by = ?18, recorded_by_kind = ?19, recorded_by = ?20, closed_how = ?21,
-    close_reason = ?22, evidence = ?23, closed_at = ?24, duplicate_of = ?25,
-    updated_at = ?26
-WHERE id = ?27 AND revision = ?28 AND state = ?29
+    work_kind = ?13, work_id = ?14, work_bot = ?15, work_started_at = ?16,
+    approval_id = ?17, done_by_kind = ?18,
+    done_by = ?19, recorded_by_kind = ?20, recorded_by = ?21, closed_how = ?22,
+    close_reason = ?23, evidence = ?24, closed_at = ?25, duplicate_of = ?26,
+    updated_at = ?27
+WHERE id = ?28 AND revision = ?29 AND state = ?30
 `
 
 type UpdateTodoParams struct {
@@ -466,6 +500,7 @@ type UpdateTodoParams struct {
 	WorkKind       sql.NullString
 	WorkID         sql.NullString
 	WorkBot        sql.NullString
+	WorkStartedAt  sql.NullInt64
 	ApprovalID     sql.NullString
 	DoneByKind     sql.NullString
 	DoneBy         sql.NullString
@@ -501,6 +536,7 @@ func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (int64, 
 		arg.WorkKind,
 		arg.WorkID,
 		arg.WorkBot,
+		arg.WorkStartedAt,
 		arg.ApprovalID,
 		arg.DoneByKind,
 		arg.DoneBy,

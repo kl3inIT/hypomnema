@@ -1,10 +1,10 @@
 -- name: InsertTodo :exec
 INSERT INTO todos (id, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
-                   assignee, state, source_kind, source_id, source_quote, source_ref, created_by_kind, created_by,
-                   idempotency_key, idempotency_hash, created_at, updated_at)
+                   assignee, state, source_kind, source_id, source_account, source_quote, source_ref,
+                   created_by_kind, created_by, idempotency_key, idempotency_hash, created_at, updated_at)
 VALUES (@id, @title, @notes, @done_when, @due_kind, @due_date, @due_zone, @due_at, @overdue_at, @assignee_kind,
-        @assignee, @state, @source_kind, @source_id, @source_quote, @source_ref, @created_by_kind, @created_by,
-        @idempotency_key, @idempotency_hash, @now, @now);
+        @assignee, @state, @source_kind, @source_id, @source_account, @source_quote, @source_ref, @created_by_kind,
+        @created_by, @idempotency_key, @idempotency_hash, @now, @now);
 
 -- name: GetTodo :one
 SELECT * FROM todos WHERE id = @id;
@@ -19,7 +19,8 @@ UPDATE todos
 SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_when, due_kind = @due_kind,
     due_date = @due_date, due_zone = @due_zone, due_at = @due_at, overdue_at = @overdue_at,
     assignee_kind = @assignee_kind, assignee = @assignee, state = @state, snoozed_until = @snoozed_until,
-    work_kind = @work_kind, work_id = @work_id, work_bot = @work_bot, approval_id = @approval_id, done_by_kind = @done_by_kind,
+    work_kind = @work_kind, work_id = @work_id, work_bot = @work_bot, work_started_at = @work_started_at,
+    approval_id = @approval_id, done_by_kind = @done_by_kind,
     done_by = @done_by, recorded_by_kind = @recorded_by_kind, recorded_by = @recorded_by, closed_how = @closed_how,
     close_reason = @close_reason, evidence = @evidence, closed_at = @closed_at, duplicate_of = @duplicate_of,
     updated_at = @now
@@ -28,6 +29,10 @@ WHERE id = @id AND revision = @revision AND state = @from_state;
 -- name: GetTodoChatMessage :one
 -- Who wrote a chat message and in which chat: the owner's message cited as evidence (role owner, no sender).
 SELECT chat_id, role, sender_id FROM chat_messages WHERE seq = @seq;
+
+-- name: GetTodoInAttempt :one
+-- The item an attempt holds, if any: one at a time.
+SELECT id FROM todos WHERE work_kind = @work_kind AND work_id = @work_id;
 
 -- name: CountDuplicatesOf :one
 -- The items marked duplicate of this one.
@@ -48,8 +53,8 @@ SELECT t.* FROM todos t
 WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(@states AS TEXT))))
   AND (CAST(@assignee_kind AS TEXT) = '' OR (t.assignee_kind = @assignee_kind AND t.assignee = @assignee))
   AND (CAST(@source_kind AS TEXT) = '' OR t.source_kind = @source_kind)
-  AND (CAST(@due_from AS INTEGER) = 0 OR t.due_at >= @due_from)
-  AND (CAST(@due_to AS INTEGER) = 0 OR t.due_at < @due_to)
+  AND (CAST(@has_due_from AS INTEGER) = 0 OR t.due_at >= CAST(@due_from AS INTEGER))
+  AND (CAST(@has_due_to AS INTEGER) = 0 OR t.due_at < CAST(@due_to AS INTEGER))
   AND (CAST(@with_snoozed AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
   AND (CAST(@needs_you AS INTEGER) = 0 OR (
         t.state NOT IN ('done', 'dropped', 'duplicate')
@@ -70,8 +75,8 @@ SELECT count(*) FROM todos t
 WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(@states AS TEXT))))
   AND (CAST(@assignee_kind AS TEXT) = '' OR (t.assignee_kind = @assignee_kind AND t.assignee = @assignee))
   AND (CAST(@source_kind AS TEXT) = '' OR t.source_kind = @source_kind)
-  AND (CAST(@due_from AS INTEGER) = 0 OR t.due_at >= @due_from)
-  AND (CAST(@due_to AS INTEGER) = 0 OR t.due_at < @due_to)
+  AND (CAST(@has_due_from AS INTEGER) = 0 OR t.due_at >= CAST(@due_from AS INTEGER))
+  AND (CAST(@has_due_to AS INTEGER) = 0 OR t.due_at < CAST(@due_to AS INTEGER))
   AND (CAST(@with_snoozed AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
   AND (CAST(@needs_you AS INTEGER) = 0 OR (
         t.state NOT IN ('done', 'dropped', 'duplicate')

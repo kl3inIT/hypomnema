@@ -24,7 +24,7 @@ func TestInboxMigrationOnADatabaseWithData(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 125)
+	_, err = p.UpTo(ctx, 126)
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot_id, created_at, updated_at)
@@ -33,7 +33,7 @@ func TestInboxMigrationOnADatabaseWithData(t *testing.T) {
 	_, err = db.ExecContext(ctx, `INSERT INTO approvals (id, integration, label, action, action_name, chat_id,
 		asked_by, title, payload, match_hash, status, created_at)
 		VALUES ('apr_1', 'google', 'work', 'gmail.send', 'Send mail', 'cht_1', 'pi', 'Send mail', '[]', 'h',
-		        'pending', 1)`)
+		        'pending', ?)`, t0.UnixMilli()) // Asked as the attempt below starts, at the clock's time.
 	require.NoError(t, err)
 
 	require.NoError(t, Migrate(ctx, db))

@@ -986,6 +986,7 @@ type Todo struct {
 	SnoozedUntil    sql.NullInt64
 	SourceKind      string
 	SourceID        string
+	SourceAccount   string
 	SourceQuote     string
 	SourceRef       sql.NullString
 	CreatedByKind   string
@@ -993,6 +994,7 @@ type Todo struct {
 	WorkKind        sql.NullString
 	WorkID          sql.NullString
 	WorkBot         sql.NullString
+	WorkStartedAt   sql.NullInt64
 	ApprovalID      sql.NullString
 	DoneByKind      sql.NullString
 	DoneBy          sql.NullString

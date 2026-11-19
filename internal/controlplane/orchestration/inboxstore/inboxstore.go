@@ -113,7 +113,9 @@ const (
 	// FromRoutine: a Bot in a Routine's run; ID is the run.
 	FromRoutine = "routine"
 	// FromLark and FromZalo: a chat of the owner's own account at Lark or Zalo, the main sources (owner,
-	// 2026-11-19); ID is the chat's id at the service and Ref the message, a LinkLarkMessage or LinkZaloMessage.
+	// 2026-11-19); ID is the chat's id at the service and Ref the message, a LinkLarkMessage or LinkZaloMessage. A
+	// Zalo source names its Account too: the Zalo store keys a message by account, chat and id
+	// (messaging/zalo/store.go, zl_messages).
 	FromLark = "lark"
 	FromZalo = "zalo"
 )
@@ -123,10 +125,12 @@ var sourceMessage = map[string]string{FromLark: LinkLarkMessage, FromZalo: LinkZ
 
 // Source is where a to-do came from, with the words it came from and a typed reference to them.
 type Source struct {
-	Kind  string
-	ID    string
-	Quote string
-	Ref   *Link
+	Kind string
+	ID   string
+	// Account is the owner's account at Zalo the chat is in; set for FromZalo only.
+	Account string
+	Quote   string
+	Ref     *Link
 }
 
 // The kinds of Link, Omi's typed source references.
@@ -159,11 +163,13 @@ const (
 	WorkRun  = "run"
 )
 
-// Work is a Bot's current attempt at a to-do: its chat or a Run. Bot is the Bot that started it, set by Start.
+// Work is a Bot's current attempt at a to-do: its chat or a Run. Bot is the Bot that started it and StartedAt
+// when, set by Start. An attempt holds one to-do at a time.
 type Work struct {
-	Kind string
-	ID   string
-	Bot  string
+	Kind      string
+	ID        string
+	Bot       string
+	StartedAt time.Time
 }
 
 // How a to-do was closed: by hand or by a Bot. Judged by AI and by time are kept for later parts and refused now.
@@ -266,8 +272,15 @@ func (s *Store) write(ctx context.Context, fn func(q *store.Queries, now int64) 
 	return storeutil.Write(ctx, s.db, s.clock, s.signal, fn)
 }
 
-func (s *Store) read() *store.Queries {
-	return store.New(s.db)
+// snapshot runs fn over one transaction, so what it reads in several queries is one state of the database (an item
+// and its history, a page and its total). The transaction writes nothing and is rolled back.
+func (s *Store) snapshot(ctx context.Context, fn func(q *store.Queries) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning a read: %w", err)
+	}
+
+	return errors.Join(fn(store.New(tx)), tx.Rollback())
 }
 
 // NewTodo is what Create makes.
@@ -328,7 +341,7 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		return Todo{}, err
 	}
 
-	var id string
+	var made Todo
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
 		if n.IdempotencyKey != "" {
@@ -336,9 +349,9 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 
 			switch {
 			case err == nil && first.IdempotencyHash.String == hash:
-				id = first.ID
+				made, err = s.get(ctx, q, first.ID)
 
-				return nil
+				return err
 			case err == nil:
 				return fmt.Errorf("%w: the idempotency key %q was used for another request", storeerr.ErrConflict,
 					n.IdempotencyKey)
@@ -351,12 +364,13 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
-		id = s.newID("tdo")
+		id := s.newID("tdo")
 		if err := q.InsertTodo(ctx, store.InsertTodoParams{
 			ID: id, Title: n.Title, Notes: n.Notes, DoneWhen: n.DoneWhen,
 			DueKind: due.kind, DueDate: due.date, DueZone: due.zone, DueAt: due.at, OverdueAt: due.overdueAt,
 			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, State: n.State,
-			SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceQuote: n.Source.Quote, SourceRef: ref,
+			SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
+			SourceQuote: n.Source.Quote, SourceRef: ref,
 			CreatedByKind: actor.Kind, CreatedBy: actor.ID,
 			IdempotencyKey: nullString(n.IdempotencyKey), IdempotencyHash: nullString(keyed(n.IdempotencyKey, hash)),
 			Now: now,
@@ -369,13 +383,19 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return fmt.Errorf("reading the to-do added: %w", err)
 		}
 
-		return addEvent(ctx, q, row.ID, now, 1, actor, EventCreated, map[string]any{}, fields(row))
+		if err := addEvent(ctx, q, row.ID, now, 1, actor, EventCreated, map[string]any{}, fields(row)); err != nil {
+			return err
+		}
+
+		made, err = s.get(ctx, q, id)
+
+		return err
 	})
 	if err != nil {
 		return Todo{}, err
 	}
 
-	return s.get(ctx, s.read(), id)
+	return made, nil
 }
 
 // mayCreate is the creation rows of the transitions (issue #845): the owner adds open items by hand; a Bot adds
@@ -428,6 +448,10 @@ func checkSource(src Source) error {
 		return fmt.Errorf("%w: a to-do written by hand names no chat or run", storeerr.ErrInvalid)
 	case src.Kind != ByHand && (src.ID == "" || len(src.ID) > MaxID):
 		return fmt.Errorf("%w: a to-do from a %s names it", storeerr.ErrInvalid, src.Kind)
+	case src.Kind == FromZalo && (src.Account == "" || len(src.Account) > MaxID):
+		return fmt.Errorf("%w: a to-do from Zalo names the owner's account the chat is in", storeerr.ErrInvalid)
+	case src.Kind != FromZalo && src.Account != "":
+		return fmt.Errorf("%w: only a to-do from Zalo names an account", storeerr.ErrInvalid)
 	case utf8.RuneCountInString(src.Quote) > MaxQuote:
 		return fmt.Errorf("%w: a quote is at most %d characters", storeerr.ErrInvalid, MaxQuote)
 	case sourceMessage[src.Kind] != "" && (src.Ref == nil || src.Ref.Kind != sourceMessage[src.Kind]):
@@ -576,9 +600,19 @@ func keyed(key, hash string) string {
 	return hash
 }
 
-// Get returns a to-do with its latest MaxEvents events, oldest first.
+// Get returns a to-do with its latest MaxEvents events, oldest first, read together: the history ends at the item's
+// revision.
 func (s *Store) Get(ctx context.Context, id string) (Todo, error) {
-	return s.get(ctx, s.read(), id)
+	var t Todo
+
+	err := s.snapshot(ctx, func(q *store.Queries) error {
+		var err error
+		t, err = s.get(ctx, q, id)
+
+		return err
+	})
+
+	return t, err
 }
 
 func (s *Store) get(ctx context.Context, q *store.Queries, id string) (Todo, error) {
@@ -652,7 +686,8 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 	p := store.ListTodosParams{
 		AnyState: cnt.AnyState, States: cnt.States, AssigneeKind: cnt.AssigneeKind, Assignee: cnt.Assignee,
-		SourceKind: cnt.SourceKind, DueFrom: cnt.DueFrom, DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed,
+		SourceKind: cnt.SourceKind, HasDueFrom: cnt.HasDueFrom, DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
+		DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed,
 		Now: cnt.Now, NeedsYou: cnt.NeedsYou, Lim: int64(limit) + 1,
 	}
 
@@ -663,16 +698,25 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 		}
 	}
 
-	q := s.read()
+	var (
+		rows  []store.Todo
+		total int64
+	)
 
-	rows, err := q.ListTodos(ctx, p)
-	if err != nil {
-		return Page{}, fmt.Errorf("listing the to-dos: %w", err)
-	}
+	// The page and its total are read together, so the total counts the items the page shows.
+	err = s.snapshot(ctx, func(q *store.Queries) error {
+		if rows, err = q.ListTodos(ctx, p); err != nil {
+			return fmt.Errorf("listing the to-dos: %w", err)
+		}
 
-	total, err := q.CountTodos(ctx, cnt)
+		if total, err = q.CountTodos(ctx, cnt); err != nil {
+			return fmt.Errorf("counting the to-dos: %w", err)
+		}
+
+		return nil
+	})
 	if err != nil {
-		return Page{}, fmt.Errorf("counting the to-dos: %w", err)
+		return Page{}, err
 	}
 
 	page := Page{Items: make([]Todo, 0, min(len(rows), limit)), Total: int(total)}
@@ -699,7 +743,7 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 // NeedsYou is how many distinct to-dos need the owner at now: not closed, not snoozed, and proposed, or in review
 // with a pending Approval, or his own and overdue. List's NeedsYou filter is the same predicate.
 func (s *Store) NeedsYou(ctx context.Context, now time.Time) (int, error) {
-	n, err := s.read().CountTodos(ctx, store.CountTodosParams{AnyState: 1, Now: now.UnixMilli(), NeedsYou: 1})
+	n, err := store.New(s.db).CountTodos(ctx, store.CountTodosParams{AnyState: 1, Now: now.UnixMilli(), NeedsYou: 1})
 	if err != nil {
 		return 0, fmt.Errorf("counting the to-dos that need the owner: %w", err)
 	}
@@ -742,12 +786,13 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 
 	p.SourceKind = f.SourceKind
 
+	// A bound is given when it is not the zero time; the Unix epoch is a bound like any other.
 	if !f.DueFrom.IsZero() {
-		p.DueFrom = f.DueFrom.UnixMilli()
+		p.HasDueFrom, p.DueFrom = 1, f.DueFrom.UnixMilli()
 	}
 
 	if !f.DueTo.IsZero() {
-		p.DueTo = f.DueTo.UnixMilli()
+		p.HasDueTo, p.DueTo = 1, f.DueTo.UnixMilli()
 	}
 
 	if f.WithSnoozed {
@@ -806,7 +851,7 @@ func fromRow(r store.Todo) (Todo, error) {
 		Assignee:     Assignee{Kind: r.AssigneeKind, Name: r.Assignee},
 		State:        r.State,
 		SnoozedUntil: storeutil.OptionalMillis(r.SnoozedUntil),
-		Source:       Source{Kind: r.SourceKind, ID: r.SourceID, Quote: r.SourceQuote},
+		Source:       Source{Kind: r.SourceKind, ID: r.SourceID, Account: r.SourceAccount, Quote: r.SourceQuote},
 		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy},
 		ApprovalID:   r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
 		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String,
@@ -818,7 +863,8 @@ func fromRow(r store.Todo) (Todo, error) {
 	}
 
 	if r.WorkKind.Valid {
-		t.Work = &Work{Kind: r.WorkKind.String, ID: r.WorkID.String, Bot: r.WorkBot.String}
+		t.Work = &Work{Kind: r.WorkKind.String, ID: r.WorkID.String, Bot: r.WorkBot.String,
+			StartedAt: storeutil.Millis(r.WorkStartedAt.Int64)}
 	}
 
 	if r.DoneByKind.Valid {

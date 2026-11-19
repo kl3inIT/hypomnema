@@ -3867,7 +3867,7 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migration 00128; issues #838 and #845, part 1 of the Inbox): the store of the
+Inbox (`orchestration/inboxstore`, migration 00132; issues #838 and #845, part 1 of the Inbox): the store of the
 to-dos that have to happen, whoever does them, and its state machine. Built is the store only.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
@@ -3876,8 +3876,12 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
   `person` (a name ≤ 100), `bot` (an existing Bot's id) or `unknown`; `state` `proposed`, `open`, `doing`, `review`,
   `done`, `dropped`, `duplicate`; `snoozed_until` (proposed or open only); the source (`owner`, `chat` with its chat,
   `routine` with its run, `lark` or `zalo` with the chat's id at the service and its message as a `lark_message` or
-  `zalo_message` reference; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt (`work_kind`
-  `chat` or `run`, `work_id`, and `work_bot`, the Bot that started it) while doing or review; the one pending `approval_id` while review; the close
+  `zalo_message` reference, and for `zalo` the owner's account the chat is in (`source_account`), as the Zalo store
+  keys a message by account, chat and id; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt
+  (`work_kind` `chat` or `run`, `work_id`, `work_bot`, the Bot that started it, and `work_started_at`) while doing or
+  review, one item per attempt at a time (a unique index); `approval_id` while review, the Approval linked, which
+  was pending and asked in the attempt when it was linked and may since be decided while the item waits for
+  `ApprovalApproved` or `ApprovalEnded`; the close
   (`done_by_kind`/`done_by` apart from `recorded_by_kind`/`recorded_by`, `closed_how`, `close_reason`, `evidence`
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
   `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `closed_at`); `duplicate_of`; a create's idempotency key, unique, with its request's hash. Checks
@@ -3887,22 +3891,27 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
 - Transitions (`inboxstore/transitions.go`, the `transitions` table lists every move and who may make it): the
   owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from the owner's
   Lark or Zalo chats adds proposed ones, which stay proposed until the owner accepts, drops or marks them duplicate;
-  the Bot assigned starts an open item, and only an open one (`Start`, with its chat or Run); the system puts a doing
-  item in review with one pending Approval asked in the item's attempt (its chat or Run; `LinkApproval`) and back
+  the Bot assigned starts an open item, and only an open one, in a chat or Run no other item is doing or in review
+  in (`Start`); the system puts a doing item in review with one pending Approval asked in the item's attempt (its
+  chat or Run, since the attempt started; `LinkApproval`) and back
   to doing once it is approved, or open once it is rejected or expired, the only ways out of review; the Bot of the
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
-  owner closes or drops an open or doing item, or a Bot records it for him with his message as evidence (a
-  `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source chat or
-  attempt chat); `closed_how` `ai` and `time` are refused; nothing in review is closed or reassigned until its Approval
-  is rejected; a duplicate's target exists, is not the item nor a duplicate, and the item is the target of none;
+  owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message
+  as evidence (a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source
+  chat, its attempt chat, or the chat the Bot acts in, which the caller takes from the Bot's session); `closed_how`
+  `ai` and `time` are refused; nothing in review is closed while it waits; a doing or review item is given to
+  another only once its attempt ended (released, closed or its Approval answered); a duplicate's target exists, is
+  not the item nor a duplicate, and the item is the target of none;
   the owner reopens a closed item, which clears its close; only the owner snoozes, to a time to come; the owner
   edits any item not closed, a Bot only those it added or is given, never their assignee. Every mutation names its
   actor, the revision it read and, for a Bot on a doing or review item, its attempt's id; a stale revision or
   another attempt's id is a conflict and writes nothing, and a Bot other than the attempt's is forbidden. Leaving doing or review clears the attempt, and any change
-  of state the snooze. A create retried with its idempotency key returns the first item.
-- Reads: `Get` with its latest 500 events; `List` by state set (not closed by default), assignee, source kind, due
-  window, with or without snoozed and closed items, by due (none last) then created, pages of at most 200 with a
-  cursor and the filter's total; `NeedsYou(now)`, the distinct items not closed nor snoozed that are proposed, in
+  of state the snooze. A create retried with its idempotency key and the same request (actor and every field)
+  returns the first item and writes nothing; the key with another request is a conflict and writes nothing.
+- Reads: `Get` with its latest 500 events, read in one transaction with the item, as every mutation returns the
+  item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
+  the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
+  created, pages of at most 200 with a cursor and the filter's total, read in one transaction with the page; `NeedsYou(now)`, the distinct items not closed nor snoozed that are proposed, in
   review with a pending Approval, or the owner's own and overdue, the same predicate as `List`'s needs-you filter.
 - Not built: the API and CLI, the Bot tools and the wiring of Approvals to `LinkApproval`/`ApprovalApproved`/
   `ApprovalEnded`, the web page and the morning brief (later parts of #838).

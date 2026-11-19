@@ -28,19 +28,24 @@ CREATE TABLE todos (
     snoozed_until    INTEGER,
     -- owner: by hand; chat: source_id is the chat; routine: source_id is the Routine's run; lark, zalo: a chat of
     -- the owner's own account there, source_id the chat's id at the service and source_ref the message
-    -- (lark_message, zalo_message, its id at the service).
+    -- (lark_message, zalo_message, its id at the service). A Zalo message is known by its account, chat and id, as
+    -- the Zalo store keys it (messaging/zalo/store.go, zl_messages): source_account is that account, set for zalo
+    -- only.
     source_kind      TEXT    NOT NULL CHECK (source_kind IN ('owner', 'chat', 'routine', 'lark', 'zalo')),
     source_id        TEXT    NOT NULL DEFAULT '',
+    source_account   TEXT    NOT NULL DEFAULT '',
     source_quote     TEXT    NOT NULL DEFAULT '' CHECK (length(source_quote) <= 2000),
     -- A typed reference {kind, ref, label} to where it came from, JSON; NULL when none.
     source_ref       TEXT,
     -- Who created it (owner, bot, system) and which one.
     created_by_kind  TEXT    NOT NULL CHECK (created_by_kind IN ('owner', 'bot', 'system')),
     created_by       TEXT    NOT NULL DEFAULT '',
-    -- The Bot's current attempt while doing or review: its chat or Run, and the Bot that started it.
+    -- The Bot's current attempt while doing or review: its chat or Run, the Bot that started it and when. An
+    -- attempt holds one item at a time (todos_attempt), so an Approval asked in it since it started is the item's.
     work_kind        TEXT    CHECK (work_kind IN ('chat', 'run')),
     work_id          TEXT,
     work_bot         TEXT,
+    work_started_at  INTEGER,
     -- The one pending Approval while review.
     approval_id      TEXT,
     -- Who did it (me, person, bot) and who recorded it, kept apart.
@@ -67,17 +72,23 @@ CREATE TABLE todos (
             AND overdue_at = due_at)),
     CHECK ((assignee_kind IN ('me', 'unknown')) = (assignee = '')),
     CHECK (snoozed_until IS NULL OR state IN ('proposed', 'open')),
-    CHECK ((state IN ('doing', 'review')) = (work_kind IS NOT NULL AND work_id IS NOT NULL AND work_bot IS NOT NULL)),
+    CHECK ((state IN ('doing', 'review')) = (work_kind IS NOT NULL AND work_id IS NOT NULL AND work_bot IS NOT NULL
+        AND work_started_at IS NOT NULL)),
+    CHECK ((work_kind IS NULL) = (work_id IS NULL) AND (work_kind IS NULL) = (work_bot IS NULL)
+        AND (work_kind IS NULL) = (work_started_at IS NULL)),
     CHECK ((state = 'review') = (approval_id IS NOT NULL)),
     CHECK ((state = 'duplicate') = (duplicate_of IS NOT NULL)),
     CHECK (duplicate_of IS NULL OR duplicate_of <> id),
     CHECK ((state IN ('done', 'dropped', 'duplicate')) = (closed_at IS NOT NULL)),
     CHECK (state = 'done' OR done_by_kind IS NULL),
     CHECK ((source_kind = 'owner') = (source_id = '')),
-    CHECK (source_kind NOT IN ('lark', 'zalo') OR source_ref IS NOT NULL)
+    CHECK (source_kind NOT IN ('lark', 'zalo') OR source_ref IS NOT NULL),
+    CHECK ((source_kind = 'zalo') = (source_account <> ''))
 ) STRICT;
 
 CREATE UNIQUE INDEX todos_idempotency ON todos (idempotency_key) WHERE idempotency_key IS NOT NULL;
+-- One item in an attempt at a time (Hermes binds a worker's session to one task's run, gateway/session_kanban.py).
+CREATE UNIQUE INDEX todos_attempt ON todos (work_kind, work_id) WHERE work_id IS NOT NULL;
 CREATE INDEX todos_state_due ON todos (state, overdue_at, created_at);
 CREATE INDEX todos_duplicate_of ON todos (duplicate_of) WHERE duplicate_of IS NOT NULL;
 

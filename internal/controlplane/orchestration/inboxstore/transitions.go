@@ -74,6 +74,10 @@ type Change struct {
 	ID       string
 	Revision int
 	WorkID   string
+	// Chat is the chat with the owner a Bot acts in, taken by the caller from the Bot's authenticated session as the
+	// Actor is, never from a field the Bot sends; empty when it acts elsewhere. The owner's message in it is evidence
+	// when the Bot records for him.
+	Chat string
 }
 
 // change is one guarded write of a to-do: it reads the row, checks the revision and the attempt, lets apply make
@@ -86,6 +90,8 @@ func (s *Store) change(
 	if err := checkActor(c.Actor); err != nil {
 		return Todo{}, err
 	}
+
+	var got Todo
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		cur, err := q.GetTodo(ctx, c.ID)
@@ -120,7 +126,10 @@ func (s *Store) change(
 
 		stateful := kind == EventState || kind == EventLinkedApproval
 		if !stateful && next == cur {
-			return nil // Nothing changes: no write and no event.
+			// Nothing changes: no write and no event.
+			got, err = s.get(ctx, q, c.ID)
+
+			return err
 		}
 
 		if stateful || next.State != cur.State {
@@ -132,6 +141,7 @@ func (s *Store) change(
 
 			if next.State != Doing && next.State != Review {
 				next.WorkKind.Valid, next.WorkID.Valid, next.WorkBot.Valid = false, false, false
+				next.WorkStartedAt.Valid = false
 			}
 
 			if next.State != Review {
@@ -144,7 +154,7 @@ func (s *Store) change(
 			DueDate: next.DueDate, DueZone: next.DueZone, DueAt: next.DueAt, OverdueAt: next.OverdueAt,
 			AssigneeKind: next.AssigneeKind, Assignee: next.Assignee, State: next.State,
 			SnoozedUntil: next.SnoozedUntil, WorkKind: next.WorkKind, WorkID: next.WorkID, WorkBot: next.WorkBot,
-			ApprovalID: next.ApprovalID, DoneByKind: next.DoneByKind, DoneBy: next.DoneBy,
+			WorkStartedAt: next.WorkStartedAt, ApprovalID: next.ApprovalID, DoneByKind: next.DoneByKind, DoneBy: next.DoneBy,
 			RecordedByKind: next.RecordedByKind, RecordedBy: next.RecordedBy, ClosedHow: next.ClosedHow,
 			CloseReason: next.CloseReason, Evidence: next.Evidence, ClosedAt: next.ClosedAt,
 			DuplicateOf: next.DuplicateOf, Now: now, ID: cur.ID, Revision: cur.Revision, FromState: cur.State,
@@ -165,13 +175,20 @@ func (s *Store) change(
 		before, after := diff(fields(cur), fields(written))
 		maps.Copy(after, extra)
 
-		return addEvent(ctx, q, c.ID, now, written.Revision, c.Actor, kind, before, after)
+		if err := addEvent(ctx, q, c.ID, now, written.Revision, c.Actor, kind, before, after); err != nil {
+			return err
+		}
+
+		got, err = s.get(ctx, q, c.ID)
+
+		return err
 	})
 	if err != nil {
 		return Todo{}, err
 	}
 
-	return s.get(ctx, s.read(), c.ID)
+	// The item as this change left it, or as it was when nothing changed: read in the change's transaction.
+	return got, nil
 }
 
 // Accept opens a proposed to-do; only the owner does.
@@ -189,7 +206,10 @@ func (s *Store) Accept(ctx context.Context, c Change) (Todo, error) {
 }
 
 // Start puts the Bot assigned on an open to-do, in the attempt w (its chat or a Run). Only an open item starts: an
-// item in review leaves it only by its Approval's answer (ApprovalApproved, ApprovalEnded).
+// item in review leaves it only by its Approval's answer (ApprovalApproved, ApprovalEnded). An attempt holds one
+// item at a time, as Hermes binds a worker's session to one task's run (gateway/session_kanban.py): another item
+// doing or in review in the same chat or Run is released, closed or answered first, so an Approval asked in the
+// attempt is this item's.
 func (s *Store) Start(ctx context.Context, c Change, w Work) (Todo, error) {
 	if (w.Kind != WorkChat && w.Kind != WorkRun) || w.ID == "" || len(w.ID) > MaxID {
 		return Todo{}, fmt.Errorf("%w: an attempt is a chat or a Run, by its id", storeerr.ErrInvalid)
@@ -200,7 +220,7 @@ func (s *Store) Start(ctx context.Context, c Change, w Work) (Todo, error) {
 	}
 
 	return s.change(ctx, c, EventState,
-		func(_ *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
+		func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (map[string]any, error) {
 			if cur.State != Open {
 				return nil, fmt.Errorf("%w: to-do %s is %s, not open", storeerr.ErrConflict, cur.ID, cur.State)
 			}
@@ -209,9 +229,21 @@ func (s *Store) Start(ctx context.Context, c Change, w Work) (Todo, error) {
 				return nil, fmt.Errorf("%w: only the Bot assigned starts to-do %s", storeerr.ErrForbidden, cur.ID)
 			}
 
+			other, err := q.GetTodoInAttempt(ctx, store.GetTodoInAttemptParams{
+				WorkKind: nullString(w.Kind), WorkID: nullString(w.ID)})
+
+			switch {
+			case err == nil:
+				return nil, fmt.Errorf("%w: the %s %s is on to-do %s; one item at a time", storeerr.ErrConflict, w.Kind,
+					w.ID, other)
+			case !errors.Is(err, sql.ErrNoRows):
+				return nil, fmt.Errorf("reading the item of the %s %s: %w", w.Kind, w.ID, err)
+			}
+
 			next.State = Doing
 			next.WorkKind, next.WorkID = nullString(w.Kind), nullString(w.ID)
 			next.WorkBot = nullString(c.Actor.ID)
+			next.WorkStartedAt = sql.NullInt64{Int64: now, Valid: true}
 
 			return nil, nil
 		})
@@ -219,7 +251,8 @@ func (s *Store) Start(ctx context.Context, c Change, w Work) (Todo, error) {
 
 // LinkApproval puts a doing to-do in review while the pending Approval approvalID, asked by its attempt, waits for
 // the owner; the system does it. An item has one pending Approval: a second is refused, and so is one asked in
-// another chat or Run than the item's attempt.
+// another chat or Run than the item's attempt, or asked there before the attempt started (another item's, or an
+// earlier attempt's). An attempt holds one item at a time (Start), so what it asked since it started is the item's.
 func (s *Store) LinkApproval(ctx context.Context, c Change, approvalID string) (Todo, error) {
 	return s.change(ctx, c, EventLinkedApproval,
 		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
@@ -246,7 +279,7 @@ func (s *Store) LinkApproval(ctx context.Context, c Change, approvalID string) (
 				asked = a.RunID
 			}
 
-			if !asked.Valid || asked.String != cur.WorkID.String {
+			if !asked.Valid || asked.String != cur.WorkID.String || a.CreatedAt < cur.WorkStartedAt.Int64 {
 				return nil, fmt.Errorf("%w: Approval %s was not asked in the attempt on to-do %s", storeerr.ErrConflict,
 					a.ID, cur.ID)
 			}
@@ -389,7 +422,7 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 			}
 
 			if forOwner {
-				if err := ownersMessage(ctx, q, cur, cl.Evidence); err != nil {
+				if err := ownersMessage(ctx, q, c, cur, cl.Evidence); err != nil {
 					return nil, err
 				}
 			}
@@ -420,10 +453,15 @@ func botCloses(actor Actor, doneBy Assignee, evidence []Link) error {
 
 // ownersMessage is the evidence a Bot recording for the owner gives: a chat_message Link whose ref is the seq of a
 // message that exists, was written by the owner (role owner and no sender: a Channel person's or the coordinator's
-// message is not his, as OwnerTurn reads it) and is in the item's chat: the chat it came from or the chat of its
-// attempt.
-func ownersMessage(ctx context.Context, q *store.Queries, cur store.Todo, evidence []Link) error {
+// message is not his, as OwnerTurn reads it) and is in the item's chat (the chat it came from or the chat of its
+// attempt) or in the chat the Bot acts in, where the owner told it (Change.Chat, from its session): a proposal from
+// a Routine, Lark or Zalo has no chat of its own.
+func ownersMessage(ctx context.Context, q *store.Queries, c Change, cur store.Todo, evidence []Link) error {
 	var chats []string
+
+	if c.Chat != "" {
+		chats = append(chats, c.Chat)
+	}
 
 	if cur.SourceKind == FromChat {
 		chats = append(chats, cur.SourceID)
@@ -478,7 +516,7 @@ func (s *Store) Drop(ctx context.Context, c Change, reason string, evidence []Li
 	return s.change(ctx, c, EventState,
 		func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (map[string]any, error) {
 			if c.Actor.Kind == Bot {
-				if err := ownersMessage(ctx, q, cur, evidence); err != nil {
+				if err := ownersMessage(ctx, q, c, cur, evidence); err != nil {
 					return nil, err
 				}
 			}
@@ -577,8 +615,9 @@ type Edit struct {
 }
 
 // Edit changes the fields of a to-do that is not closed. The owner edits any; a Bot only the items it created or
-// that are assigned to it, and not their assignee. An item in review keeps its assignee until its Approval is
-// answered.
+// that are assigned to it, and not their assignee. An item in doing or review keeps its assignee while the Bot's
+// attempt is on it: the attempt is released, closed or its Approval answered first, so the old Bot writes nothing
+// more and the new one can start.
 func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 	if e == (Edit{}) {
 		return Todo{}, fmt.Errorf("%w: nothing to change", storeerr.ErrInvalid)
@@ -637,8 +676,8 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 
 			if e.Assignee != nil {
 				a := Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}
-				if cur.State == Review && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
-					return nil, fmt.Errorf("%w: to-do %s waits for an Approval; reject it before giving the item to "+
+				if (cur.State == Doing || cur.State == Review) && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
+					return nil, fmt.Errorf("%w: a Bot's attempt is on to-do %s; it ends before the item is given to "+
 						"another", storeerr.ErrConflict, cur.ID)
 				}
 
@@ -698,7 +737,8 @@ func fields(r store.Todo) map[string]any {
 
 	for k, v := range map[string]any{
 		"due_date": r.DueDate, "due_zone": r.DueZone, "due_at": r.DueAt, "snoozed_until": r.SnoozedUntil,
-		"source_id": r.SourceID, "work_kind": r.WorkKind, "work_id": r.WorkID, "work_bot": r.WorkBot, "approval_id": r.ApprovalID,
+		"source_id": r.SourceID, "source_account": r.SourceAccount, "work_kind": r.WorkKind, "work_id": r.WorkID,
+		"work_bot": r.WorkBot, "work_started_at": r.WorkStartedAt, "approval_id": r.ApprovalID,
 		"done_by_kind": r.DoneByKind, "done_by": r.DoneBy, "recorded_by_kind": r.RecordedByKind,
 		"recorded_by": r.RecordedBy, "closed_how": r.ClosedHow, "closed_at": r.ClosedAt,
 		"duplicate_of": r.DuplicateOf,
