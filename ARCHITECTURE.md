@@ -4600,7 +4600,9 @@ Node (`internal/node`):
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The Supervisor reads the journal from a
     saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt
     and closes stdin. If the worker is still alive after 30 s, the Supervisor asks the shim to kill it over the
-    Dispatch's private socket, not by a recorded PID.
+    Dispatch's private socket, not by a recorded PID. A stop first revokes a launch the shim has not claimed; a
+    shim that does not answer is killed with its process group only if its recorded identity still matches (the
+    temp-directory item below), and its exit stays unconfirmed.
     Linux and macOS check ancestry and process start time before signaling descendants, including Claude Bash
     jobs in separate sessions. After a bounded freeze attempt the shim sends SIGKILL even if a child cannot
     freeze. Linux adopts and reaps orphans without consuming the CLI's exit status. Windows runs the worker in

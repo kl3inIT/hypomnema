@@ -2,6 +2,7 @@ package shim
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,6 +83,8 @@ func startTestShim(t *testing.T, mode string) (string, int, int) {
 	dir, err := os.MkdirTemp("", "hyp-shim-") //nolint:usetesting // Unix socket paths are limited to about 100 bytes.
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	dir, err = filepath.EvalSymlinks(dir) // a shim runs only in a real directory
+	require.NoError(t, err)
 	exe, err := os.Executable()
 	require.NoError(t, err)
 	require.NoError(t, WriteSpec(dir, Spec{Argv: []string{exe, "shim-test-worker", mode}, Dir: dir, Env: os.Environ()}))
@@ -121,7 +124,8 @@ func TestStopKillsDetachedDescendant(t *testing.T) {
 
 func TestAnAbsentShimIsNotReportedAsSignaled(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, Stop(t.Context(), dir, "shim missing"))
 	exit, found, err := ReadExit(dir)
 	require.NoError(t, err)
@@ -142,7 +146,8 @@ func TestStopDoesNotTrustAReusedPID(t *testing.T) {
 	done := make(chan struct{})
 	go func() { _ = other.Wait(); close(done) }()
 	t.Cleanup(func() { _ = other.Process.Kill(); <-done })
-	dir := t.TempDir()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, PIDFile), []byte(strconv.Itoa(other.Process.Pid)), 0o600))
 	require.NoError(t, Stop(t.Context(), dir, "stale dispatch"))
 	select {
@@ -150,4 +155,23 @@ func TestStopDoesNotTrustAReusedPID(t *testing.T) {
 		t.Error("an unrelated process was stopped using the stale PID file")
 	case <-time.After(150 * time.Millisecond):
 	}
+
+	// The identity the earlier shim recorded names an older process with the same PID.
+	boot, err := bootID()
+	require.NoError(t, err)
+	stale, err := json.Marshal(processIdentity{PID: other.Process.Pid, Started: 1, Dir: dir, BootID: boot})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, identityFile), stale, 0o600))
+	require.NoError(t, os.Remove(filepath.Join(dir, ExitFile)))
+	require.NoError(t, Stop(t.Context(), dir, "stale dispatch"))
+	select {
+	case <-done:
+		t.Error("an unrelated process was stopped using a stale shim identity")
+	case <-time.After(150 * time.Millisecond):
+	}
+	exit, found, err := ReadExit(dir)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.True(t, exit.Unconfirmed)
+	assert.Empty(t, exit.Signal)
 }
