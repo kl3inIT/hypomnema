@@ -292,6 +292,10 @@ SELECT * FROM gateway_audio_providers ORDER BY provider;
 INSERT INTO gateway_audio_providers (provider, off, updated_at) VALUES (@provider, @off, @now)
 ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at;
 
+-- name: SetGatewayAudioVoice :exec
+INSERT INTO gateway_audio_providers (provider, voice, updated_at) VALUES (@provider, @voice, @now)
+ON CONFLICT (provider) DO UPDATE SET voice = excluded.voice, updated_at = excluded.updated_at;
+
 -- name: SetGatewayAudioSTTPosition :exec
 INSERT INTO gateway_audio_providers (provider, stt_position, updated_at) VALUES (@provider, @position, @now)
 ON CONFLICT (provider) DO UPDATE SET stt_position = excluded.stt_position, updated_at = excluded.updated_at;

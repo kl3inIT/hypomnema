@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -192,6 +193,15 @@ func (m *Manager) StartTake(ctx context.Context, agent, id, title, requestID str
 	f := &m.film
 
 	f.mu.Lock()
+	known := f.takes[id] != nil
+	f.mu.Unlock()
+
+	var screen *devicetool.TakeScreen
+	if !known {
+		screen = m.screenSize(ctx)
+	}
+
+	f.mu.Lock()
 
 	if t := f.takes[id]; t != nil {
 		meta := t.meta
@@ -235,8 +245,8 @@ func (m *Manager) StartTake(ctx context.Context, agent, id, title, requestID str
 	t := &take{
 		meta: devicetool.Take{
 			ID: id, Title: title, Agent: agent, RequestID: requestID, StartedAt: m.now().UTC(),
-			State: devicetool.TakeRecording, Segments: []devicetool.TakeSegment{}, Steps: []devicetool.TakeStep{},
-			Pauses: []devicetool.TakePause{},
+			State: devicetool.TakeRecording, Screen: screen, Segments: []devicetool.TakeSegment{},
+			Steps: []devicetool.TakeStep{}, Pauses: []devicetool.TakePause{},
 		},
 		dir: dir, q: newTakeQueue(), done: make(chan struct{}),
 	}
@@ -974,4 +984,29 @@ func (m *Manager) filmingNow() bool {
 	defer m.film.mu.Unlock()
 
 	return m.film.cur != nil
+}
+
+// wmSize reads `wm size`: its override when one is set, which taps follow, else its physical size.
+var wmSize = regexp.MustCompile(`(Physical|Override) size:\s*(\d+)x(\d+)`)
+
+// screenSize is the phone's screen in pixels, the space a step's tap is in, which a video places its taps' rings
+// by (issue #818); nil when the phone does not say it.
+func (m *Manager) screenSize(ctx context.Context) *devicetool.TakeScreen {
+	out, err := m.adb(ctx, toolWithin, "-s", serial, "shell", "wm", "size")
+	if err != nil || out.Code != 0 {
+		return nil
+	}
+
+	var screen *devicetool.TakeScreen
+
+	for _, match := range wmSize.FindAllStringSubmatch(out.Stdout, -1) {
+		w, errW := strconv.Atoi(match[2])
+		h, errH := strconv.Atoi(match[3])
+
+		if errW == nil && errH == nil && w > 0 && h > 0 && (screen == nil || match[1] == "Override") {
+			screen = &devicetool.TakeScreen{Width: w, Height: h}
+		}
+	}
+
+	return screen
 }
