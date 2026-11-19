@@ -548,6 +548,11 @@ func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+	if a.readRun {
+		answer(w, agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}})
+
+		return
+	}
 
 	web := s.gatewayToolList(r.Context(), a)
 
@@ -593,6 +598,11 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 	a, err := s.authenticate(r)
 	if err != nil {
 		refuse(w, http.StatusUnauthorized, err.Error())
+
+		return
+	}
+	if a.readRun {
+		answerTool(w, agenttool.ReadRunRefusal, true)
 
 		return
 	}
