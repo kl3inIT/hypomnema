@@ -346,6 +346,8 @@ func waitingLine(code string) string {
 		return "it asks for more CPU or memory than any node that can run it has to give"
 	case "nodes_low_memory":
 		return "every node that can run it is low on memory"
+	case "nodes_low_disk":
+		return "no suitable node has enough measured free disk space"
 	case "accounts_cooling":
 		return "every account of its agent waits for its limit to reset"
 	case "no_node":

@@ -16,6 +16,7 @@ SET updated_at = @now, last_seen_at = @now, worktree_root = @worktree_root, runt
     daemon_version = @daemon_version, os = @os, arch = @arch, cpus = @cpus, memory_bytes = @memory_bytes,
     disk_bytes = @disk_bytes, unavailable_at = NULL, terminal = @terminal,
     device = @device, kvm = @kvm,
+    disk_policy = max(disk_policy, @disk_policy), disk_free_bytes = NULL, disk_sample_at = NULL,
     machine_error = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN NULL ELSE machine_error END,
     machine_state = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN 'ready' ELSE machine_state END,
     machine_power = CASE WHEN machine_power = 'starting' THEN NULL ELSE machine_power END
@@ -23,6 +24,11 @@ WHERE id = @id AND status <> 'deleted';
 
 -- name: TouchNode :exec
 UPDATE nodes SET last_seen_at = CAST(@now AS INTEGER) WHERE id = @id;
+
+-- name: SetNodeDisk :execrows
+UPDATE nodes SET disk_policy = 1, disk_free_bytes = @disk_free_bytes, disk_floor_bytes = @disk_floor_bytes,
+    disk_trim_bytes = @disk_trim_bytes, disk_sample_at = @disk_sample_at
+WHERE id = @id AND status <> 'deleted';
 
 -- name: SetNodeGitHosts :execrows
 UPDATE nodes SET git_hosts = @git_hosts WHERE id = @id AND status <> 'deleted';

@@ -6,13 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/speech"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/captions"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/compose"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/internal/store"
@@ -133,7 +131,7 @@ func (s *Service) make(parent context.Context, r store.VideoRevision) {
 
 	defer s.dropProgress(r.VideoID, rev.Rev)
 
-	warnings, length, err := s.build(ctx, r.VideoID, rev, dir)
+	warnings, length, err := s.build(ctx, AudioSource{Video: r.VideoID, Rev: rev.Rev, By: r.RequestedBy}, rev, dir)
 	if err == nil {
 		err = s.finish(ctx, r.VideoID, rev.Rev, length, warnings)
 	}
@@ -182,7 +180,8 @@ func (s *Service) make(parent context.Context, r store.VideoRevision) {
 
 // build makes the revision's files in place: its MP4 and thumbnail. It
 // answers the warnings and the MP4's length.
-func (s *Service) build(ctx context.Context, id string, rev Revision, dir string) ([]string, int64, error) {
+func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, dir string) ([]string, int64, error) {
+	id := source.Video
 	if free, err := s.cfg.FreeBytes(s.cfg.Dir); err == nil && free < minFreeBytes {
 		return nil, 0, at(Voicing, fmt.Errorf("the control plane has %d MB of disk free; a video needs %d MB",
 			free/1_000_000, minFreeBytes/1_000_000))
@@ -227,7 +226,7 @@ func (s *Service) build(ctx context.Context, id string, rev Revision, dir string
 	stage := func(n int) { s.setProgress(id, rev.Rev, n, total) }
 	stage(0)
 
-	said, err := s.speak(ctx, rev.Lines, rev.Voice, stage)
+	said, err := s.speak(ctx, source, rev.Lines, rev.Voice, stage)
 	if err != nil {
 		return nil, 0, at(Voicing, err)
 	}
@@ -273,7 +272,7 @@ func (s *Service) build(ctx context.Context, id string, rev Revision, dir string
 
 		stage(0)
 
-		ass, err := s.captions(ctx, said.clips, made, filepath.Join(work, "captions.ass"), stage)
+		ass, err := s.captions(ctx, source, said.clips, made, filepath.Join(work, "captions.ass"), stage)
 		if err != nil {
 			return nil, 0, at(Captioning, err)
 		}
@@ -308,7 +307,8 @@ func (s *Service) build(ctx context.Context, id string, rev Revision, dir string
 // captions transcribes each scene's clip with its words' times, builds the
 // cues on the video's time and writes them as an ASS file (row 6). done is
 // told how many scenes are transcribed, after each.
-func (s *Service) captions(ctx context.Context, clips []string, made compose.Result, out string, done func(n int),
+func (s *Service) captions(ctx context.Context, source AudioSource, clips []string, made compose.Result, out string,
+	done func(n int),
 ) (string, error) {
 	if len(made.Scenes) != len(clips) {
 		return "", fmt.Errorf("the video has %d scenes and %d clips", len(made.Scenes), len(clips))
@@ -317,31 +317,15 @@ func (s *Service) captions(ctx context.Context, clips []string, made compose.Res
 	scenes := make([]captions.Scene, 0, len(clips))
 
 	for k, clip := range clips {
-		info, err := os.Stat(clip)
-		if err != nil {
-			return "", err
-		}
-
-		t, err := s.cfg.Speech.Transcribe(ctx, speech.TranscribeRequest{
-			Audio: speech.Audio{
-				Name: filepath.Base(clip), MIME: "audio/mpeg", Size: info.Size(),
-				Open: func() (io.ReadCloser, error) { return os.Open(clip) }, //nolint:gosec // The voice cache's own file.
-			},
-			Language: Language,
-		})
+		words, err := s.clipWords(ctx, source, clip)
 		if err != nil {
 			return "", fmt.Errorf("scene %d: %w", k+1, err)
-		}
-
-		pieces := make([]captions.Piece, 0, len(t.Words))
-		for _, w := range t.Words {
-			pieces = append(pieces, captions.Piece{Text: w.Word, Start: w.Start.Seconds(), End: w.End.Seconds()})
 		}
 
 		sc := made.Scenes[k]
 		scenes = append(scenes, captions.Scene{
 			StartMs: sc.OutStartMs, EndMs: sc.OutStartMs + sc.OutLengthMs,
-			Words: captions.Words(pieces, t.Provider == speech.ProviderSoniox),
+			Words: words,
 		})
 		done(len(scenes))
 	}

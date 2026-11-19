@@ -941,7 +941,8 @@ sequenceDiagram
     the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
     latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
     (`PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `hypomnema audio voice <provider> [voice]`; the
-    column `voice` of `gateway_audio_providers`). The speech the runner asks is not recorded on a gateway key.
+    column `voice` of `gateway_audio_providers`). The runner records speech and transcription through the gateway's
+    audio usage path (see "Audio").
   - The Studio (issue #818, row 12): one owner listing of takes and videos, `GET /studio/items?kind=&state=&q=
     &cursor=&limit=` (`clientapi/studio.go`, owner tokens only), each a summary (kind, id, title, the Bot that
     filmed the take, created_at, length, state, a video's take and latest revision, a thumbnail URL), in the order
@@ -1866,6 +1867,10 @@ flowchart LR
   gateway serves), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
+  Before scoring, the scheduler also applies the [node's disk policy](#node-disk-policy-issue-859), including on
+  continuations, handoffs and direct Dispatch creation. If disk prevents placement, the Task waits with
+  `nodes_low_disk` and can resume without anyone acting. A node that declines an offer for disk pressure returns
+  the Task to this wait without counting a failure. Lease renewals, stops, reports and reattachments still work.
   Each Task a pass leaves ready gets why it waits in `tasks.waiting_reason` (migration 00100; from OpenMausBot's
   queued reason, `server/host/queued-reason.ts`, and Coder's place in the queue, `ProvisionerStatusAlert.tsx`),
   written only when it changed and without touching the Task's `updated_at`, from which `unplaceable` counts, and
@@ -1975,6 +1980,14 @@ flowchart LR
       not needed. For example, `hypomnema exec lark:me -- lark-cli im chats get --as user --chat-id <chat-id>`
       reads a chat using the owner's Lark user Connection. The tunnel checks the Connection and applies the same
       action policies; the child gets a placeholder, not the owner token or the service token.
+      On Windows and macOS, `exec` terminates TLS on loopback and verifies a second TLS connection through the
+      same tunnel with the control plane's CA. The child sees a per-user CA trusted in CurrentUser\Root or the
+      login keychain. Only name-constrained issuing keys are kept with the CA certificate under the CLI's
+      private `exec-ca` directory; the root signing key is discarded. The issuing certificates carry the DNS
+      constraints in bounded groups so they also fit the macOS chain validator's limit. They cover the service CLI
+      catalogs, including connected GitLab hosts reported by the control plane. `hypomnema exec remove-ca` untrusts
+      the exact root and deletes the keys.
+      On Linux the child still verifies the control plane's temporary CA through `SSL_CERT_FILE`.
     - **Google goes through the service proxy** (issue #154,
       [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
       [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
@@ -2535,7 +2548,14 @@ flowchart LR
       `send file`). It is the action `whatsapp.send` of the service proxy's catalog, decided as a request is
       (`serviceproxy.Proxy.Judge`, `act.go`): it asks the owner until he sets it to allow or never on the
       Connection's actions; the approval shows the chat's name, the text and the file, and sends once. What is
-      sent is kept in the mirror as his.
+      sent is kept in the mirror as his. `mentions` tags members of a group by their ids as `whatsapp_messages`
+      gives a sender (a number's JID, a LID JID or a bare number): they go in the message's
+      `ContextInfo.MentionedJID`, beside the quote of a reply, and the text writes `@` and each id's number, as
+      mautrix-whatsapp sends a mention (`pkg/msgconv/from-matrix.go`, `convertPill`). The control plane offers and
+      accepts mentions only when the tools server advertises that it relays them (`Hypomnema-WhatsApp-Mentions`).
+      A blank mention, a mention the text does not write, or an audio file with a caption is refused before the
+      owner is asked; the approval shows who is tagged, by the name their messages in
+      the chat give ([issue #852](https://github.com/kl3inIT/hypomnema/issues/852)). `zalo_send` does not tag.
     - **Every image and file is downloaded** ([issue #634](https://github.com/kl3inIT/hypomnema/issues/634)): a
       media message keeps its download keys (the mirror's version 1, `wa_version`); four workers download each as
       it arrives, live or from history, and the kept ones without a file when the session connects (500 at a time,
@@ -3834,6 +3854,11 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   or `audio/tts` when none was asked), with `audio_ms` heard or `characters` spoken (migration 00103, OmniRoute's
   billing units), 0 on a failure; a request refused before any provider is not recorded. `GET /gateway/requests`
   gives them as `audio_seconds` and `characters`, and the Usage page shows them in their units (issue #723).
+  Video calls (issue #909) carry `video_id` and `video_rev` in the usage row and count on the revision requester's
+  key: `videos` for the owner, the Dispatch's or the chat's newest key for agents (a revoked usage-only key if
+  none exists). The runner caches the caption word times beside each voice clip, so a cache hit calls neither
+  provider again when both are present. A clip voiced before its word times were cached is transcribed on its
+  first use with captions.
 - What the owner sets (`gateway_audio_providers`, migration 00103: `provider`, `off`, `stt_position`,
   `tts_position`; read and written only by the gateway): one switch a provider for both kinds and each kind's order.
   `GET /gateway/audio` (any token) lists the providers with their switch, `state` (`ready`, `resting` when every key
@@ -4779,6 +4804,65 @@ Node (`internal/node`):
   login shell and as Orca adds it for its agents, so what the setup installed wins over an older copy on the
   machine; a Dispatch's Connections put their tools' directory before it. Not built: the script's failure in the
   transcript, and asking the owner before a script runs the first time (Orca).
+
+### Node disk policy (issue #859)
+
+- The node measures bytes available to its user (`Bavail`, not capacity minus used) on the worktree volume. In
+  `config.json`, `disk.floor_bytes` defaults to 5 GiB, `disk.trim_percent` to 15 and `disk.target_percent` to 20.
+  The floor must be positive and `0 < trim_percent < target_percent <= 100`. The effective trim threshold and
+  target are each the greater of the configured floor and their share of the volume. Exactly at the floor still
+  takes work. The node measures again before recording an accept and before starting a new worker, including
+  after a replayed accept. Disk probes time out off the message loop. A declined offer keeps its Conversation,
+  answered Gate and recovery or handoff note, and does not count as a backup turn.
+- The hello enables the policy for an upgraded node. The heartbeat reports available bytes, the floor, effective
+  trim threshold; the control plane dates samples on receipt. Migration `00141_node_disk.sql` keeps these
+  fields independently of CPU and RAM. A missing sample or one at least 30 seconds old blocks new work on
+  a policy-enabled node. Old nodes that
+  have never advertised the policy still take work. Machines shows the age and thresholds, “Not measured” for a
+  missing or stale sample, amber below the trim threshold and red below the floor, independently of connectivity.
+- After connecting and every five minutes, the node scans its managed `<worktree root>/<run>/<task>` directories,
+  including Runs that ended while it was offline. A reconnect waits for any previous pass to stop before
+  starting its pass. The default root under a node home alias is scanned at its real location, while
+  confirmations still use the registered path.
+  In batches over the node link, orchestration confirms the exact Conversation node and path, a finished or
+  canceled Run, and no unsettled Dispatch there. It also sends paths still needed by open Runs or unsettled
+  Dispatches. If a confirmation is too large for one message, the node retries smaller batches; it keeps a
+  worktree whose individual confirmation still does not fit. If the protected list alone does not fit, it
+  skips cleanup for that pass. The node compares real paths and filesystem
+  identities, including mounts below protected paths,
+  against every deletion target. It keeps ambiguous targets and protects the node home, except for explicitly
+  managed worktrees, Dispatch temp directories, and the particular Git worktree's registration. It rechecks
+  local Dispatches and shim process groups and skips the shim requirement for a recorded disk decline before
+  launch. It removes files relative to pinned directory handles, checking their identities against the protected
+  set during traversal so the node home, `repos/` or `run/` renamed into the deletion tree is kept. It neither follows symlinks nor
+  crosses mounts, and removes the Run directory only if empty. Git cleanup keeps checkouts with tracked changes,
+  untracked files, or hidden index entries; ignored files do not prevent removal.
+  `git worktree remove` runs without force in a filesystem sandbox (Linux Landlock or macOS
+  `sandbox-exec`); if confinement is unavailable, the checkout is kept.
+  Open Runs keep their worktrees for follow-ups.
+- Setup and the worker get private `TMPDIR`, `TEMP`, `TMP` and `GOTMPDIR` under `run/<dispatch>/tmp`. The node also reclaims
+  that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
+  shim from claiming permission to launch. Stop also revokes that permission before a spawned shim can write
+  its PID. A saved PID alone is not enough to signal a process group. On Linux, if the shim and its worker have
+  both exited, the node checks the recorded boot ID and looks for a surviving process in the shim's recorded
+  group and session before signaling it, even if the worker's PID has been reused. The node does not signal
+  an orphaned group on macOS or for a legacy shim without `shim.identity` after the shim exits, because it
+  cannot verify the group's identity. Any remaining children and the Dispatch's temp may therefore remain
+  until those children exit. The shim socket uses the configured home
+  path so a short symlink alias remains usable even when the resolved path is too long for Unix sockets. Disk
+  maintenance never removes state or its sidecars, accounts, shim records and journals,
+  Conversations, Transcripts, Git mirrors and branches, the binary and configuration, or system logs.
+- Below the trim threshold, with protected paths confirmed, the node trims standard Go build cache entries in
+  `~/.cache/go-build` and the effective `GOCACHE` on the affected mount. It removes entries older than five days
+  plus one hour in oldest-first order, skips entries that changed after inspection, and remeasures in batches
+  until it reaches the target. It checks for an idle node before invoking native
+  `pnpm store prune` on the default worker store. It rejects symlinks and cross-mount entries and confines the
+  command with the same platform sandbox; the worker's `dlx` cache is not pruned. The pnpm store must be on the affected mount.
+  Go module, toolchain
+  and fuzz caches are not touched. Playwright's own GC remains part of its browser install, not this sweep.
+  If the eligible cleanup cannot make enough room, the warning and admission floor remain. The policy does not
+  protect free space on a separate cache or temp volume.
+- The node does not sweep shared `/tmp` or `os.TempDir()`. Dispatch cleanup is limited to its own temporary directory.
 
 ## Web client
 

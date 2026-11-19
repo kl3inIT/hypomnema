@@ -41,7 +41,7 @@ func (q *Queries) AcceptDispatch(ctx context.Context, arg AcceptDispatchParams) 
 }
 
 const activeDispatchOfTask = `-- name: ActiveDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry FROM dispatches
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry, declined_low_disk FROM dispatches
 WHERE task_id = ?1 AND status IN ('queued', 'starting', 'running', 'stopping', 'unknown', 'stop_unknown')
 `
 
@@ -88,6 +88,7 @@ func (q *Queries) ActiveDispatchOfTask(ctx context.Context, taskID string) (Disp
 		&i.MemoryBytes,
 		&i.RoleChain,
 		&i.ChainEntry,
+		&i.DeclinedLowDisk,
 	)
 	return i, err
 }
@@ -111,9 +112,26 @@ func (q *Queries) CloseConversation(ctx context.Context, arg CloseConversationPa
 	return result.RowsAffected()
 }
 
+const conversationHadAnotherAccept = `-- name: ConversationHadAnotherAccept :one
+SELECT EXISTS (SELECT 1 FROM dispatches
+WHERE conversation_id = ?1 AND id != ?2 AND accepted_at IS NOT NULL AND declined_low_disk = 0)
+`
+
+type ConversationHadAnotherAcceptParams struct {
+	ConversationID string
+	ID             string
+}
+
+func (q *Queries) ConversationHadAnotherAccept(ctx context.Context, arg ConversationHadAnotherAcceptParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, conversationHadAnotherAccept, arg.ConversationID, arg.ID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const countFallbacksOfRun = `-- name: CountFallbacksOfRun :one
 SELECT count(*) FROM dispatches d JOIN tasks t ON t.id = d.task_id
-WHERE t.run_id = ?1 AND d.fallback_for = ?2 AND d.fallback_until = ?3
+WHERE t.run_id = ?1 AND d.fallback_for = ?2 AND d.fallback_until = ?3 AND d.declined_low_disk = 0
 `
 
 type CountFallbacksOfRunParams struct {
@@ -131,7 +149,7 @@ func (q *Queries) CountFallbacksOfRun(ctx context.Context, arg CountFallbacksOfR
 }
 
 const countFallbacksOfTask = `-- name: CountFallbacksOfTask :one
-SELECT count(*) FROM dispatches WHERE task_id = ?1 AND fallback_for IS NOT NULL
+SELECT count(*) FROM dispatches WHERE task_id = ?1 AND fallback_for IS NOT NULL AND declined_low_disk = 0
 `
 
 // The Dispatches of a Task that ran under a backup of its profile: a Task is handed off once.
@@ -144,7 +162,7 @@ func (q *Queries) CountFallbacksOfTask(ctx context.Context, taskID string) (int6
 
 const countRecentNodeExpiries = `-- name: CountRecentNodeExpiries :one
 SELECT count(*) FROM dispatches
-WHERE node_id = ?1 AND status = 'expired' AND settled_at >= CAST(?2 AS INTEGER)
+WHERE node_id = ?1 AND status = 'expired' AND declined_low_disk = 0 AND settled_at >= CAST(?2 AS INTEGER)
 `
 
 type CountRecentNodeExpiriesParams struct {
@@ -229,7 +247,7 @@ func (q *Queries) GetCooldown(ctx context.Context, arg GetCooldownParams) (Accou
 }
 
 const getDispatch = `-- name: GetDispatch :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry FROM dispatches WHERE id = ?1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry, declined_low_disk FROM dispatches WHERE id = ?1
 `
 
 func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) {
@@ -275,6 +293,7 @@ func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) 
 		&i.MemoryBytes,
 		&i.RoleChain,
 		&i.ChainEntry,
+		&i.DeclinedLowDisk,
 	)
 	return i, err
 }
@@ -411,7 +430,7 @@ func (q *Queries) InsertReceipt(ctx context.Context, arg InsertReceiptParams) er
 }
 
 const lastDispatchOfConversation = `-- name: LastDispatchOfConversation :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry, declined_low_disk FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID string) (Dispatch, error) {
@@ -457,12 +476,13 @@ func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID
 		&i.MemoryBytes,
 		&i.RoleChain,
 		&i.ChainEntry,
+		&i.DeclinedLowDisk,
 	)
 	return i, err
 }
 
 const lastDispatchOfTask = `-- name: LastDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry, declined_low_disk FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispatch, error) {
@@ -508,6 +528,7 @@ func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispat
 		&i.MemoryBytes,
 		&i.RoleChain,
 		&i.ChainEntry,
+		&i.DeclinedLowDisk,
 	)
 	return i, err
 }
@@ -783,6 +804,15 @@ func (q *Queries) ListStopTimedOut(ctx context.Context, ackedBefore int64) ([]st
 	return items, nil
 }
 
+const markDispatchDeclinedLowDisk = `-- name: MarkDispatchDeclinedLowDisk :exec
+UPDATE dispatches SET declined_low_disk = 1 WHERE id = ?1
+`
+
+func (q *Queries) MarkDispatchDeclinedLowDisk(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, markDispatchDeclinedLowDisk, id)
+	return err
+}
+
 const markOverrun = `-- name: MarkOverrun :many
 UPDATE dispatches SET updated_at = ?1, overrun_at = ?1
 WHERE status = 'running' AND overrun_at IS NULL
@@ -947,7 +977,7 @@ func (q *Queries) MarkUnknown(ctx context.Context, arg MarkUnknownParams) (int64
 
 const nodesWithRecentTaskExpiries = `-- name: NodesWithRecentTaskExpiries :many
 SELECT DISTINCT node_id FROM dispatches
-WHERE task_id = ?1 AND status = 'expired' AND settled_at >= CAST(?2 AS INTEGER)
+WHERE task_id = ?1 AND status = 'expired' AND declined_low_disk = 0 AND settled_at >= CAST(?2 AS INTEGER)
 `
 
 type NodesWithRecentTaskExpiriesParams struct {
@@ -979,8 +1009,8 @@ func (q *Queries) NodesWithRecentTaskExpiries(ctx context.Context, arg NodesWith
 }
 
 const previousDispatchOfTask = `-- name: PreviousDispatchOfTask :one
-SELECT p.id, p.task_id, p.conversation_id, p.node_id, p.status, p.epoch, p.failure_class, p.unknown_cause, p.recovery, p.process_ref, p.result, p.resets_at, p.created_at, p.updated_at, p.accepted_at, p.started_at, p.lease_expires_at, p.progress_at, p.stop_requested_at, p.stop_acked_at, p.stalled_at, p.overrun_at, p.settled_at, p.waiting_since, p.waited_ms, p.gate_question_id, p.model, p.effort, p.profile_version_id, p.activity, p.fallback_for, p.fallback_until, p.handoff, p.stalled_reason, p.follow_up_id, p.cpu_millis, p.memory_bytes, p.role_chain, p.chain_entry FROM dispatches p JOIN dispatches d ON d.task_id = p.task_id
-WHERE d.id = ?1 AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.rowid < d.rowid))
+SELECT p.id, p.task_id, p.conversation_id, p.node_id, p.status, p.epoch, p.failure_class, p.unknown_cause, p.recovery, p.process_ref, p.result, p.resets_at, p.created_at, p.updated_at, p.accepted_at, p.started_at, p.lease_expires_at, p.progress_at, p.stop_requested_at, p.stop_acked_at, p.stalled_at, p.overrun_at, p.settled_at, p.waiting_since, p.waited_ms, p.gate_question_id, p.model, p.effort, p.profile_version_id, p.activity, p.fallback_for, p.fallback_until, p.handoff, p.stalled_reason, p.follow_up_id, p.cpu_millis, p.memory_bytes, p.role_chain, p.chain_entry, p.declined_low_disk FROM dispatches p JOIN dispatches d ON d.task_id = p.task_id
+WHERE d.id = ?1 AND p.declined_low_disk = 0 AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.rowid < d.rowid))
 ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1
 `
 
@@ -1028,8 +1058,38 @@ func (q *Queries) PreviousDispatchOfTask(ctx context.Context, id string) (Dispat
 		&i.MemoryBytes,
 		&i.RoleChain,
 		&i.ChainEntry,
+		&i.DeclinedLowDisk,
 	)
 	return i, err
+}
+
+const protectedWorktrees = `-- name: ProtectedWorktrees :many
+SELECT DISTINCT c.worktree FROM conversations c JOIN tasks t ON t.id = c.task_id JOIN runs r ON r.id = t.run_id
+WHERE c.node_id = ?1 AND (r.status = 'open' OR EXISTS (
+  SELECT 1 FROM dispatches d WHERE d.conversation_id = c.id AND d.settled_at IS NULL))
+`
+
+func (q *Queries) ProtectedWorktrees(ctx context.Context, nodeID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, protectedWorktrees, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var worktree string
+		if err := rows.Scan(&worktree); err != nil {
+			return nil, err
+		}
+		items = append(items, worktree)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const reattach = `-- name: Reattach :execrows
@@ -1454,4 +1514,61 @@ func (q *Queries) UpsertCooldown(ctx context.Context, arg UpsertCooldownParams) 
 		arg.Reason,
 	)
 	return err
+}
+
+const worktreeDispatches = `-- name: WorktreeDispatches :many
+SELECT d.id, d.status, d.accepted_at, d.settled_at, d.declined_low_disk, t.id AS task_id, r.id AS run_id, r.status AS run_status, r.repo
+FROM conversations c JOIN dispatches d ON d.conversation_id = c.id
+JOIN tasks t ON c.task_id = t.id JOIN runs r ON t.run_id = r.id
+WHERE c.node_id = ?1 AND c.worktree = ?2
+`
+
+type WorktreeDispatchesParams struct {
+	NodeID   string
+	Worktree string
+}
+
+type WorktreeDispatchesRow struct {
+	ID              string
+	Status          string
+	AcceptedAt      sql.NullInt64
+	SettledAt       sql.NullInt64
+	DeclinedLowDisk int64
+	TaskID          string
+	RunID           string
+	RunStatus       string
+	Repo            sql.NullString
+}
+
+func (q *Queries) WorktreeDispatches(ctx context.Context, arg WorktreeDispatchesParams) ([]WorktreeDispatchesRow, error) {
+	rows, err := q.db.QueryContext(ctx, worktreeDispatches, arg.NodeID, arg.Worktree)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorktreeDispatchesRow{}
+	for rows.Next() {
+		var i WorktreeDispatchesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.AcceptedAt,
+			&i.SettledAt,
+			&i.DeclinedLowDisk,
+			&i.TaskID,
+			&i.RunID,
+			&i.RunStatus,
+			&i.Repo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

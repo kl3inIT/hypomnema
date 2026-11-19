@@ -124,6 +124,18 @@ func (s *Service) ChatUsageKey(ctx context.Context, chatID, botID string) (Key, 
 		return Key{}, fmt.Errorf("%w: a chat's key needs the chat", ErrInvalid)
 	}
 
+	return s.agentUsageKey(ctx, keyOwner{chatID: chatID, botID: botID}, "chat")
+}
+
+func (s *Service) DispatchUsageKey(ctx context.Context, dispatchID string) (Key, error) {
+	if dispatchID == "" {
+		return Key{}, fmt.Errorf("%w: a dispatch's key needs the dispatch", ErrInvalid)
+	}
+
+	return s.agentUsageKey(ctx, keyOwner{dispatchID: dispatchID}, "dispatch")
+}
+
+func (s *Service) agentUsageKey(ctx context.Context, owner keyOwner, name string) (Key, error) {
 	secret, err := bearertoken.Generate(bearertoken.Gateway)
 	if err != nil {
 		return Key{}, err
@@ -137,7 +149,15 @@ func (s *Service) ChatUsageKey(ctx context.Context, chatID, botID string) (Key, 
 	var id string
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
-		row, err := q.GetLatestGatewayKeyOfChat(ctx, sql.NullString{String: chatID, Valid: true})
+		chat := sql.NullString{String: owner.chatID, Valid: owner.chatID != ""}
+		dispatch := sql.NullString{String: owner.dispatchID, Valid: owner.dispatchID != ""}
+		var row store.GatewayKey
+		var err error
+		if dispatch.Valid {
+			row, err = q.GetLatestGatewayKeyOfDispatch(ctx, dispatch)
+		} else {
+			row, err = q.GetLatestGatewayKeyOfChat(ctx, chat)
+		}
 
 		switch {
 		case err == nil:
@@ -145,24 +165,24 @@ func (s *Service) ChatUsageKey(ctx context.Context, chatID, botID string) (Key, 
 
 			return nil
 		case !errors.Is(err, sql.ErrNoRows):
-			return fmt.Errorf("reading the key of chat %s: %w", chatID, err)
+			return fmt.Errorf("reading the %s usage key: %w", name, err)
 		}
 
 		id = s.newID("gwk")
 
 		if err := q.InsertGatewayKey(ctx, store.InsertGatewayKeyParams{
-			ID: id, Name: strings.ToLower(strings.ReplaceAll(s.newID("chat"), "_", "-")),
+			ID: id, Name: strings.ToLower(strings.ReplaceAll(s.newID(name), "_", "-")),
 			KeyHash: bearertoken.Hash(secret), KeyPrefix: secret[:keyPrefixLength], Models: string(models),
-			ChatID: sql.NullString{String: chatID, Valid: true},
-			BotID:  sql.NullString{String: botID, Valid: botID != ""}, Now: now,
+			ChatID: chat, DispatchID: dispatch,
+			BotID: sql.NullString{String: owner.botID, Valid: owner.botID != ""}, Now: now,
 		}); err != nil {
-			return fmt.Errorf("storing a key of chat %s: %w", chatID, err)
+			return fmt.Errorf("storing the %s usage key: %w", name, err)
 		}
 
 		if _, err := q.RevokeGatewayKey(ctx, store.RevokeGatewayKeyParams{
 			ID: id, Now: sql.NullInt64{Int64: now, Valid: true},
 		}); err != nil {
-			return fmt.Errorf("revoking the key made for chat %s: %w", chatID, err)
+			return fmt.Errorf("revoking the %s usage key: %w", name, err)
 		}
 
 		return nil

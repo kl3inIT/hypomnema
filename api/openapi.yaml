@@ -5261,7 +5261,8 @@ components:
             Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task
             that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what
             it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could
-            run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory
+            run it has to give), nodes_low_disk (fitting nodes do not have a fresh disk sample at or above their floor),
+            nodes_low_memory (every node that could run it has less than 1 GiB of memory
             available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and
             no_node_has_tool:<tool>.
     TaskDetail:
@@ -5590,6 +5591,7 @@ components:
           items: { $ref: "#/components/schemas/Runtime" }
         system: { $ref: "#/components/schemas/NodeSystem" }
         stats: { $ref: "#/components/schemas/NodeStats" }
+        disk: { $ref: "#/components/schemas/NodeDisk" }
         git_hosts:
           type: array
           items: { type: string }
@@ -6406,6 +6408,18 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/MachineProvider" }
+    NodeDisk:
+      type: object
+      required: [floor_bytes, trim_bytes]
+      properties:
+        free_bytes:
+          type: integer
+          format: int64
+          description: Bytes available to the node user, absent when not measured or stale.
+        floor_bytes: { type: integer, format: int64 }
+        trim_bytes: { type: integer, format: int64 }
+        at: { type: string, format: date-time, description: When the node measured the sample. }
+        age_ms: { type: integer, format: int64, description: Age of the disk sample when this response was produced. }
     NodeStats:
       type: object
       description: The node's latest measurement, sent with its heartbeat. Left out until it has sent one.

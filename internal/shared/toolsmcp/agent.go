@@ -87,6 +87,9 @@ func (a *Agent) doWithin(ctx context.Context, method, path string, body any, lim
 
 	req.Header.Set("Authorization", "Bearer "+a.key)
 	req.Header.Set("Content-Type", "application/json")
+	if path == agenttool.PathTools || path == agenttool.PathToolsCall {
+		req.Header.Set(agenttool.HeaderWhatsAppMentions, "1")
+	}
 
 	resp, err := a.client.Do(req)
 	if err != nil {

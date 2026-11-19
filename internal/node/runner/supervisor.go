@@ -115,7 +115,8 @@ func Session(d statedb.Dispatch) string {
 // Supervisor runs the node's workers, of every runtime.
 type Supervisor struct {
 	// Home is the node's home: run/<dispatch> holds each shim.
-	Home string
+	Home       string
+	SocketHome string
 	// Exe is the node binary, run as `Exe shim --dir D`.
 	Exe string
 	// URL is the control plane's base URL, where a worker's tools reach the agent API.
@@ -129,13 +130,14 @@ type Supervisor struct {
 
 // Worker is one worker the Supervisor follows.
 type Worker struct {
-	id     string
-	dir    string
-	r      daemon.Reporter
-	turn   Turn
-	logger *slog.Logger
-	offer  nodeproto.Offer
-	cancel context.CancelFunc
+	id        string
+	dir       string
+	socketDir string
+	r         daemon.Reporter
+	turn      Turn
+	logger    *slog.Logger
+	offer     nodeproto.Offer
+	cancel    context.CancelFunc
 	// done is closed when the worker's journal reader returned.
 	done chan struct{}
 	// shimBy, for an adopted worker whose shim had written no PID file, is
@@ -178,7 +180,7 @@ func (w *Worker) shimPID() int {
 
 // Send writes lines to the worker's input.
 func (w *Worker) Send(ctx context.Context, lines ...[]byte) error {
-	return shim.Send(ctx, w.dir, lines...)
+	return shim.Send(ctx, w.socketDir, lines...)
 }
 
 // Report logs an error of reporting or of writing to the worker.
@@ -190,6 +192,13 @@ func (w *Worker) Report(ctx context.Context, err error) {
 }
 
 func (s *Supervisor) dir(id string) string { return filepath.Join(s.Home, "run", id) }
+
+func (s *Supervisor) socketDir(id string) string {
+	if s.SocketHome == "" {
+		return s.dir(id)
+	}
+	return filepath.Join(s.SocketHome, "run", id)
+}
 
 func (s *Supervisor) put(w *Worker) bool {
 	s.mu.Lock()
@@ -240,6 +249,32 @@ func (s *Supervisor) forget(w *Worker) {
 func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, r daemon.Reporter) error {
 	o := d.Offer
 
+	dir := s.dir(d.ID)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return fmt.Errorf("making the shim root: %w", err)
+	}
+
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return fmt.Errorf("making %s: %w", dir, err)
+	}
+
+	started := false
+	defer func() {
+		if !started {
+			if err := os.WriteFile(filepath.Join(dir, neverStartedFile), nil, 0o600); err != nil {
+				s.Logger.WarnContext(ctx, "could not record that a shim never started", slog.Any("error", err))
+			}
+		}
+	}()
+	if err := os.WriteFile(filepath.Join(dir, shim.PreparingFile), nil, 0o600); err != nil {
+		return err
+	}
+
+	temp := filepath.Join(dir, "tmp")
+	if err := os.Mkdir(temp, 0o700); err != nil {
+		return fmt.Errorf("making the Dispatch temp directory: %w", err)
+	}
+
 	launch, err := rt.Prepare(ctx, d)
 	if err != nil {
 		return err
@@ -256,20 +291,14 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		// The worker's git, gh and glab act with the host's token, when the offer carried one.
 		hostEnv = src.Env
 
-		if err := s.Worktrees.Ensure(ctx, src, o.Base, o.TaskID, o.Worktree); err != nil {
+		maker := s.Worktrees
+		maker.TempDir = temp
+
+		if err := maker.Ensure(ctx, src, o.Base, o.TaskID, o.Worktree); err != nil {
 			return err
 		}
 	} else if err := os.MkdirAll(o.Worktree, 0o700); err != nil {
 		return fmt.Errorf("making the worktree: %w", err)
-	}
-
-	dir := s.dir(d.ID)
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("clearing %s: %w", dir, err)
-	}
-
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("making %s: %w", dir, err)
 	}
 
 	spec, err := launch.Write(dir, hostEnv)
@@ -278,6 +307,7 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	}
 
 	spec.Dir = o.Worktree
+	spec.Env = tempEnv(spec.Env, temp)
 	if err := shim.WriteSpec(dir, spec); err != nil {
 		return err
 	}
@@ -299,24 +329,37 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		}
 	}
 
-	pid, err := shim.Start(s.Exe, dir)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, shim.LaunchingFile), nil, 0o600); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		_ = shim.RevokeLaunch(dir)
+		return err
+	}
+	socketDir := s.socketDir(d.ID)
+	pid, err := shim.Start(s.Exe, socketDir)
 	if err != nil {
+		_ = shim.RevokeLaunch(dir)
 		return err
 	}
+	started = true
 
-	if err := waitSocket(ctx, dir); err != nil {
-		_ = shim.Kill(pid)
-
-		return err
-	}
-
-	if err := shim.Send(ctx, dir, launch.First...); err != nil {
-		_ = shim.Kill(pid)
+	if err := waitSocket(ctx, socketDir); err != nil {
+		_ = shim.RevokeLaunch(dir)
 
 		return err
 	}
 
-	s.watch(ctx, &Worker{id: d.ID, dir: dir, pid: pid, r: r, turn: launch.Turn, offer: o})
+	if err := shim.Send(ctx, socketDir, launch.First...); err != nil {
+		_ = shim.RevokeLaunch(dir)
+
+		return err
+	}
+
+	s.watch(ctx, &Worker{id: d.ID, dir: dir, socketDir: socketDir, pid: pid, r: r, turn: launch.Turn, offer: o})
 
 	return nil
 }
@@ -361,7 +404,9 @@ func (s *Supervisor) Adopt(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	}
 
 	_, state := readCheckpoint(dir)
-	w := &Worker{id: d.ID, dir: dir, r: r, turn: rt.Adopted(state), started: true, offer: d.Offer}
+	w := &Worker{
+		id: d.ID, dir: dir, socketDir: s.socketDir(d.ID), r: r, turn: rt.Adopted(state), started: true, offer: d.Offer,
+	}
 
 	pid, err := shim.PID(dir)
 	if err != nil {
@@ -398,6 +443,7 @@ func (s *Supervisor) watch(ctx context.Context, w *Worker) {
 func (s *Supervisor) Stop(id string) {
 	w := s.get(id)
 	if w == nil {
+		_ = shim.RevokeLaunch(s.dir(id))
 		return
 	}
 
@@ -412,18 +458,16 @@ func (s *Supervisor) Stop(id string) {
 
 	interrupt := w.turn.Interrupt()
 	if interrupt == nil {
-		if pid := w.shimPID(); pid > 0 {
-			_ = shim.Kill(pid)
-		}
+		_ = shim.RevokeLaunch(w.dir)
 
 		return
 	}
 
-	_ = shim.Send(context.Background(), w.dir, interrupt, []byte(shim.CloseLine))
+	_ = shim.Send(context.Background(), w.socketDir, interrupt, []byte(shim.CloseLine))
 
 	time.AfterFunc(stopGrace, func() {
 		if _, done, _ := shim.ReadExit(w.dir); !done && w.shimPID() > 0 {
-			_ = shim.Kill(w.shimPID())
+			_ = shim.KillRecorded(w.dir)
 		}
 	})
 }
@@ -443,11 +487,8 @@ func (s *Supervisor) Release(id string) {
 		<-w.done
 	}
 
-	if pid, err := shim.PID(dir); err == nil {
-		_ = shim.Kill(pid)
-	}
+	_ = shim.RevokeLaunch(dir)
 
-	_ = os.RemoveAll(dir)
 }
 
 // Asked records the control plane's id for a question the worker asked.

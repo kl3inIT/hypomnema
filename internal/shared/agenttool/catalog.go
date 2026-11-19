@@ -291,7 +291,7 @@ func AWSCLI() Def {
 // a Bot given a git host's Connection of github.com (issue #685), as Onyx's
 // and OpenClaw's github skills use it. It reads a ready token from GH_TOKEN
 // before any login it keeps, and its proxy from HTTPS_PROXY; being Go, it
-// trusts what SSL_CERT_FILE names. GH_HOST holds it to github.com; prompts,
+// on Linux trusts what SSL_CERT_FILE names. GH_HOST holds it to github.com; prompts,
 // update notices and the spinner are off, so that nothing waits for a
 // terminal; its telemetry is off, as it would reach a host the proxy does not
 // serve. GITHUB_TOKEN and the enterprise tokens are taken away, so that the
@@ -337,7 +337,7 @@ func GitHubCLI() Def {
 // GitLab host, gitlab.com or a company's server (issue #740), as t3code drives glab for GitLab. It reads a ready
 // token from GITLAB_TOKEN before any login it keeps, and the host it acts on from GITLAB_HOST, which is set to the
 // account's host: glab sends an environment's token only to that host (internal/config/schema.go, "token"). Its
-// proxy is HTTPS_PROXY and, being Go, it trusts what SSL_CERT_FILE names. Update checks, prompts and its telemetry,
+// proxy is HTTPS_PROXY and, on Linux, it trusts what SSL_CERT_FILE names. Update checks, prompts and its telemetry,
 // which would reach the host as usage_data/track_event (cmd/glab/telemetry.go), are off. GITLAB_ACCESS_TOKEN,
 // OAUTH_TOKEN, a CI job's token and the other names of the host are taken away, so that the placeholder is the only
 // credential it has and the account's host the only one; so is GLAB_PROXY, which glab prefers to HTTPS_PROXY

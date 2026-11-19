@@ -285,6 +285,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hello := orchestration.Hello{
+		DiskPolicy:   req.DiskPolicy,
 		WorktreeRoot: req.WorktreeRoot, Terminal: req.Terminal, Device: req.Device, KVM: req.KVM,
 		Held: req.Held, ListsHeld: req.ListsHeld,
 		System: orchestration.SystemInfo{
@@ -697,6 +698,12 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 		err = c.srv.svc.NodeTools(ctx, c.nodeID, tools)
 	}
 
+	if hb.Disk != nil {
+		if diskErr := c.srv.svc.NodeDisk(ctx, c.nodeID, *hb.Disk); diskErr != nil {
+			err = errors.Join(err, diskErr)
+		}
+	}
+
 	if err == nil && hb.Stats != nil {
 		err = c.srv.svc.NodeStats(ctx, c.nodeID, orchestration.SystemStats{
 			CPUPercent: hb.Stats.CPUPercent, MemoryUsedBytes: hb.Stats.MemoryUsedBytes,
@@ -734,6 +741,25 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 		}
 
 		return c.send(ctx, nodeproto.TypeReportAck, c.srv.apply(ctx, c.nodeID, r))
+	case nodeproto.TypeCleanupCheck:
+		if err := c.srv.svc.CheckNodeToken(ctx, c.tokenID); err != nil {
+			return err
+		}
+
+		var check nodeproto.CleanupCheck
+		err := json.Unmarshal(msg.Payload, &check)
+		if err != nil || check.ID == "" || len(check.Paths) > nodeproto.CleanupBatchSize {
+			return c.send(ctx, nodeproto.TypeError, nodeproto.Error{
+				Code: nodeproto.ErrorInvalid, Message: "invalid cleanup check",
+			})
+		}
+
+		worktrees, protected, err := c.srv.svc.CheckWorktreeCleanupWithProtection(ctx, c.nodeID, check.Paths)
+		if err != nil {
+			c.srv.logger.WarnContext(ctx, "could not check worktree cleanup", slog.Any("error", err))
+			return c.send(ctx, nodeproto.TypeCleanupAck, nodeproto.CleanupAck{ID: check.ID})
+		}
+		return c.send(ctx, nodeproto.TypeCleanupAck, cleanupReply(check.ID, worktrees, protected))
 	case nodeproto.TypeItems:
 		var b nodeproto.Items
 		if err := json.Unmarshal(msg.Payload, &b); err != nil || b.DispatchID == "" {
@@ -749,6 +775,18 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 		return c.send(ctx, nodeproto.TypeError,
 			nodeproto.Error{Code: nodeproto.ErrorInvalid, Message: "unexpected message " + string(msg.Type)})
 	}
+}
+
+func cleanupReply(id string, worktrees []nodeproto.CleanupWorktree, protected []string) nodeproto.CleanupAck {
+	ack := nodeproto.CleanupAck{ID: id, Worktrees: worktrees, Protected: &protected}
+	msg, err := nodeproto.Encode(nodeproto.TypeCleanupAck, ack)
+	if err != nil {
+		return nodeproto.CleanupAck{ID: id}
+	}
+	if len(msg.Payload) >= nodeproto.MaxMessageBytes-1024 {
+		return nodeproto.CleanupAck{ID: id, Split: true}
+	}
+	return ack
 }
 
 // gpusOf is a heartbeat's GPUs as the registry keeps them.

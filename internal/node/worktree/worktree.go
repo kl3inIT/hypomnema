@@ -34,6 +34,7 @@ type Maker struct {
 	Logger *slog.Logger
 	// SetupTimeout replaces how long a setup script may run, in tests.
 	SetupTimeout time.Duration
+	TempDir      string
 }
 
 // Source is the repository a worktree is made from.
@@ -115,20 +116,6 @@ func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string
 	}
 
 	m.setup(ctx, path)
-
-	return nil
-}
-
-// Remove removes a worktree; its branch stays.
-func (m Maker) Remove(ctx context.Context, src Source, path string) error {
-	mirror := m.mirrorPath(src.Repo)
-	if _, err := os.Stat(mirror); err != nil {
-		return os.RemoveAll(path)
-	}
-
-	if err := git(ctx, mirror, nil, "worktree", "remove", "--force", path); err != nil {
-		return errors.Join(err, os.RemoveAll(path))
-	}
 
 	return nil
 }

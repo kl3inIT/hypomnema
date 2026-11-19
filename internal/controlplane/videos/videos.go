@@ -156,10 +156,16 @@ type Takes interface {
 	File(id, name string) (string, error)
 }
 
-// Speech is the speech service (speech.Service).
+type AudioSource struct {
+	Video string
+	Rev   int
+	By    string
+}
+
+// Speech is the speech service with usage attributed to the revision that asks.
 type Speech interface {
-	Speak(ctx context.Context, req speech.SpeakRequest) (speech.Speech, error)
-	Transcribe(ctx context.Context, req speech.TranscribeRequest) (speech.Transcript, error)
+	Speak(ctx context.Context, source AudioSource, req speech.SpeakRequest) (speech.Speech, error)
+	Transcribe(ctx context.Context, source AudioSource, req speech.TranscribeRequest) (speech.Transcript, error)
 }
 
 // Maker makes a revision's files with ffmpeg (package compose); tests give their own.

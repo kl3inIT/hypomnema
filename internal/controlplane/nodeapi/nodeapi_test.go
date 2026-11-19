@@ -163,6 +163,16 @@ func (p *plane) send(conn *websocket.Conn, t nodeproto.Type, payload any) {
 	require.NoError(p.t, wsjson.Write(p.t.Context(), conn, msg))
 }
 
+func TestOversizedCleanupReplyAsksNodeToSplit(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("d", nodeproto.MaxMessageBytes/2)
+	trees := []nodeproto.CleanupWorktree{{Dispatches: []string{long}}, {Dispatches: []string{long}}}
+	protected := []string{"/srv/wt/open/task"}
+	assert.Equal(t, nodeproto.CleanupAck{ID: "check", Split: true}, cleanupReply("check", trees, protected))
+	assert.Equal(t, nodeproto.CleanupAck{ID: "half", Worktrees: trees[:1], Protected: &protected},
+		cleanupReply("half", trees[:1], protected))
+}
+
 // report sends a report with a fresh id and returns its acknowledgement.
 func (p *plane) report(conn *websocket.Conn, r nodeproto.Report) nodeproto.ReportAck {
 	p.t.Helper()
