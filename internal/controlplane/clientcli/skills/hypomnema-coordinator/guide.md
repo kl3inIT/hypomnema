@@ -45,8 +45,12 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    output.
 3. Wait (below), handle what the wait returns, and wait again until every Task has ended: succeeded, failed or
    canceled. A blocked Task has not ended.
-4. Finish the Run with `hypomnema runs finish <run_id> --json`, then report to the owner per Task: the outcome,
-   its evidence, and what is left. While the owner has yet to decide on a fix you offered for a
+4. Finish the Run with `hypomnema runs finish <run_id> --json` as soon as every Task has ended, without waiting
+   for the owner to press anything, then report to the owner per Task: the outcome, its evidence, and what is left.
+   <!-- Hermes hermes_cli/kanban_db_graph.py:156 (the root wakes when all children complete) and
+   kanban_db_workspace.py:419; Orca src/main/runtime/orchestration/db/worker-terminal/worker-terminal-user-keep.ts:140
+   (a finished orchestration worker closes by itself); t3code apps/server/src/cli/thread.ts:654 finishRun; owner,
+   2026-11-19, issue #904 --> While the owner has yet to decide on a fix you offered for a
    failed Task, or while its review waits for a next step, leave the Run open: a finished Run takes no new Tasks.
 
 A key is any string unique to that create, such as `health-run-1`. When a create gets no answer (a timeout, a

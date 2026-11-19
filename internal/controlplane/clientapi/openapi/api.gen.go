@@ -758,6 +758,33 @@ func (e GatewayEndpoint) Valid() bool {
 	}
 }
 
+// Defines values for GatewayEndpointSelection.
+const (
+	GatewayEndpointSelectionAsterisk GatewayEndpointSelection = "*"
+	GatewayEndpointSelectionAudio    GatewayEndpointSelection = "audio"
+	GatewayEndpointSelectionFetch    GatewayEndpointSelection = "fetch"
+	GatewayEndpointSelectionImages   GatewayEndpointSelection = "images"
+	GatewayEndpointSelectionSearch   GatewayEndpointSelection = "search"
+)
+
+// Valid indicates whether the value is a known member of the GatewayEndpointSelection enum.
+func (e GatewayEndpointSelection) Valid() bool {
+	switch e {
+	case GatewayEndpointSelectionAsterisk:
+		return true
+	case GatewayEndpointSelectionAudio:
+		return true
+	case GatewayEndpointSelectionFetch:
+		return true
+	case GatewayEndpointSelectionImages:
+		return true
+	case GatewayEndpointSelectionSearch:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GatewayModelEffort.
 const (
 	GatewayModelEffortHigh    GatewayModelEffort = "high"
@@ -3371,7 +3398,7 @@ type ConnectionUse struct {
 type CreatedGatewayKey struct {
 	Key GatewayKey `json:"key"`
 
-	// Secret The key's value, also kept encrypted in the vault.
+	// Secret The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
 	Secret string `json:"secret"`
 }
 
@@ -3557,6 +3584,9 @@ type FollowUp struct {
 // GatewayEndpoint A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits, audio is /v1/audio/transcriptions, /v1/audio/speech and /v1/audio/voices.
 type GatewayEndpoint string
 
+// GatewayEndpointSelection defines model for GatewayEndpointSelection.
+type GatewayEndpointSelection string
+
 // GatewayKey defines model for GatewayKey.
 type GatewayKey struct {
 	CreatedAt time.Time `json:"created_at"`
@@ -3589,8 +3619,8 @@ type GatewayKeyList struct {
 
 // GatewayKeyUpdate defines model for GatewayKeyUpdate.
 type GatewayKeyUpdate struct {
-	// Endpoints The new list of kinds besides chat; empty means none, omitted means unchanged.
-	Endpoints *[]GatewayEndpoint `json:"endpoints,omitempty"`
+	// Endpoints The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
+	Endpoints *[]GatewayEndpointSelection `json:"endpoints,omitempty"`
 
 	// Models The new list of model names; empty means every model, omitted means unchanged.
 	Models *[]string `json:"models,omitempty"`
@@ -8766,14 +8796,14 @@ type ClientInterface interface {
 	// Corresponds with GET /gateway/keys (the `ListGatewayKeys` operationId).
 	ListGatewayKeys(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted; only the owner
+	// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /gateway/keys (the `CreateGatewayKey` operationId).
 	CreateGatewayKeyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -12642,7 +12672,7 @@ func (c *Client) ListGatewayKeys(ctx context.Context, reqEditors ...RequestEdito
 	return c.Client.Do(req)
 }
 
-// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted; only the owner
+// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 //
 // Takes any type of body and a specified content type.
 //
@@ -12659,7 +12689,7 @@ func (c *Client) CreateGatewayKeyWithBody(ctx context.Context, contentType strin
 	return c.Client.Do(req)
 }
 
-// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
+// CreateGatewayKey Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 //
 // Takes a body of the `application/json` content type.
 //
@@ -29804,14 +29834,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /gateway/keys (the `ListGatewayKeys` operationId).
 	ListGatewayKeysWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListGatewayKeysResponse, error)
 
-	// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted; only the owner
+	// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /gateway/keys (the `CreateGatewayKey` operationId).
 	CreateGatewayKeyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateGatewayKeyResponse, error)
 
-	// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted; only the owner
+	// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -45864,7 +45894,7 @@ func (c *ClientWithResponses) ListGatewayKeysWithResponse(ctx context.Context, r
 	return ParseListGatewayKeysResponse(rsp)
 }
 
-// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted; only the owner
+// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -45877,7 +45907,7 @@ func (c *ClientWithResponses) CreateGatewayKeyWithBodyWithResponse(ctx context.C
 	return ParseCreateGatewayKeyResponse(rsp)
 }
 
-// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted; only the owner
+// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -57891,7 +57921,7 @@ type ServerInterface interface {
 	// ListGatewayKeys The gateway keys the owner made, not revoked; only the owner
 	// (GET /gateway/keys)
 	ListGatewayKeys(w http.ResponseWriter, r *http.Request)
-	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 	// (POST /gateway/keys)
 	CreateGatewayKey(w http.ResponseWriter, r *http.Request)
 	// RevokeGatewayKey Revoke a gateway key; a client using it is refused from now on; only the owner
@@ -77859,7 +77889,7 @@ type StrictServerInterface interface {
 	// ListGatewayKeys The gateway keys the owner made, not revoked; only the owner
 	// (GET /gateway/keys)
 	ListGatewayKeys(ctx context.Context, request ListGatewayKeysRequestObject) (ListGatewayKeysResponseObject, error)
-	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted if the vault is configured; only the owner
 	// (POST /gateway/keys)
 	CreateGatewayKey(ctx context.Context, request CreateGatewayKeyRequestObject) (CreateGatewayKeyResponseObject, error)
 	// RevokeGatewayKey Revoke a gateway key; a client using it is refused from now on; only the owner
