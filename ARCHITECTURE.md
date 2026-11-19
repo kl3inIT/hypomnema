@@ -3045,12 +3045,15 @@ capabilities do not exist yet.
   page lists the gateway's models with them, each with an edit form whose empty fields show models.dev's values.
 - A gateway key (`hyp_gateway_v1_…`, the client tokens' format) authenticates by its SHA-256, with the public
   models (`*`: every model) and other endpoints it may use. It is not a client token: the client API refuses it,
-  and `tokens add` cannot make one. A new owner-made key also points to an encrypted vault version (issue #887);
-  creating the key and storing the version commit together and revoking it removes the secret without removing
-  usage. Only the owner may `GET /gateway/keys/{key_id}/value` (not cached) or `PATCH /gateway/keys/{key_id}` to
-  change its name, models or endpoints without changing its value, id or usage. The Gateway keys page masks all
-  but the first six and last four characters and offers show/hide and copy as 9router does. Older keys can be
-  edited but have only a prefix and no value to read. Dispatch, chat and Bot keys cannot be edited or read here.
+  and `tokens add` cannot make one. With the vault configured, a new owner-made key also points to an encrypted
+  vault version (issue #887); creating the key and storing the version commit together, and revoking the key
+  removes the secret without removing usage. The Vault lists the key by name as a user of the secret and refuses
+  deletion while it is referenced (issue #893). Only the owner may `GET /gateway/keys/{key_id}/value` (not cached)
+  or `PATCH /gateway/keys/{key_id}` to change its name, models or endpoints without changing its value, id or usage.
+  Setting `endpoints` to `["*"]` restores every kind, including kinds added later. The Gateway keys page masks all
+  but the first six and last four characters and offers show/hide and copy as 9router does. Older keys and keys
+  made without a configured vault can be edited but have only a prefix and no value to read after creation.
+  Dispatch, chat and Bot keys cannot be edited or read here.
 - A Dispatch whose model the gateway serves gets a key of its own (issue #107, as the git host's token travels):
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
@@ -3437,10 +3440,18 @@ capabilities do not exist yet.
   - Not built: OpenCode Zen, the "Extra Usage" balance, Go's prices in the price book (a Go model is unpriced unless
     its name is Anthropic's, Google's or OpenAI's), a per-model wire for pi's `models.json` (pi speaks chat to a Go
     model), moving the `ocg/*` models off 9Router on zm (#670).
+- When all usable accounts for a model on a text route are cooling (issue #803), the gateway answers 429
+  `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
+  `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
+  account cooldowns. A rate-limited role Task tries its next usable entry in the same worktree or waits for that
+  reset and shows the model and reset time as the wait reason. A Codex `response.failed` usage limit also cools
+  the account and records the same fact if no account is free, before the unchanged event reaches the client.
+  Without a gateway fact, the Task uses the existing rate-limit cooldown before retrying the same entry.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
-  were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
-  status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
+  were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`, `no_account`),
+  the HTTP status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
   seen in a stream). When it reported none they are bytes divided by four and marked as estimated.
+  `no_account` is counted separately in the Models usage report; it is not a provider failure or part of Answered.
   Since migration 00058 a row also holds the subscription account of the last attempt (`account_id`, empty for an
   API provider; noted on the request's context by the loop over accounts) and, for a request that failed, the
   provider's message (`error`, at most 500 characters: `error.message` of its body, else the body; a set sentence
@@ -3482,7 +3493,7 @@ capabilities do not exist yet.
   With each row the same transaction upserts `gateway_usage_daily`, the daily ledger (after LiteLLM's
   `LiteLLM_DailyUserSpend`): a row a UTC day, caller (a Bot's id, `workers`, `chats` or `owner`, as the usage by
   key groups keys, naming none), model, provider, upstream model and account, with requests, ok, failed,
-  client_gone, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
+  client_gone, `no_account`, the tokens and units, `cost_micros`, `unpriced`, and for answered requests the sums of
   `ok_duration_ms`, `ttft_ms` (with `ttft_count`), `generation_ms` and `generation_tokens`. The purge never touches
   it; migration 00121 filled it from the rows then kept.
   The ledger also keeps measured input/cache tokens and estimated request/input counts. The split starts from
@@ -4324,8 +4335,8 @@ The owner's commands:
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
     table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
-    owner key (requires the vault). `gateway keys set <id>` takes `--name`, `--models` and `--endpoints`;
-    `gateway keys show-value <id>` reads its value again. `gateway keys list` never prints the value;
+    owner key. `gateway keys set <id>` takes `--name`, `--models` and `--endpoints` (`*` restores every kind);
+    `gateway keys show-value <id>` reads its value again if stored. `gateway keys list` never prints the value;
     `gateway keys revoke <id>` stops the key. `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
     manage the owner's find→replace rules for the Antigravity system instruction (issue #591; a JSON array of
     `{find, with}`, applied in order, an empty `with` deleting the text), empty by default and applied to the

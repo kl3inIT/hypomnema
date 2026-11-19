@@ -20,9 +20,10 @@ type placement struct {
 	// groups counts the unsettled Dispatches of each Bot's Runs, "" the
 	// owner's Runs without a Bot (issue #660; runGroup): the used side of
 	// each group's used / guarantee, which orders the groups (issue #731).
-	groups   map[string]int
-	accounts []store.Account
-	cooling  map[[2]string]int64
+	groups         map[string]int
+	accounts       []store.Account
+	cooling        map[[2]string]int64
+	gatewayCooling map[[2]string]int64
 	// reasons says why each cooling account cools.
 	reasons map[[2]string]string
 }
@@ -93,10 +94,17 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 	if err != nil {
 		return nil, fmt.Errorf("listing cooldowns: %w", err)
 	}
+	gatewayCooldowns, err := q.ListGatewayModelCooling(ctx, now)
+	if err != nil {
+		return nil, fmt.Errorf("listing gateway model cooldowns: %w", err)
+	}
 
 	p := &placement{
 		now: now, nodes: map[string]*nodeLoad{}, groups: map[string]int{}, accounts: accounts,
-		cooling: map[[2]string]int64{}, reasons: map[[2]string]string{},
+		cooling: map[[2]string]int64{}, reasons: map[[2]string]string{}, gatewayCooling: map[[2]string]int64{},
+	}
+	for _, fact := range gatewayCooldowns {
+		p.gatewayCooling[[2]string{fact.Route, fact.Model}] = fact.ResetsAt
 	}
 
 	for _, row := range nodes {

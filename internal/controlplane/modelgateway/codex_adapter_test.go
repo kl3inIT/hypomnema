@@ -120,6 +120,29 @@ func (a *accounts) TokenAfterRefusal(
 	return a.Token(ctx, "", "", others...)
 }
 
+func (a *accounts) FirstFree(_ context.Context, _ string, modelReset func(string) time.Time) (time.Time, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ids := a.ids
+	if len(ids) == 0 {
+		ids = []string{"acc_1"}
+	}
+	var first time.Time
+	for _, id := range ids {
+		until := a.cooled[id]
+		if modelReset != nil && modelReset(id).After(until) {
+			until = modelReset(id)
+		}
+		if !until.After(time.Now()) || a.keepCooling || a.none {
+			return time.Time{}, nil
+		}
+		if first.IsZero() || until.Before(first) {
+			first = until
+		}
+	}
+	return first, nil
+}
+
 func (a *accounts) CoolDown(_ context.Context, _, id string, until time.Time, reason string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -465,7 +488,7 @@ func TestAUsageLimitCoolsTheAccountDownAndTheNextTargetServes(t *testing.T) {
 
 	status, headers, body := g.call(t, g.key, askSol+`}`)
 	assert.Equal(t, http.StatusTooManyRequests, status)
-	assert.Contains(t, body, "usage_limit_reached")
+	assert.Contains(t, body, "account_unavailable")
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.Equal(t, resets, subs.cooledUntil())
 
@@ -473,7 +496,7 @@ func TestAUsageLimitCoolsTheAccountDownAndTheNextTargetServes(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, status)
 	assert.Contains(t, body, "account_unavailable")
 	// The backend's own shape for a used-up plan, so the Codex CLI ends its turn (issue #756).
-	assert.Contains(t, body, `"type":"usage_limit_reached"`)
+	assert.Contains(t, body, `"type":"rate_limit_error"`)
 	assert.Contains(t, body, fmt.Sprintf(`"resets_at":%d`, resets.Unix()))
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.Equal(t, 1, got.calls(), "a cooling account is not sent to the backend")

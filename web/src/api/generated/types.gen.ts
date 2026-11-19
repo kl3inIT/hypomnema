@@ -2459,10 +2459,12 @@ export type GatewayKeyUpdate = {
    */
   models?: Array<string>;
   /**
-   * The new list of kinds besides chat; empty means none, omitted means unchanged.
+   * The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
    */
-  endpoints?: Array<GatewayEndpoint>;
+  endpoints?: Array<GatewayEndpointSelection>;
 };
+
+export type GatewayEndpointSelection = 'search' | 'fetch' | 'images' | 'audio' | '*';
 
 /**
  * A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits, audio is /v1/audio/transcriptions, /v1/audio/speech and /v1/audio/voices.
@@ -2472,7 +2474,7 @@ export type GatewayEndpoint = 'search' | 'fetch' | 'images' | 'audio';
 export type CreatedGatewayKey = {
   key: GatewayKey;
   /**
-   * The key's value, also kept encrypted in the vault.
+   * The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
    */
   secret: string;
 };
@@ -2579,7 +2581,11 @@ export type GatewayPerformance = {
    */
   client_gone: number;
   /**
-   * The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+   * Requests refused by the gateway because all usable accounts were cooling.
+   */
+  no_account: number;
+  /**
+   * The answered share of answered and failed requests, 0 to 1; absent when there is none.
    */
   success_rate?: number;
   cost_micros: number;
@@ -2640,13 +2646,13 @@ export type GatewayRequest = {
   account_label?: string;
   stream: boolean;
   attempts: number;
-  outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone';
+  outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone' | 'no_account';
   /**
-   * The provider's HTTP status; 0 when it gave none.
+   * The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
    */
   status: number;
   /**
-   * The provider's error or the reason the request ended early, when available.
+   * The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
    */
   error?: string;
   prompt_tokens: number;

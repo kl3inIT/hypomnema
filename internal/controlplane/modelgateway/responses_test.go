@@ -199,9 +199,10 @@ func TestAPassedThroughRequestMovesToTheNextAccount(t *testing.T) {
 
 	status, headers, body := alone.respond(t, alone.key, codexAsks)
 	assert.Equal(t, http.StatusTooManyRequests, status)
-	assert.JSONEq(t, limit, body)
+	assert.JSONEq(t, `{"error":{"type":"usage_limit_reached","code":"account_unavailable",`+
+		`"message":"no account of this provider can be used for now","resets_at":`+jsonInt(resets)+`}}`, body)
 	assert.NotEmpty(t, headers.Get("Retry-After"))
-	assert.Equal(t, modelgateway.OutcomeUpstreamError, alone.lastUsage(t).Outcome)
+	assert.Equal(t, modelgateway.OutcomeNoAccount, alone.lastUsage(t).Outcome)
 }
 
 // Scenario: every Codex account already waits for its limit when a Codex CLI

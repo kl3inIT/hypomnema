@@ -62,6 +62,12 @@ func (g gatewayAccounts) Token(
 	return accountToken(g.subs.Token(ctx, runtime, session, skip...))
 }
 
+func (g gatewayAccounts) FirstFree(
+	ctx context.Context, runtime string, modelReset func(string) time.Time,
+) (time.Time, error) {
+	return g.subs.FirstFree(ctx, runtime, modelReset)
+}
+
 func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
 	return g.subs.Quota(ctx, accountID)
 }
@@ -412,7 +418,11 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 	}
 
 	o.printf("key %s (%s) for %s; %s\n", k.Name, k.ID, keyModels(k), keyEndpoints(k))
-	o.printf("give it to the client as its API key; read it again with gateway keys show-value:\n%s\n", secret)
+	if k.MaskedValue == "" {
+		o.printf("give it to the client as its API key; the value is not stored, so copy it now:\n%s\n", secret)
+	} else {
+		o.printf("give it to the client as its API key; read it again with gateway keys show-value:\n%s\n", secret)
+	}
 
 	return nil
 }
@@ -422,7 +432,7 @@ func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) er
 	fs.SetOutput(io.Discard)
 	name := fs.String("name", "", "the new name")
 	models := fs.String("models", "", "comma-separated models, or * for every model")
-	endpoints := fs.String("endpoints", "", "comma-separated endpoint kinds, none, or * for every current kind")
+	endpoints := fs.String("endpoints", "", "comma-separated endpoint kinds, none, or * for every kind")
 
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 || fs.NFlag() == 0 {
 		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
@@ -441,7 +451,7 @@ func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) er
 		case "endpoints":
 			change.Endpoints = parseKeyEndpoints(*endpoints)
 			if *endpoints == "*" {
-				change.Endpoints = modelgateway.Endpoints
+				change.Endpoints = []modelgateway.Endpoint{modelgateway.AllEndpoints}
 			}
 		}
 	})

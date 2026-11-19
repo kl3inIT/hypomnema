@@ -15,7 +15,10 @@ const postReads = new Set(["PreviewRoutineSchedule", "OpenArtifactFrame"])
 // The next build is used because the latest release needs the JavaScript compiler API that TypeScript 7 dropped.
 export default defineConfig({
   input: "../api/openapi.yaml",
-  output: "src/api/generated",
+  // No entry file: features import types.gen, sdk.gen and @tanstack/react-query.gen directly, and an index.ts
+  // re-exporting the whole API on one line made every two API changes conflict (#902). Kilocode keeps its entry
+  // empty the same way (.tmp/kilocode/packages/sdk/js/script/build.ts:47-70, exportFromIndex: false).
+  output: { path: "src/api/generated", entryFile: false },
   parser: {
     hooks: {
       operations: {

@@ -2088,7 +2088,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: CreateGatewayKey
-      summary: Make a gateway key and keep its value encrypted; only the owner
+      summary: Make a gateway key and keep its value encrypted if the vault is configured; only the owner
       requestBody:
         required: true
         content:
@@ -7650,8 +7650,13 @@ components:
         endpoints:
           type: array
           maxItems: 4
-          items: { $ref: "#/components/schemas/GatewayEndpoint" }
-          description: The new list of kinds besides chat; empty means none, omitted means unchanged.
+          items: { $ref: "#/components/schemas/GatewayEndpointSelection" }
+          description: >-
+            The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means
+            every kind, including kinds added later. The wildcard cannot be combined with named kinds.
+    GatewayEndpointSelection:
+      type: string
+      enum: [search, fetch, images, audio, "*"]
     GatewayEndpoint:
       type: string
       enum: [search, fetch, images, audio]
@@ -7666,7 +7671,8 @@ components:
         key: { $ref: "#/components/schemas/GatewayKey" }
         secret:
           type: string
-          description: The key's value, also kept encrypted in the vault.
+          description: >-
+            The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
     GatewayKeyValue:
       type: object
       required: [secret]
@@ -7759,7 +7765,7 @@ components:
         The speed and reliability of a provider's model, or of a subscription account, over the requests to the text
         models. Time to first token is over the answered streams, latency over the answered requests, tokens a second
         (output tokens over the time after the first token) over the answered streams whose tokens were reported.
-      required: [provider, model, requests, ok, failed, client_gone, cost_micros, exact]
+      required: [provider, model, requests, ok, failed, client_gone, no_account, cost_micros, exact]
       properties:
         provider: { type: string }
         model:
@@ -7777,9 +7783,13 @@ components:
           type: integer
           format: int64
           description: The requests whose client left first; they count neither as answered nor as failed.
+        no_account:
+          type: integer
+          format: int64
+          description: Requests refused by the gateway because all usable accounts were cooling.
         success_rate:
           type: number
-          description: The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+          description: The answered share of answered and failed requests, 0 to 1; absent when there is none.
         cost_micros: { type: integer, format: int64 }
         exact:
           type: boolean
@@ -7852,13 +7862,14 @@ components:
         attempts: { type: integer }
         outcome:
           type: string
-          enum: [ok, upstream_error, transport_error, truncated, client_gone]
+          enum: [ok, upstream_error, transport_error, truncated, client_gone, no_account]
+          x-enum-varnames: [Ok, UpstreamError, TransportError, Truncated, ClientGone, GatewayNoAccount]
         status:
           type: integer
-          description: The provider's HTTP status; 0 when it gave none.
+          description: The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
         error:
           type: string
-          description: The provider's error or the reason the request ended early, when available.
+          description: The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
         prompt_tokens: { type: integer, format: int64 }
         cached_tokens: { type: integer, format: int64 }
         completion_tokens: { type: integer, format: int64 }
