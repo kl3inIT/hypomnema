@@ -587,7 +587,7 @@ func TestStopRevokesAnAdoptedLaunchBeforeShimPID(t *testing.T) {
 	g.sup.Stop(dispatch.ID)
 
 	require.NoFileExists(t, filepath.Join(dir, shim.LaunchingFile))
-	delayed := exec.CommandContext(t.Context(), g.sup.Exe, "shim", "--dir", dir)
+	delayed := exec.CommandContext(t.Context(), g.sup.Exe, "shim", "--dir", dir) //nolint:gosec // the test binary
 	require.ErrorAs(t, delayed.Run(), new(*exec.ExitError))
 	require.FileExists(t, filepath.Join(dir, shim.PIDFile))
 	require.NoFileExists(t, filepath.Join(dir, shim.ClaimedFile))

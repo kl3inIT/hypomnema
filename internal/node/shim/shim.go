@@ -82,17 +82,22 @@ func Main(ctx context.Context, socketDir string) error {
 	if err != nil {
 		return err
 	}
-	if err := recordPID(dir); err != nil {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close() //nolint:errcheck // directory handle
+	if err := recordPID(root); err != nil {
 		return fmt.Errorf("writing the pid file: %w", err)
 	}
-	if _, err := os.Lstat(filepath.Join(dir, PreparingFile)); err == nil {
-		if err := os.Rename(filepath.Join(dir, LaunchingFile), filepath.Join(dir, ClaimedFile)); err != nil {
+	if _, err := root.Lstat(PreparingFile); err == nil {
+		if err := root.Rename(LaunchingFile, ClaimedFile); err != nil {
 			return fmt.Errorf("claiming permission to start the worker: %w", err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, SpecFile)) //nolint:gosec // the daemon's own directory
+	raw, err := root.ReadFile(SpecFile)
 	if err != nil {
 		return fmt.Errorf("reading the spec: %w", err)
 	}
@@ -104,25 +109,23 @@ func Main(ctx context.Context, socketDir string) error {
 
 	// The spec holds the worker's environment, credentials included; it is
 	// not needed once the worker runs.
-	if err := os.Remove(filepath.Join(dir, SpecFile)); err != nil {
+	if err := root.Remove(SpecFile); err != nil {
 		return fmt.Errorf("removing the spec: %w", err)
 	}
 
-	//nolint:gosec // the daemon's own directory
-	journal, err := os.OpenFile(filepath.Join(dir, JournalFile), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	journal, err := root.OpenFile(JournalFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("opening the journal: %w", err)
 	}
 	defer journal.Close() //nolint:errcheck // every line was synced when written
 
-	//nolint:gosec // the daemon's own directory
-	stderr, err := os.OpenFile(filepath.Join(dir, StderrFile), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	stderr, err := root.OpenFile(StderrFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("opening the stderr log: %w", err)
 	}
 	defer stderr.Close() //nolint:errcheck // nothing is left to report it to
 
-	_ = os.Remove(filepath.Join(dir, SocketFile))
+	_ = root.Remove(SocketFile)
 
 	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: filepath.Join(socketDir, SocketFile), Net: "unix"})
 	if err != nil {
@@ -131,7 +134,7 @@ func Main(ctx context.Context, socketDir string) error {
 	ln.SetUnlinkOnClose(false)
 	defer func() {
 		_ = ln.Close()
-		_ = os.Remove(filepath.Join(dir, SocketFile))
+		_ = root.Remove(SocketFile)
 	}()
 
 	cmd := exec.CommandContext(ctx, spec.Argv[0], spec.Argv[1:]...) //nolint:gosec // the daemon's own spec
@@ -148,12 +151,12 @@ func Main(ctx context.Context, socketDir string) error {
 	}
 
 	if err := cmd.Start(); err != nil {
-		return writeExit(dir, Exit{Code: -1, Error: err.Error()})
+		return writeExit(root, Exit{Code: -1, Error: err.Error()})
 	}
-	if err := recordWorker(dir, cmd.Process.Pid); err != nil {
+	if err := recordWorker(root, cmd.Process.Pid); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		return writeExit(dir, Exit{Code: -1, Error: err.Error()})
+		return writeExit(root, Exit{Code: -1, Error: err.Error()})
 	}
 
 	in := &input{w: stdin}
@@ -163,7 +166,7 @@ func Main(ctx context.Context, socketDir string) error {
 	copyErr := copyLines(stdout, journal)
 	waitErr := cmd.Wait()
 
-	return writeExit(dir, exitOf(cmd, errors.Join(copyErr, waitErr)))
+	return writeExit(root, exitOf(cmd, errors.Join(copyErr, waitErr)))
 }
 
 // input serializes writes to the worker's stdin from every client.
@@ -257,18 +260,18 @@ func exitOf(cmd *exec.Cmd, err error) Exit {
 	return out
 }
 
-func writeExit(dir string, e Exit) error {
+func writeExit(root *os.Root, e Exit) error {
 	raw, err := json.Marshal(e)
 	if err != nil {
 		return err
 	}
 
-	tmp := filepath.Join(dir, ExitFile+".tmp")
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	const tmp = ExitFile + ".tmp"
+	if err := root.WriteFile(tmp, raw, 0o600); err != nil {
 		return fmt.Errorf("writing the exit file: %w", err)
 	}
 
-	return os.Rename(tmp, filepath.Join(dir, ExitFile))
+	return root.Rename(tmp, ExitFile)
 }
 
 // ReadExit returns the worker's exit, if it has exited.
@@ -341,7 +344,7 @@ func wallStart(pid int) (int64, error) {
 	return proc.CreateTime()
 }
 
-func recordPID(dir string) error {
+func recordPID(root *os.Root) error {
 	pid := os.Getpid()
 	boot, err := bootID()
 	if err != nil {
@@ -351,14 +354,14 @@ func recordPID(dir string) error {
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(processIdentity{PID: pid, Started: started, Dir: dir, BootID: boot})
+	raw, err := json.Marshal(processIdentity{PID: pid, Started: started, Dir: root.Name(), BootID: boot})
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, identityFile), raw, 0o600); err != nil {
+	if err := root.WriteFile(identityFile, raw, 0o600); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, PIDFile), []byte(strconv.Itoa(pid)), 0o600)
+	return root.WriteFile(PIDFile, []byte(strconv.Itoa(pid)), 0o600)
 }
 
 func KillRecorded(dir string) error {

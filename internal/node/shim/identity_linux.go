@@ -25,7 +25,7 @@ func bootID() (string, error) {
 }
 
 func readProcStat(pid int) (procStat, error) {
-	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)) //nolint:gosec // a numeric PID in procfs
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
 		return procStat{}, err
 	}
@@ -44,7 +44,8 @@ func parseProcStat(raw string) (procStat, error) {
 	group, groupErr := strconv.ParseInt(fields[2], 10, 64)
 	session, sessionErr := strconv.ParseInt(fields[3], 10, 64)
 	started, startErr := strconv.ParseInt(fields[19], 10, 64)
-	return procStat{state: fields[0], group: group, session: session, started: started}, errors.Join(groupErr, sessionErr, startErr)
+	return procStat{state: fields[0], group: group, session: session, started: started},
+		errors.Join(groupErr, sessionErr, startErr)
 }
 
 func identityStart(pid int, boot string) (int64, error) {
@@ -60,7 +61,7 @@ type workerIdentity struct {
 	Started int64
 }
 
-func recordWorker(dir string, pid int) error {
+func recordWorker(root *os.Root, pid int) error {
 	stat, err := readProcStat(pid)
 	if err != nil {
 		return err
@@ -69,7 +70,7 @@ func recordWorker(dir string, pid int) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, workerIdentityFile), raw, 0o600)
+	return root.WriteFile(workerIdentityFile, raw, 0o600)
 }
 
 func killOrphanedGroup(dir string, group int) error {
@@ -88,7 +89,8 @@ func killOrphanedGroup(dir string, group int) error {
 	if err != nil {
 		return err
 	}
-	if worker.Started <= 0 || stat.started != worker.Started || stat.group != int64(group) || stat.session != int64(group) {
+	if worker.Started <= 0 || stat.started != worker.Started ||
+		stat.group != int64(group) || stat.session != int64(group) {
 		return errors.New("orphaned shim group identity does not match")
 	}
 	return Kill(group)

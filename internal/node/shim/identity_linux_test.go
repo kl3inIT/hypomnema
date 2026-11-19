@@ -34,7 +34,7 @@ func TestKillRecordedSignalsVerifiedGroupAfterLeaderExits(t *testing.T) {
 	require.NoError(t, WriteSpec(dir, Spec{Argv: []string{sleep, "30"}}))
 	exe, err := os.Executable()
 	require.NoError(t, err)
-	leader := exec.CommandContext(t.Context(), exe, "-test.run=^TestShimIdentityHelper$")
+	leader := exec.CommandContext(t.Context(), exe, "-test.run=^TestShimIdentityHelper$") //nolint:gosec // the test binary
 	leader.Env = append(os.Environ(), "HYPOMNEMA_TEST_SHIM_DIR="+dir)
 	detach(leader)
 	require.NoError(t, leader.Start())
@@ -46,7 +46,7 @@ func TestKillRecordedSignalsVerifiedGroupAfterLeaderExits(t *testing.T) {
 
 	var worker workerIdentity
 	require.Eventually(t, func() bool {
-		raw, err := os.ReadFile(filepath.Join(dir, workerIdentityFile)) //nolint:gosec // the test's own shim
+		raw, err := os.ReadFile(filepath.Join(dir, workerIdentityFile))
 		return err == nil && json.Unmarshal(raw, &worker) == nil
 	}, 5*time.Second, 10*time.Millisecond)
 	require.Positive(t, worker.PID)
@@ -55,7 +55,7 @@ func TestKillRecordedSignalsVerifiedGroupAfterLeaderExits(t *testing.T) {
 	require.NoError(t, err)
 	stat, err := readProcStat(group)
 	require.NoError(t, err)
-	raw, err := os.ReadFile(filepath.Join(dir, identityFile)) //nolint:gosec // the test's own shim
+	raw, err := os.ReadFile(filepath.Join(dir, identityFile))
 	require.NoError(t, err)
 	var recorded processIdentity
 	require.NoError(t, json.Unmarshal(raw, &recorded))
