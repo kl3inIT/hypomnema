@@ -97,10 +97,13 @@ type videoRig struct {
 	srv    *httptest.Server
 	worker string
 	pi     string
-	owner  string
-	coord  string
-	take   string
-	piTake string
+	// plain is a pi whose Bot has the phone off, and so no video tool.
+	plain    string
+	agentKey string
+	owner    string
+	coord    string
+	take     string
+	piTake   string
 }
 
 // availableTake records a take its node uploaded whole.
@@ -177,8 +180,8 @@ func newVideoRig(t *testing.T) *videoRig {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	worker, err := svc.AddAgentSession(ctx, "dsp_1", nil)
-	require.NoError(t, err)
+	// The video tools are switched with the phone's family, which a worker's profile and a Bot turn on.
+	worker, dispatch := phoneDispatch(t, svc)
 
 	_, owner, err := svc.AddToken(ctx, "owner", bearertoken.Owner)
 	require.NoError(t, err)
@@ -186,15 +189,24 @@ func newVideoRig(t *testing.T) *videoRig {
 	_, coord, err := svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	chat, err := svc.CreateChat(ctx, "", "")
+	bot, err := svc.PutBot(ctx, orchestration.Bot{Name: "filmer", Tools: []string{"phone"}})
 	require.NoError(t, err)
 
-	pi, err := svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	chat, err := svc.CreateChat(ctx, bot.ID, "")
 	require.NoError(t, err)
 
-	r := &videoRig{t: t, srv: srv, worker: worker, pi: pi, owner: owner, coord: coord,
-		take: "tk_00000000000000aa", piTake: "tk_00000000000000bb"}
-	availableTake(t, store, r.take, "d-dsp_1")
+	pi, err := svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
+	require.NoError(t, err)
+
+	other, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	plain, err := svc.AddBotToken(ctx, "pi", other.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	r := &videoRig{t: t, srv: srv, worker: worker, pi: pi, plain: plain, owner: owner, coord: coord,
+		take: "tk_00000000000000aa", piTake: "tk_00000000000000bb", agentKey: "d-" + dispatch}
+	availableTake(t, store, r.take, r.agentKey)
 	availableTake(t, store, r.piTake, "b-"+chat.ID)
 
 	return r
@@ -310,6 +322,8 @@ func TestAWorkerMakesAVideoTheOwnerApproves(t *testing.T) {
 		assert.Contains(t, names, devicetool.VideoGet)
 	}
 
+	assert.NotContains(t, r.tools(r.plain), devicetool.VideoMake, "switched with the phone")
+
 	text, failed := r.tool(r.pi, devicetool.VideoMake, `{"take":"`+r.take+`"}`)
 	assert.True(t, failed)
 	assert.Equal(t, "You have no take "+r.take+".", text, "a take another agent filmed is not the pi's")
@@ -373,7 +387,7 @@ func TestAWorkerMakesAVideoTheOwnerApproves(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(body, &video))
 	assert.Equal(t, r.take, video.Take)
-	assert.Equal(t, "d-dsp_1", video.MadeBy)
+	assert.Equal(t, r.agentKey, video.MadeBy)
 	require.Len(t, video.Revisions, 1)
 	assert.Equal(t, "review", video.Revisions[0].State)
 	assert.Equal(t, "soniox", video.Revisions[0].Provider)
