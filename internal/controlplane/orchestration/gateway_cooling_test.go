@@ -359,7 +359,10 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 			[]int{requests, estimatedRequests, estimatedPrompt, measuredPrompt, measuredCached})
 	}
 	assertExistingUsage()
-	require.NoError(t, Migrate(ctx, db))
+	migrations, err := provider(db)
+	require.NoError(t, err)
+	_, err = migrations.UpTo(ctx, 135)
+	require.NoError(t, err)
 	assertExistingUsage()
 	_, err = db.ExecContext(ctx, `
 		INSERT INTO gateway_usage
@@ -367,8 +370,6 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 		VALUES ('new', 'key', 'model', 'provider', 'upstream', 0, 1, 'no_account', 429, 10, 2);
 		UPDATE gateway_usage_daily SET requests = requests + 1, no_account = 1;
 	`)
-	require.NoError(t, err)
-	migrations, err := provider(db)
 	require.NoError(t, err)
 	rolledBack, err := migrations.Down(ctx)
 	require.NoError(t, err)
