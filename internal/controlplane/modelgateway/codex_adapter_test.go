@@ -262,6 +262,14 @@ func newCodexGateway(
 ) chatGateway {
 	t.Helper()
 
+	return newCodexGatewayWithConfig(t, backend, modelgateway.Config{Subscriptions: subs}, fallbacks...)
+}
+
+func newCodexGatewayWithConfig(
+	t *testing.T, backend *httptest.Server, cfg modelgateway.Config, fallbacks ...*httptest.Server,
+) chatGateway {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -297,8 +305,8 @@ func newCodexGateway(
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
-	modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"),
-		modelgateway.Config{Subscriptions: subs, CodexBaseURL: backend.URL}).Register(mux)
+	cfg.CodexBaseURL = backend.URL
+	modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"), cfg).Register(mux)
 
 	return chatGateway{svc: svc, mux: mux, key: key}
 }
@@ -538,7 +546,9 @@ func TestAFailureInsideTheStream(t *testing.T) {
 	require.Len(t, lines, 2, body)
 	assert.Contains(t, lines[0], `"content":"hel"`)
 	assert.Contains(t, lines[1], "upstream_truncated")
-	assert.Equal(t, modelgateway.OutcomeTruncated, cut.lastUsage(t).Outcome)
+	usage := cut.lastUsage(t)
+	assert.Equal(t, modelgateway.OutcomeTruncated, usage.Outcome)
+	assert.Equal(t, "server_error: lost", usage.Error)
 
 	closed, _ := codexBackend(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

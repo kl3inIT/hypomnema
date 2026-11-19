@@ -108,8 +108,10 @@ func bucketOf(starts []time.Time, t time.Time) int {
 
 func ledgerCounts(r store.GatewayUsageDaily) UsageCounts {
 	return UsageCounts{
-		Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
-		Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
+		Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.MeasuredCachedTokens,
+		EstimatedRequests: r.EstimatedRequests, EstimatedPrompt: r.EstimatedPromptTokens,
+		MeasuredPrompt: r.MeasuredPromptTokens,
+		Completion:     r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
 		WebSearches: r.WebSearches, Audio: time.Duration(r.AudioMs) * time.Millisecond, Characters: r.Characters,
 		Images: r.Images,
 	}
@@ -120,6 +122,9 @@ func (c *UsageCounts) add(o UsageCounts) {
 	c.Failed += o.Failed
 	c.Prompt += o.Prompt
 	c.Cached += o.Cached
+	c.EstimatedRequests += o.EstimatedRequests
+	c.EstimatedPrompt += o.EstimatedPrompt
+	c.MeasuredPrompt += o.MeasuredPrompt
 	c.Completion += o.Completion
 	c.Reasoning += o.Reasoning
 	c.CostMicros += o.CostMicros

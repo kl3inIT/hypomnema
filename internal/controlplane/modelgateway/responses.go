@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/codex"
 )
@@ -326,8 +325,8 @@ func (s *Server) relayResponses(
 
 	// A scanner blocks in Read and takes no deadline, so a silent backend is
 	// ended by closing its body, as in the chat route.
-	idle := time.AfterFunc(s.idleTimeout, func() { _ = resp.Body.Close() })
-	defer idle.Stop()
+	idle := watchStreamIdle(resp.Body, s.idleTimeout)
+	defer idle.timer.Stop()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64<<10), maxEventBytes)
@@ -337,21 +336,23 @@ func (s *Server) relayResponses(
 		// answered is when the event that completes the answer was passed on (issue #635).
 		answered bool
 		sent     int
+		failure  string
 	)
 
 	// searches are the model's own web searches, by their item's id (issue #723).
 	searches := map[string]bool{}
 
 	for scanner.Scan() {
-		idle.Reset(s.idleTimeout)
+		idle.reset()
 
 		line := scanner.Bytes()
 
 		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData {
 			noteSearch(payload, searches)
+			noteStreamFailure(&failure, payload)
 			if onFailure != nil && !completed && bytes.Contains(payload, []byte(`"response.failed"`)) {
-				if failure := codex.ParseResponseFailure(payload, s.svc.clock.Now()); failure != nil && failure.UsageLimit() {
-					onFailure(failure)
+				if parsed := codex.ParseResponseFailure(payload, s.svc.clock.Now()); parsed != nil && parsed.UsageLimit() {
+					onFailure(parsed)
 					onFailure = nil
 				}
 			}
@@ -393,12 +394,12 @@ func (s *Server) relayResponses(
 		// The whole answer was passed on. The Codex CLI returns as it reads response.completed and closes the
 		// connection (codex-rs/codex-api/src/sse/responses.rs), which is not a client gone (issue #635).
 		record.Outcome = OutcomeOK
+	case failure != "":
+		record.Outcome, record.Error = OutcomeTruncated, failure
 	case clientGone || r.Context().Err() != nil:
 		record.Outcome = OutcomeClientGone
 	default:
-		// The answer ended without the event that completes it: the backend
-		// said it failed, or went away. The client has what was sent.
-		record.Outcome = OutcomeTruncated
+		record.Outcome, record.Error = OutcomeTruncated, idle.endReason(scanner.Err(), "response.completed")
 	}
 
 	record.Tokens.estimate(asked, sent)

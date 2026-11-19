@@ -5079,6 +5079,19 @@ components:
           items: { type: string }
           description: The Connections the Run's workers may use, each as integration:label.
         finished_at: { type: string, format: date-time }
+        review_stall: { $ref: "#/components/schemas/ReviewStall" }
+    ReviewStall:
+      type: object
+      description: A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
+      required: [task_id, pull_request, verdict, merge_state, mergeable, checks, waiting_for_owner]
+      properties:
+        task_id: { type: string }
+        pull_request: { type: string }
+        verdict: { type: string, enum: [correct, incorrect, unknown] }
+        merge_state: { type: string }
+        mergeable: { type: string }
+        checks: { type: string, enum: [PASSING, FAILING, PENDING, UNKNOWN] }
+        waiting_for_owner: { type: boolean }
     RunDetail:
       allOf:
         - $ref: "#/components/schemas/Run"
@@ -5086,9 +5099,19 @@ components:
           required: [tasks]
           properties:
             usage: { $ref: "#/components/schemas/WorkUsage" }
+            published_heads:
+              description: GitHub branch updates recorded by the nodes that dispatched this Run's Tasks.
+              type: array
+              items: { $ref: "#/components/schemas/PublishedHead" }
             tasks:
               type: array
               items: { $ref: "#/components/schemas/TaskDetail" }
+    PublishedHead:
+      type: object
+      required: [branch, sha]
+      properties:
+        branch: { type: string }
+        sha: { type: string }
     WorkUsage:
       type: object
       description: >-
@@ -7628,7 +7651,8 @@ components:
     GatewayUsageCounts:
       type: object
       required: [requests, failed, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cost_micros,
-        unpriced, web_searches, audio_seconds, characters, images]
+        unpriced, web_searches, audio_seconds, characters, images, estimated_requests, estimated_prompt_tokens,
+        measured_prompt_tokens]
       properties:
         requests: { type: integer, format: int64 }
         web_searches:
@@ -7666,8 +7690,23 @@ components:
         prompt_tokens:
           type: integer
           format: int64
-          description: Tokens in, those read from the provider's cache included.
-        cached_tokens: { type: integer, format: int64 }
+          description: All input tokens, including cached and estimated tokens.
+        cached_tokens:
+          type: integer
+          format: int64
+          description: Input tokens read from the provider's cache on measured requests.
+        measured_prompt_tokens:
+          type: integer
+          format: int64
+          description: Input tokens on measured requests, the denominator for the cache share. Excludes ledger history whose request rows were already purged before the split was recorded.
+        estimated_requests:
+          type: integer
+          format: int64
+          description: Requests with estimated usage. Excludes ledger history whose request rows were already purged before the split was recorded.
+        estimated_prompt_tokens:
+          type: integer
+          format: int64
+          description: Input tokens on those estimated requests, already included in prompt_tokens.
         completion_tokens: { type: integer, format: int64 }
         reasoning_tokens: { type: integer, format: int64 }
     GatewayUsageBucket:
@@ -7800,7 +7839,7 @@ components:
           description: The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
         error:
           type: string
-          description: The provider's error or the gateway's reason for refusing the request.
+          description: The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
         prompt_tokens: { type: integer, format: int64 }
         cached_tokens: { type: integer, format: int64 }
         completion_tokens: { type: integer, format: int64 }

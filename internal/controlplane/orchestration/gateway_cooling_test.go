@@ -315,6 +315,13 @@ func TestCodexStreamUsageLimitDoesNotLoop(t *testing.T) {
 			row := w.db.QueryRowContext(t.Context(), "SELECT count(*) FROM dispatches WHERE task_id = ?", task.ID)
 			require.NoError(t, row.Scan(&dispatches))
 			assert.Equal(t, int(3*time.Hour/scenario.wait), dispatches)
+			failed, _, err := service.UsageRequests(t.Context(), "24h", true, 10, 0)
+			require.NoError(t, err)
+			require.Len(t, failed, dispatches)
+			for _, usage := range failed {
+				assert.Equal(t, modelgateway.OutcomeTruncated, usage.Outcome)
+				assert.Equal(t, "usage_limit_reached", usage.Error)
+			}
 		})
 	}
 }
@@ -322,29 +329,51 @@ func TestCodexStreamUsageLimitDoesNotLoop(t *testing.T) {
 func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	_, db := migratedTo(t, 131)
+	_, db := migratedTo(t, 132)
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO gateway_keys (id, name, key_hash, models, created_at) VALUES ('key', 'key', 'hash', '["*"]', 1);
 		INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
-		    estimated, duration_ms, created_at, cache_write_tokens, cost_micros, cache_write_1h_tokens, ttft_ms)
-		VALUES ('old', 'key', 'model', 'provider', 'upstream', 1, 1, 'ok', 200, 0, 300, 1, 101, 102, 103, 104);
+		    estimated, duration_ms, created_at, cache_write_tokens, cost_micros, cache_write_1h_tokens, ttft_ms, error)
+		VALUES ('old', 'key', 'model', 'provider', 'upstream', 1, 1, 'truncated', 200, 1, 300, 1,
+		    101, 102, 103, 104, 'no event for 5m');
+		INSERT INTO gateway_usage_daily (day, caller, model, provider, upstream_model, account_id, requests,
+		    estimated_requests, estimated_prompt_tokens, measured_prompt_tokens, measured_cached_tokens)
+		VALUES (0, 'owner', 'model', 'provider', 'upstream', '', 2, 1, 201, 320, 203);
 	`)
 	require.NoError(t, err)
+	assertExistingUsage := func() {
+		t.Helper()
+		row := db.QueryRowContext(ctx, `SELECT cache_write_tokens, cost_micros, cache_write_1h_tokens, ttft_ms,
+			estimated, error FROM gateway_usage WHERE id = 'old'`)
+		var writes, cost, hourly, ttft, estimated int
+		var reason string
+		require.NoError(t, row.Scan(&writes, &cost, &hourly, &ttft, &estimated, &reason))
+		assert.Equal(t, []int{101, 102, 103, 104, 1}, []int{writes, cost, hourly, ttft, estimated})
+		assert.Equal(t, "no event for 5m", reason)
+
+		row = db.QueryRowContext(ctx, `SELECT requests, estimated_requests, estimated_prompt_tokens,
+			measured_prompt_tokens, measured_cached_tokens FROM gateway_usage_daily`)
+		var requests, estimatedRequests, estimatedPrompt, measuredPrompt, measuredCached int
+		require.NoError(t, row.Scan(&requests, &estimatedRequests, &estimatedPrompt, &measuredPrompt, &measuredCached))
+		assert.Equal(t, []int{2, 1, 201, 320, 203},
+			[]int{requests, estimatedRequests, estimatedPrompt, measuredPrompt, measuredCached})
+	}
+	assertExistingUsage()
 	require.NoError(t, Migrate(ctx, db))
-	row := db.QueryRowContext(ctx, `SELECT cache_write_tokens, cost_micros, cache_write_1h_tokens, ttft_ms
-		FROM gateway_usage WHERE id = 'old'`)
-	var writes, cost, hourly, ttft int
-	require.NoError(t, row.Scan(&writes, &cost, &hourly, &ttft))
-	assert.Equal(t, []int{101, 102, 103, 104}, []int{writes, cost, hourly, ttft})
-	_, err = db.ExecContext(ctx, `INSERT INTO gateway_usage
+	assertExistingUsage()
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO gateway_usage
 		(id, key_id, model, provider, upstream_model, stream, attempts, outcome, status, duration_ms, created_at)
-		VALUES ('new', 'key', 'model', 'provider', 'upstream', 0, 1, 'no_account', 429, 10, 2)`)
+		VALUES ('new', 'key', 'model', 'provider', 'upstream', 0, 1, 'no_account', 429, 10, 2);
+		UPDATE gateway_usage_daily SET requests = requests + 1, no_account = 1;
+	`)
 	require.NoError(t, err)
 	migrations, err := provider(db)
 	require.NoError(t, err)
 	rolledBack, err := migrations.Down(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, int64(135), rolledBack.Source.Version)
+	assertExistingUsage()
 	var requests int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage`).Scan(&requests))
 	assert.Equal(t, 1, requests)

@@ -194,7 +194,9 @@ func (s *Server) nameKeyGroups(ctx context.Context, groups []openapi.GatewayUsag
 func toUsageCounts(c modelgateway.UsageCounts) openapi.GatewayUsageCounts {
 	return openapi.GatewayUsageCounts{
 		Requests: c.Requests, Failed: c.Failed, PromptTokens: c.Prompt, CachedTokens: c.Cached,
-		CompletionTokens: c.Completion, ReasoningTokens: c.Reasoning, CostMicros: c.CostMicros, Unpriced: c.Unpriced,
+		EstimatedRequests: c.EstimatedRequests, EstimatedPromptTokens: c.EstimatedPrompt,
+		MeasuredPromptTokens: c.MeasuredPrompt,
+		CompletionTokens:     c.Completion, ReasoningTokens: c.Reasoning, CostMicros: c.CostMicros, Unpriced: c.Unpriced,
 		WebSearches: c.WebSearches, AudioSeconds: float32(c.Audio.Seconds()), Characters: c.Characters,
 		Images: c.Images,
 	}

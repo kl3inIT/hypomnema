@@ -452,7 +452,7 @@ func (s *Service) ReportStarted(ctx context.Context, call NodeCall, processRef, 
 // RecordEffect records an outside effect: its intent before it happens, done
 // after. A done completes the intent with the same Seq, or stands alone.
 func (s *Service) RecordEffect(ctx context.Context, call NodeCall, e Effect) error {
-	if e.Seq <= 0 || e.Kind == "" || (e.Phase != EffectIntent && e.Phase != EffectDone) {
+	if e.Seq <= 0 || e.Kind == "" || e.Kind == "git_push" || (e.Phase != EffectIntent && e.Phase != EffectDone) {
 		return fmt.Errorf("%w: an effect needs a positive seq, a kind and a phase", ErrInvalid)
 	}
 

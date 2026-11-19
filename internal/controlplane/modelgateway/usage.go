@@ -175,7 +175,7 @@ func daily(u Usage, now int64) store.AddGatewayUsageDailyParams {
 	p := store.AddGatewayUsageDailyParams{
 		Day: now - now%dayMs, KeyID: u.KeyID, Model: u.Model, Provider: u.Provider, UpstreamModel: u.UpstreamModel,
 		AccountID: u.AccountID, Failed: flag(u.Outcome.failed()), ClientGone: flag(u.Outcome == OutcomeClientGone),
-		NoAccount:    flag(u.Outcome == OutcomeNoAccount),
+		NoAccount: flag(u.Outcome == OutcomeNoAccount), Estimated: flag(u.Tokens.Estimated),
 		PromptTokens: u.Tokens.Prompt, CompletionTokens: u.Tokens.Completion, CachedTokens: u.Tokens.Cached,
 		ReasoningTokens: u.Tokens.Reasoning, CacheWriteTokens: u.Tokens.CacheWrite, WebSearches: u.WebSearches,
 		AudioMs: u.Audio.Milliseconds(), Characters: u.Characters, Images: u.Images,
