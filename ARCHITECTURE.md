@@ -4559,6 +4559,14 @@ Node (`internal/node`):
       - that a Task asking for research or a design reads the references' code, not only their documents, and
         cites the paths and lines (issue #719, the owner's "Research before design" of this repository's
         `AGENTS.md`, given to every repository on 2026-11-17);
+      - for a worker that writes, how it checks and waits (issue #894, this repository's `AGENTS.md` rule of
+        2026-11-19 given to every repository): the checks of what it changed, once, after its last edit or merge
+        and before pushing, as CI runs the full suite, unless the repository's own instructions say otherwise
+        (after t3code, OpenClaw, Orca and Coder); the base branch merged in only for a conflict, a red check whose
+        cause is on the base, or when the repository's rules ask, with only the affected checks rerun (OpenClaw,
+        oh-my-opencode); CI waited for with one blocking command, never a polling loop (Orca, Coder, Hermes,
+        oh-my-opencode, t3code), and not at all when the spec says a review comes first, since the coordinator's
+        review step waits for CI itself (owner, 2026-11-19);
     - the profile's instruction, the accounts and phone of the Run, then the agent's memory and the one about the
       owner (issue #21);
     - the repository and branch, and the instruction to open a pull request with the host's command:

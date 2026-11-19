@@ -36,6 +36,7 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 		assert.Contains(t, prompt, "Do not edit project files")
 		assert.NotContains(t, prompt, "gh pr create")
 		assert.NotContains(t, prompt, "Do not end your turn on a plan")
+		assert.NotContains(t, prompt, "never with a polling loop", "a read-only worker pushes nothing")
 		if role == "planner" {
 			assert.Contains(t, prompt, "this CLI's subagents for independent read-only lookups")
 			assert.NotContains(t, prompt, "Do not start subagents")
@@ -74,6 +75,14 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 		"research and design read the references' code (issue #719)")
 	assert.Less(t, strings.Index(p, "read the code of the references"), strings.Index(p, "Task (implementer):"),
 		"the rule comes before the task, for the prompt cache (issue #672)")
+	assert.Contains(t, p, "Run the checks of what you changed, once, after your last edit or merge and before "+
+		"pushing; CI runs the full suite.", "a worker runs the touched checks once (issue #894)")
+	assert.Contains(t, p, "Merge the base branch into yours only for a conflict, a red check whose cause is on "+
+		"the base, or when the repository's rules ask", "the base is merged only when needed (issue #894)")
+	assert.Contains(t, p, "never with a polling loop. When the task says a review comes first, do not wait for "+
+		"CI: report the pushed commit and finish", "CI is waited for with one command, or not at all (issue #894)")
+	assert.Less(t, strings.Index(p, "never with a polling loop"), strings.Index(p, "Task (implementer):"),
+		"the rules come before the task, for the prompt cache (issue #672)")
 	assert.Contains(t, p, "outcome is unknown")
 	assert.Contains(t, p, "The owner answered the question you asked at `finish`.\n"+
 		"You asked: PR #7 is green. Merge it?\nThe answer: merge")
