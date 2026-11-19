@@ -163,6 +163,8 @@ func TestTheOwnersFilesNameEveryModel(t *testing.T) {
 	assert.Equal(t, limit{agentconfig.DefaultContextWindow, agentconfig.DefaultMaxOutput}, got["c/three"].Limit)
 
 	g.Others = nil
-	worker := agentconfig.OpencodeConfig(g)["providers"].(map[string]any)[agentconfig.ProviderID].(map[string]any)
-	assert.Len(t, worker["models"], 1, "a worker's file names its model alone")
+	file, err = agentconfig.OpencodeFile(g)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(file), &oc))
+	assert.Len(t, oc.Providers[agentconfig.ProviderID].Models, 1, "a worker's file names its model alone")
 }
