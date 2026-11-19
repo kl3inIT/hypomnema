@@ -11,7 +11,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
-// Scenario: migration 00122 on a database with an uploaded meeting (issue #820): the meeting, its voices, lines,
+// Scenario: migration 00125 on a database with an uploaded meeting (issue #820): the meeting, its voices, lines,
 // notes and items are all kept, as an upload, their voices on the track `file`; an action's voice is still named, a
 // voice is still renamed, and the meeting is still deleted with all it holds.
 func TestTheLiveMeetingsMigrationKeepsUploadedMeetings(t *testing.T) {

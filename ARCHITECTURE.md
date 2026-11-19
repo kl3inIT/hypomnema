@@ -3727,7 +3727,7 @@ gateway chat model writes its summary, decisions and actions.
   `meeting_items` (a `decision` or `action`: text, owner and the speaker it maps to, due, done, the quote, its
   line and that line's start); `meeting_settings` (one row: `notes_model`); `meeting_words` (the owner's words to
   hear right, at most 100, in the order added; 00105 moved the words earlier meetings were uploaded with there).
-  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771). 00122 (issue
+  `meeting_formats`, the owner's notes formats, was dropped by 00113 with the formats (issue #771). 00125 (issue
   #820) rebuilt the tables, keeping every row: `meetings` gained `source` (`upload`, every meeting before it, or
   `live`) and `kind` (`online` or `in_person` for a live one), the state `recording`, and `size` 0 while it records;
   a voice is one of a track's (`meeting_speakers` keyed `(meeting_id, track, label)`, `meeting_lines.track`,
