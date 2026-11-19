@@ -798,9 +798,10 @@ sequenceDiagram
     control plane answers alone: the calling agent's own takes (id, title, state, ended_by, start, length), the
     newest 20, as the owner's `GET /takes` restricted to the agent, never another's and never a file (issue #851). They are listed, routed and switched
     with the phone's tools: a worker's tools server and a Bot's `hypomnema mcp` pass every `device_*` and `video_*`
-    name to the phone's routes (`devicetool.Routed`), and the phone family's switch `device_*` names them too
-    (`agenttool.ToolFamilies`). The control plane's own `video_pause`, `video_resume` and `video_end` are never
-    offered.
+    name but `video_make` and `video_get` to the phone's routes (`devicetool.Routed`), and the phone family's switch
+    `device_*` names them too (`agenttool.ToolFamilies`). The control plane's own `video_pause`, `video_resume` and
+    `video_end` are never offered. A take records the phone's screen size (`screen`, from `wm size` at
+    `video_start`, its override when one is set), the pixels a step's tap is in (issue #818).
   - The take holds the phone (`internal/controlplane/phone/lease.go`): `video_start` makes a lease of {take, agent
     key, work}, work being a worker's Dispatch or a Bot's turn (its chat's turn mark, `orchestration.ChatTurn`).
     While it lives another agent's phone calls are answered "The phone is filming for …" and reach no node;
@@ -853,8 +854,8 @@ sequenceDiagram
     pause, the steps and chapters (autodemo's rule) seek, and it downloads and deletes (`web/src/features/takes`).
     A seek into a segment's still tail lands just before its last frame (`last_frame_ms`), as Chromium does not
     seek into a file's last sample.
-  - Making a video of a take (issue #818, part 1 of 3: the compose core; the revisions, runner, voice, captions,
-    access and Studio are parts 2 and 3, and nothing calls the core yet). The control plane installs a pinned
+  - Making a video of a take (issue #818; parts 1 and 2 of 3: the compose core, then the revisions, runner, voice,
+    captions and access; the Studio page and the take and video tabs are part 3). The control plane installs a pinned
     static ffmpeg and ffprobe (`internal/controlplane/videos/ffmpeg`, BtbN/FFmpeg-Builds' GPL build n9.0.2 for
     linux/amd64 and linux/arm64, as a node installs scrcpy-server): at start, in the background, unless
     `HYPOMNEMA_FFMPEG=0`, into `ffmpeg/` beside the database, the file's size and SHA-256 checked, ffmpeg, ffprobe
@@ -876,7 +877,48 @@ sequenceDiagram
     to the video's; each scene's voice is padded to its scene's length, captions (an ASS file) burned in when
     given, and the MP4 (H.264, AAC, 30 fps) written in a work folder and renamed into place whole. Its tests make
     a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
-    scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build.
+    scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build. A take with taps
+    and no `screen` (filmed before the node recorded it) is made without rings, with a warning.
+  - Videos and revisions (`internal/controlplane/videos`, migration 00126). A **video** belongs to one take (one
+    row of `videos`, its take unique); each make or change request adds an immutable **revision** (`video_revisions`:
+    rev 1, 2, …, its parent, the lines, voice, captions and aspect it is made with, the provider, model and voice
+    that spoke it, its length, warnings and state). States: `queued`, `voicing`, `composing`, `captioning`,
+    then `review`; `approved` or `changes_requested` by the owner; `failed` with its stage and cause. At most one
+    revision is approved: approving another moves it back to review; an approved revision is never changed, and
+    a change request on one is refused. A make of a take with a video adds a revision with the latest one's lines
+    (a retry of a failed one); requested_by and request_id make a make or change request safe to repeat. One
+    **runner** goroutine makes the queued revisions one at a time, the oldest first, claiming each by a conditional
+    update from `queued` to `voicing`; at its start a revision found `voicing`, `composing` or `captioning` is
+    failed `interrupted` at that stage and its files removed, so no paid speech is asked again on its own. At most
+    10 revisions wait; one has 20 minutes and does not start with less than 400 MB free. Voicing goes through
+    `speech.Service` in Vietnamese (`vi`), one clip per scene: the first text-to-speech provider of the owner's
+    order that is on and answers speaks the first scene and then every other one, with the voice asked or that
+    provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
+    no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
+    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision. Composing is
+    `compose.Compose`; captioning transcribes each scene's clip with its words' times through the speech service,
+    joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
+    cues by aidemo's rules (2 lines of 38 characters, at most 12 words, 1-6 s, broken at a sentence end, a clause's
+    punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
+    one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
+    word in #FFD400 (demotape's highlight and word timing normalize, ported), and burns it in with the font of
+    part 1 (`compose.Burn`). A scene with no word times fails the revision at `captioning`; with captions off the
+    stage is skipped. The first frame is the revision's thumbnail. Everything is made in
+    `videos/<video>/<rev>/.work/`, the thumbnail then the MP4 renamed into place only once whole; any failure
+    removes the revision's folder. A video with a revision queued or being made is not deleted, nor is its take
+    (409).
+  - Access to videos: the owner's (`clientapi/videos.go`, owner tokens only): `GET /videos`, `POST /videos`
+    `{take, title?, aspect?, captions?, voice?}` with an Idempotency-Key, `GET` and `DELETE /videos/{id}`, `POST
+    /videos/{id}/revisions/{rev}/approve`, `POST /videos/{id}/revisions/{rev}/changes` `{lines?, note?}` with an
+    Idempotency-Key (a note alone is kept and starts nothing; changed lines queue a new revision, the other lines'
+    clips reused), `GET /videos/{id}/revisions/{rev}/video.mp4` with Range requests and `GET
+    .../thumbnail.jpg`, in review, approved or changes_requested; `hypomnema videos list|get|make|request-changes|
+    approve|delete|download`. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
+    `video_get {video}` (`agentapi/videos.go`), listed and called on the control plane's tools route apart from
+    the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
+    latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
+    (`PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `hypomnema audio voice <provider> [voice]`; the
+    column `voice` of `gateway_audio_providers`). The speech the runner asks is not recorded on a gateway key.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -5161,6 +5203,8 @@ internal/controlplane/serviceproxy  the one service proxy: an account's token ad
 internal/controlplane/skillssh  search of skills.sh and its audits, as the skills CLI does
 internal/controlplane/superset  Superset's API for agents: charts' data and the queries a chart runs
 internal/controlplane/vault  the vault: encrypted secrets and their versions, the keyring, rewrap
+internal/controlplane/videos  videos of takes and their revisions, the runner that voices, composes and captions them, the voice cache
+internal/controlplane/videos/captions  cues from a voice's word times and the ASS file with the spoken word highlighted (aidemo's cue rules, demotape's highlight, ported)
 internal/controlplane/videos/ffmpeg  the pinned ffmpeg and ffprobe videos are made with, installed at start, and the captions' font; installffmpeg/ installs it for CI
 internal/controlplane/videos/compose  a take made into one MP4: scenes, dead time cut, each scene fitted to its voice, taps' rings, 9:16 or 16:9 (aidemo's compose, ported)
 internal/controlplane/webui    serves the embedded web client

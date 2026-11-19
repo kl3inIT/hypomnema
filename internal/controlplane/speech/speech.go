@@ -173,6 +173,9 @@ type Settings struct {
 	// comes after, in the default order. Empty: the default order.
 	STT []string
 	TTS []string
+	// Voices are the voice each provider speaks a video with when none is asked (issue #818, row 5); a
+	// provider not named speaks with its own default.
+	Voices map[string]string
 }
 
 // Order is the providers in the owner's order for a kind.
