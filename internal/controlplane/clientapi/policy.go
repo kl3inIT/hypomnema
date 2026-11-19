@@ -206,6 +206,8 @@ var policies = map[string]policy{
 	"GetGatewayUsage":           {scope: scopeOwner},
 	"ListGatewayRequests":       {scope: scopeOwner},
 	"CreateGatewayKey":          {scope: scopeOwner},
+	"UpdateGatewayKey":          {scope: scopeOwner},
+	"GetGatewayKeyValue":        {scope: scopeOwner},
 	"RevokeGatewayKey":          {scope: scopeOwner},
 	"ListBots":                  {},
 	"GetBot":                    {},

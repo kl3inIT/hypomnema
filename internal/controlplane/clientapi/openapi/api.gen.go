@@ -3320,7 +3320,7 @@ type ConnectionUse struct {
 type CreatedGatewayKey struct {
 	Key GatewayKey `json:"key"`
 
-	// Secret The key's value, answered this once; only its hash is kept.
+	// Secret The key's value, also kept encrypted in the vault.
 	Secret string `json:"secret"`
 }
 
@@ -3517,6 +3517,9 @@ type GatewayKey struct {
 	// LastUsedAt When the gateway last served a request with it; absent when never.
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 
+	// MaskedValue The first six and last four characters with the rest masked; absent when no value is stored.
+	MaskedValue *string `json:"masked_value,omitempty"`
+
 	// Models The model names it may use; `*` is every model.
 	Models []string `json:"models"`
 	Name   string   `json:"name"`
@@ -3531,6 +3534,23 @@ type GatewayKeyList struct {
 
 	// LiveWorkerKeys How many keys made for a Dispatch or a chat's pi work now.
 	LiveWorkerKeys int `json:"live_worker_keys"`
+}
+
+// GatewayKeyUpdate defines model for GatewayKeyUpdate.
+type GatewayKeyUpdate struct {
+	// Endpoints The new list of kinds besides chat; empty means none, omitted means unchanged.
+	Endpoints *[]GatewayEndpoint `json:"endpoints,omitempty"`
+
+	// Models The new list of model names; empty means every model, omitted means unchanged.
+	Models *[]string `json:"models,omitempty"`
+
+	// Name The new name; when omitted the name is unchanged.
+	Name *string `json:"name,omitempty"`
+}
+
+// GatewayKeyValue defines model for GatewayKeyValue.
+type GatewayKeyValue struct {
+	Secret string `json:"secret"`
 }
 
 // GatewayModel defines model for GatewayModel.
@@ -7425,6 +7445,9 @@ type SetImageProviderJSONRequestBody = ImageProviderChange
 // CreateGatewayKeyJSONRequestBody defines body for CreateGatewayKey for application/json ContentType.
 type CreateGatewayKeyJSONRequestBody = NewGatewayKey
 
+// UpdateGatewayKeyJSONRequestBody defines body for UpdateGatewayKey for application/json ContentType.
+type UpdateGatewayKeyJSONRequestBody = GatewayKeyUpdate
+
 // SetGatewayModelAttributesJSONRequestBody defines body for SetGatewayModelAttributes for application/json ContentType.
 type SetGatewayModelAttributesJSONRequestBody = GatewayModelSettings
 
@@ -8599,14 +8622,14 @@ type ClientInterface interface {
 	// Corresponds with GET /gateway/keys (the `ListGatewayKeys` operationId).
 	ListGatewayKeys(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateGatewayKeyWithBody Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /gateway/keys (the `CreateGatewayKey` operationId).
 	CreateGatewayKeyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -8617,6 +8640,25 @@ type ClientInterface interface {
 	//
 	// Corresponds with DELETE /gateway/keys/{key_id} (the `RevokeGatewayKey` operationId).
 	RevokeGatewayKey(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateGatewayKeyWithBody Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKeyWithBody(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKey(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+	//
+	// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+	GetGatewayKeyValue(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	//
@@ -12414,7 +12456,7 @@ func (c *Client) ListGatewayKeys(ctx context.Context, reqEditors ...RequestEdito
 	return c.Client.Do(req)
 }
 
-// CreateGatewayKeyWithBody Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKeyWithBody Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes any type of body and a specified content type.
 //
@@ -12431,7 +12473,7 @@ func (c *Client) CreateGatewayKeyWithBody(ctx context.Context, contentType strin
 	return c.Client.Do(req)
 }
 
-// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes a body of the `application/json` content type.
 //
@@ -12453,6 +12495,55 @@ func (c *Client) CreateGatewayKey(ctx context.Context, body CreateGatewayKeyJSON
 // Corresponds with DELETE /gateway/keys/{key_id} (the `RevokeGatewayKey` operationId).
 func (c *Client) RevokeGatewayKey(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRevokeGatewayKeyRequest(c.Server, keyId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateGatewayKeyWithBody Edit an owner-made key without changing its value; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *Client) UpdateGatewayKeyWithBody(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateGatewayKeyRequestWithBody(c.Server, keyId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *Client) UpdateGatewayKey(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateGatewayKeyRequest(c.Server, keyId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+//
+// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+func (c *Client) GetGatewayKeyValue(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetGatewayKeyValueRequest(c.Server, keyId)
 	if err != nil {
 		return nil, err
 	}
@@ -20799,6 +20890,87 @@ func NewRevokeGatewayKeyRequest(server string, keyId string) (*http.Request, err
 	}
 
 	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateGatewayKeyRequest calls the generic UpdateGatewayKey builder with application/json body
+func NewUpdateGatewayKeyRequest(server string, keyId string, body UpdateGatewayKeyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateGatewayKeyRequestWithBody(server, keyId, "application/json", bodyReader)
+}
+
+// NewUpdateGatewayKeyRequestWithBody constructs an http.Request for the UpdateGatewayKey method, with any body, and a specified content type
+func NewUpdateGatewayKeyRequestWithBody(server string, keyId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "key_id", keyId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/keys/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetGatewayKeyValueRequest constructs an http.Request for the GetGatewayKeyValue method
+func NewGetGatewayKeyValueRequest(server string, keyId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "key_id", keyId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/keys/%s/value", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -29360,14 +29532,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /gateway/keys (the `ListGatewayKeys` operationId).
 	ListGatewayKeysWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListGatewayKeysResponse, error)
 
-	// CreateGatewayKeyWithBodyWithResponse Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /gateway/keys (the `CreateGatewayKey` operationId).
 	CreateGatewayKeyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateGatewayKeyResponse, error)
 
-	// CreateGatewayKeyWithResponse Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted; only the owner
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -29380,6 +29552,27 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with DELETE /gateway/keys/{key_id} (the `RevokeGatewayKey` operationId).
 	RevokeGatewayKeyWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*RevokeGatewayKeyResponse, error)
+
+	// UpdateGatewayKeyWithBodyWithResponse Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKeyWithBodyWithResponse(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error)
+
+	// UpdateGatewayKeyWithResponse Edit an owner-made key without changing its value; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+	UpdateGatewayKeyWithResponse(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error)
+
+	// GetGatewayKeyValueWithResponse Read the stored value of an owner-made key; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+	GetGatewayKeyValueWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*GetGatewayKeyValueResponse, error)
 
 	// ListGatewayModelsWithResponse The models the gateway serves, each with the targets it is served from, in order
 	//
@@ -35592,6 +35785,116 @@ func (r RevokeGatewayKeyResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RevokeGatewayKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateGatewayKeyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GatewayKey
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateGatewayKeyResponse) GetJSON200() *GatewayKey {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UpdateGatewayKeyResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateGatewayKeyResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateGatewayKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateGatewayKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateGatewayKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetGatewayKeyValueResponse200Headers the declared response headers of an HTTP 200 response for GetGatewayKeyValue
+type GetGatewayKeyValueResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetGatewayKeyValueResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GatewayKeyValue
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetGatewayKeyValueResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetGatewayKeyValueResponse) GetJSON200() *GatewayKeyValue {
+	return r.JSON200
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetGatewayKeyValueResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetGatewayKeyValueResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetGatewayKeyValueResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetGatewayKeyValueResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetGatewayKeyValueResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetGatewayKeyValueResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -45200,7 +45503,7 @@ func (c *ClientWithResponses) ListGatewayKeysWithResponse(ctx context.Context, r
 	return ParseListGatewayKeysResponse(rsp)
 }
 
-// CreateGatewayKeyWithBodyWithResponse Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKeyWithBodyWithResponse Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -45213,7 +45516,7 @@ func (c *ClientWithResponses) CreateGatewayKeyWithBodyWithResponse(ctx context.C
 	return ParseCreateGatewayKeyResponse(rsp)
 }
 
-// CreateGatewayKeyWithResponse Make a gateway key; its value is answered this once; only the owner
+// CreateGatewayKeyWithResponse Make a gateway key and keep its value encrypted; only the owner
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -45237,6 +45540,45 @@ func (c *ClientWithResponses) RevokeGatewayKeyWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseRevokeGatewayKeyResponse(rsp)
+}
+
+// UpdateGatewayKeyWithBodyWithResponse Edit an owner-made key without changing its value; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *ClientWithResponses) UpdateGatewayKeyWithBodyWithResponse(ctx context.Context, keyId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error) {
+	rsp, err := c.UpdateGatewayKeyWithBody(ctx, keyId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateGatewayKeyResponse(rsp)
+}
+
+// UpdateGatewayKeyWithResponse Edit an owner-made key without changing its value; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
+func (c *ClientWithResponses) UpdateGatewayKeyWithResponse(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error) {
+	rsp, err := c.UpdateGatewayKey(ctx, keyId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateGatewayKeyResponse(rsp)
+}
+
+// GetGatewayKeyValueWithResponse Read the stored value of an owner-made key; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/keys/{key_id}/value (the `GetGatewayKeyValue` operationId).
+func (c *ClientWithResponses) GetGatewayKeyValueWithResponse(ctx context.Context, keyId string, reqEditors ...RequestEditorFn) (*GetGatewayKeyValueResponse, error) {
+	rsp, err := c.GetGatewayKeyValue(ctx, keyId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetGatewayKeyValueResponse(rsp)
 }
 
 // ListGatewayModelsWithResponse The models the gateway serves, each with the targets it is served from, in order
@@ -51398,6 +51740,92 @@ func ParseRevokeGatewayKeyResponse(rsp *http.Response) (*RevokeGatewayKeyRespons
 	return response, nil
 }
 
+// ParseUpdateGatewayKeyResponse parses an HTTP response from a UpdateGatewayKeyWithResponse call
+func ParseUpdateGatewayKeyResponse(rsp *http.Response) (*UpdateGatewayKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateGatewayKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GatewayKey
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetGatewayKeyValueResponse parses an HTTP response from a GetGatewayKeyValueWithResponse call
+func ParseGetGatewayKeyValueResponse(rsp *http.Response) (*GetGatewayKeyValueResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetGatewayKeyValueResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GatewayKeyValue
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetGatewayKeyValueResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseListGatewayModelsResponse parses an HTTP response from a ListGatewayModelsWithResponse call
 func ParseListGatewayModelsResponse(rsp *http.Response) (*ListGatewayModelsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -57059,12 +57487,18 @@ type ServerInterface interface {
 	// ListGatewayKeys The gateway keys the owner made, not revoked; only the owner
 	// (GET /gateway/keys)
 	ListGatewayKeys(w http.ResponseWriter, r *http.Request)
-	// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 	// (POST /gateway/keys)
 	CreateGatewayKey(w http.ResponseWriter, r *http.Request)
 	// RevokeGatewayKey Revoke a gateway key; a client using it is refused from now on; only the owner
 	// (DELETE /gateway/keys/{key_id})
 	RevokeGatewayKey(w http.ResponseWriter, r *http.Request, keyId string)
+	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+	// (PATCH /gateway/keys/{key_id})
+	UpdateGatewayKey(w http.ResponseWriter, r *http.Request, keyId string)
+	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+	// (GET /gateway/keys/{key_id}/value)
+	GetGatewayKeyValue(w http.ResponseWriter, r *http.Request, keyId string)
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	// (GET /gateway/models)
 	ListGatewayModels(w http.ResponseWriter, r *http.Request)
@@ -60602,6 +61036,58 @@ func (siw *ServerInterfaceWrapper) RevokeGatewayKey(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RevokeGatewayKey(w, r, keyId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateGatewayKey operation middleware
+func (siw *ServerInterfaceWrapper) UpdateGatewayKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key_id" -------------
+	var keyId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key_id", r.PathValue("key_id"), &keyId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateGatewayKey(w, r, keyId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGatewayKeyValue operation middleware
+func (siw *ServerInterfaceWrapper) GetGatewayKeyValue(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key_id" -------------
+	var keyId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key_id", r.PathValue("key_id"), &keyId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGatewayKeyValue(w, r, keyId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -65990,6 +66476,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/keys", wrapper.ListGatewayKeys)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/keys", wrapper.CreateGatewayKey)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/gateway/keys/{key_id}", wrapper.RevokeGatewayKey)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/gateway/keys/{key_id}", wrapper.UpdateGatewayKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/keys/{key_id}/value", wrapper.GetGatewayKeyValue)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/usage", wrapper.GetGatewayUsage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/usage/requests", wrapper.ListGatewayRequests)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/web-search", wrapper.GetWebSearch)
@@ -69906,6 +70394,109 @@ type RevokeGatewayKeydefaultJSONResponse struct {
 }
 
 func (response RevokeGatewayKeydefaultJSONResponse) VisitRevokeGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGatewayKeyRequestObject struct {
+	KeyId string `json:"key_id"`
+	Body  *UpdateGatewayKeyJSONRequestBody
+}
+
+type UpdateGatewayKeyResponseObject interface {
+	VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error
+}
+
+type UpdateGatewayKey200JSONResponse GatewayKey
+
+func (response UpdateGatewayKey200JSONResponse) VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGatewayKeydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateGatewayKeydefaultJSONResponse) VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayKeyValueRequestObject struct {
+	KeyId string `json:"key_id"`
+}
+
+type GetGatewayKeyValueResponseObject interface {
+	VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error
+}
+
+type GetGatewayKeyValue200ResponseHeaders struct {
+	CacheControl *string
+}
+
+type GetGatewayKeyValue200JSONResponse struct {
+	Body    GatewayKeyValue
+	Headers GetGatewayKeyValue200ResponseHeaders
+}
+
+func (response GetGatewayKeyValue200JSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayKeyValue404JSONResponse Error
+
+func (response GetGatewayKeyValue404JSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayKeyValuedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetGatewayKeyValuedefaultJSONResponse) VisitGetGatewayKeyValueResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -76767,12 +77358,18 @@ type StrictServerInterface interface {
 	// ListGatewayKeys The gateway keys the owner made, not revoked; only the owner
 	// (GET /gateway/keys)
 	ListGatewayKeys(ctx context.Context, request ListGatewayKeysRequestObject) (ListGatewayKeysResponseObject, error)
-	// CreateGatewayKey Make a gateway key; its value is answered this once; only the owner
+	// CreateGatewayKey Make a gateway key and keep its value encrypted; only the owner
 	// (POST /gateway/keys)
 	CreateGatewayKey(ctx context.Context, request CreateGatewayKeyRequestObject) (CreateGatewayKeyResponseObject, error)
 	// RevokeGatewayKey Revoke a gateway key; a client using it is refused from now on; only the owner
 	// (DELETE /gateway/keys/{key_id})
 	RevokeGatewayKey(ctx context.Context, request RevokeGatewayKeyRequestObject) (RevokeGatewayKeyResponseObject, error)
+	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
+	// (PATCH /gateway/keys/{key_id})
+	UpdateGatewayKey(ctx context.Context, request UpdateGatewayKeyRequestObject) (UpdateGatewayKeyResponseObject, error)
+	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
+	// (GET /gateway/keys/{key_id}/value)
+	GetGatewayKeyValue(ctx context.Context, request GetGatewayKeyValueRequestObject) (GetGatewayKeyValueResponseObject, error)
 	// ListGatewayModels The models the gateway serves, each with the targets it is served from, in order
 	// (GET /gateway/models)
 	ListGatewayModels(ctx context.Context, request ListGatewayModelsRequestObject) (ListGatewayModelsResponseObject, error)
@@ -80007,6 +80604,65 @@ func (sh *strictHandler) RevokeGatewayKey(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RevokeGatewayKeyResponseObject); ok {
 		if err := validResponse.VisitRevokeGatewayKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateGatewayKey operation middleware
+func (sh *strictHandler) UpdateGatewayKey(w http.ResponseWriter, r *http.Request, keyId string) {
+	var request UpdateGatewayKeyRequestObject
+
+	request.KeyId = keyId
+
+	var body UpdateGatewayKeyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateGatewayKey(ctx, request.(UpdateGatewayKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateGatewayKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateGatewayKeyResponseObject); ok {
+		if err := validResponse.VisitUpdateGatewayKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetGatewayKeyValue operation middleware
+func (sh *strictHandler) GetGatewayKeyValue(w http.ResponseWriter, r *http.Request, keyId string) {
+	var request GetGatewayKeyValueRequestObject
+
+	request.KeyId = keyId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGatewayKeyValue(ctx, request.(GetGatewayKeyValueRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGatewayKeyValue")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGatewayKeyValueResponseObject); ok {
+		if err := validResponse.VisitGetGatewayKeyValueResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

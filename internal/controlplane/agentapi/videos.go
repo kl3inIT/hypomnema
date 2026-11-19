@@ -37,16 +37,16 @@ type videoTools struct {
 	takes  TakeOwners
 }
 
-// WithVideos gives workers and Bots' pis video_make and video_get.
+// WithVideos wires video_make and video_get for the owner, workers and Bots' pis.
 func (s *Server) WithVideos(v Videos, takes TakeOwners) *Server {
 	s.videos = &videoTools{videos: v, takes: takes}
 
 	return s
 }
 
-// hasVideoTools says whether the agent gets the video tools: a worker and a Bot's pi, the agents that film.
+// hasVideoTools says whether the caller gets the tools for its own takes.
 func (s *Server) hasVideoTools(a agent) bool {
-	return s.videos != nil && (a.dispatchID != "" || (a.chatID != "" && a.bot != ""))
+	return s.videos != nil && a.hasAgentTools()
 }
 
 func videoToolList() []agenttool.BrowserTool {

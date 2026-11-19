@@ -10,14 +10,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
-// The Gateway keys page (issue #199, step 6): the keys a client outside, such
-// as opencode or omp, gives the gateway. A key is shown once and kept as its
-// hash, with its start to tell keys apart, as Coder's AI Gateway keys are
-// (GatewayKeysPageView.tsx, CreateGatewayKeyDialog.tsx); it may be limited to
-// models, as LiteLLM, Bifrost and 9router limit theirs, and to the kinds it may
-// use besides chat (issue #664), as OmniRoute limits its endpoints. The keys made for one
-// Dispatch or one chat's pi are only counted.
-
 // ListGatewayKeys lists the keys the owner made that still work.
 func (s *Server) ListGatewayKeys(ctx context.Context, _ openapi.ListGatewayKeysRequestObject,
 ) (openapi.ListGatewayKeysResponseObject, error) {
@@ -34,7 +26,7 @@ func (s *Server) ListGatewayKeys(ctx context.Context, _ openapi.ListGatewayKeysR
 	for _, k := range keys {
 		switch {
 		case k.RevokedAt != nil:
-		case k.DispatchID != "" || k.ChatID != "":
+		case !k.OwnerMade():
 			out.LiveWorkerKeys++
 		default:
 			out.Data = append(out.Data, toGatewayKey(k))
@@ -44,27 +36,69 @@ func (s *Server) ListGatewayKeys(ctx context.Context, _ openapi.ListGatewayKeysR
 	return out, nil
 }
 
-// CreateGatewayKey makes a key and answers its value this once.
+// CreateGatewayKey makes an owner key and returns its value.
 func (s *Server) CreateGatewayKey(ctx context.Context, req openapi.CreateGatewayKeyRequestObject,
 ) (openapi.CreateGatewayKeyResponseObject, error) {
 	if s.gatewayKeys == nil {
 		return nil, fmt.Errorf("%w: this control plane runs no model gateway", orchestration.ErrUnavailable)
 	}
 
-	var endpoints []modelgateway.Endpoint
-	if req.Body.Endpoints != nil {
-		endpoints = make([]modelgateway.Endpoint, 0, len(*req.Body.Endpoints))
-		for _, e := range *req.Body.Endpoints {
-			endpoints = append(endpoints, modelgateway.Endpoint(e))
-		}
-	}
-
-	k, secret, err := s.gatewayKeys.AddKey(ctx, req.Body.Name, val(req.Body.Models), endpoints)
+	k, secret, err := s.gatewayKeys.AddKey(ctx, req.Body.Name, val(req.Body.Models), gatewayEndpoints(req.Body.Endpoints))
 	if err != nil {
 		return nil, gatewayKeyError(err)
 	}
 
 	return openapi.CreateGatewayKey201JSONResponse{Key: toGatewayKey(k), Secret: secret}, nil
+}
+
+// UpdateGatewayKey edits a key's name or access without changing its value.
+func (s *Server) UpdateGatewayKey(ctx context.Context, req openapi.UpdateGatewayKeyRequestObject,
+) (openapi.UpdateGatewayKeyResponseObject, error) {
+	if s.gatewayKeys == nil {
+		return nil, fmt.Errorf("%w: this control plane runs no model gateway", orchestration.ErrUnavailable)
+	}
+
+	key, err := s.gatewayKeys.UpdateKey(ctx, req.KeyId, modelgateway.KeyUpdate{
+		Name: req.Body.Name, Models: val(req.Body.Models), Endpoints: gatewayEndpoints(req.Body.Endpoints),
+	})
+	if err != nil {
+		return nil, gatewayKeyError(err)
+	}
+
+	return openapi.UpdateGatewayKey200JSONResponse(toGatewayKey(key)), nil
+}
+
+// GetGatewayKeyValue reads the value of an owner-made key from the vault.
+func (s *Server) GetGatewayKeyValue(ctx context.Context, req openapi.GetGatewayKeyValueRequestObject,
+) (openapi.GetGatewayKeyValueResponseObject, error) {
+	if s.gatewayKeys == nil {
+		return nil, fmt.Errorf("%w: this control plane runs no model gateway", orchestration.ErrUnavailable)
+	}
+
+	value, err := s.gatewayKeys.KeyValue(ctx, req.KeyId)
+	if err != nil {
+		return nil, gatewayKeyError(err)
+	}
+
+	noStore := "no-store"
+
+	return openapi.GetGatewayKeyValue200JSONResponse{
+		Body:    openapi.GatewayKeyValue{Secret: value},
+		Headers: openapi.GetGatewayKeyValue200ResponseHeaders{CacheControl: &noStore},
+	}, nil
+}
+
+func gatewayEndpoints(endpoints *[]openapi.GatewayEndpoint) []modelgateway.Endpoint {
+	if endpoints == nil {
+		return nil
+	}
+
+	out := make([]modelgateway.Endpoint, 0, len(*endpoints))
+	for _, endpoint := range *endpoints {
+		out = append(out, modelgateway.Endpoint(endpoint))
+	}
+
+	return out
 }
 
 // RevokeGatewayKey stops a key the owner made. The keys of a Dispatch or a
@@ -82,7 +116,7 @@ func (s *Server) RevokeGatewayKey(ctx context.Context, req openapi.RevokeGateway
 
 	for _, k := range keys {
 		// A key revoked is not on the page any more: it is not found, as one never made.
-		if k.ID != req.KeyId || k.DispatchID != "" || k.ChatID != "" || k.RevokedAt != nil {
+		if k.ID != req.KeyId || !k.OwnerMade() || k.RevokedAt != nil {
 			continue
 		}
 
@@ -107,7 +141,7 @@ func toGatewayKey(k modelgateway.Key) openapi.GatewayKey {
 
 	return openapi.GatewayKey{
 		Id: k.ID, Name: k.Name, Prefix: k.Prefix, Models: k.Models, Endpoints: endpoints, CreatedAt: k.CreatedAt,
-		LastUsedAt: k.LastUsedAt,
+		LastUsedAt: k.LastUsedAt, MaskedValue: ptr(k.MaskedValue),
 	}
 }
 
@@ -120,6 +154,8 @@ func gatewayKeyError(err error) error {
 		return fmt.Errorf("%w: %w", orchestration.ErrNotFound, err)
 	case errors.Is(err, modelgateway.ErrConflict):
 		return fmt.Errorf("%w: %w", orchestration.ErrConflict, err)
+	case errors.Is(err, modelgateway.ErrUnavailable):
+		return fmt.Errorf("%w: %w", orchestration.ErrUnavailable, err)
 	default:
 		return err
 	}
