@@ -33,17 +33,111 @@ const counts = (
   ...more,
 })
 
+// The speed of the text models by provider and model, and by account (issue #856): from the requests, with p50 and
+// p95; from the ledger, averages.
+const speed = (
+  provider: string,
+  model: string,
+  requests: number,
+  ok: number,
+  failed: number,
+  ttft: number,
+  latency: number,
+  tps: number,
+  exact: boolean,
+  account?: { id: string; label: string; runtime: string },
+) => ({
+  provider,
+  model,
+  requests,
+  ok,
+  failed,
+  client_gone: requests - ok - failed,
+  success_rate: ok / (ok + failed),
+  cost_micros: requests * 4200,
+  exact,
+  ...(exact
+    ? {
+        ttft_p50_ms: ttft,
+        ttft_p95_ms: Math.round(ttft * 3.1),
+        latency_p50_ms: latency,
+        latency_p95_ms: Math.round(latency * 2.6),
+      }
+    : {}),
+  ttft_avg_ms: Math.round(ttft * 1.2),
+  latency_avg_ms: Math.round(latency * 1.3),
+  tokens_per_second: tps,
+  ...(account
+    ? { account_id: account.id, account_label: account.label, runtime: account.runtime }
+    : {}),
+})
+
 function usage(period: string) {
-  const day = period === "24h" ? 1 : period === "7d" ? 7 : 30
+  const ledger = period === "90d" || period === "12m"
+  const day =
+    period === "24h" ? 1 : period === "7d" ? 7 : period === "30d" ? 30 : period === "90d" ? 90 : 365
   const hourly = period === "24h"
-  const n = hourly ? 24 : day
+  const monthly = period === "12m"
+  const n = hourly ? 24 : monthly ? 12 : day
   const size = hourly ? hour : 24 * hour
   const start = Math.floor(now / size) * size - (n - 1) * size
+  const month = new Date(now)
+  const monthStart = (i: number) =>
+    iso(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() - (11 - i), 1))
 
   return {
-    since: iso(start),
+    since: monthly ? monthStart(0) : iso(start),
     until: iso(now),
-    bucket_seconds: size / 1000,
+    bucket_seconds: monthly ? 30 * 86400 : size / 1000,
+    ledger,
+    by_provider: [
+      speed(
+        "claude-subscription",
+        "claude-opus-5-5",
+        201 * day,
+        196 * day,
+        2 * day,
+        1840,
+        21_400,
+        58.4,
+        !ledger,
+      ),
+      speed(
+        "codex-subscription",
+        "gpt-6.1-sol",
+        150 * day,
+        142 * day,
+        6 * day,
+        920,
+        14_800,
+        96.2,
+        !ledger,
+      ),
+      speed("openrouter", "deepseek-v4", 48 * day, 41 * day, 7 * day, 3100, 38_000, 31.7, !ledger),
+      speed(
+        "antigravity-subscription",
+        "claude-sonnet-4-6",
+        61 * day,
+        60 * day,
+        1 * day,
+        1250,
+        11_900,
+        74.9,
+        !ledger,
+      ),
+    ],
+    speed_by_account: [
+      speed("claude-subscription", "", 201 * day, 196 * day, 2 * day, 1840, 21_400, 58.4, !ledger, {
+        id: "acc_1",
+        label: "kept",
+        runtime: "claude",
+      }),
+      speed("codex-subscription", "", 150 * day, 142 * day, 6 * day, 920, 14_800, 96.2, !ledger, {
+        id: "acc_2",
+        label: "chatgpt@example.com",
+        runtime: "codex",
+      }),
+    ],
     totals: counts(412 * day, 9 * day, 18_400_000 * day, 15_100_000 * day, 310_000 * day, {
       web_searches: 37 * day,
       audio_seconds: 754 * day,
@@ -51,7 +145,7 @@ function usage(period: string) {
       images: 6 * day,
     }),
     buckets: Array.from({ length: n }, (_, i) => ({
-      start: iso(start + i * size),
+      start: monthly ? monthStart(i) : iso(start + i * size),
       counts: counts(
         10 + (i % 5) * 4,
         i % 7 === 3 ? 2 : 0,
@@ -142,6 +236,8 @@ const request = (i: number, over: Record<string, unknown> = {}) => ({
   priced_model: "claude-opus-5-5",
   estimated: false,
   duration_ms: 2400,
+  ttft_ms: 610,
+  tokens_per_second: 230.8,
   ...over,
 })
 
@@ -279,7 +375,15 @@ async function fakeServer(page: Page, empty = false) {
 
         return json(
           empty
-            ? { ...body, totals: counts(0, 0, 0, 0, 0), by_model: [], by_key: [], by_account: [] }
+            ? {
+                ...body,
+                totals: counts(0, 0, 0, 0, 0),
+                by_model: [],
+                by_key: [],
+                by_account: [],
+                by_provider: [],
+                speed_by_account: [],
+              }
             : body,
         )
       }
@@ -433,6 +537,63 @@ test("the owner finds why a request failed", async ({ page }) => {
 
   expect(asked).toContain("usage 7d")
   expect(asked).toContain("requests failed 0")
+})
+
+// Scenario (issue #856): the owner compares the providers. The Performance table says, by provider and model,
+// how many requests each served, the share answered, the time to the first token and of the whole call with their
+// p95, and the tokens a second; by account the same for each subscription account. A streamed request's sheet says
+// its time to first token and its speed.
+test("the owner compares the providers' speed and reliability", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/settings/usage")
+
+  const table = page.getByRole("table", { name: "Performance by provider and model" })
+  await table.scrollIntoViewIfNeeded()
+  const opus = table.getByRole("row", { name: "claude-subscription claude-opus-5-5" })
+  await expect(opus).toContainText("99.0%")
+  await expect(opus).toContainText("1.84 s")
+  await expect(opus).toContainText("p95 5.7 s")
+  await expect(opus).toContainText("58.4 tok/s")
+  await expect(table.getByRole("row", { name: "openrouter deepseek-v4" })).toContainText("7 failed")
+  expect(await fits(page)).toBe(true)
+  await page.getByRole("heading", { name: "Performance" }).scrollIntoViewIfNeeded()
+  await shot(page, "usage-performance")
+
+  await page.getByRole("tab", { name: "By subscription account" }).click()
+  await expect(
+    page.getByRole("table", { name: "Performance by account" }).getByRole("row", { name: "kept" }),
+  ).toContainText("21.4 s")
+
+  await page.getByRole("table", { name: "Requests" }).getByRole("row").nth(1).click()
+  const sheet = page.getByRole("dialog")
+  await expect(sheet).toContainText("First token610 ms")
+  await expect(sheet).toContainText("Speed231 tok/s, after the first token")
+  await page.waitForTimeout(300)
+  await shot(page, "usage-request-speed")
+})
+
+// Scenario (issue #856): the owner looks at the last 12 months. They are read from the daily ledger: a bar a
+// month, a note that says so, the speed as averages without p95, and no list of requests, kept 31 days.
+test("the owner reads a year from the daily ledger", async ({ page }) => {
+  const asked = await fakeServer(page)
+  await page.goto("/settings/usage")
+
+  await page.getByRole("button", { name: "12 months" }).click()
+  await expect(page.getByRole("heading", { name: "Tokens a month" })).toBeVisible()
+  await expect(page.getByText("Read from the daily totals")).toBeVisible()
+  const opus = page
+    .getByRole("table", { name: "Performance by provider and model" })
+    .getByRole("row", { name: "claude-subscription claude-opus-5-5" })
+  await expect(opus).toContainText("2.21 s")
+  await expect(opus).not.toContainText("p95")
+  await expect(page.getByText("Each request is kept 31 days.")).toBeVisible()
+  await expect(page.getByRole("table", { name: "Requests" })).toHaveCount(0)
+  expect(asked).toContain("usage 12m")
+  expect(asked.filter((a) => a.startsWith("requests"))).toEqual(["requests all 0"])
+  expect(await fits(page)).toBe(true)
+  await shot(page, "usage-year")
+  await page.getByRole("heading", { name: "Performance" }).scrollIntoViewIfNeeded()
+  await shot(page, "usage-year-performance")
 })
 
 // Scenario: older requests come a page at a time.

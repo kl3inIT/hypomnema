@@ -199,6 +199,32 @@ func TestContinuingWaitsForItsNode(t *testing.T) {
 	assert.Equal(t, first.ConversationID, d.ConversationID)
 }
 
+// Scenario: a provider's machine that the owner has not drained is being
+// stopped, is stopped, or is being started. Its node takes no work while the
+// machine is not on, though its status stays active, and takes work again
+// once the machine is on (issue #844).
+func TestAMachineThatIsNotOnTakesNoWork(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	w.tasks(specs(1)...)
+
+	for _, power := range []MachinePower{MachineStopping, MachineStopped, MachineStarting} {
+		_, err := w.db.ExecContext(t.Context(),
+			"UPDATE nodes SET machine_state = 'ready', machine_power = ? WHERE id = ?", string(power), w.node.ID)
+		require.NoError(t, err)
+
+		assert.Empty(t, w.schedule().Created, "the machine is %s", power)
+	}
+
+	_, err := w.db.ExecContext(t.Context(), "UPDATE nodes SET machine_power = NULL WHERE id = ?", w.node.ID)
+	require.NoError(t, err)
+
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+	assert.Equal(t, w.node.ID, w.dispatchOf(created[0]).NodeID)
+}
+
 // Scenario: several nodes for new Conversations. Drained, offline,
 // unavailable and full nodes and those without the runtime are skipped; with
 // no stats the higher free share by requests wins (issue #731): node_big,

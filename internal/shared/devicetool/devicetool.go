@@ -15,7 +15,8 @@
 // with adb, as the skill types, when the text is ASCII adb types as it is
 // (issue #578). A screen without boxes is adb's `exec-out screencap -p`, as OpenMausBot
 // takes one (server/drivers/phone-proxy.ts). Launching an app and reading its log are Orca's (src/main/emulator/android,
-// launchAppArgs and logcatArgs). The names and arguments are this repository's.
+// launchAppArgs and logcatArgs). Setting the phone's location is Appium's for an emulator
+// (location.go). The names and arguments are this repository's.
 package devicetool
 
 import (
@@ -42,6 +43,8 @@ const (
 	Key    = "device_key"
 	Launch = "device_launch"
 	Logcat = "device_logcat"
+	// Location sets the phone's GPS position (location.go, issue #851).
+	Location = "device_location"
 )
 
 // Errors of a call an agent made wrongly.
@@ -121,6 +124,7 @@ func phoneTools() []Tool {
 			"of a priority and above.",
 			`{"lines":{"type":"integer","minimum":1,"maximum":1000,"default":100},`+
 				`"contains":{"type":"string"},"level":{"type":"string","enum":["V","D","I","W","E","F"]}}`, nil),
+		locationTool(),
 	}
 }
 
@@ -166,13 +170,20 @@ type Call struct {
 	Lines    int
 	Contains string
 	Level    string
+	// Latitude, Longitude and Altitude are where device_location puts the phone, as the emulator's
+	// `geo fix` is given them: rounded up to 5 decimals (location.go). Altitude is "" when not given.
+	Latitude  string
+	Longitude string
+	Altitude  string
 	// Take names a take; Title and RequestID are video_start's; Chapter is video_say's, whose line is Text
-	// and whose tap is Target; EndedBy is video_end's.
+	// and whose tap is Target; EndedBy is video_end's; State is video_list's.
 	Take      string
 	Title     string
 	RequestID string
 	Chapter   string
 	EndedBy   string
+	// State is the state video_list keeps takes of; "" for every take.
+	State string
 }
 
 var (
@@ -183,30 +194,34 @@ var (
 
 // arguments are every tool's arguments; a call sets those of its tool.
 type arguments struct {
-	Boxes      bool    `json:"boxes"`
-	Target     *string `json:"target"`
-	From       *string `json:"from"`
-	To         *string `json:"to"`
-	DurationMs *int    `json:"duration_ms"`
-	Text       *string `json:"text"`
-	Into       string  `json:"into"`
-	Submit     bool    `json:"submit"`
-	Key        string  `json:"key"`
-	Package    string  `json:"package"`
-	Lines      *int    `json:"lines"`
-	Contains   string  `json:"contains"`
-	Level      string  `json:"level"`
+	Boxes      bool     `json:"boxes"`
+	Target     *string  `json:"target"`
+	From       *string  `json:"from"`
+	To         *string  `json:"to"`
+	DurationMs *int     `json:"duration_ms"`
+	Text       *string  `json:"text"`
+	Into       string   `json:"into"`
+	Submit     bool     `json:"submit"`
+	Key        string   `json:"key"`
+	Package    string   `json:"package"`
+	Lines      *int     `json:"lines"`
+	Contains   string   `json:"contains"`
+	Level      string   `json:"level"`
+	Latitude   *float64 `json:"latitude"`
+	Longitude  *float64 `json:"longitude"`
+	Altitude   *float64 `json:"altitude"`
 }
 
 // takes are the arguments each tool's schema names.
 var takes = map[string][]string{
-	Screen: {"boxes"},
-	Tap:    {"target"},
-	Swipe:  {"from", "to", "duration_ms"},
-	Type:   {"text", "into", "submit"},
-	Key:    {"key"},
-	Launch: {"package"},
-	Logcat: {"lines", "contains", "level"},
+	Screen:   {"boxes"},
+	Tap:      {"target"},
+	Swipe:    {"from", "to", "duration_ms"},
+	Type:     {"text", "into", "submit"},
+	Key:      {"key"},
+	Launch:   {"package"},
+	Logcat:   {"lines", "contains", "level"},
+	Location: {"latitude", "longitude", "altitude"},
 }
 
 func takesOf(names []string) string {
@@ -304,6 +319,8 @@ func read(tool string, raw json.RawMessage, internal bool) (Call, error) {
 		}
 	case Logcat:
 		err = c.readLogcat(a.Lines, a.Contains, a.Level)
+	case Location:
+		err = c.readLocation(a.Latitude, a.Longitude, a.Altitude)
 	default:
 		err = c.readVideo(v, internal)
 	}

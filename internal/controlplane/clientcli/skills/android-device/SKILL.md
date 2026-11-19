@@ -56,6 +56,10 @@ OpenMausBot's phone skill (`skills/phone-harness/SKILL.md`, Apache-2.0, notice i
   are installed by the owner from Play; you do not install apps.
 - `device_logcat` reads the last log lines; `contains` keeps the lines holding a text (an app's package or tag),
   `level` the lines of a priority and above (`W` for warnings and errors).
+- `device_location` sets where the phone is, by `latitude` and `longitude` in degrees (`altitude` in meters is
+  optional), as a map gives them: set it before an app looks for what is nearby or routes from "here", which
+  otherwise finds nothing near the emulator's default place, far from Vietnam. An app may take a few seconds to see
+  it.
 
 ## Film a demo
 
@@ -69,6 +73,8 @@ When the task asks for a video of an app, film it as a take (issue #817): the to
   is stamped at the moment it arrives, so say it, then act.
 - `video_stop` with the take when done. It answers at once; the take is then finished and uploaded, and
   `video_status` says when it is `available`. You never get the video itself: the owner watches it.
+- `video_list` lists your own takes, the newest first; `state` keeps those in one state (`recording`). After an
+  interrupted turn, look there to see whether a take of yours still films or how it ended before you start another.
 - The take ends by itself when your work ends (a worker's Dispatch, a Bot's turn), so stop it before you finish.
   When the owner takes the phone over, the take pauses, and resumes when they hand it back; nothing they type is
   filmed.

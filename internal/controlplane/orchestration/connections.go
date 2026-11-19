@@ -57,6 +57,13 @@ type Connection struct {
 	SignInFailed bool
 	// Chats says the coordinator may use the Connection in chats.
 	Chats bool
+	// Proxy is the proxy its requests to its service go through (issue #850): socks5://, socks5h://, http:// or
+	// https:// with a host and a port. Empty goes direct.
+	Proxy string
+	// DialAddress is where its requests are dialed instead of their host's (issue #850), as curl's --resolve:
+	// the Host header and the TLS name stay the host's. A temporary way round a name that does not resolve. Empty
+	// dials the host.
+	DialAddress string
 	// Access is what the account can really do, action by action, as it was last read at the service (issue
 	// #567); empty until it was read once.
 	Access    ConnectionAccess
@@ -496,6 +503,8 @@ func connectionFromRow(r store.Connection) Connection {
 		Address: r.Address.String, Version: r.Version.String, AppID: r.AppID.String, AppLabel: r.AppLabel.String,
 		SignInFailed: r.SignInFailed != 0,
 		Chats:        r.Chats != 0,
+		Proxy:        r.Proxy.String,
+		DialAddress:  r.DialAddress.String,
 		Access:       access,
 		CreatedAt:    millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}

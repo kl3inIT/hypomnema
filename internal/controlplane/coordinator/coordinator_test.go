@@ -1045,6 +1045,32 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 	assert.Equal(t, "gpt-luna", model.Model, "the chat's gateway key is made for the chat's model")
 }
 
+func TestBotFallbacksUseChatCompletionsOnlyForTheInheritedModel(t *testing.T) {
+	t.Parallel()
+
+	svc, sup := newSupervisor(t)
+	ctx := t.Context()
+	bot, err := svc.PutBot(ctx, orchestration.Bot{
+		Name: "researcher", Provider: "codex-subscription", Model: "gpt-6.1-sol",
+		Fallbacks: []string{"claude-subscription/claude-opus-5-5"},
+	})
+	require.NoError(t, err)
+	for _, candidate := range []struct {
+		choice   orchestration.ChatModel
+		provider string
+	}{
+		{orchestration.ChatModel{Effort: "high"}, orchestration.PiFallbackProvider},
+		{orchestration.ChatModel{Provider: bot.Provider, Model: bot.Model}, orchestration.PiProvider},
+	} {
+		chat, err := svc.CreateChatWithID(ctx, "", bot.ID, "", candidate.choice)
+		require.NoError(t, err)
+		_, model, err := sup.chatModel(ctx, chat.ID)
+		require.NoError(t, err)
+		assert.Equal(t, candidate.provider, model.Provider)
+		assert.Equal(t, "codex-subscription/gpt-6.1-sol", model.Model)
+	}
+}
+
 // Scenario: the owner chooses another model and effort in a chat whose pi runs (issue #369). pi is not started
 // again: before the next message it is sent set_model and set_thinking_level, and the chat's gateway key, good for
 // one model, is made again for the new one. A change of the effort alone sends only the level.

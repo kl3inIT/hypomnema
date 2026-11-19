@@ -89,6 +89,8 @@ var commands = []command{
 			fs.String("spec", "", "the Task's spec")
 			fs.String("spec-file", "", "read the spec from this file, or - for standard input")
 			fs.String("depends-on", "", "comma-separated refs or Task ids it depends on")
+			fs.String("kind", "", "broad (default), narrow or quick")
+			fs.String("review-of", "", "id of the succeeded Task whose work this reviewer checks")
 			fs.String("runtime", "", "runtime, instead of the profile's")
 			fs.String("model", "", "model, instead of the profile's")
 			fs.String("effort", "", "effort, instead of the profile's")
@@ -242,6 +244,10 @@ var commands = []command{
 			fs.String("services", "", "for a service that signs in: what to connect, such as gmail:read,calendar "+
 				"(:read is read only)")
 			fs.String("url", "", "for superset: its address, such as https://superset.example.com")
+			fs.String("proxy", "", "for superset: the proxy its address is reached through, such as "+
+				"socks5://127.0.0.1:1055 (default: the one the label has, or none)")
+			fs.String("dial-address", "", "for superset: an address to dial instead of its host's, as curl's "+
+				"--resolve; temporary (default: the one the label has, or none)")
 			fs.String("user", "", "for superset: the account's user name")
 			fs.String("password-file", "", "for superset: the file holding the password, or - for standard input")
 			fs.String("role", "", "for aws: the role's ARN, such as arn:aws:iam::123456789012:role/hypomnema/read")
@@ -310,6 +316,18 @@ var commands = []command{
 		name: "integrations chats", args: "<integration>:<label> on|off", min: 2, max: 2,
 		summary: "let the coordinator use an account in chats, and give it to its Runs, or stop it (owner)",
 		flags:   jsonFlag, run: integrationsChats,
+	},
+	{
+		name: "integrations proxy", args: "<integration>:<label> <proxy>|off", min: 2, max: 2,
+		summary: "send an account's requests to its service through a proxy, such as socks5://127.0.0.1:1055 for a " +
+			"service in a private network, or off to send them direct (owner)",
+		flags: jsonFlag, run: integrationsProxy,
+	},
+	{
+		name: "integrations dial-address", args: "<integration>:<label> <host[:port]>|off", min: 2, max: 2,
+		summary: "dial an account's service at another address while its name and certificate stay the service's, " +
+			"as curl's --resolve: a temporary way round a name that does not resolve; off dials the name (owner)",
+		flags: jsonFlag, run: integrationsDialAddress,
 	},
 	{
 		name: "integrations actions", args: "<integration>:<label>", min: 1, max: 1,
@@ -420,12 +438,13 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("provider", "", "the provider of the model, when more than one offers it")
 			fs.String("model", "", "the model pi runs for the bot; empty for pi's default")
+			fs.String("fallbacks", "", "ordered gateway models as provider/model, separated by commas; empty clears them")
 			fs.String("effort", "", "the reasoning effort: low, medium, high, xhigh or max")
 			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
 			fs.String("skills", "", "the skills the bot gets beside those for everyone, separated by commas; \"\" for none")
 			fs.String("skills-off", "", "the skills for everyone the bot does not get, separated by commas; \"\" for none")
-			fs.String("tools", "", "only these Hypomnema tools, names or families (agent_browser_*) separated by "+
-				"commas; \"\" for every one")
+			fs.String("preset", "", "tool family preset: full (default) or report")
+			fs.String("tools", "", "additional Hypomnema tools or families, separated by commas; \"\" for none")
 			fs.String("tools-off", "", "the Hypomnema tools the bot does not get, names or families separated by commas; "+
 				"\"\" for none")
 			fs.String("connections", "", "only these connections, integration:label separated by commas; \"\" for none")
@@ -696,6 +715,22 @@ var commands = []command{
 	{
 		name: "repos rm", args: "<name>", min: 1, max: 1, summary: "forget a registered repository (owner)",
 		flags: jsonFlag, run: reposRemove,
+	},
+	{
+		name: "profiles routing", summary: "show the effective role and Task-kind mapping as YAML",
+		flags: jsonFlag, run: profilesRouting,
+	},
+	{
+		name: "profiles routing-apply", args: "<file>", min: 1, max: 1,
+		summary: "validate and replace the role routing YAML (owner)", run: profilesRoutingApply,
+	},
+	{
+		name: "profiles metrics", summary: "settled attempts and cost by role, kind and chain entry (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("since", "", "start of the period in RFC3339 (default: 14 days ago)")
+			jsonFlag(fs)
+		},
+		run: profilesMetrics,
 	},
 	{
 		name: "profiles list", summary: "the profiles Tasks can name, at their current versions",

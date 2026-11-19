@@ -117,9 +117,16 @@ func integrationsConnectAccount(ctx context.Context, e *env, fs *flag.FlagSet, i
 
 	password = strings.TrimRight(password, "\r\n")
 
-	resp, err := e.api.PutIntegrationConnectionWithResponse(ctx, id, label, openapi.NewAccountConnection{
-		Address: &address, Username: &user, Password: &password,
-	})
+	body := openapi.NewAccountConnection{Address: &address, Username: &user, Password: &password}
+	if proxy := str(fs, "proxy"); proxy != "" {
+		body.Proxy = &proxy
+	}
+
+	if dial := str(fs, "dial-address"); dial != "" {
+		body.DialAddress = &dial
+	}
+
+	resp, err := e.api.PutIntegrationConnectionWithResponse(ctx, id, label, body)
 	if err != nil {
 		return fmt.Errorf("connecting %s:%s: %w", id, label, err)
 	}
@@ -136,7 +143,12 @@ func integrationsConnectAccount(ctx context.Context, e *env, fs *flag.FlagSet, i
 			version = ", version " + v
 		}
 
-		e.printf("%s:%s is connected as %s at %s%s\n", id, c.Label, c.Account, val(c.Address), version)
+		through := ""
+		if p := val(c.Proxy); p != "" {
+			through = " through " + p
+		}
+
+		e.printf("%s:%s is connected as %s at %s%s%s\n", id, c.Label, c.Account, val(c.Address), through, version)
 	})
 }
 

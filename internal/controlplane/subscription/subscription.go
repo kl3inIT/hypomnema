@@ -619,6 +619,9 @@ type ServedModel struct {
 	// Window and Output are the model's context window and largest output in tokens, as the vendor gives them;
 	// zero when it does not.
 	Window, Output int64
+	// Wire is the API the vendor serves the model on, when it serves its models on several (OpenCode Go:
+	// chat-completions, responses or messages); empty otherwise.
+	Wire string
 }
 
 // ModelLister is a Vendor that can say which models it serves an account.

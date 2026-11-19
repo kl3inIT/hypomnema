@@ -58,7 +58,8 @@ test("a page runs its inline script and a CDN's", async ({ page }) => {
 })
 
 // Scenario: a folder page, as a bundler builds one, loads its module script and its styles by relative paths, and
-// its script reads its data beside it; its origin stays opaque.
+// its script reads its data beside it; its origin stays opaque, and it hands its viewer a file of its folder
+// (issue #843: a report a Routine built).
 test("a folder page loads its relative script, styles and data", async ({ page }) => {
   const { frame, refused } = await open(page, "Folder page")
 
@@ -68,8 +69,12 @@ test("a folder page loads its relative script, styles and data", async ({ page }
   expect(refused).toEqual([])
 
   const iframe = page.locator('iframe[title="Folder page"]')
-  await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms")
+  await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms allow-downloads")
   expect(await iframe.evaluate((f: { contentDocument: unknown }) => f.contentDocument)).toBeNull()
+
+  const download = page.waitForEvent("download")
+  await frame.locator("#report").click()
+  expect((await download).suggestedFilename()).toBe("report.json")
 })
 
 // Scenario: the pages skill's dashboard (issue #423) draws itself under the server's policy and the browser
@@ -121,7 +126,7 @@ test("a view-only link shows the page without signing in until it is revoked", a
   expect(refused).toEqual([])
 
   const iframe = viewer.locator('iframe[title="Folder page"]')
-  await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms")
+  await expect(iframe).toHaveAttribute("sandbox", "allow-scripts allow-forms allow-downloads")
   expect(await iframe.evaluate((f: { contentDocument: unknown }) => f.contentDocument)).toBeNull()
 
   const revoked = await page.request.delete(`/api/v1/artifact-shares/${share.id}`)

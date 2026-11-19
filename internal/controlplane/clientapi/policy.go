@@ -49,6 +49,9 @@ var policies = map[string]policy{
 	"FinishRun":                   {scope: scopeRun},
 	"CancelRun":                   {scope: scopeRun},
 	"CreateTasks":                 {scope: scopeRun},
+	"GetRoleRouting":              {},
+	"PutRoleRouting":              {scope: scopeOwner},
+	"GetRoleMetrics":              {scope: scopeOwner},
 	"ListTasks":                   {},
 	"GetTask":                     {},
 	"ListDispatchItems":           {scope: scopeDispatch, long: true},
@@ -312,6 +315,10 @@ var policies = map[string]policy{
 	"ListMeetingActions":    {},
 	"GetMeetingSettings":    {},
 	"SetMeetingSettings":    {scope: scopeOwner},
+	// A meeting recorded live (issue #820): only the owner records, as only the owner uploads.
+	"StartLiveMeeting": {scope: scopeOwner},
+	"OpenMeetingTrack": {scope: scopeOwner},
+	"EndLiveMeeting":   {scope: scopeOwner, long: true},
 	// The words to hear right (issue #747), read and changed as the settings are.
 	"FixMeetingWord":   {scope: scopeOwner},
 	"ListMeetingWords": {},

@@ -49,7 +49,7 @@ func (q *Queries) DeleteBot(ctx context.Context, id string) error {
 }
 
 const getBot = `-- name: GetBot :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches FROM bots WHERE id = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset FROM bots WHERE id = ?1
 `
 
 func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
@@ -76,12 +76,14 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.ToolsOff,
 		&i.ConnectionScopes,
 		&i.GuaranteedDispatches,
+		&i.Fallbacks,
+		&i.Preset,
 	)
 	return i, err
 }
 
 const getBotByName = `-- name: GetBotByName :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches FROM bots WHERE name = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset FROM bots WHERE name = ?1
 `
 
 func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
@@ -108,6 +110,8 @@ func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
 		&i.ToolsOff,
 		&i.ConnectionScopes,
 		&i.GuaranteedDispatches,
+		&i.Fallbacks,
+		&i.Preset,
 	)
 	return i, err
 }
@@ -135,10 +139,10 @@ func (q *Queries) GetSetupChange(ctx context.Context, id string) (SetupChange, e
 
 const insertBot = `-- name: InsertBot :exec
 INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, tools, tools_off, connections,
-                  workers, tool_display, position, connection_scopes, guaranteed_dispatches, created_at, updated_at)
+                  workers, tool_display, position, connection_scopes, guaranteed_dispatches, preset, created_at, updated_at, fallbacks)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
         ?12, ?13, (SELECT coalesce(max(position) + 1, 0) FROM bots), ?14,
-        ?15, ?16, ?16)
+        ?15, ?16, ?17, ?17, ?18)
 `
 
 type InsertBotParams struct {
@@ -157,7 +161,9 @@ type InsertBotParams struct {
 	ToolDisplay          string
 	ConnectionScopes     sql.NullString
 	GuaranteedDispatches sql.NullInt64
+	Preset               string
 	Now                  int64
+	Fallbacks            string
 }
 
 // A new Bot goes last in the order (issue #470).
@@ -178,7 +184,9 @@ func (q *Queries) InsertBot(ctx context.Context, arg InsertBotParams) error {
 		arg.ToolDisplay,
 		arg.ConnectionScopes,
 		arg.GuaranteedDispatches,
+		arg.Preset,
 		arg.Now,
+		arg.Fallbacks,
 	)
 	return err
 }
@@ -304,7 +312,7 @@ func (q *Queries) ListBotModels(ctx context.Context) ([]ListBotModelsRow, error)
 }
 
 const listBots = `-- name: ListBots :many
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches FROM bots ORDER BY created_at, name
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -337,6 +345,8 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.ToolsOff,
 			&i.ConnectionScopes,
 			&i.GuaranteedDispatches,
+			&i.Fallbacks,
+			&i.Preset,
 		); err != nil {
 			return nil, err
 		}
@@ -482,8 +492,9 @@ func (q *Queries) ToolDisplayOfChat(ctx context.Context, chatID string) (string,
 const updateBot = `-- name: UpdateBot :exec
 UPDATE bots SET provider = ?1, model = ?2, effort = ?3, persona = ?4, skills = ?5,
     skills_off = ?6, tools = ?7, tools_off = ?8, connections = ?9, workers = ?10, tool_display = ?11,
-    connection_scopes = ?12, guaranteed_dispatches = ?13, updated_at = ?14
-WHERE id = ?15
+    connection_scopes = ?12, guaranteed_dispatches = ?13, preset = ?14, updated_at = ?15,
+    fallbacks = ?16
+WHERE id = ?17
 `
 
 type UpdateBotParams struct {
@@ -500,7 +511,9 @@ type UpdateBotParams struct {
 	ToolDisplay          string
 	ConnectionScopes     sql.NullString
 	GuaranteedDispatches sql.NullInt64
+	Preset               string
 	Now                  int64
+	Fallbacks            string
 	ID                   string
 }
 
@@ -520,7 +533,9 @@ func (q *Queries) UpdateBot(ctx context.Context, arg UpdateBotParams) error {
 		arg.ToolDisplay,
 		arg.ConnectionScopes,
 		arg.GuaranteedDispatches,
+		arg.Preset,
 		arg.Now,
+		arg.Fallbacks,
 		arg.ID,
 	)
 	return err

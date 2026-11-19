@@ -65,6 +65,11 @@ func tasksCreate(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		t := openapi.NewTask{
 			Ref: str(fs, "ref"), Profile: optional(fs, "profile"), Spec: spec, Runtime: optional(fs, "runtime"),
 			Model: optional(fs, "model"), Effort: optional(fs, "effort"),
+			ReviewOf: optional(fs, "review-of"),
+		}
+		if kind := str(fs, "kind"); kind != "" {
+			value := openapi.TaskKind(kind)
+			t.Kind = &value
 		}
 
 		if deps := str(fs, "depends-on"); deps != "" {
@@ -116,6 +121,10 @@ func tasksShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 		if w := val(t.WaitingReason); w != "" {
 			e.printf("waiting: %s\n", waitingLine(w))
+		}
+
+		if t.Usage != nil {
+			e.printf("used: %s\n", usageLine(*t.Usage))
 		}
 
 		if d := t.LatestDispatch; d != nil {
@@ -378,4 +387,27 @@ func itemLine(it openapi.TranscriptItem) string {
 // wrote inside a message cannot pass for an item of its own (a call, a result).
 func continued(s string) string {
 	return strings.ReplaceAll(strings.TrimRight(s, "\n"), "\n", "\n| ")
+}
+
+// usageLine says what a Task's or a Run's Dispatches used (issue #856): the gateway's requests, tokens and cost,
+// and the tokens the runtimes reported of the Dispatches that did not go through the gateway.
+func usageLine(u openapi.WorkUsage) string {
+	parts := []string{fmt.Sprintf("%d dispatches", u.Dispatches)}
+
+	if u.Requests > 0 {
+		cost := fmt.Sprintf("$%.4f", float64(u.CostMicros)/1e6)
+		if u.Unpriced > 0 {
+			cost += fmt.Sprintf(" (%d requests without a price)", u.Unpriced)
+		}
+
+		parts = append(parts, fmt.Sprintf("gateway %d requests, in %d (cached %d) out %d (reasoning %d), API cost %s",
+			u.Requests, u.PromptTokens, u.CachedTokens, u.CompletionTokens, u.ReasoningTokens, cost))
+	}
+
+	if r := u.Reported; r.Input+r.Output+r.CacheRead+r.CacheWrite > 0 {
+		parts = append(parts, fmt.Sprintf("reported by the runtime: in %d, cache read %d, cache write %d, out %d, no cost",
+			r.Input, r.CacheRead, r.CacheWrite, r.Output))
+	}
+
+	return strings.Join(parts, "; ")
 }

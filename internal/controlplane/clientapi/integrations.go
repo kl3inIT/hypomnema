@@ -38,6 +38,10 @@ type Integrations interface {
 	Disconnect(ctx context.Context, id, label string) (revoked bool, err error)
 	// SetChats says whether the coordinator may use a Connection in chats.
 	SetChats(ctx context.Context, id, label string, allowed bool) (integration.Connection, error)
+	// SetProxy sets the proxy a Connection's requests go through (issue #850); empty clears it.
+	SetProxy(ctx context.Context, id, label, proxy string) (integration.Connection, error)
+	// SetDialAddress sets where a Connection's requests are dialed instead of their host's; empty clears it.
+	SetDialAddress(ctx context.Context, id, label, dial string) (integration.Connection, error)
 	// Check reads again what a Connection's account can do at the service (issue #567).
 	Check(ctx context.Context, id, label string) (integration.Connection, error)
 }
@@ -57,7 +61,8 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Services: make([]string, 0, len(c.Grants)),
 		SignInRequired: c.SignInRequired, Chats: c.Chats, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 		Address: opt(c.Address), Version: opt(c.Version), AppId: opt(c.AppID), App: opt(c.AppLabel),
-		RoleArn: opt(c.RoleARN), Key: opt(c.Key), Cannot: []openapi.ConnectionCannot{},
+		RoleArn: opt(c.RoleARN), Key: opt(c.Key), Proxy: opt(c.Proxy), DialAddress: opt(c.DialAddress),
+		Cannot: []openapi.ConnectionCannot{},
 	}
 
 	for _, no := range serviceproxy.CannotOf(c.Integration, c.Access) {
@@ -256,7 +261,8 @@ func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIn
 		})
 	case val(b.Address) != "" || val(b.Username) != "" || val(b.Password) != "":
 		conn, err = s.integrations.ConnectAccount(ctx, req.Integration, req.Label, integration.Account{
-			Address: val(b.Address), User: val(b.Username), Password: val(b.Password),
+			Address: val(b.Address), User: val(b.Username), Password: val(b.Password), Proxy: val(b.Proxy),
+			DialAddress: val(b.DialAddress),
 		})
 	default:
 		conn, err = s.integrations.Connect(ctx, req.Integration, req.Label, integration.App{
@@ -272,20 +278,37 @@ func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIn
 }
 
 // PatchIntegrationConnection says whether the coordinator may use a
-// Connection in chats.
+// Connection in chats, and sets the proxy its requests go through (issue
+// #850). What the body leaves out stays.
 func (s *Server) PatchIntegrationConnection(ctx context.Context, req openapi.PatchIntegrationConnectionRequestObject,
 ) (openapi.PatchIntegrationConnectionResponseObject, error) {
+	if req.Body.Chats == nil && req.Body.Proxy == nil && req.Body.DialAddress == nil {
+		return nil, fmt.Errorf("%w: say chats, proxy or dial_address", orchestration.ErrInvalid)
+	}
+
 	// A git host's Connection may be used in chats too: a Bot reads GitHub with it through the service proxy
 	// (issue #685). Its token lives with the git hosts, so the switch is set on the Connection itself.
 	if _, err := s.svc.GitHostOf(ctx, req.Integration); err == nil {
-		conn, err := s.svc.SetConnectionChats(ctx, req.Integration, req.Label, req.Body.Chats)
+		conn, err := s.svc.ConnectionOf(ctx, req.Integration, req.Label)
+		if err == nil && req.Body.Chats != nil {
+			conn, err = s.svc.SetConnectionChats(ctx, req.Integration, req.Label, *req.Body.Chats)
+		}
+
+		if err == nil && req.Body.Proxy != nil {
+			conn, err = s.svc.SetConnectionProxy(ctx, req.Integration, req.Label, *req.Body.Proxy)
+		}
+
+		if err == nil && req.Body.DialAddress != nil {
+			conn, err = s.svc.SetConnectionDialAddress(ctx, req.Integration, req.Label, *req.Body.DialAddress)
+		}
+
 		if err != nil {
 			return nil, err
 		}
 
 		return openapi.PatchIntegrationConnection200JSONResponse(toIntegrationConnection(integration.Connection{
 			Integration: conn.Integration, Label: conn.Label, Account: conn.Account, Chats: conn.Chats,
-			CreatedAt: conn.CreatedAt, UpdatedAt: conn.UpdatedAt,
+			Proxy: conn.Proxy, DialAddress: conn.DialAddress, CreatedAt: conn.CreatedAt, UpdatedAt: conn.UpdatedAt,
 		})), nil
 	}
 
@@ -293,9 +316,27 @@ func (s *Server) PatchIntegrationConnection(ctx context.Context, req openapi.Pat
 		return nil, errNoIntegrations
 	}
 
-	conn, err := s.integrations.SetChats(ctx, req.Integration, req.Label, req.Body.Chats)
-	if err != nil {
-		return nil, err
+	var (
+		conn integration.Connection
+		err  error
+	)
+
+	if req.Body.Chats != nil {
+		if conn, err = s.integrations.SetChats(ctx, req.Integration, req.Label, *req.Body.Chats); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.Body.Proxy != nil {
+		if conn, err = s.integrations.SetProxy(ctx, req.Integration, req.Label, *req.Body.Proxy); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.Body.DialAddress != nil {
+		if conn, err = s.integrations.SetDialAddress(ctx, req.Integration, req.Label, *req.Body.DialAddress); err != nil {
+			return nil, err
+		}
 	}
 
 	return openapi.PatchIntegrationConnection200JSONResponse(toIntegrationConnection(conn)), nil

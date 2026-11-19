@@ -508,8 +508,8 @@ paths:
     post:
       operationId: StopNodeMachine
       summary: >-
-        Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with
-        409 while it runs a Dispatch
+        Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work and keeps its
+        status; refused with 409 while it runs a Dispatch
       responses:
         "200":
           description: The node, its machine stopping or stopped.
@@ -522,7 +522,7 @@ paths:
       - $ref: "#/components/parameters/NodeID"
     post:
       operationId: StartNodeMachine
-      summary: Turn a stopped machine on (owner only); it takes work again once its node connects
+      summary: Turn a stopped machine on (owner only); it takes work again once its node connects, unless drained
       responses:
         "200":
           description: The node, its machine starting.
@@ -958,10 +958,12 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     patch:
       operationId: PatchIntegrationConnection
-      summary: Say whether the coordinator may use a Connection in chats; only the owner
+      summary: Say whether the coordinator may use a Connection in chats, or set its proxy; only the owner
       description: >-
         A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in
-        any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+        any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself. Its
+        proxy (issue #850) is what its requests to its service go through, and its dial address where they are
+        dialed instead of their host's; the next request uses them.
       requestBody:
         required: true
         content:
@@ -1819,11 +1821,13 @@ paths:
       operationId: RedeemAccountLimitReset
       summary: Use one of an account's limit resets, which starts its used-up limits again now; only the owner
       description: >-
-        A reset that is used does not come back. The one used is the one the
-        vendor names as next. `request_id` makes a repeated request the same
-        use: sent again, it uses no second reset. Answers the account's limits
-        as they are after it. An account with no reset to use, with no limit
-        used up, or whose vendor asks to wait is 409.
+        A reset that is used does not come back. The one used is `grant_id`'s;
+        without it, one that starts a used-up window again, the vendor's next
+        when it does (issue #841). `request_id` makes a repeated request the
+        same use: sent again, it uses no second reset. Answers the account's
+        limits as they are after it. An account with no reset to use, with no
+        limit used up, with no reset that starts the used-up one again, with no
+        usable reset of `grant_id`, or whose vendor asks to wait is 409.
       requestBody:
         required: true
         content:
@@ -1918,12 +1922,18 @@ paths:
   /gateway/usage:
     get:
       operationId: GetGatewayUsage
-      summary: What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+      summary: >-
+        What the gateway served in a period, in total, a bar at a time, by model, key and account, and the text
+        models' speed and reliability by provider and by account; only the owner
+      description: >-
+        24h, 7d and 30d are read from the requests themselves, kept 31 days. 90d (a bar a UTC day) and 12m (a bar a
+        calendar month) are read from the daily ledger, which keeps the sums only: the owner's keys count together,
+        and the speed has averages, not percentiles (ledger is true).
       parameters:
         - name: period
           in: query
           required: true
-          schema: { type: string, enum: ["24h", "7d", "30d"] }
+          schema: { type: string, enum: ["24h", "7d", "30d", "90d", "12m"] }
         - name: utc_offset_minutes
           in: query
           description: The viewer's distance from UTC, so a day's bar starts at the viewer's midnight.
@@ -3221,6 +3231,46 @@ paths:
       responses:
         "204": { description: The grant is taken back. }
         default: { $ref: "#/components/responses/Error" }
+  /role-routing:
+    get:
+      operationId: GetRoleRouting
+      summary: The worker role and kind mapping
+      responses:
+        "200":
+          description: The effective mapping as YAML.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Source" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: PutRoleRouting
+      summary: Validate and replace the worker role and kind mapping; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Source" }
+      responses:
+        "204": { description: The mapping was stored. }
+        default: { $ref: "#/components/responses/Error" }
+  /role-routing/metrics:
+    get:
+      operationId: GetRoleMetrics
+      summary: Settled worker attempts and their recorded cost by role, kind and chain entry; only the owner
+      parameters:
+        - in: query
+          name: since
+          description: Start of the period; defaults to 14 days ago.
+          schema: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Worker metrics.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RoleMetric" }
+        default: { $ref: "#/components/responses/Error" }
   /profiles:
     get:
       operationId: ListProfiles
@@ -3804,12 +3854,16 @@ paths:
         required: true
         description: The voice's label.
         schema: { type: string, minLength: 1, maxLength: 32 }
+      - name: track
+        in: query
+        description: The voice's track; absent, the one track that has the label.
+        schema: { $ref: "#/components/schemas/MeetingTrack" }
     put:
       operationId: NameMeetingSpeaker
       summary: Name a voice for the whole meeting; only the owner
       description: >-
-        A name another voice of the meeting has makes the two one voice, with the lines and actions of both. An
-        empty name gives the voice back its number.
+        A name another voice of the track has makes the two one voice, with the lines and actions of both. An
+        empty name gives the voice back its number. The owner's own voice online (the microphone) is not renamed.
       requestBody:
         required: true
         content:
@@ -3845,6 +3899,66 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MeetingDetail" }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/live:
+    post:
+      operationId: StartLiveMeeting
+      summary: Start recording a meeting live from the browser; only the owner
+      description: >-
+        The meeting is answered recording. Each track (mic; online also tab, a shared browser tab) is then streamed
+        through a ticket (POST /meetings/{id}/tickets) and heard as it is spoken; POST /meetings/{id}/end ends it.
+        Refused (conflict) while another meeting is recording: resume or end that one first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewLiveMeeting" }
+      responses:
+        "201":
+          description: The meeting, recording.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meeting" }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/{meeting_id}/tickets:
+    parameters:
+      - $ref: "#/components/parameters/MeetingID"
+    post:
+      operationId: OpenMeetingTrack
+      summary: >-
+        A ticket to record one track of a meeting being recorded (owner only). The ticket opens the WebSocket
+        `/api/v1/meetings/{meeting_id}/stream/{ticket}?track=&offset=` once, within 60 seconds; offset is the
+        meeting's time in milliseconds of the first sample. There the client sends PCM16 24 kHz mono in binary
+        frames of at most 64 KiB and one `{"type":"end"}`, and receives `ready`, `preview {track, speaker, text}`,
+        `line {line}` (kept), `finished` after the end and `error {code}`: busy, ended, invalid, invalid_audio,
+        invalid_message, too_long (five hours a track), idle (no audio for 60 seconds), provider_failed, unavailable
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MeetingTrackRequest" }
+      responses:
+        "201":
+          description: The ticket.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TerminalTicket" }
+        default: { $ref: "#/components/responses/Error" }
+  /meetings/{meeting_id}/end:
+    parameters:
+      - $ref: "#/components/parameters/MeetingID"
+    post:
+      operationId: EndLiveMeeting
+      summary: End a meeting being recorded; only the owner
+      description: >-
+        The tracks still open keep their last words (at most 20 seconds), the tracks become the meeting's recording,
+        and the meeting is transcribed with its notes being written. Ending one that has ended answers it as it is.
+      responses:
+        "200":
+          description: The meeting, transcribed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meeting" }
         default: { $ref: "#/components/responses/Error" }
   /meetings/{meeting_id}/items/{item_id}:
     parameters:
@@ -4704,9 +4818,46 @@ components:
         - type: object
           required: [tasks]
           properties:
+            usage: { $ref: "#/components/schemas/WorkUsage" }
             tasks:
               type: array
               items: { $ref: "#/components/schemas/TaskDetail" }
+    WorkUsage:
+      type: object
+      description: >-
+        What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's
+        keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose
+        runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+      required: [dispatches, gateway_dispatches, requests, prompt_tokens, completion_tokens, cached_tokens,
+        reasoning_tokens, cache_write_tokens, cost_micros, unpriced, reported]
+      properties:
+        dispatches: { type: integer }
+        gateway_dispatches:
+          type: integer
+          description: The Dispatches that sent the gateway requests.
+        requests: { type: integer, format: int64 }
+        prompt_tokens: { type: integer, format: int64 }
+        completion_tokens: { type: integer, format: int64 }
+        cached_tokens: { type: integer, format: int64 }
+        reasoning_tokens: { type: integer, format: int64 }
+        cache_write_tokens: { type: integer, format: int64 }
+        cost_micros:
+          type: integer
+          format: int64
+          description: The gateway requests' cost at the vendor's API price, in micro-dollars.
+        unpriced:
+          type: integer
+          format: int64
+          description: The gateway requests the price book has no price for.
+        reported:
+          type: object
+          description: The tokens the runtimes reported of the Dispatches that sent the gateway nothing.
+          required: [input, output, cache_read, cache_write]
+          properties:
+            input: { type: integer, format: int64 }
+            output: { type: integer, format: int64 }
+            cache_read: { type: integer, format: int64 }
+            cache_write: { type: integer, format: int64 }
     RunList:
       type: object
       required: [data]
@@ -4750,12 +4901,13 @@ components:
       enum: [dependency_failed, gate, dispatch_unknown, needs_auth]
     Task:
       type: object
-      required: [id, run_id, position, profile, spec, status, failure_count, created_at, updated_at]
+      required: [id, run_id, position, profile, kind, spec, status, failure_count, created_at, updated_at]
       properties:
         id: { type: string }
         run_id: { type: string }
         position: { type: integer }
         profile: { type: string }
+        kind: { $ref: "#/components/schemas/TaskKind" }
         spec: { type: string }
         runtime: { type: string }
         model: { type: string }
@@ -4786,6 +4938,7 @@ components:
         - $ref: "#/components/schemas/Task"
         - type: object
           properties:
+            usage: { $ref: "#/components/schemas/WorkUsage" }
             latest_dispatch: { $ref: "#/components/schemas/Dispatch" }
             follow_ups:
               type: array
@@ -4837,6 +4990,23 @@ components:
           minItems: 1
           maxItems: 100
           items: { $ref: "#/components/schemas/NewTask" }
+    TaskKind:
+      type: string
+      enum: [broad, narrow, quick]
+    RoleMetric:
+      type: object
+      required: [role, kind, runtime, model, attempts, succeeded, failed, cost_micros, unpriced]
+      properties:
+        role: { type: string }
+        kind: { $ref: "#/components/schemas/TaskKind" }
+        runtime: { type: string }
+        model: { type: string }
+        chain_entry: { type: integer, description: One-based position in the Task's effective routing chain. }
+        attempts: { type: integer, format: int64 }
+        succeeded: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        cost_micros: { type: integer, format: int64 }
+        unpriced: { type: integer, format: int64 }
     NewTask:
       type: object
       required: [ref, spec]
@@ -4852,6 +5022,11 @@ components:
           minLength: 1
           maxLength: 100
           description: The profile it runs with; implementer when left out.
+        kind: { $ref: "#/components/schemas/TaskKind", description: Use broad when unsure or when omitted. }
+        review_of:
+          type: string
+          minLength: 1
+          description: The succeeded Task in this Run a reviewer checks; its vendor is excluded.
         spec: { type: string, minLength: 1, maxLength: 100000 }
         runtime: { type: string, minLength: 1, maxLength: 100 }
         model: { type: string, minLength: 1, maxLength: 200 }
@@ -4880,6 +5055,8 @@ components:
         profile_version_id:
           type: string
           description: The profile version it ran with; absent for Dispatches from before profiles.
+        chain_entry: { type: integer, description: One-based position in the Task's effective routing chain. }
+        runtime: { type: string, description: The worker runtime selected by role routing. }
         fallback_for:
           type: string
           description: >-
@@ -6229,6 +6406,17 @@ components:
           description: >-
             Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner
             turns it on.
+        proxy:
+          type: string
+          description: >-
+            The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a
+            service in a private network, reached through a local proxy. Absent when they go direct.
+        dial_address:
+          type: string
+          description: >-
+            Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an
+            IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name
+            that does not resolve; absent dials the host.
         session: { $ref: "#/components/schemas/DeviceSession" }
         cannot:
           type: array
@@ -6343,6 +6531,18 @@ components:
           type: string
           maxLength: 1024
           description: Where the service is, such as https://superset.example.com.
+        proxy:
+          type: string
+          maxLength: 256
+          description: >-
+            The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the
+            label has.
+        dial_address:
+          type: string
+          maxLength: 256
+          description: >-
+            Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one
+            the label has.
         username: { type: string, maxLength: 1024 }
         password:
           type: string
@@ -6602,10 +6802,22 @@ components:
             owner takes it back; reject refuses it.
     ConnectionUse:
       type: object
-      required: [chats]
+      description: What changes; what is absent stays.
       additionalProperties: false
       properties:
         chats: { type: boolean }
+        proxy:
+          type: string
+          maxLength: 256
+          description: >-
+            The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no
+            user or path. Empty clears it, and they go direct.
+        dial_address:
+          type: string
+          maxLength: 256
+          description: >-
+            Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port
+            or not; the certificate is still checked against the host. Temporary. Empty clears it.
     NewIntegrationClient:
       type: object
       required: [client_id, client_secret]
@@ -7059,12 +7271,64 @@ components:
           description: The model's or the key's name, or the account's label; empty for an account since removed.
         runtime:
           type: string
-          description: An account's runtime (claude, codex, antigravity).
+          description: An account's runtime (claude, codex, antigravity, opencode_go).
         counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
+    GatewayPerformance:
+      type: object
+      description: >-
+        The speed and reliability of a provider's model, or of a subscription account, over the requests to the text
+        models. Time to first token is over the answered streams, latency over the answered requests, tokens a second
+        (output tokens over the time after the first token) over the answered streams whose tokens were reported.
+      required: [provider, model, requests, ok, failed, client_gone, cost_micros, exact]
+      properties:
+        provider: { type: string }
+        model:
+          type: string
+          description: The model the provider served; empty for an account.
+        account_id: { type: string }
+        account_label: { type: string }
+        runtime:
+          type: string
+          description: An account's runtime (claude, codex, antigravity).
+        requests: { type: integer, format: int64 }
+        ok: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+        client_gone:
+          type: integer
+          format: int64
+          description: The requests whose client left first; they count neither as answered nor as failed.
+        success_rate:
+          type: number
+          description: The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+        cost_micros: { type: integer, format: int64 }
+        exact:
+          type: boolean
+          description: Read from each request, with percentiles and the median tokens a second; false from the ledger.
+        ttft_p50_ms: { type: integer, format: int64 }
+        ttft_p95_ms: { type: integer, format: int64 }
+        latency_p50_ms: { type: integer, format: int64 }
+        latency_p95_ms: { type: integer, format: int64 }
+        ttft_avg_ms: { type: integer, format: int64 }
+        latency_avg_ms: { type: integer, format: int64 }
+        tokens_per_second:
+          type: number
+          description: The median of the requests' output tokens a second; from the ledger, all tokens over all time.
     GatewayUsage:
       type: object
-      required: [since, until, bucket_seconds, totals, buckets, by_model, by_key, by_account]
+      required: [since, until, bucket_seconds, totals, buckets, by_model, by_key, by_account, by_provider,
+        speed_by_account, ledger]
       properties:
+        ledger:
+          type: boolean
+          description: >-
+            Read from the daily ledger (90d, 12m): UTC days, the owner's keys counted together as the key "owner",
+            and no percentiles.
+        by_provider:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayPerformance" }
+        speed_by_account:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayPerformance" }
         since: { type: string, format: date-time }
         until: { type: string, format: date-time }
         bucket_seconds:
@@ -7140,6 +7404,17 @@ components:
           type: boolean
           description: The provider reported no usage; the counts are the sizes divided by four.
         duration_ms: { type: integer, format: int64 }
+        ttft_ms:
+          type: integer
+          format: int64
+          description: >-
+            Time to first token: from the gateway receiving the request to the first chunk it streamed to the
+            client; absent for an answer that is not a stream.
+        tokens_per_second:
+          type: number
+          description: >-
+            The output tokens over the time after the first token; absent when the request was not a stream, its
+            counts were estimated, or it had no output.
         audio_seconds:
           type: number
           description: The seconds of the recording an audio transcription heard; absent for other requests.
@@ -7174,8 +7449,10 @@ components:
       properties:
         runtime:
           type: string
-          enum: [claude]
-          description: The kind of subscription; only Claude gives a token to paste.
+          enum: [claude, opencode_go]
+          description: >-
+            The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go,
+            whose Console API key is the account (issue #854).
         label:
           type: string
           minLength: 1
@@ -7186,7 +7463,7 @@ components:
           minLength: 1
           maxLength: 4096
           writeOnly: true
-          description: The token `claude setup-token` prints, one line.
+          description: The token `claude setup-token` prints, or the OpenCode Go key, one line.
     NewAccountImport:
       type: object
       required: [runtime, credentials]
@@ -7276,9 +7553,40 @@ components:
           type: string
           pattern: "^[A-Za-z0-9_-]{1,64}$"
           description: The caller's id of this use; the same id again uses no second reset.
+        grant_id:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{1,80}$"
+          description: >-
+            The reset to use, by the id `grants` gives. Without it, one that
+            starts a used-up window again is chosen.
+    AccountLimitResetGrant:
+      type: object
+      required: [id, available, clears]
+      properties:
+        id:
+          type: string
+          description: The vendor's id of the grant, which a use names.
+        label:
+          type: string
+          description: The vendor's name for the grant, when it gives one.
+        available:
+          type: integer
+          description: How many resets the grant has left.
+        expires_at:
+          type: string
+          format: date-time
+          description: When the grant ends, when the vendor says.
+        clears:
+          type: array
+          items: { type: string }
+          description: >-
+            The windows, by the names `windows` uses, that a use starts again,
+            such as "5 hours" and "week" for an ordinary reset or "week (Fable)"
+            for Fable's; empty when the vendor does not say, and then it may
+            start any.
     AccountLimitResets:
       type: object
-      required: [available]
+      required: [available, grants]
       properties:
         available:
           type: integer
@@ -7287,6 +7595,10 @@ components:
           type: string
           format: date-time
           description: When the one used next ends, when the vendor says.
+        grants:
+          type: array
+          items: { $ref: "#/components/schemas/AccountLimitResetGrant" }
+          description: The usable resets one by one, as the vendor groups them.
     AccountLimits:
       type: object
       required: [windows]
@@ -7347,8 +7659,9 @@ components:
       description: >-
         Where a value comes from; codex is the window Codex itself gives a Codex
         subscription's model, antigravity the window or largest output
-        CLIProxyAPI's registry gives an Antigravity subscription's model.
-      enum: [set, models_dev, codex, antigravity, unknown]
+        CLIProxyAPI's registry gives an Antigravity subscription's model,
+        opencode_go the one OpenCode Go's model list gives a Go model.
+      enum: [set, models_dev, codex, antigravity, opencode_go, unknown]
     GatewayModelInputKind:
       type: string
       enum: [text, image]
@@ -7614,7 +7927,7 @@ components:
     Bot:
       type: object
       required:
-        [id, name, main, position, pinned, persona, memory, memory_limit, skills, skills_off, tools, tools_off,
+        [id, name, main, position, pinned, fallbacks, persona, memory, memory_limit, skills, skills_off, preset, tools, tools_off,
          connections, workers, scopes, tool_display, guaranteed_dispatches, created_at, updated_at]
       properties:
         id:
@@ -7638,6 +7951,11 @@ components:
           description: Listed in the sidebar's Pinned section, under the main Bot.
         provider: { type: string }
         model: { type: string }
+        fallbacks:
+          type: array
+          maxItems: 5
+          items: { type: string }
+          description: Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
         effort: { type: string }
         persona:
           type: string
@@ -7656,12 +7974,12 @@ components:
           type: array
           items: { type: string }
           description: The skills given to everyone that the Bot does not get.
+        preset: { $ref: "#/components/schemas/ToolPreset" }
+        tool_access: { $ref: "#/components/schemas/ToolAccess" }
         tools:
           type: array
           items: { type: string }
-          description: >-
-            The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty,
-            every tool a Bot gets. A CLI's own tools are not switched here.
+          description: Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
         tools_off:
           type: array
           items: { type: string }
@@ -7975,6 +8293,11 @@ components:
       properties:
         provider: { type: string }
         model: { type: string }
+        fallbacks:
+          type: array
+          maxItems: 5
+          items: { type: string }
+          description: Ordered gateway models (provider/model); omitted keeps the list, empty clears it.
         effort: { type: string }
         persona: { type: string }
         skills:
@@ -7985,12 +8308,13 @@ components:
           type: array
           items: { type: string }
           description: The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
+        preset:
+          $ref: "#/components/schemas/ToolPreset"
+          description: Left out, the Bot keeps its preset, or defaults to full when created.
         tools:
           type: array
           items: { type: string }
-          description: >-
-            The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out,
-            the Bot keeps those it has.
+          description: Additional tools or families; left out, the Bot keeps those it has.
         tools_off:
           type: array
           items: { type: string }
@@ -8090,7 +8414,7 @@ components:
     Profile:
       type: object
       required:
-        [name, description, version_id, version, runtime, fallbacks, skills, skills_off, tools, tools_off, source,
+        [name, description, version_id, version, runtime, fallbacks, skills, skills_off, preset, tools, tools_off, source,
          created_at]
       properties:
         name: { type: string }
@@ -8124,12 +8448,12 @@ components:
           type: array
           items: { type: string }
           description: The skills given to everyone that its workers do not get.
+        preset: { $ref: "#/components/schemas/ToolPreset" }
+        tool_access: { $ref: "#/components/schemas/ToolAccess" }
         tools:
           type: array
           items: { type: string }
-          description: >-
-            The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty,
-            every tool a worker gets. A CLI's own tools are not switched here.
+          description: Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
         tools_off:
           type: array
           items: { type: string }
@@ -8183,6 +8507,7 @@ components:
             - claude_subscription
             - codex_subscription
             - antigravity_subscription
+            - opencode_go
             - model_gateway
         base_url: { type: string }
         api_key_ref:
@@ -8207,6 +8532,58 @@ components:
         provider: { type: string }
         name: { type: string }
         kind: { type: string }
+    ToolPreset:
+      type: string
+      enum: [full, report]
+      x-enum-varnames: [ToolPresetFull, ToolPresetReport]
+      description: Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+    ToolAccess:
+      type: object
+      description: Saved access in the detail response, before a particular chat or Run applies its own limits.
+      required: [families, skills]
+      properties:
+        families:
+          type: array
+          items: { $ref: "#/components/schemas/ToolFamilyAccess" }
+        skills:
+          type: array
+          items: { $ref: "#/components/schemas/SkillAccess" }
+    ToolFamilyAccess:
+      type: object
+      required: [name, description, state, reason, source, tools]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        state: { $ref: "#/components/schemas/ToolAccessState" }
+        reason: { type: string }
+        source: { $ref: "#/components/schemas/ToolAccessSource" }
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/ToolAccessItem" }
+    ToolAccessItem:
+      type: object
+      required: [name, state, reason, source]
+      properties:
+        name: { type: string }
+        state: { $ref: "#/components/schemas/ToolAccessState" }
+        reason: { type: string }
+        source: { $ref: "#/components/schemas/ToolAccessSource" }
+    ToolAccessState:
+      type: string
+      enum: [off, on, unavailable, available]
+      x-enum-varnames: [ToolAccessOff, ToolAccessOn, ToolAccessUnavailable, ToolAccessAvailable]
+      description: Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+    ToolAccessSource:
+      type: string
+      enum: [preset, exception, connection]
+      x-enum-varnames: [ToolAccessPreset, ToolAccessException, ToolAccessConnection]
+    SkillAccess:
+      type: object
+      required: [name, missing, reason]
+      properties:
+        name: { type: string }
+        missing: { type: boolean }
+        reason: { type: string }
     ToolFamily:
       type: object
       required: [name, description, pattern, tools]
@@ -8864,8 +9241,45 @@ components:
           description: With before, whether older messages are left; always false with after.
     MeetingState:
       type: string
-      description: Where the meeting's transcription stands.
-      enum: [transcribing, transcribed, failed]
+      description: Where the meeting's transcription stands; a live meeting is recording until it ends.
+      enum: [recording, transcribing, transcribed, failed]
+    MeetingSource:
+      type: string
+      description: How the meeting came, uploaded or recorded live.
+      enum: [upload, live]
+    MeetingKind:
+      type: string
+      description: How a live meeting is held; online records the microphone and a shared tab.
+      enum: [online, in_person]
+    MeetingTrack:
+      type: string
+      description: What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+      enum: [file, mic, tab]
+    MeetingLiveTrack:
+      type: string
+      enum: [mic, tab]
+    NewLiveMeeting:
+      type: object
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind: { $ref: "#/components/schemas/MeetingKind" }
+        language:
+          type: string
+          description: An ISO 639-1 code, such as vi; absent, the provider finds it.
+          pattern: "^[a-z]{2}$"
+        title: { type: string, maxLength: 200, description: Absent, the notes write one. }
+        people:
+          type: array
+          description: Who is in the meeting; they help name the speakers.
+          maxItems: 30
+          items: { type: string, maxLength: 100 }
+    MeetingTrackRequest:
+      type: object
+      required: [track]
+      additionalProperties: false
+      properties:
+        track: { $ref: "#/components/schemas/MeetingLiveTrack" }
     MeetingNotesState:
       type: string
       description: Where its notes stand; waiting is for the transcript.
@@ -8891,9 +9305,13 @@ components:
         written_at: { type: string, format: date-time }
     MeetingSpeaker:
       type: object
-      required: [label, name, named, talk_ms, share]
+      required: [track, label, name, named, owner, talk_ms, share]
       properties:
-        label: { type: string, description: The voice's label, the provider's or m1, m2… for one the owner made. }
+        track: { $ref: "#/components/schemas/MeetingTrack" }
+        label:
+          type: string
+          description: The voice's label on its track, the provider's or m1, m2… for one the owner made.
+        owner: { type: boolean, description: The owner's own voice, an online meeting's microphone, shown as You. }
         name: { type: string, description: The name shown, Speaker N until the owner names it. }
         named: { type: boolean }
         talk_ms: { type: integer, format: int64, description: How long its lines last. }
@@ -8910,6 +9328,7 @@ components:
         - size
         - duration_ms
         - state
+        - source
         - created_at
         - notes
         - speakers
@@ -8924,8 +9343,13 @@ components:
         file_name: { type: string }
         media_type: { type: string }
         size: { type: integer, format: int64 }
-        duration_ms: { type: integer, format: int64 }
+        duration_ms:
+          type: integer
+          format: int64
+          description: Its length; while it records, what is kept so far, where a resumed recording goes on.
         state: { $ref: "#/components/schemas/MeetingState" }
+        source: { $ref: "#/components/schemas/MeetingSource" }
+        kind: { $ref: "#/components/schemas/MeetingKind" }
         failure: { type: string, description: Why hearing it failed, and where to fix it. }
         provider: { type: string, description: The speech-to-text provider that heard it. }
         model: { type: string }
@@ -8943,12 +9367,13 @@ components:
           items: { $ref: "#/components/schemas/Meeting" }
     MeetingLine:
       type: object
-      required: [n, start_ms, end_ms, speaker, heard, text]
+      required: [n, track, start_ms, end_ms, speaker, heard, text]
       properties:
-        n: { type: integer }
+        n: { type: integer, description: The line's number, its id; lines are listed by when they were said. }
+        track: { $ref: "#/components/schemas/MeetingTrack" }
         start_ms: { type: integer, format: int64 }
         end_ms: { type: integer, format: int64 }
-        speaker: { type: string, description: The label of the voice it is shown as. }
+        speaker: { type: string, description: The label of the voice it is shown as, on the line's track. }
         heard: { type: string, description: The label the provider heard it as. }
         text: { type: string }
     MeetingItemKind:
@@ -8963,6 +9388,7 @@ components:
         text: { type: string }
         owner: { type: string, description: Who does an action, as shown. }
         owner_speaker: { type: string, description: The label of the voice that does it, when it is one. }
+        owner_track: { $ref: "#/components/schemas/MeetingTrack" }
         due: { type: string, description: The deadline in the words the meeting used. }
         done: { type: boolean }
         quote: { type: string, description: The sentence it rests on. }
@@ -8970,8 +9396,9 @@ components:
         start_ms: { type: integer, format: int64, description: When that line was said. }
     SpeakerSuggestion:
       type: object
-      required: [label, name, line]
+      required: [track, label, name, line]
       properties:
+        track: { $ref: "#/components/schemas/MeetingTrack" }
         label: { type: string }
         name: { type: string, description: The name the voice called itself. }
         line: { type: integer, description: The line it said it in. }

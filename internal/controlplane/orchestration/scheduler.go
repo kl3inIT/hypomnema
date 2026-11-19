@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"path"
 	"time"
@@ -191,6 +192,9 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 
 	r, err := resolve(ctx, q, task)
 	if err != nil {
+		if errors.Is(err, errRoleEntry) {
+			return s.wait(ctx, q, now, task, err.Error(), out)
+		}
 		return err
 	}
 
@@ -199,14 +203,31 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return err
 	}
 
-	spec, reason, err := placeTask(ctx, q, p, task, r, host.asking(r))
+	expiredOn, err := q.NodesWithRecentTaskExpiries(ctx, store.NodesWithRecentTaskExpiriesParams{
+		TaskID: task.ID, Since: now - TaskExpiryPenaltyWindow.Milliseconds(),
+	})
+	if err != nil {
+		return fmt.Errorf("reading recent expiries of task %s: %w", task.ID, err)
+	}
+
+	recentExpiries := make(map[string]bool, len(expiredOn))
+	for _, nodeID := range expiredOn {
+		recentExpiries[nodeID] = true
+	}
+
+	spec, reason, err := placeTask(ctx, q, p, task, r, host.asking(r), recentExpiries)
 	if err != nil {
 		return err
 	}
 
 	// A Task that waits only for a limit to reset goes to a backup of its profile.
-	if spec == nil && reason == "" {
-		if spec, r, err = placeBackup(ctx, q, p, task, r, host); err != nil {
+	if spec == nil && len(r.chain) > 0 && (reason == "" || reason == ReasonNoAccount) {
+		spec, r, reason, err = placeRoleBackup(ctx, q, p, task, r, host, recentExpiries, reason)
+		if err != nil {
+			return err
+		}
+	} else if spec == nil && reason == "" && len(r.chain) == 0 {
+		if spec, r, err = placeBackup(ctx, q, p, task, r, host, recentExpiries); err != nil {
 			return err
 		}
 	}
@@ -235,8 +256,12 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 	out.Created = append(out.Created, id)
 
 	if told == 0 {
+		fallback := r.profile
+		if len(r.chain) > 0 {
+			fallback = r.model
+		}
 		out.Escalations = append(out.Escalations, Escalation{
-			Kind: EscalationFallback, DispatchID: id, Profile: r.fallbackFor, Fallback: r.profile,
+			Kind: EscalationFallback, DispatchID: id, Profile: r.fallbackFor, Fallback: fallback,
 			Until: r.fallbackUntil,
 		})
 	}
@@ -263,6 +288,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 // (OpenMausBot's usable, t3code). A backup's own backups are not followed
 // (t3code: one hop).
 func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
+	recentExpiries map[string]bool,
 ) (*DispatchSpec, resolved, error) {
 	if task.Runtime.String != "" || task.Model.String != "" {
 		return nil, r, nil
@@ -316,7 +342,7 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 			return nil, r, err
 		}
 
-		spec, _ := placeNew(p, task, b, host.asking(b))
+		spec, _ := placeNew(p, task, b, host.asking(b), recentExpiries)
 		if started {
 			spec = placeHandoff(p, conv, b, host.asking(b))
 		}
@@ -428,6 +454,17 @@ func mayHandOff(ctx context.Context, q *store.Queries, task store.Task) (bool, e
 	if task.Runtime.String != "" || task.Model.String != "" {
 		return false, nil
 	}
+	last, err := q.LastDispatchOfTask(ctx, task.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	if last.RoleChain != "" {
+		chain, err := dispatchRoleChain(last)
+		if err != nil || last.ChainEntry.Int64 >= int64(len(chain)) {
+			return false, err
+		}
+		return handoffWithoutApprovedWrites(ctx, q, task.ID)
+	}
 
 	v, err := q.CurrentProfileVersion(ctx, task.Profile)
 	if err != nil {
@@ -447,9 +484,13 @@ func mayHandOff(ctx context.Context, q *store.Queries, task store.Task) (bool, e
 		return false, nil
 	}
 
-	wrote, err := q.CountApprovedOfTask(ctx, nullString(task.ID))
+	return handoffWithoutApprovedWrites(ctx, q, task.ID)
+}
+
+func handoffWithoutApprovedWrites(ctx context.Context, q *store.Queries, taskID string) (bool, error) {
+	wrote, err := q.CountApprovedOfTask(ctx, nullString(taskID))
 	if err != nil {
-		return false, fmt.Errorf("reading the approvals of task %s: %w", task.ID, err)
+		return false, fmt.Errorf("reading the approvals of task %s: %w", taskID, err)
 	}
 
 	return wrote == 0, nil
@@ -459,6 +500,7 @@ func mayHandOff(ctx context.Context, q *store.Queries, task store.Task) (bool, e
 // must wait, with the reason to escalate if the wait lasts ("" for one that
 // resolves by itself, such as a cooling account).
 func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
+	recentExpiries map[string]bool,
 ) (*DispatchSpec, string, error) {
 	conv, open, err := openConversation(ctx, q, task.ID)
 	if err != nil {
@@ -483,6 +525,14 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 		if !p.nodeReady(conv.NodeID, conv.Runtime, host) {
 			return nil, ReasonNoNode, nil
 		}
+		if len(r.chain) > 0 && r.gateway {
+			if p.roleCoolingUntil(r) != 0 {
+				return nil, "", nil
+			}
+			if !p.gatewayHasAccount(r.accounts) {
+				return nil, ReasonNoAccount, nil
+			}
+		}
 
 		switch usable, cooling := p.accountUsable(conv.Runtime, conv.AccountRef); {
 		case cooling:
@@ -494,20 +544,21 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 		return &DispatchSpec{Continue: true}, "", nil
 	}
 
-	spec, reason := placeNew(p, task, r, host)
+	spec, reason := placeNew(p, task, r, host, recentExpiries)
 
 	return spec, reason, nil
 }
 
 // placeNew chooses the node and the account of a Task's new Conversation.
-func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchSpec, string) {
+func placeNew(p *placement, task store.Task, r resolved, host where, recentExpiries map[string]bool,
+) (*DispatchSpec, string) {
 	runtime := r.runtime
 
 	if !r.gateway && gatewayOnly(runtime) {
 		return nil, ReasonNeedsGateway
 	}
 
-	n := p.pickNode(runtime, host)
+	n := p.pickNode(runtime, host, recentExpiries)
 	if runtime == "" || n == nil {
 		// A Run without a repository has no host to reach: with no node connected, it has no node.
 		if host.host != "" && !p.anyReaches(host.host) {
@@ -537,6 +588,9 @@ func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchS
 	account, cooling := GatewayAccountRef, false
 	if !r.gateway {
 		account, cooling = p.pickAccount(runtime)
+	}
+	if len(r.chain) > 0 && r.gateway && p.roleCoolingUntil(r) != 0 {
+		return nil, ""
 	}
 
 	switch {

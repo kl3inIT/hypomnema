@@ -105,12 +105,20 @@ func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (o
 		UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt, Tasks: make([]openapi.TaskDetail, 0, len(tasks)),
 	}
 
+	total, byTask, err := s.svc.RunUsage(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	out.Usage = ptr(toWorkUsage(total))
+
 	for _, t := range tasks {
 		detail, err := s.taskDetail(ctx, t)
 		if err != nil {
 			return nil, err
 		}
 
+		detail.Usage = ptr(toWorkUsage(byTask[t.ID]))
 		out.Tasks = append(out.Tasks, detail)
 	}
 
@@ -170,6 +178,9 @@ func (s *Server) CreateTasks(ctx context.Context, req openapi.CreateTasksRequest
 ) (openapi.CreateTasksResponseObject, error) {
 	in := make([]orchestration.NewTask, 0, len(req.Body.Tasks))
 	for _, t := range req.Body.Tasks {
+		if principal(ctx).Kind != bearertoken.Owner && (t.Runtime != nil || t.Model != nil || t.Effort != nil) {
+			return nil, fmt.Errorf("%w: only the owner can override Task runtime, model or effort", orchestration.ErrForbidden)
+		}
 		in = append(in, fromNewTask(t))
 	}
 
@@ -212,6 +223,13 @@ func (s *Server) GetTask(ctx context.Context, req openapi.GetTaskRequestObject) 
 	if err != nil {
 		return nil, err
 	}
+
+	usage, err := s.svc.TaskUsage(ctx, t.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	detail.Usage = ptr(toWorkUsage(usage))
 
 	return openapi.GetTask200JSONResponse(detail), nil
 }

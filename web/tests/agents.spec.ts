@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test"
 
 import { choose } from "./choose.js"
 import { shot } from "./shot.js"
-import { toolFamilies } from "./fixtures/tools.js"
+import { fullToolAccess, toolFamilies } from "./fixtures/tools.js"
 
 // The Agents pages, built, against a fake client API, on a phone and a desktop.
 
@@ -17,6 +17,7 @@ const profile = (name: string, m: object = {}) => ({
   fallbacks: [],
   skills: [],
   skills_off: [],
+  preset: "full",
   tools: [],
   tools_off: [],
   source: `name: ${name}\nruntime: claude\n`,
@@ -32,6 +33,7 @@ const reviewerSource =
   "instruction: |\n  Review the change the task names. Report what is wrong or missing, with file and line, as the summary of\n  `finish`; change files only when the task asks for fixes.\n"
 
 const reviewer = profile("reviewer", {
+  tool_access: fullToolAccess,
   description:
     "Reviews a change against its spec and reports problems with file and line; changes files only when the task asks for fixes.",
   version: 3,
@@ -88,7 +90,7 @@ const skills = [
   skill("lark-docs", "Write and update documents in Lark."),
 ]
 
-async function fakeServer(page: Page) {
+async function fakeServer(page: Page, extras: ReturnType<typeof profile>[] = []) {
   let profiles = [
     profile("implementer", {
       description:
@@ -116,6 +118,7 @@ async function fakeServer(page: Page) {
       effort: "low",
       version: 2,
     }),
+    ...extras,
   ]
   const applied: { name: string; source: string }[] = []
 
@@ -291,6 +294,25 @@ test("the agents show as cards and as a table, each saying whether it can run", 
 })
 
 // Scenario: the owner opens an agent, reads its fields, looks at the YAML and at its versions.
+test("a role profile shows routing by Task kind instead of a fixed model", async ({ page }) => {
+  await fakeServer(page, [
+    profile("planner", {
+      description: "Researches the references and proposes a design without editing files.",
+      runtime: "",
+      model: undefined,
+      provider: undefined,
+      available: undefined,
+      source: "name: planner\ndescription: Proposes a plan without changing files.\n",
+    }),
+  ])
+  await page.goto("/agents")
+  await expect(page.getByRole("article", { name: "planner" })).toContainText("Role routing")
+  await page.getByRole("link", { name: "planner" }).click()
+  await expect(page.getByLabel("Runs on")).toContainText("By Task kind")
+  await expect(page.getByLabel("Model", { exact: true })).toHaveCount(0)
+  await shot(page, "role-routing-profile")
+})
+
 test("an agent opens to its builder, its YAML and its versions", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/agents")
@@ -325,14 +347,13 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await page.getByRole("button", { name: "Remove skill review-go" }).click()
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
-  // Its tools (issue #536): every family is on; the phone is turned off, then on again.
-  const tools = page.getByRole("list", { name: "Tools" })
-  await expect(tools.getByRole("switch", { name: /web/ })).toBeChecked()
-  await tools.getByRole("switch", { name: /phone/ }).click()
+  const tools = page.getByRole("group", { name: "Tools", exact: true })
+  await expect(tools.getByLabel("Preset").locator('[data-slot="select-value"]')).toHaveText("Full")
+  await tools.getByLabel("Add exceptions").fill("phone")
   await expect(page.getByRole("button", { name: "Save revision" })).toBeEnabled()
   await tools.scrollIntoViewIfNeeded()
   await shot(page, "agent-tools")
-  await tools.getByRole("switch", { name: /phone/ }).click()
+  await tools.getByLabel("Add exceptions").clear()
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
   await page.getByRole("button", { name: "YAML" }).click()

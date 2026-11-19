@@ -3,6 +3,8 @@ package phone
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +27,9 @@ type filmNode struct {
 	mu    sync.Mutex
 	takes map[string]*devicetool.Take
 	order []string
+	// endHeld, when set, holds the node's answer to video_end until it is closed; endArrived is told it came.
+	endHeld    chan struct{}
+	endArrived chan struct{}
 }
 
 func newFilmNode() *filmNode {
@@ -60,6 +65,15 @@ func (n *filmNode) DeviceCall(ctx context.Context, nodeID, agent, tool string, r
 	c, err := devicetool.ReadNode(tool, raw)
 	if err != nil {
 		return failed(err.Error()), nil
+	}
+
+	n.mu.Lock()
+	held, arrived := n.endHeld, n.endArrived
+	n.mu.Unlock()
+
+	if tool == devicetool.VideoEnd && held != nil {
+		close(arrived)
+		<-held
 	}
 
 	n.mu.Lock()
@@ -143,13 +157,39 @@ func (s *memTakes) Update(said devicetool.Take) (devicetool.Take, error) {
 		return devicetool.Take{}, ErrNoTake
 	}
 
-	t.State, t.EndedBy, t.Steps = said.State, said.EndedBy, said.Steps
+	// As package takes merges: what is said is kept, and an ended take is never running again.
+	if said.State != "" && (t.Running() || !said.Running()) {
+		t.State = said.State
+	}
+
+	if said.EndedBy != "" {
+		t.EndedBy = said.EndedBy
+	}
+
+	if said.Steps != nil {
+		t.Steps = said.Steps
+	}
+
 	s.takes[said.ID] = t
 
 	return t, nil
 }
 
 func (s *memTakes) Deleted(string) bool { return false }
+
+func (s *memTakes) List() []devicetool.Take {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	out := make([]devicetool.Take, 0, len(s.takes))
+	for _, t := range s.takes {
+		out = append(out, t)
+	}
+
+	slices.SortFunc(out, func(a, b devicetool.Take) int { return b.StartedAt.Compare(a.StartedAt) })
+
+	return out
+}
 
 func (s *memTakes) ByRequest(agent, requestID string) (devicetool.Take, bool) {
 	s.mu.Lock()
@@ -487,4 +527,102 @@ func indexOf(list []string, s string) int {
 	}
 
 	return -1
+}
+
+// Scenario (issue #851): the agent reads its take's state while the node is
+// still being told of the stop, and after. It is being finished, never
+// recording: the stop is recorded as the lease ends, and an answer the node
+// gave before the stop, kept after it, does not make the take running again.
+func TestATakeIsNeverRecordingAfterItsStop(t *testing.T) {
+	t.Parallel()
+
+	r := newFilmRig(t)
+	take := r.start(t, alice, "a1")
+
+	r.node.mu.Lock()
+	r.node.endHeld, r.node.endArrived = make(chan struct{}), make(chan struct{})
+	held, arrived := r.node.endHeld, r.node.endArrived
+	r.node.mu.Unlock()
+
+	stopped := make(chan string, 1)
+
+	go func() {
+		raw, err := r.p.Call(context.WithoutCancel(t.Context()), alice, devicetool.VideoStop,
+			json.RawMessage(`{"take":"`+take+`"}`))
+		if err != nil {
+			stopped <- err.Error()
+
+			return
+		}
+
+		stopped <- string(raw)
+	}()
+
+	<-arrived
+
+	text, failed := r.call(t, alice, devicetool.VideoStatus, `{"take":"`+take+`"}`)
+	assert.False(t, failed, text)
+	assert.Contains(t, text, "is finalizing", "while the node is told of the stop")
+	assert.NotContains(t, text, "is recording")
+
+	close(held)
+	assert.Contains(t, <-stopped, `"isError":false`)
+
+	// An answer of the node from before the stop, kept late.
+	r.p.keep(devicetool.Take{ID: take, State: devicetool.TakeRecording})
+
+	text, _ = r.call(t, alice, devicetool.VideoStatus, `{"take":"`+take+`"}`)
+	assert.Contains(t, text, "is finalizing")
+
+	stored, err := r.takes.Get(take)
+	require.NoError(t, err)
+	assert.Equal(t, devicetool.EndedStop, stored.EndedBy)
+}
+
+// Scenario (issue #851): after an interrupted turn an agent lists its takes:
+// its own only, the newest first, at most 20, and only those in a state when
+// it names one. Another agent's take is never listed, and no file is named.
+func TestAnAgentListsItsOwnTakes(t *testing.T) {
+	t.Parallel()
+
+	r := newFilmRig(t)
+	base := time.Date(2026, 11, 18, 10, 0, 0, 0, time.UTC)
+
+	for i := range 22 {
+		require.NoError(t, r.takes.Create(devicetool.Take{
+			ID: fmt.Sprintf("tk_%016d", i), Title: fmt.Sprintf("Take %d", i), Agent: alice.Key,
+			StartedAt: base.Add(time.Duration(i) * time.Minute), State: devicetool.TakeAvailable,
+			EndedBy: devicetool.EndedStop, DurationMs: 65_000,
+			Segments: []devicetool.TakeSegment{{File: "seg-001.mp4"}},
+		}))
+	}
+
+	require.NoError(t, r.takes.Create(devicetool.Take{
+		ID: "tk_bob", Title: "Bob's", Agent: bob.Key, StartedAt: base.Add(time.Hour), State: devicetool.TakeAvailable,
+	}))
+
+	text, failed := r.call(t, alice, devicetool.VideoList, `{}`)
+	require.False(t, failed, text)
+	assert.NotContains(t, text, "tk_bob")
+	assert.NotContains(t, text, "seg-001")
+	assert.Equal(t, devicetool.MaxListed, strings.Count(text, "\n- "))
+	assert.Less(t, strings.Index(text, "tk_0000000000000021"), strings.Index(text, "tk_0000000000000020"),
+		"the newest first")
+	assert.NotContains(t, text, "tk_0000000000000001\"", "only the newest 20")
+	assert.Contains(t, text,
+		`tk_0000000000000021 "Take 21": available, ended by stop, started 2026-11-18T10:21:00Z, 1:05 long`)
+
+	live := r.start(t, alice, "a1")
+
+	text, failed = r.call(t, alice, devicetool.VideoList, `{"state":"recording"}`)
+	require.False(t, failed, text)
+	assert.Equal(t, 1, strings.Count(text, "\n- "))
+	assert.Contains(t, text, live+` "Sign in": recording`)
+
+	text, failed = r.call(t, bob, devicetool.VideoList, `{"state":"recording"}`)
+	require.False(t, failed, text)
+	assert.Equal(t, "You have no take that is recording.", text)
+
+	_, err := r.p.Call(t.Context(), alice, devicetool.VideoList, json.RawMessage(`{"state":"lost"}`))
+	require.ErrorIs(t, err, devicetool.ErrBadArguments)
 }

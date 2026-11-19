@@ -72,6 +72,8 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("%w: task %s waits until %s", ErrConflict, task.ID, millis(task.NotBefore.Int64))
 	case gatewayOnly(r.runtime) && !r.gateway:
 		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, needsGatewayMessage) // issue #381
+	case len(r.chain) > 0 && !spec.Continue && r.runtime != spec.Runtime:
+		return fmt.Errorf("%w: role routing selected runtime %s", ErrInvalid, r.runtime)
 	}
 
 	// The group the Dispatch counts in (issue #660); its guarantee orders the
@@ -96,6 +98,15 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return err
 	}
 
+	chainSource := ""
+	var chainEntry sql.NullInt64
+	if len(r.chain) > 0 {
+		raw, err := json.Marshal(r.chain)
+		if err != nil {
+			return err
+		}
+		chainSource, chainEntry = string(raw), sql.NullInt64{Int64: int64(r.chainIndex + 1), Valid: true}
+	}
 	if err := q.InsertDispatch(ctx, store.InsertDispatchParams{
 		ID: id, TaskID: task.ID, ConversationID: conv, NodeID: node, Recovery: boolInt(recovery),
 		GateQuestionID: nullString(gate), FollowUpID: nullString(followUp),
@@ -103,6 +114,7 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		ProfileVersionID: nullString(r.versionID), FallbackFor: nullString(r.fallbackFor),
 		FallbackUntil: sql.NullInt64{Int64: r.fallbackUntil, Valid: r.fallbackFor != ""},
 		Handoff:       boolInt(r.handoff), CpuMillis: r.req.cpuMillis, MemoryBytes: r.req.memoryBytes, Now: now,
+		RoleChain: chainSource, ChainEntry: chainEntry,
 	}); err != nil {
 		return fmt.Errorf("inserting dispatch: %w", err)
 	}
@@ -817,6 +829,16 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		return err
 	}
 
+	if err := recordDispatchUsage(ctx, q, now, d.ID); err != nil {
+		return err
+	}
+
+	if to == DispatchFailed {
+		if err := raiseRepeatedFailure(ctx, q, now, d); err != nil {
+			return err
+		}
+	}
+
 	// The worker no longer waits for anything (Orca's closeQuestionsForDispatch on every settlement).
 	closed, err := q.CancelOpenWaitQuestionsOfDispatch(ctx, store.CancelOpenWaitQuestionsOfDispatchParams{
 		Now: now, DispatchID: d.ID,
@@ -1110,17 +1132,18 @@ func (s *Service) reapQueued(ctx context.Context, q *store.Queries, now int64, o
 
 		out.Expired = append(out.Expired, id)
 
-		recent, err := q.RecentDispatchStatusesOfNode(ctx, store.RecentDispatchStatusesOfNodeParams{
-			NodeID: d.NodeID, N: ExpiriesBeforeUnavailable,
-		})
-		if err != nil {
-			return fmt.Errorf("reading recent dispatches of node %s: %w", d.NodeID, err)
+		if flagged[d.NodeID] {
+			continue
 		}
 
-		allExpired := len(recent) == ExpiriesBeforeUnavailable &&
-			!slices.ContainsFunc(recent, func(st string) bool { return DispatchStatus(st) != DispatchExpired })
+		recent, err := q.CountRecentNodeExpiries(ctx, store.CountRecentNodeExpiriesParams{
+			NodeID: d.NodeID, Since: now - NodeExpiryWindow.Milliseconds(),
+		})
+		if err != nil {
+			return fmt.Errorf("counting recent expiries of node %s: %w", d.NodeID, err)
+		}
 
-		if allExpired && !flagged[d.NodeID] {
+		if recent >= ExpiriesBeforeUnavailable {
 			flagged[d.NodeID] = true
 
 			if err := q.MarkNodeUnavailable(ctx, store.MarkNodeUnavailableParams{Now: now, ID: d.NodeID}); err != nil {
@@ -1452,6 +1475,15 @@ func dispatchFromRow(d store.Dispatch) (Dispatch, error) {
 		}
 
 		out.Result = &r
+	}
+	if d.ChainEntry.Valid {
+		chain, err := dispatchRoleChain(d)
+		if err != nil {
+			return Dispatch{}, err
+		}
+		entry := int(d.ChainEntry.Int64)
+		out.ChainEntry = &entry
+		out.Runtime = chain[entry-1].Runtime
 	}
 
 	return out, nil

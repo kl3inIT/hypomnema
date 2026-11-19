@@ -24,6 +24,27 @@ func offered() statedb.Dispatch {
 
 // Scenario: the first turn after a Gate and after an interruption. The
 // prompt carries the decision and the recovery note.
+func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RoleRouted = true
+	for _, role := range []string{"planner", "explorer", "reviewer"} {
+		d.Offer.Profile = role
+		prompt := Prompt(d)
+		assert.Contains(t, prompt, "Do not edit project files")
+		assert.NotContains(t, prompt, "gh pr create")
+		assert.NotContains(t, prompt, "Do not end your turn on a plan")
+		if role == "planner" {
+			assert.Contains(t, prompt, "this CLI's subagents for independent read-only lookups")
+			assert.NotContains(t, prompt, "Do not start subagents")
+		} else {
+			assert.Contains(t, prompt, "Do not start subagents")
+		}
+	}
+}
+
 func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 	t.Parallel()
 

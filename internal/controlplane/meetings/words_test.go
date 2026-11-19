@@ -27,8 +27,8 @@ func TestEveryTranscriptionIsGivenTheWordsAndTheNamesFound(t *testing.T) {
 
 	first := w.upload(t, meetings.Upload{})
 	w.svc.Work(ctx)
-	require.NoError(t, w.svc.NameSpeaker(ctx, first.ID, "2", "Lan"))
-	require.NoError(t, w.svc.NameSpeaker(ctx, first.ID, "1", "Minh"))
+	require.NoError(t, w.svc.NameSpeaker(ctx, first.ID, "", "2", "Lan"))
+	require.NoError(t, w.svc.NameSpeaker(ctx, first.ID, "", "1", "Minh"))
 
 	words, err := w.svc.Words(ctx)
 	require.NoError(t, err)

@@ -3,6 +3,32 @@
 INSERT INTO meetings (id, title, titled, language, people, file_name, media_type, size, state, created_at, updated_at)
 VALUES (@id, @title, @titled, @language, @people, @file_name, @media_type, @size, 'transcribing', @now, @now);
 
+-- name: InsertLiveMeeting :execrows
+-- A meeting recorded live (issue #820), only while no other is recording: one at a time, so at most two streams.
+INSERT INTO meetings (id, title, titled, language, people, file_name, media_type, size, state, source, kind,
+                      created_at, updated_at)
+SELECT @id, @title, @titled, @language, @people, 'recording.wav', 'audio/wav', 0, 'recording', 'live', @kind, @now,
+       @now
+WHERE NOT EXISTS (SELECT 1 FROM meetings WHERE state = 'recording');
+
+-- name: MeetingRecording :many
+SELECT id FROM meetings WHERE state = 'recording' ORDER BY created_at, id;
+
+-- name: EndLiveMeeting :execrows
+-- A live meeting ends once: only from recording, and never through transcribing, which the work would hear again.
+UPDATE meetings SET state = 'transcribed', size = @size, duration_ms = @duration_ms, provider = @provider,
+    model = @model, updated_at = @now
+WHERE id = @id AND state = 'recording';
+
+-- name: StartLiveNotes :exec
+UPDATE meeting_notes SET state = 'writing', updated_at = @now WHERE meeting_id = @meeting_id AND state = 'waiting';
+
+-- name: LastMeetingLine :one
+-- The number the next line takes, and where a track's last line ends.
+SELECT CAST(coalesce(max(n), 0) AS INTEGER) AS n,
+       CAST(coalesce(max(CASE WHEN track = @track THEN end_ms END), -1) AS INTEGER) AS track_end_ms
+FROM meeting_lines WHERE meeting_id = @meeting_id;
+
 -- name: InsertMeetingNotes :exec
 -- The notes are sectioned by the meeting's topics since issue #771; the format column keeps 'auto'.
 INSERT INTO meeting_notes (meeting_id, format, state, updated_at) VALUES (@meeting_id, 'auto', 'waiting', @now);
@@ -28,19 +54,22 @@ ORDER BY m.created_at DESC, m.id DESC
 LIMIT @lim;
 
 -- name: ListMeetingSpeakers :many
-SELECT * FROM meeting_speakers WHERE meeting_id = @meeting_id ORDER BY position, label;
+SELECT * FROM meeting_speakers WHERE meeting_id = @meeting_id ORDER BY track, position, label;
 
 -- name: ListSpeakersOfMeetings :many
 -- The voices of every meeting listed, for their cards.
-SELECT s.meeting_id, s.label, s.position, s.name,
+SELECT s.meeting_id, s.track, s.label, s.position, s.name, m.kind AS meeting_kind,
        CAST(coalesce((SELECT sum(l.end_ms - l.start_ms) FROM meeting_lines l
-                      WHERE l.meeting_id = s.meeting_id AND l.speaker = s.label), 0) AS INTEGER) AS talk_ms
+                      WHERE l.meeting_id = s.meeting_id AND l.track = s.track AND l.speaker = s.label), 0)
+            AS INTEGER) AS talk_ms
 FROM meeting_speakers s
+JOIN meetings m ON m.id = s.meeting_id
 WHERE s.meeting_id IN (sqlc.slice('ids'))
-ORDER BY s.meeting_id, s.position, s.label;
+ORDER BY s.meeting_id, CASE s.track WHEN 'mic' THEN 0 ELSE 1 END, s.track, s.position, s.label;
 
 -- name: ListMeetingLines :many
-SELECT * FROM meeting_lines WHERE meeting_id = @meeting_id ORDER BY n;
+-- By when they were said: the tracks of a live meeting append their lines out of n's order (issue #820).
+SELECT * FROM meeting_lines WHERE meeting_id = @meeting_id ORDER BY start_ms, n;
 
 -- name: GetMeetingLine :one
 SELECT * FROM meeting_lines WHERE meeting_id = @meeting_id AND n = @n;
@@ -53,11 +82,13 @@ SELECT * FROM meeting_items WHERE id = @id;
 
 -- name: ListMeetingActions :many
 -- Every action of every meeting, the newest meeting first, with its meeting's title and the name of its voice.
-SELECT i.*, m.title AS meeting_title, m.created_at AS meeting_created_at, s.name AS speaker_name,
+SELECT i.*, m.title AS meeting_title, m.created_at AS meeting_created_at, m.kind AS meeting_kind,
+       s.name AS speaker_name,
        s.position AS speaker_position
 FROM meeting_items i
 JOIN meetings m ON m.id = i.meeting_id
-LEFT JOIN meeting_speakers s ON s.meeting_id = i.meeting_id AND s.label = i.owner_speaker
+LEFT JOIN meeting_speakers s
+    ON s.meeting_id = i.meeting_id AND s.track = i.owner_track AND s.label = i.owner_speaker
 WHERE i.kind = 'action'
 ORDER BY m.created_at DESC, m.id, i.position;
 
@@ -82,11 +113,12 @@ UPDATE meetings SET state = 'transcribed', failure = '', duration_ms = @duration
 WHERE id = @id;
 
 -- name: InsertMeetingSpeaker :exec
-INSERT INTO meeting_speakers (meeting_id, label, position, name) VALUES (@meeting_id, @label, @position, @name);
+INSERT INTO meeting_speakers (meeting_id, track, label, position, name)
+VALUES (@meeting_id, @track, @label, @position, @name);
 
 -- name: InsertMeetingLine :exec
-INSERT INTO meeting_lines (meeting_id, n, start_ms, end_ms, speaker, heard, text)
-VALUES (@meeting_id, @n, @start_ms, @end_ms, @speaker, @heard, @text);
+INSERT INTO meeting_lines (meeting_id, n, track, start_ms, end_ms, speaker, heard, text)
+VALUES (@meeting_id, @n, @track, @start_ms, @end_ms, @speaker, @heard, @text);
 
 -- name: DeleteMeetingTranscript :exec
 DELETE FROM meeting_lines WHERE meeting_id = @meeting_id;
@@ -118,32 +150,39 @@ UPDATE meetings SET title = @title, updated_at = @now WHERE id = @id AND titled 
 DELETE FROM meeting_items WHERE meeting_id = @meeting_id;
 
 -- name: InsertMeetingItem :exec
-INSERT INTO meeting_items (id, meeting_id, kind, position, text, owner, owner_speaker, due, quote, line, start_ms)
-VALUES (@id, @meeting_id, @kind, @position, @text, @owner, @owner_speaker, @due, @quote, @line, @start_ms);
+INSERT INTO meeting_items (id, meeting_id, kind, position, text, owner, owner_track, owner_speaker, due, quote, line,
+                           start_ms)
+VALUES (@id, @meeting_id, @kind, @position, @text, @owner, @owner_track, @owner_speaker, @due, @quote, @line,
+        @start_ms);
 
 -- name: SetMeetingItemDone :execrows
 UPDATE meeting_items SET done = @done WHERE id = @id AND kind = 'action';
 
 -- name: NameMeetingSpeaker :exec
-UPDATE meeting_speakers SET name = @name WHERE meeting_id = @meeting_id AND label = @label;
+UPDATE meeting_speakers SET name = @name WHERE meeting_id = @meeting_id AND track = @track AND label = @label;
 
 -- name: MoveMeetingLines :exec
--- Every line of one voice is shown as another's.
-UPDATE meeting_lines SET speaker = @to_label WHERE meeting_id = @meeting_id AND speaker = @from_label;
+-- Every line of one voice is shown as another's of its track.
+UPDATE meeting_lines SET speaker = @to_label
+WHERE meeting_id = @meeting_id AND track = @track AND speaker = @from_label;
 
 -- name: MoveMeetingLine :exec
 UPDATE meeting_lines SET speaker = @speaker WHERE meeting_id = @meeting_id AND n = @n;
 
 -- name: MoveMeetingItemOwners :exec
-UPDATE meeting_items SET owner_speaker = @to_label WHERE meeting_id = @meeting_id AND owner_speaker = @from_label;
+UPDATE meeting_items SET owner_speaker = @to_label
+WHERE meeting_id = @meeting_id AND owner_track = @track AND owner_speaker = @from_label;
 
 -- name: DeleteSilentSpeakers :exec
 -- Voices left with no line and owning no action, after a line or a voice was given to another.
 DELETE FROM meeting_speakers
 WHERE meeting_speakers.meeting_id = @meeting_id
-  AND label NOT IN (SELECT l.speaker FROM meeting_lines l WHERE l.meeting_id = @meeting_id)
-  AND label NOT IN (SELECT i.owner_speaker FROM meeting_items i
-                    WHERE i.meeting_id = @meeting_id AND i.owner_speaker IS NOT NULL);
+  AND NOT EXISTS (SELECT 1 FROM meeting_lines l
+                  WHERE l.meeting_id = meeting_speakers.meeting_id AND l.track = meeting_speakers.track
+                    AND l.speaker = meeting_speakers.label)
+  AND NOT EXISTS (SELECT 1 FROM meeting_items i
+                  WHERE i.meeting_id = meeting_speakers.meeting_id AND i.owner_track = meeting_speakers.track
+                    AND i.owner_speaker = meeting_speakers.label);
 
 -- name: DeleteMeeting :execrows
 DELETE FROM meetings WHERE id = @id;

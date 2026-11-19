@@ -21,6 +21,7 @@ import type { RunDetail, TaskDetail } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { RuntimeMark } from "@/components/icons/runtime-mark"
+import { workUsage } from "@/features/models/usage-state"
 import { QuestionForm } from "@/features/questions/question-form"
 import { ConfirmAction, RunActions } from "@/features/runs/run-actions"
 import { useCancelTask } from "@/features/tasks/task-actions"
@@ -208,6 +209,11 @@ function DockedRun({
                 />
               ))}
             </ul>
+          )}
+          {workUsage(run.usage) && (
+            <p className="truncate border-t border-border px-3 py-1.5 text-xs text-muted-foreground tabular-nums">
+              Used {workUsage(run.usage)}
+            </p>
           )}
           {run.status === "open" && (
             <div className="flex justify-end border-t border-border px-2 py-1.5">

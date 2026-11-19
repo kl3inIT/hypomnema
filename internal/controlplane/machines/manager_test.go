@@ -472,9 +472,10 @@ func (w *world) ready(name string) orchestration.Node {
 
 // Scenario: the owner stops a machine to stop paying for it and starts it
 // again later. Stopped, the machine is off at the provider and its node,
-// still listed, takes no work; started, the node takes work again and the
-// machine counts as on once its node says hello. A stopped machine can still
-// be removed.
+// still listed, takes no work; started, the machine counts as on once its
+// node says hello. The node's status is the owner's drain, which a stop and a
+// start leave as it was: active here (issue #844). A stopped machine can
+// still be removed.
 func TestStoppedMachineKeepsItsNodeAndStartsAgain(t *testing.T) {
 	t.Parallel()
 
@@ -484,7 +485,7 @@ func TestStoppedMachineKeepsItsNodeAndStartsAgain(t *testing.T) {
 	stopped, err := w.mgr.Stop(t.Context(), n.ID)
 	require.NoError(t, err)
 	assert.Equal(t, orchestration.MachineStopped, stopped.Machine.Power)
-	assert.Equal(t, orchestration.NodeDrained, stopped.Status)
+	assert.Equal(t, orchestration.NodeActive, stopped.Status)
 	assert.True(t, w.cloud.off[n.ID])
 	assert.Equal(t, []string{"build-1"}, w.listed())
 
@@ -499,6 +500,7 @@ func TestStoppedMachineKeepsItsNodeAndStartsAgain(t *testing.T) {
 
 	require.NoError(t, w.svc.NodeHello(t.Context(), n.ID, orchestration.Hello{}))
 	assert.Empty(t, w.node(n.ID).Machine.Power)
+	assert.Equal(t, orchestration.NodeActive, w.node(n.ID).Status)
 
 	_, err = w.mgr.Stop(t.Context(), n.ID)
 	require.NoError(t, err)
@@ -531,6 +533,37 @@ func TestStopAndStartAreRefusedWhereTheyMeanNothing(t *testing.T) {
 	assert.Equal(t, orchestration.NodeActive, w.node(own.ID).Status)
 }
 
+// Scenario: the owner drained a machine's node to keep work off it, and the
+// machine is stopped and started again, by the owner or by the phone's idle
+// stop and its wake, which take the same path (issue #844). The node comes
+// back drained, as a Kubernetes cordon and a Nomad node's scheduling
+// eligibility outlast a node's restart; only the owner's resume makes it
+// active again.
+func TestAStopAndAStartKeepTheOwnersDrain(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+	n := w.ready("phone")
+	require.NoError(t, w.svc.DrainNode(t.Context(), n.ID))
+
+	for range 2 {
+		stopped, err := w.mgr.Stop(t.Context(), n.ID)
+		require.NoError(t, err)
+		assert.Equal(t, orchestration.NodeDrained, stopped.Status)
+
+		started, err := w.mgr.Start(t.Context(), n.ID)
+		require.NoError(t, err)
+		assert.Equal(t, orchestration.NodeDrained, started.Status)
+
+		require.NoError(t, w.svc.NodeHello(t.Context(), n.ID, orchestration.Hello{}))
+		assert.Empty(t, w.node(n.ID).Machine.Power)
+		assert.Equal(t, orchestration.NodeDrained, w.node(n.ID).Status)
+	}
+
+	require.NoError(t, w.svc.ResumeNode(t.Context(), n.ID))
+	assert.Equal(t, orchestration.NodeActive, w.node(n.ID).Status)
+}
+
 // Scenario: the provider is down when the owner stops a machine. The node
 // already takes no work and says why the machine is not stopped; the
 // provider is asked again and the machine is stopped once it answers. The
@@ -547,7 +580,7 @@ func TestStopAndStartAreAskedAgainUntilTheProviderActs(t *testing.T) {
 	require.ErrorContains(t, err, "RequestLimitExceeded")
 	assert.Equal(t, orchestration.MachineStopping, got.Machine.Power)
 	assert.Contains(t, got.Machine.Error, "RequestLimitExceeded")
-	assert.Equal(t, orchestration.NodeDrained, got.Status)
+	assert.Equal(t, orchestration.NodeActive, got.Status, "the machine's power, not a drain, keeps work off it")
 
 	w.cloud.stopErr = nil
 	require.NoError(t, w.mgr.Settle(t.Context()))

@@ -895,6 +895,29 @@ func bearerOf(t *testing.T, w *world, name string) string {
 // Scenario: a coordinator reads the profiles, providers and models to choose
 // from, but only the owner changes them. Applying the same source twice
 // makes one version; a name that differs from the path is refused.
+func TestOnlyTheOwnerChangesRoleRouting(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	coordinator, _ := w.token("coordinator", bearertoken.Coordinator)
+	owner, _ := w.token("owner", bearertoken.Owner)
+	ctx := t.Context()
+	routing, err := coordinator.GetRoleRoutingWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, routing.StatusCode())
+	assert.Contains(t, routing.JSON200.Source, "planner:")
+	put, err := coordinator.PutRoleRoutingWithResponse(ctx, *routing.JSON200)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, put.StatusCode())
+	bad, err := owner.PutRoleRoutingWithResponse(ctx, openapi.Source{Source: "not-a-role: {}"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, bad.StatusCode())
+	metrics, err := owner.GetRoleMetricsWithResponse(ctx, &openapi.GetRoleMetricsParams{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, metrics.StatusCode())
+	assert.Empty(t, *metrics.JSON200)
+}
+
 func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	t.Parallel()
 

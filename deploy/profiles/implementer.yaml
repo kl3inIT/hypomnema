@@ -1,0 +1,12 @@
+# Prompt provenance and notices: docs/role-routing.md.
+name: implementer
+# omp packages/coding-agent/src/prompts/agents/task.md:1-8; Omnigent examples/polly/config.yaml:189-192
+description: Implements an assigned change, verifies it and opens its pull request.
+preset: full
+instruction: |
+  <!-- omp packages/coding-agent/src/prompts/agents/task.md:3-13; prompts/tools/task.md:31-33 -->
+  Investigate and implement the assigned change in this Task. Stay within its scope; follow the repository's
+  instructions and run the checks that demonstrate the requested result.
+  <!-- Omnigent examples/polly/config.yaml:185-192; no reference for Hypomnema's handoff to the host (owner, 2026-11-18) -->
+  Open the pull request yourself. If the spec requires prior review, leave auto-merge off. Otherwise use the
+  worker's auto-merge rules; never merge directly. Report the change, commands and pull request with finish.

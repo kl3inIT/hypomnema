@@ -28,7 +28,7 @@ import (
 const gatewayUsage = "gateway models apply FILE | gateway models list | gateway models rm <name> | " +
 	"gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none] | gateway keys list | gateway keys revoke <key id> | " +
 	"gateway antigravity-rewrites list | gateway antigravity-rewrites set FILE | " +
-	"gateway usage [--limit N]"
+	"gateway usage [--limit N] | gateway usage --by provider|account [--period 24h|7d|30d|90d|12m]"
 
 // gatewaySecrets gives the gateway a provider's key from the vault. A
 // provider served by the gateway keeps its key there and names it as
@@ -110,16 +110,29 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 	}, nil
 }
 
-// gatewayServedLimits gives the gateway what an Antigravity account is served each model with (issue #587).
+// gatewayServedLimits gives the gateway what an Antigravity account (issue #587) or an OpenCode Go key (issue #854)
+// is served each model with.
 func gatewayServedLimits(
 	subs *subscription.Service,
 ) func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 	return func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
-		if kind != "antigravity_subscription" {
+		switch kind {
+		case orchestration.ProviderAntigravitySubscription, orchestration.ProviderOpenCodeGo:
+			return subs.ServedLimits(ctx, subscriptionRuntimes[kind], upstream)
+		default:
 			return 0, 0, false
 		}
+	}
+}
 
-		return subs.ServedLimits(ctx, "antigravity", upstream)
+// gatewayServedWire gives the gateway the wire OpenCode Go serves each model on, from its model list (issue #854).
+func gatewayServedWire(subs *subscription.Service) func(ctx context.Context, kind, upstream string) (string, bool) {
+	return func(ctx context.Context, kind, upstream string) (string, bool) {
+		if kind != orchestration.ProviderOpenCodeGo {
+			return "", false
+		}
+
+		return subs.ServedWire(ctx, orchestration.OpenCodeGoRuntime, upstream)
 	}
 }
 
@@ -416,9 +429,15 @@ func (o *owner) gatewayUsageList(ctx context.Context, args []string) error {
 	fs.SetOutput(io.Discard)
 
 	limit := fs.Int("limit", 50, "how many of the latest requests to show")
+	by := fs.String("by", "", "provider or account: the text models' speed and reliability, as the Usage page")
+	period := fs.String("period", "7d", "with --by: 24h, 7d, 30d, 90d or 12m")
 
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
+	}
+
+	if *by != "" {
+		return o.gatewayPerformance(ctx, *by, *period)
 	}
 
 	rows, err := o.gateway.ListUsage(ctx, *limit)
@@ -440,11 +459,78 @@ func (o *owner) gatewayUsageList(ctx context.Context, args []string) error {
 	return nil
 }
 
+// gatewayPerformance prints the Usage page's Performance table (issue #856): each provider's model, or each
+// subscription account, with its requests, success rate, time to first token, latency, tokens a second and cost.
+// A period read from the daily ledger has averages in place of the percentiles.
+func (o *owner) gatewayPerformance(ctx context.Context, by, period string) error {
+	if by != "provider" && by != "account" {
+		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
+	}
+
+	report, err := o.gateway.Usage(ctx, period, 0)
+	if err != nil {
+		return err
+	}
+
+	groups, head := report.ByProvider, "PROVIDER\tMODEL"
+	if by == "account" {
+		groups, head = report.SpeedByAccount, "PROVIDER\tACCOUNT"
+	}
+
+	if report.Ledger {
+		o.printf("%s\tREQUESTS\tOK%%\tTTFT AVG\tLATENCY AVG\tTOK/S\tCOST\n", head)
+	} else {
+		o.printf("%s\tREQUESTS\tOK%%\tTTFT P50\tTTFT P95\tLATENCY P50\tLATENCY P95\tTOK/S P50\tCOST\n", head)
+	}
+
+	for _, g := range groups {
+		name := g.Model
+		if by == "account" {
+			name = g.AccountID
+		}
+
+		cols := []string{g.Provider, name, fmt.Sprint(g.Requests), percent(g.Performance)}
+		if report.Ledger {
+			cols = append(cols, millis(g.TTFTAvg), millis(g.LatencyAvg))
+		} else {
+			cols = append(cols, millis(g.TTFTP50), millis(g.TTFTP95), millis(g.LatencyP50), millis(g.LatencyP95))
+		}
+
+		rate := "-"
+		if g.TokensPerSecond != nil {
+			rate = fmt.Sprintf("%.1f", *g.TokensPerSecond)
+		}
+
+		cols = append(cols, rate, fmt.Sprintf("$%.4f", float64(g.CostMicros)/1e6))
+		o.printf("%s\n", strings.Join(cols, "\t"))
+	}
+
+	return nil
+}
+
+func percent(p modelgateway.Performance) string {
+	rate, ok := p.SuccessRate()
+	if !ok {
+		return "-"
+	}
+
+	return fmt.Sprintf("%.1f", rate*100)
+}
+
+func millis(d *time.Duration) string {
+	if d == nil {
+		return "-"
+	}
+
+	return d.Round(time.Millisecond).String()
+}
+
 // subscriptionRuntimes is the runtime of the accounts of each kind of subscription provider.
 var subscriptionRuntimes = map[string]string{
 	orchestration.ProviderCodexSubscription:       "codex",
 	orchestration.ProviderClaudeSubscription:      "claude",
 	orchestration.ProviderAntigravitySubscription: "antigravity",
+	orchestration.ProviderOpenCodeGo:              orchestration.OpenCodeGoRuntime,
 }
 
 // vendorModelsEvery is how often the subscription providers are given the models their vendors serve, and
@@ -468,9 +554,10 @@ type providerModels interface {
 }
 
 // rosterRuntimes are the runtimes whose vendor's list is the provider's list, as omp takes Antigravity's roster as
-// authoritative (packages/catalog/src/discovery/antigravity.ts; issue #639). The others only gain models: Anthropic's
-// list does not name every model it serves (OpenClaw, Hermes), and Codex's is read per account.
-var rosterRuntimes = map[string]bool{"antigravity": true}
+// authoritative (packages/catalog/src/discovery/antigravity.ts; issue #639), and as OpenClaw, Hermes and pi take
+// OpenCode Go's live /v1/models (issue #854). The others only gain models: Anthropic's list does not name every model
+// it serves (OpenClaw, Hermes), and Codex's is read per account.
+var rosterRuntimes = map[string]bool{"antigravity": true, orchestration.OpenCodeGoRuntime: true}
 
 // vendorModelsLoop gives each subscription provider the models its vendor serves (issue #623), once soon after
 // the start and then every hour, until ctx ends.

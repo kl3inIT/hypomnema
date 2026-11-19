@@ -49,6 +49,8 @@ type TakeStore interface {
 	ByRequest(agent, requestID string) (devicetool.Take, bool)
 	// Deleted says whether the owner deleted a take.
 	Deleted(id string) bool
+	// List lists the takes not deleted, the newest first.
+	List() []devicetool.Take
 }
 
 // ErrNoTake reports a take the control plane does not know.
@@ -148,6 +150,8 @@ func (p *Phone) video(ctx context.Context, c Caller, call devicetool.Call) (node
 		return p.sayTake(ctx, c, call)
 	case devicetool.VideoStop:
 		return p.stopTake(ctx, c, call.Take)
+	case devicetool.VideoList:
+		return p.listTakes(c, call.State), nil
 	default:
 		return p.takeStatus(ctx, c, call.Take)
 	}
@@ -329,6 +333,34 @@ func (p *Phone) takeStatus(ctx context.Context, c Caller, id string) (nodeproto.
 	return takeAnswer(t, ""), nil
 }
 
+// listTakes lists the caller's own takes, the newest first, at most
+// devicetool.MaxListed, in a state when one is named (issue #851): the
+// owner's `GET /takes` restricted to the agent, as video_status is.
+func (p *Phone) listTakes(c Caller, state string) nodeproto.DeviceAnswer {
+	if p.cfg.Takes == nil {
+		return failure("This control plane does not keep takes.")
+	}
+
+	var own []devicetool.Take
+
+	for _, t := range p.cfg.Takes.List() {
+		if t.Agent != c.Key {
+			continue
+		}
+
+		if state != "" && t.State != state {
+			continue
+		}
+
+		own = append(own, t)
+		if len(own) == devicetool.MaxListed {
+			break
+		}
+	}
+
+	return nodeproto.DeviceAnswer{Content: []nodeproto.DeviceContent{{Type: "text", Text: devicetool.List(own, state)}}}
+}
+
 // ownTake says why the caller may not say a line on a take: it is not its
 // running take. Empty when it may.
 func (p *Phone) ownTake(c Caller, id string) string {
@@ -351,6 +383,18 @@ func (p *Phone) endLease(ctx context.Context, id, endedBy string) nodeproto.Devi
 	l := p.dropLease(id)
 	if l == nil {
 		return nodeproto.DeviceAnswer{}
+	}
+
+	// From here the take is no longer filmed for its agent: a video_status read while the node is told says it
+	// is being finished, never recording (issue #851, after #817's rows 9 and 10).
+	if p.cfg.Takes != nil {
+		if _, err := p.cfg.Takes.Update(devicetool.Take{
+			ID: id, State: devicetool.TakeFinalizing, EndedBy: endedBy,
+		}); err != nil {
+			p.cfg.Logger.WarnContext(ctx, "a take's end could not be recorded",
+				slog.String("event", "phone.take_record_failed"), slog.String("take", id),
+				slog.String("error", err.Error()))
+		}
 	}
 
 	raw, _ := json.Marshal(map[string]string{"take": id, "ended_by": endedBy}) //nolint:errchkjson // Strings.

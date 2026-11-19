@@ -34,10 +34,12 @@ import {
   speakersText,
   stageNames,
   stageOf,
+  voiceKey,
   whenText,
   type Stage,
 } from "./meetings-state"
 import { SpeakerBadge } from "./speaker-badge"
+import { RecordMeeting } from "./record-meeting"
 import { UploadMeeting } from "./upload-meeting"
 import { useMeetingActions, useMeetings } from "./use-meetings"
 
@@ -71,7 +73,10 @@ export function MeetingsScreen() {
           description="Recordings turned into transcripts, notes and actions."
           className="mb-4"
         >
-          <UploadMeeting />
+          <div className="flex flex-wrap gap-2">
+            <RecordMeeting />
+            <UploadMeeting />
+          </div>
         </PageHeading>
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
           <TabsList>
@@ -178,6 +183,7 @@ function MeetingsTab() {
 
 // stageDots are the Machines page's status dots for a meeting's stage.
 const stageDots: Record<Stage, string> = {
+  recording: "bg-failed animate-pulse",
   transcribing: "bg-running animate-pulse",
   writing: "bg-running animate-pulse",
   ready: "bg-done",
@@ -224,7 +230,7 @@ function MeetingCard({ meeting }: { meeting: Meeting }) {
         <Row icon={<ListChecks />} label="Actions">
           {stageOf(meeting) === "ready" ? actionsText(meeting) : "—"}
         </Row>
-        <Row icon={<Upload />} label="From">
+        <Row icon={meeting.source === "live" ? <Mic /> : <Upload />} label="From">
           {fromText(meeting)}
         </Row>
       </dl>
@@ -247,16 +253,12 @@ function Voices({ meeting }: { meeting: Meeting }) {
       <ul aria-label="Speakers" className="flex -space-x-1.5" title={speakersText(meeting)}>
         {shown.map((s) => (
           <li
-            key={s.label}
+            key={voiceKey(s)}
             aria-label={`${s.name} ${percent(s.share)}`}
             title={`${s.name} ${percent(s.share)}`}
             className="flex"
           >
-            <SpeakerBadge
-              speakers={meeting.speakers}
-              label={s.label}
-              className="ring-2 ring-card"
-            />
+            <SpeakerBadge speakers={meeting.speakers} voice={s} className="ring-2 ring-card" />
           </li>
         ))}
         {rest > 0 && (
@@ -278,8 +280,8 @@ function Voices({ meeting }: { meeting: Meeting }) {
       title={speakersText(meeting)}
     >
       {meeting.speakers.map((s) => (
-        <li key={s.label} className="flex shrink-0 items-center gap-1.5">
-          <SpeakerBadge speakers={meeting.speakers} label={s.label} size="sm" />
+        <li key={voiceKey(s)} className="flex shrink-0 items-center gap-1.5">
+          <SpeakerBadge speakers={meeting.speakers} voice={s} size="sm" />
           <span>{s.name}</span>
           <span className="text-muted-foreground tabular-nums">{percent(s.share)}</span>
         </li>
@@ -381,12 +383,15 @@ function NoMeetings() {
         </EmptyMedia>
         <EmptyTitle>No meetings yet</EmptyTitle>
         <EmptyDescription>
-          Upload a recording: it is transcribed with who spoke when, and written up as notes and
-          actions.
+          Record a meeting as it happens, or upload a recording: it is transcribed with who spoke
+          when, and written up as notes and actions.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <UploadMeeting />
+        <div className="flex flex-wrap justify-center gap-2">
+          <RecordMeeting />
+          <UploadMeeting />
+        </div>
       </EmptyContent>
     </Empty>
   )

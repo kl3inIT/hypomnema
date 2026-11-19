@@ -62,7 +62,42 @@ export type Run = {
 };
 
 export type RunDetail = Run & {
+  usage?: WorkUsage;
   tasks: Array<TaskDetail>;
+};
+
+/**
+ * What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
+ */
+export type WorkUsage = {
+  dispatches: number;
+  /**
+   * The Dispatches that sent the gateway requests.
+   */
+  gateway_dispatches: number;
+  requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  cache_write_tokens: number;
+  /**
+   * The gateway requests' cost at the vendor's API price, in micro-dollars.
+   */
+  cost_micros: number;
+  /**
+   * The gateway requests the price book has no price for.
+   */
+  unpriced: number;
+  /**
+   * The tokens the runtimes reported of the Dispatches that sent the gateway nothing.
+   */
+  reported: {
+    input: number;
+    output: number;
+    cache_read: number;
+    cache_write: number;
+  };
 };
 
 export type RunList = {
@@ -99,6 +134,7 @@ export type Task = {
   run_id: string;
   position: number;
   profile: string;
+  kind: TaskKind;
   spec: string;
   runtime?: string;
   model?: string;
@@ -122,6 +158,7 @@ export type Task = {
 };
 
 export type TaskDetail = Task & {
+  usage?: WorkUsage;
   latest_dispatch?: Dispatch;
   /**
    * More work asked of the Task's worker after it succeeded, oldest first.
@@ -160,6 +197,24 @@ export type NewTasks = {
   tasks: Array<NewTask>;
 };
 
+export type TaskKind = 'broad' | 'narrow' | 'quick';
+
+export type RoleMetric = {
+  role: string;
+  kind: TaskKind;
+  runtime: string;
+  model: string;
+  /**
+   * One-based position in the Task's effective routing chain.
+   */
+  chain_entry?: number;
+  attempts: number;
+  succeeded: number;
+  failed: number;
+  cost_micros: number;
+  unpriced: number;
+};
+
 export type NewTask = {
   /**
    * Names the Task within this request, for depends_on.
@@ -169,6 +224,11 @@ export type NewTask = {
    * The profile it runs with; implementer when left out.
    */
   profile?: string;
+  kind?: TaskKind;
+  /**
+   * The succeeded Task in this Run a reviewer checks; its vendor is excluded.
+   */
+  review_of?: string;
   spec: string;
   runtime?: string;
   model?: string;
@@ -195,6 +255,14 @@ export type Dispatch = {
    * The profile version it ran with; absent for Dispatches from before profiles.
    */
   profile_version_id?: string;
+  /**
+   * One-based position in the Task's effective routing chain.
+   */
+  chain_entry?: number;
+  /**
+   * The worker runtime selected by role routing.
+   */
+  runtime?: string;
   /**
    * The profile the Task asked for, when this Dispatch ran under a backup of it because every account of that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
    */
@@ -1472,6 +1540,14 @@ export type IntegrationConnection = {
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
+  /**
+   * The proxy its requests to its service go through (issue #850), such as socks5://127.0.0.1:1055: a service in a private network, reached through a local proxy. Absent when they go direct.
+   */
+  proxy?: string;
+  /**
+   * Where its requests are dialed instead of their host's (issue #850), as curl's --resolve: a host or an IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name that does not resolve; absent dials the host.
+   */
+  dial_address?: string;
   session?: DeviceSession;
   /**
    * The actions the account cannot do at the service, as last read, in the order they are listed. A request for one is refused before it is sent. Empty when it can do all, or nothing was read.
@@ -1593,6 +1669,14 @@ export type NewAccountConnection = {
    * Where the service is, such as https://superset.example.com.
    */
   address?: string;
+  /**
+   * The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+   */
+  proxy?: string;
+  /**
+   * Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+   */
+  dial_address?: string;
   username?: string;
   /**
    * The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
@@ -1837,8 +1921,19 @@ export type ApprovalDecision = {
   decision: 'approve' | 'approve_session' | 'approve_routine' | 'reject';
 };
 
+/**
+ * What changes; what is absent stays.
+ */
 export type ConnectionUse = {
-  chats: boolean;
+  chats?: boolean;
+  /**
+   * The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
+   */
+  proxy?: string;
+  /**
+   * Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port or not; the certificate is still checked against the host. Temporary. Empty clears it.
+   */
+  dial_address?: string;
 };
 
 export type NewIntegrationClient = {
@@ -2213,13 +2308,62 @@ export type GatewayUsageGroup = {
    */
   name: string;
   /**
-   * An account's runtime (claude, codex, antigravity).
+   * An account's runtime (claude, codex, antigravity, opencode_go).
    */
   runtime?: string;
   counts: GatewayUsageCounts;
 };
 
+/**
+ * The speed and reliability of a provider's model, or of a subscription account, over the requests to the text models. Time to first token is over the answered streams, latency over the answered requests, tokens a second (output tokens over the time after the first token) over the answered streams whose tokens were reported.
+ */
+export type GatewayPerformance = {
+  provider: string;
+  /**
+   * The model the provider served; empty for an account.
+   */
+  model: string;
+  account_id?: string;
+  account_label?: string;
+  /**
+   * An account's runtime (claude, codex, antigravity).
+   */
+  runtime?: string;
+  requests: number;
+  ok: number;
+  failed: number;
+  /**
+   * The requests whose client left first; they count neither as answered nor as failed.
+   */
+  client_gone: number;
+  /**
+   * The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+   */
+  success_rate?: number;
+  cost_micros: number;
+  /**
+   * Read from each request, with percentiles and the median tokens a second; false from the ledger.
+   */
+  exact: boolean;
+  ttft_p50_ms?: number;
+  ttft_p95_ms?: number;
+  latency_p50_ms?: number;
+  latency_p95_ms?: number;
+  ttft_avg_ms?: number;
+  latency_avg_ms?: number;
+  /**
+   * The median of the requests' output tokens a second; from the ledger, all tokens over all time.
+   */
+  tokens_per_second?: number;
+};
+
 export type GatewayUsage = {
+  /**
+   * Read from the daily ledger (90d, 12m): UTC days, the owner's keys counted together as the key "owner", and no percentiles.
+   */
+  ledger: boolean;
+  by_provider: Array<GatewayPerformance>;
+  speed_by_account: Array<GatewayPerformance>;
   since: string;
   until: string;
   /**
@@ -2289,6 +2433,14 @@ export type GatewayRequest = {
   estimated: boolean;
   duration_ms: number;
   /**
+   * Time to first token: from the gateway receiving the request to the first chunk it streamed to the client; absent for an answer that is not a stream.
+   */
+  ttft_ms?: number;
+  /**
+   * The output tokens over the time after the first token; absent when the request was not a stream, its counts were estimated, or it had no output.
+   */
+  tokens_per_second?: number;
+  /**
    * The seconds of the recording an audio transcription heard; absent for other requests.
    */
   audio_seconds?: number;
@@ -2316,9 +2468,9 @@ export type GatewayRequestList = {
 
 export type NewTokenAccount = {
   /**
-   * The kind of subscription; only Claude gives a token to paste.
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
    */
-  runtime: 'claude';
+  runtime: 'claude' | 'opencode_go';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
@@ -2396,6 +2548,33 @@ export type AccountLimitReset = {
    * The caller's id of this use; the same id again uses no second reset.
    */
   request_id: string;
+  /**
+   * The reset to use, by the id `grants` gives. Without it, one that starts a used-up window again is chosen.
+   */
+  grant_id?: string;
+};
+
+export type AccountLimitResetGrant = {
+  /**
+   * The vendor's id of the grant, which a use names.
+   */
+  id: string;
+  /**
+   * The vendor's name for the grant, when it gives one.
+   */
+  label?: string;
+  /**
+   * How many resets the grant has left.
+   */
+  available: number;
+  /**
+   * When the grant ends, when the vendor says.
+   */
+  expires_at?: string;
+  /**
+   * The windows, by the names `windows` uses, that a use starts again, such as "5 hours" and "week" for an ordinary reset or "week (Fable)" for Fable's; empty when the vendor does not say, and then it may start any.
+   */
+  clears: Array<string>;
 };
 
 export type AccountLimitResets = {
@@ -2407,6 +2586,10 @@ export type AccountLimitResets = {
    * When the one used next ends, when the vendor says.
    */
   expires_at?: string;
+  /**
+   * The usable resets one by one, as the vendor groups them.
+   */
+  grants: Array<AccountLimitResetGrant>;
 };
 
 export type AccountLimits = {
@@ -2457,9 +2640,9 @@ export type GatewayModelAttributes = {
 };
 
 /**
- * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model.
+ * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
  */
-export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'unknown';
+export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'opencode_go' | 'unknown';
 
 export type GatewayModelInputKind = 'text' | 'image';
 
@@ -2686,6 +2869,10 @@ export type Bot = {
   pinned: boolean;
   provider?: string;
   model?: string;
+  /**
+   * Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
+   */
+  fallbacks: Array<string>;
   effort?: string;
   /**
    * What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
@@ -2707,8 +2894,10 @@ export type Bot = {
    * The skills given to everyone that the Bot does not get.
    */
   skills_off: Array<string>;
+  preset: ToolPreset;
+  tool_access?: ToolAccess;
   /**
-   * The only Hypomnema tools the Bot's pi gets, each a tool's name or a family (`agent_browser_*`); empty, every tool a Bot gets. A CLI's own tools are not switched here.
+   * Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
    */
   tools: Array<string>;
   /**
@@ -3020,6 +3209,10 @@ export type BotOrder = {
 export type BotSettings = {
   provider?: string;
   model?: string;
+  /**
+   * Ordered gateway models (provider/model); omitted keeps the list, empty clears it.
+   */
+  fallbacks?: Array<string>;
   effort?: string;
   persona?: string;
   /**
@@ -3030,8 +3223,9 @@ export type BotSettings = {
    * The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
    */
   skills_off?: Array<string>;
+  preset?: ToolPreset;
   /**
-   * The only tools the Bot gets, each a name or a family (`agent_browser_*`), empty for every one; left out, the Bot keeps those it has.
+   * Additional tools or families; left out, the Bot keeps those it has.
    */
   tools?: Array<string>;
   /**
@@ -3152,8 +3346,10 @@ export type Profile = {
    * The skills given to everyone that its workers do not get.
    */
   skills_off: Array<string>;
+  preset: ToolPreset;
+  tool_access?: ToolAccess;
   /**
-   * The only Hypomnema tools its workers get, each a tool's name or a family (`agent_browser_*`); empty, every tool a worker gets. A CLI's own tools are not switched here.
+   * Additional Hypomnema tools or families on top of the preset. The CLI's own tools are not switched here.
    */
   tools: Array<string>;
   /**
@@ -3186,7 +3382,7 @@ export type ProfileList = {
 
 export type Provider = {
   name: string;
-  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'model_gateway';
+  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'opencode_go' | 'model_gateway';
   base_url?: string;
   /**
    * Where the API key is kept, by name; never the key.
@@ -3205,6 +3401,48 @@ export type Model = {
   provider: string;
   name: string;
   kind: string;
+};
+
+/**
+ * Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
+ */
+export type ToolPreset = 'full' | 'report';
+
+/**
+ * Saved access in the detail response, before a particular chat or Run applies its own limits.
+ */
+export type ToolAccess = {
+  families: Array<ToolFamilyAccess>;
+  skills: Array<SkillAccess>;
+};
+
+export type ToolFamilyAccess = {
+  name: string;
+  description: string;
+  state: ToolAccessState;
+  reason: string;
+  source: ToolAccessSource;
+  tools: Array<ToolAccessItem>;
+};
+
+export type ToolAccessItem = {
+  name: string;
+  state: ToolAccessState;
+  reason: string;
+  source: ToolAccessSource;
+};
+
+/**
+ * Off by policy, on but confirmed only in context, unavailable despite policy, or available.
+ */
+export type ToolAccessState = 'off' | 'on' | 'unavailable' | 'available';
+
+export type ToolAccessSource = 'preset' | 'exception' | 'connection';
+
+export type SkillAccess = {
+  name: string;
+  missing: boolean;
+  reason: string;
 };
 
 export type ToolFamily = {
@@ -3872,9 +4110,46 @@ export type ChatMessageList = {
 };
 
 /**
- * Where the meeting's transcription stands.
+ * Where the meeting's transcription stands; a live meeting is recording until it ends.
  */
-export type MeetingState = 'transcribing' | 'transcribed' | 'failed';
+export type MeetingState = 'recording' | 'transcribing' | 'transcribed' | 'failed';
+
+/**
+ * How the meeting came, uploaded or recorded live.
+ */
+export type MeetingSource = 'upload' | 'live';
+
+/**
+ * How a live meeting is held; online records the microphone and a shared tab.
+ */
+export type MeetingKind = 'online' | 'in_person';
+
+/**
+ * What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+ */
+export type MeetingTrack = 'file' | 'mic' | 'tab';
+
+export type MeetingLiveTrack = 'mic' | 'tab';
+
+export type NewLiveMeeting = {
+  kind: MeetingKind;
+  /**
+   * An ISO 639-1 code, such as vi; absent, the provider finds it.
+   */
+  language?: string;
+  /**
+   * Absent
+   */
+  title?: string;
+  /**
+   * Who is in the meeting; they help name the speakers.
+   */
+  people?: Array<string>;
+};
+
+export type MeetingTrackRequest = {
+  track: MeetingLiveTrack;
+};
 
 /**
  * Where its notes stand; waiting is for the transcript.
@@ -3905,10 +4180,15 @@ export type MeetingNotes = {
 };
 
 export type MeetingSpeaker = {
+  track: MeetingTrack;
   /**
-   * The voice's label
+   * The voice's label on its track, the provider's or m1, m2… for one the owner made.
    */
   label: string;
+  /**
+   * The owner's own voice
+   */
+  owner: boolean;
   /**
    * The name shown
    */
@@ -3936,8 +4216,13 @@ export type Meeting = {
   file_name: string;
   media_type: string;
   size: number;
+  /**
+   * Its length; while it records, what is kept so far, where a resumed recording goes on.
+   */
   duration_ms: number;
   state: MeetingState;
+  source: MeetingSource;
+  kind?: MeetingKind;
   /**
    * Why hearing it failed
    */
@@ -3959,11 +4244,15 @@ export type MeetingList = {
 };
 
 export type MeetingLine = {
+  /**
+   * The line's number
+   */
   n: number;
+  track: MeetingTrack;
   start_ms: number;
   end_ms: number;
   /**
-   * The label of the voice it is shown as.
+   * The label of the voice it is shown as
    */
   speaker: string;
   /**
@@ -3987,6 +4276,7 @@ export type MeetingItem = {
    * The label of the voice that does it
    */
   owner_speaker?: string;
+  owner_track?: MeetingTrack;
   /**
    * The deadline in the words the meeting used.
    */
@@ -4007,6 +4297,7 @@ export type MeetingItem = {
 };
 
 export type SpeakerSuggestion = {
+  track: MeetingTrack;
   label: string;
   /**
    * The name the voice called itself.
@@ -4166,6 +4457,14 @@ export type NewAccountConnectionWritable = {
    * Where the service is, such as https://superset.example.com.
    */
   address?: string;
+  /**
+   * The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
+   */
+  proxy?: string;
+  /**
+   * Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
+   */
+  dial_address?: string;
   username?: string;
   password?: string;
   /**
@@ -4187,15 +4486,15 @@ export type NewIntegrationClientWritable = {
 
 export type NewTokenAccountWritable = {
   /**
-   * The kind of subscription; only Claude gives a token to paste.
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
    */
-  runtime: 'claude';
+  runtime: 'claude' | 'opencode_go';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
   label: string;
   /**
-   * The token `claude setup-token` prints, one line.
+   * The token `claude setup-token` prints, or the OpenCode Go key, one line.
    */
   token: string;
 };
@@ -7228,7 +7527,7 @@ export type GetGatewayUsageData = {
   body?: never;
   path?: never;
   query: {
-    period: '24h' | '7d' | '30d';
+    period: '24h' | '7d' | '30d' | '90d' | '12m';
     /**
      * The viewer's distance from UTC, so a day's bar starts at the viewer's midnight.
      */
@@ -9201,6 +9500,86 @@ export type RevokeRoutineGrantResponses = {
 
 export type RevokeRoutineGrantResponse = RevokeRoutineGrantResponses[keyof RevokeRoutineGrantResponses];
 
+export type GetRoleRoutingData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/role-routing';
+};
+
+export type GetRoleRoutingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetRoleRoutingError = GetRoleRoutingErrors[keyof GetRoleRoutingErrors];
+
+export type GetRoleRoutingResponses = {
+  /**
+   * The effective mapping as YAML.
+   */
+  200: Source;
+};
+
+export type GetRoleRoutingResponse = GetRoleRoutingResponses[keyof GetRoleRoutingResponses];
+
+export type PutRoleRoutingData = {
+  body: Source;
+  path?: never;
+  query?: never;
+  url: '/role-routing';
+};
+
+export type PutRoleRoutingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutRoleRoutingError = PutRoleRoutingErrors[keyof PutRoleRoutingErrors];
+
+export type PutRoleRoutingResponses = {
+  /**
+   * The mapping was stored.
+   */
+  204: void;
+};
+
+export type PutRoleRoutingResponse = PutRoleRoutingResponses[keyof PutRoleRoutingResponses];
+
+export type GetRoleMetricsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Start of the period; defaults to 14 days ago.
+     */
+    since?: string;
+  };
+  url: '/role-routing/metrics';
+};
+
+export type GetRoleMetricsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetRoleMetricsError = GetRoleMetricsErrors[keyof GetRoleMetricsErrors];
+
+export type GetRoleMetricsResponses = {
+  /**
+   * Worker metrics.
+   */
+  200: Array<RoleMetric>;
+};
+
+export type GetRoleMetricsResponse = GetRoleMetricsResponses[keyof GetRoleMetricsResponses];
+
 export type ListProfilesData = {
   body?: never;
   path?: never;
@@ -10166,7 +10545,12 @@ export type NameMeetingSpeakerData = {
      */
     label: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * The voice's track; absent, the one track that has the label.
+     */
+    track?: MeetingTrack;
+  };
   url: '/meetings/{meeting_id}/speakers/{label}';
 };
 
@@ -10218,6 +10602,85 @@ export type SetMeetingLineSpeakerResponses = {
 };
 
 export type SetMeetingLineSpeakerResponse = SetMeetingLineSpeakerResponses[keyof SetMeetingLineSpeakerResponses];
+
+export type StartLiveMeetingData = {
+  body: NewLiveMeeting;
+  path?: never;
+  query?: never;
+  url: '/meetings/live';
+};
+
+export type StartLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartLiveMeetingError = StartLiveMeetingErrors[keyof StartLiveMeetingErrors];
+
+export type StartLiveMeetingResponses = {
+  /**
+   * The meeting, recording.
+   */
+  201: Meeting;
+};
+
+export type StartLiveMeetingResponse = StartLiveMeetingResponses[keyof StartLiveMeetingResponses];
+
+export type OpenMeetingTrackData = {
+  body: MeetingTrackRequest;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/tickets';
+};
+
+export type OpenMeetingTrackErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenMeetingTrackError = OpenMeetingTrackErrors[keyof OpenMeetingTrackErrors];
+
+export type OpenMeetingTrackResponses = {
+  /**
+   * The ticket.
+   */
+  201: TerminalTicket;
+};
+
+export type OpenMeetingTrackResponse = OpenMeetingTrackResponses[keyof OpenMeetingTrackResponses];
+
+export type EndLiveMeetingData = {
+  body?: never;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/end';
+};
+
+export type EndLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type EndLiveMeetingError = EndLiveMeetingErrors[keyof EndLiveMeetingErrors];
+
+export type EndLiveMeetingResponses = {
+  /**
+   * The meeting, transcribed.
+   */
+  200: Meeting;
+};
+
+export type EndLiveMeetingResponse = EndLiveMeetingResponses[keyof EndLiveMeetingResponses];
 
 export type UpdateMeetingItemData = {
   body: MeetingItemUpdate;

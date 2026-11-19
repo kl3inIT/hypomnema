@@ -25,7 +25,7 @@ import { getAccountLimits } from "@/api/generated/sdk.gen"
 import type { AccountLimits, Audio, Images, WebSearch } from "@/api/generated/types.gen"
 import { everyCall } from "@/lib/query-keys"
 
-import type { Period } from "./usage-state"
+import type { Period, RequestPeriod } from "./usage-state"
 
 // An account rests and comes back on its own, so the list is read again now and then while the page is open.
 export function useAccounts() {
@@ -152,7 +152,7 @@ export function useGatewayUsage(period: Period) {
 // A page of the requests the gateway served in a period, all or only the failed ones. The last page stays shown
 // while the next one is read.
 export function useGatewayRequests(
-  period: Period,
+  period: RequestPeriod,
   failedOnly: boolean,
   offset: number,
   limit: number,

@@ -27,7 +27,7 @@ type Meetings interface {
 	Delete(ctx context.Context, id string) error
 	Recording(ctx context.Context, id string) (meetingstore.Meeting, *os.File, error)
 	WriteAgain(ctx context.Context, id string) error
-	NameSpeaker(ctx context.Context, id, label, name string) error
+	NameSpeaker(ctx context.Context, id, track, label, name string) error
 	SetLineSpeaker(ctx context.Context, id string, n int, name string) error
 	SetDone(ctx context.Context, id, itemID string, done bool) (meetingstore.Item, error)
 	Actions(ctx context.Context, who string, done *bool) ([]meetingstore.MeetingAction, error)
@@ -36,6 +36,12 @@ type Meetings interface {
 	Words(ctx context.Context) ([]meetings.Word, error)
 	SetWords(ctx context.Context, words []string) error
 	ReplaceWord(ctx context.Context, id string, fix meetingstore.Fix) (meetingstore.Fixed, error)
+	// A meeting recorded live (issue #820, meetinglive.go).
+	StartLive(ctx context.Context, ls meetings.LiveStart) (meetingstore.Meeting, error)
+	Recordable(ctx context.Context, id, track string) (meetingstore.Meeting, error)
+	OpenTrack(ctx context.Context, id, track string, offset time.Duration, l meetings.TrackListener,
+	) (*meetings.Track, error)
+	End(ctx context.Context, id string) (meetingstore.Meeting, error)
 }
 
 // WithMeetings gives the API the meetings.
@@ -121,10 +127,7 @@ func (s *Server) meetingDetail(ctx context.Context, id string) (openapi.MeetingD
 	}
 
 	for _, l := range d.Lines {
-		out.Lines = append(out.Lines, openapi.MeetingLine{
-			N: l.N, StartMs: l.Start.Milliseconds(), EndMs: l.End.Milliseconds(), Speaker: l.Speaker,
-			Heard: l.Heard, Text: l.Text,
-		})
+		out.Lines = append(out.Lines, lineOut(l))
 	}
 
 	for _, it := range d.Items {
@@ -132,7 +135,9 @@ func (s *Server) meetingDetail(ctx context.Context, id string) (openapi.MeetingD
 	}
 
 	for _, sg := range d.Suggestions {
-		out.Suggestions = append(out.Suggestions, openapi.SpeakerSuggestion{Label: sg.Label, Name: sg.Name, Line: sg.Line})
+		out.Suggestions = append(out.Suggestions, openapi.SpeakerSuggestion{
+			Track: openapi.MeetingTrack(sg.Track), Label: sg.Label, Name: sg.Name, Line: sg.Line,
+		})
 	}
 
 	return out, nil
@@ -230,7 +235,12 @@ func (s *Server) NameMeetingSpeaker(ctx context.Context, req openapi.NameMeeting
 		return nil, errNoMeetings
 	}
 
-	if err := s.meetings.NameSpeaker(ctx, req.MeetingId, req.Label, req.Body.Name); err != nil {
+	track := ""
+	if req.Params.Track != nil {
+		track = string(*req.Params.Track)
+	}
+
+	if err := s.meetings.NameSpeaker(ctx, req.MeetingId, track, req.Label, req.Body.Name); err != nil {
 		return nil, err
 	}
 
@@ -464,7 +474,8 @@ func meetingOut(m meetingstore.Meeting) openapi.Meeting {
 		}
 
 		speakers = append(speakers, openapi.MeetingSpeaker{
-			Label: sp.Label, Name: sp.Shown(), Named: sp.Name != "", TalkMs: sp.Talk.Milliseconds(), Share: float32(share),
+			Track: openapi.MeetingTrack(sp.Track), Label: sp.Label, Name: sp.Shown(), Named: sp.Name != "",
+			Owner: sp.Owner, TalkMs: sp.Talk.Milliseconds(), Share: float32(share),
 		})
 	}
 
@@ -478,10 +489,16 @@ func meetingOut(m meetingstore.Meeting) openapi.Meeting {
 		people = []string{}
 	}
 
+	var kind *openapi.MeetingKind
+	if m.Kind != "" {
+		kind = new(openapi.MeetingKind(m.Kind))
+	}
+
 	return openapi.Meeting{
 		Id: m.ID, Title: m.Title, Titled: m.Titled, Language: optional(m.Language), People: people,
 		FileName: m.FileName, MediaType: m.MediaType, Size: m.Size, DurationMs: m.Duration.Milliseconds(),
-		State: openapi.MeetingState(m.State), Failure: optional(m.Failure), Provider: optional(m.Provider),
+		State: openapi.MeetingState(m.State), Source: openapi.MeetingSource(m.Source), Kind: kind,
+		Failure: optional(m.Failure), Provider: optional(m.Provider),
 		Model: optional(m.Model), CreatedAt: m.CreatedAt,
 		Notes: openapi.MeetingNotes{
 			State: openapi.MeetingNotesState(m.Notes.State), Failure: optional(m.Notes.Failure),
@@ -498,17 +515,28 @@ func itemOut(it meetingstore.Item, speakers []meetingstore.Speaker) openapi.Meet
 		OwnerSpeaker: optional(it.OwnerSpeaker),
 	}
 
+	if it.OwnerTrack != "" {
+		out.OwnerTrack = new(openapi.MeetingTrack(it.OwnerTrack))
+	}
+
 	if it.Line > 0 {
 		out.Line = new(it.Line)
 	}
 
 	for _, sp := range speakers {
-		if sp.Label == it.OwnerSpeaker && it.OwnerSpeaker != "" {
+		if it.OwnerSpeaker != "" && sp.Key() == meetingstore.VoiceKey(it.OwnerTrack, it.OwnerSpeaker) {
 			out.Owner = new(sp.Shown())
 		}
 	}
 
 	return out
+}
+
+func lineOut(l meetingstore.Line) openapi.MeetingLine {
+	return openapi.MeetingLine{
+		N: l.N, Track: openapi.MeetingTrack(l.Track), StartMs: l.Start.Milliseconds(), EndMs: l.End.Milliseconds(),
+		Speaker: l.Speaker, Heard: l.Heard, Text: l.Text,
+	}
 }
 
 func millis(d *time.Duration) *int64 {

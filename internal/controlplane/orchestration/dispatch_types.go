@@ -125,6 +125,8 @@ type Dispatch struct {
 	Effort string
 	// ProfileVersionID is the profile version it ran with; empty before profiles.
 	ProfileVersionID string
+	ChainEntry       *int
+	Runtime          string
 	// FallbackFor is the profile the Task asked for, when the Dispatch ran
 	// under a backup of it because every account of that profile's runtime
 	// waited for a limit to reset; FallbackUntil is when the first was to be
@@ -281,7 +283,7 @@ const (
 	EscalationStalled EscalationKind = "stalled"
 	// EscalationOverrun: a Dispatch has run for MaxDuration.
 	EscalationOverrun EscalationKind = "overrun"
-	// EscalationNodeUnavailable: the node let ExpiriesBeforeUnavailable Dispatches in a row expire.
+	// EscalationNodeUnavailable: the node let ExpiriesBeforeUnavailable Dispatches expire within NodeExpiryWindow.
 	EscalationNodeUnavailable EscalationKind = "node_unavailable"
 	// EscalationQuestionReminder: a question to the owner is still open (after ReminderFirst, then every ReminderEvery).
 	EscalationQuestionReminder EscalationKind = "question_reminder"
@@ -294,6 +296,11 @@ const (
 	// accounts wait for a limit to reset. Once per Run for each stretch of
 	// the limit, as OpenMausBot tells a bot's owner once (limit-notices.ts).
 	EscalationFallback EscalationKind = "fallback"
+	// EscalationRepeatedFailure: a Task's Dispatch failed with the same
+	// failure class, and the same unknown cause, as its previous failed
+	// Dispatch (issue #856). Raised at each such failure from the second; the
+	// Task is not stopped, its retries go on.
+	EscalationRepeatedFailure EscalationKind = "repeated_failure"
 )
 
 // Reasons a Task is unplaceable.
@@ -344,6 +351,10 @@ type Escalation struct {
 	Profile  string
 	Fallback string
 	Until    int64
+	// Count and Dispatches say how many failed Dispatches in a row a
+	// repeated failure counts, and which, newest first.
+	Count      int
+	Dispatches []string
 }
 
 // Reaped is what one Reap did.

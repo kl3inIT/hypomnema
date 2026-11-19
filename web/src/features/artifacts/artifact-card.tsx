@@ -19,7 +19,7 @@ import {
   useFramePage,
   useImageSource,
 } from "./artifact-state"
-import { frameSandbox } from "./frame"
+import { thumbnailSandbox } from "./frame"
 import { useOpenArtifact } from "./open-artifact-context"
 
 // ArtifactCard is an artifact in the chat (issue #402, row 4): a compact card with a small live thumbnail of a page
@@ -111,7 +111,7 @@ function PageThumbnail({ id, revision }: { id: string; revision: ArtifactRevisio
       title={`${revision.title}, small`}
       aria-hidden
       tabIndex={-1}
-      sandbox={frameSandbox}
+      sandbox={thumbnailSandbox}
       referrerPolicy="no-referrer"
       loading="lazy"
       src={page.src}

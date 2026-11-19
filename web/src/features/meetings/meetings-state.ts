@@ -61,10 +61,11 @@ function length(ms: number) {
 }
 
 // Stage is where a meeting stands in the steps the page shows: uploaded → transcribed → writing notes (Nojoin's
-// stage texts, Meetily, MemoryOS), and how it ended.
-export type Stage = "transcribing" | "writing" | "ready" | "failed" | "notes_failed"
+// stage texts, Meetily, MemoryOS), or recorded live until it ends (issue #820), and how it ended.
+export type Stage = "recording" | "transcribing" | "writing" | "ready" | "failed" | "notes_failed"
 
 export function stageOf(m: Meeting): Stage {
+  if (m.state === "recording") return "recording"
   if (m.state === "transcribing") return "transcribing"
   if (m.state === "failed") return "failed"
   if (m.notes.state === "failed") return "notes_failed"
@@ -74,6 +75,7 @@ export function stageOf(m: Meeting): Stage {
 }
 
 export const stageNames: Record<Stage, string> = {
+  recording: "Recording",
   transcribing: "Transcribing",
   writing: "Writing notes",
   ready: "Ready",
@@ -81,13 +83,14 @@ export const stageNames: Record<Stage, string> = {
   notes_failed: "Notes failed",
 }
 
-// working says the server is still working on the meeting, so the page reads it again until it is done.
+// working says the server is still working on the meeting, so the page reads it again until it is done; a meeting
+// recording is read again too, for the lines another tab records.
 export function working(m: Meeting | undefined) {
   if (!m) return false
 
   const stage = stageOf(m)
 
-  return stage === "transcribing" || stage === "writing"
+  return stage === "recording" || stage === "transcribing" || stage === "writing"
 }
 
 export type Step = { name: string; state: "done" | "now" | "waiting" | "failed" }
@@ -102,10 +105,20 @@ export function stepsOf(m: Meeting): Step[] {
       : "Transcribed"
 
   return [
-    { name: "Uploaded", state: "done" },
+    {
+      name: m.source === "live" ? "Recorded" : "Uploaded",
+      state: stage === "recording" ? "now" : "done",
+    },
     {
       name: heard,
-      state: stage === "transcribing" ? "now" : stage === "failed" ? "failed" : "done",
+      state:
+        stage === "transcribing"
+          ? "now"
+          : stage === "failed"
+            ? "failed"
+            : stage === "recording"
+              ? "waiting"
+              : "done",
     },
     {
       name: stage === "ready" ? "Notes written" : "Writing notes",
@@ -132,20 +145,43 @@ const fills = [
   "bg-speaker-6",
 ]
 
-export function speakerFill(speakers: MeetingSpeaker[], label: string) {
+export function speakerFill(speakers: MeetingSpeaker[], voice: Voice) {
   const i = Math.max(
     0,
-    speakers.findIndex((s) => s.label === label),
+    speakers.findIndex((s) => sameVoice(s, voice)),
   )
 
   return fills[i % fills.length]!
 }
 
+// Voice names a voice of a meeting: a label is a voice of its track, an upload's file or a live meeting's microphone
+// or shared tab (issue #820).
+export type Voice = { track: MeetingSpeaker["track"]; label: string }
+
+export function sameVoice(a: Voice, b: Voice) {
+  return a.track === b.track && a.label === b.label
+}
+
+// voiceKey is a voice as one string, for a list's keys.
+export function voiceKey(v: Voice) {
+  return `${v.track}/${v.label}`
+}
+
+// voiceOf finds the voice a line is said by.
+export function voiceOf(
+  speakers: MeetingSpeaker[],
+  line: { track: Voice["track"]; speaker: string },
+) {
+  return speakers.find((s) => sameVoice(s, { track: line.track, label: line.speaker }))
+}
+
 // speakerInitial is what a voice's badge reads, as MemoryOS's (web/src/features/meetings/speakers.ts): the number of
 // a voice nobody has named, else the first letter of the name it goes by, which in a Vietnamese name is the last
-// word ("Nguyễn Văn Đạt" → "Đ").
-export function speakerInitial(speaker: Pick<MeetingSpeaker, "label" | "name" | "named">) {
-  if (!speaker.named) return speaker.label
+// word ("Nguyễn Văn Đạt" → "Đ"); the owner's own voice online is "You" (issue #820).
+export function speakerInitial(
+  speaker: Pick<MeetingSpeaker, "label" | "name" | "named"> & { owner?: boolean },
+) {
+  if (!speaker.named && !speaker.owner) return speaker.label
   const given = speaker.name.trim().split(/\s+/).at(-1) ?? ""
 
   return [...given][0]?.toLocaleUpperCase() ?? speaker.label
@@ -176,11 +212,13 @@ export function actionsText(m: Meeting) {
   return `${m.open_actions} open of ${m.actions}`
 }
 
-// fromText says where the meeting came from and who heard it: "Upload · Soniox".
+// fromText says where the meeting came from and who heard it: "Upload · Soniox", "Recorded online · Soniox".
 export function fromText(m: Meeting) {
   const provider = m.provider ? ` · ${providerName(m.provider)}` : ""
+  const from =
+    m.source !== "live" ? "Upload" : m.kind === "online" ? "Recorded online" : "Recorded in person"
 
-  return `Upload${provider}`
+  return `${from}${provider}`
 }
 
 export function providerName(p: string) {

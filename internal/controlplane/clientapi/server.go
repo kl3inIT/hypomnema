@@ -74,6 +74,10 @@ type Server struct {
 	phone      Phone
 	phoneViews viewTickets
 	tickets    terminalTickets
+	// meetingTickets are the tickets to record a meeting's tracks (meetinglive.go).
+	meetingTickets meetingTickets
+	// trackIdle ends a track that sends no audio for this long; zero: meetingIdle. Tests shorten it.
+	trackIdle time.Duration
 	// frames are the addresses folder pages' files load from in their locked frames (issue #402).
 	frames artifactFrames
 	// browser is the browser every agent shares; nil when the control plane has none.
@@ -92,7 +96,8 @@ type Server struct {
 	audio         Audio
 	audioSettings AudioSettings
 	// botTools are the tools a Bot's pi gets in any chat (issue #723, agentapi.Server.BotTools); nil gives none.
-	botTools func(ctx context.Context, bot orchestration.Bot) []string
+	botTools           func(ctx context.Context, bot orchestration.Bot) []string
+	toolUnavailability func(context.Context, string) map[string]string
 	// logins counts wrong passwords per address; now is the clock it reads.
 	logins *loginLimiter
 	// shareGuesses counts unknown link tokens per address (issue #745), as logins counts wrong passwords.
@@ -148,7 +153,7 @@ type Accounts interface {
 	Limits(ctx context.Context, id string, fresh bool) (subscription.Limits, error)
 	// UseReset uses one of an account's limit resets and returns its limits
 	// after it; requestID makes a repeated call the same use.
-	UseReset(ctx context.Context, id, requestID string) (subscription.Limits, error)
+	UseReset(ctx context.Context, id, requestID, grantID string) (subscription.Limits, error)
 	// BeginInBrowser starts a sign-in at the vendor of a runtime whose last
 	// address the owner pastes back.
 	BeginInBrowser(ctx context.Context, runtime string) (*subscription.Attempt, error)
@@ -318,6 +323,8 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	mux.HandleFunc("GET "+BasePath+"/terminals/{ticket}", s.terminalSocket)
 	mux.HandleFunc("GET "+BasePath+"/browser/views/{ticket}", s.browserViewSocket)
 	mux.HandleFunc("GET "+BasePath+"/device/views/{ticket}", s.phoneViewSocket)
+	// A track of a meeting recorded live (issue #820): the ticket names the meeting and the track.
+	mux.HandleFunc("GET "+BasePath+"/meetings/{meeting_id}/stream/{ticket}", s.meetingSocket)
 	// A folder page's files, for its sandboxed frame, which sends no sign-in: the token in the address is the
 	// permission (issue #402).
 	mux.HandleFunc(artifactFilesPath+"{token}/{path...}", s.artifactFiles)

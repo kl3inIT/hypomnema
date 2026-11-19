@@ -2,6 +2,7 @@ package modelgateway
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -80,7 +81,51 @@ type Usage struct {
 	WebSearches int64
 	Images      int64
 	Duration    time.Duration
-	CreatedAt   time.Time
+	// TTFT is the time to first token (issue #856): from the gateway
+	// receiving the request to the first chunk of the answer it streamed to
+	// the client, as LiteLLM's completion_start_time and Helicone's first
+	// chunk; nil for an answer that is not a stream, or a stream that sent
+	// nothing.
+	TTFT      *time.Duration
+	CreatedAt time.Time
+	// started is when the gateway received the request, for TTFT.
+	started time.Time
+}
+
+// firstChunk notes that the first chunk of a streamed answer reached the
+// client at now; a later chunk changes nothing.
+func (u *Usage) firstChunk(now time.Time) {
+	if u.TTFT != nil || u.started.IsZero() {
+		return
+	}
+
+	ttft := max(now.Sub(u.started), 0)
+	u.TTFT = &ttft
+}
+
+// TokensPerSecond is the output tokens over the time the answer took after
+// its first token, as OmniRoute's generationThroughput.ts leaves out the time
+// to first token; false when the request was not a stream, its counts were
+// estimated, or the generation took no time.
+func (u *Usage) TokensPerSecond() (float64, bool) {
+	gen, ok := generation(u.Duration.Milliseconds(), u.TTFT, u.Tokens.Estimated)
+	if !ok || u.Tokens.Completion <= 0 {
+		return 0, false
+	}
+
+	return float64(u.Tokens.Completion) / (float64(gen) / 1000), true
+}
+
+// generation is a request's milliseconds after its first token; false when
+// they do not count toward tokens a second.
+func generation(durationMs int64, ttft *time.Duration, estimated bool) (int64, bool) {
+	if ttft == nil || estimated {
+		return 0, false
+	}
+
+	gen := durationMs - ttft.Milliseconds()
+
+	return gen, gen > 0
 }
 
 func flag(b bool) int64 {
@@ -108,13 +153,67 @@ func (s *Service) recordUsage(ctx context.Context, u Usage) error {
 			DurationMs: u.Duration.Milliseconds(), AccountID: u.AccountID, Error: clip(u.Error, maxErrorText),
 			CacheWriteTokens: u.Tokens.CacheWrite, CacheWrite1hTokens: u.Tokens.CacheWrite1h,
 			CostMicros: nullable(u.CostMicros), PricedModel: u.PricedModel, AudioMs: u.Audio.Milliseconds(),
-			Characters: u.Characters, WebSearches: u.WebSearches, Images: u.Images, Now: now,
+			Characters: u.Characters, WebSearches: u.WebSearches, Images: u.Images, TtftMs: ttftMs(u.TTFT), Now: now,
 		}); err != nil {
 			return fmt.Errorf("recording usage: %w", err)
 		}
 
+		if err := q.AddGatewayUsageDaily(ctx, daily(u, now)); err != nil {
+			return fmt.Errorf("adding usage to the daily ledger: %w", err)
+		}
+
 		return nil
 	})
+}
+
+const dayMs = int64(24 * time.Hour / time.Millisecond)
+
+// daily is one request as the ledger counts it (issue #856): on its UTC day,
+// and its speed only when it was answered.
+func daily(u Usage, now int64) store.AddGatewayUsageDailyParams {
+	p := store.AddGatewayUsageDailyParams{
+		Day: now - now%dayMs, KeyID: u.KeyID, Model: u.Model, Provider: u.Provider, UpstreamModel: u.UpstreamModel,
+		AccountID: u.AccountID, Failed: flag(u.Outcome.failed()), ClientGone: flag(u.Outcome == OutcomeClientGone),
+		PromptTokens: u.Tokens.Prompt, CompletionTokens: u.Tokens.Completion, CachedTokens: u.Tokens.Cached,
+		ReasoningTokens: u.Tokens.Reasoning, CacheWriteTokens: u.Tokens.CacheWrite, WebSearches: u.WebSearches,
+		AudioMs: u.Audio.Milliseconds(), Characters: u.Characters, Images: u.Images,
+	}
+
+	if u.CostMicros != nil {
+		p.CostMicros = *u.CostMicros
+	} else if u.Tokens.Prompt+u.Tokens.Completion+u.WebSearches+u.Audio.Milliseconds()+u.Characters > 0 {
+		p.Unpriced = 1
+	}
+
+	if u.Outcome != OutcomeOK {
+		return p
+	}
+
+	p.Ok, p.OkDurationMs = 1, u.Duration.Milliseconds()
+
+	if u.TTFT != nil {
+		p.TtftMs, p.TtftCount = u.TTFT.Milliseconds(), 1
+	}
+
+	if gen, ok := generation(u.Duration.Milliseconds(), u.TTFT, u.Tokens.Estimated); ok && u.Tokens.Completion > 0 {
+		p.GenerationMs, p.GenerationTokens = gen, u.Tokens.Completion
+	}
+
+	return p
+}
+
+// failed says the request failed: the provider refused it, none answered, or
+// the answer ended early. A client that left is not the gateway's failure.
+func (o Outcome) failed() bool {
+	return o == OutcomeUpstreamError || o == OutcomeTransportError || o == OutcomeTruncated
+}
+
+func ttftMs(d *time.Duration) sql.NullInt64 {
+	if d == nil {
+		return sql.NullInt64{}
+	}
+
+	return sql.NullInt64{Int64: d.Milliseconds(), Valid: true}
 }
 
 // ListUsage returns the latest requests the gateway served, newest first.
@@ -153,8 +252,19 @@ func usageOf(r store.ListGatewayUsageRow) Usage {
 		WebSearches: r.WebSearches,
 		Images:      r.Images,
 		Duration:    time.Duration(r.DurationMs) * time.Millisecond,
+		TTFT:        ttftOf(r.TtftMs),
 		CreatedAt:   time.UnixMilli(r.CreatedAt).UTC(),
 	}
+}
+
+func ttftOf(ms sql.NullInt64) *time.Duration {
+	if !ms.Valid {
+		return nil
+	}
+
+	d := time.Duration(ms.Int64) * time.Millisecond
+
+	return &d
 }
 
 // openAIUsage is the usage object of an OpenAI chat completion or chunk.
