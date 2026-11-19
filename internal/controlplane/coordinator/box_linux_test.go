@@ -64,7 +64,7 @@ type boxWorld struct {
 	root, userHome, home, script string
 	// bot is the id of the Bot pi starts for: the main one unless a test names another.
 	bot string
-	// outside is a file in the machine's /tmp, which the box must not see.
+	// outside is a host temp file which the box must not see.
 	outside string
 }
 
@@ -115,11 +115,8 @@ case "$1" in
 esac
 `, 0o700)
 
-	outside, err := os.CreateTemp("/tmp", "hypomnema-box-outside-")
-	require.NoError(t, err)
-	require.NoError(t, outside.Close())
-	t.Cleanup(func() { _ = os.Remove(outside.Name()) })
-	w.outside = outside.Name()
+	w.outside = filepath.Join(t.TempDir(), "outside")
+	require.NoError(t, os.WriteFile(w.outside, nil, 0o600))
 
 	// pi reports what it sees, a line each.
 	write(t, filepath.Join(w.home, "pi", "node_modules", ".bin", "pi"), `#!/bin/sh
@@ -232,7 +229,7 @@ func (w *boxWorld) start(t *testing.T, stdin string, flags ...string) (map[strin
 // first line of stdin. pi runs in a box: it is alone in its PID namespace,
 // works in its Bot's directory, sees only its chat's sessions, reads its
 // token in its client configuration and not the coordinator's, and sees no
-// other Bot's directory and nothing of the machine's /tmp. It writes its
+// other Bot's directory and no host temp files. It writes its
 // Bot's directory and its sessions; the shared instructions it only reads.
 func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	t.Parallel()

@@ -77,6 +77,9 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 		"research and design read the references' code (issue #719)")
 	assert.Less(t, strings.Index(p, "read the code of the references"), strings.Index(p, "Task (implementer):"),
 		"the rule comes before the task, for the prompt cache (issue #672)")
+	assert.Contains(t, p, "- Keep temporary files and directories under $TMPDIR, "+
+		"private to this task and removed after it ends. "+
+		"Never use /tmp or another hard-coded temp path, even for databases, sockets or clones you start yourself.\n")
 	assert.Contains(t, p, "Run the checks of what you changed, once, after your last edit or merge and before "+
 		"pushing; CI runs the full suite.", "a worker runs the touched checks once (issue #894)")
 	assert.Contains(t, p, "Merge the base branch into yours only for a conflict, a red check whose cause is on "+

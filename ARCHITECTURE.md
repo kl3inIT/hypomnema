@@ -4837,8 +4837,14 @@ Node (`internal/node`):
   `git worktree remove` runs without force in a filesystem sandbox (Linux Landlock or macOS
   `sandbox-exec`); if confinement is unavailable, the checkout is kept.
   Open Runs keep their worktrees for follow-ups.
-- Setup and the worker get private `TMPDIR`, `TEMP`, `TMP` and `GOTMPDIR` under `run/<dispatch>/tmp`. The node also reclaims
-  that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
+- Setup and the worker get private `TMPDIR`, `TEMP`, `TMP` and `GOTMPDIR` under `run/<dispatch>/tmp`. The worker prompt
+  says to put all temporary files and directories there, including database data, sockets and clones, not in
+  `/tmp` or another hard-coded path (issue #895). The node removes that directory after the Dispatch; it uses temp
+  environment variables as in Hermes (`hermes_bootstrap.py:455-465`) and a directory per run with cleanup as in Orca
+  (`src/main/acp/launch/acp-private-temp.ts:36-40,73-85`). This is not a mount namespace or a security boundary like
+  Codex's bubblewrap sandbox (`codex-rs/linux-sandbox/src/linux_run_main.rs:59-61`). Workers inherit the node's
+  `XDG_RUNTIME_DIR` when set; pnpm uses it for its shared store locks instead of falling back to `/tmp`. The node
+  also reclaims that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
   shim from claiming permission to launch. Stop also revokes that permission before a spawned shim can write
   its PID. A saved PID alone is not enough to signal a process group. On Linux, if the shim and its worker have
   both exited, the node checks the recorded boot ID and looks for a surviving process in the shim's recorded
