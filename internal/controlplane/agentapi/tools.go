@@ -40,7 +40,9 @@ import (
 //   - video_make, video_get (videos.go, issue #818): a worker and a Bot's pi,
 //     for the takes each filmed.
 //
-// The phone's, which both kinds get too, are listed on their own route
+// The owner gets the installed tools and all Connections without switches.
+// Tools that require a Run or chat (artifacts and Routines) still require one.
+// The phone's tools are listed on their own route
 // (device.go): a node of the release before step 4 lists that route beside
 // this one, and would list them twice were they here. The browser's,
 // gateway's and memory's older routes stay for tools servers of an earlier
@@ -94,11 +96,9 @@ func (s *Server) toolList(ctx context.Context, a agent) []agenttool.BrowserTool 
 	return out
 }
 
-// hasBrowser says whether the agent gets the browser's tools: a worker or a
-// Bot's pi, the agents with a tools server, when this control plane has a
-// browser; as OpenMausBot mounts its browser server into every engine.
+// hasBrowser says whether the caller gets its own tab when the control plane has a browser.
 func (s *Server) hasBrowser(a agent) bool {
-	return s.browser != nil && (a.dispatchID != "" || a.chatID != "" && a.bot != "")
+	return s.browser != nil && a.hasAgentTools()
 }
 
 // listTools lists the agent's tools (PathTools).
@@ -200,7 +200,7 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	case slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool):
 		s.gatewayCall(w, r, a, asked)
 	case s.hasBrowser(a):
-		// Any other tool of a worker or a Bot's pi is the browser's, which knows which it has.
+		// The browser knows which other tools it has.
 		s.runBrowser(w, r, a, asked)
 	default:
 		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
@@ -215,9 +215,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 // applies its allow and deny lists to what a run may call
 // (docs/gateway/config-tools/tool-policy.md). They are read at each request:
 // a worker's from its Dispatch's profile version, a Bot's pi's from its Bot
-// now, so a Bot's tool turned off is refused at the pi's next call. Other
-// agents (the owner's token, the coordinator's, a Routine's script) have no
-// MCP and no switches.
+// now, so a Bot's tool turned off is refused at the pi's next call. The
+// owner has no switches. The coordinator and Routine scripts have no MCP.
 
 // switchesOf are the agent's tool switches.
 func (s *Server) switchesOf(ctx context.Context, a agent) (agenttool.ToolSwitches, error) {

@@ -1278,8 +1278,8 @@ sequenceDiagram
     limit), and a change over a limit is refused and changes nothing. `view` lists a directory two levels deep
     with sizes, or a file's numbered lines (`view_range`), cut at 16,000 characters. Each command reads the
     directory again inside its transaction. A Lark group's chat, whose prompt leaves the memory out (issue #246),
-    is not given the tool; nor is any other token (owner, coordinator, a Routine's script), which has no MCP. Its
-    description (what to keep, what to skip, record only checked facts) is fixed per kind, so the tools the
+    is not given the tool. The owner has a directory with only `USER.md`; the coordinator and Routine scripts
+    have no MCP. Its description (what to keep, what to skip, record only checked facts) is fixed per kind, so the tools the
     provider caches stay the same; Anthropic's system-prompt text, which asks to record progress, is not used.
     Which agent changed a memory and with which command is logged, never the text. A node of a release before
     issue #536 defines the old `{target, action, text, match}` tool itself and calls `POST /agent/v1/memory`,
@@ -1929,6 +1929,11 @@ flowchart LR
       `curl`, the same way, through the Integration's proxy: what a pinned tool's own list does not cover, such as
       Search Console, which gws lacks (issue [#617](https://github.com/kl3inIT/hypomnema/issues/617); treg's
       `treg run` and `shell --proxy`, Onyx's egress proxy).
+      On the owner's machine, `hypomnema exec <integration>:<label> -- <command> [args...]` runs the local CLI
+      through the same launcher and tunnel using the saved owner token (issue #888). A pinned worker install is
+      not needed. For example, `hypomnema exec lark:me -- lark-cli im chats get --as user --chat-id <chat-id>`
+      reads a chat using the owner's Lark user Connection. The tunnel checks the Connection and applies the same
+      action policies; the child gets a placeholder, not the owner token or the service token.
     - **Google goes through the service proxy** (issue #154,
       [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
       [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
@@ -3873,8 +3878,8 @@ issues #354, #492 and #536, [decision](docs/decisions/2026-11-15-one-tool-for-ev
 [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): each tool the control plane gives agents
 is one definition there (name, description, parameters, handler, and which agent kinds get it), offered by
 Hypomnema's one tools server (`internal/shared/toolsmcp`) to workers and Bots without a node release, as
-OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime its tools over MCP. Both
-servers, a Bot's (`hypomnema mcp`) and a worker's (`hypomnema-node mcp`), list them on `GET /agent/v1/tools` and
+OpenMausBot gives every engine one `agents` MCP server and Hermes gives its Codex runtime its tools over MCP. The
+servers, `hypomnema mcp` for a Bot or the owner and `hypomnema-node mcp` for a worker, list them on `GET /agent/v1/tools` and
 run one on `POST /agent/v1/tools/call` (`{tool, arguments}`; the answer is the tool's result as MCP has it); a tool
 an agent was not given is a 404 there. The phone's tools stay on their own routes, which both servers list
 beside the one list (see "A phone, on a node that holds one"). The list follows the agent's settings at each
@@ -3886,19 +3891,26 @@ again on it. A turn that calls no tool keeps the list it had. The older routes s
 `POST /agent/v1/gateway/call` (the gateway's tools alone), the browser's routes (the browser's and a worker's
 gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 
-| Tool | Worker | Bot's pi | Owner, coordinator token, Routine script |
+| Tool | Worker | Bot's pi | Owner |
 |---|---|---|---|
-| `memory` (Memories, above) | its agent's `/memories` and `USER.md` | its own Bot's `/memories` and `USER.md`, not in a Lark group's chat | no (`hypomnema memory`) |
-| `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no (`hypomnema artifact show`) |
-| `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no (`hypomnema routines`) |
-| `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | no (`hypomnema web`, `image`) |
-| `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | no (`hypomnema audio`) |
-| `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | no |
-| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | no (`hypomnema superset`) |
-| the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | no |
-| the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | no |
-| `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | no |
+| `memory` (Memories, above) | its agent's `/memories` and `USER.md` | its own Bot's `/memories` and `USER.md`, not in a Lark group's chat | shared `USER.md` only |
+| `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no chat (`hypomnema artifact show`) |
+| `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no Bot (`hypomnema routines`) |
+| `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | all three |
+| `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | both |
+| `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | yes, while on |
+| `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | all Superset Connections |
+| `whatsapp_*`, `zalo_*` (Messaging, above) | no | for its Bot's Connections, reads on the owner's turn | all messaging Connections, sends follow the same approval policy |
+| the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | yes, its own tab per token |
+| the phone's (`device_*`, own routes) | yes | yes (issue #536, step 4) | yes, when a node holds the phone |
+| `video_make`, `video_get` | its own takes | its own takes | its own takes |
+| `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | yes |
 | `ask`, `finish` (the node's own) | yes | no | no |
+
+The consolidated tool routes give no tools to the coordinator token or Routine scripts. The owner's `hypomnema mcp` and
+`hypomnema tools list` / `tools call` use the token from `client.json` and share the same tool adapter. On the
+owner's machine, add the server with `claude mcp add hypomnema -- hypomnema mcp` or
+`codex mcp add hypomnema -- hypomnema mcp` (see the [CLI guide](README.md#using-your-tools-and-accounts-locally)).
 
 Each gateway call is recorded on the Dispatch's gateway key, when it has one, and a Bot's on the key of its chat's
 running pi, as its `hypomnema web`, `hypomnema image` and `hypomnema audio` are.
@@ -3919,8 +3931,8 @@ allowlists to exceptions to `full` so existing access stays the same; unused boo
   call answers `404` "this agent has no tool", logged as `agentapi.tool_off`; it never reaches the browser, phone or
   gateway. A worker uses its Dispatch's profile version, capped by the current Bot's policy if the Bot created
   its Run. An owner Run keeps the profile's policy. A Bot's policy is read at each request, so taking a tool away
-  reaches its running pi and workers at their next call. The owner's token, the coordinator token and a Routine's
-  script have no switches (no MCP).
+  reaches its running pi and workers at their next call. The owner's token has tools without switches;
+  the coordinator token and a Routine's script have neither MCP nor switches.
 - Only Hypomnema's own tools: a CLI's built-in tools (Claude Code's Bash, Codex's shell, the node's `ask` and
   `finish`) are not switched here.
 - Set with `profiles apply` (YAML), `bots set --preset report --tools phone --tools-off web_fetch`, or the web's
@@ -3968,11 +3980,13 @@ flowchart LR
         D["agent API: /agent/v1/device<br/>the phone's tools"] --> PH["phone relay<br/>one holder at a time"]
     end
     PH -- "node socket" --> PN["node holding the phone"]
-    P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp"] -- "chat pi's token" --> L
-    B -- "chat pi's token" --> D
+    P["Bot: pi in its box"] -- "MCP stdio, direct" --> B["hypomnema mcp / tools"] -- "chat pi's or owner's token" --> L
+    B -- "chat pi's or owner's token" --> D
     W["Worker: Claude Code, Codex, omp, opencode"] -- "MCP stdio" --> N["hypomnema-node mcp<br/>(workertools on toolsmcp)"] -- "Dispatch key" --> L
     N -- "Dispatch key" --> D
-    O["Owner, Routine script"] -- "hypomnema web / image / memory / artifact / superset / routines" --> C["client API"] --> G
+    O["Owner"] -- "MCP stdio or CLI" --> B
+    O -- "hypomnema web / image / memory / artifact / superset / routines" --> C["client API"] --> G
+    R["Routine script"] --> C
     C --> M
     C --> A
     C --> SP
@@ -3983,10 +3997,9 @@ flowchart LR
   three, its own `WebSearch` and `WebFetch` disallowed (until 2026-11-15 it kept them and got none); a Codex worker
   keeps its own `web.run` search, which the gateway answers on `/v1/alpha/search`, and gets `web_fetch` and
   `generate_image` (Codex's own `image_gen` is offered only under an OpenAI login); omp and opencode get all three,
-  their own web and image tools off (see their runtime, below). A Bot's pi gets all three (pi has none of its
-  own). A runtime not named, and any other agent (the owner's token, the coordinator token, a Routine's script,
-  which has no MCP and keeps the commands), gets none; a tool this control plane does not have (no web, no images)
-  is not listed.
+  their own web and image tools off (see their runtime, below). A Bot's pi and the owner get all three.
+  An unnamed runtime, a coordinator token, and a Routine's script get none; a tool this control plane does not
+  have (no web, no images) is not listed.
 - How to use them is in their descriptions, not in a skill (no reference teaches a tool with one): `web_search`
   says when to search and to read the pages that answer, `web_fetch` to use it rather than curl or wget and the
   browser (`agent_browser_*`) for a page that needs a sign-in, a script or clicks (issue #723, decision 2.1, as
