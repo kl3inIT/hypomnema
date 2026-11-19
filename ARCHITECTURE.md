@@ -883,8 +883,10 @@ sequenceDiagram
     and the license taken out into `<version>.tmp`, run there (`-filters` has `freezedetect`, `subtitles` and `ass`,
     `-encoders` `libx264` and `aac`), then renamed into `<version>/` and named by `current`; the build `current`
     named before stays in use until the new one passes, and is removed then. A failed install is logged and tried
-    again at the next use. The programs are called by these absolute paths, never through PATH, and Be Vietnam Pro
-    SemiBold (OFL, embedded; `third_party/be-vietnam-pro`) is written to `ffmpeg/fonts/` for the captions.
+    again at the next use. The programs are called by these absolute paths, never through PATH, and the captions'
+    fonts (OFL, embedded, each family's license beside it) are written to `ffmpeg/fonts/`: Be Vietnam Pro SemiBold,
+    ExtraBold, Bold and Medium (`third_party/be-vietnam-pro`) and JetBrains Mono SemiBold
+    (`third_party/jetbrains-mono`).
     `internal/controlplane/videos/compose` is aidemo's compose ported to Go (MIT, `third_party/aidemo`): a take's
     scenes are its steps, steps at the same time one scene, each from its step to the next (the last to the take's
     end), the first from the take's start with the span before its step a lead-in cut as an idle span; a take with
@@ -895,8 +897,9 @@ sequenceDiagram
     300 ms within 0.5x-1.6x, its last frame held when still short and its tail trimmed when still long; a scene
     over a segment `freezedetect` fails on is kept whole, with a warning. A tap's ring, autodemo's ripple (MIT,
     `third_party/autodemo`), is drawn for 0.5 s from the tap's step, its point scaled from the screen's pixels
-    to the video's; each scene's voice is padded to its scene's length, captions (an ASS file) burned in when
-    given, and the MP4 (H.264, AAC, 30 fps) written in a work folder and renamed into place whole. Its tests make
+    to the video's, and each scene returns it (`SceneResult.Ring`: start, center and size in the video's pixels)
+    for the captions to keep clear of; each scene's voice is padded to its scene's length, captions (an ASS file)
+    burned in when given, and the MP4 (H.264, AAC, 30 fps) written in a work folder and renamed into place whole. Its tests make
     a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
     scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build. A take with taps
     and no `screen` (filmed before the node recorded it) is made without rings, with a warning.
@@ -923,7 +926,17 @@ sequenceDiagram
     punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
     word in #FFD400 (demotape's highlight and word timing normalize, ported), and burns it in with the font of
-    part 1 (`compose.Burn`). A scene with no word times fails the revision at `captioning`; with captions off the
+    part 1 (`compose.Burn`). Every revision is captioned so, as the preset `legacy` ("Classic"), until a revision
+    stores its look (#908, part 3). The other caption presets are built (`captions.Render`, #908 part 1): demotape's
+    eleven (`presets.go`, its macOS fonts mapped to the bundled ones) and aidemo's `bar`, Clean the default;
+    position `preset`, `bottom`, `lower_third`, `center` or `top`. Each is laid out as demotape's drawBlock (`styled.go`):
+    an em of 5 % of the height (6.2 % animated) times the preset's scale, at least 20 px, given to libass through
+    the font's OS/2 win metrics (a small OS/2 and head reader; text measured with `x/image/font/sfnt`), at most 2
+    words a line on a tall video, stepped through windows of the cue, each word at least 0.42 s (one or two words
+    at a time) or 0.14 s; the block, as drawn, at most 0.94 of the width (shrunk, then squeezed with `\fscx` at the
+    floor); a box as a `\p1` rounded rectangle, each line an `\an8\pos` event; a cue at the bottom moves to the top,
+    whole, while a tap's ring reaches it. Tests burn each preset on a grey frame with the pinned ffmpeg and measure
+    the box, the width, the colors, the placement and the font libass picks. A scene with no word times fails the revision at `captioning`; with captions off the
     stage is skipped. While a revision is voiced, composed or captioned, it says how many of its scenes that
     stage has done (`progress {scenes_done, scenes_total}`, kept in memory as aidemo's job keeps its count, reset at
     each stage). The first frame is the revision's thumbnail. Everything is made in

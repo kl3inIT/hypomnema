@@ -335,8 +335,21 @@ func (s *Service) captions(ctx context.Context, source AudioSource, clips []stri
 		return "", err
 	}
 
-	if err := os.WriteFile(out, []byte(captions.ASS(cues, made.Size.Width, made.Size.Height, captions.Default)),
-		0o600); err != nil {
+	var rings []compose.Ring
+
+	for _, sc := range made.Scenes {
+		if sc.Ring != nil {
+			rings = append(rings, *sc.Ring)
+		}
+	}
+
+	// Every revision keeps the captions it was made with until a revision stores its look (#908, part 3).
+	ass, err := captions.Render(cues, captions.Look{Preset: captions.Legacy}, made.Size.Width, made.Size.Height, rings)
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(out, []byte(ass), 0o600); err != nil {
 		return "", err
 	}
 

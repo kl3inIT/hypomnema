@@ -351,16 +351,22 @@ func TestComposeFixture(t *testing.T) {
 	}
 
 	// The taps' rings: 0.5 s from the tap's step through the cut and the retime, where the screen's point is.
-	require.NotNil(t, s0.RingAtMs)
-	require.NotNil(t, s2.RingAtMs)
-	assert.InDelta(t, 400*MaxStretch, *s0.RingAtMs, 2, "after the cut lead-in, slowed")
-	assert.Equal(t, s2.OutStartMs, *s2.RingAtMs)
-	assert.Nil(t, s1.RingAtMs)
+	// Each scene returns its ring, where it is drawn on the video, for the captions to keep clear of (#908, row 9).
+	require.NotNil(t, s0.Ring)
+	require.NotNil(t, s2.Ring)
+	assert.InDelta(t, 400*MaxStretch, s0.Ring.AtMs, 2, "after the cut lead-in, slowed")
+	assert.Equal(t, s2.OutStartMs, s2.Ring.AtMs)
+	assert.Nil(t, s1.Ring)
+	assert.InDelta(t, 360, s0.Ring.X, 1)
+	assert.InDelta(t, 1000, s0.Ring.Y, 1)
+	assert.InDelta(t, 180, s2.Ring.X, 1)
+	assert.InDelta(t, 640, s2.Ring.Y, 1)
+	assert.Equal(t, ringSize(float64(res.Size.Width)/dpWidth), s0.Ring.Size, "the first segment fills the width")
 
 	for _, r := range []struct {
 		at   int64
 		x, y int
-	}{{*s0.RingAtMs, 360, 1000}, {*s2.RingAtMs, 180, 640}} {
+	}{{s0.Ring.AtMs, s0.Ring.X, s0.Ring.Y}, {s2.Ring.AtMs, s2.Ring.X, s2.Ring.Y}} {
 		blue := blueFrames(t, tools, out, r.x, r.y)
 		first, last := -1, -1
 
@@ -667,6 +673,6 @@ func TestComposeWithoutTheScreenDrawsNoRing(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, res.Scenes, 1)
-	assert.Nil(t, res.Scenes[0].RingAtMs)
+	assert.Nil(t, res.Scenes[0].Ring)
 	assert.Contains(t, res.Warnings, "the take does not say its screen's size, so its taps get no ring")
 }
