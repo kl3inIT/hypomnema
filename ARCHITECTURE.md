@@ -2199,8 +2199,10 @@ flowchart LR
         chats and on its list, `Bot.MayUse`) on the owner's turn in its chat (see the Channels below;
         [issue #618](https://github.com/kl3inIT/hypomnema/issues/618): until 2026-11-16 only the main Bot's),
         as a personal OpenMausBot installation gives every bot the person's connected apps
-        (`docs/composio.md`). A worker given it, a coordinator token and a Routine's script never get it
-        (personal connections kept out of a team, `server/cloud-team.ts`). The
+        (`docs/composio.md`). A worker given it, a coordinator token and a Routine's script never get it, and a
+        Routine's run is no turn of his (`OwnerTurn`); OpenMausBot's `server/cloud-team.ts`, cited here until
+        2026-11-19, keeps personal connections out of a team shared with other people and is not the source
+        ([research](docs/research/2026-11-19-scheduled-runs-and-owner-accounts.md)). The
         agent API applies it in its list of accounts and so in the service proxy's check of every request;
         actions and approvals are the Lark catalog's.
   - Superset is an Integration of kind `account` ([issue #203](https://github.com/kl3inIT/hypomnema/issues/203),
