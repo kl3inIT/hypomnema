@@ -62,6 +62,7 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 	if err != nil {
 		return notFound(err, "run", task.RunID)
 	}
+	until := p.gatewayCoolingUntil(r)
 
 	switch {
 	case RunStatus(run.Status) != RunOpen:
@@ -70,6 +71,8 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("%w: task %s is %s, not ready", ErrConflict, task.ID, task.Status)
 	case task.NotBefore.Valid && task.NotBefore.Int64 > now:
 		return fmt.Errorf("%w: task %s waits until %s", ErrConflict, task.ID, millis(task.NotBefore.Int64))
+	case until != 0:
+		return fmt.Errorf("%w: gateway model %s waits until %s", ErrCoolingDown, r.model, millis(until))
 	case gatewayOnly(r.runtime) && !r.gateway:
 		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, needsGatewayMessage) // issue #381
 	case len(r.chain) > 0 && !spec.Continue && r.runtime != spec.Runtime:
@@ -91,6 +94,14 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 	gate, err := answeredGateBefore(ctx, q, task.ID)
 	if err != nil {
 		return err
+	}
+	last, err := q.LastDispatchOfTask(ctx, task.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if last.DeclinedLowDisk == 1 && last.ConversationID == conv {
+		recovery = last.Recovery == 1
+		r.handoff = last.Handoff == 1
 	}
 
 	followUp, err := pendingFollowUp(ctx, q, task.ID)
@@ -208,6 +219,10 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 	}
 
 	if err := p.checkNode(spec.NodeID, spec.Runtime, host); err != nil {
+		return "", "", false, err
+	}
+	root := p.nodes[spec.NodeID].row.WorktreeRoot.String
+	if err := checkManagedWorktree(root, spec.Worktree, task.RunID, task.ID); err != nil {
 		return "", "", false, err
 	}
 
@@ -344,6 +359,9 @@ func answeredGateBefore(ctx context.Context, q *store.Queries, taskID string) (s
 		return "", fmt.Errorf("reading the last dispatch of %s: %w", taskID, err)
 	}
 
+	if last.DeclinedLowDisk == 1 {
+		return last.GateQuestionID.String, nil
+	}
 	if DispatchStatus(last.Status) != DispatchGated {
 		return "", nil
 	}
@@ -449,7 +467,7 @@ func (s *Service) ReportStarted(ctx context.Context, call NodeCall, processRef, 
 // RecordEffect records an outside effect: its intent before it happens, done
 // after. A done completes the intent with the same Seq, or stands alone.
 func (s *Service) RecordEffect(ctx context.Context, call NodeCall, e Effect) error {
-	if e.Seq <= 0 || e.Kind == "" || (e.Phase != EffectIntent && e.Phase != EffectDone) {
+	if e.Seq <= 0 || e.Kind == "" || e.Kind == "git_push" || (e.Phase != EffectIntent && e.Phase != EffectDone) {
 		return fmt.Errorf("%w: an effect needs a positive seq, a kind and a phase", ErrInvalid)
 	}
 
@@ -802,6 +820,18 @@ func (s *Service) AbandonDispatch(ctx context.Context, id string) ([]Resource, e
 func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d store.Dispatch,
 	to DispatchStatus, class FailureClass, result *Result, resetsAt *time.Time, firstHand bool,
 ) error {
+	conv, err := q.GetConversation(ctx, d.ConversationID)
+	if err != nil {
+		return notFound(err, "conversation", d.ConversationID)
+	}
+	var knownGatewayReset bool
+	if class == FailureRateLimited && conv.AccountRef == GatewayAccountRef {
+		resetsAt, knownGatewayReset, err = gatewayReset(ctx, q, now, d, conv)
+		if err != nil {
+			return err
+		}
+	}
+
 	encoded := sql.NullString{}
 
 	if result != nil {
@@ -813,9 +843,13 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		encoded = sql.NullString{String: string(b), Valid: true}
 	}
 
+	from := dispatchFrom(to)
+	if to == DispatchExpired && d.DeclinedLowDisk == 1 {
+		from = append(from, string(DispatchStarting))
+	}
 	n, err := q.SettleDispatch(ctx, store.SettleDispatchParams{
 		Now: now, ToStatus: string(to), FailureClass: nullString(string(class)), Result: encoded,
-		ResetsAt: nullMillis(resetsAt), ID: d.ID, FromStatuses: dispatchFrom(to),
+		ResetsAt: nullMillis(resetsAt), ID: d.ID, FromStatuses: from,
 	})
 	if err != nil {
 		return fmt.Errorf("moving dispatch %s to %s: %w", d.ID, to, err)
@@ -855,16 +889,20 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		}
 	}
 
-	conv, err := q.GetConversation(ctx, d.ConversationID)
-	if err != nil {
-		return notFound(err, "conversation", d.ConversationID)
-	}
-
 	switch {
 	case !firstHand:
 		err = closeConversation(ctx, q, now, conv.ID, CloseInterrupted)
-	case to == DispatchExpired && !conv.CliSessionRef.Valid:
+	case to == DispatchExpired && !conv.CliSessionRef.Valid && d.DeclinedLowDisk == 0:
 		err = closeConversation(ctx, q, now, conv.ID, CloseNeverStarted)
+	case d.DeclinedLowDisk == 1 && !conv.CliSessionRef.Valid && d.Recovery == 0 && d.Handoff == 0 &&
+		!d.GateQuestionID.Valid && !d.FollowUpID.Valid:
+		var accepted bool
+		accepted, err = q.ConversationHadAnotherAccept(ctx, store.ConversationHadAnotherAcceptParams{
+			ConversationID: conv.ID, ID: d.ID,
+		})
+		if err == nil && !accepted && ConversationStatus(conv.Status) == ConversationOpen {
+			err = closeConversation(ctx, q, now, conv.ID, CloseNeverStarted)
+		}
 	}
 
 	if err != nil {
@@ -878,6 +916,11 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 
 	if task.CancelRequestedAt.Valid {
 		return cancelNow(ctx, q, now, d.TaskID)
+	}
+	if to == DispatchFailed && knownGatewayReset && resetsAt.UnixMilli() > now {
+		if err := recordTaskWait(ctx, q, task, gatewayCoolingReason(d.Model.String, resetsAt.UnixMilli())); err != nil {
+			return err
+		}
 	}
 
 	return s.afterSettle(ctx, q, now, d, conv, to, class, result, resetsAt)
@@ -929,7 +972,7 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 			return err
 		}
 
-		if !may {
+		if !may || (conv.AccountRef == GatewayAccountRef && d.RoleChain == "") {
 			if err := q.SetTaskNotBefore(ctx, store.SetTaskNotBeforeParams{
 				NotBefore: sql.NullInt64{Int64: until, Valid: true}, Now: now, ID: d.TaskID,
 			}); err != nil {

@@ -20,14 +20,22 @@ func (d *Daemon) handle(ctx context.Context, msg nodeproto.Message) error {
 			return fmt.Errorf("decoding an offer: %w", err)
 		}
 
-		return d.offered(ctx, o)
+		if d.cfg.Disk == nil {
+			return d.offered(ctx, o)
+		}
+		go func() {
+			if err := d.offered(ctx, o); err != nil && ctx.Err() == nil {
+				d.logger.WarnContext(ctx, "could not queue an offer response", slog.Any("error", err))
+			}
+		}()
+		return nil
 	case nodeproto.TypeStop:
 		var st nodeproto.Stop
 		if err := json.Unmarshal(msg.Payload, &st); err != nil {
 			return fmt.Errorf("decoding a stop: %w", err)
 		}
 
-		d.runner.Stop(st.DispatchID)
+		d.stop(st.DispatchID)
 
 		return nil
 	case nodeproto.TypeAnswer:
@@ -106,6 +114,11 @@ func (d *Daemon) phone(t nodeproto.Type) {
 // the accept is acknowledged (Omnara: accept, then accept_ack, then start).
 func (d *Daemon) offered(ctx context.Context, o nodeproto.Offer) error {
 	accept := nodeproto.Report{ReportID: d.newID("rep"), Kind: nodeproto.ReportAccept, DispatchID: o.DispatchID}
+	if d.cfg.Disk != nil {
+		if disk := d.measureDisk(ctx); !disk.AllowsWork() {
+			accept.Kind, accept.Payload = nodeproto.ReportLowDisk, mustJSON(disk)
+		}
+	}
 
 	added, err := d.db.AddOffer(ctx, o, accept)
 	if err != nil || !added {
@@ -173,6 +186,9 @@ func (d *Daemon) applied(ctx context.Context, r nodeproto.Report, ack nodeproto.
 	committed := ack.Status == nodeproto.AckCommitted
 
 	switch r.Kind {
+	case nodeproto.ReportLowDisk:
+		d.forget(r.DispatchID)
+		return d.db.Remove(ctx, r.DispatchID)
 	case nodeproto.ReportAccept, nodeproto.ReportReattach:
 		if !committed {
 			d.runner.Release(r.DispatchID)
@@ -184,6 +200,13 @@ func (d *Daemon) applied(ctx context.Context, r nodeproto.Report, ack nodeproto.
 		var a nodeproto.Accepted
 		if err := json.Unmarshal(ack.Response, &a); err != nil {
 			return fmt.Errorf("decoding the accept of %s: %w", r.DispatchID, err)
+		}
+		previous, err := d.db.Get(ctx, r.DispatchID)
+		if err != nil {
+			return err
+		}
+		if previous.State == statedb.StateEnded {
+			return nil
 		}
 
 		if err := d.db.Accept(ctx, r.DispatchID, a); err != nil {
@@ -232,19 +255,77 @@ func (d *Daemon) applied(ctx context.Context, r nodeproto.Report, ack nodeproto.
 // the session's, so a reconnect does not cut a setup short; a Runner keeps
 // its worker apart from either.
 func (d *Daemon) start(h statedb.Dispatch) {
-	ctx := d.base
+	ctx, cancel := context.WithCancel(d.base)
+	d.mu.Lock()
+	d.starts[h.ID] = cancel
+	if d.stops[h.ID] {
+		cancel()
+	}
+	d.mu.Unlock()
 
 	d.starting.Go(func() {
-		if err := d.runner.Start(ctx, h, d.worker(h.ID)); err != nil {
-			if err := d.worker(h.ID).finish(ctx, nodeproto.Finished{
-				Class: "start_failed", Summary: err.Error(), Exit: nodeproto.Exit{Kind: "not_started"},
-			}); err != nil {
-				d.logger.WarnContext(ctx, "reporting a failed start",
-					slog.String("event", "node.start_report_failed"), slog.String("dispatch_id", h.ID),
-					slog.String("error", err.Error()))
-			}
+		defer func() {
+			d.mu.Lock()
+			delete(d.starts, h.ID)
+			d.mu.Unlock()
+			cancel()
+		}()
+		if err := d.startAccepted(ctx, h); err != nil && ctx.Err() == nil {
+			d.logger.WarnContext(ctx, "could not queue a low-disk report",
+				slog.String("event", "node.start_report_failed"), slog.String("dispatch_id", h.ID), slog.Any("error", err))
 		}
 	})
+}
+
+func (d *Daemon) startAccepted(ctx context.Context, h statedb.Dispatch) error {
+	for !d.diskWorkers.TryRLock() {
+		select {
+		case <-ctx.Done():
+			_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
+			return nil
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	defer d.diskWorkers.RUnlock()
+
+	if ctx.Err() == nil && d.cfg.Disk != nil {
+		if disk := d.measureDisk(ctx); !disk.AllowsWork() && ctx.Err() == nil {
+			return d.worker(h.ID).end(ctx, nodeproto.ReportLowDisk, disk)
+		}
+	}
+	if ctx.Err() != nil {
+		_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
+		return nil
+	}
+	err := d.runner.Start(ctx, h, d.worker(h.ID))
+	if ctx.Err() != nil && d.base.Err() == nil {
+		if err != nil {
+			_ = d.worker(h.ID).Stopped(d.base) //nolint:contextcheck // report with the uncanceled daemon context
+		} else {
+			d.runner.Stop(h.ID)
+		}
+		return nil
+	}
+	if err != nil {
+		if err := d.worker(h.ID).finish(ctx, nodeproto.Finished{
+			Class: "start_failed", Summary: err.Error(), Exit: nodeproto.Exit{Kind: "not_started"},
+		}); err != nil {
+			d.logger.WarnContext(ctx, "reporting a failed start",
+				slog.String("event", "node.start_report_failed"), slog.String("dispatch_id", h.ID),
+				slog.String("error", err.Error()))
+		}
+	}
+	return nil
+}
+
+func (d *Daemon) stop(id string) {
+	d.mu.Lock()
+	d.stops[id] = true
+	if cancel := d.starts[id]; cancel != nil {
+		cancel()
+	}
+	d.mu.Unlock()
+	d.runner.Stop(id)
 }
 
 // beat acts on a lease renewal's answer: a stop requested, answers waiting.
@@ -255,7 +336,7 @@ func (d *Daemon) beat(id string, raw json.RawMessage) {
 	}
 
 	if b.StopRequested {
-		d.runner.Stop(id)
+		d.stop(id)
 	}
 
 	for _, q := range b.Answers {
@@ -310,6 +391,12 @@ func (w *Worker) Ask(ctx context.Context, a nodeproto.Ask) (string, error) {
 func (w *Worker) AnswerReceived(ctx context.Context, questionID string) error {
 	_, err := w.report(ctx, nodeproto.ReportAnswerAck, nodeproto.AnswerAck{QuestionID: questionID})
 
+	return err
+}
+
+// PublishedHead records an update sent to the Git host by the node.
+func (w *Worker) PublishedHead(ctx context.Context, head nodeproto.PublishedHead) error {
+	_, err := w.report(ctx, nodeproto.ReportPublishedHead, head)
 	return err
 }
 

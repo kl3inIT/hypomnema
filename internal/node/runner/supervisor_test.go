@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -213,6 +214,16 @@ func (t *fakeTurn) Interrupt() []byte {
 	return raw
 }
 
+type noInterruptRuntime struct{ *fake }
+
+func (rt noInterruptRuntime) Adopted(state []byte) Turn {
+	return noInterruptTurn{rt.fake.Adopted(state)}
+}
+
+type noInterruptTurn struct{ Turn }
+
+func (noInterruptTurn) Interrupt() []byte { return nil }
+
 func (t *fakeTurn) Result() Result {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -299,6 +310,8 @@ func (r *reporter) AnswerReceived(_ context.Context, questionID string) error {
 
 	return nil
 }
+
+func (r *reporter) PublishedHead(context.Context, nodeproto.PublishedHead) error { return nil }
 
 func (r *reporter) Finished(_ context.Context, f nodeproto.Finished) error {
 	r.mu.Lock()
@@ -399,12 +412,53 @@ func TestAdoptedWorkerCanBeStopped(t *testing.T) {
 	again := g.restart()
 	second := newReporter()
 	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, again.dispatch(), second))
+	temp := filepath.Join(again.sup.dir("dsp_1"), "tmp")
+	assert.DirExists(t, temp)
+	assert.False(t, again.sup.Stopped("dsp_1", false))
 
 	again.sup.Stop("dsp_1")
 	second.wait(t)
 
 	assert.Equal(t, 1, second.stopped)
 	assert.Empty(t, second.started, "the adopted worker was already reported started")
+	if runtime.GOOS == "linux" {
+		require.Eventually(t, func() bool { return again.sup.Stopped("dsp_1", false) }, 5*time.Second, 20*time.Millisecond)
+		require.NoError(t, again.sup.CleanTemp(t.Context(), "dsp_1"))
+		assert.NoDirExists(t, temp)
+		assert.FileExists(t, filepath.Join(again.sup.dir("dsp_1"), shim.JournalFile))
+	}
+}
+
+func TestWorkerUsesShortConfiguredHomeForSocket(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("requires Unix domain sockets and a detached shim")
+	}
+	g := newRig(t, "hang")
+	realHome := filepath.Join(g.sup.Home, strings.Repeat("long", 30))
+	require.NoError(t, os.Mkdir(realHome, 0o700))
+	short, err := os.MkdirTemp("", "hy-") //nolint:usetesting // The test name in t.TempDir can exceed the socket limit.
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, os.RemoveAll(short)) })
+	alias := filepath.Join(short, "h")
+	require.NoError(t, os.Symlink(realHome, alias))
+	if len(filepath.Join(alias, "run", "dsp_1", shim.SocketFile)) >= 104 {
+		t.Skip("temporary base path is too long for a Unix socket")
+	}
+	g.sup.Home, err = filepath.EvalSymlinks(realHome)
+	require.NoError(t, err)
+	g.sup.SocketHome = alias
+	t.Cleanup(func() { g.sup.Release("dsp_1") })
+	r := newReporter()
+	g.start(r)
+	again := g.restart()
+	again.sup.SocketHome = alias
+	t.Cleanup(func() { again.sup.Release("dsp_1") })
+	second := newReporter()
+	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, again.dispatch(), second))
+	again.sup.Stop("dsp_1")
+	second.wait(t)
+	assert.Equal(t, 1, second.stopped)
 }
 
 // Scenario: the daemon restarts after it read the start of the journal. The
@@ -452,11 +506,108 @@ func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 	dir := g.sup.dir("dsp_1")
 	pid, err := shim.PID(dir)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = shim.KillRecorded(dir) })
+	identity := filepath.Join(dir, "shim.identity")
+	original, err := os.ReadFile(identity) //nolint:gosec // an owned test fixture
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(identity, []byte(`{"Started":1}`), 0o600))
+	restarted := g.restart().sup
+	restarted.Release("dsp_1")
+	assert.Never(t, func() bool { return !shim.Alive(pid) }, 100*time.Millisecond, 10*time.Millisecond)
+	require.NoError(t, os.WriteFile(identity, original, 0o600)) //nolint:gosec // the owned shim fixture
+	alias := filepath.Join(t.TempDir(), "node-home")
+	require.NoError(t, os.Symlink(restarted.Home, alias))
+	restarted.Home = alias
 
-	g.restart().sup.Release("dsp_1")
+	restarted.Release("dsp_1")
 
-	assert.NoDirExists(t, dir)
+	assert.DirExists(t, dir, "the shim record is needed to confirm the worker has stopped")
 	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 20*time.Second, 20*time.Millisecond)
+}
+
+func TestStopRevokesShimLaunchBeforePID(t *testing.T) {
+	t.Parallel()
+	g := newRig(t, "hang")
+	realExe := g.sup.Exe
+	wrapper := filepath.Join(g.sup.Home, "delayed-shim")
+	command := `#!/bin/sh
+: > "$3/spawned"
+while [ ! -f "$3/proceed" ]; do /bin/sleep 0.01; done
+exec "` + realExe + `" "$@"
+`
+	require.NoError(t, os.WriteFile(wrapper, []byte(command), 0o700)) //nolint:gosec // executable fixture
+	g.sup.Exe = wrapper
+	dispatch := g.dispatch()
+	dir := g.sup.dir(dispatch.ID)
+	proceed := filepath.Join(dir, "proceed")
+	t.Cleanup(func() {
+		_ = os.WriteFile(proceed, nil, 0o600)
+		if _, err := os.Stat(filepath.Join(dir, "spawned")); err != nil {
+			return
+		}
+		assert.Eventually(t, func() bool {
+			_, err := shim.PID(dir)
+			return err == nil
+		}, 5*time.Second, 10*time.Millisecond)
+		_ = shim.KillRecorded(dir)
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- g.sup.Start(ctx, g.rt, dispatch, newReporter()) }()
+	require.Eventually(t, func() bool {
+		_, err := os.Stat(filepath.Join(dir, "spawned"))
+		return err == nil
+	}, 5*time.Second, 10*time.Millisecond)
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+	require.NoFileExists(t, filepath.Join(dir, shim.LaunchingFile), "the canceled Start revokes the launch")
+	require.NoError(t, os.WriteFile(proceed, nil, 0o600))
+	require.Eventually(t, func() bool {
+		pid, err := shim.PID(dir)
+		return err == nil && shim.GroupGone(pid)
+	}, 5*time.Second, 10*time.Millisecond)
+	assert.NoFileExists(t, filepath.Join(dir, shim.ClaimedFile))
+}
+
+func TestStopRevokesAnAdoptedLaunchBeforeShimPID(t *testing.T) {
+	t.Parallel()
+	g := newRig(t, "hang")
+	dispatch := g.dispatch()
+	dir := g.sup.dir(dispatch.ID)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	for _, marker := range []string{shim.PreparingFile, shim.LaunchingFile} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, marker), nil, 0o600))
+	}
+	require.NoError(t, g.sup.Adopt(t.Context(), noInterruptRuntime{g.rt}, dispatch, newReporter()))
+	t.Cleanup(func() { g.sup.Release(dispatch.ID) })
+	require.NotNil(t, g.sup.get(dispatch.ID))
+	require.NoFileExists(t, filepath.Join(dir, shim.PIDFile))
+
+	g.sup.Stop(dispatch.ID)
+
+	require.NoFileExists(t, filepath.Join(dir, shim.LaunchingFile))
+	delayed := exec.CommandContext(t.Context(), g.sup.Exe, "shim", "--dir", dir) //nolint:gosec // the test binary
+	require.ErrorAs(t, delayed.Run(), new(*exec.ExitError))
+	require.FileExists(t, filepath.Join(dir, shim.PIDFile))
+	require.NoFileExists(t, filepath.Join(dir, shim.ClaimedFile))
+}
+
+func TestRestartReclaimsTempBeforeShimPID(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("mount identity is unavailable on Windows")
+	}
+	sup := &Supervisor{Home: t.TempDir(), Logger: slog.New(slog.DiscardHandler)}
+	dir := sup.dir("dsp_1")
+	tmp := filepath.Join(dir, "tmp")
+	require.NoError(t, os.MkdirAll(tmp, 0o700))
+	for _, marker := range []string{shim.PreparingFile, shim.LaunchingFile} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, marker), nil, 0o600))
+	}
+	require.NoError(t, sup.CleanTemp(t.Context(), "dsp_1"))
+	assert.NoDirExists(t, tmp)
+	require.ErrorContains(t, shim.Main(t.Context(), dir), "claiming permission")
 }
 
 // Scenario: the worker asks the owner through its tool. The question is
@@ -551,6 +702,13 @@ func TestATurnsResultOutlivesARestart(t *testing.T) {
 // Scenario: a daemon stopped after it made a worker's run directory and
 // before its shim started. The new daemon adopts it, waits for the shim as a
 // start does, and ends it as a start that failed (issue #403).
+func TestDispatchTempOverridesGoTemp(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "dispatch-temp")
+	env := tempEnv([]string{"PATH=/bin", "GOTMPDIR=/tmp", "TMPDIR=/tmp"}, dir)
+	assert.Equal(t, []string{"PATH=/bin", "TMPDIR=" + dir, "TEMP=" + dir, "TMP=" + dir, "GOTMPDIR=" + dir}, env)
+}
+
 func TestARunDirectoryWithoutAShimEnds(t *testing.T) {
 	t.Parallel()
 
@@ -608,7 +766,7 @@ func TestReleaseWaitsForTheJournalReader(t *testing.T) {
 
 		return r.exited+len(r.finished)+r.stopped > 0
 	}, time.Second, 20*time.Millisecond, "a released worker reports nothing")
-	assert.NoDirExists(t, dir)
+	assert.DirExists(t, dir, "releasing a worker leaves its journal in place")
 }
 
 // Scenario: a node takes a release while its workers run. The new daemon

@@ -1,11 +1,12 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Clapperboard, Download, Pause, Play, Trash2 } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Clapperboard, Download, Film, Pause, Play, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react"
 
 import {
   deleteTakeMutation,
   getTakeQueryKey,
   listTakesQueryKey,
+  listVideosOptions,
 } from "@/api/generated/@tanstack/react-query.gen"
 import type { Take } from "@/api/generated/types.gen"
 import {
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { MakeVideo } from "@/features/studio/make-video"
 import { errorText } from "@/lib/server-error"
 import { cn } from "@/lib/utils"
 
@@ -40,10 +42,27 @@ import {
 // step and a hatched mark where the owner's takeover paused the take; a step, a chapter or a place of the timeline
 // pressed seeks there, as autodemo's share page seeks its video from its chapters and transcript
 // (src/share.js:68-78). The bar above has the take's download, a zip of its segments and take.json, and its
-// delete, which asks first. The bar is the phone view's (../device/phone-view.tsx), in the pane's shape.
-export function TakeView({ id, onClose }: { id: string; onClose: () => void }) {
+// delete, which asks first. The bar is the phone view's (../device/phone-view.tsx), in the pane's shape. Where the
+// place showing it opens videos (onOpenVideo), an available take has "Make video" (issue #818, row 12), and "Video"
+// once it has one.
+export function TakeView({
+  id,
+  onClose,
+  onOpenVideo,
+}: {
+  id: string
+  onClose: () => void
+  onOpenVideo?: (video: string) => void
+}) {
   const read = useTake(id)
   const take = read.data
+  const ready = take?.state === "available"
+  // A take has at most one video (issue #818, row 1).
+  const video = useQuery({
+    ...listVideosOptions(),
+    enabled: ready && onOpenVideo !== undefined,
+    select: (list) => list.data.find((v) => v.take === id),
+  }).data
   const [deleting, setDeleting] = useState(false)
   const queryClient = useQueryClient()
   const remove = useMutation({
@@ -67,6 +86,15 @@ export function TakeView({ id, onClose }: { id: string; onClose: () => void }) {
             </span>
           )}
         </p>
+        {ready && onOpenVideo && video && (
+          <Button variant="ghost" size="sm" onClick={() => onOpenVideo(video.id)}>
+            <Film />
+            Video
+          </Button>
+        )}
+        {ready && onOpenVideo && (
+          <MakeVideo take={id} again={video !== undefined} onMade={(v) => onOpenVideo(v.id)} />
+        )}
         {take?.state === "available" && (
           <Button
             variant="ghost"
@@ -248,136 +276,139 @@ function TakePlayer({ take }: { take: Take }) {
   const current = take.steps.findLastIndex((s) => s.at_ms <= time)
 
   return (
-    <div className="@container/take flex min-h-0 min-w-0 flex-1 flex-col @3xl/take:flex-row">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted">
-        <div className="flex min-h-0 flex-1 items-center justify-center p-3">
-          {segment && (
-            <video
-              ref={video}
-              key={segment.file}
-              src={segmentUrl(take.id, segment.file)}
-              aria-label={`The take ${take.title}`}
-              data-testid="take-video"
-              data-segment={segment.file}
-              playsInline
-              muted
-              preload="metadata"
-              className="max-h-full max-w-full rounded-lg bg-black shadow-lg"
-              onLoadedMetadata={loaded}
-              onTimeUpdate={ticked}
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={segmentEnded}
-            />
-          )}
-        </div>
-        <div className="flex shrink-0 items-center gap-3 border-t bg-background px-3 py-2">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label={playing ? "Pause" : "Play"}
-            onClick={toggle}
-          >
-            {playing ? <Pause /> : <Play />}
-          </Button>
-          <span
-            className="shrink-0 text-xs text-muted-foreground tabular-nums"
-            data-testid="take-time"
-          >
-            {clock(time)} / {clock(length)}
-          </span>
-          <div className="relative h-6 min-w-0 flex-1">
-            <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-border">
-              <div className="h-full bg-primary" style={{ width: percent(time) }} />
+    // The container is the outer box: a container query styles what is inside it, not the container itself.
+    <div className="@container/take flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col @3xl/take:flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-muted">
+          <div className="flex min-h-0 flex-1 items-center justify-center p-3">
+            {segment && (
+              <video
+                ref={video}
+                key={segment.file}
+                src={segmentUrl(take.id, segment.file)}
+                aria-label={`The take ${take.title}`}
+                data-testid="take-video"
+                data-segment={segment.file}
+                playsInline
+                muted
+                preload="metadata"
+                className="max-h-full max-w-full rounded-lg bg-black shadow-lg"
+                onLoadedMetadata={loaded}
+                onTimeUpdate={ticked}
+                onPlay={() => setPlaying(true)}
+                onPause={() => setPlaying(false)}
+                onEnded={segmentEnded}
+              />
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-3 border-t bg-background px-3 py-2">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={playing ? "Pause" : "Play"}
+              onClick={toggle}
+            >
+              {playing ? <Pause /> : <Play />}
+            </Button>
+            <span
+              className="shrink-0 text-xs text-muted-foreground tabular-nums"
+              data-testid="take-time"
+            >
+              {clock(time)} / {clock(length)}
+            </span>
+            <div className="relative h-6 min-w-0 flex-1">
+              <div className="pointer-events-none absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-border">
+                <div className="h-full bg-primary" style={{ width: percent(time) }} />
+              </div>
+              {take.pauses.map((p) => (
+                <span
+                  key={`pause-${p.at_ms}`}
+                  title={`Paused for you at ${clock(p.at_ms)}`}
+                  data-testid="take-pause"
+                  className="pointer-events-none absolute top-0 h-full w-1.5 -translate-x-1/2 rounded-sm border border-foreground/30"
+                  style={{ left: percent(p.at_ms), ...hatch }}
+                />
+              ))}
+              {take.steps.map((s, i) => (
+                <span
+                  // Two steps may share a time.
+                  key={`step-${i}`}
+                  data-testid="take-mark"
+                  className="pointer-events-none absolute top-1/2 size-2 -translate-1/2 rounded-full bg-foreground ring-2 ring-background"
+                  style={{ left: percent(s.at_ms) }}
+                />
+              ))}
+              {/* The timeline is a range the owner drags or steps with the arrow keys, over the marks. */}
+              <input
+                type="range"
+                aria-label="Where in the take"
+                aria-valuetext={`${clock(time)} of ${clock(length)}`}
+                min={0}
+                max={length}
+                step={100}
+                value={Math.min(time, length)}
+                onChange={(event) => seek(Number(event.currentTarget.value))}
+                className="absolute inset-0 size-full cursor-pointer opacity-0"
+              />
             </div>
-            {take.pauses.map((p) => (
-              <span
-                key={`pause-${p.at_ms}`}
-                title={`Paused for you at ${clock(p.at_ms)}`}
-                data-testid="take-pause"
-                className="pointer-events-none absolute top-0 h-full w-1.5 -translate-x-1/2 rounded-sm border border-foreground/30"
-                style={{ left: percent(p.at_ms), ...hatch }}
-              />
-            ))}
-            {take.steps.map((s, i) => (
-              <span
-                // Two steps may share a time.
-                key={`step-${i}`}
-                data-testid="take-mark"
-                className="pointer-events-none absolute top-1/2 size-2 -translate-1/2 rounded-full bg-foreground ring-2 ring-background"
-                style={{ left: percent(s.at_ms) }}
-              />
-            ))}
-            {/* The timeline is a range the owner drags or steps with the arrow keys, over the marks. */}
-            <input
-              type="range"
-              aria-label="Where in the take"
-              aria-valuetext={`${clock(time)} of ${clock(length)}`}
-              min={0}
-              max={length}
-              step={100}
-              value={Math.min(time, length)}
-              onChange={(event) => seek(Number(event.currentTarget.value))}
-              className="absolute inset-0 size-full cursor-pointer opacity-0"
-            />
           </div>
         </div>
-      </div>
-      <aside
-        aria-label="Steps"
-        className="flex max-h-[45%] min-h-0 shrink-0 flex-col overflow-y-auto border-t @3xl/take:max-h-none @3xl/take:w-80 @3xl/take:border-s @3xl/take:border-t-0"
-      >
-        {marks.length > 1 && (
-          <section className="border-b px-3 py-2">
-            <h2 className="pb-1 text-xs font-medium text-muted-foreground">Chapters</h2>
-            <ul className="flex flex-wrap gap-1">
-              {marks.map((c) => (
-                <li key={`${c.at}-${c.title}`}>
-                  <Button variant="outline" size="xs" onClick={() => seek(c.at)}>
-                    <span className="text-muted-foreground tabular-nums">{clock(c.at)}</span>
-                    {c.title}
-                  </Button>
+        <aside
+          aria-label="Steps"
+          className="flex max-h-[45%] min-h-0 shrink-0 flex-col overflow-y-auto border-t @3xl/take:max-h-none @3xl/take:w-80 @3xl/take:border-s @3xl/take:border-t-0"
+        >
+          {marks.length > 1 && (
+            <section className="border-b px-3 py-2">
+              <h2 className="pb-1 text-xs font-medium text-muted-foreground">Chapters</h2>
+              <ul className="flex flex-wrap gap-1">
+                {marks.map((c) => (
+                  <li key={`${c.at}-${c.title}`}>
+                    <Button variant="outline" size="xs" onClick={() => seek(c.at)}>
+                      <span className="text-muted-foreground tabular-nums">{clock(c.at)}</span>
+                      {c.title}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          <section className="px-1 py-2">
+            <h2 className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+              {take.steps.length} {take.steps.length === 1 ? "step" : "steps"}
+            </h2>
+            {take.steps.length === 0 && (
+              <p className="px-2 text-sm text-muted-foreground">The agent said no step.</p>
+            )}
+            <ol>
+              {take.steps.map((s, i) => (
+                <li key={`${s.at_ms}-${i}`}>
+                  <button
+                    type="button"
+                    aria-current={i === current ? "step" : undefined}
+                    onClick={() => seek(s.at_ms)}
+                    className={cn(
+                      "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+                      i === current && "bg-accent",
+                    )}
+                  >
+                    <span className="shrink-0 pt-px text-xs text-muted-foreground tabular-nums">
+                      {clock(s.at_ms)}
+                    </span>
+                    <span className="min-w-0">
+                      {s.chapter && (
+                        <span className="block text-xs font-medium text-muted-foreground">
+                          {s.chapter}
+                        </span>
+                      )}
+                      {s.text}
+                    </span>
+                  </button>
                 </li>
               ))}
-            </ul>
+            </ol>
           </section>
-        )}
-        <section className="px-1 py-2">
-          <h2 className="px-2 pb-1 text-xs font-medium text-muted-foreground">
-            {take.steps.length} {take.steps.length === 1 ? "step" : "steps"}
-          </h2>
-          {take.steps.length === 0 && (
-            <p className="px-2 text-sm text-muted-foreground">The agent said no step.</p>
-          )}
-          <ol>
-            {take.steps.map((s, i) => (
-              <li key={`${s.at_ms}-${i}`}>
-                <button
-                  type="button"
-                  aria-current={i === current ? "step" : undefined}
-                  onClick={() => seek(s.at_ms)}
-                  className={cn(
-                    "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
-                    i === current && "bg-accent",
-                  )}
-                >
-                  <span className="shrink-0 pt-px text-xs text-muted-foreground tabular-nums">
-                    {clock(s.at_ms)}
-                  </span>
-                  <span className="min-w-0">
-                    {s.chapter && (
-                      <span className="block text-xs font-medium text-muted-foreground">
-                        {s.chapter}
-                      </span>
-                    )}
-                    {s.text}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ol>
-        </section>
-      </aside>
+        </aside>
+      </div>
     </div>
   )
 }

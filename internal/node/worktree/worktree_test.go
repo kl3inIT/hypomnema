@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 )
 
 func run(t *testing.T, dir string, args ...string) string {
@@ -181,34 +183,6 @@ func TestMirrorFetchDoesNotStartAutomaticMaintenance(t *testing.T) {
 	assert.NotContains(t, string(trace), `"name":"gc"`)
 }
 
-func TestMirrorRemoveWaitsForTheSameLock(t *testing.T) {
-	t.Parallel()
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is not installed")
-	}
-
-	dir := t.TempDir()
-	origin(t, dir)
-	maker := Maker{Root: filepath.Join(dir, "node")}
-	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
-	require.NoError(t, err)
-	src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
-	path := filepath.Join(dir, "wt", "task")
-	require.NoError(t, maker.Ensure(t.Context(), src, "main", "task", path))
-	lock, err := maker.lockMirror(t.Context(), maker.mirrorPath(src.Repo))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = lock.Close() })
-
-	blocked, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
-	defer cancel()
-	err = maker.Remove(blocked, src, path)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.FileExists(t, filepath.Join(path, ".git"))
-	require.NoError(t, lock.Close())
-	require.NoError(t, maker.Remove(t.Context(), src, path))
-	assert.NoDirExists(t, path)
-}
-
 func TestFetchRetriesARefLockErrorOnlyOnce(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the test uses a shell executable in PATH")
@@ -270,7 +244,7 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 		t.Skip("git is not installed")
 	}
 
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	origin(t, filepath.Join(dir, "origin"))
 
 	m := Maker{Root: filepath.Join(dir, "node"), URL: filepath.ToSlash(filepath.Join(dir, "origin")) + "/%s"}
@@ -290,7 +264,10 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a continued Conversation")
 	assert.FileExists(t, filepath.Join(path, "login.go"))
 
-	require.NoError(t, m.Remove(t.Context(), repo, path))
+	if !diskguard.ScopeAvailable() {
+		t.Skip("Landlock is not available for the native command")
+	}
+	require.NoError(t, m.Clean(t.Context(), path, true, func() bool { return true }))
 	assert.NoDirExists(t, path)
 
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a retry")

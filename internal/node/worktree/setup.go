@@ -97,8 +97,13 @@ func (m Maker) setup(ctx context.Context, path string, lock *mirrorLock) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	output, err := (mirrorGit{lock: lock, grace: m.GitGrace}).runProcess(ctx, path,
-		append(os.Environ(), "GIT_TERMINAL_PROMPT=0", worktreePathEnv+"="+path), shell, "-c", script)
+	// Git must not wait for a person (Orca: promptGuardShellEnv).
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", worktreePathEnv+"="+path)
+	if m.TempDir != "" {
+		env = append(env, "TMPDIR="+m.TempDir, "TEMP="+m.TempDir, "TMP="+m.TempDir, "GOTMPDIR="+m.TempDir)
+	}
+	// The script's children end with it when its time is up (Orca: signalProcessTree).
+	output, err := (mirrorGit{lock: lock, grace: m.GitGrace}).runProcess(ctx, path, env, shell, "-c", script)
 
 	switch {
 	case ctx.Err() != nil:

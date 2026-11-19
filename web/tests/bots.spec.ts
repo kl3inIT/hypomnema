@@ -13,8 +13,10 @@ import { fullToolAccess, toolFamilies } from "./fixtures/tools.js"
 
 const hours = (n: number) => new Date(Date.now() - n * 3_600_000).toISOString()
 
+// Each Bot has a main chat (issue #471), so the start screen's New chat makes another: POST /chats.
 const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   id: name,
+  main_chat: `cht_main_${name}`,
   name,
   position: 0,
   pinned: false,
@@ -599,7 +601,7 @@ test("a Bot's notes are listed, opened, written and removed", async ({ page }) =
 test("a Bot shows its memory, takes a new persona and refuses to be removed", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/bots")
-  await page.getByRole("link", { name: "coordinator", exact: true }).click()
+  await page.getByRole("link", { name: "Settings of coordinator" }).click()
 
   await expect(page.getByRole("heading", { name: "coordinator", level: 2 })).toBeVisible()
   await expect(page.getByLabel("Model", { exact: true })).toContainText("gpt-luna")

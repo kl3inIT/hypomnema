@@ -40,7 +40,7 @@ const node = (id: string, name: string, m: object = {}) => ({
   ...m,
 })
 
-async function fakeServer(page: Page) {
+async function fakeServer(page: Page, diskPressure = false) {
   let nodes = [
     node("nod_1", "aioffice-app"),
     node("nod_2", "gpu-box", {
@@ -60,6 +60,18 @@ async function fakeServer(page: Page) {
       last_seen_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
     }),
   ]
+  if (diskPressure) {
+    const disk = { floor_bytes: 5 * GiB, trim_bytes: 15 * GiB, at: now, age_ms: 4000 }
+    const storage = (used: number) => ({
+      system: { ...nodes[0].system, disk_bytes: 100 * GiB },
+      stats: { ...nodes[0].stats, disk_used_bytes: used * GiB },
+    })
+    nodes = [
+      node("nod_1", "build-node", { ...storage(100), disk: { ...disk, free_bytes: 0 } }),
+      node("nod_2", "worker-node", { ...storage(92), disk: { ...disk, free_bytes: 8 * GiB } }),
+      node("nod_3", "new-node", { ...storage(65), disk: { ...disk, age_ms: 31000 } }),
+    ]
+  }
   const calls: string[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -110,6 +122,27 @@ async function fakeServer(page: Page) {
   })
 
   return calls
+}
+
+for (const theme of ["light", "dark"] as const) {
+  test(`disk pressure stays separate from connectivity in ${theme} mode`, async ({ page }) => {
+    await page.addInitScript((choice) => localStorage.setItem("theme", choice), theme)
+    await fakeServer(page, true)
+    await page.goto("/machines")
+    await expect(page.locator("html")).toHaveClass(new RegExp(theme))
+    const blocked = page.getByRole("article", { name: "build-node" })
+    await expect(blocked).toContainText("Online")
+    await expect(blocked).toContainText("0.0 GiB free · Takes no new work")
+    await expect(blocked).toContainText("Floor 5.0 GiB · Trim 15.0 GiB · 4s ago")
+    await expect(blocked.getByRole("meter", { name: "Disk" })).toHaveAttribute("data-tone", "crit")
+    const warning = page.getByRole("article", { name: "worker-node" })
+    await expect(warning).toContainText("8.0 GiB free · Low disk")
+    await expect(warning.getByRole("meter", { name: "Disk" })).toHaveAttribute("data-tone", "warn")
+    const stale = page.getByRole("article", { name: "new-node" })
+    await expect(stale).toContainText("Not measured")
+    await expect(stale.getByRole("meter", { name: "Disk" })).toHaveAttribute("data-tone", "off")
+    await shot(page, `machines-disk-${theme}`)
+  })
 }
 
 // Scenario: the owner looks at the machines as cards, shows only the offline ones from the View menu's Status
@@ -177,7 +210,7 @@ test("the machines show as cards and as a table", async ({ page }) => {
 
 // Scenario: the owner adds a machine and gets its token and install line once; then resumes a drained machine,
 // and is refused when removing one that still works.
-test("the owner adds, resumes and fails to remove a machine", async ({ page }) => {
+test("the owner adds, resumes and fails to remove a machine", async ({ page, baseURL }) => {
   const calls = await fakeServer(page)
   await page.goto("/machines")
 
@@ -188,7 +221,7 @@ test("the owner adds, resumes and fails to remove a machine", async ({ page }) =
   await dialog.getByRole("button", { name: "Add" }).click()
   await expect(dialog.getByLabel("Token", { exact: true })).toHaveText("hnt_shown_once")
   await expect(dialog.getByLabel("Install line", { exact: true })).toHaveText(
-    "curl -fsSL http://127.0.0.1:4173/install/node.sh | sh",
+    `curl -fsSL ${new URL("/install/node.sh", baseURL)} | sh`,
   )
   await dialog.getByRole("button", { name: "Done" }).click()
   await expect(page.getByText("hnt_shown_once")).toHaveCount(0)

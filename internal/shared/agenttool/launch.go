@@ -277,15 +277,18 @@ type Launcher struct {
 	Key string
 	// ToolsHome is the directory the real tools are installed under.
 	ToolsHome string
+	// ExecTrust is set by the desktop CLI, never by an agent's launcher.
+	ExecTrust *ExecTrust
 	// Chat is the chat a coordinator works in; empty for a worker.
 	Chat string
 	// RunKey is the key of the Routine's run whose script runs the tool;
 	// empty otherwise.
-	RunKey string
-	Client *http.Client
-	Stdin  io.Reader
-	Stdout io.Writer
-	Stderr io.Writer
+	RunKey          string
+	OwnsReplacement replacementOwner
+	Client          *http.Client
+	Stdin           io.Reader
+	Stdout          io.Writer
+	Stderr          io.Writer
 }
 
 // FromEnv is the launcher of an agent whose starter set the environment.
@@ -329,8 +332,25 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 		return err
 	}
 
+	if name == "gh" && len(rest) > 0 && rest[0] == "reconcile-replacement" {
+		return reconcileReplacement(ctx, rest[1:], l.Stdout, func(out io.Writer, args ...string) error {
+			call := l
+			call.Stdout = out
+			return call.runPinned(ctx, def, label, args)
+		}, l.OwnsReplacement)
+	}
+
+	return l.runPinned(ctx, def, label, rest)
+}
+
+func (l Launcher) runPinned(ctx context.Context, def Def, label string, args []string) error {
+	if l.ToolsHome == "" {
+		return fmt.Errorf("%s is run through Hypomnema, which did not set it up for this agent "+
+			"(%s, %s and %s are needed)", def.Name, EnvURL, EnvKey, EnvTools)
+	}
+
 	//nolint:gosec // The pinned tool, installed by this machine's own installer.
-	return l.launch(ctx, def, label, exec.CommandContext(ctx, ToolPath(l.ToolsHome, def.Name, def.Version), rest...))
+	return l.launch(ctx, def, label, exec.CommandContext(ctx, ToolPath(l.ToolsHome, def.Name, def.Version), args...))
 }
 
 // runCommand runs `<integration> [--account label] -- <command> [args...]`. The account flag is read only before
@@ -362,10 +382,37 @@ func (l Launcher) runCommand(ctx context.Context, args []string) error {
 		return fmt.Errorf("%q comes before \"--\"; only %s may: %w", rest[0], accountFlag, usage)
 	}
 
-	command := args[dash+1:]
+	return l.runOnPath(ctx, def, label, args[dash+1:])
+}
 
+// Exec runs a local command through the proxy of an explicitly named Connection.
+func (l Launcher) Exec(ctx context.Context, integration, label string, command []string) error {
+	if integration == "" || label == "" || len(command) == 0 {
+		return errors.New("name a Connection and a command: hypomnema exec <integration>:<label> -- <command> [args...]")
+	}
+
+	def, ok := Of(integration)
+	if !ok {
+		name := strings.TrimSuffix(filepath.Base(command[0]), ".exe")
+		def, ok = Named(name)
+		if !ok || def.HostKind == "" {
+			return fmt.Errorf("%s is not an integration Hypomnema runs %s through", integration, name)
+		}
+
+		label = integration + ":" + label
+	}
+
+	return l.runOnPath(ctx, def, label, command)
+}
+
+func (l Launcher) runOnPath(ctx context.Context, def Def, label string, command []string) error {
 	//nolint:gosec // The agent's own command, run as the agent, as any command it runs.
-	return l.launch(ctx, def, label, exec.CommandContext(ctx, command[0], command[1:]...))
+	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	if errors.Is(cmd.Err, exec.ErrNotFound) || errors.Is(cmd.Err, os.ErrNotExist) {
+		return fmt.Errorf("%s is not installed: install it from its official distribution and put it on PATH", command[0])
+	}
+
+	return l.launch(ctx, def, label, cmd)
 }
 
 // launch runs cmd for an Integration's account: the account named, or the only one the agent was given, through
@@ -373,9 +420,9 @@ func (l Launcher) runCommand(ctx context.Context, args []string) error {
 func (l Launcher) launch(ctx context.Context, def Def, label string, cmd *exec.Cmd) error {
 	name := filepath.Base(cmd.Path)
 
-	if l.URL == "" || l.Key == "" || l.ToolsHome == "" {
+	if l.URL == "" || l.Key == "" {
 		return fmt.Errorf("%s is run through Hypomnema, which did not set it up for this agent "+
-			"(%s, %s and %s are needed)", name, EnvURL, EnvKey, EnvTools)
+			"(%s and %s are needed)", name, EnvURL, EnvKey)
 	}
 
 	fetchCtx, cancel := context.WithTimeout(ctx, launchTimeout)
@@ -413,7 +460,19 @@ func (l Launcher) launch(ctx context.Context, def Def, label string, cmd *exec.C
 	}
 
 	// The tool holds no token: its requests go through the control plane's proxy, which adds it.
-	env, refused, stop, err := l.bridge(fetchCtx, def, integration, label, list.isUser(label))
+	var local *execAuthority
+	if store := userTrustStore(); l.ExecTrust != nil && store != nil {
+		local, err = l.ExecTrust.prepare(ctx, store, l.Stderr)
+		if err != nil {
+			return err
+		}
+	}
+	if local != nil {
+		var finishFetch context.CancelFunc
+		fetchCtx, finishFetch = context.WithTimeout(ctx, launchTimeout)
+		defer finishFetch()
+	}
+	env, refused, stop, err := l.bridge(fetchCtx, def, integration, label, list.isUser(label), local)
 	if err != nil {
 		return err
 	}

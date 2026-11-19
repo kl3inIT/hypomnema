@@ -2,6 +2,7 @@ import { Link, useParams } from "@tanstack/react-router"
 import type { MouseEvent } from "react"
 import {
   BotMessageSquare,
+  Clapperboard,
   LayoutGrid,
   LogOut,
   Mic,
@@ -15,7 +16,7 @@ import {
 
 import "@/api/client"
 import { HypomnemaIcon, HypomnemaWordmark } from "@/components/icons/brand-icons"
-import { Sidebar, useSidebar } from "@/components/ui/sidebar"
+import { Sidebar, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { signOut } from "@/features/auth/session"
 import { useLiveUpdates, useWork } from "@/features/work/use-work"
 import { needsYou } from "@/features/work/work-state"
@@ -30,7 +31,8 @@ import { BotList } from "./bot-list"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
-// Team with what waits for the owner, the Routines, the Meetings (issue #721), then what is set up: the Bots, the agents, the machines; in the
+// Team with what waits for the owner, the Routines, the Meetings (issue #721), the Studio of takes and videos (issue
+// #818, after Cap's My Caps in its navbar, Navbar/Items.tsx; layout only), then what is set up: the Bots, the agents, the machines; in the
 // order they are used, as OpenClaw's navigation, issue #371) and the Bots with
 // their chats (bot-list.tsx), and a quiet 52px header over each page. On a phone the sidebar hides and the header's
 // ≡ opens the same content as a drawer from the left (AppDrawer, issue #604).
@@ -86,6 +88,13 @@ function Places() {
         Meetings
       </Link>
       <Link
+        to="/studio"
+        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
+      >
+        <Clapperboard className="size-4" />
+        Studio
+      </Link>
+      <Link
         to="/bots"
         className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
       >
@@ -110,10 +119,28 @@ function Places() {
   )
 }
 
+// On a computer the sidebar hides and shows from a button at its top left or Ctrl+B / Cmd+B, as t3code's
+// SidebarTrigger and its offcanvas Sidebar (apps/web/src/components/AppSidebarLayout.tsx:394,473) and Orca's PanelLeft
+// (src/renderer/src/app-shell/TitlebarLeftControls.tsx:88-91); hidden, a strip keeps the button to bring it back, so
+// no page's header has to make room for it (issue #941). SidebarProvider remembers the choice in its cookie.
 export function AppSidebar({ currentChat }: { currentChat?: string }) {
+  const { open } = useSidebar()
+  if (!open) {
+    return (
+      <aside
+        aria-label="Sidebar, hidden"
+        className="hidden h-full w-11 shrink-0 flex-col items-center border-r bg-sidebar text-sidebar-foreground md:flex"
+      >
+        <div className="flex h-(--workspace-topbar-height) shrink-0 items-center">
+          <SidebarTrigger aria-label="Show sidebar" title="Show sidebar (Ctrl+B)" />
+        </div>
+      </aside>
+    )
+  }
+
   return (
     <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
-      <SidebarContents currentChat={currentChat} />
+      <SidebarContents currentChat={currentChat} toggle />
     </aside>
   )
 }
@@ -144,14 +171,20 @@ export function AppDrawer() {
   )
 }
 
-function SidebarContents({ currentChat }: { currentChat?: string }) {
+// toggle adds the button that hides the sidebar, on a computer; a phone's drawer closes as a Sheet does.
+function SidebarContents({ currentChat, toggle }: { currentChat?: string; toggle?: boolean }) {
   return (
     <>
-      <div className="flex h-(--workspace-topbar-height) shrink-0 items-center px-3.5">
+      <div className="flex h-(--workspace-topbar-height) shrink-0 items-center justify-between px-3.5">
         <Link to="/" aria-label="Hypomnema" className="flex items-center gap-2">
           <HypomnemaIcon className="size-6 shrink-0" />
           <HypomnemaWordmark className="h-[17.5px] w-auto" />
         </Link>
+        {toggle && (
+          <div className="-mr-1.5">
+            <SidebarTrigger aria-label="Hide sidebar" title="Hide sidebar (Ctrl+B)" />
+          </div>
+        )}
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 px-2">
         <Places />

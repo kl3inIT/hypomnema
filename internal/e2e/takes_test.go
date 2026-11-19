@@ -283,6 +283,12 @@ type ownerTakes struct{ *takes.Store }
 
 func (o ownerTakes) Delete(_ context.Context, id string) error { return o.Store.Delete(id) }
 
+func (o ownerTakes) Thumbnail(ctx context.Context, id string) (string, error) {
+	return o.Store.Thumbnail(ctx, id, func(_ context.Context, _, out string) error {
+		return os.WriteFile(out, []byte("first frame"), 0o600)
+	})
+}
+
 // tool is a worker's call of a phone tool: the text it was answered.
 func (r *filmRig) tool(name, args string) (string, bool) {
 	r.t.Helper()

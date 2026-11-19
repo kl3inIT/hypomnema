@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { Brain, History, NotebookText, Plug } from "lucide-react"
+import { Brain, History, NotebookText, Plug, Settings2 } from "lucide-react"
 import { useState } from "react"
 
 import type { AllowList, Bot } from "@/api/generated/types.gen"
@@ -118,8 +118,8 @@ export function BotsScreen() {
 }
 
 // BotCard is the Agents page's card: a header with the face and the name, then the persona and one row a fact,
-// each with its icon and its name. The name is a link that covers the card. names are the Integrations' names by
-// their id.
+// each with its icon and its name. The name is a link that covers the card and opens the Bot's main chat (issue
+// #471); Settings beside it opens the Bot's page. names are the Integrations' names by their id.
 function BotCard({ bot, names }: { bot: Bot; names: Record<string, string> }) {
   const rows = [
     {
@@ -170,14 +170,12 @@ function BotCard({ bot, names }: { bot: Bot; names: Record<string, string> }) {
       <header className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-4 py-2">
         <h2 className="flex min-w-0 flex-1 items-center gap-2.5 text-sm font-semibold">
           <AgentAvatar name={bot.name} className="size-8 shrink-0" />
-          <Link
-            to="/bots/$id"
-            params={{ id: bot.id }}
+          <BotLink
+            bot={bot}
             className="truncate outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
-          >
-            {bot.name}
-          </Link>
+          />
         </h2>
+        <SettingsLink bot={bot} />
       </header>
       <p className="line-clamp-3 px-5 pt-3.5 text-sm text-foreground/85">
         {bot.persona || "No persona."}
@@ -195,6 +193,37 @@ function BotCard({ bot, names }: { bot: Bot; names: Record<string, string> }) {
         ))}
       </dl>
     </article>
+  )
+}
+
+// BotLink is a Bot's name as a link to its main chat, as every link to a Bot is (issue #471), or to a new chat with it
+// when it has none; its settings are the Settings link beside it.
+function BotLink({ bot, className }: { bot: Bot; className?: string }) {
+  return bot.main_chat ? (
+    <Link to="/chats/$chatId" params={{ chatId: bot.main_chat }} className={className}>
+      {bot.name}
+    </Link>
+  ) : (
+    <Link to="/" search={{ bot: bot.id }} className={className}>
+      {bot.name}
+    </Link>
+  )
+}
+
+// SettingsLink opens a Bot's page: its model, persona, memory, access, Routines and other chats.
+function SettingsLink({ bot }: { bot: Bot }) {
+  return (
+    <Link
+      to="/bots/$id"
+      params={{ id: bot.id }}
+      aria-label={`Settings of ${bot.name}`}
+      className={cn(
+        buttonVariants({ variant: "ghost", size: "icon-sm" }),
+        "relative z-10 shrink-0",
+      )}
+    >
+      <Settings2 aria-hidden />
+    </Link>
   )
 }
 
@@ -252,18 +281,13 @@ function BotsTable({ bots }: { bots: Bot[] }) {
               <td className="max-w-80 px-3 py-2.5">
                 <span className="flex min-w-0 items-center gap-2.5">
                   <AgentAvatar name={bot.name} className="size-8 shrink-0" />
-                  <span className="min-w-0">
-                    <Link
-                      to="/bots/$id"
-                      params={{ id: bot.id }}
-                      className="font-medium hover:underline"
-                    >
-                      {bot.name}
-                    </Link>
+                  <span className="min-w-0 flex-1">
+                    <BotLink bot={bot} className="font-medium hover:underline" />
                     <span className="block truncate text-xs text-muted-foreground">
                       {bot.persona || "No persona."}
                     </span>
                   </span>
+                  <SettingsLink bot={bot} />
                 </span>
               </td>
               <td className="px-3 py-2.5 whitespace-nowrap">

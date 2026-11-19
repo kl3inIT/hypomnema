@@ -75,7 +75,7 @@ func (s *Server) standingTools(ctx context.Context, a agent) []string {
 
 	names = append(names, s.gatewayTools(ctx, a)...)
 
-	for _, t := range slices.Concat(s.supersetToolList(ctx, a), s.messagingToolList(ctx, a)) {
+	for _, t := range slices.Concat(s.supersetToolList(ctx, a), s.messagingToolList(ctx, a, false)) {
 		names = append(names, t.Name)
 	}
 

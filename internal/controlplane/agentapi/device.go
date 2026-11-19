@@ -61,12 +61,24 @@ func (s *Server) deviceTools(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.device == nil {
+		if a.owner {
+			answer(w, agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}})
+
+			return
+		}
+
 		refuse(w, http.StatusServiceUnavailable, "this control plane has no phone")
 
 		return
 	}
 
 	tools, err := s.device.Tools(r.Context())
+	if a.owner && errors.Is(err, phone.ErrUnavailable) {
+		answer(w, agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}})
+
+		return
+	}
+
 	if err != nil {
 		s.failDevice(w, r, err)
 

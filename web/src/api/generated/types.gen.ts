@@ -59,11 +59,34 @@ export type Run = {
    */
   uses?: Array<string>;
   finished_at?: string;
+  review_stall?: ReviewStall;
+};
+
+/**
+ * A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
+ */
+export type ReviewStall = {
+  task_id: string;
+  pull_request: string;
+  verdict: 'correct' | 'incorrect' | 'unknown';
+  merge_state: string;
+  mergeable: string;
+  checks: 'PASSING' | 'FAILING' | 'PENDING' | 'UNKNOWN';
+  waiting_for_owner: boolean;
 };
 
 export type RunDetail = Run & {
   usage?: WorkUsage;
+  /**
+   * GitHub branch updates recorded by the nodes that dispatched this Run's Tasks.
+   */
+  published_heads?: Array<PublishedHead>;
   tasks: Array<TaskDetail>;
+};
+
+export type PublishedHead = {
+  branch: string;
+  sha: string;
 };
 
 /**
@@ -152,7 +175,7 @@ export type Task = {
   not_before?: string;
   cancel_requested_at?: string;
   /**
-   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_disk (fitting nodes do not have a fresh disk sample at or above their floor), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
    */
   waiting_reason?: string;
 };
@@ -426,6 +449,7 @@ export type Node = {
   runtimes: Array<Runtime>;
   system?: NodeSystem;
   stats?: NodeStats;
+  disk?: NodeDisk;
   /**
    * The git hosts the node reached when it last tried. Absent for a node that has not said, which is taken to reach every host. A Task on a host goes only to a node that reaches it.
    */
@@ -679,6 +703,10 @@ export type AudioProviderLink = {
   resting_until?: string;
   rest?: WebSearchRest;
   /**
+   * The voice it speaks a video with when none is asked; absent, its own default.
+   */
+  voice?: string;
+  /**
    * Its keys, in the order a request asks them now.
    */
   keys: Array<AudioKey>;
@@ -727,6 +755,10 @@ export type AudioTally = {
    * The characters spoken.
    */
   characters: number;
+};
+
+export type AudioVoice = {
+  voice: string;
 };
 
 export type AudioProviderChange = {
@@ -1220,6 +1252,23 @@ export type MachineProvider = {
 
 export type MachineProviderList = {
   data: Array<MachineProvider>;
+};
+
+export type NodeDisk = {
+  /**
+   * Bytes available to the node user, absent when not measured or stale.
+   */
+  free_bytes?: number;
+  floor_bytes: number;
+  trim_bytes: number;
+  /**
+   * When the node measured the sample.
+   */
+  at?: string;
+  /**
+   * Age of the disk sample when this response was produced.
+   */
+  age_ms?: number;
 };
 
 /**
@@ -2134,6 +2183,156 @@ export type TakePause = {
   at_ms: number;
 };
 
+export type VideoList = {
+  data: Array<Video>;
+};
+
+/**
+ * A video made of one take (issue
+ */
+export type Video = {
+  id: string;
+  /**
+   * The take it is made of.
+   */
+  take: string;
+  title: string;
+  /**
+   * The agent's key that asked for it first
+   */
+  made_by: string;
+  made_by_name: string;
+  created_at: string;
+  /**
+   * The approved revision; absent when none is.
+   */
+  approved?: number;
+  revisions: Array<VideoRevision>;
+};
+
+/**
+ * One make of the video, never changed once made: queued, then voicing, composing and captioning (skipped without captions) as the runner makes it, then review; approved or changes_requested by the owner; failed at a stage with its cause, interrupted when the control plane stopped while it was made.
+ */
+export type VideoRevision = {
+  rev: number;
+  /**
+   * The revision it was made from.
+   */
+  parent?: number;
+  state: 'queued' | 'voicing' | 'composing' | 'captioning' | 'review' | 'approved' | 'changes_requested' | 'failed';
+  /**
+   * What each scene's voice says, a scene a step of the take (steps said at once are one).
+   */
+  lines: Array<string>;
+  /**
+   * The voice asked for; absent
+   */
+  voice?: string;
+  captions: boolean;
+  aspect: '9:16' | '16:9';
+  /**
+   * The provider that spoke every scene.
+   */
+  provider?: string;
+  model?: string;
+  /**
+   * The voice it spoke with; absent
+   */
+  used_voice?: string;
+  length_ms: number;
+  /**
+   * The stage it failed at.
+   */
+  failed_stage?: string;
+  failed_cause?: string;
+  /**
+   * What the owner asked for when he asked for changes.
+   */
+  note?: string;
+  warnings: Array<string>;
+  progress?: VideoProgress;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
+ */
+export type VideoProgress = {
+  scenes_done: number;
+  scenes_total: number;
+};
+
+export type StudioItemList = {
+  data: Array<StudioItem>;
+  /**
+   * Present when more items follow.
+   */
+  next_cursor?: string;
+};
+
+/**
+ * A take or a video as the Studio's card shows it (issue
+ */
+export type StudioItem = {
+  kind: 'take' | 'video';
+  id: string;
+  title: string;
+  /**
+   * The agent that filmed the take
+   */
+  bot: string;
+  created_at: string;
+  /**
+   * A take's length; a video's latest revision's, 0 until made.
+   */
+  length_ms: number;
+  /**
+   * A take's state, or the state of a video's latest revision.
+   */
+  state: string;
+  /**
+   * A video's take.
+   */
+  take?: string;
+  /**
+   * A video's latest revision.
+   */
+  rev?: number;
+  /**
+   * Where its first frame is read, under /api/v1/ (owner only): an available take's, or the latest made revision's of a video. Absent while there is none.
+   */
+  thumbnail?: string;
+};
+
+export type VideoMake = {
+  take: string;
+  /**
+   * The video's title, on its first make; absent: the take's.
+   */
+  title?: string;
+  /**
+   * Absent: 9:16.
+   */
+  aspect?: '9:16' | '16:9';
+  /**
+   * Absent: true.
+   */
+  captions?: boolean;
+  /**
+   * Absent: each provider's set on Settings → Audio.
+   */
+  voice?: string;
+};
+
+export type VideoChanges = {
+  /**
+   * Each scene's line, edited; as many as the revision has.
+   */
+  lines?: Array<string>;
+  note?: string;
+};
+
 export type DeviceList = {
   data: Array<DeviceNode>;
   /**
@@ -2194,6 +2393,29 @@ export type Account = {
    * When the access token ends, when that is known; it is renewed before then.
    */
   token_expires_at?: string;
+  verification?: AccountVerification;
+};
+
+/**
+ * Google wants the account verified (issue #822): it answered a call under it with 403 VALIDATION_REQUIRED. The gateway passes the account over until next_try_at, then tries it again; a call that works, or signing in again, clears this.
+ */
+export type AccountVerification = {
+  /**
+   * The latest link Google gave, where the owner verifies the account.
+   */
+  url?: string;
+  /**
+   * Google's own words.
+   */
+  message?: string;
+  /**
+   * When Google first asked, since the account last worked.
+   */
+  asked_at: string;
+  /**
+   * When the account is tried again, after 10 minutes, 1 hour, 6 hours, then every day.
+   */
+  next_try_at: string;
 };
 
 export type GatewayKey = {
@@ -2203,6 +2425,10 @@ export type GatewayKey = {
    * The key's start, to tell keys apart; empty for a key made before it was kept.
    */
   prefix: string;
+  /**
+   * The first six and last four characters with the rest masked; absent when no value is stored.
+   */
+  masked_value?: string;
   /**
    * The model names it may use; `*` is every model.
    */
@@ -2241,6 +2467,23 @@ export type NewGatewayKey = {
   endpoints?: Array<GatewayEndpoint>;
 };
 
+export type GatewayKeyUpdate = {
+  /**
+   * The new name; when omitted the name is unchanged.
+   */
+  name?: string;
+  /**
+   * The new list of model names; empty means every model, omitted means unchanged.
+   */
+  models?: Array<string>;
+  /**
+   * The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
+   */
+  endpoints?: Array<GatewayEndpointSelection>;
+};
+
+export type GatewayEndpointSelection = 'search' | 'fetch' | 'images' | 'audio' | '*';
+
 /**
  * A kind of request besides chat: search is /v1/search and /v1/alpha/search, fetch is /v1/web/fetch, images is /v1/images/generations and /v1/images/edits, audio is /v1/audio/transcriptions, /v1/audio/speech and /v1/audio/voices.
  */
@@ -2249,8 +2492,12 @@ export type GatewayEndpoint = 'search' | 'fetch' | 'images' | 'audio';
 export type CreatedGatewayKey = {
   key: GatewayKey;
   /**
-   * The key's value, answered this once; only its hash is kept.
+   * The key's value. It is not stored and cannot be read again if the returned key has no masked_value.
    */
+  secret: string;
+};
+
+export type GatewayKeyValue = {
   secret: string;
 };
 
@@ -2285,10 +2532,25 @@ export type GatewayUsageCounts = {
    */
   failed: number;
   /**
-   * Tokens in, those read from the provider's cache included.
+   * All input tokens, including cached and estimated tokens.
    */
   prompt_tokens: number;
+  /**
+   * Input tokens read from the provider's cache on measured requests.
+   */
   cached_tokens: number;
+  /**
+   * Input tokens on measured requests, the denominator for the cache share. Excludes ledger history whose request rows were already purged before the split was recorded.
+   */
+  measured_prompt_tokens: number;
+  /**
+   * Requests with estimated usage. Excludes ledger history whose request rows were already purged before the split was recorded.
+   */
+  estimated_requests: number;
+  /**
+   * Input tokens on those estimated requests, already included in prompt_tokens.
+   */
+  estimated_prompt_tokens: number;
   completion_tokens: number;
   reasoning_tokens: number;
 };
@@ -2337,7 +2599,11 @@ export type GatewayPerformance = {
    */
   client_gone: number;
   /**
-   * The answered share of the requests whose client did not leave, 0 to 1; absent when there is none.
+   * Requests refused by the gateway because all usable accounts were cooling.
+   */
+  no_account: number;
+  /**
+   * The answered share of answered and failed requests, 0 to 1; absent when there is none.
    */
   success_rate?: number;
   cost_micros: number;
@@ -2398,13 +2664,13 @@ export type GatewayRequest = {
   account_label?: string;
   stream: boolean;
   attempts: number;
-  outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone';
+  outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone' | 'no_account';
   /**
-   * The provider's HTTP status; 0 when it gave none.
+   * The provider's HTTP status, or 429 for a gateway account refusal; 0 when no status was recorded.
    */
   status: number;
   /**
-   * The provider's message for a request that failed.
+   * The provider's error, the reason a stream ended early, or the gateway's reason for refusing the request, when available.
    */
   error?: string;
   prompt_tokens: number;
@@ -2600,13 +2866,17 @@ export type AccountLimits = {
    */
   read_at?: string;
   /**
-   * Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed.
+   * Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed; Google wants the account verified first.
    */
-  unavailable?: 'not_given' | 'sign_in' | 'resting' | 'failed';
+  unavailable?: 'not_given' | 'sign_in' | 'resting' | 'failed' | 'verification';
   /**
    * What went wrong, in the server's words, when the call failed.
    */
   detail?: string;
+  /**
+   * Where the owner verifies the account, when unavailable is verification and Google gave a link.
+   */
+  verification_url?: string;
 };
 
 export type GatewayModelTarget = {
@@ -2867,6 +3137,10 @@ export type Bot = {
    * Listed in the sidebar's Pinned section, under the main Bot.
    */
   pinned: boolean;
+  /**
+   * The id of the Bot's main chat, the one a click on the Bot opens and the web and the CLI write to (issue #471); absent until the first message from either makes it. Its other chats stay and open by their ids.
+   */
+  main_chat?: string;
   provider?: string;
   model?: string;
   /**
@@ -3488,6 +3762,33 @@ export type NewChat = {
 };
 
 /**
+ * The Bot whose main chat is asked for. The other fields are the chat's when the Bot has none and it is made now (the web's first message to a Bot with no main chat, whose files were put under the id its page chose); a main chat that exists keeps its own.
+ */
+export type MainChatRequest = {
+  /**
+   * The id of the Bot; the main Bot when left out.
+   */
+  bot?: string;
+  /**
+   * The id of the chat made, as NewChat's; refused when malformed (400) or taken by another chat (409). A new id when left out.
+   */
+  id?: string;
+  title?: string;
+  /**
+   * Where the model is found.
+   */
+  provider?: string;
+  /**
+   * The chat's own model; its Bot's when left out.
+   */
+  model?: string;
+  /**
+   * The chat's own effort; its Bot's when left out.
+   */
+  effort?: string;
+};
+
+/**
  * What a chat's deletion left on the coordinator's machine.
  */
 export type ChatDeleted = {
@@ -3693,6 +3994,10 @@ export type Chat = {
    */
   coordinator: boolean;
   context_usage?: ChatContextUsage;
+  /**
+   * The first line of its latest message of the owner or its Bot, at most 120 characters (issue #471); in a list only, absent before either wrote.
+   */
+  last_line?: string;
   created_at: string;
   updated_at: string;
 };
@@ -4110,9 +4415,46 @@ export type ChatMessageList = {
 };
 
 /**
- * Where the meeting's transcription stands.
+ * Where the meeting's transcription stands; a live meeting is recording until it ends.
  */
-export type MeetingState = 'transcribing' | 'transcribed' | 'failed';
+export type MeetingState = 'recording' | 'transcribing' | 'transcribed' | 'failed';
+
+/**
+ * How the meeting came, uploaded or recorded live.
+ */
+export type MeetingSource = 'upload' | 'live';
+
+/**
+ * How a live meeting is held; online records the microphone and a shared tab.
+ */
+export type MeetingKind = 'online' | 'in_person';
+
+/**
+ * What a voice was heard on, an upload's file or a live meeting's microphone or shared tab.
+ */
+export type MeetingTrack = 'file' | 'mic' | 'tab';
+
+export type MeetingLiveTrack = 'mic' | 'tab';
+
+export type NewLiveMeeting = {
+  kind: MeetingKind;
+  /**
+   * An ISO 639-1 code, such as vi; absent, the provider finds it.
+   */
+  language?: string;
+  /**
+   * Absent
+   */
+  title?: string;
+  /**
+   * Who is in the meeting; they help name the speakers.
+   */
+  people?: Array<string>;
+};
+
+export type MeetingTrackRequest = {
+  track: MeetingLiveTrack;
+};
 
 /**
  * Where its notes stand; waiting is for the transcript.
@@ -4143,10 +4485,15 @@ export type MeetingNotes = {
 };
 
 export type MeetingSpeaker = {
+  track: MeetingTrack;
   /**
-   * The voice's label
+   * The voice's label on its track, the provider's or m1, m2… for one the owner made.
    */
   label: string;
+  /**
+   * The owner's own voice
+   */
+  owner: boolean;
   /**
    * The name shown
    */
@@ -4174,8 +4521,13 @@ export type Meeting = {
   file_name: string;
   media_type: string;
   size: number;
+  /**
+   * Its length; while it records, what is kept so far, where a resumed recording goes on.
+   */
   duration_ms: number;
   state: MeetingState;
+  source: MeetingSource;
+  kind?: MeetingKind;
   /**
    * Why hearing it failed
    */
@@ -4197,11 +4549,15 @@ export type MeetingList = {
 };
 
 export type MeetingLine = {
+  /**
+   * The line's number
+   */
   n: number;
+  track: MeetingTrack;
   start_ms: number;
   end_ms: number;
   /**
-   * The label of the voice it is shown as.
+   * The label of the voice it is shown as
    */
   speaker: string;
   /**
@@ -4225,6 +4581,7 @@ export type MeetingItem = {
    * The label of the voice that does it
    */
   owner_speaker?: string;
+  owner_track?: MeetingTrack;
   /**
    * The deadline in the words the meeting used.
    */
@@ -4245,6 +4602,7 @@ export type MeetingItem = {
 };
 
 export type SpeakerSuggestion = {
+  track: MeetingTrack;
   label: string;
   /**
    * The name the voice called itself.
@@ -4511,6 +4869,10 @@ export type MemoryOfAgent = string;
 export type SkillName = string;
 
 export type TakeId = string;
+
+export type VideoId = string;
+
+export type VideoRev = number;
 
 export type ArtifactId = string;
 
@@ -5634,6 +5996,76 @@ export type ReadTakeSegmentResponses = {
 
 export type ReadTakeSegmentResponse = ReadTakeSegmentResponses[keyof ReadTakeSegmentResponses];
 
+export type ReadTakeThumbnailData = {
+  body?: never;
+  path: {
+    take_id: string;
+  };
+  query?: never;
+  url: '/takes/{take_id}/thumbnail.jpg';
+};
+
+export type ReadTakeThumbnailErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadTakeThumbnailError = ReadTakeThumbnailErrors[keyof ReadTakeThumbnailErrors];
+
+export type ReadTakeThumbnailResponses = {
+  /**
+   * The picture.
+   */
+  200: Blob | File;
+};
+
+export type ReadTakeThumbnailResponse = ReadTakeThumbnailResponses[keyof ReadTakeThumbnailResponses];
+
+export type ListStudioItemsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    kind?: 'take' | 'video';
+    /**
+     * A group of states: in_progress (a take filmed, paused, finishing or uploading; a revision queued or being made), review (a revision awaiting review), approved, or failed (a take or revision that failed, and a revision changes were asked of).
+     */
+    state?: 'in_progress' | 'review' | 'approved' | 'failed';
+    /**
+     * Words the title or the Bot's name holds, in any case.
+     */
+    q?: string;
+    /**
+     * The next_cursor of the previous page.
+     */
+    cursor?: string;
+    /**
+     * At most this many items; absent: 50.
+     */
+    limit?: number;
+  };
+  url: '/studio/items';
+};
+
+export type ListStudioItemsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListStudioItemsError = ListStudioItemsErrors[keyof ListStudioItemsErrors];
+
+export type ListStudioItemsResponses = {
+  /**
+   * One page of items.
+   */
+  200: StudioItemList;
+};
+
+export type ListStudioItemsResponse = ListStudioItemsResponses[keyof ListStudioItemsResponses];
+
 export type GetTakeArchiveData = {
   body?: never;
   path: {
@@ -5660,6 +6092,241 @@ export type GetTakeArchiveResponses = {
 };
 
 export type GetTakeArchiveResponse = GetTakeArchiveResponses[keyof GetTakeArchiveResponses];
+
+export type ListVideosData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/videos';
+};
+
+export type ListVideosErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListVideosError = ListVideosErrors[keyof ListVideosErrors];
+
+export type ListVideosResponses = {
+  /**
+   * The videos.
+   */
+  200: VideoList;
+};
+
+export type ListVideosResponse = ListVideosResponses[keyof ListVideosResponses];
+
+export type MakeVideoData = {
+  body: VideoMake;
+  headers?: {
+    /**
+     * Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+     */
+    'Idempotency-Key'?: string;
+  };
+  path?: never;
+  query?: never;
+  url: '/videos';
+};
+
+export type MakeVideoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type MakeVideoError = MakeVideoErrors[keyof MakeVideoErrors];
+
+export type MakeVideoResponses = {
+  /**
+   * The video, with the revision queued.
+   */
+  201: Video;
+};
+
+export type MakeVideoResponse = MakeVideoResponses[keyof MakeVideoResponses];
+
+export type DeleteVideoData = {
+  body?: never;
+  path: {
+    video_id: string;
+  };
+  query?: never;
+  url: '/videos/{video_id}';
+};
+
+export type DeleteVideoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteVideoError = DeleteVideoErrors[keyof DeleteVideoErrors];
+
+export type DeleteVideoResponses = {
+  /**
+   * Deleted.
+   */
+  204: void;
+};
+
+export type DeleteVideoResponse = DeleteVideoResponses[keyof DeleteVideoResponses];
+
+export type GetVideoData = {
+  body?: never;
+  path: {
+    video_id: string;
+  };
+  query?: never;
+  url: '/videos/{video_id}';
+};
+
+export type GetVideoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetVideoError = GetVideoErrors[keyof GetVideoErrors];
+
+export type GetVideoResponses = {
+  /**
+   * The video.
+   */
+  200: Video;
+};
+
+export type GetVideoResponse = GetVideoResponses[keyof GetVideoResponses];
+
+export type ApproveVideoRevisionData = {
+  body?: never;
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/approve';
+};
+
+export type ApproveVideoRevisionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ApproveVideoRevisionError = ApproveVideoRevisionErrors[keyof ApproveVideoRevisionErrors];
+
+export type ApproveVideoRevisionResponses = {
+  /**
+   * The video.
+   */
+  200: Video;
+};
+
+export type ApproveVideoRevisionResponse = ApproveVideoRevisionResponses[keyof ApproveVideoRevisionResponses];
+
+export type RequestVideoChangesData = {
+  body: VideoChanges;
+  headers?: {
+    /**
+     * Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+     */
+    'Idempotency-Key'?: string;
+  };
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/changes';
+};
+
+export type RequestVideoChangesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RequestVideoChangesError = RequestVideoChangesErrors[keyof RequestVideoChangesErrors];
+
+export type RequestVideoChangesResponses = {
+  /**
+   * The video.
+   */
+  200: Video;
+};
+
+export type RequestVideoChangesResponse = RequestVideoChangesResponses[keyof RequestVideoChangesResponses];
+
+export type ReadVideoFileData = {
+  body?: never;
+  headers?: {
+    Range?: string;
+  };
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/video.mp4';
+};
+
+export type ReadVideoFileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadVideoFileError = ReadVideoFileErrors[keyof ReadVideoFileErrors];
+
+export type ReadVideoFileResponses = {
+  /**
+   * The video.
+   */
+  200: Blob | File;
+  /**
+   * The part of the video asked for.
+   */
+  206: Blob | File;
+};
+
+export type ReadVideoFileResponse = ReadVideoFileResponses[keyof ReadVideoFileResponses];
+
+export type ReadVideoThumbnailData = {
+  body?: never;
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/thumbnail.jpg';
+};
+
+export type ReadVideoThumbnailErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadVideoThumbnailError = ReadVideoThumbnailErrors[keyof ReadVideoThumbnailErrors];
+
+export type ReadVideoThumbnailResponses = {
+  /**
+   * The picture.
+   */
+  200: Blob | File;
+};
+
+export type ReadVideoThumbnailResponse = ReadVideoThumbnailResponses[keyof ReadVideoThumbnailResponses];
 
 export type ResumeNodeData = {
   body?: never;
@@ -7463,12 +8130,70 @@ export type RevokeGatewayKeyError = RevokeGatewayKeyErrors[keyof RevokeGatewayKe
 
 export type RevokeGatewayKeyResponses = {
   /**
-   * Revoked.
+   * Revoked and its stored value removed.
    */
   204: void;
 };
 
 export type RevokeGatewayKeyResponse = RevokeGatewayKeyResponses[keyof RevokeGatewayKeyResponses];
+
+export type UpdateGatewayKeyData = {
+  body: GatewayKeyUpdate;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}';
+};
+
+export type UpdateGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UpdateGatewayKeyError = UpdateGatewayKeyErrors[keyof UpdateGatewayKeyErrors];
+
+export type UpdateGatewayKeyResponses = {
+  /**
+   * The updated key, without its value.
+   */
+  200: GatewayKey;
+};
+
+export type UpdateGatewayKeyResponse = UpdateGatewayKeyResponses[keyof UpdateGatewayKeyResponses];
+
+export type GetGatewayKeyValueData = {
+  body?: never;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}/value';
+};
+
+export type GetGatewayKeyValueErrors = {
+  /**
+   * No active owner-made key with a stored value has this id.
+   */
+  404: Error;
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGatewayKeyValueError = GetGatewayKeyValueErrors[keyof GetGatewayKeyValueErrors];
+
+export type GetGatewayKeyValueResponses = {
+  /**
+   * The key's value.
+   */
+  200: GatewayKeyValue;
+};
+
+export type GetGatewayKeyValueResponse = GetGatewayKeyValueResponses[keyof GetGatewayKeyValueResponses];
 
 export type GetGatewayUsageData = {
   body?: never;
@@ -8036,6 +8761,33 @@ export type RemoveAudioKeyResponses = {
 };
 
 export type RemoveAudioKeyResponse = RemoveAudioKeyResponses[keyof RemoveAudioKeyResponses];
+
+export type SetAudioVoiceData = {
+  body: AudioVoice;
+  path: {
+    provider: AudioProvider;
+  };
+  query?: never;
+  url: '/gateway/audio/providers/{provider}/voice';
+};
+
+export type SetAudioVoiceErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetAudioVoiceError = SetAudioVoiceErrors[keyof SetAudioVoiceErrors];
+
+export type SetAudioVoiceResponses = {
+  /**
+   * The providers after the change.
+   */
+  200: Audio;
+};
+
+export type SetAudioVoiceResponse = SetAudioVoiceResponses[keyof SetAudioVoiceResponses];
 
 export type SetAudioOrderData = {
   body: AudioOrder;
@@ -10492,7 +11244,12 @@ export type NameMeetingSpeakerData = {
      */
     label: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * The voice's track; absent, the one track that has the label.
+     */
+    track?: MeetingTrack;
+  };
   url: '/meetings/{meeting_id}/speakers/{label}';
 };
 
@@ -10544,6 +11301,85 @@ export type SetMeetingLineSpeakerResponses = {
 };
 
 export type SetMeetingLineSpeakerResponse = SetMeetingLineSpeakerResponses[keyof SetMeetingLineSpeakerResponses];
+
+export type StartLiveMeetingData = {
+  body: NewLiveMeeting;
+  path?: never;
+  query?: never;
+  url: '/meetings/live';
+};
+
+export type StartLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartLiveMeetingError = StartLiveMeetingErrors[keyof StartLiveMeetingErrors];
+
+export type StartLiveMeetingResponses = {
+  /**
+   * The meeting, recording.
+   */
+  201: Meeting;
+};
+
+export type StartLiveMeetingResponse = StartLiveMeetingResponses[keyof StartLiveMeetingResponses];
+
+export type OpenMeetingTrackData = {
+  body: MeetingTrackRequest;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/tickets';
+};
+
+export type OpenMeetingTrackErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenMeetingTrackError = OpenMeetingTrackErrors[keyof OpenMeetingTrackErrors];
+
+export type OpenMeetingTrackResponses = {
+  /**
+   * The ticket.
+   */
+  201: TerminalTicket;
+};
+
+export type OpenMeetingTrackResponse = OpenMeetingTrackResponses[keyof OpenMeetingTrackResponses];
+
+export type EndLiveMeetingData = {
+  body?: never;
+  path: {
+    meeting_id: string;
+  };
+  query?: never;
+  url: '/meetings/{meeting_id}/end';
+};
+
+export type EndLiveMeetingErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type EndLiveMeetingError = EndLiveMeetingErrors[keyof EndLiveMeetingErrors];
+
+export type EndLiveMeetingResponses = {
+  /**
+   * The meeting, transcribed.
+   */
+  200: Meeting;
+};
+
+export type EndLiveMeetingResponse = EndLiveMeetingResponses[keyof EndLiveMeetingResponses];
 
 export type UpdateMeetingItemData = {
   body: MeetingItemUpdate;
@@ -10712,6 +11548,14 @@ export type ListChatsData = {
   path?: never;
   query?: {
     limit?: number;
+    /**
+     * Only the chats of the Bot of this id (issue
+     */
+    bot?: string;
+    /**
+     * How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+     */
+    offset?: number;
   };
   url: '/chats';
 };
@@ -10758,6 +11602,35 @@ export type CreateChatResponses = {
 };
 
 export type CreateChatResponse = CreateChatResponses[keyof CreateChatResponses];
+
+export type OpenMainChatData = {
+  body: MainChatRequest;
+  path?: never;
+  query?: never;
+  url: '/chats/main';
+};
+
+export type OpenMainChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenMainChatError = OpenMainChatErrors[keyof OpenMainChatErrors];
+
+export type OpenMainChatResponses = {
+  /**
+   * The Bot's main chat.
+   */
+  200: Chat;
+  /**
+   * The Bot's main chat, made now.
+   */
+  201: Chat;
+};
+
+export type OpenMainChatResponse = OpenMainChatResponses[keyof OpenMainChatResponses];
 
 export type DeleteChatData = {
   body?: never;

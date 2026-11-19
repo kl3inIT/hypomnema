@@ -25,9 +25,18 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
    ```
-   In the first round its spec has the pull request's URL and the spec the change was made from, and nothing
-   else: not the author's report and not its transcript, so the reviewer judges the change itself. How the
-   reviewer reports is in its own profile.
+   Start every review spec with `Review pull request: <canonical PR URL>` on its own line. In the first round,
+   give the reviewer the spec the change was made from, but not the author's report or transcript, so the
+   reviewer judges the change itself.
+
+   Ask the reviewer to include the reviewed PR or MR in `finish` evidence, not an earlier PR mentioned in the spec.
+   Include these four lines in the summary before its findings:
+   `Verdict: correct` (or `incorrect`), `Merge state: <mergeStateStatus>`, `Mergeable: <mergeable>` and
+   `Checks: <PASSING|FAILING|PENDING|UNKNOWN>`, one field per line. Just before reporting, use `gh pr view <url>
+   --json mergeable,mergeStateStatus` and `gh pr checks <url> --required --json bucket`. Failing or canceled checks
+   take precedence over pending ones; a nonempty set of successful or skipped required checks is PASSING. Use
+   UNKNOWN for an unavailable read or when there are no required checks. For GitLab, report the equivalent
+   conflict and check states, and UNKNOWN for any field you cannot verify. Do not change the PR while reviewing it.
 
    A review first reads what CodeRabbit (`coderabbitai[bot]`) already left on the pull request: its reviews and
    their bodies, which hold the findings outside the diff (`gh api repos/<repo>/pulls/<n>/reviews`), its inline
@@ -36,22 +45,33 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    head commit and reports it as fixed, still open (a P1 finding of its own, so the verdict is not correct) or
    wrong, with the reason; Minor findings are listed as follow-ups. A notice that CodeRabbit was rate-limited or
    skipped the pull request is not a review; with no CodeRabbit review the review goes on without it.
-4. Wait as for any Run. The review is the summary in `hypomnema tasks show <task_id> --json`: a verdict and
-   findings with a priority each.
-5. A verdict of correct, with green checks: send the author a follow-up that the review passed and asks it to turn
-   on auto-merge, as its rules say for its repository:
+4. Wait as for any Run. When woken, read `hypomnema runs show <run_id> --json` and the review Task's summary and
+   findings (`hypomnema tasks show <task_id> --json`). If the Run is closed or the next Task is already queued,
+   do not dispatch it again. When the review left `review_stall`, act on the branch below before ending your
+   turn. If the verdict is unknown, get the actual verdict; never treat it as correct.
+5. A verdict of correct: read the PR's current merge state, head and required checks, since the wake is a snapshot.
+   If the PR already merged, report it and finish the Run. If it conflicts or must be brought up to date, send
+   the author a follow-up to merge the base, resolve any conflict, rerun checks, and report the new head; have the
+   resulting change reviewed again.
+   For red checks, have the author fix the failure and report the updated head; for pending checks, have the author
+   watch them. For an unmet policy or permission the author cannot fix, tell the owner what is blocking the PR and
+   leave the Run open. A correct verdict with green checks on a mergeable PR: send the author a follow-up that
+   the review passed and asks it to turn on auto-merge only if the spec permits it, as its rules say for its
+   repository:
    ```text
    hypomnema tasks follow-up <task_id> --note-file <file> --json
    ```
    Report the pull request as reviewed, then report what the author says: merged, auto-merge on, or what the
    repository lacks for it, which the owner settles. You never merge nor turn on auto-merge yourself.
    CodeRabbit is never a condition of its own: its findings count through the verdict, as in step 3.
-6. Findings that make the change incorrect: send them to the worker that made the change at once, without asking
+6. Findings that make the change incorrect: if `review_stall.waiting_for_owner` is true, use the stop rule below.
+   Otherwise send them to the worker that made the change at once, without asking
    the owner (owner, 2026-11-18, issue #871), as a follow-up on that Task, the findings pasted word for word:
    ```text
    hypomnema tasks follow-up <task_id> --note-file <file> --json
    ```
-   The worker fixes them on its own branch and pull request, which keeps what it knew of the change. When the
+   The worker fixes them on its own branch and pull request, which keeps what it knew of the change. On GitHub it
+   uses `publish_branch` so the node records the updated head for the Run. When the
    follow-up is refused, create a fix Task whose spec starts from the branch `hyp/<task_id>` and lists them.
 7. Have the updated pull request reviewed by a new review Task. Unlike the first round, its spec carries what the
    rounds before found, so it can tell what was fixed: the pull request's URL and the spec as before, then
@@ -60,8 +80,14 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    - `## Still disputed`: each finding the author did not fix and said why, or none.
 
    Ask the reviewer to say, for each earlier finding, whether it is fixed, still open or disputed, and to report
-   new findings as before. Review and fix go on for up to three rounds. After three rounds that still leave findings
-   that make the change incorrect, stop: leave the pull request open with auto-merge off, add no Task, and tell the
-   owner in one line what does not converge. It is a report, not a question; nothing waits for an answer.
+   new findings as before.
+   <!-- Three rounds: Codex codex-rs/ext/guardian-reviewer/src/lib.rs:87 (MAX_REVIEW_ATTEMPTS = 3) and
+   oh-my-opencode packages/memory-core/src/reflection/completion-validation.ts:127 (MAX_REPAIR_ROUNDS = 3, then
+   stop); both run their rounds with no human approval in between. Hermes agent/background_review.py:249 caps the
+   iterations inside one review, not the rounds. No reference has a one-line report to the owner after the last
+   round (owner, 2026-11-18, issue #871). -->
+   After round 3, if any P0 or P1 remains, give the owner a one-line report with the verdict
+   and remaining blockers, then stop without waiting for an answer (issue #871). Leave the Run and pull request open
+   with auto-merge off and add no Task. The "Waiting for you" label may stay until work is added or the Run ends.
 
 Other findings go into your report as follow-ups; they do not hold the pull request back.

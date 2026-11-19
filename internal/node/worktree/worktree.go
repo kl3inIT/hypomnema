@@ -39,6 +39,7 @@ type Maker struct {
 	Logger *slog.Logger
 	// SetupTimeout replaces how long a setup script may run, in tests.
 	SetupTimeout time.Duration
+	TempDir      string
 	// GitTimeout is an optional total limit for each Git command. Zero means no limit.
 	GitTimeout time.Duration
 	// GitGrace overrides the termination grace period.
@@ -192,46 +193,6 @@ func (m Maker) add(ctx context.Context, src Source, base, taskID, path string, r
 func worktreeExists(path string) bool {
 	_, err := os.Stat(filepath.Join(path, ".git")) // #nosec G703 -- Dispatch sets the checkout path.
 	return err == nil
-}
-
-// Remove removes a worktree; its branch stays.
-func (m Maker) Remove(ctx context.Context, src Source, path string) error {
-	state, err := m.lockPath("worktree", path)
-	if err != nil {
-		return err
-	}
-	worktree, err := openMirrorLock(ctx, state)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = worktree.Close() }()
-
-	mirror := m.mirrorPath(src.Repo)
-	lock, err := m.lockMirror(ctx, mirror)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = lock.Close() }()
-
-	if _, err := os.Stat(mirror); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		if err := os.RemoveAll(path); err != nil {
-			return err
-		}
-		return removeIfPresent(state + ".pending")
-	}
-
-	git := m.git(lock)
-	if err := git.run(ctx, mirror, nil, "worktree", "remove", "--force", path); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
-		}
-		return errors.Join(err, os.RemoveAll(path))
-	}
-
-	return removeIfPresent(state + ".pending")
 }
 
 func (m Maker) lockMirror(ctx context.Context, mirror string) (*mirrorLock, error) {

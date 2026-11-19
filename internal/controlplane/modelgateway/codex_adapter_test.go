@@ -120,6 +120,29 @@ func (a *accounts) TokenAfterRefusal(
 	return a.Token(ctx, "", "", others...)
 }
 
+func (a *accounts) FirstFree(_ context.Context, _ string, modelReset func(string) time.Time) (time.Time, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	ids := a.ids
+	if len(ids) == 0 {
+		ids = []string{"acc_1"}
+	}
+	var first time.Time
+	for _, id := range ids {
+		until := a.cooled[id]
+		if modelReset != nil && modelReset(id).After(until) {
+			until = modelReset(id)
+		}
+		if !until.After(time.Now()) || a.keepCooling || a.none {
+			return time.Time{}, nil
+		}
+		if first.IsZero() || until.Before(first) {
+			first = until
+		}
+	}
+	return first, nil
+}
+
 func (a *accounts) CoolDown(_ context.Context, _, id string, until time.Time, reason string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -239,6 +262,14 @@ func newCodexGateway(
 ) chatGateway {
 	t.Helper()
 
+	return newCodexGatewayWithConfig(t, backend, modelgateway.Config{Subscriptions: subs}, fallbacks...)
+}
+
+func newCodexGatewayWithConfig(
+	t *testing.T, backend *httptest.Server, cfg modelgateway.Config, fallbacks ...*httptest.Server,
+) chatGateway {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -265,7 +296,7 @@ func newCodexGateway(
 				Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, APIKeyRef: p.APIKeyRef, Models: p.Models,
 			}, nil
 		},
-		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil })
+		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil }).WithKeyVault(testKeyVault(t, db))
 
 	_, err = svc.ApplyModel(t.Context(), model)
 	require.NoError(t, err, "the provider is built in: no one declared it")
@@ -274,8 +305,8 @@ func newCodexGateway(
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
-	modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"),
-		modelgateway.Config{Subscriptions: subs, CodexBaseURL: backend.URL}).Register(mux)
+	cfg.CodexBaseURL = backend.URL
+	modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"), cfg).Register(mux)
 
 	return chatGateway{svc: svc, mux: mux, key: key}
 }
@@ -457,7 +488,7 @@ func TestAUsageLimitCoolsTheAccountDownAndTheNextTargetServes(t *testing.T) {
 
 	status, headers, body := g.call(t, g.key, askSol+`}`)
 	assert.Equal(t, http.StatusTooManyRequests, status)
-	assert.Contains(t, body, "usage_limit_reached")
+	assert.Contains(t, body, "account_unavailable")
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.Equal(t, resets, subs.cooledUntil())
 
@@ -465,7 +496,7 @@ func TestAUsageLimitCoolsTheAccountDownAndTheNextTargetServes(t *testing.T) {
 	assert.Equal(t, http.StatusTooManyRequests, status)
 	assert.Contains(t, body, "account_unavailable")
 	// The backend's own shape for a used-up plan, so the Codex CLI ends its turn (issue #756).
-	assert.Contains(t, body, `"type":"usage_limit_reached"`)
+	assert.Contains(t, body, `"type":"rate_limit_error"`)
 	assert.Contains(t, body, fmt.Sprintf(`"resets_at":%d`, resets.Unix()))
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.Equal(t, 1, got.calls(), "a cooling account is not sent to the backend")
@@ -515,7 +546,9 @@ func TestAFailureInsideTheStream(t *testing.T) {
 	require.Len(t, lines, 2, body)
 	assert.Contains(t, lines[0], `"content":"hel"`)
 	assert.Contains(t, lines[1], "upstream_truncated")
-	assert.Equal(t, modelgateway.OutcomeTruncated, cut.lastUsage(t).Outcome)
+	usage := cut.lastUsage(t)
+	assert.Equal(t, modelgateway.OutcomeTruncated, usage.Outcome)
+	assert.Equal(t, "server_error: lost", usage.Error)
 
 	closed, _ := codexBackend(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

@@ -204,7 +204,13 @@ var googleCurated = []Action{
 // googleModelArmor is a regional host of Model Armor: its Discovery document names us-central1's, and gws reaches
 // the region a template is in (crates/google-workspace-cli/src/helpers/modelarmor.rs: "Model Armor requires
 // region-specific endpoints: modelarmor.{region}.rep.googleapis.com"). Each region's requests are the same methods.
-var googleModelArmor = regexp.MustCompile(`^modelarmor\.[a-z0-9-]+\.rep\.googleapis\.com$`)
+const (
+	googleModelArmorPrefix = "modelarmor."
+	googleRegionalDNS      = "rep.googleapis.com"
+)
+
+var googleModelArmor = regexp.MustCompile(`^` + regexp.QuoteMeta(googleModelArmorPrefix) +
+	`[a-z0-9-]+\.` + regexp.QuoteMeta(googleRegionalDNS) + `$`)
 
 // googleWWW is the host Calendar and Drive are on, and where gws reads Discovery documents first.
 const googleWWW = "www.googleapis.com"

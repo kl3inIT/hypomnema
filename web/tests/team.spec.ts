@@ -28,7 +28,7 @@ const bot = (name: string, model?: string) => ({
 
 const bots = [
   bot("coordinator", "gpt-6.1-sol"),
-  bot("key-check", "claude-sonnet-5-5"),
+  { ...bot("key-check", "claude-sonnet-5-5"), main_chat: "cht_5" },
   bot("researcher"),
   bot("reporter", "claude-opus-5-5"),
 ]
@@ -465,13 +465,18 @@ test("a running worker's transcript is read in its Task's panel", async ({ page 
   await expect(log).toContainText("FAIL TestHealth: got 404")
 })
 
-// Scenario: a Bot opens the chat that waits for the owner; a Bot with no chat opens a new chat with it.
-test("a Bot opens its chat", async ({ page }) => {
+// Scenario: a Bot opens its main chat, though another of its chats waits for the owner (issue #471); a Bot with no
+// main chat opens a new chat with it.
+test("a Bot opens its main chat", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/team")
 
   await page.getByTestId("team-bot").filter({ hasText: "key-check" }).click()
-  await expect(page).toHaveURL(/\/chats\/cht_2$/)
+  await expect(page).toHaveURL(/\/chats\/cht_5$/)
+
+  await page.goto("/team")
+  await page.getByTestId("team-bot").filter({ hasText: "reporter" }).click()
+  await expect(page).toHaveURL(/\/\?bot=reporter$/)
 })
 
 // Scenario: with no Bots, the page says so.

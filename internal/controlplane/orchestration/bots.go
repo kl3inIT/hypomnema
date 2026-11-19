@@ -89,8 +89,11 @@ type Bot struct {
 	GuaranteedDispatches int
 	// Position is the Bot's place in the order the owner sets, 0 first, and Pinned lists it in the sidebar's
 	// Pinned section (issue #470). Neither is a setting: PutBot keeps them as they are.
-	Position  int
-	Pinned    bool
+	Position int
+	Pinned   bool
+	// MainChat is the chat a click on the Bot opens and the web and the CLI write to (issue #471); empty until the
+	// first message from either makes it. Its other chats stay as they are.
+	MainChat  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -104,6 +107,7 @@ func botFromRow(r store.Bot) Bot {
 		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
 		GuaranteedDispatches: int(r.GuaranteedDispatches.Int64),
 		Position:             int(r.Position), Pinned: r.Pinned != 0, Scopes: scopesOf(r.ConnectionScopes),
+		MainChat:  r.MainChat.String,
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
 }

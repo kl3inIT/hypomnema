@@ -3,7 +3,6 @@ package clientcli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -18,8 +17,8 @@ import (
 // pi (server/drivers/pi.ts, pi-mcp-servers.ts): the server a worker's CLI
 // runs (internal/shared/toolsmcp), started by pi inside the Bot's box as
 // `hypomnema mcp`, with the login in ~/.hypomnema/client.json, which is the
-// pi's own token there. It lists the tools the control plane gives a Bot's pi
-// (PathTools, issue #536: memory, show_artifact, routines, web_search,
+// pi's own token there, or the owner's token on the owner's machine. It lists the tools the control plane
+// gives that login (PathTools, issue #536: memory, show_artifact, routines, web_search,
 // web_fetch, generate_image, audio_transcribe, audio_speak, the shared browser's, and Superset's superset_*
 // when its Bot may use a Superset account) and the phone's (PathDeviceTools,
 // issue #536 step 4), as a worker's server does (internal/node/workertools),
@@ -42,67 +41,52 @@ const (
 	mcpTimeout = 12 * 60
 )
 
-// mcpServe serves the tools on standard input and output until pi closes
+// mcpServe serves the tools on standard input and output until the client closes
 // them.
 func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
-	cfg, err := LoadConfig(e.home)
+	agent, err := toolAgent(e.home)
 	if err != nil {
 		return err
-	}
-
-	agent := toolsmcp.NewAgent(cfg.URL, cfg.Token)
-	if agent == nil {
-		return errors.New("the login names no control plane")
 	}
 
 	return toolsmcp.Serve(ctx, e.in, e.out, toolsmcp.Config{
 		Name: mcpName,
 		List: func(ctx context.Context) ([]map[string]any, error) {
-			tools, err := agent.Tools(ctx, agenttool.PathTools)
-			device, deviceErr := agent.Tools(ctx, agenttool.PathDeviceTools)
-
-			return append(tools, device...), errors.Join(err, deviceErr)
+			return listAgentTools(ctx, agent)
 		},
 		Call: func(ctx context.Context, c toolsmcp.Call) (any, error) {
-			switch {
-			case devicetool.Routed(c.Name):
-				return agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, c.Name, c.Arguments)
-			case c.Name == agenttool.ToolGenerateImage:
-				return agent.ImageCall(ctx, c.Arguments,
-					toolsmcp.Images{Path: agenttool.PathToolsCall, Folder: mcpImages})
-			case c.Name == agenttool.ToolAudioTranscribe:
-				return agent.TranscribeCall(ctx, c.Arguments, toolsmcp.Audio{Path: agenttool.PathToolsCall})
-			case c.Name == agenttool.ToolAudioSpeak:
-				return agent.SpeakCall(ctx, c.Arguments, toolsmcp.Audio{Path: agenttool.PathToolsCall, Folder: mcpAudio})
-			case c.Name == agenttool.ToolShowArtifact:
-				// pi starts the server in the folder it works in, the Bot's, where its pages are.
-				dir, err := os.Getwd()
-				if err != nil {
-					return nil, fmt.Errorf("reading the working folder: %w", err)
-				}
-
-				return agent.ArtifactCall(ctx, agenttool.PathToolsCall, c.Arguments, dir)
-			case agenttool.SendsAFile(c.Name):
-				// The file it sends is one of the Bot's folder, read here as show_artifact's path is (#645, #680).
-				dir, err := os.Getwd()
-				if err != nil {
-					return nil, fmt.Errorf("reading the working folder: %w", err)
-				}
-
-				return agent.SendCall(ctx, agenttool.PathToolsCall, c.Name, c.Arguments, dir)
-			case c.Name == agenttool.ToolRoutines:
-				// A Routine's script is a file of the Bot's folder, read here as show_artifact's path is.
-				dir, err := os.Getwd()
-				if err != nil {
-					return nil, fmt.Errorf("reading the working folder: %w", err)
-				}
-
-				return agent.RoutineCall(ctx, agenttool.PathToolsCall, c.Arguments, dir)
-			}
-
-			return agent.ToolCall(ctx, agenttool.PathToolsCall, toolsmcp.CallTimeout, c.Name, c.Arguments)
+			return callAgentTool(ctx, agent, c.Name, c.Arguments)
 		},
 	})
+}
+
+func callAgentTool(ctx context.Context, agent *toolsmcp.Agent, name string, args json.RawMessage) (any, error) {
+	switch {
+	case devicetool.Routed(name):
+		return agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, name, args)
+	case name == agenttool.ToolGenerateImage:
+		return agent.ImageCall(ctx, args, toolsmcp.Images{Path: agenttool.PathToolsCall, Folder: mcpImages})
+	case name == agenttool.ToolAudioTranscribe:
+		return agent.TranscribeCall(ctx, args, toolsmcp.Audio{Path: agenttool.PathToolsCall})
+	case name == agenttool.ToolAudioSpeak:
+		return agent.SpeakCall(ctx, args, toolsmcp.Audio{Path: agenttool.PathToolsCall, Folder: mcpAudio})
+	case name == agenttool.ToolShowArtifact || agenttool.SendsAFile(name) || name == agenttool.ToolRoutines:
+		dir, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("reading the working folder: %w", err)
+		}
+
+		switch name {
+		case agenttool.ToolShowArtifact:
+			return agent.ArtifactCall(ctx, agenttool.PathToolsCall, args, dir)
+		case agenttool.ToolRoutines:
+			return agent.RoutineCall(ctx, agenttool.PathToolsCall, args, dir)
+		default:
+			return agent.SendCall(ctx, agenttool.PathToolsCall, name, args, dir)
+		}
+	default:
+		return agent.ToolCall(ctx, agenttool.PathToolsCall, toolsmcp.CallTimeout, name, args)
+	}
 }
 
 // piMCPFile is pi's mcp.json (pi docs/mcp.md, "Configure servers").

@@ -3,14 +3,23 @@ import { expect, test, type Page } from "@playwright/test"
 import { openMenu } from "./menu.js"
 import { shot } from "./shot.js"
 
-// The sidebar's Bots (issue #361), built, against a fake client API: a row a Bot that opens to its chats, as
-// OpenMausBot's sidebar, in the one order the owner sets by dragging, with the pinned Bots under the main one (issue
+// The sidebar's Bots (issue #361), built, against a fake client API: a row a Bot that opens its main chat (issue
+// #471), as OpenMausBot's sidebar with its threads hidden, in the one order the owner sets by dragging, with the pinned Bots under the main one (issue
 // #470). A phone shows them in the drawer behind ≡ (issue #604), in the order, without dragging.
 
 const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
 
+// Each Bot's main chat (issue #471): coordinator's is not its newest, researcher's is not the one that waits on the
+// owner, and writer has none.
+const mainChats: Record<string, string> = {
+  coordinator: "cht_2",
+  researcher: "cht_5",
+  reporter: "cht_6",
+}
+
 const bot = (name: string, position: number) => ({
   id: name,
+  ...(mainChats[name] && { main_chat: mainChats[name] }),
   main: name === "coordinator",
   name,
   position,
@@ -42,7 +51,9 @@ const chat = (id: string, name: string, title: string, updated: number, m: objec
 
 const chats = [
   chat("cht_1", "coordinator", "Add a /health page", 30, { working: true }),
-  chat("cht_2", "coordinator", "Fix the header layout", 7200),
+  chat("cht_2", "coordinator", "Fix the header layout", 7200, {
+    last_line: "Moved the menu under the logo",
+  }),
   chat("cht_3", "coordinator", "Old release notes", 3 * 86400),
   chat("cht_4", "researcher", "Send the invoice reply", 600),
   chat("cht_5", "researcher", "Compare the gateways", 86400),
@@ -151,124 +162,46 @@ async function showList(page: Page) {
   await bots(page).scrollIntoViewIfNeeded()
 }
 
-// Scenario: the owner sees every Bot in his order, the main one first, each with its latest chat and what it is
-// doing, and a Bot without chats too; he opens coordinator to its chats, newest first, and it stays open after a
-// reload; clicking a Bot's row opens its latest chat.
-test("the sidebar lists the Bots, each opening to its chats", async ({ page }) => {
+// Scenario: the owner sees every Bot in his order, the main one first, each one row with no list of chats under it
+// (issue #471): its main chat's last line, what it is doing, and a Bot without a main chat says so. A Bot's row opens
+// its main chat, not its newest; the row of a Bot one of whose other chats waits on him says Needs you and opens
+// that chat; a Bot with no main chat opens New chat with it picked.
+test("the sidebar lists the Bots, each opening its main chat", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/")
   await openMenu(page)
 
-  await expect(botRow(page, "coordinator")).toContainText("Add a /health page")
+  await expect(botRow(page, "coordinator")).toContainText("Moved the menu under the logo")
   await expect(botRow(page, "coordinator")).toContainText("Working")
-  await expect(botRow(page, "researcher")).toContainText("Send the invoice reply")
+  await expect(botRow(page, "researcher")).toContainText("Compare the gateways")
   await expect(botRow(page, "researcher")).toContainText("Needs you")
+  await expect(bots(page).getByTestId("needs-you-dot")).toHaveCount(1)
   await expect(botRow(page, "reporter")).toContainText("Weekly usage summary")
-  await expect(botRow(page, "writer")).toContainText("No chats yet")
+  await expect(botRow(page, "writer")).toContainText("No chat yet")
   await expect(botNames(page)).toHaveText([/coordinator/, /researcher/, /reporter/, /writer/])
-  // A Bot with one chat has nothing to open.
-  await expect(bots(page).getByRole("button", { name: "Show the chats of reporter" })).toHaveCount(
-    0,
-  )
+  // No chevron, no list of chats, no Show all and no New chat on a row.
+  await expect(bots(page).getByRole("button", { name: /chats of|New chat with/ })).toHaveCount(0)
+  await expect(bots(page).getByRole("list")).toHaveCount(0)
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
     true,
   )
   await showList(page)
   await shot(page, "sidebar-bots")
 
-  await bots(page).getByRole("button", { name: "Show the chats of coordinator" }).click()
-  const coordinator = bots(page).getByRole("list", { name: "Chats of coordinator" })
-  await expect(coordinator.getByRole("link")).toHaveText([
-    /Add a \/health page.*Working/,
-    /Fix the header layout/,
-    /Old release notes/,
-  ])
-  await showList(page)
-  await shot(page, "sidebar-bot-open")
+  await botRow(page, "coordinator").click()
+  await expect(page).toHaveURL(/\/chats\/cht_2$/)
+  await expect(page.getByText("about Fix the header layout")).toBeVisible()
 
-  await page.reload()
   await openMenu(page)
-  await expect(coordinator.getByRole("link")).toHaveCount(3)
-  await bots(page).getByRole("button", { name: "Hide the chats of coordinator" }).click()
-  await expect(coordinator).toHaveCount(0)
-
-  await bots(page).getByRole("button", { name: "Show the chats of researcher" }).click()
-  await expect(
-    bots(page).getByRole("list", { name: "Chats of researcher" }).getByRole("link").first(),
-  ).toContainText("Needs you")
+  await botRow(page, "researcher").click()
+  await expect(page).toHaveURL(/\/chats\/cht_4$/)
+  await expect(page.getByText("about Send the invoice reply")).toBeVisible()
+  await openMenu(page)
   await showList(page)
   await shot(page, "sidebar-needs-you")
 
-  await botRow(page, "reporter").click()
-  await expect(page).toHaveURL(/\/chats\/cht_6$/)
-})
-
-// Scenario: writer has 17 chats (issue #599). Opened, it lists its 6 newest and, older than those, the one that is
-// working and the one waiting on the owner; "Show all (9)" lists the other 9, and "Show less" folds them back. The
-// short list is what a reload shows again, in the light theme as in the dark.
-test("an open Bot lists its 6 newest chats, with Show all", async ({ page }) => {
-  const many = Array.from({ length: 17 }, (_, i) =>
-    chat(`cht_w${i}`, "writer", `Draft ${"ABCDEFGHIJKLMNOPQ"[i]}`, 3600 * (i + 1), {
-      working: i === 10,
-    }),
-  )
-  await fakeServer(page, [...chats, ...many], [held, { ...held, id: "apr_2", chat_id: "cht_w13" }])
-  await page.goto("/")
-  await openMenu(page)
-
-  await bots(page).getByRole("button", { name: "Show the chats of writer" }).click()
-  const writer = bots(page).getByRole("list", { name: "Chats of writer" })
-  const short = [..."ABCDEF"].map((n) => new RegExp(`^Draft ${n}`))
-  await expect(writer.getByRole("link")).toHaveText([
-    ...short,
-    /^Draft K.*Working/,
-    /^Draft N.*Needs you/,
-  ])
-  const more = writer.getByRole("button", { name: "Show all (9)" })
-  await expect(more).toBeVisible()
-  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
-    true,
-  )
-  await more.scrollIntoViewIfNeeded()
-  await shot(page, "sidebar-six-dark")
-
-  await more.click()
-  await expect(writer.getByRole("link")).toHaveCount(17)
-  await writer.getByRole("button", { name: "Show less" }).scrollIntoViewIfNeeded()
-  await shot(page, "sidebar-all-dark")
-  await writer.getByRole("button", { name: "Show less" }).click()
-  await expect(writer.getByRole("link")).toHaveCount(8)
-
-  await page.evaluate(`localStorage.setItem("theme", "light")`)
-  await page.reload()
-  await openMenu(page)
-  await expect(page.locator("html")).not.toHaveClass(/dark/)
-  await expect(writer.getByRole("link")).toHaveCount(8)
-  await more.scrollIntoViewIfNeeded()
-  await shot(page, "sidebar-six-light")
-  await more.click()
-  await writer.getByRole("button", { name: "Show less" }).scrollIntoViewIfNeeded()
-  await shot(page, "sidebar-all-light")
-})
-
-// Scenario: pointing at a Bot's row offers a new chat with it; the start page opens with that Bot picked. A phone
-// starts a chat from New chat, with its own picker.
-test("the + on a Bot's row starts a chat with that Bot", async ({ page, isMobile }) => {
-  test.skip(isMobile, "a phone has no pointer to rest on a row")
-
-  await fakeServer(page)
-  await page.goto("/chats/cht_1")
-
-  await botRow(page, "reporter").hover()
-  const start = bots(page).getByRole("button", { name: "New chat with reporter" })
-  await expect(start).toBeVisible()
-  await start.hover()
-  await expect(page.getByText("New chat with reporter", { exact: true }).last()).toBeVisible()
-  await shot(page, "sidebar-new-chat")
-
-  await start.click()
-  await expect(page).toHaveURL(/\/\?bot=reporter$/)
-  await expect(page.getByRole("combobox", { name: "Bot" })).toContainText("reporter")
+  await botRow(page, "writer").click()
+  await expect(page).toHaveURL(/\/\?bot=writer$/)
 })
 
 // Scenario: the owner pins reporter from its row's menu (issue #470): it moves to the Pinned section under the main
@@ -295,8 +228,11 @@ test("a Bot is pinned and unpinned from its row's menu", async ({ page }) => {
   await page.reload()
   await openMenu(page)
   await expect(pinnedNames(page)).toHaveText([/reporter/])
+  // The main Bot's menu holds its main chat's Delete, and no Pin.
   await botRow(page, "coordinator").hover()
-  await expect(bots(page).getByRole("button", { name: "Actions for coordinator" })).toHaveCount(0)
+  await bots(page).getByRole("button", { name: "Actions for coordinator" }).click()
+  await expect(page.getByRole("menuitem")).toHaveText(["Delete"])
+  await page.keyboard.press("Escape")
 
   await botRow(page, "reporter").hover()
   await bots(page).getByRole("button", { name: "Actions for reporter" }).click()
@@ -357,8 +293,8 @@ test("Bots are reordered by their avatar, with the mouse or the keyboard", async
   await expect(botNames(page)).toHaveText([/coordinator/, /writer/, /reporter/, /researcher/])
 })
 
-// Scenario: a Bot's row still carries its latest chat to the grid when dragged by its name (issue #235): only its
-// avatar moves it in the order.
+// Scenario: a Bot's row still carries its main chat to the grid when dragged by its name (issue #235, #471): only
+// its avatar moves it in the order.
 test("a Bot's row is still dragged to the grid", async ({ page, isMobile }) => {
   test.skip(isMobile, "a phone shows one chat: there is no grid")
 
@@ -375,4 +311,45 @@ test("a Bot's row is still dragged to the grid", async ({ page, isMobile }) => {
 
   await expect(page).toHaveURL(/\/grid$/)
   expect(orders).toEqual([])
+})
+
+// Scenario: the owner has coordinator's main chat open when its Bot answers (issue #471): the row's last line
+// follows the answer without a reload, as the chats are read again when a line comes.
+test("a Bot's row shows its main chat's newest line as the Bot answers", async ({ page }) => {
+  await fakeServer(page)
+  let listed = 0
+  let replied = false
+  // Registered after fakeServer, so these answer first: the list, with the line the answer leaves; the chat's
+  // stream, which answers once the list was read.
+  await page.route("**/api/v1/chats", async (route) => {
+    listed++
+    const now = chats.map((c) =>
+      c.id === "cht_2" && replied ? { ...c, last_line: "The menu is under the logo now" } : c,
+    )
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ data: now }) })
+  })
+  await page.route("**/api/v1/chats/cht_2/stream*", async (route) => {
+    if (replied) {
+      return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
+    }
+    await expect.poll(() => listed).toBeGreaterThan(0)
+    replied = true
+    const answer = {
+      seq: 2,
+      chat_id: "cht_2",
+      role: "coordinator",
+      text: "The menu is under the logo now",
+      created_at: new Date().toISOString(),
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: `id: 2\nevent: message\ndata: ${JSON.stringify(answer)}\n\n`,
+    })
+  })
+
+  await page.goto("/chats/cht_2")
+  await expect(page.getByText("The menu is under the logo now").first()).toBeVisible()
+  await openMenu(page)
+  await expect(botRow(page, "coordinator")).toContainText("The menu is under the logo now")
 })

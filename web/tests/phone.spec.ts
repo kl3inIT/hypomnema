@@ -15,7 +15,32 @@ const chat = {
   updated_at: "2026-11-15T10:00:00Z",
 }
 
-const other = { ...chat, id: "cht_2", title: "check the order page" }
+// Another Bot's main chat, which its row in the sidebar carries to the grid (issue #471).
+const other = { ...chat, id: "cht_2", title: "check the order page", bot: "reporter" }
+
+const bot = (id: string, position: number, mainChat: string) => ({
+  id,
+  main: id === "coordinator",
+  name: id,
+  position,
+  pinned: false,
+  main_chat: mainChat,
+  persona: "",
+  memory: "",
+  memory_limit: 2200,
+  fallbacks: [],
+  skills: [],
+  skills_off: [],
+  tools: [],
+  tools_off: [],
+  connections: { limited: false, names: [] },
+  workers: { limited: false, names: [] },
+  scopes: {},
+  tool_display: "on",
+  guaranteed_dispatches: 4,
+  created_at: "2026-11-15T10:00:00Z",
+  updated_at: "2026-11-15T10:00:00Z",
+})
 
 const phoneNode = {
   node_id: "nod_phone",
@@ -150,6 +175,8 @@ async function fakeServer(page: Page, options: Options = {}) {
         return json({ code: "unavailable", message: "this control plane has no browser" }, 503)
       case "GET /chats":
         return json({ data: [chat, other] })
+      case "GET /bots":
+        return json({ data: [bot("coordinator", 0, chat.id), bot("reporter", 1, other.id)] })
       case "GET /chats/cht_1":
         return json(chat)
       case "GET /chats/cht_2":
@@ -379,7 +406,7 @@ test("the phone's frame fits a narrow pane", async ({ page }, info) => {
   await shot(page, "phone-narrow")
 })
 
-// Scenario: the owner holds the phone beside a chat and drags another chat into the grid. The phone's pane moves
+// Scenario: the owner holds the phone beside a chat and drags another Bot's main chat into the grid. The phone's pane moves
 // over but stays as it was: its view is not closed and opened again, which would give the phone back to the agents
 // (issue #597).
 test("a chat added to the grid leaves the phone held and connected", async ({ page }, info) => {
@@ -393,10 +420,9 @@ test("a chat added to the grid leaves the phone held and connected", async ({ pa
   await page.getByRole("button", { name: /Take control/ }).click()
   await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
 
-  await page.getByRole("button", { name: "Show the chats of coordinator" }).click()
   const box = (await page.getByRole("region", { name: chat.title }).boundingBox())!
   await page
-    .getByRole("list", { name: "Chats of coordinator" })
+    .getByRole("navigation", { name: "Bots" })
     .getByRole("link", { name: other.title })
     .hover()
   await page.mouse.down()
@@ -429,6 +455,8 @@ test("switching to another tab of the pane keeps the owner's hold on the phone",
   const phonePane = page.getByRole("region", { name: "Phone" })
   await phonePane.getByRole("button", { name: "Open new" }).click()
   await page.getByRole("menuitem", { name: "New chat" }).click()
+  // With several Bots, New chat asks which.
+  await page.getByRole("menuitem", { name: "coordinator" }).click()
   await expect(page.getByTestId("phone-view")).toHaveCount(0)
   await expect.poll(() => closed).toBe(1)
   expect(server.of("releaseControl")).toHaveLength(0)

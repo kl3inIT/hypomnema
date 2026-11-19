@@ -29,7 +29,8 @@ const maxMemoryChangeBytes = 64 << 10
 //   - a Bot's pi, its own Bot's directory and USER.md, except in a Lark
 //     group's chat (memoryOffered).
 //
-// Any other agent (the owner's token, the coordinator token, a Routine's
+// The owner's token gets the shared USER.md through the tool, with no agent's index or notes.
+// Any other agent (the coordinator token, a Routine's
 // script) has no MCP and keeps the CLI. The description never changes for a
 // kind, so the tools the provider caches stay the same; how full the memory
 // is goes in each change's result (memorystore's usage).
@@ -40,7 +41,7 @@ const maxMemoryChangeBytes = 64 << 10
 // #589), such a chat would read what the owner's chats taught.
 func (s *Server) memoryOffered(ctx context.Context, a agent) (bool, error) {
 	switch {
-	case a.dispatchID != "":
+	case a.owner || a.dispatchID != "":
 		return true, nil
 	case a.chatID == "" || a.bot == "":
 		return false, nil
@@ -58,12 +59,9 @@ func (s *Server) memoryOfferedNow(ctx context.Context, a agent) bool {
 	return err == nil && ok
 }
 
-// memoryTool is the memory's tool as an agent of its kind is offered it:
-// Anthropic's six commands and their parameters; none for an agent that is
-// neither a worker nor a Bot's pi. A Lark group's chat is left out by
-// memoryOffered, which reads the chat.
+// memoryTool describes the caller's memory and its commands. memoryOffered leaves out a Lark group's chat.
 func memoryTool(a agent) (agenttool.BrowserTool, bool) {
-	if a.dispatchID == "" && (a.chatID == "" || a.bot == "") {
+	if !a.hasAgentTools() {
 		return agenttool.BrowserTool{}, false
 	}
 
@@ -75,10 +73,15 @@ func memoryTool(a agent) (agenttool.BrowserTool, bool) {
 	}
 
 	text := map[string]any{"type": "string"}
+	commands := memorystore.Commands
+	if a.owner {
+		commands = []string{memorystore.View, memorystore.Insert, memorystore.StrReplace}
+	}
+
 	raw, err := json.Marshal(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"command":     map[string]any{"type": "string", "enum": memorystore.Commands},
+			"command":     map[string]any{"type": "string", "enum": commands},
 			"path":        map[string]any{"type": "string", "description": "A path under /memories."},
 			"view_range":  map[string]any{"type": "array", "items": map[string]any{"type": "integer"}},
 			"file_text":   text,
@@ -93,6 +96,16 @@ func memoryTool(a agent) (agenttool.BrowserTool, bool) {
 	})
 	if err != nil {
 		return agenttool.BrowserTool{}, false
+	}
+
+	if a.owner {
+		return agenttool.BrowserTool{
+			Name: agenttool.ToolMemory,
+			Description: "Read and update /memories/USER.md, the lasting facts every agent and Bot knows about the " +
+				"owner. Use view, insert (insert_text after insert_line; 0 is the top), or str_replace " +
+				"(replace the one old_str with new_str). Keep one fact a line. Do not store secrets or task progress.",
+			InputSchema: raw,
+		}, true
 	}
 
 	return agenttool.BrowserTool{
@@ -131,7 +144,10 @@ func (s *Server) memoryCall(w http.ResponseWriter, r *http.Request, a agent, cal
 
 	dir := memorystore.BotDir(a.bot)
 
-	if a.dispatchID != "" {
+	switch {
+	case a.owner:
+		dir = memorystore.OwnerDir()
+	case a.dispatchID != "":
 		d, err := s.store.Memories().DispatchDir(ctx, a.dispatchID)
 		if err != nil {
 			s.fail(w, r, err)

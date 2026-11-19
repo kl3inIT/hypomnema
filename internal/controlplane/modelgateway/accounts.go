@@ -74,7 +74,7 @@ func (s *Server) retryRefusedAccount(
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
 	fresh, err := s.accounts.TokenAfterRefusal(ctx, *token)
-	if err != nil && ctx.Err() == nil {
+	if err != nil && ctx.Err() == nil && !errors.Is(err, ErrAccountResting) {
 		return resp, nil
 	}
 
@@ -116,6 +116,35 @@ func newAccountState() *accountState {
 func (s *Server) underAccounts(
 	ctx context.Context, runtime, session string, usedLast func(AccountToken) bool,
 	attempt func(AccountToken) (*http.Response, error),
+) (*http.Response, error) {
+	resp, err := s.tryAccounts(ctx, runtime, session, usedLast, attempt, nil)
+	var cooling *CoolingError
+	if errors.As(err, &cooling) {
+		if now := s.svc.clock.Now(); runtime == codexRuntime && cooling.Until.Sub(now) > codexWaitsUpTo {
+			return accountCoolingResponse("/v1/responses", cooling.Until, now), nil
+		}
+		return openAIError(http.StatusTooManyRequests, "rate_limit_error", "account_unavailable",
+			accountsCoolingMessage, cooling.Until.Sub(s.svc.clock.Now())), nil
+	}
+	return resp, err
+}
+
+func (s *Server) underModelAccounts(
+	ctx context.Context, runtime, session string, usedLast func(AccountToken) bool, modelReset func(string) time.Time,
+	attempt func(AccountToken) (*http.Response, error),
+) (*http.Response, error) {
+	return s.tryAccounts(ctx, runtime, session, usedLast, attempt, func() time.Time {
+		until, err := s.accounts.FirstFree(ctx, runtime, modelReset)
+		if err != nil {
+			return time.Time{}
+		}
+		return until
+	})
+}
+
+func (s *Server) tryAccounts(
+	ctx context.Context, runtime, session string, usedLast func(AccountToken) bool,
+	attempt func(AccountToken) (*http.Response, error), firstFree func() time.Time,
 ) (*http.Response, error) {
 	var (
 		tried    []string
@@ -168,21 +197,18 @@ func (s *Server) underAccounts(
 		}
 	}
 
+	var cooling *CoolingError
+	if firstFree != nil && (refusal != nil && refusal.StatusCode == http.StatusTooManyRequests ||
+		refusal == nil && errors.As(stopping, &cooling)) {
+		if until := firstFree(); !until.IsZero() {
+			if refusal != nil {
+				drain(refusal)
+			}
+			return nil, &CoolingError{Until: until}
+		}
+	}
 	if refusal != nil {
 		return refusal, nil
-	}
-
-	// No account was tried at all.
-	var cooling *CoolingError
-	if errors.As(stopping, &cooling) {
-		if now := s.svc.clock.Now(); runtime == codexRuntime && cooling.Until.Sub(now) > codexWaitsUpTo {
-			return codexAccountsCooling(cooling.Until, now), nil
-		}
-
-		// 429 with the time the first account is free again, as CLIProxyAPI
-		// answers when every credential cools (9router answers 503).
-		return openAIError(http.StatusTooManyRequests, "rate_limit_error", "account_unavailable",
-			accountsCoolingMessage, cooling.Until.Sub(s.svc.clock.Now())), nil
 	}
 
 	return nil, stopping
