@@ -2,7 +2,7 @@
 // --mcp-config (issue #32), as Omnigent's `serve-mcp` bridge
 // (omnigent/harnesses/claude_native/bridge.py at cf1021e): Hypomnema's one
 // tools server (internal/shared/toolsmcp, which a Bot's pi mounts too, issue
-// #492) with a worker's tools. It offers two tools of its own, which talk to
+// #492) with a worker's tools. It offers tools of its own, which talk to
 // the node daemon only through the bridge directory, and the tools the
 // control plane lists for a worker (PathTools, issue #536: the memory's, the
 // gateway's, show_artifact and the browser every agent shares) and the
@@ -20,6 +20,7 @@
 //     docs/research/2026-11-08-worker-survival-and-long-tool-calls.md).
 //   - finish: the worker's final report, called once (Orca's worker_done),
 //     optionally with a decision Gate for the owner.
+//   - publish_branch: push the GitHub Task branch through the node.
 package workertools
 
 import (
@@ -89,6 +90,13 @@ func (s *server) config() toolsmcp.Config {
 		Name: Name,
 		List: func(ctx context.Context) ([]map[string]any, error) {
 			listed := tools()
+			if bridge.PublishEnabled(s.dir) {
+				listed = append(listed, map[string]any{
+					"name":        "publish_branch",
+					"description": "Push the committed GitHub Task branch to the Run's repository. The node records the pushed head; it never force-pushes.",
+					"inputSchema": map[string]any{"type": "object", "additionalProperties": false},
+				})
+			}
 			if s.agent == nil {
 				return listed, nil
 			}
@@ -159,6 +167,8 @@ func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
 		return s.ask(ctx, c.Arguments, c.Progress)
 	case "finish":
 		return s.finish(c.Arguments)
+	case "publish_branch":
+		return s.publishBranch(ctx)
 	default:
 		// The phone's tools are named device_* (issue #417) and video_* (issue #817); generate_image's files are read and written here
 		// (issue #492), show_artifact's read here (issue #536); any other tool is one the control plane lists for the worker (issue #536): it knows which
@@ -194,6 +204,34 @@ func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
 		}
 
 		return nil, fmt.Errorf("unknown tool %q", c.Name)
+	}
+}
+
+func (s *server) publishBranch(ctx context.Context) (any, error) {
+	if !bridge.PublishEnabled(s.dir) {
+		return nil, errors.New("publish_branch is not available for this Task")
+	}
+	id, err := bridge.RequestPublish(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	poll := time.NewTicker(s.poll)
+	defer poll.Stop()
+	for {
+		result, done, err := bridge.Published(s.dir, id)
+		if err != nil {
+			return nil, err
+		}
+		if done {
+			return toolsmcp.Text(result.Message, result.Failed), nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-poll.C:
+		}
 	}
 }
 

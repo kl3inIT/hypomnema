@@ -12,6 +12,7 @@ import { useMachines } from "@/features/machines/use-machines"
 import { PageHeader, PageHeading } from "@/components/page-header"
 import { useChats } from "@/features/shell/chats"
 import { useWork } from "@/features/work/use-work"
+import type { Card } from "@/features/work/work-state"
 import { useNow } from "@/hooks/use-now"
 import { elapsed, since } from "@/lib/time"
 
@@ -66,6 +67,10 @@ export function TeamScreen({
   const names = useMemo(() => list.map((b) => b.id), [list])
   const links = useMemo(() => teamLinks(work, names), [work, names])
   const questions = useMemo(() => ownerQuestions(cards), [cards])
+  const reviews = cards.filter(
+    (card) =>
+      card.run.review_stall?.waiting_for_owner && card.run.review_stall.task_id === card.task.id,
+  )
   const edges = useMemo(
     () => buildTeamMapEdges(names, teamMapSnapshot(cards, chatList, now)),
     [names, cards, chatList, now],
@@ -137,7 +142,14 @@ export function TeamScreen({
               onOpenTask={onOpenTask}
             />
           </div>
-          <Handoffs questions={questions} edges={edges} now={now} onOpen={openWork} />
+          <Handoffs
+            questions={questions}
+            reviews={reviews}
+            edges={edges}
+            now={now}
+            onOpen={openWork}
+            onOpenReview={onOpenTask}
+          />
         </>
       )}
     </main>
@@ -147,20 +159,25 @@ export function TeamScreen({
 // Handoffs is OpenMausBot's "Who hands work to whom": the questions to the owner, then a row a Bot and agent pair.
 function Handoffs({
   questions,
+  reviews,
   edges,
   now,
   onOpen,
+  onOpenReview,
 }: {
   questions: OwnerQuestion[]
+  reviews: Card[]
   edges: TeamMapEdge[]
   now: number
   onOpen: (chatId: string | undefined, taskId: string) => void
+  onOpenReview: (taskId: string) => void
 }) {
-  const count = questions.length + edges.length
+  const count = questions.length + reviews.length + edges.length
   if (count === 0) return null
 
   const shownQuestions = questions.slice(0, listRows)
-  const shownEdges = edges.slice(0, listRows - shownQuestions.length)
+  const shownReviews = reviews.slice(0, listRows - shownQuestions.length)
+  const shownEdges = edges.slice(0, listRows - shownQuestions.length - shownReviews.length)
 
   return (
     // OpenMausBot's own <details>, closed at first so the map has the height: it opens and closes with no state
@@ -189,6 +206,19 @@ function Handoffs({
             <RuntimeMark runtime={q.runtime} className="size-4.5" />
             <span className="shrink-0 font-medium">{q.agent} asks:</span>
             <span className="truncate text-muted-foreground">“{q.text}”</span>
+          </Row>
+        ))}
+        {shownReviews.map(({ run, task, runtime }) => (
+          <Row
+            key={task.id}
+            state={<Badge variant="warning">Waiting for you</Badge>}
+            onOpen={() => onOpenReview(task.id)}
+            trailing="Review findings"
+          >
+            <RuntimeMark runtime={runtime} className="size-4.5" />
+            <span className="truncate text-muted-foreground" title={task.result}>
+              {run.objective} · Review: {run.review_stall?.verdict}
+            </span>
           </Row>
         ))}
         {shownEdges.map((edge) => (

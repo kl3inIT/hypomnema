@@ -1499,6 +1499,51 @@ func (e QuestionStatus) Valid() bool {
 	}
 }
 
+// Defines values for ReviewStallChecks.
+const (
+	FAILING ReviewStallChecks = "FAILING"
+	PASSING ReviewStallChecks = "PASSING"
+	PENDING ReviewStallChecks = "PENDING"
+	UNKNOWN ReviewStallChecks = "UNKNOWN"
+)
+
+// Valid indicates whether the value is a known member of the ReviewStallChecks enum.
+func (e ReviewStallChecks) Valid() bool {
+	switch e {
+	case FAILING:
+		return true
+	case PASSING:
+		return true
+	case PENDING:
+		return true
+	case UNKNOWN:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ReviewStallVerdict.
+const (
+	ReviewStallVerdictCorrect   ReviewStallVerdict = "correct"
+	ReviewStallVerdictIncorrect ReviewStallVerdict = "incorrect"
+	ReviewStallVerdictUnknown   ReviewStallVerdict = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the ReviewStallVerdict enum.
+func (e ReviewStallVerdict) Valid() bool {
+	switch e {
+	case ReviewStallVerdictCorrect:
+		return true
+	case ReviewStallVerdictIncorrect:
+		return true
+	case ReviewStallVerdictUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RoutineKind.
 const (
 	Prompt RoutineKind = "prompt"
@@ -5166,6 +5211,12 @@ type ProviderList struct {
 	Data []Provider `json:"data"`
 }
 
+// PublishedHead defines model for PublishedHead.
+type PublishedHead struct {
+	Branch string `json:"branch"`
+	Sha    string `json:"sha"`
+}
+
 // Question defines model for Question.
 type Question struct {
 	AddressedTo Addressee `json:"addressed_to"`
@@ -5241,6 +5292,23 @@ type Resources struct {
 	CpuMillis   int64 `json:"cpu_millis"`
 	MemoryBytes int64 `json:"memory_bytes"`
 }
+
+// ReviewStall A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
+type ReviewStall struct {
+	Checks          ReviewStallChecks  `json:"checks"`
+	MergeState      string             `json:"merge_state"`
+	Mergeable       string             `json:"mergeable"`
+	PullRequest     string             `json:"pull_request"`
+	TaskId          string             `json:"task_id"`
+	Verdict         ReviewStallVerdict `json:"verdict"`
+	WaitingForOwner bool               `json:"waiting_for_owner"`
+}
+
+// ReviewStallChecks defines model for ReviewStall.Checks.
+type ReviewStallChecks string
+
+// ReviewStallVerdict defines model for ReviewStall.Verdict.
+type ReviewStallVerdict string
 
 // RoleMetric defines model for RoleMetric.
 type RoleMetric struct {
@@ -5471,9 +5539,12 @@ type Run struct {
 	Repo *string `json:"repo,omitempty"`
 
 	// RepoHost The git host the repository is on; present when the Run has a repository.
-	RepoHost  *string   `json:"repo_host,omitempty"`
-	Status    RunStatus `json:"status"`
-	UpdatedAt time.Time `json:"updated_at"`
+	RepoHost *string `json:"repo_host,omitempty"`
+
+	// ReviewStall A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
+	ReviewStall *ReviewStall `json:"review_stall,omitempty"`
+	Status      RunStatus    `json:"status"`
+	UpdatedAt   time.Time    `json:"updated_at"`
 
 	// Uses The Connections the Run's workers may use, each as integration:label.
 	Uses *[]string `json:"uses,omitempty"`
@@ -5497,14 +5568,20 @@ type RunDetail struct {
 	Id                 string     `json:"id"`
 	Objective          string     `json:"objective"`
 
+	// PublishedHeads GitHub branch updates recorded by the nodes that dispatched this Run's Tasks.
+	PublishedHeads *[]PublishedHead `json:"published_heads,omitempty"`
+
 	// Repo The path of the repository workers work in on its host; owner/name on github.com.
 	Repo *string `json:"repo,omitempty"`
 
 	// RepoHost The git host the repository is on; present when the Run has a repository.
-	RepoHost  *string      `json:"repo_host,omitempty"`
-	Status    RunStatus    `json:"status"`
-	Tasks     []TaskDetail `json:"tasks"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	RepoHost *string `json:"repo_host,omitempty"`
+
+	// ReviewStall A review ended with no unfinished Task in the Run. The merge state is a snapshot from the review.
+	ReviewStall *ReviewStall `json:"review_stall,omitempty"`
+	Status      RunStatus    `json:"status"`
+	Tasks       []TaskDetail `json:"tasks"`
+	UpdatedAt   time.Time    `json:"updated_at"`
 
 	// Usage What a Task's or a Run's Dispatches used. The model gateway's requests are counted through each Dispatch's keys, and kept on the Dispatch when it settles, so they outlive the requests' 31 days. A Dispatch whose runtime did not go through the gateway adds the tokens its runtime reported, with no cost.
 	Usage *WorkUsage `json:"usage,omitempty"`
