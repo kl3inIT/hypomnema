@@ -36,7 +36,8 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	keyring, err := vault.ParseKeyring(keygen(t, "test"), "test")
 	require.NoError(t, err)
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, keyring, nil)
+	referrers := secretReferrers(svc)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, keyring, referrers)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 		func(context.Context, string) (string, error) { return "", nil }).WithKeyVault(secrets)
 
@@ -44,7 +45,8 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 	t.Cleanup(func() { close(stop) })
 
 	mux := http.NewServeMux()
-	require.NoError(t, clientapi.New(svc, slog.New(slog.DiscardHandler), stop).WithGatewayKeys(gateway).Register(mux))
+	require.NoError(t, clientapi.New(svc, slog.New(slog.DiscardHandler), stop).WithGatewayKeys(gateway).
+		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).Register(mux))
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -123,7 +125,7 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 
 	newName := "opencode-tool"
 	models := []string{"gpt-sol"}
-	endpoints := []openapi.GatewayEndpoint{openapi.GatewayEndpointAudio}
+	endpoints := []openapi.GatewayEndpointSelection{openapi.GatewayEndpointSelectionAudio}
 	change := openapi.GatewayKeyUpdate{Name: &newName, Models: &models, Endpoints: &endpoints}
 	refusedEdit, err := pi.UpdateGatewayKeyWithResponse(ctx, id, change)
 	require.NoError(t, err)
@@ -156,13 +158,36 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 	assert.Equal(t, "no-store", value.HTTPResponse.Header.Get("Cache-Control"))
 	assert.Equal(t, secret, value.JSON200.Secret)
 
-	emptyEndpoints := []openapi.GatewayEndpoint{}
+	secretName := strings.ReplaceAll(id, "_", "-")
+	vaultList, err := owner.ListSecretsWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, vaultList.StatusCode(), string(vaultList.Body))
+	require.Len(t, vaultList.JSON200.Data, 1)
+	assert.Equal(t, secretName, vaultList.JSON200.Data[0].Name)
+	assert.Equal(t, []string{"gateway key " + newName}, vaultList.JSON200.Data[0].UsedBy)
+	assert.NotContains(t, string(vaultList.Body), secret)
+	deleted, err := owner.DeleteSecretWithResponse(ctx, secretName)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, deleted.StatusCode(), string(deleted.Body))
+	assert.Contains(t, string(deleted.Body), "used by gateway key "+newName)
+
+	emptyEndpoints := []openapi.GatewayEndpointSelection{}
 	partial, err := owner.UpdateGatewayKeyWithResponse(ctx, id, openapi.GatewayKeyUpdate{Endpoints: &emptyEndpoints})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, partial.StatusCode())
 	assert.Equal(t, newName, partial.JSON200.Name)
 	assert.Equal(t, models, partial.JSON200.Models)
 	assert.Empty(t, partial.JSON200.Endpoints)
+
+	allEndpoints := []openapi.GatewayEndpointSelection{openapi.GatewayEndpointSelectionAsterisk}
+	unrestricted, err := owner.UpdateGatewayKeyWithResponse(ctx, id, openapi.GatewayKeyUpdate{Endpoints: &allEndpoints})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, unrestricted.StatusCode(), string(unrestricted.Body))
+	assert.Len(t, unrestricted.JSON200.Endpoints, len(modelgateway.Endpoints))
+	var storedEndpoints *string
+	require.NoError(t, db.QueryRowContext(ctx,
+		"SELECT endpoints FROM gateway_keys WHERE id = ?", id).Scan(&storedEndpoints))
+	assert.Nil(t, storedEndpoints)
 
 	worker, err := gateway.Authenticate(ctx, workerKey)
 	require.NoError(t, err)
@@ -224,4 +249,39 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, oldEdit.StatusCode(), string(oldEdit.Body))
 	assert.Nil(t, oldEdit.JSON200.MaskedValue)
+}
+
+func TestGatewayKeyCLIWithoutVaultAndWithEveryEndpoint(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, nil, nil)
+	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, nil, nil).WithKeyVault(secrets)
+	var output bytes.Buffer
+	cli := owner{gateway: gateway, out: &output}
+	require.NoError(t, cli.gatewayCommand(ctx, []string{"keys", "add", "laptop", "--endpoints", "search"}))
+	assert.Contains(t, output.String(), "the value is not stored, so copy it now")
+	_, secret, ok := strings.Cut(strings.TrimSpace(output.String()), "copy it now:\n")
+	require.True(t, ok)
+	key, err := gateway.Authenticate(ctx, secret)
+	require.NoError(t, err)
+	assert.Equal(t, []modelgateway.Endpoint{modelgateway.EndpointSearch}, key.Endpoints)
+	assert.Empty(t, key.MaskedValue)
+	_, err = gateway.KeyValue(ctx, key.ID)
+	require.ErrorIs(t, err, modelgateway.ErrNotFound)
+	require.ErrorContains(t, err, "no stored value")
+	var storedVersion *string
+	require.NoError(t, db.QueryRowContext(ctx,
+		"SELECT secret_version_id FROM gateway_keys WHERE id = ?", key.ID).Scan(&storedVersion))
+	assert.Nil(t, storedVersion)
+
+	require.NoError(t, cli.gatewayCommand(ctx, []string{"keys", "set", key.ID, "--endpoints", "*"}))
+	var storedEndpoints *string
+	require.NoError(t, db.QueryRowContext(ctx,
+		"SELECT endpoints FROM gateway_keys WHERE id = ?", key.ID).Scan(&storedEndpoints))
+	assert.Nil(t, storedEndpoints)
 }

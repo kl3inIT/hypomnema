@@ -519,7 +519,7 @@ func (s *Service) WithKeyVault(secrets *vault.Service) *Service {
 	return s
 }
 
-// AddKey makes an owner key and returns it with its encrypted-at-rest value.
+// AddKey makes an owner key and returns its value, stored encrypted when the vault is configured.
 // models lists the public names it may use; empty means every model.
 // endpoints lists the kinds it may use besides chat; nil means every kind, and
 // an empty list none.
@@ -701,21 +701,19 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 		var secretVersionID sql.NullString
 		var maskedValue string
 
-		if owner.keepValue {
-			if s.keyVault == nil {
-				return keyVaultError(vault.ErrNotConfigured)
-			}
-
+		if owner.keepValue && s.keyVault != nil {
 			versionID, err := s.keyVault.CreateTx(ctx, tx, vault.NewSecret{
 				Name: strings.ReplaceAll(id, "_", "-"), Kind: vault.KindGeneric,
 				Payload: vault.Payload{vault.KeyValue: secret},
 			}, now)
-			if err != nil {
+			switch {
+			case err == nil:
+				secretVersionID = sql.NullString{String: versionID, Valid: true}
+				maskedValue = secret[:6] + strings.Repeat("•", len(secret)-10) + secret[len(secret)-4:]
+			case errors.Is(err, vault.ErrNotConfigured):
+			default:
 				return keyVaultError(err)
 			}
-
-			secretVersionID = sql.NullString{String: versionID, Valid: true}
-			maskedValue = secret[:6] + strings.Repeat("•", len(secret)-10) + secret[len(secret)-4:]
 		}
 
 		if owner.dispatchID != "" {

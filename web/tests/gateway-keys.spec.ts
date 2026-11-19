@@ -89,7 +89,19 @@ async function fakeServer(page: Page, start?: Key[]) {
     if (request.method() === "PATCH" && path.startsWith("/gateway/keys/")) {
       const body = request.postDataJSON() as GatewayKeyUpdate
       calls.push(`${call} ${body.name} ${body.models?.join(",")}; ${body.endpoints?.join(",")}`)
-      keys = keys.map((key) => (key.id === id ? { ...key, ...body } : key))
+      const { endpoints, ...access } = body
+      const kinds = endpoints?.filter((kind) => kind !== "*")
+      keys = keys.map((key) =>
+        key.id === id
+          ? {
+              ...key,
+              ...access,
+              endpoints: endpoints?.includes("*")
+                ? ["search", "fetch", "images", "audio"]
+                : (kinds ?? key.endpoints),
+            }
+          : key,
+      )
       return json(keys.find((key) => key.id === id))
     }
 
@@ -277,6 +289,14 @@ test("the owner copies from the masked list, shows and hides, then edits the sam
   await edited.getByRole("button", { name: "Show key for opencode-tool" }).click()
   await expect(edited.getByText(laptopSecret, { exact: true })).toBeVisible()
   expect(await fits(page)).toBe(true)
+
+  await edited.getByRole("button", { name: "Edit opencode-tool" }).click()
+  const edit = page.getByRole("dialog", { name: "Edit opencode-tool" })
+  await edit.getByRole("checkbox", { name: /Making and editing images/ }).click()
+  await edit.getByRole("button", { name: "Save changes" }).click()
+  await expect(edit).toHaveCount(0)
+  await expect(edited).toContainText("Making and editing images")
+  expect(calls).toContain("PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; *")
 })
 
 // Scenario: the owner revokes a key after being told a tool using it is refused from now on.
