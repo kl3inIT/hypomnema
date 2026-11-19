@@ -112,7 +112,10 @@ func killOrphanedGroup(dir string, identity processIdentity) error {
 	if err != nil {
 		return err
 	}
-	if stat.started != worker.Started || stat.group != int64(identity.PID) || stat.session != int64(identity.PID) {
+	if stat.started != worker.Started {
+		return killRemainingSession(identity)
+	}
+	if stat.group != int64(identity.PID) || stat.session != int64(identity.PID) {
 		return errors.New("orphaned shim group identity does not match")
 	}
 	return killWithoutLeader(identity.PID)
@@ -132,8 +135,7 @@ func killRemainingSession(identity processIdentity) error {
 			continue
 		}
 		stat, err := readProcStat(member)
-		if err == nil && stat.group == identity.Group && stat.session == identity.Session &&
-			stat.started >= identity.Started {
+		if err == nil && matchesSessionMember(stat, identity) {
 			return killWithoutLeader(identity.PID)
 		}
 	}
@@ -141,6 +143,10 @@ func killRemainingSession(identity processIdentity) error {
 		return nil
 	}
 	return errors.New("no surviving member matches the recorded shim group and session")
+}
+
+func matchesSessionMember(stat procStat, identity processIdentity) bool {
+	return stat.group == identity.Group && stat.session == identity.Session && stat.started >= identity.Started
 }
 
 func killWithoutLeader(pid int) error {
