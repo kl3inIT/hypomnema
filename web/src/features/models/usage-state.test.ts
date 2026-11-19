@@ -135,6 +135,7 @@ describe("performance", () => {
     ok: 10,
     failed: 1,
     client_gone: 1,
+    no_account: 0,
     cost_micros: 120,
     exact: true,
     success_rate: 10 / 11,

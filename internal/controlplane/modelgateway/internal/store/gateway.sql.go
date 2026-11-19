@@ -12,7 +12,7 @@ import (
 
 const addGatewayUsageDaily = `-- name: AddGatewayUsageDaily :exec
 INSERT INTO gateway_usage_daily (day, caller, model, provider, upstream_model, account_id, requests, ok, failed,
-                                 client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
+                                 client_gone, no_account, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
                                  cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced,
                                  ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens)
 SELECT CAST(?1 AS INTEGER),
@@ -22,17 +22,18 @@ SELECT CAST(?1 AS INTEGER),
            WHEN k.chat_id IS NOT NULL OR (k.name LIKE 'chat-%' AND length(k.name) = 31) THEN 'chats'
            ELSE 'owner' END AS TEXT),
        CAST(?2 AS TEXT), CAST(?3 AS TEXT), CAST(?4 AS TEXT), CAST(?5 AS TEXT), 1,
-       CAST(?6 AS INTEGER), CAST(?7 AS INTEGER), CAST(?8 AS INTEGER),
-       CAST(?9 AS INTEGER), CAST(?10 AS INTEGER), CAST(?11 AS INTEGER),
-       CAST(?12 AS INTEGER), CAST(?13 AS INTEGER), CAST(?14 AS INTEGER),
-       CAST(?15 AS INTEGER), CAST(?16 AS INTEGER), CAST(?17 AS INTEGER),
-       CAST(?18 AS INTEGER), CAST(?19 AS INTEGER), CAST(?20 AS INTEGER),
-       CAST(?21 AS INTEGER), CAST(?22 AS INTEGER), CAST(?23 AS INTEGER),
-       CAST(?24 AS INTEGER)
-FROM gateway_keys k WHERE k.id = CAST(?25 AS TEXT)
+       CAST(?6 AS INTEGER), CAST(?7 AS INTEGER), CAST(?8 AS INTEGER), CAST(?9 AS INTEGER),
+       CAST(?10 AS INTEGER), CAST(?11 AS INTEGER), CAST(?12 AS INTEGER),
+       CAST(?13 AS INTEGER), CAST(?14 AS INTEGER), CAST(?15 AS INTEGER),
+       CAST(?16 AS INTEGER), CAST(?17 AS INTEGER), CAST(?18 AS INTEGER),
+       CAST(?19 AS INTEGER), CAST(?20 AS INTEGER), CAST(?21 AS INTEGER),
+       CAST(?22 AS INTEGER), CAST(?23 AS INTEGER), CAST(?24 AS INTEGER),
+       CAST(?25 AS INTEGER)
+FROM gateway_keys k WHERE k.id = CAST(?26 AS TEXT)
 ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE SET
     requests = requests + excluded.requests, ok = ok + excluded.ok, failed = failed + excluded.failed,
-    client_gone = client_gone + excluded.client_gone, prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+    client_gone = client_gone + excluded.client_gone, no_account = no_account + excluded.no_account,
+    prompt_tokens = prompt_tokens + excluded.prompt_tokens,
     completion_tokens = completion_tokens + excluded.completion_tokens,
     cached_tokens = cached_tokens + excluded.cached_tokens, reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
     cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,
@@ -53,6 +54,7 @@ type AddGatewayUsageDailyParams struct {
 	Ok               int64
 	Failed           int64
 	ClientGone       int64
+	NoAccount        int64
 	PromptTokens     int64
 	CompletionTokens int64
 	CachedTokens     int64
@@ -84,6 +86,7 @@ func (q *Queries) AddGatewayUsageDaily(ctx context.Context, arg AddGatewayUsageD
 		arg.Ok,
 		arg.Failed,
 		arg.ClientGone,
+		arg.NoAccount,
 		arg.PromptTokens,
 		arg.CompletionTokens,
 		arg.CachedTokens,
@@ -996,7 +999,7 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 }
 
 const listGatewayUsageDaily = `-- name: ListGatewayUsageDaily :many
-SELECT day, caller, model, provider, upstream_model, account_id, requests, ok, failed, client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced, ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens FROM gateway_usage_daily WHERE day >= ?1 ORDER BY day, caller, model, provider, upstream_model, account_id
+SELECT day, caller, model, provider, upstream_model, account_id, requests, ok, failed, client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced, ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens, no_account FROM gateway_usage_daily WHERE day >= ?1 ORDER BY day, caller, model, provider, upstream_model, account_id
 `
 
 // The ledger's rows from a UTC day on, for the periods longer than the request rows are kept.
@@ -1036,6 +1039,7 @@ func (q *Queries) ListGatewayUsageDaily(ctx context.Context, since int64) ([]Gat
 			&i.TtftCount,
 			&i.GenerationMs,
 			&i.GenerationTokens,
+			&i.NoAccount,
 		); err != nil {
 			return nil, err
 		}

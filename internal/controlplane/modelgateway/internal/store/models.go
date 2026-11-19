@@ -95,4 +95,5 @@ type GatewayUsageDaily struct {
 	TtftCount        int64
 	GenerationMs     int64
 	GenerationTokens int64
+	NoAccount        int64
 }

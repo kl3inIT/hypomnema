@@ -75,7 +75,7 @@ func (s *Service) ledgerUsage(ctx context.Context, p UsagePeriod) (UsageReport, 
 		}
 
 		sums := func(g *PerformanceGroup) {
-			g.addSums(r.Requests, r.Ok, r.Failed, r.ClientGone, r.CostMicros, r.OkDurationMs, r.TtftMs,
+			g.addSums(r.Requests, r.Ok, r.Failed, r.ClientGone, r.NoAccount, r.CostMicros, r.OkDurationMs, r.TtftMs,
 				r.TtftCount, r.GenerationMs, r.GenerationTokens)
 		}
 

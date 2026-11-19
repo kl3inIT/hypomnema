@@ -168,6 +168,7 @@ func (s *Server) serveResponses(
 		return
 	}
 
+	var cooling modelCooling
 	for i, target := range targets {
 		last := i == len(targets)-1
 		noteServed(ctx, "")
@@ -188,6 +189,9 @@ func (s *Server) serveResponses(
 
 				return
 			}
+			if cooling.add(err) {
+				continue
+			}
 
 			s.logger.WarnContext(ctx, "a gateway target gave no answer",
 				slog.String("event", "modelgateway.target_failed"), slog.String("provider", target.Provider),
@@ -197,6 +201,7 @@ func (s *Server) serveResponses(
 		}
 
 		record.Status = resp.StatusCode
+		cooling.other = true
 
 		if retryable(resp.StatusCode) && !last {
 			drain(resp)
@@ -224,6 +229,11 @@ func (s *Server) serveResponses(
 		return
 	}
 
+	if resp := s.coolingResponse(ctx, r.URL.Path, cooling, record); resp != nil {
+		relayCooling(w, resp)
+		_ = resp.Body.Close()
+		return
+	}
 	record.Outcome = OutcomeTransportError
 
 	writeError(w, http.StatusBadGateway, typeServer, "upstream_unavailable",
@@ -251,7 +261,7 @@ func (s *Server) passResponses(
 		return nil, &badMessagesError{err: err}
 	}
 
-	return s.underAccounts(ctx, codexRuntime, built.CacheKey, nil,
+	return s.underModelAccounts(ctx, codexRuntime, built.CacheKey, nil, nil,
 		func(token AccountToken) (*http.Response, error) {
 			resp, err := s.codexCall(ctx, &token, built)
 			if err != nil {

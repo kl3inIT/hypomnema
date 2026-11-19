@@ -190,6 +190,8 @@ export function outcome(o: GatewayRequest["outcome"]): { label: string; tone: To
       return { label: "Cut short", tone: "warning" }
     case "client_gone":
       return { label: "Client left", tone: "secondary" }
+    case "no_account":
+      return { label: "No account free", tone: "secondary" }
   }
 }
 

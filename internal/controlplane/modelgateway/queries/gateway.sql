@@ -87,7 +87,7 @@ VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @o
 -- One request added to the daily ledger (issue #856), in the transaction that writes its row: its UTC day, and the
 -- caller its key counts under, as UsageByKey groups them, without the key.
 INSERT INTO gateway_usage_daily (day, caller, model, provider, upstream_model, account_id, requests, ok, failed,
-                                 client_gone, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
+                                 client_gone, no_account, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
                                  cache_write_tokens, web_searches, audio_ms, characters, images, cost_micros, unpriced,
                                  ok_duration_ms, ttft_ms, ttft_count, generation_ms, generation_tokens)
 SELECT CAST(@day AS INTEGER),
@@ -97,7 +97,7 @@ SELECT CAST(@day AS INTEGER),
            WHEN k.chat_id IS NOT NULL OR (k.name LIKE 'chat-%' AND length(k.name) = 31) THEN 'chats'
            ELSE 'owner' END AS TEXT),
        CAST(@model AS TEXT), CAST(@provider AS TEXT), CAST(@upstream_model AS TEXT), CAST(@account_id AS TEXT), 1,
-       CAST(@ok AS INTEGER), CAST(@failed AS INTEGER), CAST(@client_gone AS INTEGER),
+       CAST(@ok AS INTEGER), CAST(@failed AS INTEGER), CAST(@client_gone AS INTEGER), CAST(@no_account AS INTEGER),
        CAST(@prompt_tokens AS INTEGER), CAST(@completion_tokens AS INTEGER), CAST(@cached_tokens AS INTEGER),
        CAST(@reasoning_tokens AS INTEGER), CAST(@cache_write_tokens AS INTEGER), CAST(@web_searches AS INTEGER),
        CAST(@audio_ms AS INTEGER), CAST(@characters AS INTEGER), CAST(@images AS INTEGER),
@@ -107,7 +107,8 @@ SELECT CAST(@day AS INTEGER),
 FROM gateway_keys k WHERE k.id = CAST(@key_id AS TEXT)
 ON CONFLICT (day, caller, model, provider, upstream_model, account_id) DO UPDATE SET
     requests = requests + excluded.requests, ok = ok + excluded.ok, failed = failed + excluded.failed,
-    client_gone = client_gone + excluded.client_gone, prompt_tokens = prompt_tokens + excluded.prompt_tokens,
+    client_gone = client_gone + excluded.client_gone, no_account = no_account + excluded.no_account,
+    prompt_tokens = prompt_tokens + excluded.prompt_tokens,
     completion_tokens = completion_tokens + excluded.completion_tokens,
     cached_tokens = cached_tokens + excluded.cached_tokens, reasoning_tokens = reasoning_tokens + excluded.reasoning_tokens,
     cache_write_tokens = cache_write_tokens + excluded.cache_write_tokens,

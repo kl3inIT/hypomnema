@@ -421,7 +421,7 @@ func runGroup(ctx context.Context, q *store.Queries, runID string) (string, int,
 // one machine; Orca and t3code keep the working directory when a session
 // moves to another agent, and here that directory is on one node (inferred).
 func placeHandoff(p *placement, conv store.Conversation, b resolved, host where) *DispatchSpec {
-	if !p.nodeReady(conv.NodeID, b.runtime, host) {
+	if p.gatewayCoolingUntil(b) != 0 || !p.nodeReady(conv.NodeID, b.runtime, host) {
 		return nil
 	}
 
@@ -502,6 +502,10 @@ func handoffWithoutApprovedWrites(ctx context.Context, q *store.Queries, taskID 
 func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
 	recentExpiries map[string]bool,
 ) (*DispatchSpec, string, error) {
+	if p.gatewayCoolingUntil(r) != 0 {
+		return nil, "", nil
+	}
+
 	conv, open, err := openConversation(ctx, q, task.ID)
 	if err != nil {
 		return nil, "", err
@@ -526,9 +530,6 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 			return nil, ReasonNoNode, nil
 		}
 		if len(r.chain) > 0 && r.gateway {
-			if p.roleCoolingUntil(r) != 0 {
-				return nil, "", nil
-			}
 			if !p.gatewayHasAccount(r.accounts) {
 				return nil, ReasonNoAccount, nil
 			}
@@ -552,6 +553,9 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 // placeNew chooses the node and the account of a Task's new Conversation.
 func placeNew(p *placement, task store.Task, r resolved, host where, recentExpiries map[string]bool,
 ) (*DispatchSpec, string) {
+	if p.gatewayCoolingUntil(r) != 0 {
+		return nil, ""
+	}
 	runtime := r.runtime
 
 	if !r.gateway && gatewayOnly(runtime) {
@@ -589,10 +593,6 @@ func placeNew(p *placement, task store.Task, r resolved, host where, recentExpir
 	if !r.gateway {
 		account, cooling = p.pickAccount(runtime)
 	}
-	if len(r.chain) > 0 && r.gateway && p.roleCoolingUntil(r) != 0 {
-		return nil, ""
-	}
-
 	switch {
 	case cooling && account == "":
 		return nil, ""

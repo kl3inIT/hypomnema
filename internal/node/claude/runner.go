@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -241,14 +242,15 @@ func (rt *ClaudeRuntime) writeMCPConfig(dir string) error {
 
 // event is the part of a stream-JSON line the runtime reads.
 type event struct {
-	Type      string          `json:"type"`
-	Subtype   string          `json:"subtype"`
-	SessionID string          `json:"session_id"`
-	RequestID string          `json:"request_id"`
-	Request   json.RawMessage `json:"request"`
-	Result    string          `json:"result"`
-	IsError   bool            `json:"is_error"`
-	Usage     *struct {
+	Type           string          `json:"type"`
+	Subtype        string          `json:"subtype"`
+	SessionID      string          `json:"session_id"`
+	RequestID      string          `json:"request_id"`
+	Request        json.RawMessage `json:"request"`
+	Result         string          `json:"result"`
+	IsError        bool            `json:"is_error"`
+	APIErrorStatus int             `json:"api_error_status"`
+	Usage          *struct {
 		Input      int64 `json:"input_tokens"`
 		Output     int64 `json:"output_tokens"`
 		CacheRead  int64 `json:"cache_read_input_tokens"`
@@ -384,6 +386,8 @@ func (t *turn) Outcome(ex nodeproto.Exit) nodeproto.Finished {
 		f.Summary = "the worker's tools server (" + workertools.Name + ") did not start: its status was " + t.toolsDown
 	case t.limited != nil:
 		f.Class, f.ResetsAt = "rate_limited", t.limited
+	case res.APIErrorStatus == http.StatusTooManyRequests:
+		f.Class = "rate_limited"
 	case strings.Contains(lower, "invalid api key") || strings.Contains(lower, "please run /login") ||
 		strings.Contains(lower, "authentication") || strings.Contains(lower, "oauth token"):
 		f.Class = "needs_auth"

@@ -234,7 +234,7 @@ func toPerformance(
 	for _, g := range groups {
 		item := openapi.GatewayPerformance{
 			Provider: g.Provider, Model: g.Model, Requests: g.Requests, Ok: g.OK, Failed: g.Failed,
-			ClientGone: g.ClientGone, CostMicros: g.CostMicros, Exact: g.Exact,
+			ClientGone: g.ClientGone, NoAccount: g.NoAccount, CostMicros: g.CostMicros, Exact: g.Exact,
 			TtftP50Ms: ms(g.TTFTP50), TtftP95Ms: ms(g.TTFTP95), LatencyP50Ms: ms(g.LatencyP50),
 			LatencyP95Ms: ms(g.LatencyP95), TtftAvgMs: ms(g.TTFTAvg), LatencyAvgMs: ms(g.LatencyAvg),
 		}

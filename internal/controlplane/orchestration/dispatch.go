@@ -62,6 +62,7 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 	if err != nil {
 		return notFound(err, "run", task.RunID)
 	}
+	until := p.gatewayCoolingUntil(r)
 
 	switch {
 	case RunStatus(run.Status) != RunOpen:
@@ -70,6 +71,8 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("%w: task %s is %s, not ready", ErrConflict, task.ID, task.Status)
 	case task.NotBefore.Valid && task.NotBefore.Int64 > now:
 		return fmt.Errorf("%w: task %s waits until %s", ErrConflict, task.ID, millis(task.NotBefore.Int64))
+	case until != 0:
+		return fmt.Errorf("%w: gateway model %s waits until %s", ErrCoolingDown, r.model, millis(until))
 	case gatewayOnly(r.runtime) && !r.gateway:
 		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, needsGatewayMessage) // issue #381
 	case len(r.chain) > 0 && !spec.Continue && r.runtime != spec.Runtime:
@@ -802,6 +805,17 @@ func (s *Service) AbandonDispatch(ctx context.Context, id string) ([]Resource, e
 func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d store.Dispatch,
 	to DispatchStatus, class FailureClass, result *Result, resetsAt *time.Time, firstHand bool,
 ) error {
+	conv, err := q.GetConversation(ctx, d.ConversationID)
+	if err != nil {
+		return notFound(err, "conversation", d.ConversationID)
+	}
+	if class == FailureRateLimited && conv.AccountRef == GatewayAccountRef {
+		resetsAt, err = gatewayReset(ctx, q, now, d, conv)
+		if err != nil {
+			return err
+		}
+	}
+
 	encoded := sql.NullString{}
 
 	if result != nil {
@@ -853,11 +867,6 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 			map[string]any{"mode": c.Mode, "reason": "dispatch_ended"}); err != nil {
 			return err
 		}
-	}
-
-	conv, err := q.GetConversation(ctx, d.ConversationID)
-	if err != nil {
-		return notFound(err, "conversation", d.ConversationID)
 	}
 
 	switch {
@@ -929,7 +938,7 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 			return err
 		}
 
-		if !may {
+		if !may || (conv.AccountRef == GatewayAccountRef && d.RoleChain == "") {
 			if err := q.SetTaskNotBefore(ctx, store.SetTaskNotBeforeParams{
 				NotBefore: sql.NullInt64{Int64: until, Valid: true}, Now: now, ID: d.TaskID,
 			}); err != nil {

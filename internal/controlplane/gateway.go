@@ -60,6 +60,10 @@ func (g gatewayAccounts) Token(
 	return accountToken(g.subs.Token(ctx, runtime, session, skip...))
 }
 
+func (g gatewayAccounts) FirstFree(ctx context.Context, runtime string, modelReset func(string) time.Time) (time.Time, error) {
+	return g.subs.FirstFree(ctx, runtime, modelReset)
+}
+
 func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
 	return g.subs.Quota(ctx, accountID)
 }

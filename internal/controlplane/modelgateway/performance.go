@@ -17,8 +17,8 @@ import (
 type Performance struct {
 	// Requests counts them all; OK those answered, Failed those that failed, and ClientGone those whose client
 	// left first, which count neither way.
-	Requests, OK, Failed, ClientGone int64
-	CostMicros                       int64
+	Requests, OK, Failed, ClientGone, NoAccount int64
+	CostMicros                                  int64
 	// The percentiles and the median tokens a second need each request, so a period read from the daily ledger
 	// has none, only the averages (Exact false). TTFT is over the answered streams; Latency, the whole call,
 	// over the answered requests; TokensPerSecond over the answered streams whose tokens were reported.
@@ -34,9 +34,9 @@ type Performance struct {
 	generationMs, generation int64
 }
 
-// SuccessRate is the share of the requests answered, those whose client left left out; false when there is none.
+// SuccessRate is the share answered among requests that completed or failed at the provider.
 func (p *Performance) SuccessRate() (float64, bool) {
-	n := p.Requests - p.ClientGone
+	n := p.OK + p.Failed
 	if n <= 0 {
 		return 0, false
 	}
@@ -73,6 +73,10 @@ func (p *Performance) add(s performanceSample) {
 		p.ClientGone++
 
 		return
+	case s.outcome == OutcomeNoAccount:
+		p.NoAccount++
+
+		return
 	case s.outcome.failed():
 		p.Failed++
 
@@ -97,11 +101,14 @@ func (p *Performance) add(s performanceSample) {
 }
 
 // addSums counts a ledger row: sums only.
-func (p *Performance) addSums(requests, ok, failed, gone, cost, okMs, ttftMs, ttftCount, genMs, genTokens int64) {
+func (p *Performance) addSums(
+	requests, ok, failed, gone, noAccount, cost, okMs, ttftMs, ttftCount, genMs, genTokens int64,
+) {
 	p.Requests += requests
 	p.OK += ok
 	p.Failed += failed
 	p.ClientGone += gone
+	p.NoAccount += noAccount
 	p.CostMicros += cost
 	p.latencySum += time.Duration(okMs) * time.Millisecond
 	p.latencyCount += ok

@@ -235,7 +235,7 @@ func (s *Server) underGo(
 	ctx context.Context, session, wire string, body []byte, accept string,
 	answer func(AccountToken, *http.Response) *http.Response,
 ) (*http.Response, error) {
-	return s.underAccounts(ctx, openCodeGoRuntime, session, nil, func(token AccountToken) (*http.Response, error) {
+	return s.underModelAccounts(ctx, openCodeGoRuntime, session, nil, nil, func(token AccountToken) (*http.Response, error) {
 		resp, err := s.goPost(ctx, token, session, wire, body, accept)
 		if err != nil {
 			return nil, err

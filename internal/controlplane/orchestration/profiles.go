@@ -1341,9 +1341,11 @@ type resolved struct {
 	// handoff says the backup takes over work another worker began.
 	handoff bool
 	// req is what a worker of the profile version asks of a node (issue #731).
-	req        request
-	chain      []roleEntry
-	chainIndex int
+	req          request
+	chain        []roleEntry
+	chainIndex   int
+	gatewayUntil int64
+	gatewayRoute string
 }
 
 func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, error) {
@@ -1372,6 +1374,9 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 		}
 		r, err := resolveRoleEntry(ctx, q, version, task, chain, int(last.ChainEntry.Int64)-1)
 		r.fallbackFor, r.fallbackUntil = last.FallbackFor.String, last.FallbackUntil.Int64
+		if FailureClass(last.FailureClass.String) == FailureRateLimited {
+			r.gatewayUntil = last.ResetsAt.Int64
+		}
 		return r, err
 	case v.Runtime == roleRuntime && last.ProfileVersionID.Valid:
 		version, err := q.GetProfileVersion(ctx, last.ProfileVersionID.String)
@@ -1434,7 +1439,7 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 		provider = p
 	}
 
-	gateway, accounts := false, ""
+	gateway, accounts, wire := false, "", ""
 
 	if provider != "" {
 		row, err := q.GetProvider(ctx, provider)
@@ -1445,12 +1450,13 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 		gateway, accounts = throughGateway(row.Kind), subscriptionAccounts[row.Kind]
 		if model != "" {
 			model = GatewayModelName(row.Kind, provider, model)
+			wire = GatewayWires[row.Kind]
 		}
 	}
 
 	return resolved{
 		runtime: runtime, model: model,
 		effort: or(task.Effort.String, v.Effort.String), profile: v.Profile, versionID: v.ID, gateway: gateway,
-		accounts: accounts, req: requestOf(v),
+		accounts: accounts, req: requestOf(v), gatewayRoute: gatewayRoute(runtime, wire),
 	}, nil
 }
