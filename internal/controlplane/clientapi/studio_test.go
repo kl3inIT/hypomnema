@@ -208,25 +208,33 @@ func TestTheStudioFiltersAndSearchesBeforePaging(t *testing.T) {
 	assert.Equal(t, ptr("/api/v1/takes/tk_0000000000000001/thumbnail.jpg"), byID["tk_0000000000000001"].Thumbnail)
 	assert.Nil(t, byID["tk_0000000000000002"].Thumbnail, "a take being filmed has a placeholder")
 
+	type params = openapi.ListStudioItemsParams
+
+	const (
+		takes    = openapi.ListStudioItemsParamsKindTake
+		vids     = openapi.ListStudioItemsParamsKindVideo
+		inProg   = openapi.ListStudioItemsParamsStateInProgress
+		review   = openapi.ListStudioItemsParamsStateReview
+		approved = openapi.ListStudioItemsParamsStateApproved
+		failed   = openapi.ListStudioItemsParamsStateFailed
+	)
+
 	cases := []struct {
 		name string
-		p    openapi.ListStudioItemsParams
+		p    params
 		want []string
 	}{
-		{"videos", openapi.ListStudioItemsParams{Kind: ptr(openapi.ListStudioItemsParamsKindVideo)},
-			[]string{"vid_new", "vid_making", "vid_review"}},
-		{"in progress", openapi.ListStudioItemsParams{State: ptr(openapi.ListStudioItemsParamsStateInProgress), Limit: ptr(3)},
+		{"videos", params{Kind: ptr(vids)}, []string{"vid_new", "vid_making", "vid_review"}},
+		{"in progress", params{State: ptr(inProg), Limit: ptr(3)},
 			[]string{"vid_new", "vid_making", "tk_0000000000000008"}},
-		{"awaiting review", openapi.ListStudioItemsParams{State: ptr(openapi.ListStudioItemsParamsStateReview)}, []string{"vid_review"}},
-		{"approved", openapi.ListStudioItemsParams{State: ptr(openapi.ListStudioItemsParamsStateApproved)}, nil},
-		{"failed", openapi.ListStudioItemsParams{State: ptr(openapi.ListStudioItemsParamsStateFailed)}, []string{"tk_0000000000000003"}},
-		{"takes in progress", openapi.ListStudioItemsParams{Kind: ptr(openapi.ListStudioItemsParamsKindTake), State: ptr(openapi.ListStudioItemsParamsStateInProgress),
-			Limit: ptr(1)}, []string{"tk_0000000000000008"}},
-		{"title, any case", openapi.ListStudioItemsParams{Q: ptr("THANH"), Limit: ptr(1)},
-			[]string{"tk_0000000000000002"}},
-		{"bot", openapi.ListStudioItemsParams{Q: ptr("atlas"), Kind: ptr(openapi.ListStudioItemsParamsKindTake)},
-			[]string{"tk_0000000000000002", "tk_0000000000000001"}},
-		{"diacritics", openapi.ListStudioItemsParams{Q: ptr("đăng")}, []string{"vid_review", "tk_0000000000000001"}},
+		{"awaiting review", params{State: ptr(review)}, []string{"vid_review"}},
+		{"approved", params{State: ptr(approved)}, nil},
+		{"failed", params{State: ptr(failed)}, []string{"tk_0000000000000003"}},
+		{"takes in progress", params{Kind: ptr(takes), State: ptr(inProg), Limit: ptr(1)},
+			[]string{"tk_0000000000000008"}},
+		{"title, any case", params{Q: ptr("THANH"), Limit: ptr(1)}, []string{"tk_0000000000000002"}},
+		{"bot", params{Q: ptr("atlas"), Kind: ptr(takes)}, []string{"tk_0000000000000002", "tk_0000000000000001"}},
+		{"diacritics", params{Q: ptr("đăng")}, []string{"vid_review", "tk_0000000000000001"}},
 	}
 
 	for _, c := range cases {
