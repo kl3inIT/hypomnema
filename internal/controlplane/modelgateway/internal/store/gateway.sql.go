@@ -290,6 +290,17 @@ func (q *Queries) DeleteUnusedRevokedGatewayKeys(ctx context.Context) (int64, er
 	return result.RowsAffected()
 }
 
+const gatewayKeyLastUsed = `-- name: GatewayKeyLastUsed :one
+SELECT created_at FROM gateway_usage WHERE key_id = ?1 ORDER BY created_at DESC LIMIT 1
+`
+
+func (q *Queries) GatewayKeyLastUsed(ctx context.Context, keyID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, gatewayKeyLastUsed, keyID)
+	var created_at int64
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
 const gatewayKeysLastUsed = `-- name: GatewayKeysLastUsed :many
 SELECT key_id, CAST(MAX(created_at) AS INTEGER) AS last_used FROM gateway_usage GROUP BY key_id
 `
@@ -323,7 +334,7 @@ func (q *Queries) GatewayKeysLastUsed(ctx context.Context) ([]GatewayKeysLastUse
 }
 
 const getGatewayKey = `-- name: GetGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE id = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE id = ?1
 `
 
 func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
@@ -341,12 +352,14 @@ func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, err
 		&i.KeyPrefix,
 		&i.BotID,
 		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
 	)
 	return i, err
 }
 
 const getGatewayKeyByHash = `-- name: GetGatewayKeyByHash :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE key_hash = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE key_hash = ?1
 `
 
 func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (GatewayKey, error) {
@@ -364,6 +377,8 @@ func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (Gate
 		&i.KeyPrefix,
 		&i.BotID,
 		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
 	)
 	return i, err
 }
@@ -386,7 +401,7 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 }
 
 const getLatestGatewayKeyOfChat = `-- name: GetLatestGatewayKeyOfChat :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 // The newest key of a chat, working or not (issue #723): a voice message heard before the chat's pi starts is
@@ -406,12 +421,14 @@ func (q *Queries) GetLatestGatewayKeyOfChat(ctx context.Context, chatID sql.Null
 		&i.KeyPrefix,
 		&i.BotID,
 		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
 	)
 	return i, err
 }
 
 const getLiveGatewayKeyOfDispatch = `-- name: GetLiveGatewayKeyOfDispatch :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
 ORDER BY created_at DESC, id DESC LIMIT 1
 `
 
@@ -431,6 +448,34 @@ func (q *Queries) GetLiveGatewayKeyOfDispatch(ctx context.Context, dispatchID sq
 		&i.KeyPrefix,
 		&i.BotID,
 		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
+	)
+	return i, err
+}
+
+const getLiveOwnerGatewayKey = `-- name: GetLiveOwnerGatewayKey :one
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE id = ?1 AND revoked_at IS NULL
+  AND dispatch_id IS NULL AND chat_id IS NULL AND bot_id IS NULL
+`
+
+func (q *Queries) GetLiveOwnerGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
+	row := q.db.QueryRowContext(ctx, getLiveOwnerGatewayKey, id)
+	var i GatewayKey
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.KeyHash,
+		&i.Models,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.DispatchID,
+		&i.ChatID,
+		&i.KeyPrefix,
+		&i.BotID,
+		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
 	)
 	return i, err
 }
@@ -458,21 +503,25 @@ func (q *Queries) InsertAntigravityRewrite(ctx context.Context, arg InsertAntigr
 }
 
 const insertGatewayKey = `-- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at,
+                          secret_version_id, masked_value)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+        ?11, ?12)
 `
 
 type InsertGatewayKeyParams struct {
-	ID         string
-	Name       string
-	KeyHash    string
-	KeyPrefix  string
-	Models     string
-	Endpoints  sql.NullString
-	DispatchID sql.NullString
-	ChatID     sql.NullString
-	BotID      sql.NullString
-	Now        int64
+	ID              string
+	Name            string
+	KeyHash         string
+	KeyPrefix       string
+	Models          string
+	Endpoints       sql.NullString
+	DispatchID      sql.NullString
+	ChatID          sql.NullString
+	BotID           sql.NullString
+	Now             int64
+	SecretVersionID sql.NullString
+	MaskedValue     string
 }
 
 func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyParams) error {
@@ -487,6 +536,8 @@ func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyPara
 		arg.ChatID,
 		arg.BotID,
 		arg.Now,
+		arg.SecretVersionID,
+		arg.MaskedValue,
 	)
 	return err
 }
@@ -716,7 +767,7 @@ func (q *Queries) ListGatewayImageProviders(ctx context.Context) ([]GatewayImage
 }
 
 const listGatewayKeys = `-- name: ListGatewayKeys :many
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints FROM gateway_keys ORDER BY name
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys ORDER BY name
 `
 
 func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
@@ -740,6 +791,8 @@ func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 			&i.KeyPrefix,
 			&i.BotID,
 			&i.Endpoints,
+			&i.SecretVersionID,
+			&i.MaskedValue,
 		); err != nil {
 			return nil, err
 		}
@@ -1243,7 +1296,8 @@ func (q *Queries) RevokeGatewayChatKeys(ctx context.Context, now sql.NullInt64) 
 }
 
 const revokeGatewayKey = `-- name: RevokeGatewayKey :execrows
-UPDATE gateway_keys SET revoked_at = ?1 WHERE id = ?2 AND revoked_at IS NULL
+UPDATE gateway_keys SET revoked_at = ?1, secret_version_id = NULL, masked_value = ''
+WHERE id = ?2 AND revoked_at IS NULL
 `
 
 type RevokeGatewayKeyParams struct {
@@ -1436,6 +1490,46 @@ type SetGatewaySearchPositionParams struct {
 func (q *Queries) SetGatewaySearchPosition(ctx context.Context, arg SetGatewaySearchPositionParams) error {
 	_, err := q.db.ExecContext(ctx, setGatewaySearchPosition, arg.Provider, arg.Position, arg.Now)
 	return err
+}
+
+const updateGatewayKey = `-- name: UpdateGatewayKey :one
+UPDATE OR IGNORE gateway_keys
+SET name = coalesce(?1, name), models = coalesce(?2, models),
+    endpoints = coalesce(?3, endpoints)
+WHERE id = ?4 RETURNING id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value
+`
+
+type UpdateGatewayKeyParams struct {
+	Name      sql.NullString
+	Models    sql.NullString
+	Endpoints sql.NullString
+	ID        string
+}
+
+func (q *Queries) UpdateGatewayKey(ctx context.Context, arg UpdateGatewayKeyParams) (GatewayKey, error) {
+	row := q.db.QueryRowContext(ctx, updateGatewayKey,
+		arg.Name,
+		arg.Models,
+		arg.Endpoints,
+		arg.ID,
+	)
+	var i GatewayKey
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.KeyHash,
+		&i.Models,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.DispatchID,
+		&i.ChatID,
+		&i.KeyPrefix,
+		&i.BotID,
+		&i.Endpoints,
+		&i.SecretVersionID,
+		&i.MaskedValue,
+	)
+	return i, err
 }
 
 const upsertGatewayModel = `-- name: UpsertGatewayModel :exec

@@ -63,7 +63,7 @@ func newClaudeGateway(t *testing.T, backend *httptest.Server, subs modelgateway.
 				Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, APIKeyRef: p.APIKeyRef, Models: p.Models,
 			}, nil
 		},
-		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil })
+		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil }).WithKeyVault(testKeyVault(t, db))
 
 	_, err = svc.ApplyModel(t.Context(),
 		"name: sol\ntargets:\n  - {provider: claude-subscription, model: claude-sonnet-5-5}\n")

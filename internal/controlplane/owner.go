@@ -68,7 +68,7 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 		machines: machineManager(svc, secrets, awsRoles(integration.New(svc, secrets, platform.SystemClock{},
 			platform.NewID, integration.AWS())), cfg.PublicURL, platform.NewLogger(io.Discard, cfg.Log, binary)),
 		gateway: modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
-			gatewaySecrets(secrets)).WithProviderList(gatewayProviderList(svc)),
+			gatewaySecrets(secrets)).WithKeyVault(secrets).WithProviderList(gatewayProviderList(svc)),
 		in:  stdin,
 		out: stdout,
 	}

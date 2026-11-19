@@ -148,7 +148,7 @@ func newChatGateway(t *testing.T, cfg modelgateway.Config, providers ...*httptes
 				Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, APIKeyRef: p.APIKeyRef, Models: p.Models,
 			}, nil
 		},
-		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil })
+		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil }).WithKeyVault(testKeyVault(t, db))
 
 	_, err = svc.ApplyModel(t.Context(), model)
 	require.NoError(t, err)
