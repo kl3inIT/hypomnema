@@ -218,6 +218,14 @@ func (o *owner) accountsList(ctx context.Context) error {
 			}
 		}
 
+		// Google wants it verified (issue #822): it is passed over until its next try.
+		if v := a.Verification; v != nil {
+			cooling = strings.TrimSpace(cooling + " needs verification, next retry " + v.RetryAt.UTC().Format(time.RFC3339))
+			if v.URL != "" {
+				cooling += ": " + v.URL
+			}
+		}
+
 		// An account whose CLI was logged in on a node has no more to show.
 		if a.State == "" {
 			o.printf("%s\t%s\t%s\t%s\t%s\n", a.ID, a.Runtime, a.Label, a.Status, cooling)

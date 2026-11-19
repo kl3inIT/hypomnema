@@ -73,7 +73,8 @@ function resting(account: Account, now = Date.now()) {
   return account.cooling_until !== undefined && new Date(account.cooling_until).getTime() > now
 }
 
-// accountState is the one thing wrong with an account, the worst first: off, needing a sign-in, resting. An
+// accountState is the one thing wrong with an account, the worst first: off, needing a sign-in, needing Google's
+// verification, resting. An
 // account in use with nothing wrong has none (9router shows a status badge a connection; Orca "Needs re-auth").
 export function accountState(account: Account, now = Date.now()): AccountState {
   if (account.status === "disabled") return { label: "Off", tone: "outline" }
@@ -90,6 +91,16 @@ export function accountState(account: Account, now = Date.now()): AccountState {
     return { label: "No sign-in", tone: "destructive", why: "It has no tokens here." }
   }
 
+  // Google wants it verified (issue #822): the gateway passes it over until its next try. The row says when, with
+  // Google's link (opencode-antigravity-auth's "[needs verification]", src/tui.ts:101).
+  if (account.verification) {
+    return {
+      label: "Needs verification",
+      tone: "destructive",
+      why: account.verification.message ?? "Google asks for the account to be verified.",
+    }
+  }
+
   if (resting(account, now)) {
     return {
       label: `Resting until ${until(account.cooling_until!, now)}`,
@@ -99,6 +110,11 @@ export function accountState(account: Account, now = Date.now()): AccountState {
   }
 
   return null
+}
+
+// tryDue reports whether the next try of an account Google wants verified has come: the gateway may use it again.
+export function tryDue(verification: { next_try_at: string }, now = Date.now()) {
+  return new Date(verification.next_try_at).getTime() <= now
 }
 
 // serves reports whether the gateway can use an account now.
@@ -117,6 +133,9 @@ export function subscriptionState(
     return { label: "Off", tone: "outline" }
   if (accounts.some((account) => account.status === "active" && resting(account, now))) {
     return { label: "Resting", tone: "warning" }
+  }
+  if (accounts.some((account) => account.status === "active" && account.verification)) {
+    return { label: "Needs verification", tone: "destructive" }
   }
 
   return { label: "Needs sign-in", tone: "destructive" }

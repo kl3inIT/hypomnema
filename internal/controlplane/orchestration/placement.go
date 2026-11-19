@@ -752,6 +752,8 @@ func (p *placement) accountOut(a store.Account) Account {
 		},
 	}
 
+	out.Verification = verificationFromRow(a)
+
 	if until, ok := p.cooling[[2]string{a.Runtime, a.ID}]; ok {
 		t := millis(until)
 		out.CoolingUntil = &t

@@ -1,6 +1,7 @@
 package subscription_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -39,10 +40,17 @@ type google struct {
 	project string
 	// verify, when set, is where Google wants the account verified.
 	verify string
+	// asks, when set, makes the models list and the quota read answer 403 VALIDATION_REQUIRED with this link
+	// (issue #822); refused counts those answers.
+	asks    string
+	refused int
 	// dailyRefuses makes the daily host answer 403 to loadCodeAssist.
 	dailyRefuses bool
 	// revoked makes the refresh token refused for good.
-	revoked bool
+	revoked     bool
+	onRefresh   func(context.Context)
+	onDailyRead func(context.Context)
+	onRead      func(http.ResponseWriter, *http.Request) bool
 	// user is who logs in next: Google's id and the email.
 	user  string
 	email string
@@ -81,6 +89,10 @@ func newGoogle(t *testing.T) *google {
 		mux.HandleFunc("POST /"+host+"/v1internal:fetchAvailableModels", func(w http.ResponseWriter, r *http.Request) {
 			g.seen(r, host)
 
+			if g.interceptRead(w, r) || g.dailyReadUnavailable(w, r, host) || g.asksToVerify(w) {
+				return
+			}
+
 			var in map[string]string
 			if json.NewDecoder(r.Body).Decode(&in) != nil || in["project"] != "bright-wave-1234" {
 				http.Error(w, `{"error":{"status":"INVALID_ARGUMENT"}}`, http.StatusBadRequest)
@@ -105,6 +117,10 @@ func newGoogle(t *testing.T) *google {
 		})
 		mux.HandleFunc("POST /"+host+"/v1internal:retrieveUserQuotaSummary", func(w http.ResponseWriter, r *http.Request) {
 			g.seen(r, host)
+
+			if g.interceptRead(w, r) || g.dailyReadUnavailable(w, r, host) || g.asksToVerify(w) {
+				return
+			}
 
 			var in map[string]string
 			if json.NewDecoder(r.Body).Decode(&in) != nil || in["project"] != "bright-wave-1234" {
@@ -139,6 +155,51 @@ func newGoogle(t *testing.T) *google {
 	t.Cleanup(g.srv.Close)
 
 	return g
+}
+
+func (g *google) interceptRead(w http.ResponseWriter, r *http.Request) bool {
+	g.mu.Lock()
+	hook := g.onRead
+	g.mu.Unlock()
+
+	return hook != nil && hook(w, r)
+}
+
+func (g *google) dailyReadUnavailable(w http.ResponseWriter, r *http.Request, host string) bool {
+	g.mu.Lock()
+	onRead := g.onDailyRead
+	g.mu.Unlock()
+
+	if host != "daily" || onRead == nil {
+		return false
+	}
+
+	onRead(r.Context())
+	w.WriteHeader(http.StatusServiceUnavailable)
+
+	return true
+}
+
+// asksToVerify answers 403 VALIDATION_REQUIRED, as Google does to an account it wants verified (CLIProxyAPI#6182),
+// when it is set to.
+func (g *google) asksToVerify(w http.ResponseWriter) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.asks == "" {
+		return false
+	}
+
+	g.refused++
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = fmt.Fprintf(w, `{"error":{"code":403,"message":"Verify your account to continue.",`+
+		`"status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",`+
+		`"reason":"VALIDATION_REQUIRED","domain":"cloudcode-pa.googleapis.com",`+
+		`"metadata":{"validation_url":%q,"service":"cloudcode-pa.googleapis.com"}}]}}`, g.asks)
+
+	return true
 }
 
 func (g *google) seen(r *http.Request, host string) {
@@ -177,6 +238,10 @@ func (g *google) token(w http.ResponseWriter, r *http.Request) {
 
 		refresh = `"refresh_token":"google-refresh",`
 	case "refresh_token":
+		if g.onRefresh != nil {
+			g.onRefresh(r.Context())
+		}
+
 		if g.revoked || r.PostForm.Get("refresh_token") != "google-refresh" {
 			http.Error(w, `{"error":"invalid_grant","error_description":"Token has been expired or revoked."}`,
 				http.StatusBadRequest)
@@ -280,14 +345,20 @@ func newAntigravityWorld(t *testing.T, secret string) *antigravityWorld {
 func (w *antigravityWorld) login() (subscription.Account, error) {
 	w.t.Helper()
 
-	attempt, err := w.subs.Begin(w.t.Context(), "antigravity")
+	return w.loginWithContext(w.t.Context())
+}
+
+func (w *antigravityWorld) loginWithContext(ctx context.Context) (subscription.Account, error) {
+	w.t.Helper()
+
+	attempt, err := w.subs.Begin(ctx, "antigravity")
 	require.NoError(w.t, err)
 	require.True(w.t, attempt.Paste)
 
 	link, err := url.Parse(attempt.URL)
 	require.NoError(w.t, err)
 
-	return w.subs.Complete(w.t.Context(), attempt,
+	return w.subs.Complete(ctx, attempt,
 		"http://localhost:51121/oauth-callback?state="+link.Query().Get("state")+"&code=the-code&scope=email", "")
 }
 

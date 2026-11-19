@@ -8,9 +8,11 @@ import { shot } from "./shot.js"
 // under it with the files.
 
 const at = "2026-11-13T10:00:00Z"
+// Each Bot has a main chat (issue #471), so New chat makes another: POST /chats.
 const bot = (name: string) => ({
   id: name,
   main: name === "coordinator",
+  main_chat: `cht_main_${name}`,
   name,
   model: "",
   persona: "",
