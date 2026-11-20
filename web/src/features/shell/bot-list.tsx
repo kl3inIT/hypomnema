@@ -1,21 +1,30 @@
 import { Link } from "@tanstack/react-router"
 import { CircleDashed } from "lucide-react"
-import type { DragEvent, ReactNode } from "react"
+import { type DragEvent, type ReactNode, useState } from "react"
 
 import "@/api/client"
 import type { Chat } from "@/api/generated/types.gen"
 import { usePending } from "@/features/approvals/use-approvals"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { useBotName, useBots, useReorderBots } from "@/features/bots/use-bots"
+import {
+  useCreateDepartment,
+  useDepartments,
+  useReorderDepartments,
+} from "@/features/bots/use-departments"
 import { setDragged, tabDrag } from "@/features/workbench/use-grid"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { since } from "@/lib/time"
+import { said } from "@/lib/said"
 import { cn } from "@/lib/utils"
 
-import { BotMenu, PinItem } from "./bot-menu"
-import { type BotRow, botSections, rowChat } from "./bot-rows"
+import { BotMenu, MoveItem } from "./bot-menu"
+import { type BotRow, botSections, type DepartmentRows, rowChat } from "./bot-rows"
 import { ChatMenu } from "./chat-menu"
 import { useChats } from "./chats"
+import { useCollapsedDepartments } from "./collapsed-departments"
+import { type DepartmentAttention, DepartmentHeader } from "./department-header"
+import { DepartmentNameDialog } from "./department-name-dialog"
 import { ReorderableList, RowGrab } from "./reorderable-list"
 import { type SortableBindings, useSortableBindings } from "./use-sortable-bindings"
 
@@ -23,10 +32,12 @@ import { type SortableBindings, useSortableBindings } from "./use-sortable-bindi
 // OpenMausBot's sidebar with its threads hidden (Apache License 2.0, https://github.com/milind-soni/OpenMausBot;
 // src/components/Sidebar.tsx BotListItem; src/lib/thread-preferences.ts, showThreads off) and Hermes Desktop's
 // Bot Chat. A Bot's other chats are not listed: they open from their cards, questions, approvals and links, and from
-// the Bot's page. Every Bot is listed, in the one order the owner sets by dragging its avatar, with the main Bot
-// first and the pinned Bots in a Pinned section under it (issue #470; OpenMausBot's src/lib/sidebar-layout.ts, the
-// "Pinned" header of t3code's Sidebar.tsx). A drag stays in its section; a phone shows the order without dragging.
-// Left out of OpenMausBot's: departments, unread marks and a queued state, none of which a chat here has.
+// the Bot's page. Every Bot is listed, in the one order the owner sets by dragging its avatar (issue #470), with the
+// main Bot first, then each department with its Bots under its header, then the Bots in none, as OpenMausBot's
+// sidebar lists its departments (issue #471; src/components/Sidebar.tsx with SidebarSectionHeader). A department
+// folds, in this browser only, and moves by its grabber; a Bot moves between departments from its menu. A drag
+// stays in its section; a phone shows the order without dragging. Left out of OpenMausBot's: dragging a Bot into
+// another department, pausing a department, unread marks and a queued state.
 export function BotList({ current }: { current?: string }) {
   const chats = useChats()
   const bots = useBots()
@@ -34,17 +45,24 @@ export function BotList({ current }: { current?: string }) {
   const pending = usePending()
   const waiting = new Set(pending.data?.flatMap((a) => (a.chat_id ? [a.chat_id] : [])))
   const reorder = useReorderBots()
+  const departments = useDepartments()
+  const reorderDepartments = useReorderDepartments()
+  const create = useCreateDepartment()
+  const { collapsed, toggle } = useCollapsedDepartments()
+  // The Bot whose "New department…" was chosen, which the new department is made with.
+  const [newFor, setNewFor] = useState<string | null>(null)
   const phone = useIsMobile()
 
-  const pinned = new Set(bots.data?.filter((bot) => bot.pinned).map((bot) => bot.id))
-  const sections = chats.data && botSections(bots.data ?? [], chats.data)
+  const departmentOf = new Map(bots.data?.map((bot) => [bot.id, bot.department] as const))
+  const sections = chats.data && botSections(bots.data ?? [], chats.data, departments.data)
 
   const item = (row: BotRow, main: boolean, sortable?: SortableBindings) => (
     <BotItem
       key={row.bot}
       row={row}
       main={main}
-      pinned={pinned.has(row.bot)}
+      department={departmentOf.get(row.bot)}
+      onNewDepartment={setNewFor}
       sortable={sortable}
       current={current}
       waiting={waiting}
@@ -67,23 +85,78 @@ export function BotList({ current }: { current?: string }) {
       {sections && (
         <div className="flex flex-col gap-px">
           {sections.main && item(sections.main, true)}
-          {sections.pinned.length > 0 && (
-            <section aria-label="Pinned" className="flex flex-col gap-px">
-              <p className="px-2.5 pt-3 pb-1 text-xs font-medium text-muted-foreground">Pinned</p>
-              {section(sections.pinned)}
-            </section>
-          )}
-          {sections.pinned.length > 0 && sections.rest.length > 0 && (
+          <ReorderableList
+            ids={sections.departments.map((d) => d.department.id)}
+            onReorder={(ids) => reorderDepartments.mutate(ids)}
+          >
+            {sections.departments.map((d) => (
+              <SortableBot key={d.department.id} id={d.department.id} phone={phone}>
+                {(sortable) => (
+                  <section
+                    ref={sortable.ref}
+                    style={sortable.style}
+                    aria-label={d.department.name}
+                    className={cn(
+                      "flex flex-col gap-px",
+                      sortable.dragging && "relative z-10 rounded-md bg-sidebar shadow-md",
+                    )}
+                  >
+                    <DepartmentHeader
+                      department={d.department}
+                      collapsed={collapsed.has(d.department.id)}
+                      attention={attentionOf(d, waiting)}
+                      onToggle={() => toggle(d.department.id)}
+                      sortable={sortable}
+                    />
+                    {!collapsed.has(d.department.id) && section(d.rows)}
+                  </section>
+                )}
+              </SortableBot>
+            ))}
+          </ReorderableList>
+          {sections.departments.length > 0 && sections.rest.length > 0 && (
             <hr className="mx-2.5 my-1.5 border-sidebar-border" />
           )}
           {section(sections.rest)}
         </div>
       )}
+      {newFor !== null && (
+        <DepartmentNameDialog
+          title="New department"
+          action="Make"
+          pending={create.isPending}
+          error={create.error}
+          onSave={(name) =>
+            create.mutate(
+              { name, bots: [newFor] },
+              {
+                onSuccess: () => {
+                  setNewFor(null)
+                  said("Department made")
+                },
+              },
+            )
+          }
+          onClose={() => {
+            setNewFor(null)
+            create.reset()
+          }}
+        />
+      )}
     </nav>
   )
 }
 
-// SortableBot ties a Bot's row to its section's order; a phone shows the order without dragging.
+// attentionOf is what a folded department's header shows of its Bots: how many have a chat that waits on the owner,
+// and whether one works.
+function attentionOf(d: DepartmentRows, waiting: ReadonlySet<string>): DepartmentAttention {
+  return {
+    needsYou: d.rows.filter((row) => row.chats.some((c) => waiting.has(c.id))).length,
+    working: d.rows.some((row) => row.chats.some((c) => c.working)),
+  }
+}
+
+// SortableBot ties a Bot's row, or a department, to its list's order; a phone shows the order without dragging.
 function SortableBot({
   id,
   phone,
@@ -99,14 +172,16 @@ function SortableBot({
 function BotItem({
   row,
   main,
-  pinned,
+  department,
+  onNewDepartment,
   sortable,
   current,
   waiting,
 }: {
   row: BotRow
   main: boolean
-  pinned: boolean
+  department?: string
+  onNewDepartment: (bot: string) => void
   sortable?: SortableBindings
   current?: string
   waiting: Set<string>
@@ -122,7 +197,8 @@ function BotItem({
   // The Bot's row stands for every chat of the Bot that is open, as OpenMausBot's aria-current.
   const here =
     current !== undefined && (current === row.mainChat || chats.some((c) => c.id === current))
-  // Every Bot but the main one has a menu, to pin it; a Bot with a main chat has that chat's too.
+  // Every Bot but the main one has a menu, to move it between departments; a Bot with a main chat has that chat's
+  // too.
   const hasMenu = Boolean(mainChat) || !main
   const menuPlace =
     "absolute end-1 top-1.5 transition-opacity md:pointer-events-none md:opacity-0 md:group-focus-within/bot:pointer-events-auto md:group-focus-within/bot:opacity-100 md:group-hover/bot:pointer-events-auto md:group-hover/bot:opacity-100 md:has-[[data-popup-open]]:pointer-events-auto"
@@ -206,8 +282,8 @@ function BotItem({
             {face}
           </span>
         )}
-        {/* The row's menu, as OpenMausBot's Bot row has an actions button: Pin or Unpin (issue #470), and, on a Bot
-            with a main chat, that chat's Delete (issue #503). Shown on hover or focus, always on a phone. */}
+        {/* The row's menu, as OpenMausBot's Bot row has an actions button: Move to department (issue #471), and, on a
+            Bot with a main chat, that chat's Delete (issue #503). Shown on hover or focus, always on a phone. */}
         {mainChat ? (
           <ChatMenu
             chat={mainChat}
@@ -215,10 +291,20 @@ function BotItem({
             label={`Actions for ${name}`}
             className={menuPlace}
           >
-            {!main && <PinItem bot={bot} pinned={pinned} />}
+            {!main && (
+              <MoveItem bot={bot} department={department} onNewDepartment={onNewDepartment} />
+            )}
           </ChatMenu>
         ) : (
-          !main && <BotMenu bot={bot} name={name} pinned={pinned} className={menuPlace} />
+          !main && (
+            <BotMenu
+              bot={bot}
+              name={name}
+              department={department}
+              onNewDepartment={onNewDepartment}
+              className={menuPlace}
+            />
+          )
         )}
       </div>
     </div>

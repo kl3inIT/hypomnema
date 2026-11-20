@@ -2764,6 +2764,85 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BotOrder" }
         default: { $ref: "#/components/responses/Error" }
+  /departments:
+    get:
+      operationId: ListDepartments
+      summary: The departments the sidebar lists Bots in, in the owner's order
+      description: >-
+        A department is a named section of the sidebar that lists Bots
+        together (issue #471), as OpenMausBot's departments. A Bot is in at
+        most one; a department shares nothing between its Bots.
+      responses:
+        "200":
+          description: The departments, first first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DepartmentList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: CreateDepartment
+      summary: Make a department, last in the order, with the Bots named in it; only the owner
+      description: >-
+        A name another department has is refused; the main Bot cannot be put
+        in one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewDepartment" }
+      responses:
+        "201":
+          description: The department.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Department" }
+        default: { $ref: "#/components/responses/Error" }
+  /departments/order:
+    put:
+      operationId: ReorderDepartments
+      summary: Move departments in the order the sidebar lists them; only the owner
+      description: >-
+        The departments named take, in the order given, the places they
+        already hold together; every other keeps its place, as the Bots'
+        order does. A repeated or unknown id is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DepartmentOrder" }
+      responses:
+        "200":
+          description: Every department's id, in the new order.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DepartmentOrder" }
+        default: { $ref: "#/components/responses/Error" }
+  /departments/{department_id}:
+    parameters:
+      - $ref: "#/components/parameters/DepartmentID"
+    patch:
+      operationId: RenameDepartment
+      summary: Give a department another name; only the owner
+      description: Its Bots stay in it. A name another department has is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DepartmentChange" }
+      responses:
+        "200":
+          description: The department.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Department" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteDepartment
+      summary: Remove a department; its Bots go back to the Bots in none; only the owner
+      responses:
+        "204":
+          description: The department is removed.
+        default: { $ref: "#/components/responses/Error" }
   /bots/{bot_id}:
     parameters:
       - $ref: "#/components/parameters/BotID"
@@ -2798,12 +2877,13 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     patch:
       operationId: RenameBot
-      summary: Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+      summary: Give a Bot another name, or move it to a department; the owner, or the main Bot from its chat for a name
       description: >-
         Its id, chats, Routines, Channels and memory stay. A name another Bot
         has is refused. A rename by the main Bot is recorded in its chat as a
-        setup change the owner can undo. Only the owner pins or unpins a Bot
-        (issue #470); the main Bot, always first, is not pinned.
+        setup change the owner can undo. Only the owner moves a Bot into a
+        department or out of one (issue #471); the main Bot, always first, is
+        in none.
       requestBody:
         required: true
         content:
@@ -5355,6 +5435,12 @@ components:
       in: path
       required: true
       description: The Bot's id, which never changes (issue #466).
+      schema: { type: string, minLength: 1, maxLength: 63 }
+    DepartmentID:
+      name: department_id
+      in: path
+      required: true
+      description: The department's id (issue #471).
       schema: { type: string, minLength: 1, maxLength: 63 }
     MemoryOfBot:
       name: bot
@@ -9030,7 +9116,7 @@ components:
     Bot:
       type: object
       required:
-        [id, name, main, position, pinned, fallbacks, persona, memory, memory_limit, skills, skills_off, preset, tools, tools_off,
+        [id, name, main, position, fallbacks, persona, memory, memory_limit, skills, skills_off, preset, tools, tools_off,
          connections, workers, scopes, tool_display, guaranteed_dispatches, created_at, updated_at]
       properties:
         id:
@@ -9049,9 +9135,11 @@ components:
           description: >-
             The Bot's place in the order the owner sets, 0 first (issue #470);
             the main Bot is first.
-        pinned:
-          type: boolean
-          description: Listed in the sidebar's Pinned section, under the main Bot.
+        department:
+          type: string
+          description: >-
+            The id of the department the sidebar lists the Bot in (issue #471);
+            absent when it is in none. The main Bot is in none.
         main_chat:
           type: string
           description: >-
@@ -9389,15 +9477,62 @@ components:
       minProperties: 1
       properties:
         name: { type: string, minLength: 1, maxLength: 64 }
-        pinned:
-          type: boolean
-          description: Listed in the sidebar's Pinned section, under the main Bot; only the owner.
+        department:
+          type: string
+          maxLength: 63
+          description: >-
+            The id of the department to list the Bot in, or empty for none
+            (issue #471); only the owner. The main Bot is in none.
     BotOrder:
       type: object
       additionalProperties: false
       required: [bot_ids]
       properties:
         bot_ids:
+          type: array
+          minItems: 1
+          items: { type: string }
+    Department:
+      type: object
+      required: [id, name, position]
+      properties:
+        id: { type: string }
+        name:
+          type: string
+          description: What the department is called; one department's.
+        position:
+          type: integer
+          description: Its place among the departments, 0 first.
+    DepartmentList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Department" }
+    NewDepartment:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+        bot_ids:
+          type: array
+          maxItems: 200
+          items: { type: string }
+          description: The Bots to move into it.
+    DepartmentChange:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 60 }
+    DepartmentOrder:
+      type: object
+      additionalProperties: false
+      required: [department_ids]
+      properties:
+        department_ids:
           type: array
           minItems: 1
           items: { type: string }

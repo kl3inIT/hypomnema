@@ -19,7 +19,6 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   main_chat: `cht_main_${name}`,
   name,
   position: 0,
-  pinned: false,
   main: name === "coordinator",
   persona: "",
   memory: "",

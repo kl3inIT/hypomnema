@@ -1216,15 +1216,24 @@ sequenceDiagram
   (Chats, above; issue #484), its messages, setup changes and artifacts with it, the Runs, Routines and approvals
   made in them stay without the chat, and the chats' gateway keys are revoked and kept, in that one transaction as for
   one chat. Their files on the coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then.
-  - **Order and pins** (issue #470, migration 00089; after OpenMausBot's one fleet order with a `pinned` flag and
-    onyx's dense `display_order`). Every Bot has `bots.position`, dense from 0 (numbered by creation when the
+  - **Order and departments** (issue #470, migration 00089; after OpenMausBot's one fleet order and onyx's dense
+    `display_order`). Every Bot has `bots.position`, dense from 0 (numbered by creation when the
     column came, so the main Bot is 0); a new Bot goes last and a removed one leaves no gap. `PUT /bots/order`
     `{bot_ids}` (`ReorderBots`) names the Bots it moves: they take, in the order given, the places they already
     hold together, and every other Bot keeps its place (OpenMausBot's `reorderStable`); it answers every Bot's id
-    in the new order. An empty list, a repeated or unknown id and the main Bot are refused (400). `bots.pinned` is
-    set with `PATCH /bots/{bot_id}` `{pinned}`; the main Bot is not pinned. Both are the owner's alone, not a Bot
-    setting: the main Bot's pi is refused (403), and `PUT /bots/{bot_id}` keeps them. `GET /bots` still lists the
-    Bots oldest first, each with its `position` and `pinned`. A provider change that would
+    in the new order. An empty list, a repeated or unknown id and the main Bot are refused (400). A Bot may be in
+    one **department** (issue #471, after OpenMausBot's departments, `server/routes/sidebar-sections.ts`), a named
+    section of the sidebar kept in `departments` (id, name unique, dense `position`) and named by
+    `bots.department` (NULL for none, `ON DELETE SET NULL`); the departments replace the Pinned section of issue
+    #470, whose pinned Bots the migration put in a department named Pinned. `GET /departments` lists them in
+    order; `POST /departments` `{name, bot_ids}` makes one last with those Bots in it; `PATCH
+    /departments/{id}` `{name}` renames it; `DELETE /departments/{id}` removes it and its Bots go back to none;
+    `PUT /departments/order` `{department_ids}` moves them as `ReorderBots` moves Bots. A name is 1 to 60
+    characters without control characters (OpenMausBot's rule) and one department's (409). `PATCH /bots/{bot_id}`
+    `{department}` moves a Bot, `""` to none; the main Bot is in none (400). A department shares nothing between
+    its Bots. The order and the departments are the owner's alone, not a Bot setting: the main Bot's pi is refused
+    (403), and `PUT /bots/{bot_id}` keeps them. `GET /bots` still lists the Bots oldest first, each with its
+    `position` and `department`. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
@@ -5496,11 +5505,17 @@ Node (`internal/node`):
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
     Team with the count that needs the owner, Routines, Meetings, Studio, then Bots; the Agents and the Machines
     are in Settings (issue #857). The places sit above the Bots (issue #361, after OpenMausBot's sidebar): a row every Bot, with chats or
-    not ("No chats yet"), in the one order the owner sets (issue #470): the main Bot (`Bot.main`) first, then a
-    "Pinned" section of the pinned Bots, then the others, each section by `Bot.position`. The owner drags a Bot by
-    its avatar, which turns into a grabber on hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with
-    the mouse or the keyboard, within its section; the page shows the new order at once and sends
-    `PUT /bots/order`. Pin and Unpin are in the Bot row's menu. A phone shows the order without dragging. A row
+    not ("No chats yet"), in the one order the owner sets (issue #470): the main Bot (`Bot.main`) first, then each
+    department (issue #471) under its header, an empty one too, then the Bots in none, the departments by their
+    position and the Bots by `Bot.position`. The owner drags a Bot by its avatar, which turns into a grabber on
+    hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with the mouse or the keyboard, within its
+    section; the page shows the new order at once and sends `PUT /bots/order`. A department's header
+    (`department-header.tsx`, adapted from OpenMausBot's `SidebarSectionHeader.tsx`) folds it, kept in the
+    browser's storage only, and then counts its Bots that need the owner, or marks one working; its grabber moves
+    it among the departments (`PUT /departments/order`); its menu renames it and deletes it after asking. A Bot
+    row's menu has "Move to department": every department, "New department…" (a name dialog) and "Remove from
+    department", as OpenMausBot's Bot menu. A Bot is not dragged into another department, and a department is not
+    paused. A phone shows the order without dragging. A row
     is one Bot, with no list of its chats under it (issue #471, as OpenMausBot's sidebar with threads hidden): the
     Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its main chat's last line
     (`Chat.last_line`, else its title; "No chat yet" for a Bot with none; read again when a chat's stream brings a

@@ -22,7 +22,6 @@ const bot = (id: string, position: number, mainChat?: string) => ({
   main: position === 0,
   name: id,
   position,
-  pinned: false,
   ...(mainChat && { main_chat: mainChat }),
   persona: "",
   memory: "",
