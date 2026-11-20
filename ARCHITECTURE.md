@@ -1085,6 +1085,34 @@ sequenceDiagram
     From: Orca `a5c191cc0`, `send-point-to-point.ts:194` (commit before waking), and t3code `d2606600`,
     `Orchestrator.ts:16532` (reoffer persisted completion messages). The per-Run cutoff is specific to Hypomnema's
     shared chat cursor. See the [reference comparison](https://github.com/kl3inIT/hypomnema/issues/969#issuecomment-7029495213).
+  - One controller per Run: once a Run has a chat, that chat's Bot alone follows up, answers coordinator
+    questions and creates reviews; another coordinator token, or the same parent token from another chat, is
+    refused (`clientapi/policy.go`, `checkPolicy`). The owner's principal is not fenced: the web's session and the
+    CLI's owner token are both `owner` (`clientapi/server.go`), and a question to the owner only the owner answers
+    (`orchestration/questions.go`, `AnswerQuestion`). The coordinator guide, not the server, splits the two paths:
+    an owner CLI session hands a Run off (creates it and its first Tasks, then stops) and afterwards only observes,
+    passing a change to the Run's chat (`hypomnema chat --chat`); the chat's Bot handles every event, sends fix
+    rounds and finishes the Run.
+    From: Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:39-91` (the stored binding writes,
+    another known coordinator is read-only, the binding's owner is admitted); OpenMausBot `71ada2b5`,
+    `server/coordinator.ts:63-64` (the requester is woken). Applying it to the owner's CLI session is inference the
+    owner accepted on 2026-11-20.
+  - A review's wake carries the verdict, the pull request, the merge state and checks, and the command that reads
+    the findings (`reviewWakeText`); the control plane sends no follow-up to the author by itself, the Run's
+    chat decides the fix (issue #967 folded in). That enriched wake comes only when the review leaves its open Run
+    with no unfinished Task; while another Task of the Run is still unfinished, the review's end sends only the
+    plain Task wake, and the coordinator reads the verdict from `tasks show` (`reviewAfterTask` in
+    `orchestration/review.go`). From: OpenMausBot `71ada2b5`, `server/runtime/envelope.ts:184,255`
+    (the requester checks the report and sends rework); Orca `a5c191cc0`, `src/main/bots/bot-pr-events.ts:1-13`
+    (nothing wakes on a worker's pull request).
+  - A worker's question reaches the chat its Run is bound to, adopted or not: one to the coordinator is a wake-up
+    (`ChatRunEvents`), one to the owner waits docked above that chat's composer (`GET /questions?chat_id=`). From:
+    Orca `a5c191cc0`, `mobile/src/session/native-chat/input/prompts/use-mobile-worker-approvals.ts:60` (a
+    coordinator chat shows its workers' open prompts).
+  - Deleting a chat, by itself or with its Bot (`ForceDeleteBot`), is refused (409) while one of its Runs is open
+    (`ChatHasOpenRuns` in `deleteChatTx`), beside the live-Routine guard; an ended Run is detached as before. From:
+    Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:63-91` (the stored binding holds); OpenHands
+    SDK `fb565cfe`, `conversation_lease.py:167-209` (a live owner is not displaced).
 - Artifacts (issue #402, `orchestration/artifacts.go`, `internal/shared/artifactpack`, after OpenMausBot's chat
   pages `server/chat-apps.ts`, `app-docs.ts`, `page-files.ts` and `server/pages/bundle.ts`): what a Bot hands the
   owner to look at in its chat, an HTML page or folder, a PDF, an image or any other file.
