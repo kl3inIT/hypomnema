@@ -693,6 +693,54 @@ func RevokeDeletedChatKeysTx(ctx context.Context, tx *sql.Tx, chatID string, now
 	return nil
 }
 
+// keyParentLive refuses a key whose parent has ended, read in the transaction that makes it (issue #996), so a
+// revocation committed first is seen and one committed after ends the key with the rest: a Dispatch's whose Run's
+// coordinator token is revoked or whose node is removed, and a chat's whose pi runs under a revoked coordinator
+// token. A chat's new key keeps the coordinator token of the key its pi has now, as when pi's model changes.
+func keyParentLive(ctx context.Context, q *store.Queries, owner *keyOwner) error {
+	if owner.dispatchID != "" {
+		ended, err := q.DispatchKeysEnded(ctx, owner.dispatchID)
+		if err != nil {
+			return fmt.Errorf("checking what dispatch %s's key hangs from: %w", owner.dispatchID, err)
+		}
+
+		if ended > 0 {
+			return fmt.Errorf("%w: the coordinator token of dispatch %s's run is revoked or its node removed",
+				ErrConflict, owner.dispatchID)
+		}
+	}
+
+	if owner.chatID == "" {
+		return nil
+	}
+
+	if owner.coordinatorTokenID == "" {
+		live, err := q.GetLiveGatewayKeyOfChat(ctx, sql.NullString{String: owner.chatID, Valid: true})
+		switch {
+		case err == nil:
+			owner.coordinatorTokenID = live.CoordinatorTokenID.String
+		case !errors.Is(err, sql.ErrNoRows):
+			return fmt.Errorf("reading the key of chat %s: %w", owner.chatID, err)
+		}
+	}
+
+	if owner.coordinatorTokenID == "" {
+		return nil
+	}
+
+	n, err := q.CountLiveClientToken(ctx, owner.coordinatorTokenID)
+	if err != nil {
+		return fmt.Errorf("checking token %s: %w", owner.coordinatorTokenID, err)
+	}
+
+	if n == 0 {
+		return fmt.Errorf("%w: chat %s's pi runs under token %s, which is revoked", ErrConflict, owner.chatID,
+			owner.coordinatorTokenID)
+	}
+
+	return nil
+}
+
 // Revocations revoke the gateway's keys in the transaction of what ends them, for orchestration, which owns that
 // transaction (issue #996): a revoked coordinator token, a removed node, a deleted chat or Bot ends its keys in the
 // commit that ends it, as RevokeDeletedChatKeysTx does for a chat (issue #405). The gateway's table is still written
@@ -820,6 +868,10 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 			default:
 				return keyVaultError(err)
 			}
+		}
+
+		if err := keyParentLive(ctx, q, &owner); err != nil {
+			return err
 		}
 
 		if owner.dispatchID != "" {

@@ -107,6 +107,25 @@ func (q *Queries) DeleteRepo(ctx context.Context, name string) (int64, error) {
 	return result.RowsAffected()
 }
 
+const dispatchCredentialsEnded = `-- name: DispatchCredentialsEnded :one
+SELECT count(*) FROM dispatches d
+LEFT JOIN nodes n ON n.id = d.node_id
+LEFT JOIN tasks t ON t.id = d.task_id
+LEFT JOIN runs r ON r.id = t.run_id
+LEFT JOIN client_tokens c ON c.id = r.coordinator_token_id
+WHERE d.id = ?1 AND (n.status = 'deleted' OR c.revoked_at IS NOT NULL)
+`
+
+// Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is
+// revoked, or its node removed. A key is not made then, in the transaction that would make it, so an offer read
+// before the revocation and sent after it carries none. A Dispatch not found is not refused here.
+func (q *Queries) DispatchCredentialsEnded(ctx context.Context, dispatchID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, dispatchCredentialsEnded, dispatchID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getAgentSessionByHash = `-- name: GetAgentSessionByHash :one
 SELECT id, key_hash, dispatch_id, uses, created_at, revoked_at, revoke_reason, last_used_at FROM agent_sessions WHERE key_hash = ?1 AND revoked_at IS NULL
 `

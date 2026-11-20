@@ -14,6 +14,9 @@ type Copies struct{ s *Service }
 // Copies returns the vault's copies of credentials.
 func (s *Service) Copies() Copies { return Copies{s: s} }
 
+// Ready says whether the vault can seal a value here: its keyring is configured.
+func (c Copies) Ready() bool { return c.s.keyring != nil }
+
 // SealTx keeps value as the first version of a new generic secret named name, in the record's transaction tx, and
 // returns the version's id; "" when the vault is not configured, as a gateway key is then kept without its value.
 func (c Copies) SealTx(ctx context.Context, tx *sql.Tx, name, value string, now int64) (string, error) {

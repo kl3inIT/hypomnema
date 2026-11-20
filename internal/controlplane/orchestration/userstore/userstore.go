@@ -258,19 +258,37 @@ func (s *Store) AuthenticateSession(ctx context.Context, secret string) (User, S
 	expires := row.ExpiresAt
 
 	if fresh := now + SessionLifetime.Milliseconds(); fresh-expires >= sessionExtendEvery.Milliseconds() {
-		err := s.write(ctx, func(q *store.Queries, _ int64) error {
-			return q.ExtendWebSession(ctx, store.ExtendWebSessionParams{
-				ExpiresAt: fresh, Now: validInt(now), ID: row.ID,
-			})
-		})
+		extended, err := s.extendSession(ctx, row.ID, now)
 		if err != nil {
 			return User{}, Session{}, fmt.Errorf("extending session %s: %w", row.ID, err)
 		}
 
-		expires = fresh
+		if extended {
+			expires = fresh
+		}
 	}
 
 	return User{ID: row.UserID, Name: row.UserName}, Session{ID: row.ID, ExpiresAt: storeutil.Millis(expires)}, nil
+}
+
+// extendSession moves a session's end to a lifetime from now and writes its last use, and reports whether it did:
+// not for a session revoked since it was read, nor one another request moved within the hour (issue #996), as the
+// other credentials' touches are bounded in their query.
+func (s *Store) extendSession(ctx context.Context, id string, now int64) (bool, error) {
+	fresh := now + SessionLifetime.Milliseconds()
+
+	var n int64
+
+	err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		var err error
+		n, err = q.ExtendWebSession(ctx, store.ExtendWebSessionParams{
+			ExpiresAt: fresh, Now: validInt(now), ID: id, Before: fresh - sessionExtendEvery.Milliseconds(),
+		})
+
+		return err
+	})
+
+	return n == 1, err
 }
 
 // SignOut ends a session: it is kept, revoked, until its end passes (issue #996). One that is gone or ended already

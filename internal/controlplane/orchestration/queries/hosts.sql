@@ -155,3 +155,14 @@ JOIN runs ON runs.id = tasks.run_id
 JOIN repos ON repos.host = runs.repo_host AND repos.path = runs.repo
 WHERE dispatches.id = @dispatch_id AND repos.ssh_url IS NOT NULL
 ORDER BY repos.name LIMIT 1;
+
+-- name: DispatchCredentialsEnded :one
+-- Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is
+-- revoked, or its node removed. A key is not made then, in the transaction that would make it, so an offer read
+-- before the revocation and sent after it carries none. A Dispatch not found is not refused here.
+SELECT count(*) FROM dispatches d
+LEFT JOIN nodes n ON n.id = d.node_id
+LEFT JOIN tasks t ON t.id = d.task_id
+LEFT JOIN runs r ON r.id = t.run_id
+LEFT JOIN client_tokens c ON c.id = r.coordinator_token_id
+WHERE d.id = @dispatch_id AND (n.status = 'deleted' OR c.revoked_at IS NOT NULL);

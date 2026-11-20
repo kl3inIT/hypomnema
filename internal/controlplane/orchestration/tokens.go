@@ -152,12 +152,20 @@ func (s *Service) RevokeToken(ctx context.Context, id string) error {
 	return nil
 }
 
-// CoordinatorTokenID returns the id of the working coordinator token of that name, which a chat's pi runs under:
-// its gateway key names it, so revoking the token ends the key (issue #996).
+// CoordinatorTokenID returns the id of the coordinator token of that name, revoked or not, which a chat's pi runs
+// under: its gateway key names it, and the gateway refuses a key under a revoked one in the transaction that would
+// make it, so revoking the token ends the key and no new one is made (issue #996).
 func (s *Service) CoordinatorTokenID(ctx context.Context, name string) (string, error) {
-	t, err := s.coordinatorTokenNamed(ctx, name)
+	row, err := s.read().GetClientTokenByName(ctx, name)
+	if err != nil {
+		return "", notFound(err, "coordinator token", name)
+	}
 
-	return t.ID, err
+	if bearertoken.Kind(row.Kind) != bearertoken.Coordinator {
+		return "", fmt.Errorf("%w: token %q is not a coordinator token", ErrInvalid, name)
+	}
+
+	return row.ID, nil
 }
 
 // AuthenticateToken returns the token a secret belongs to. A malformed,

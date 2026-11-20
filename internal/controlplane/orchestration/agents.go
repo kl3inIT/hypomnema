@@ -242,6 +242,17 @@ func (s *Service) AddAgentSession(ctx context.Context, dispatchID string, uses [
 	}
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		// Read in the transaction that makes the key, so a revocation committed before it is seen (issue #996).
+		ended, err := q.DispatchCredentialsEnded(ctx, dispatchID)
+		if err != nil {
+			return fmt.Errorf("checking what dispatch %s's key hangs from: %w", dispatchID, err)
+		}
+
+		if ended > 0 {
+			return fmt.Errorf("%w: the coordinator token of dispatch %s's run is revoked or its node removed",
+				ErrConflict, dispatchID)
+		}
+
 		return q.InsertAgentSession(ctx, store.InsertAgentSessionParams{
 			ID: s.newID("ags"), KeyHash: bearertoken.Hash(secret), DispatchID: dispatchID,
 			Uses: strings.Join(uses, ","), Now: now,

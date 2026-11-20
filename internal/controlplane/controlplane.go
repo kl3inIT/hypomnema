@@ -308,13 +308,13 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	svc.WithShareVault(secrets.Copies())
 
 	// A share link made before its token was hashed (issue #996) is moved out of plaintext before anything is
-	// served, so its URL keeps working.
-	if moved, err := svc.MoveShareTokens(ctx); err != nil {
+	// served, so its URL keeps working; without a vault it keeps its plaintext until one can seal it.
+	move, err := svc.MoveShareTokens(ctx)
+	if err != nil {
 		return fmt.Errorf("moving the tokens of share links: %w", err)
-	} else if moved > 0 {
-		logger.InfoContext(ctx, "moved the tokens of share links out of plaintext",
-			slog.String("event", "controlplane.share_tokens_moved"), slog.Int("links", moved))
 	}
+
+	logShareTokenMove(ctx, logger, move)
 
 	// The account each git host token belongs to is read at its host once, so workers commit as it (issue #991).
 	tokens := connections{svc: svc, vault: secrets, identities: &gitIdentities{
@@ -1001,4 +1001,17 @@ func builtinSkills() ([]clientapi.BuiltinSkill, error) {
 type channelStore struct {
 	*orchestration.Service
 	*channelstore.Store
+}
+
+// logShareTokenMove says, once as the control plane starts, what MoveShareTokens did (issue #996).
+func logShareTokenMove(ctx context.Context, logger *slog.Logger, move orchestration.ShareTokenMove) {
+	if move.Moved > 0 {
+		logger.InfoContext(ctx, "moved the tokens of share links out of plaintext",
+			slog.String("event", "controlplane.share_tokens_moved"), slog.Int("links", move.Moved))
+	}
+
+	if move.Waiting > 0 {
+		logger.WarnContext(ctx, "share links keep their tokens in plaintext until the vault is configured",
+			slog.String("event", "controlplane.share_tokens_waiting"), slog.Int("links", move.Waiting))
+	}
 }

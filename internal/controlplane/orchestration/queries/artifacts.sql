@@ -95,25 +95,33 @@ SELECT * FROM artifact_shares WHERE artifact_id = @artifact_id AND revoked_at IS
 SELECT * FROM artifact_shares WHERE id = @id AND revoked_at IS NULL;
 
 -- name: RevokeArtifactShare :execrows
--- A revoked link is kept, without its sealed copy, which the caller deletes.
-UPDATE artifact_shares SET revoked_at = @now, revoke_reason = @reason, secret_version_id = NULL
+-- A revoked link is kept, without its sealed copy, which the caller deletes, and without the plaintext of a link not
+-- moved yet, which keeps its hash instead.
+UPDATE artifact_shares SET revoked_at = @now, revoke_reason = @reason, secret_version_id = NULL,
+                           token_hash = @token_hash, token = NULL
 WHERE id = @id AND revoked_at IS NULL;
 
 -- name: SharedArtifact :one
--- What a working link shows: its artifact at the newest revision, with the type of the file shown.
+-- What a working link shows: its artifact at the newest revision, with the type of the file shown. A link not moved
+-- yet (issue #996) is found by its plaintext until a vault can seal it.
 SELECT s.id, s.artifact_id, a.revision, a.updated_at, r.title, r.type, r.entry, f.media_type
 FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id
 JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 JOIN artifact_files f ON f.artifact_id = a.id AND f.revision = a.revision AND f.path = r.entry
-WHERE s.token_hash = @token_hash AND s.revoked_at IS NULL;
+WHERE s.revoked_at IS NULL
+  AND (s.token_hash = @token_hash OR (s.token_hash IS NULL AND s.token = @token));
 
 -- name: CountArtifactShareView :exec
-UPDATE artifact_shares SET views = views + 1, last_viewed_at = @now WHERE id = @id;
+-- Every opening is counted; its last use is written at most once an hour, as every credential's (issue #996).
+UPDATE artifact_shares SET views = views + 1,
+    last_viewed_at = CASE WHEN last_viewed_at IS NULL OR last_viewed_at <= CAST(@before AS INTEGER)
+                          THEN CAST(@now AS INTEGER) ELSE last_viewed_at END
+WHERE id = @id AND revoked_at IS NULL;
 
 -- name: ListAllArtifactShares :many
 -- Every link that works, newest first, with its artifact's newest title and type, its Bot and its chat (issue #765).
-SELECT s.id, s.artifact_id, s.token_hash, s.secret_version_id, s.label, s.created_at, s.views, s.last_viewed_at,
+SELECT s.id, s.artifact_id, s.token, s.token_hash, s.secret_version_id, s.label, s.created_at, s.views, s.last_viewed_at,
        a.chat_id, a.bot_id, coalesce(b.name, '') AS bot_name, r.title, r.type
 FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id

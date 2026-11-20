@@ -1147,9 +1147,12 @@ sequenceDiagram
     artifact, each labelled for whom it was sent to and revoked alone (Grafana's per-viewer revoke). The token is 32
     random bytes in base64url, kept as a credential is (issue #996, [Credentials](#credentials)): its SHA-256 finds
     the link, and a copy sealed in the vault (a generic secret named after the link, as an owner-made gateway key's
-    value is) lets the owner copy it again; the lists open it. Without a vault a link has no copy and cannot be
-    read again. A link made before (its token in plaintext until migration `credential_state`) is moved as the
-    control plane starts, before anything is served (`MoveShareTokens`), so its URL keeps working. Only the owner
+    value is) lets the owner copy it again; the lists open it. Without a vault's keys no link is made (503): none is
+    kept by its hash alone. A link made before (its token in plaintext until migration `credential_state`) is moved
+    as the control plane starts, before anything is served (`MoveShareTokens`), so its URL keeps working: with
+    `secure_delete` on for the move, then `VACUUM` and `wal_checkpoint(TRUNCATE)`, so no plaintext is left in the
+    database's files or its log. Without the vault's keys it keeps its plaintext, which still opens it and which
+    the lists read, until a start with the keys moves it; the start logs how many wait. Only the owner
     makes, lists and revokes links (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has
     no tool for it). Revoking marks the row with the reason and deletes its sealed copy; the Vault names a link as
     its copy's user and refuses to delete it. Deleting the artifact with its chat deletes its links
@@ -1159,8 +1162,8 @@ sequenceDiagram
     that `rev` is the newest on every request (OpenMausBot's `server/page-files.ts`), so a revoke takes effect at
     once and a file of a replaced revision answers 404; it mints no frame token and serves as the frame's route
     does (the same headers, a page with `pagePolicy` naming the link's folder). Opening the page itself counts a
-    view and sets the last view (Grafana's request count, Metabase's anonymous view event); reading the link does
-    not, so the viewer's checks are not counted. Every answer under `/api/v1/shares/` and the web's page
+    view and sets the last view, at most once an hour (Grafana's request count, Metabase's anonymous view event);
+    reading the link does not, so the viewer's checks are not counted. Every answer under `/api/v1/shares/` and the web's page
     `/s/<token>` carry `X-Robots-Tag: noindex, nofollow` (LibreChat), `Referrer-Policy: no-referrer`,
     `Cache-Control: private, no-store` (LibreChat) and `frame-ancestors 'none'` (Grafana). An address that sends
     five unknown tokens within an hour is locked as a wrong password locks it (`session.go`'s limiter, its own
@@ -3008,7 +3011,8 @@ flowchart LR
 - Users and web sessions (issue #114; [research](docs/research/2026-11-10-web-login.md), each rule from a
   reference): a user is a name and a password kept as bcrypt at cost 10, made on the server; none is shipped. Signing
   in opens a web session: a row with the SHA-256 of a random secret, good for 30 days after its last use (extended,
-  with its last use, at most once an hour). A session acts as the owner. Signing out and a new password revoke the
+  with its last use, at most once an hour, in a query that writes neither a revoked session nor one another request
+  just moved). A session acts as the owner. Signing out and a new password revoke the
   session with the reason (`signed_out`, `password_changed`); it is kept until its end passes and is cleared with
   the expired ones at the next sign-in. They are kept
   by the domain store `orchestration/userstore` (issue #404), reached through `Service.Users()`; it imports the
@@ -3052,6 +3056,12 @@ which orchestration calls in its transaction (`orchestration.GatewayKeys`, `mode
   (`executionstore/machine_lifecycle_store.go`).
 - Deleting a chat ends its Gateway keys with `chat_deleted` (issue #405), its links' sealed copies, and its pi's Bot
   token; deleting a Bot ends its Gateway keys with `bot_deleted` and its pi's Bot tokens.
+- A child is not made once its parent ended: a Dispatch's agent session and gateway key are refused, in the
+  transaction that would make them, when the coordinator token that created its Run is revoked or its node removed
+  (an offer read before the revocation and sent after it, as after a reconnect, carries no key); a chat's gateway
+  key is refused under a revoked coordinator token, and a new one for the chat keeps the coordinator token of the
+  key its pi has, as when pi's model changes. A Bot token is refused once its chat or Bot is gone, read at each use,
+  so the deletion ends it before its clean-up of memory.
 - Without a cascade, a Dispatch's keys end when it settles (`dispatch_ended`), a chat's key when its pi ends
   (`process_ended`) or a new one is made (`replaced`), and every chat key as the control plane starts
   (`control_plane_started`).

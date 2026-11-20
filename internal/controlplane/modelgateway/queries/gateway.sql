@@ -400,3 +400,20 @@ DELETE FROM gateway_usage WHERE created_at < @before;
 -- A revoked key no request names (issue #628); a live key is never deleted.
 DELETE FROM gateway_keys
 WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id);
+
+-- name: DispatchKeysEnded :one
+-- Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is
+-- revoked, or its node removed; read in the transaction that would make a key. A Dispatch not found is not refused.
+SELECT count(*) FROM dispatches d
+LEFT JOIN nodes n ON n.id = d.node_id
+LEFT JOIN tasks t ON t.id = d.task_id
+LEFT JOIN runs r ON r.id = t.run_id
+LEFT JOIN client_tokens c ON c.id = r.coordinator_token_id
+WHERE d.id = @dispatch_id AND (n.status = 'deleted' OR c.revoked_at IS NOT NULL);
+
+-- name: CountLiveClientToken :one
+SELECT count(*) FROM client_tokens WHERE id = @id AND revoked_at IS NULL;
+
+-- name: GetLiveGatewayKeyOfChat :one
+-- The key a chat's running pi has now: its newest that works.
+SELECT * FROM gateway_keys WHERE chat_id = @chat_id AND revoked_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1;

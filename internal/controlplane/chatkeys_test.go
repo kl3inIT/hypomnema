@@ -55,3 +55,54 @@ func TestAChatKeyEndsWithTheCoordinatorTokenItsPiRunsUnder(t *testing.T) {
 	_, err = gateway.Authenticate(ctx, secret)
 	require.ErrorIs(t, err, modelgateway.ErrUnauthorized)
 }
+
+// Scenario (issue #996, review of #999): a pi runs under a coordinator token, and the owner revokes it. A model
+// change asks for a new key: it is refused, not made without a parent. A key whose parent was read before the
+// revocation and made after it is refused too, in the gateway's own transaction. A key made for the chat without
+// naming a parent keeps the one its pi has, so the revocation ends it.
+func TestARunningPiGetsNoKeyOnceItsCoordinatorTokenIsRevoked(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
+		orchestration.WithGatewayKeys(modelgateway.Revocations{}))
+	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, nil, nil)
+	keys := chatKeys{gateway: gateway, chats: svc, coordinator: "pi"}
+
+	coordinator, _, err := svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, _, err = keys.AddChatKey(ctx, chat.ID, "")
+	require.NoError(t, err)
+
+	_, kept, err := gateway.AddChatKey(ctx, chat.ID, chat.Bot, "gpt-sol")
+	require.NoError(t, err, "a key that names no parent")
+
+	parent, err := svc.CoordinatorTokenID(ctx, "pi")
+	require.NoError(t, err, "read before the revocation")
+
+	require.NoError(t, svc.RevokeToken(ctx, coordinator.ID))
+
+	_, err = gateway.Authenticate(ctx, kept)
+	require.ErrorIs(t, err, modelgateway.ErrUnauthorized, "it kept the pi's parent")
+
+	_, _, err = keys.AddChatKey(ctx, chat.ID, "gpt-sol")
+	require.ErrorIs(t, err, modelgateway.ErrConflict, "pi's model change gets no key")
+
+	_, _, err = gateway.AddChatKeyUnder(ctx, parent, chat.ID, chat.Bot, "gpt-sol")
+	require.ErrorIs(t, err, modelgateway.ErrConflict, "nor one whose parent was read before")
+
+	all, err := gateway.ListKeys(ctx)
+	require.NoError(t, err)
+
+	for _, k := range all {
+		assert.NotNil(t, k.RevokedAt, "no key of the chat works: %s", k.ID)
+	}
+}

@@ -197,3 +197,52 @@ func TestANewPasswordAndSigningOutEndSessions(t *testing.T) {
 	_, err = s.SignIn(ctx, "linh", "battery staple")
 	require.NoError(t, err)
 }
+
+// Scenario (issue #996): two requests of one session read its end before either writes, an hour after it was
+// written; only the first moves it. A request that read the session before it was signed out writes nothing on it.
+func TestASessionIsWrittenOnceAnHourAndNeverOnceRevoked(t *testing.T) {
+	t.Parallel()
+
+	s, clock, db := newTestStoreDB(t)
+	ctx := t.Context()
+
+	_, err := s.AddUser(ctx, "linh", "correct horse")
+	require.NoError(t, err)
+
+	session, err := s.SignIn(ctx, "linh", "correct horse")
+	require.NoError(t, err)
+
+	read := func() (expires int64, lastUsed sql.NullInt64) {
+		t.Helper()
+
+		require.NoError(t, db.QueryRowContext(ctx, "SELECT expires_at, last_used_at FROM web_sessions WHERE id = ?",
+			session.ID).Scan(&expires, &lastUsed))
+
+		return expires, lastUsed
+	}
+
+	clock.now = t0.Add(2 * time.Hour)
+	first, err := s.ExtendSession(ctx, session.ID, clock.now.UnixMilli())
+	require.NoError(t, err)
+	assert.True(t, first)
+
+	clock.now = clock.now.Add(time.Second)
+	second, err := s.ExtendSession(ctx, session.ID, clock.now.UnixMilli())
+	require.NoError(t, err)
+	assert.False(t, second, "the second request read the same end")
+
+	expires, lastUsed := read()
+	assert.Equal(t, t0.Add(2*time.Hour).Add(userstore.SessionLifetime).UnixMilli(), expires)
+	assert.Equal(t, t0.Add(2*time.Hour).UnixMilli(), lastUsed.Int64)
+
+	require.NoError(t, s.SignOut(ctx, session.ID))
+
+	clock.now = clock.now.Add(3 * time.Hour)
+	late, err := s.ExtendSession(ctx, session.ID, clock.now.UnixMilli())
+	require.NoError(t, err)
+	assert.False(t, late, "a revoked session is not touched")
+
+	after, afterUsed := read()
+	assert.Equal(t, expires, after)
+	assert.Equal(t, lastUsed, afterUsed)
+}

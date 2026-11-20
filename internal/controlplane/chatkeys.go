@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
@@ -21,8 +22,8 @@ type chatKeys struct {
 
 // AddChatKey returns a new key's id and secret for the chat's pi. The key names the chat's Bot, so the owner's
 // usage is told by Bot (issue #626); a chat that cannot be read gives a key with no Bot. It names the coordinator
-// token pi's Bot token is made under, so revoking that token ends the key too (issue #996); a pi with no working
-// coordinator token gets no Bot token, and its key names none.
+// token pi's Bot token is made under, so revoking that token ends the key too, and the gateway makes none under a
+// revoked one, as pi's model changes as at its start (issue #996).
 func (c chatKeys) AddChatKey(ctx context.Context, chatID, model string) (string, string, error) {
 	bot := ""
 	if chat, err := c.chats.GetChat(ctx, chatID); err == nil {
@@ -31,9 +32,12 @@ func (c chatKeys) AddChatKey(ctx context.Context, chatID, model string) (string,
 
 	parent := ""
 	if c.coordinator != "" {
-		if id, err := c.chats.CoordinatorTokenID(ctx, c.coordinator); err == nil {
-			parent = id
+		id, err := c.chats.CoordinatorTokenID(ctx, c.coordinator)
+		if err != nil {
+			return "", "", fmt.Errorf("finding the token chat %s's pi runs under: %w", chatID, err)
 		}
+
+		parent = id
 	}
 
 	k, secret, err := c.gateway.AddChatKeyUnder(ctx, parent, chatID, bot, model)

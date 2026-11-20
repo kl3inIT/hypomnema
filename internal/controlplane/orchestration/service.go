@@ -80,6 +80,8 @@ func WithGatewayKeys(k GatewayKeys) ServiceOption {
 // SHA-256 finds it (issue #996), as an owner-made gateway key's value is kept (modelgateway key_values.go). The
 // control plane's wiring gives the vault's (vault.Copies): orchestration never imports the vault.
 type ShareVault interface {
+	// Ready says whether the vault can seal here: it is configured.
+	Ready() bool
 	// SealTx keeps value under name in tx and returns the version's id; "" when no vault is configured.
 	SealTx(ctx context.Context, tx *sql.Tx, name, value string, now int64) (string, error)
 	// Open returns the value kept under a version; "" when the vault cannot open it here (not configured, or its

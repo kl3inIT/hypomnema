@@ -19,20 +19,31 @@ func (q *Queries) DeleteExpiredWebSessions(ctx context.Context, now int64) error
 	return err
 }
 
-const extendWebSession = `-- name: ExtendWebSession :exec
-UPDATE web_sessions SET expires_at = ?1, last_used_at = ?2 WHERE id = ?3
+const extendWebSession = `-- name: ExtendWebSession :execrows
+UPDATE web_sessions SET expires_at = ?1, last_used_at = ?2
+WHERE id = ?3 AND revoked_at IS NULL AND expires_at <= CAST(?4 AS INTEGER)
 `
 
 type ExtendWebSessionParams struct {
 	ExpiresAt int64
 	Now       sql.NullInt64
 	ID        string
+	Before    int64
 }
 
-// A session in use: its end moves and its last use is written, at most once an hour.
-func (q *Queries) ExtendWebSession(ctx context.Context, arg ExtendWebSessionParams) error {
-	_, err := q.db.ExecContext(ctx, extendWebSession, arg.ExpiresAt, arg.Now, arg.ID)
-	return err
+// A session in use: its end moves and its last use is written, at most once an hour, and never on a revoked one;
+// of requests that read the same end, only the first writes (issue #996).
+func (q *Queries) ExtendWebSession(ctx context.Context, arg ExtendWebSessionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, extendWebSession,
+		arg.ExpiresAt,
+		arg.Now,
+		arg.ID,
+		arg.Before,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const getUserByName = `-- name: GetUserByName :one

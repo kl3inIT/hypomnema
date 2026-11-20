@@ -141,10 +141,45 @@ func (s *Service) authenticateBotToken(ctx context.Context, secret string) (Toke
 		return Token{}, fmt.Errorf("%w: token %s is revoked", ErrNotFound, parent.ID)
 	}
 
+	// What it is bound to is read too (issue #996): a chat or a Bot deleted ends it at once, before the deletion
+	// takes it out of memory, and one made from a read of the chat before its deletion does not outlive it.
+	if err := s.botTokenBound(ctx, b); err != nil {
+		s.botTokens.mu.Lock()
+		delete(s.botTokens.byHash, bearertoken.Hash(secret))
+		s.botTokens.mu.Unlock()
+
+		return Token{}, err
+	}
+
 	return Token{
 		ID: parent.ID, Name: parent.Name, Kind: bearertoken.Bot, CreatedAt: b.createdAt, Chat: b.chat, Bot: b.bot,
 		Routine: b.routine,
 	}, nil
+}
+
+// botTokenBound refuses a Bot token whose chat or Bot is gone: its chat must still be the Bot's, and a Routine's
+// run's Bot must still be there.
+func (s *Service) botTokenBound(ctx context.Context, b botToken) error {
+	q := s.read()
+
+	if b.chat != "" {
+		chat, err := q.GetChat(ctx, b.chat)
+		if err != nil {
+			return notFound(err, "chat", b.chat)
+		}
+
+		if chat.BotID != b.bot {
+			return fmt.Errorf("%w: chat %s is no longer bot %s's", ErrNotFound, b.chat, b.bot)
+		}
+
+		return nil
+	}
+
+	if _, err := q.GetBot(ctx, b.bot); err != nil {
+		return notFound(err, "bot", b.bot)
+	}
+
+	return nil
 }
 
 // coordinatorTokenNamed returns the coordinator token of that name, which
