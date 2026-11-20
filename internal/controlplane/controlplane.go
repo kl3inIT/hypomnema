@@ -26,6 +26,7 @@ import (
 	larkchannel "github.com/kl3inIT/hypomnema/internal/controlplane/channels/lark"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientcli"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 
@@ -315,7 +316,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 			slog.String("event", "controlplane.share_tokens_moved"), slog.Int("links", moved))
 	}
 
-	tokens := connections{svc: svc, vault: secrets}
+	// The account each git host token belongs to is read at its host once, so workers commit as it (issue #991).
+	tokens := connections{svc: svc, vault: secrets, identities: &gitIdentities{
+		ways: &connproxy.Transports{
+			Direct: connproxy.NewTransport(identityTimeout),
+			New:    func() *http.Transport { return connproxy.NewTransport(identityTimeout) },
+		},
+		logger: logger,
+	}}
+	go tokens.readIdentities(ctx)
 	sshKey := &gitSSHKey{vault: secrets}
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
 		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp(),
@@ -371,7 +380,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithServedLimits(gatewayServedLimits(subscriptions)).WithServedWire(gatewayServedWire(subscriptions))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
-	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
+	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Credential).WithModelKeys(workerKeys.Key).
 		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithRuntimeTools(agenttool.RuntimeTools).
 		WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)

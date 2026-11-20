@@ -206,6 +206,10 @@ type Offer struct {
 	// RepoToken is the host's token for this Dispatch. Orchestration never
 	// fills it: the node API does, from the vault, as it sends the offer.
 	RepoToken string `json:"repo_token,omitempty"`
+	// GitName and GitEmail are the account RepoToken belongs to (issue #991).
+	// Orchestration never fills them: the node API does, with the token.
+	GitName  string `json:"git_name,omitempty"`
+	GitEmail string `json:"git_email,omitempty"`
 	// RepoSSHURL is where the node clones Repo from over SSH, when the owner
 	// registered it with one (issue #625).
 	RepoSSHURL string `json:"repo_ssh_url,omitempty"`

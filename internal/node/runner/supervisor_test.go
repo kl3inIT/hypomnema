@@ -77,6 +77,9 @@ func fakeCLI(mode string) int {
 			if mode == "env-temp" && !writeScratch(os.Getenv("GOTMPDIR"), "env", "value") {
 				return 6
 			}
+			if mode == "commit" {
+				commitInWorktree()
+			}
 			say(line{Type: "started", Session: "ses_fake"})
 
 			notes++
@@ -99,6 +102,15 @@ func fakeCLI(mode string) int {
 	}
 
 	return 0
+}
+
+// commitInWorktree commits in the worker's directory, its worktree, as a worker's git does, with the environment
+// the worker was started with; what git said when it failed is left in commit-failed.txt.
+func commitInWorktree() {
+	cmd := exec.Command("git", "commit", "-q", "--allow-empty", "-m", "worker") //nolint:noctx // the fake worker's own
+	if out, err := cmd.CombinedOutput(); err != nil {
+		_ = os.WriteFile("commit-failed.txt", append(out, err.Error()...), 0o600)
+	}
 }
 
 func writeIsolatedScratch() bool {
@@ -158,10 +170,11 @@ type fake struct {
 func (f *fake) Prepare(context.Context, statedb.Dispatch) (Launch, error) {
 	return Launch{
 		Format: "fake",
-		Write: func(dir string, _ []string) (shim.Spec, error) {
-			return shim.Spec{
-				Argv: []string{f.exe}, Env: append(os.Environ(), "FAKE_CLI="+f.mode, "FAKE_BRIDGE="+bridge.Dir(dir)),
-			}, nil
+		// The git host's environment comes after the node's, as the real runtimes put it (claude, codex, acp).
+		Write: func(dir string, hostEnv []string) (shim.Spec, error) {
+			env := append(os.Environ(), "FAKE_CLI="+f.mode, "FAKE_BRIDGE="+bridge.Dir(dir))
+
+			return shim.Spec{Argv: []string{f.exe}, Env: append(env, hostEnv...)}, nil
 		},
 		First: [][]byte{[]byte(`{"type":"go"}`)},
 		Turn:  f.turn(),

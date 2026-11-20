@@ -159,6 +159,11 @@ type Adapter interface {
 	// with token: nothing is written to disk, and nothing is in a command's
 	// arguments. It is empty for an empty token.
 	Env(host, token string) []string
+	// userURL is where the account a token belongs to is read on host
+	// (identity.go); ErrNoIdentity when the host gives no identity.
+	userURL(host string) (string, error)
+	// identity reads that account, as git names it, from host's answer.
+	identity(host string, body []byte) (Identity, error)
 	// splitRequest reads the repository's path and the pull request's
 	// number from the path of a request's URL.
 	splitRequest(path string) (repo string, n int, ok bool)
