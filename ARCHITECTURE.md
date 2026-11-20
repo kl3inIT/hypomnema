@@ -228,7 +228,11 @@ The database ([decision](docs/decisions/2026-11-07-sqlite.md)) is one SQLite fil
 one connection, WAL, `synchronous=FULL`, pragmas read back after opening; its directory is made 0700 and a new file
 0600, and an existing file that group or others can access, or that another user owns, is refused (Linux).
 
-Migrations are goose SQL files embedded in the binary (`internal/controlplane/orchestration/migrations`); the schema
+Migrations are goose SQL files embedded in the binary (`internal/controlplane/orchestration/migrations`). One on
+main is numbered (`00143_inbox.sql`); a new one is made with `make migration-create`, named by its time
+(`YYYYMMDDHHMMSS_name.sql`, which sorts after every number), and `make migration-fix` (goose `fix`) numbers it after
+main's last right before its pull request is merged; a push to main refuses one named by its time (issue #954). The
+schema
 holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, account
 cooldowns, questions, the event log, nodes, accounts and client tokens, and the vault's secrets, which only the vault touches. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
@@ -279,9 +283,31 @@ sequenceDiagram
   every Dispatch of the Task carries the newest note (`dispatches.follow_up_id`) until one that carries it
   succeeds, so a retry in a new Conversation or a handoff gets it too; the node puts it in the worker's first turn
   as it puts a resolved Gate. Without an open Conversation the follow-up is refused (409), and the error says to
-  create a new Task from the branch `hyp/<task_id>`. Learned from Orca, whose finished worker gets a message "as a
+  create a new Task that `continues` it (below). A follow-up, and the reopening of a failed Task, are also refused
+  while another unfinished Task pushes to the Task's branch. Learned from Orca, whose finished worker gets a message "as a
   follow-up Task" (`skill-guides/orchestration.md`), Polly, which sends fixes "to the SAME implementer
   conversation", and omp's "Prefer messaging an existing agent" for follow-up work (`docs/tools/task.md`).
+- A Task's branches (issue #690, `orchestration/branches.go`, migration `task_branches`). A new Task may name
+  `continues: <task id>`: a Task of the same repository, of any Run, even a finished one, and whatever its status.
+  It then works on that Task's branch and pushes into it (`tasks.push_branch`, that Task's own push branch, so a
+  chain of them shares one branch), so that branch's pull request takes the commits and keeps its number and
+  reviews; a pull request it has to open targets what the earlier Task's did. Or it may name `start_from: <branch>`
+  (another Task's `hyp/<id>`, which resolves to the branch that Task pushes to, or a named branch git accepts) and
+  `pr_base`: `start_from`, the default, for stacked work, or `run_base`. Both are refused together, and a branch
+  git would refuse or that reads as an option never reaches a node. Creation is refused (409) while an unfinished
+  Task, the continued one included, pushes to the same branch: one pusher per branch. The Task's
+  `push_branch`, `start_from` and `pr_base` go to the node with the offer (empty for the defaults: `hyp/<id>`, the
+  Run's base), and `published_head` accepts only the Task's configured push branch, or its own if unset, so the
+  push is this Run's evidence for the pull request it updated. Tasks with non-default branches wait for a node
+  that advertises `task_branches` at hello; older nodes still take Tasks with default branches. From the approved
+  design for issue #690 (owner, 2026-11-20). Learned from Orca, whose worktree for a pull request starts at its head and pushes to it
+  (`src/main/github/pull-requests/start-points/pr-start-point.ts:226-245`, at `38aa9119`), and t3code, whose
+  worktree for a pull request sets its upstream to the head branch (`apps/server/src/git/GitManager.ts:1013-1069,
+  3361-3390`, at `4d5bf2d5`), and whose stacked work takes the parent branch as `baseRef`
+  (`docs/orchestration-v2/orchestrator-mcp-server.md:354-355`) and refuses a second worktree on an existing branch
+  (`ThreadLaunchService.ts:443-448`). The one-pusher rule held by the control plane, and allowing only a Task's
+  branch as a push target, are inferred; Hermes, by contrast, salvages a contributor's work into a new pull
+  request (`AGENTS.md:41`), which is what this replaces.
 - Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
@@ -965,26 +991,27 @@ sequenceDiagram
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
-  t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
+  t3code's typed timeline items): `wake` (a Run event or an adoption notice), `failed` (pi's model call failed), `stopped` (the
   owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
   (a restart cut the turn and it continues, or not; issue #716, migration 112); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
-  Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
+  Run records the chat that coordinates it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
   `GET /runs?chat_id=` lists only the Runs made from a chat and `GET /questions?chat_id=` only the questions of those
   Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). The owner
   deletes a chat for good (`DELETE /chats/{id}`, `hypomnema chats rm`, the sidebar row's menu; issue #484, after
-  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its Runs, Routines, Routines' runs
+  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its ended Runs, Routines, Routines' runs
   and approvals, revokes and keeps its gateway keys (they lose the chat; the gateway's own
   `RevokeDeletedChatKeysTx` writes them in that transaction, issue #405), and deletes its setup changes, its Lark chat, its artifacts
   (with their revisions, and the bytes no other artifact keeps), its messages and the chat. A chat pi works in is
-  refused (409, "stop it first"), as are a chat a Routine tells its runs in and the chat of a Routine's live run.
+  refused (409, "stop it first"), as are a chat with an open Run, a chat a Routine tells its runs in and the chat
+  of a Routine's live run. Removing a Bot with its chats also refuses to detach open Runs.
   After the commit (t3code's thread deletion) its pi is stopped and its files go: `attachments/<chat>` in its Bot's
   folder through the folders' helper, then `run/<chat>` and `sessions/<chat>` through `HYPOMNEMA_CHAT_RM_COMMAND`; a
   file that stays is logged and named in the answer's `files_left`, and the chat stays deleted. Each
   event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
   escalation, the Run ended) adds one wake-up to the chat, unique per event. A `task.status` event's `reason` is why
-  the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each `wake` row
+  the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each event-backed `wake` row
   with its event in the same query (issue #303) and sends it as `ChatMessage.wake`: the event, its Run, Task and
   question, the status, the reason and an escalation's kind; the event never changes, so nothing is kept in step.
   pi reads the row's text. The web draws a wake row as a card across the lane (after t3code's
@@ -992,6 +1019,25 @@ sequenceDiagram
   the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
   page's `?task=`, as the Team page's) or shows the Run docked above the composer (below); a Run the chat does not
   dock opens its own chat, or, with no chat, its first Task's panel (issue #327).
+- **Run custody** (issue #969, `orchestration/run_custody.go`): the client API assigns a new interactive Run to the
+  named chat or the main Bot's main chat (creating it if needed), and keeps the creator and the supervisor's
+  registered coordinator token ID. A Bot uses its own chat, a script Routine stays chatless, and other external
+  coordinator tokens cannot create an interactive Run. A read-only Routine chat cannot be a destination. Retry of
+  the same create does not resolve the default again.
+  Only the owner can adopt a specific open, unbound Run; another live coordinator's Run or an ambiguous chatless
+  Bot-created Run is left alone. A chatless Run stays as it was until selected. A Bot can follow up, answer
+  coordinator gates, and create reviews only with both the assigned chat and its coordinator token ID. The usual
+  Bot permissions, Connection checks, owner-only gates, and `review_of` rules still apply.
+  - From: Hermes `9f476774`, `hermes_cli/kanban_db_graph.py:113` (persist the receiving coordinator with the
+    work); Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:63`, and OpenHands SDK `fb565cfe`,
+    `conversation_lease.py:167` (respect an existing principal). The main-chat default and owner-only legacy
+    adoption are Hypomnema decisions approved by the owner on 2026-11-20.
+  - Adoption saves the binding, the Run's existing event cutoff and one undelivered notice in the same write.
+    The notice tells pi to read the current work; it has no event sequence and does not move the chat's shared
+    cursor. `ChatsWithRuns` and `WakeChats` route subsequent events normally, even after a restart.
+    From: Orca `a5c191cc0`, `send-point-to-point.ts:194` (commit before waking), and t3code `d2606600`,
+    `Orchestrator.ts:16532` (reoffer persisted completion messages). The per-Run cutoff is specific to Hypomnema's
+    shared chat cursor. See the [reference comparison](https://github.com/kl3inIT/hypomnema/issues/969#issuecomment-7029495213).
 - Artifacts (issue #402, `orchestration/artifacts.go`, `internal/shared/artifactpack`, after OpenMausBot's chat
   pages `server/chat-apps.ts`, `app-docs.ts`, `page-files.ts` and `server/pages/bundle.ts`): what a Bot hands the
   owner to look at in its chat, an HTML page or folder, a PDF, an image or any other file.
@@ -3359,7 +3405,11 @@ capabilities do not exist yet.
   through, each value as the bytes the client sent. The client's headers are not forwarded; the provider's key comes
   from the vault, so a provider served by the gateway names it as `vault:<name>`. Bodies are limited to 32 MiB
   (`/v1/messages` and `/v1/responses` too; 413 `request_too_large` above it), the request limit pi's catalog and
-  Hermes state for Anthropic (issue #675; it was 10 MiB, 9router-go's).
+  Hermes state for Anthropic (issue #675; it was 10 MiB, 9router-go's). A body has an hour to arrive, not the
+  server's 15 s read timeout, as a file uploaded to the client API (issue #977: a Codex conversation of megabytes,
+  passed on by a proxy as it came, was cut at 15 s and answered 400); none of 9router-go, CLIProxyAPI and LiteLLM
+  bounds the time a body takes. A body that cannot be read is answered 400 and logged (`modelgateway.body_unread`)
+  with the key, its `Content-Length`, `Transfer-Encoding` and `Content-Encoding`, the bytes that came and the time.
 - A stream is asked for its usage (`stream_options.include_usage`) whether or not the client asked, and the
   usage-only frame is kept from a client that did not. Data lines are passed on as the provider sent them;
   comments are not. A stream whose provider sends nothing for 5 min, or that ends without a finish reason or its end
@@ -3587,9 +3637,8 @@ capabilities do not exist yet.
     refusal naming `GoUsageLimitError`, rests that key until the reset Go named, with no cap (an hour when it named
     none), and the request moves to the next key at once (omniroute `opencode-monthly-quota-resets-in`, opencode
     `QUOTA_CODES`). Any other refusal rests the key as every built-in provider's account rests (above).
-  - Not built: OpenCode Zen, the "Extra Usage" balance, Go's prices in the price book (a Go model is unpriced unless
-    its name is Anthropic's, Google's or OpenAI's), a per-model wire for pi's `models.json` (pi speaks chat to a Go
-    model), moving the `ocg/*` models off 9Router on zm (#670).
+  - Not built: OpenCode Zen, the "Extra Usage" balance, a per-model wire for pi's `models.json` (pi speaks chat to a
+    Go model), moving the `ocg/*` models off 9Router on zm (#670).
 - When all usable accounts for a model on a text route are cooling (issue #803), the gateway answers 429
   `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
   `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
@@ -3609,9 +3658,10 @@ capabilities do not exist yet.
   Since migration 00060 it also holds the tokens written to the provider's cache (`cache_write_tokens`, Anthropic's
   `cache_creation_input_tokens`, carried in a chat answer's usage as LiteLLM and 9router-go carry it) and its cost
   at the vendor's API price (`cost_micros`, NULL when unpriced, and `priced_model`; issue #304, after Coder). The
-  price is looked up when the row is written, in the price book of `modelgateway/prices` (anthropic, openai and
-  google models from a models.dev snapshot, generated by `prices/gen` and embedded): the model asked for, then the
-  provider's, under the provider's vendor (Claude anthropic, Codex openai) or the maker named in the model. The cost
+  price is looked up when the row is written, in the price book of `modelgateway/prices` (anthropic, openai,
+  google and opencode-go models from a models.dev snapshot, generated by `prices/gen` and embedded): the model
+  asked for, then the provider's, under the provider's vendor or the maker named in the model. Antigravity's
+  Gemini 3.8 Flash effort IDs fall back to the base model's price when no exact price is found (#972). The cost
   is the uncached input, the cache read, the cache write and the output, each at its price (a missing cache price is
   the input's). For a subscription it is what the tokens would cost at the API, not the plan.
   Since migration 00078 a row also holds the part of the cache write that lasts an hour (`cache_write_1h_tokens`,
@@ -3629,8 +3679,9 @@ capabilities do not exist yet.
   `prices/unitsgen` and embedded, in nano-dollars): a `web/search` by the query of the provider that answered
   (`input_cost_per_query`), an `audio/*` row by the second heard or the character spoken at the provider's model
   (`input_cost_per_second`, Soniox's `output_cost_per_second`, `input_cost_per_character`), and a model's searches by
-  its `search_context_cost_per_query` (medium), added to its tokens'. A unit LiteLLM gives no price (Exa's and
-  Firecrawl's search, Soniox's speech) leaves the row unpriced; a keyless search is priced as the API would charge
+  its `search_context_cost_per_query` (medium), added to its tokens'. Exa's `auto` query price falls back to the
+  base API rate in OmniRoute, and standalone Codex uses its search model's API search-tool rate once per answered
+  query (#972). A unit without a price leaves its row unpriced. A keyless search is priced as the API would charge
   it, as a subscription's tokens are. `unpriced` counts rows with tokens or units and no cost. The report's counts
   (`GatewayUsageCounts`) add `web_searches`, `audio_seconds`, `characters` and `images`. No row holds a query, a
   URL, a prompt, a transcript or the spoken text.
@@ -4568,7 +4619,9 @@ The owner's commands:
     over SSH with (owner). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
-  - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
+  - `runs create --chat <id>` and `run --chat <id>` choose the receiving chat (otherwise the API uses the default
+    described in Run custody); `runs adopt <run> [--chat <id>]` is the owner's command to assign existing work.
+  - `runs wait <run>` is optional observation. It returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
     escalation came or the Run ended, with the cursor for the next wait and the next commands (`questions show`,
     `tasks show`, `runs finish` once every Task ended); it sends one request per 50 s while nothing happens.
   - `tasks list` prints the Tasks in flight (`GET /tasks`), a line a Task with what its worker does now or its
@@ -4580,8 +4633,8 @@ The owner's commands:
   new chat, which becomes the Bot's main chat; `--bot` and `--new` are refused with `--chat` (issue #616); without
   a message it shows the chat, and a Bot with no main chat shows none and makes none; the message `/new` is
   `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`. `runs create` sends
-  `HYPOMNEMA_CHAT_ID` when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends
-  (issue #260).
+  `HYPOMNEMA_CHAT_ID` when pi's environment has it and `--chat` is absent; the API refuses another chat with
+  pi's own token (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
   the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).
@@ -4615,7 +4668,9 @@ The owner's commands:
   current GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
   with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
   Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
-  assigned ref, queues an authenticated `published_head` report only for a Git-accepted update, and the control
+  Task's branch to its push branch (its own, or the one it continues, issue #690), never forced; a push the host
+  refuses because the branch moved tells the worker to fetch that branch, merge `FETCH_HEAD`, and publish again.
+  It queues an authenticated `published_head` report only for a Git-accepted update, and the control
   plane records it in the Dispatch's effects. A no-op push, local ref or Task result is not evidence. Both PRs
   must share a closing issue. Visible closing keywords in Markdown also
   work when GitHub supplies no closing links. It comments and closes through the existing GitHub tool
@@ -4857,7 +4912,11 @@ Node (`internal/node`):
       owner (issue #21);
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
-      of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
+      of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`, where base is the
+      offer's `pr_base` when it names one (stacked work, issue #690). A Task that continues another is told the
+      branch it started from is that Task's and its pull request's, that `publish_branch` pushes into it and so
+      updates that pull request, not to open a new one, and to open one with that branch as head only when
+      `gh pr list --head <branch> --state open` finds none;
     - how the host merges it by itself (issue #714, [research](docs/research/2026-11-17-auto-merge.md);
       `githost.AutoMerge`), skipped when the spec says a review comes first, that the owner merges, or to ask
       before merging:
@@ -4881,8 +4940,11 @@ Node (`internal/node`):
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
-  `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
-  branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
+  `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, where base is the
+  offer's `start_from` when it names one (issue #690: the continued or parent branch; one the host lacks fails with
+  its name), or from the existing branch on a retry; reused while it exists. The local branch is always the
+  Task's own, so an old worktree of the continued Task on the node, which holds that Task's branch, does not stop
+  it. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
   the mirror's `origin` is set to the address it is fetched from, so the worker pushes the same way. A GitHub
@@ -4952,8 +5014,12 @@ Node (`internal/node`):
   says to put all temporary files and directories there, including database data, sockets and clones, not in
   `/tmp` or another hard-coded path (issue #895). The node removes that directory after the Dispatch; it uses temp
   environment variables as in Hermes (`hermes_bootstrap.py:455-465`) and a directory per run with cleanup as in Orca
-  (`src/main/acp/launch/acp-private-temp.ts:36-40,73-85`). This is not a mount namespace or a security boundary like
-  Codex's bubblewrap sandbox (`codex-rs/linux-sandbox/src/linux_run_main.rs:59-61`). Workers inherit the node's
+  (`src/main/acp/launch/acp-private-temp.ts:36-40,73-85`). On Linux, the node probes bubblewrap once at startup,
+  trying the binary on `PATH` first and then the one bundled with Codex. When it works, setup and the shim's
+  worker each bind that same Dispatch directory over `/tmp` and `/var/tmp`, leaving the rest of the host visible
+  and keeping the shim's process group and session. This is not a security boundary. When it is unavailable,
+  including on macOS, the node uses the temp environment variables alone, logs the reason once, and reports
+  the reason at hello for the Machines page. Workers inherit the node's
   `XDG_RUNTIME_DIR` when set; pnpm uses it for its shared store locks instead of falling back to `/tmp`. The node
   also reclaims that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
   shim from claiming permission to launch. Stop also revokes that permission before a spawned shim can write
@@ -5647,10 +5713,12 @@ and the node in the control plane binary.
 
 - `make verify`: gofmt, `go mod tidy -diff` for both modules, golangci-lint (`.golangci.yml`, tools pinned in
   `tools/ci/go.mod`), the dependency check, `sqlc-check` (generated queries match `sqlc generate`),
-  `openapi-check` (generated client API code matches `api/openapi.yaml`), `migration-check` (migrations already on
-  `origin/main` are unchanged, no two share a number, and a new one is numbered after main's last; CI checks a pull
-  request against main as it is when the check runs, and a push to main against the commit before it, issue #334),
-  unit tests and race tests.
+  `openapi-check` (generated client API code matches `api/openapi.yaml`), `migration-check` (numbered migrations
+  already on `origin/main` are unchanged, no two share a number, and a new numbered one comes after main's last; CI
+  checks a pull request against main as it is when the check runs, and a push to main against the commit before it,
+  issue #334; on a push to main it also refuses a migration named by its time, issue #954), `goose-version-check`
+  (goose's CLI, a `tool` of its own module `tools/goose/go.mod` built with no database driver as Omnara's, is the
+  goose of `go.mod`), unit tests and race tests.
 - Tests that need a database open a real file in a temporary directory; no containers.
 - `make web-doctor`: React Doctor's report on the web client (pinned, local checks only: no score API, crash
   reports or dependency lookups; `web/doctor.config.json`). It is read, not a gate. Its config turns off the

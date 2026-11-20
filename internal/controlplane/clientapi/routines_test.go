@@ -179,6 +179,14 @@ func TestBotTokensActOnTheirOwnBotsRoutinesOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	run := w.client(secret)
+	work, err := run.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "script work"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, work.StatusCode(), string(work.Body))
+	assert.Nil(t, work.JSON201.ChatId, "script Routines do not create interactive chats")
+	owner, _ := w.token("owner", bearertoken.Owner)
+	adopted, err := owner.AdoptRunWithResponse(ctx, work.JSON201.Id, openapi.RunAdoption{})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, adopted.StatusCode(), "a script's Run cannot be adopted")
 
 	again, err := run.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "more", spec)
 	require.NoError(t, err)

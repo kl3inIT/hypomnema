@@ -25,12 +25,12 @@ func (s *Service) RecordPublishedHead(ctx context.Context, call NodeCall, head P
 		if err := checkEpoch(d, call); err != nil {
 			return err
 		}
-		if d.NodeID == "" || !d.StartedAt.Valid || head.Branch != "hyp/"+d.TaskID {
-			return fmt.Errorf("%w: push must update the branch of a started dispatch", ErrConflict)
-		}
 		task, err := q.GetTask(ctx, d.TaskID)
 		if err != nil {
 			return err
+		}
+		if d.NodeID == "" || !d.StartedAt.Valid || head.Branch != pushBranchOf(task) {
+			return fmt.Errorf("%w: push must update the branch of a started dispatch", ErrConflict)
 		}
 		run, err := q.GetRun(ctx, task.RunID)
 		if err != nil {

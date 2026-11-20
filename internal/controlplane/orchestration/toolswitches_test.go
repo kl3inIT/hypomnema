@@ -147,7 +147,8 @@ func TestToolPresetMigrationPreservesBotAndProfileAccess(t *testing.T) {
 		require.NoError(t, err)
 		_, err = db.ExecContext(ctx, `INSERT INTO profile_versions
 			(id, profile, version, source, digest, runtime, created_at, tools, tools_off)
-			VALUES (?, 'implementer', ?, '', '', 'claude', 1, ?, ?)`, id, 900+index, policy.on, policy.off)
+			VALUES (?, 'implementer', ?, ?, '', 'claude', 1, ?, ?)`,
+			id, 900+index, "name: implementer\ndescription: d\nruntime: claude\n", policy.on, policy.off)
 		require.NoError(t, err)
 	}
 
@@ -175,17 +176,21 @@ func TestToolPresetMigrationPreservesBotAndProfileAccess(t *testing.T) {
 			}
 		}
 	}
-}
 
-func TestProfileEditorSourceKeepsMigratedPolicy(t *testing.T) {
-	t.Parallel()
+	// The editor's source of a migrated profile says the policy it has, so the
+	// owner saving it back changes nothing about what the profile may use.
+	_, err := db.ExecContext(ctx, "UPDATE profiles SET current_version_id = 'legacy-4' WHERE name = 'implementer'")
+	require.NoError(t, err)
 
-	profile := Profile{Preset: agenttool.PresetFull, Tools: []string{"web_*"}, ToolsOff: []string{"browser"},
-		Source: "name: legacy\ndescription: read pages\nruntime: claude\ntools: [web_*]\n"}
+	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_1" })
+
+	edited, err := s.GetProfile(ctx, "implementer")
+	require.NoError(t, err)
+
 	var source profileSource
-	require.NoError(t, decodeStrict(editableProfileSource(profile), &source))
-	assert.Equal(t, profile.Preset, source.Preset)
-	assert.Equal(t, profile.Tools, source.Tools)
-	assert.Equal(t, profile.ToolsOff, source.ToolsOff)
-	assert.Equal(t, "read pages", source.Description)
+	require.NoError(t, decodeStrict(edited.Source, &source))
+	assert.Equal(t, edited.Preset, source.Preset)
+	assert.Equal(t, edited.Tools, source.Tools)
+	assert.Equal(t, edited.ToolsOff, source.ToolsOff)
+	assert.Equal(t, "d", source.Description)
 }

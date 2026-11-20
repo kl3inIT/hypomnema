@@ -21,7 +21,7 @@ func ownerRun(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	run, err := createRun(ctx, e, openapi.NewRun{
-		Objective: objective, Repo: &repo, Base: optional(fs, "base"), Uses: uses(fs),
+		Objective: objective, Repo: &repo, Base: optional(fs, "base"), ChatId: runChat(fs), Uses: uses(fs),
 	}, key(fs))
 	if err != nil {
 		return err
@@ -38,7 +38,7 @@ func ownerRun(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	taskID := tasks[0].Id
-	e.printf("run %s, task %s\n", run.Id, taskID)
+	e.printf("run %s, task %s%s\n", run.Id, taskID, runChatSuffix(run))
 
 	if boolean(fs, "detach") {
 		return nil

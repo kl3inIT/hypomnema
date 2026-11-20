@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 func (w *world) gatewayCooling(route, model string, reset time.Time) {
@@ -328,10 +330,16 @@ func TestCodexStreamUsageLimitDoesNotLoop(t *testing.T) {
 
 func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	t.Parallel()
-	const coolingVersion = 135
 	ctx := t.Context()
-	_, db := migratedTo(t, 132)
-	_, err := db.ExecContext(ctx, `
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	migrations, err := provider(db)
+	require.NoError(t, err)
+	coolingVersion := migrationVersion(t, migrations, "_gateway_model_cooling.sql")
+	_, err = migrations.UpTo(ctx, coolingVersion-1)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
 		INSERT INTO gateway_keys (id, name, key_hash, models, created_at) VALUES ('key', 'key', 'hash', '["*"]', 1);
 		INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
 		    estimated, duration_ms, created_at, cache_write_tokens, cost_micros, cache_write_1h_tokens, ttft_ms, error)
@@ -360,8 +368,6 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 			[]int{requests, estimatedRequests, estimatedPrompt, measuredPrompt, measuredCached})
 	}
 	assertExistingUsage()
-	migrations, err := provider(db)
-	require.NoError(t, err)
 	_, err = migrations.UpTo(ctx, coolingVersion)
 	require.NoError(t, err)
 	assertExistingUsage()
@@ -375,7 +381,7 @@ func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	rolledBack, err := migrations.DownTo(ctx, coolingVersion-1)
 	require.NoError(t, err)
 	require.NotEmpty(t, rolledBack)
-	assert.Equal(t, int64(coolingVersion), rolledBack[len(rolledBack)-1].Source.Version)
+	assert.Equal(t, coolingVersion, rolledBack[len(rolledBack)-1].Source.Version)
 	assertExistingUsage()
 	var requests int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM gateway_usage`).Scan(&requests))

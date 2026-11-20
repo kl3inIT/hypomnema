@@ -155,7 +155,10 @@ func TestATabNamesItsChat(t *testing.T) {
 		Objective: "add a health page", CreatedBy: "pi", Repo: "kl3inIT/demo", ChatID: chat.ID,
 	})
 	require.NoError(t, err)
-	ofOwner := w.createRun(owner, "tidy the docs")
+	ofOwner, err := w.svc.CreateRun(ctx, orchestration.NewRun{
+		Objective: "tidy the docs", CreatedBy: "owner", Repo: "kl3inIT/demo",
+	})
+	require.NoError(t, err)
 
 	node, _, err := w.svc.AddNode(ctx, "box", 0)
 	require.NoError(t, err)
@@ -167,7 +170,7 @@ func TestATabNamesItsChat(t *testing.T) {
 	_, err = w.svc.AddTokenAccount(ctx, "claude", "personal", func(id string) string { return "vault:" + id })
 	require.NoError(t, err)
 
-	for _, run := range []string{ofChat.ID, ofOwner.Id} {
+	for _, run := range []string{ofChat.ID, ofOwner.ID} {
 		made, err := owner.CreateTasksWithResponse(ctx, run, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
 			{Ref: "a", Spec: "work"},
 		}})

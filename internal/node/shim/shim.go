@@ -53,6 +53,11 @@ type Spec struct {
 	// Env is the worker's whole environment; nothing is inherited.
 	Env []string `json:"env"`
 	Dir string   `json:"dir"`
+	// Bwrap says Argv starts bubblewrap (internal/node/tempns, issue #895),
+	// which ends with 128+n when the worker was killed by signal n
+	// (bubblewrap.c, propagate_exit_status, as bash reports it); the shim
+	// reports that signal, as it would for a worker it ran itself.
+	Bwrap bool `json:"bwrap,omitempty"`
 }
 
 // Exit is how the worker ended.
@@ -166,7 +171,7 @@ func Main(ctx context.Context, socketDir string) error {
 	copyErr := copyLines(stdout, journal)
 	waitErr := cmd.Wait()
 
-	return writeExit(root, exitOf(cmd, errors.Join(copyErr, waitErr)))
+	return writeExit(root, exitOf(cmd, spec.Bwrap, errors.Join(copyErr, waitErr)))
 }
 
 // input serializes writes to the worker's stdin from every client.
@@ -245,11 +250,18 @@ func copyLines(r io.Reader, journal *os.File) error {
 	}
 }
 
-func exitOf(cmd *exec.Cmd, err error) Exit {
+func exitOf(cmd *exec.Cmd, bwrap bool, err error) Exit {
 	out := Exit{}
 	if cmd.ProcessState != nil {
 		out.Code = cmd.ProcessState.ExitCode()
 		out.Signal = signalOf(cmd.ProcessState)
+	}
+
+	// A signal is reported as os.ProcessState reports one: with the code -1.
+	if bwrap && out.Signal == "" {
+		if signal := codeSignal(out.Code); signal != "" {
+			out.Code, out.Signal = -1, signal
+		}
 	}
 
 	var exitErr *exec.ExitError

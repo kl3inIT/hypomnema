@@ -80,7 +80,7 @@ func (s *Server) serveMessages(w http.ResponseWriter, r *http.Request, path stri
 		return
 	}
 
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytes))
+	raw, err := s.readRequest(w, r, key, started)
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {

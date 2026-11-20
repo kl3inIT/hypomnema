@@ -198,7 +198,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return err
 	}
 
-	host, err := runHost(ctx, q, task.RunID)
+	host, err := taskHost(ctx, q, task)
 	if err != nil {
 		return err
 	}
@@ -641,13 +641,16 @@ func placeNew(p *placement, task store.Task, r resolved, host where, recentExpir
 // runHost is what a Run's work needs of a node: the git host of its
 // repository, "" for a Run without one, and the tools its Connections are
 // called with.
-func runHost(ctx context.Context, q *store.Queries, runID string) (where, error) {
-	run, err := q.GetRun(ctx, runID)
+func taskHost(ctx context.Context, q *store.Queries, task store.Task) (where, error) {
+	run, err := q.GetRun(ctx, task.RunID)
 	if err != nil {
-		return where{}, notFound(err, "run", runID)
+		return where{}, notFound(err, "run", task.RunID)
 	}
 
-	return where{host: run.RepoHost.String, tools: toolsOf(splitUses(run.Uses))}, nil
+	return where{
+		host: run.RepoHost.String, tools: toolsOf(splitUses(run.Uses)),
+		taskBranches: task.PushBranch.Valid || task.StartFrom.Valid || task.PrBase.Valid,
+	}, nil
 }
 
 // wait leaves a ready Task without a Dispatch this pass: it records why

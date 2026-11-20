@@ -111,6 +111,9 @@ type Config struct {
 	Device string
 	// KVM says whether /dev/kvm can be used now, asked at each hello; nil: it cannot.
 	KVM func() bool
+	// TempIsolation says whether workers get their temp directory as /tmp, said at hello (issue #895); nil: the
+	// node says nothing.
+	TempIsolation *nodeproto.TempIsolation
 	// Phone is the phone the node holds, started and stopped when the control plane asks; nil: none.
 	Phone Phone
 	// WatchPhone opens a view of that phone's screen for the owner (issue #417, step 3); nil: none.
@@ -346,11 +349,12 @@ func (d *Daemon) Hello(ctx context.Context) (string, error) {
 func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim, held []string) (nodeproto.HelloResponse, error) {
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		Held: held, ListsHeld: held != nil,
-		DiskPolicy: d.cfg.Disk != nil,
+		DiskPolicy: d.cfg.Disk != nil, TaskBranches: true,
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
 		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
 		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(), DeviceState: d.phoneState(),
 		StoreGuides: true, Takes: d.heldTakes(), ListsTakes: d.cfg.Takes != nil && held != nil,
+		TempIsolation: d.cfg.TempIsolation,
 	})
 	if err != nil {
 		return nodeproto.HelloResponse{}, fmt.Errorf("encoding hello: %w", err)

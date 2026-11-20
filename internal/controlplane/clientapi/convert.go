@@ -70,6 +70,7 @@ func toTask(t orchestration.Task) openapi.Task {
 		Status: openapi.TaskStatus(t.Status), BlockedReason: reason, FailureCount: t.FailureCount,
 		Result: ptr(t.Result), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, FinishedAt: t.FinishedAt,
 		NotBefore: t.NotBefore, CancelRequestedAt: t.CancelRequestedAt, WaitingReason: ptr(t.WaitingReason),
+		Continues: ptr(t.Continues), PushBranch: ptr(t.PushBranch), StartFrom: ptr(t.StartFrom), PrBase: ptr(t.PRBase),
 	}
 }
 
@@ -80,7 +81,8 @@ func toTaskDetail(t orchestration.Task, d *orchestration.Dispatch, fs []orchestr
 		Model: b.Model, Effort: b.Effort, Status: b.Status, BlockedReason: b.BlockedReason,
 		FailureCount: b.FailureCount, Result: b.Result, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 		FinishedAt: b.FinishedAt, NotBefore: b.NotBefore, CancelRequestedAt: b.CancelRequestedAt,
-		WaitingReason: b.WaitingReason,
+		WaitingReason: b.WaitingReason, Continues: b.Continues, PushBranch: b.PushBranch, StartFrom: b.StartFrom,
+		PrBase: b.PrBase,
 	}
 
 	if d != nil {
@@ -178,8 +180,21 @@ func toNode(n orchestration.Node) openapi.Node {
 		Stats: toNodeStats(n.Stats), Disk: toNodeDisk(n.Disk), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 		Terminal: ptr(n.Terminal), Device: ptr(openapi.NodeDevice(n.Device)), Kvm: ptr(n.KVM),
-		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools),
+		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools), TempIsolation: toNodeTempIsolation(n.TempIsolation),
 	}
+}
+
+func toNodeTempIsolation(t *orchestration.TempIsolation) *openapi.NodeTempIsolation {
+	if t == nil {
+		return nil
+	}
+
+	out := &openapi.NodeTempIsolation{On: t.On}
+	if t.Reason != "" {
+		out.Reason = &t.Reason
+	}
+
+	return out
 }
 
 func toNodeDisk(d *orchestration.DiskStatus) *openapi.NodeDisk {
@@ -286,6 +301,7 @@ func fromNewTask(t openapi.NewTask) orchestration.NewTask {
 		Kind: string(val(t.Kind)), ReviewOf: val(t.ReviewOf),
 		Effort:    val(t.Effort),
 		DependsOn: val(t.DependsOn),
+		Continues: val(t.Continues), StartFrom: val(t.StartFrom), PRBase: string(val(t.PrBase)),
 	}
 }
 
