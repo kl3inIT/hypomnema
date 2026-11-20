@@ -285,7 +285,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hello := orchestration.Hello{
-		DiskPolicy:   req.DiskPolicy,
+		DiskPolicy: req.DiskPolicy, TaskBranches: req.TaskBranches,
 		WorktreeRoot: req.WorktreeRoot, Terminal: req.Terminal, Device: req.Device, KVM: req.KVM,
 		Held: req.Held, ListsHeld: req.ListsHeld,
 		System: orchestration.SystemInfo{

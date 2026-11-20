@@ -429,6 +429,11 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 			return nil, err
 		}
 
+		branches, err := resolveBranches(ctx, q, run, nt)
+		if err != nil {
+			return nil, err
+		}
+
 		id := s.newID("tsk")
 		st, reason := initialStatus(deps, status)
 
@@ -437,6 +442,8 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 			Kind: nt.Kind, AuthorVendor: vendor,
 			Runtime: nullString(nt.Runtime), Model: nullString(nt.Model), Effort: nullString(nt.Effort),
 			Status: string(st), BlockedReason: nullString(string(reason)), Now: now,
+			Continues: nullString(branches.continues), PushBranch: nullString(branches.push),
+			StartFrom: nullString(branches.start), PrBase: nullString(branches.prBase),
 		}); err != nil {
 			return nil, fmt.Errorf("inserting task %q: %w", nt.Ref, err)
 		}
@@ -751,6 +758,10 @@ func (s *Service) ReopenTask(ctx context.Context, id string) error {
 				ErrConflict, id, task.Status)
 		}
 
+		if err := branchFree(ctx, q, pushBranchOf(task), id); err != nil {
+			return err
+		}
+
 		if err := q.ResetTaskFailures(ctx, store.ResetTaskFailuresParams{Now: now, ID: id}); err != nil {
 			return fmt.Errorf("resetting task %s: %w", id, err)
 		}
@@ -959,6 +970,8 @@ func taskFromRow(t store.Task) Task {
 		CreatedAt: millis(t.CreatedAt), UpdatedAt: millis(t.UpdatedAt), FinishedAt: optionalTime(t.FinishedAt),
 		NotBefore: optionalTime(t.NotBefore), CancelRequestedAt: optionalTime(t.CancelRequestedAt),
 		WaitingReason: waitingReason(t),
+		Continues:     t.Continues.String, PushBranch: t.PushBranch.String, StartFrom: t.StartFrom.String,
+		PRBase: t.PrBase.String,
 	}
 }
 

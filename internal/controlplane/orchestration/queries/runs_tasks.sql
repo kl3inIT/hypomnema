@@ -43,9 +43,19 @@ SELECT CAST(coalesce(max(position), 0) + 1 AS INTEGER) AS next FROM tasks WHERE 
 
 -- name: InsertTask :exec
 INSERT INTO tasks (id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason,
-                   created_at, updated_at, kind, author_vendor)
+                   created_at, updated_at, kind, author_vendor, continues, push_branch, start_from, pr_base)
 VALUES (@id, @run_id, @position, @profile, @spec, @runtime, @model, @effort, @status, @blocked_reason,
-        @now, @now, @kind, @author_vendor);
+        @now, @now, @kind, @author_vendor, @continues, @push_branch, @start_from, @pr_base);
+
+-- name: UnfinishedTaskPushingTo :one
+-- An unfinished Task, other than the one named, whose publish_branch pushes to branch: its own hyp/<id>, or the
+-- branch it continues (issue #690).
+SELECT id FROM tasks
+WHERE id <> @except
+  AND status NOT IN ('succeeded', 'failed', 'canceled')
+  AND (push_branch = CAST(@branch AS TEXT) OR (push_branch IS NULL AND 'hyp/' || id = CAST(@branch AS TEXT)))
+ORDER BY created_at, id
+LIMIT 1;
 
 -- name: InsertTaskDep :exec
 INSERT INTO task_deps (task_id, depends_on) VALUES (@task_id, @depends_on);

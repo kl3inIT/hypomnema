@@ -1,5 +1,8 @@
 -- name: ListQueuedDispatchesOfNode :many
-SELECT * FROM dispatches WHERE node_id = @node_id AND status = 'queued' ORDER BY created_at, id;
+SELECT d.* FROM dispatches d JOIN tasks t ON t.id = d.task_id JOIN nodes n ON n.id = d.node_id
+WHERE d.node_id = @node_id AND d.status = 'queued'
+  AND (n.task_branches <> 0 OR (t.push_branch IS NULL AND t.start_from IS NULL AND t.pr_base IS NULL))
+ORDER BY d.created_at, d.id;
 
 -- name: ListStoppingDispatchesOfNode :many
 SELECT id, epoch FROM dispatches WHERE node_id = @node_id AND status = 'stopping' ORDER BY created_at, id;

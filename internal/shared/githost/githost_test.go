@@ -71,6 +71,8 @@ func TestEachKindOfHostHasItsOwnWays(t *testing.T) {
 	repo := Repo{GitHubHost, "kl3inIT/hypomnema"}
 	assert.Equal(t, "https://github.com/kl3inIT/hypomnema.git", gh.CloneURL(repo))
 	assert.Equal(t, "gh pr create --base main --head hyp/tsk_1", gh.OpenCommand("main", "hyp/tsk_1"))
+	assert.Equal(t, `gh pr create --base 'release/$next' --head 'team'"'"'s/feature'`,
+		gh.OpenCommand("release/$next", "team's/feature"))
 	assert.Equal(t, "https://github.com/kl3inIT/hypomnema/pull/78", gh.RequestURL(repo, 78))
 
 	gl, ok := For(GitLab)
@@ -80,6 +82,8 @@ func TestEachKindOfHostHasItsOwnWays(t *testing.T) {
 	assert.Equal(t, "https://gitlab.company.example/team/platform/api.git", gl.CloneURL(own))
 	assert.Equal(t, "glab mr create --target-branch develop --source-branch hyp/tsk_1 --yes",
 		gl.OpenCommand("develop", "hyp/tsk_1"))
+	assert.Equal(t, `glab mr create --target-branch 'release/$next' --source-branch 'team'"'"'s/feature' --yes`,
+		gl.OpenCommand("release/$next", "team's/feature"))
 	assert.Equal(t, "https://gitlab.company.example/team/platform/api/-/merge_requests/12", gl.RequestURL(own, 12))
 
 	_, ok = For("bitbucket")
