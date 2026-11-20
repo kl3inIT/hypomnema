@@ -47,8 +47,11 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/captions"
 )
 
-// clipFormat is the format the clips are spoken in.
-const clipFormat = "mp3"
+// clipFormat is the format the clips are spoken in; wordsSuffix names the word times heard from a clip, beside it.
+const (
+	clipFormat  = "mp3"
+	wordsSuffix = ".words.json"
+)
 
 // spoken is the voice a revision was made with: the clips, and who spoke them.
 type spoken struct {
@@ -164,6 +167,12 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 		return "", err
 	}
 
+	// The word times kept beside a clip are of the audio they were heard from: when the clip is spoken again they are
+	// removed before the new audio is in place, so they never describe it (issue #908, row 5).
+	if err := os.Remove(path + wordsSuffix); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+
 	if err := writeCache(path, out.Audio); err != nil {
 		return "", err
 	}
@@ -177,7 +186,7 @@ func (s *Service) clipWords(ctx context.Context, source AudioSource, clip string
 		return nil, err
 	}
 
-	path := clip + ".words.json"
+	path := clip + wordsSuffix
 	var words []captions.Word
 
 	if raw, err := os.ReadFile(path); err == nil { //nolint:gosec // The voice cache's own file.
@@ -202,16 +211,19 @@ func (s *Service) clipWords(ctx context.Context, source AudioSource, clip string
 		pieces = append(pieces, captions.Piece{Text: w.Word, Start: w.Start.Seconds(), End: w.End.Seconds()})
 	}
 
+	// No word times fail the captions at once, so a clip of another scene is not heard again (issue #818, row 6).
 	words = captions.Words(pieces, t.Provider == speech.ProviderSoniox)
-	if len(words) > 0 {
-		raw, err := json.Marshal(words)
-		if err != nil {
-			return nil, err
-		}
+	if len(words) == 0 {
+		return nil, captions.ErrNoWordTimes
+	}
 
-		if err := writeCache(path, raw); err != nil {
-			return nil, err
-		}
+	raw, err := json.Marshal(words)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := writeCache(path, raw); err != nil {
+		return nil, err
 	}
 
 	return words, nil
