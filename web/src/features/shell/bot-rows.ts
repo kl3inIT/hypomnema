@@ -1,21 +1,28 @@
-import type { Bot, Chat } from "@/api/generated/types.gen"
+import type { Bot, Chat, Department } from "@/api/generated/types.gen"
 
 // A Bot as the sidebar lists it (issue #361): its id, its main chat's id (issue #471) and every chat of it read,
 // newest first. The row stands for the main chat; the other chats are not listed under it.
 export type BotRow = { bot: string; mainChat?: string; chats: Chat[] }
 
-// The sidebar's sections (issue #470): the main Bot first, then the pinned Bots, then the others, each in the one
-// order the owner sets.
-export type BotSections = { main?: BotRow; pinned: BotRow[]; rest: BotRow[] }
+// The sidebar's sections: the main Bot first, then each department with its Bots (issue #471), then the Bots in
+// none, the departments and the Bots each in the one order the owner sets (issue #470).
+export type DepartmentRows = { department: Department; rows: BotRow[] }
+export type BotSections = { main?: BotRow; departments: DepartmentRows[]; rest: BotRow[] }
 
 const newest = (a: Chat, b: Chat) => Date.parse(b.updated_at) - Date.parse(a.updated_at)
 
 // botSections lists every Bot, with chats or not, as OpenMausBot's sidebar lists every bot (Apache License 2.0,
 // https://github.com/milind-soni/OpenMausBot; src/lib/sidebar-layout.ts partitionSidebarBots and withPrimaryTile).
-// The main Bot, whose id the server names (Bot.main), keeps the top place and is never pinned; the pinned Bots come
-// next and the others after, both by the Bot's position. A chat whose Bot is not read yet (one made a moment ago) is
-// listed at the end, so it is not lost.
-export function botSections(bots: readonly Bot[], chats: readonly Chat[]): BotSections {
+// The main Bot, whose id the server names (Bot.main), keeps the top place and is in no department; each department
+// follows, by its position, with its Bots by theirs, as OpenMausBot's sidebar lists a header per department
+// (src/components/Sidebar.tsx with bot.section), an empty one too; the Bots in none come last. A Bot whose
+// department is not read yet, and a chat whose Bot is not read yet (one made a moment ago), are listed at the end,
+// so neither is lost.
+export function botSections(
+  bots: readonly Bot[],
+  chats: readonly Chat[],
+  departments: readonly Department[] = [],
+): BotSections {
   const byBot = new Map<string, Chat[]>()
   for (const chat of [...chats].sort(newest)) {
     const list = byBot.get(chat.bot)
@@ -35,10 +42,18 @@ export function botSections(bots: readonly Bot[], chats: readonly Chat[]): BotSe
   const known = new Set(bots.map((bot) => bot.id))
   const unread = [...byBot.keys()].filter((bot) => !known.has(bot))
 
+  const listed = new Set(departments.map((d) => d.id))
+  const inNone = (bot: Bot) => !bot.department || !listed.has(bot.department)
+
   return {
     main: main && row(main.id),
-    pinned: others.filter((bot) => bot.pinned).map((bot) => row(bot.id)),
-    rest: [...others.filter((bot) => !bot.pinned).map((bot) => row(bot.id)), ...unread.map(row)],
+    departments: [...departments]
+      .sort((a, b) => a.position - b.position)
+      .map((department) => ({
+        department,
+        rows: others.filter((bot) => bot.department === department.id).map((bot) => row(bot.id)),
+      })),
+    rest: [...others.filter(inNone).map((bot) => row(bot.id)), ...unread.map(row)],
   }
 }
 
@@ -68,8 +83,23 @@ export function rowChat(row: BotRow, waiting: ReadonlySet<string>): string | und
 // reorderStable (shared/bot-order.ts, Apache License 2.0), so the sidebar shows the new order before the server
 // answers.
 export function reorderBots(bots: readonly Bot[], ids: readonly string[]): Bot[] {
+  return reorderStable(bots, ids)
+}
+
+// reorderDepartmentList is the departments as the server orders them after a reorder, by the same rule.
+export function reorderDepartmentList(
+  departments: readonly Department[],
+  ids: readonly string[],
+): Department[] {
+  return reorderStable(departments, ids)
+}
+
+function reorderStable<T extends { id: string; position: number }>(
+  list: readonly T[],
+  ids: readonly string[],
+): T[] {
   const rank = new Map(ids.map((id, index) => [id, index] as const))
-  const items = [...bots].sort((a, b) => a.position - b.position)
+  const items = [...list].sort((a, b) => a.position - b.position)
   const slots: number[] = []
   items.forEach((item, index) => {
     if (rank.has(item.id)) slots.push(index)
@@ -80,5 +110,5 @@ export function reorderBots(bots: readonly Bot[], ids: readonly string[]): Bot[]
     out[slot] = moved[index]!
   })
 
-  return out.map((bot, position) => (bot.position === position ? bot : { ...bot, position }))
+  return out.map((item, position) => (item.position === position ? item : { ...item, position }))
 }

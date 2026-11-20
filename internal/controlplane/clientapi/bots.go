@@ -166,10 +166,10 @@ func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.B
 	return bot
 }
 
-// RenameBot gives a Bot another name, pins or unpins it (issue #470), or chooses its main chat (issue #923). Only
-// the owner pins and chooses the main chat: the order, the pins and the chat a click on a Bot opens are how his
-// sidebar lists the Bots, not a Bot's setting the main Bot changes, as OpenMausBot refuses mainThreadChoice to any
-// client but the owner's (server/routes/bot-patch.test.ts).
+// RenameBot gives a Bot another name, moves it into a department or out of one (issue #471), or chooses its main
+// chat (issue #923). Only the owner moves it and chooses the main chat: the order, the departments and the chat a
+// click on a Bot opens are how his sidebar lists the Bots, not a Bot's setting the main Bot changes, as OpenMausBot
+// refuses mainThreadChoice to any client but the owner's (server/routes/bot-patch.test.ts).
 func (s *Server) RenameBot(ctx context.Context, req openapi.RenameBotRequestObject,
 ) (openapi.RenameBotResponseObject, error) {
 	chat, err := setupChat(principal(ctx))
@@ -177,8 +177,8 @@ func (s *Server) RenameBot(ctx context.Context, req openapi.RenameBotRequestObje
 		return nil, err
 	}
 
-	if req.Body.Pinned != nil && chat != "" {
-		return nil, fmt.Errorf("%w: only the owner pins a bot", errForbidden)
+	if req.Body.Department != nil && chat != "" {
+		return nil, fmt.Errorf("%w: only the owner moves a bot into a department", errForbidden)
 	}
 
 	if req.Body.MainChat != nil && chat != "" {
@@ -202,8 +202,8 @@ func (s *Server) RenameBot(ctx context.Context, req openapi.RenameBotRequestObje
 		return nil, err
 	}
 
-	if req.Body.Pinned != nil {
-		if b, err = s.svc.PinBot(ctx, req.BotId, *req.Body.Pinned); err != nil {
+	if req.Body.Department != nil {
+		if b, err = s.svc.SetBotDepartment(ctx, req.BotId, *req.Body.Department); err != nil {
 			return nil, err
 		}
 	}
@@ -336,7 +336,7 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		ToolsOff:    append([]string{}, b.ToolsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers), Scopes: toScopes(b.Scopes),
 		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), GuaranteedDispatches: b.Guarantee(),
-		Position: b.Position, Pinned: b.Pinned, MainChat: opt(b.MainChat),
+		Position: b.Position, Department: opt(b.Department), MainChat: opt(b.MainChat),
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }

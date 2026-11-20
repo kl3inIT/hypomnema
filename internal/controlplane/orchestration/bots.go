@@ -87,10 +87,11 @@ type Bot struct {
 	// until 2026-11-17): a first claim on room as it frees, not a cap; 0 is
 	// BotGuaranteeDefault (Guarantee).
 	GuaranteedDispatches int
-	// Position is the Bot's place in the order the owner sets, 0 first, and Pinned lists it in the sidebar's
-	// Pinned section (issue #470). Neither is a setting: PutBot keeps them as they are.
-	Position int
-	Pinned   bool
+	// Position is the Bot's place in the order the owner sets, 0 first (issue #470), and Department the id of the
+	// department the sidebar lists it in, empty for none (issue #471; departments.go). Neither is a setting: PutBot
+	// keeps them as they are.
+	Position   int
+	Department string
 	// MainChat is the chat a click on the Bot opens and the web and the CLI write to (issue #471); empty until the
 	// first message from either makes it. Its other chats stay as they are.
 	MainChat  string
@@ -106,7 +107,7 @@ func botFromRow(r store.Bot) Bot {
 		Preset: r.Preset, Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff),
 		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
 		GuaranteedDispatches: int(r.GuaranteedDispatches.Int64),
-		Position:             int(r.Position), Pinned: r.Pinned != 0, Scopes: scopesOf(r.ConnectionScopes),
+		Position:             int(r.Position), Department: r.Department.String, Scopes: scopesOf(r.ConnectionScopes),
 		MainChat:  r.MainChat.String,
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
@@ -705,37 +706,6 @@ func reorderStable(order []string, rank map[string]int) ([]string, error) {
 	}
 
 	return out, nil
-}
-
-// PinBot pins or unpins a Bot (issue #470): a pinned Bot is listed in the sidebar's Pinned section, under the main
-// Bot, as OpenMausBot's pinned flag and OpenClaw's pinned agents. The main Bot is always first and is not pinned, as
-// onyx keeps its default agent out of the pins.
-func (s *Service) PinBot(ctx context.Context, id string, pinned bool) (Bot, error) {
-	if id == DefaultBotID {
-		return Bot{}, fmt.Errorf("%w: the main bot is always first", ErrInvalid)
-	}
-
-	flag := int64(0)
-	if pinned {
-		flag = 1
-	}
-
-	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
-		n, err := q.SetBotPinned(ctx, store.SetBotPinnedParams{Pinned: flag, ID: id})
-		if err != nil {
-			return err
-		}
-
-		if n != 1 {
-			return fmt.Errorf("%w: bot %s", ErrNotFound, id)
-		}
-
-		return nil
-	}); err != nil {
-		return Bot{}, fmt.Errorf("pinning bot %s: %w", id, err)
-	}
-
-	return s.GetBot(ctx, id)
 }
 
 // ChatIDsOfBot returns the ids of a Bot's chats.

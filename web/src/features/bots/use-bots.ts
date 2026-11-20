@@ -151,13 +151,14 @@ export function useReorderBots() {
   })
 }
 
-// usePinBot pins or unpins a Bot (issue #470), listed then in the sidebar's Pinned section.
-export function usePinBot() {
+// useMoveBot puts a Bot in a department, or in none with "" (issue #471), shown in the sidebar before the server
+// answers.
+export function useMoveBot() {
   return useBotsChange(
-    (bots, { id, pinned }: { id: string; pinned: boolean }) =>
-      bots.map((bot) => (bot.id === id ? { ...bot, pinned } : bot)),
-    async ({ id, pinned }) => {
-      await renameBot({ path: { bot_id: id }, body: { pinned } })
+    (bots, { id, department }: { id: string; department: string }) =>
+      bots.map((bot) => (bot.id === id ? { ...bot, department: department || undefined } : bot)),
+    async ({ id, department }) => {
+      await renameBot({ path: { bot_id: id }, body: { department } })
     },
   )
 }

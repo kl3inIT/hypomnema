@@ -20,6 +20,16 @@ func (q *Queries) CloseBotPosition(ctx context.Context, position int64) error {
 	return err
 }
 
+const closeDepartmentPosition = `-- name: CloseDepartmentPosition :exec
+UPDATE departments SET position = position - 1 WHERE position > ?1
+`
+
+// The departments after a removed one move up a place, so the order stays 0 to n-1.
+func (q *Queries) CloseDepartmentPosition(ctx context.Context, position int64) error {
+	_, err := q.db.ExecContext(ctx, closeDepartmentPosition, position)
+	return err
+}
+
 const countRepliesOfBotSince = `-- name: CountRepliesOfBotSince :one
 SELECT count(*) FROM chat_messages m JOIN chats c ON c.id = m.chat_id
 WHERE c.bot_id = ?1 AND m.role = 'coordinator' AND m.created_at >= ?2 AND m.chat_id <> ?3
@@ -48,8 +58,18 @@ func (q *Queries) DeleteBot(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteDepartment = `-- name: DeleteDepartment :exec
+DELETE FROM departments WHERE id = ?1
+`
+
+// Its Bots go back to the list of Bots in no department.
+func (q *Queries) DeleteDepartment(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteDepartment, id)
+	return err
+}
+
 const getBot = `-- name: GetBot :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat FROM bots WHERE id = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department FROM bots WHERE id = ?1
 `
 
 func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
@@ -71,7 +91,6 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.ToolDisplay,
 		&i.Name,
 		&i.Position,
-		&i.Pinned,
 		&i.Tools,
 		&i.ToolsOff,
 		&i.ConnectionScopes,
@@ -79,12 +98,13 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.Fallbacks,
 		&i.Preset,
 		&i.MainChat,
+		&i.Department,
 	)
 	return i, err
 }
 
 const getBotByName = `-- name: GetBotByName :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat FROM bots WHERE name = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department FROM bots WHERE name = ?1
 `
 
 func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
@@ -106,7 +126,6 @@ func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
 		&i.ToolDisplay,
 		&i.Name,
 		&i.Position,
-		&i.Pinned,
 		&i.Tools,
 		&i.ToolsOff,
 		&i.ConnectionScopes,
@@ -114,6 +133,23 @@ func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
 		&i.Fallbacks,
 		&i.Preset,
 		&i.MainChat,
+		&i.Department,
+	)
+	return i, err
+}
+
+const getDepartment = `-- name: GetDepartment :one
+SELECT id, name, position, created_at FROM departments WHERE id = ?1
+`
+
+func (q *Queries) GetDepartment(ctx context.Context, id string) (Department, error) {
+	row := q.db.QueryRowContext(ctx, getDepartment, id)
+	var i Department
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Position,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -190,6 +226,23 @@ func (q *Queries) InsertBot(ctx context.Context, arg InsertBotParams) error {
 		arg.Now,
 		arg.Fallbacks,
 	)
+	return err
+}
+
+const insertDepartment = `-- name: InsertDepartment :exec
+INSERT INTO departments (id, name, position, created_at)
+VALUES (?1, ?2, (SELECT coalesce(max(position) + 1, 0) FROM departments), ?3)
+`
+
+type InsertDepartmentParams struct {
+	ID   string
+	Name string
+	Now  int64
+}
+
+// A new department goes last (issue #471).
+func (q *Queries) InsertDepartment(ctx context.Context, arg InsertDepartmentParams) error {
+	_, err := q.db.ExecContext(ctx, insertDepartment, arg.ID, arg.Name, arg.Now)
 	return err
 }
 
@@ -314,7 +367,7 @@ func (q *Queries) ListBotModels(ctx context.Context) ([]ListBotModelsRow, error)
 }
 
 const listBots = `-- name: ListBots :many
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, pinned, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat FROM bots ORDER BY created_at, name
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -342,7 +395,6 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.ToolDisplay,
 			&i.Name,
 			&i.Position,
-			&i.Pinned,
 			&i.Tools,
 			&i.ToolsOff,
 			&i.ConnectionScopes,
@@ -350,6 +402,39 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.Fallbacks,
 			&i.Preset,
 			&i.MainChat,
+			&i.Department,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDepartments = `-- name: ListDepartments :many
+SELECT id, name, position, created_at FROM departments ORDER BY position, created_at, name
+`
+
+func (q *Queries) ListDepartments(ctx context.Context) ([]Department, error) {
+	rows, err := q.db.QueryContext(ctx, listDepartments)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Department{}
+	for rows.Next() {
+		var i Department
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Position,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -434,6 +519,41 @@ func (q *Queries) RenameBot(ctx context.Context, arg RenameBotParams) (int64, er
 	return result.RowsAffected()
 }
 
+const renameDepartment = `-- name: RenameDepartment :execrows
+UPDATE departments SET name = ?1 WHERE id = ?2
+`
+
+type RenameDepartmentParams struct {
+	Name string
+	ID   string
+}
+
+func (q *Queries) RenameDepartment(ctx context.Context, arg RenameDepartmentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renameDepartment, arg.Name, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setBotDepartment = `-- name: SetBotDepartment :execrows
+UPDATE bots SET department = ?1 WHERE id = ?2
+`
+
+type SetBotDepartmentParams struct {
+	Department sql.NullString
+	ID         string
+}
+
+// The department a Bot is listed in, or none (issue #471).
+func (q *Queries) SetBotDepartment(ctx context.Context, arg SetBotDepartmentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setBotDepartment, arg.Department, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setBotMemory = `-- name: SetBotMemory :exec
 UPDATE bots SET memory = ?1, updated_at = ?2 WHERE id = ?3
 `
@@ -449,23 +569,6 @@ func (q *Queries) SetBotMemory(ctx context.Context, arg SetBotMemoryParams) erro
 	return err
 }
 
-const setBotPinned = `-- name: SetBotPinned :execrows
-UPDATE bots SET pinned = ?1 WHERE id = ?2
-`
-
-type SetBotPinnedParams struct {
-	Pinned int64
-	ID     string
-}
-
-func (q *Queries) SetBotPinned(ctx context.Context, arg SetBotPinnedParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, setBotPinned, arg.Pinned, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const setBotPosition = `-- name: SetBotPosition :exec
 UPDATE bots SET position = ?1 WHERE id = ?2
 `
@@ -477,6 +580,20 @@ type SetBotPositionParams struct {
 
 func (q *Queries) SetBotPosition(ctx context.Context, arg SetBotPositionParams) error {
 	_, err := q.db.ExecContext(ctx, setBotPosition, arg.Position, arg.ID)
+	return err
+}
+
+const setDepartmentPosition = `-- name: SetDepartmentPosition :exec
+UPDATE departments SET position = ?1 WHERE id = ?2
+`
+
+type SetDepartmentPositionParams struct {
+	Position int64
+	ID       string
+}
+
+func (q *Queries) SetDepartmentPosition(ctx context.Context, arg SetDepartmentPositionParams) error {
+	_, err := q.db.ExecContext(ctx, setDepartmentPosition, arg.Position, arg.ID)
 	return err
 }
 
