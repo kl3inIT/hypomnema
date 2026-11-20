@@ -62,9 +62,11 @@ Look first: `bigquery_tables`, then `bigquery_table` on the newest `events_YYYYM
   `user_pseudo_id` (the app instance), `platform`, `device.*`, `geo.*`, `app_info.*`, and `event_params`, a list of
   `key` and `value.string_value` / `value.int_value` / `value.double_value`:
   `(SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'engagement_time_msec')`.
-- Installs are `first_open`; uninstalls `app_remove` (Android only); sessions `session_start`; time in app the sum
-  of `engagement_time_msec` of `user_engagement`. Active users of a day are
-  `COUNT(DISTINCT user_pseudo_id)` of that day's events.
+- Installs are `first_open`; uninstalls `app_remove` (Android only); sessions `session_start`. Time in app is the
+  sum of the `engagement_time_msec` parameter over all events, not only `user_engagement`, which carries part of
+  it. Total users of a day are `COUNT(DISTINCT user_pseudo_id)` of that day's events; GA4's *active* users are
+  fewer: those with engagement (`engagement_time_msec` > 0) that day. Say which one you report; GA4's own reports
+  may differ slightly from the export.
 - **The figures are as of the call**: `computed_at` says when the job ended. Say it, and say which days the
   query covered; the newest day may be incomplete.
 

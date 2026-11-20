@@ -106,23 +106,28 @@ func bigqueryError(err error) error {
 		canceled *bigquery.CancelError
 	)
 
-	switch {
-	case err == nil:
+	if err == nil {
 		return nil
+	}
+
+	// Whatever Google said is answered without what may be a credential.
+	message := bigquery.Redact(err.Error())
+
+	switch {
 	case errors.Is(err, bigquery.ErrRefused), errors.As(err, &access):
-		return fmt.Errorf("%w: %s", errForbidden, err.Error())
+		return fmt.Errorf("%w: %s", errForbidden, message)
 	case errors.Is(err, bigquery.ErrInvalid):
-		return fmt.Errorf("%w: %s", orchestration.ErrInvalid, err.Error())
+		return fmt.Errorf("%w: %s", orchestration.ErrInvalid, message)
 	case errors.Is(err, bigquery.ErrNotFound):
-		return fmt.Errorf("%w: %s", orchestration.ErrNotFound, err.Error())
+		return fmt.Errorf("%w: %s", orchestration.ErrNotFound, message)
 	case errors.As(err, &canceled):
-		return fmt.Errorf("%w: %s", orchestration.ErrUnavailable, err.Error())
+		return fmt.Errorf("%w: %s", orchestration.ErrUnavailable, message)
 	case errors.Is(err, orchestration.ErrInvalid), errors.Is(err, orchestration.ErrNotFound),
 		errors.Is(err, orchestration.ErrConflict), errors.Is(err, orchestration.ErrUnavailable):
 		return err
 	default:
 		// What Google said of a failure of its own: the caller's to report, with no secret in it.
-		return fmt.Errorf("%w: %s", orchestration.ErrUnavailable, err.Error())
+		return fmt.Errorf("%w: %s", orchestration.ErrUnavailable, message)
 	}
 }
 

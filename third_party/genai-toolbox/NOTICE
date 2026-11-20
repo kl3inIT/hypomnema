@@ -1,7 +1,7 @@
 MCP Toolbox for Databases (googleapis/genai-toolbox)
 Copyright 2025 Google LLC
 
-Used under the Apache License, Version 2.0
+Used under the Apache License, Version 2.0 (the text is in LICENSE beside this file)
 (https://www.apache.org/licenses/LICENSE-2.0).
 Source: https://github.com/googleapis/genai-toolbox at a5dc5d4bb03ad2c724f9d6b2a2452307a593a29f,
 internal/tools/bigquery/bigquerycommon/table_name_parser.go.

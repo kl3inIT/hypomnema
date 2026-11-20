@@ -276,7 +276,7 @@ func (s *Server) bigqueryCall(w http.ResponseWriter, r *http.Request, a agent, l
 	if err != nil {
 		s.logger.InfoContext(ctx, "an agent's BigQuery call failed", slog.String("event", "agentapi.bigquery"),
 			slog.String("agent", a.name), slog.String("tool", call.Tool), slog.String("connection", connection),
-			slog.String("error", err.Error()))
+			slog.String("error", bigquery.Redact(err.Error())))
 		answerTool(w, bigqueryErrorText(err), true)
 
 		return
@@ -316,12 +316,12 @@ func bigqueryErrorText(err error) string {
 		return refusedText(err)
 	}
 
-	return err.Error()
+	return bigquery.Redact(err.Error())
 }
 
 // refusedText is a refusal as the agent is told it.
 func refusedText(err error) string {
-	return "Refused: " + strings.TrimPrefix(err.Error(), bigquery.ErrRefused.Error()+": ") +
+	return "Refused: " + strings.TrimPrefix(bigquery.Redact(err.Error()), bigquery.ErrRefused.Error()+": ") +
 		". Do not work around it; say so in your answer."
 }
 

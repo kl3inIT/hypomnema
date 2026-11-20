@@ -2451,8 +2451,14 @@ flowchart LR
       the token's exchange; each dataset's `tables.list` (a dataset holding an `EXTERNAL` table is refused); the
       newest native `events_YYYYMMDD` table read once (`tables.get`, one row of `tabledata.list`, dropped); a dry run
       of `SELECT 1 FROM` it in the billing project.
-    - The control plane signs the JWT (`golang.org/x/oauth2/jwt`, scope `bigquery` alone) and keeps the token in
-      memory, renewed before it ends; a refused exchange marks the Connection as needing to be connected again.
+    - The control plane signs the JWT (RS256, scope `bigquery` alone, the bearer grant as `golang.org/x/oauth2/jwt`
+      sends it) and keeps the token in memory, renewed a minute before it ends; the exchange runs on the context of
+      the call that needs it. Only a key Google refuses (400 or 401) marks the Connection as needing to be connected
+      again, and only while that key is still the Connection's; a 503 or the network marks nothing. A Connection's
+      writes (connect, disconnect, the cap, the refused mark) run one at a time: a Connection that cannot be saved
+      leaves the vault as it was (a new key removed, a replaced one put back), and a disconnect whose key's removal
+      failed is finished by disconnecting again. Google's error messages are stripped of tokens, JWTs and key
+      material before they are logged or answered.
       Calls go through `cloud.google.com/go/bigquery` (metadata, jobs, rows) and its REST client (the dry run,
       `tables.list` with types, `jobs.cancel`); the node links none of it (`make deps-check`).
     - **A query** is one GoogleSQL `SELECT`: a lexer adapted from MCP Toolbox's (`bigquery/lexer.go`, notice in
