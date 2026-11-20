@@ -178,7 +178,7 @@ func Prompt(d statedb.Dispatch) string {
 	b.WriteString(memoryBrief(o.Memory, o.OwnerMemory, o.MemoryNotes, o.AgentKey != ""))
 
 	if o.Repo != "" {
-		b.WriteString(repoBrief(o, readOnly))
+		b.WriteString(repoBrief(o, readOnly, here))
 	} else {
 		b.WriteString("\nWork only in " + here + ".\n")
 	}
@@ -390,12 +390,18 @@ func memoryBrief(agent, owner string, notes []string, hasTool bool) string {
 // request pushes to its head (pr-start-point.ts:226-245); one that starts from another branch opens its pull request
 // against the base it was given, as t3code's stacked work on a parent branch (orchestrator-mcp-server.md:354-355)
 // (issue #690).
-func repoBrief(o nodeproto.Offer, readOnly bool) string {
+func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 	var b strings.Builder
 
 	own, push, base := worktree.Branch(o.TaskID), pushBranch(o), prBase(o)
 
-	fmt.Fprintf(&b, "\nWork only in this directory, a git worktree of %s on branch %s, started from %s. ",
+	fmt.Fprintf(&b, "\nWork only in %s", here)
+	if readOnly {
+		b.WriteString("; this directory is")
+	} else {
+		b.WriteString(",")
+	}
+	fmt.Fprintf(&b, " a git worktree of %s on branch %s, started from %s. ",
 		o.Repo, own, startBranch(o))
 
 	// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
