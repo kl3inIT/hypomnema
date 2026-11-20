@@ -4609,11 +4609,12 @@ Node (`internal/node`):
     a Job Object. If the shim cannot confirm the stop, the node records an error without inventing a signal.
   - Reported:
     - the session id from `system/init`, as started;
-    - a Dispatch can include a follow-up turn from background Bash. A successful `result` while Claude reports
-      background Bash or queued turns does not close stdin; permission replies still go over the same pipe.
+    - a Dispatch can include a follow-up turn from background work. A successful `result` while Claude reports
+      a background Bash, Agent (`local_agent`, as a planner runs) or workflow (`local_workflow`), or queued turns,
+      does not close stdin; permission replies still go over the same pipe.
       If the background work settles without another result, the node closes stdin after 2 s with no pending
       background work, queued turn, tool call, or active turn, and uses the most recent result. An explicit
-      `idle` with no background Bash gives stale queue counts or missing tool results 5 s to settle, then closes
+      `idle` with no such background task gives stale queue counts or missing tool results 5 s to settle, then closes
       stdin unless new turn activity arrives. A `running`
       state keeps stdin open even when Claude does not emit partial messages. The hold survives adoption.
       A result with no outstanding work, a terminal error, or a result after `finish` also closes stdin.

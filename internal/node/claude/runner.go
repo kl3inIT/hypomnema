@@ -251,6 +251,11 @@ func (rt *ClaudeRuntime) writeMCPConfig(dir string) error {
 	return os.WriteFile(filepath.Join(dir, mcpFile), raw, 0o600)
 }
 
+// holdsInput are the background task types whose end Claude Code may answer with a follow-up turn, so stdin and
+// its permission stream stay open past a result while one runs: a planner's Agent and a workflow, as the Claude
+// Agent SDK defers its close for (DEFERRING_TASK_TYPES), and Bash, which a worker's long command runs in.
+var holdsInput = map[string]bool{"local_agent": true, "local_workflow": true, "local_bash": true}
+
 // event is the part of a stream-JSON line the runtime reads.
 type event struct {
 	Type           string          `json:"type"`
@@ -343,7 +348,7 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 	case e.Type == "system" && e.Subtype == "background_tasks_changed" && e.Tasks != nil:
 		t.background = false
 		for _, task := range e.Tasks {
-			if task.Type == "local_bash" {
+			if holdsInput[task.Type] {
 				t.background = true
 				break
 			}

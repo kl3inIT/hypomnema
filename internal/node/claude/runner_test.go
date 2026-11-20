@@ -146,7 +146,8 @@ func fakeClaude(mode string) int {
 				continue
 			}
 
-			if mode == "background" || mode == "queued" || mode == "running" || mode == "tool-in-flight" {
+			if mode == "background" || mode == "agent" || mode == "workflow" || mode == "queued" || mode == "running" ||
+				mode == "tool-in-flight" {
 				emitInterimResult(out, mode)
 				continue
 			}
@@ -208,11 +209,16 @@ func fakeClaude(mode string) int {
 func emitInterimResult(out *json.Encoder, mode string) {
 	queued := mode == "queued"
 	result := map[string]any{"type": "result", "subtype": "success", "result": "waiting"}
+	// A planner's Agent and a workflow run in the background as Bash does, with no queued turn.
+	taskType := map[string]string{"agent": "local_agent", "workflow": "local_workflow"}[mode]
+	if taskType == "" {
+		taskType = "local_bash"
+	}
 	if queued {
 		result["queued_turn_count"] = 1
 	} else {
 		emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed",
-			"tasks": []map[string]string{{"task_id": "bg", "task_type": "local_bash"}}})
+			"tasks": []map[string]string{{"task_id": "bg", "task_type": taskType}}})
 	}
 	emit(out, result)
 	if mode == "tool-in-flight" {
@@ -547,7 +553,7 @@ func TestTurnWithoutFinishFails(t *testing.T) {
 func TestInterimResultKeepsPermissionStreamOpen(t *testing.T) {
 	t.Parallel()
 
-	for _, mode := range []string{"background", "queued", "running", "tool-in-flight"} {
+	for _, mode := range []string{"background", "agent", "workflow", "queued", "running", "tool-in-flight"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			g := newRig(t, mode)
