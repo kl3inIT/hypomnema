@@ -978,6 +978,11 @@ type SetupChange struct {
 	UndoneAt  sql.NullInt64
 }
 
+type ShareTokenScrub struct {
+	ID    int64
+	Since int64
+}
+
 type Skill struct {
 	Name      string
 	Everyone  int64

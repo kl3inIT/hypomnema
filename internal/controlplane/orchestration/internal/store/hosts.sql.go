@@ -113,11 +113,12 @@ LEFT JOIN nodes n ON n.id = d.node_id
 LEFT JOIN tasks t ON t.id = d.task_id
 LEFT JOIN runs r ON r.id = t.run_id
 LEFT JOIN client_tokens c ON c.id = r.coordinator_token_id
-WHERE d.id = ?1 AND (n.status = 'deleted' OR c.revoked_at IS NOT NULL)
+WHERE d.id = ?1
+  AND (n.status = 'deleted' OR n.machine_state IN ('deleting', 'delete_failed') OR c.revoked_at IS NOT NULL)
 `
 
 // Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is
-// revoked, or its node removed. A key is not made then, in the transaction that would make it, so an offer read
+// revoked, or its node removed or being removed (a provider's machine deleting or failing to be). A key is not made then, in the transaction that would make it, so an offer read
 // before the revocation and sent after it carries none. A Dispatch not found is not refused here.
 func (q *Queries) DispatchCredentialsEnded(ctx context.Context, dispatchID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, dispatchCredentialsEnded, dispatchID)

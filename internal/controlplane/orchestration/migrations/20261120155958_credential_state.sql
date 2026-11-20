@@ -6,7 +6,8 @@
 -- - A share link's token is no longer kept in plaintext: its SHA-256 finds it, and a copy sealed in the vault lets the
 --   owner read the link again, as an owner-made gateway key's value is kept (migration 00131). SQL cannot hash or
 --   seal, so the token of a link made before is left in `token` and the control plane moves it as it starts, before
---   anything is served (orchestration.Service.MoveShareTokens); a link made after has none. Revoking a link now
+--   anything is served (orchestration.Service.MoveShareTokens), then clears the files (ScrubShareTokens); a link
+--   made after has none. Until then no link is served. Revoking a link now
 --   marks it and drops its sealed copy instead of deleting the row; deleting its artifact still deletes it.
 -- - A chat's gateway key names the coordinator token its pi runs under, so revoking that token ends the key.
 -- - A web session is marked revoked when its browser signs out or its password changes, instead of being deleted.
@@ -39,6 +40,18 @@ DROP TABLE artifact_shares;
 ALTER TABLE artifact_shares_new RENAME TO artifact_shares;
 CREATE INDEX artifact_shares_artifact ON artifact_shares (artifact_id, created_at);
 
+-- That the database's files still hold old tokens in plaintext, in the rows not moved yet and in the pages the
+-- rebuild above freed: kept until the control plane has moved every token and rebuilt and checkpointed the file
+-- (orchestration.Service.ScrubShareTokens), so a stop in between is finished at the next start. No link is served
+-- while it is here.
+CREATE TABLE share_token_scrub (
+    id    INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    since INTEGER NOT NULL
+) STRICT;
+
+INSERT INTO share_token_scrub (id, since)
+SELECT 1, 0 WHERE EXISTS (SELECT 1 FROM artifact_shares WHERE token IS NOT NULL);
+
 ALTER TABLE client_tokens ADD COLUMN revoke_reason TEXT;
 ALTER TABLE client_tokens ADD COLUMN last_used_at INTEGER;
 
@@ -56,6 +69,8 @@ ALTER TABLE web_sessions ADD COLUMN revoke_reason TEXT;
 ALTER TABLE web_sessions ADD COLUMN last_used_at INTEGER;
 
 -- +goose Down
+DROP TABLE share_token_scrub;
+
 DELETE FROM web_sessions WHERE revoked_at IS NOT NULL;
 ALTER TABLE web_sessions DROP COLUMN last_used_at;
 ALTER TABLE web_sessions DROP COLUMN revoke_reason;

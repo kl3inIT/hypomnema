@@ -310,11 +310,12 @@ LEFT JOIN nodes n ON n.id = d.node_id
 LEFT JOIN tasks t ON t.id = d.task_id
 LEFT JOIN runs r ON r.id = t.run_id
 LEFT JOIN client_tokens c ON c.id = r.coordinator_token_id
-WHERE d.id = ?1 AND (n.status = 'deleted' OR c.revoked_at IS NOT NULL)
+WHERE d.id = ?1
+  AND (n.status = 'deleted' OR n.machine_state IN ('deleting', 'delete_failed') OR c.revoked_at IS NOT NULL)
 `
 
 // Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is
-// revoked, or its node removed; read in the transaction that would make a key. A Dispatch not found is not refused.
+// revoked, or its node removed or being removed; read in the transaction that would make a key. A Dispatch not found is not refused.
 func (q *Queries) DispatchKeysEnded(ctx context.Context, dispatchID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, dispatchKeysEnded, dispatchID)
 	var count int64
@@ -363,6 +364,19 @@ func (q *Queries) GatewayKeysLastUsed(ctx context.Context) ([]GatewayKeysLastUse
 		return nil, err
 	}
 	return items, nil
+}
+
+const getChatBotForKey = `-- name: GetChatBotForKey :one
+SELECT c.bot_id FROM chats c JOIN bots b ON b.id = c.bot_id WHERE c.id = ?1
+`
+
+// The Bot a chat is with, when the chat and that Bot are there (issue #996): a chat's key is made only then, in the
+// transaction that makes it, so a key made from a read of the chat before its deletion, or its Bot's, is refused.
+func (q *Queries) GetChatBotForKey(ctx context.Context, chatID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getChatBotForKey, chatID)
+	var bot_id string
+	err := row.Scan(&bot_id)
+	return bot_id, err
 }
 
 const getGatewayKey = `-- name: GetGatewayKey :one
@@ -474,35 +488,6 @@ SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id,
 
 func (q *Queries) GetLatestGatewayKeyOfDispatch(ctx context.Context, dispatchID sql.NullString) (GatewayKey, error) {
 	row := q.db.QueryRowContext(ctx, getLatestGatewayKeyOfDispatch, dispatchID)
-	var i GatewayKey
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.KeyHash,
-		&i.Models,
-		&i.CreatedAt,
-		&i.RevokedAt,
-		&i.DispatchID,
-		&i.ChatID,
-		&i.KeyPrefix,
-		&i.BotID,
-		&i.Endpoints,
-		&i.SecretVersionID,
-		&i.MaskedValue,
-		&i.RevokeReason,
-		&i.LastUsedAt,
-		&i.CoordinatorTokenID,
-	)
-	return i, err
-}
-
-const getLiveGatewayKeyOfChat = `-- name: GetLiveGatewayKeyOfChat :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE chat_id = ?1 AND revoked_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1
-`
-
-// The key a chat's running pi has now: its newest that works.
-func (q *Queries) GetLiveGatewayKeyOfChat(ctx context.Context, chatID sql.NullString) (GatewayKey, error) {
-	row := q.db.QueryRowContext(ctx, getLiveGatewayKeyOfChat, chatID)
 	var i GatewayKey
 	err := row.Scan(
 		&i.ID,

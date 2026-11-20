@@ -2,6 +2,8 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -143,10 +145,13 @@ func (s *Service) authenticateBotToken(ctx context.Context, secret string) (Toke
 
 	// What it is bound to is read too (issue #996): a chat or a Bot deleted ends it at once, before the deletion
 	// takes it out of memory, and one made from a read of the chat before its deletion does not outlive it.
+	// Only a binding read as gone forgets the token; a read that failed, or a request canceled, keeps it.
 	if err := s.botTokenBound(ctx, b); err != nil {
-		s.botTokens.mu.Lock()
-		delete(s.botTokens.byHash, bearertoken.Hash(secret))
-		s.botTokens.mu.Unlock()
+		if errors.Is(err, ErrNotFound) {
+			s.botTokens.mu.Lock()
+			delete(s.botTokens.byHash, bearertoken.Hash(secret))
+			s.botTokens.mu.Unlock()
+		}
 
 		return Token{}, err
 	}
@@ -157,15 +162,19 @@ func (s *Service) authenticateBotToken(ctx context.Context, secret string) (Toke
 	}, nil
 }
 
-// botTokenBound refuses a Bot token whose chat or Bot is gone: its chat must still be the Bot's, and a Routine's
-// run's Bot must still be there.
+// botTokenBound refuses a Bot token whose chat or Bot is gone, ErrNotFound: its chat must still be the Bot's, and a
+// Routine's run's Bot must still be there. Another error is a read that failed, which says nothing of the binding.
 func (s *Service) botTokenBound(ctx context.Context, b botToken) error {
 	q := s.read()
 
 	if b.chat != "" {
 		chat, err := q.GetChat(ctx, b.chat)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: chat %s is gone", ErrNotFound, b.chat)
+		}
+
 		if err != nil {
-			return notFound(err, "chat", b.chat)
+			return fmt.Errorf("reading chat %s: %w", b.chat, err)
 		}
 
 		if chat.BotID != b.bot {
@@ -175,8 +184,13 @@ func (s *Service) botTokenBound(ctx context.Context, b botToken) error {
 		return nil
 	}
 
-	if _, err := q.GetBot(ctx, b.bot); err != nil {
-		return notFound(err, "bot", b.bot)
+	_, err := q.GetBot(ctx, b.bot)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: bot %s is gone", ErrNotFound, b.bot)
+	}
+
+	if err != nil {
+		return fmt.Errorf("reading bot %s: %w", b.bot, err)
 	}
 
 	return nil

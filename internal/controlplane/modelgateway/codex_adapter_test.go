@@ -310,7 +310,7 @@ func newCodexGatewayWithConfig(
 	cfg.CodexBaseURL = backend.URL
 	modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"), cfg).Register(mux)
 
-	return chatGateway{svc: svc, mux: mux, key: key}
+	return chatGateway{db: db, svc: svc, mux: mux, key: key}
 }
 
 func event(payload string) string { return "event: x\ndata: " + payload + "\n\n" }

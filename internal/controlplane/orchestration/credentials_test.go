@@ -214,9 +214,20 @@ func onDisk(t *testing.T, path, value string) bool {
 	return false
 }
 
+// openLegacy opens the database legacyLinkDB made, with a Service whose vault seals with keys (none for nil).
+func openLegacy(t *testing.T, path string, keys *vault.Keyring) (*sql.DB, *Service) {
+	t.Helper()
+
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: path})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	return db, New(db, &fakeClock{now: t0}, platform.NewID).WithShareVault(testVaultWith(db, keys).Copies())
+}
+
 // Scenario (issue #996): a database holds a link from before tokens were hashed. The control plane starts on it
-// after `hypomnema migrate` closed it, and moves the link: its URL still opens, the owner reads it from the vault,
-// and its plaintext is nowhere in the database's files any more, though it was there before the move (the
+// after `hypomnema migrate` closed it, moves the link and clears the files: its URL still opens, the owner reads it
+// from the vault, and its plaintext is nowhere in the database's files any more, though it was there before (the
 // migration's rebuild and the write-ahead log kept it). A second move finds nothing.
 func TestALinkFromBeforeStillOpensAfterTheMigrationAndTheMove(t *testing.T) {
 	t.Parallel()
@@ -225,15 +236,15 @@ func TestALinkFromBeforeStillOpensAfterTheMigrationAndTheMove(t *testing.T) {
 	path, sh, keys := legacyLinkDB(t)
 	require.True(t, onDisk(t, path, sh.Token), "the plaintext is in the file before the move")
 
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: path})
-	require.NoError(t, err)
-
-	s := New(db, &fakeClock{now: t0}, platform.NewID).WithShareVault(testVaultWith(db, keys).Copies())
+	db, s := openLegacy(t, path, keys)
 
 	move, err := s.MoveShareTokens(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, ShareTokenMove{Moved: 1}, move)
 
+	done, err := s.ScrubShareTokens(ctx)
+	require.NoError(t, err)
+	assert.True(t, done)
 	assert.False(t, onDisk(t, path, sh.Token), "no plaintext is left in the files after the move")
 
 	shown, err := s.SharedArtifact(ctx, sh.Token)
@@ -253,38 +264,116 @@ func TestALinkFromBeforeStillOpensAfterTheMigrationAndTheMove(t *testing.T) {
 	assert.False(t, onDisk(t, path, sh.Token), "nor once it is closed")
 }
 
-// Scenario (issue #996): the control plane starts without its vault's keys on a database with a link from before.
-// The link keeps its plaintext, which still opens it and which the owner still reads, since without a sealed copy he
-// could never read it again; the move says it waits. A new link is refused rather than kept by its hash alone. Once
-// the keys are back, the next start moves it.
-func TestWithoutTheVaultALinkFromBeforeKeepsItsTokenAndNoLinkIsMade(t *testing.T) {
+// Scenario (issue #996, review of #999): the control plane stops after the move's commit and before it clears the
+// files. The next start finds nothing to move, but what the files owe is recorded: no link is served until it clears
+// them, which it then does.
+func TestAStopBetweenTheMoveAndTheClearingIsFinishedAtTheNextStart(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
 	path, sh, keys := legacyLinkDB(t)
 
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: path})
+	db, s := openLegacy(t, path, keys)
+	move, err := s.MoveShareTokens(ctx)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	require.Equal(t, 1, move.Moved)
+	require.NoError(t, db.Close(), "stopped before the clearing")
+	require.True(t, onDisk(t, path, sh.Token), "the plaintext is still in the files")
 
-	s := New(db, &fakeClock{now: t0}, platform.NewID).WithShareVault(testVaultWith(db, nil).Copies())
+	_, s = openLegacy(t, path, keys)
+
+	move, err = s.MoveShareTokens(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, move, "nothing is left to move")
+
+	_, err = s.SharedArtifact(ctx, sh.Token)
+	require.ErrorIs(t, err, ErrUnavailable, "no link is served while the files owe their clearing")
+
+	done, err := s.ScrubShareTokens(ctx)
+	require.NoError(t, err)
+	assert.True(t, done)
+	assert.False(t, onDisk(t, path, sh.Token))
+
+	_, err = s.SharedArtifact(ctx, sh.Token)
+	require.NoError(t, err)
+}
+
+// Scenario (issue #996, review of #999): another connection holds a read of an older snapshot while the files are
+// cleared. The log cannot be written back, so the clearing is not done and no link is served; once the reader ends,
+// the next try clears the files.
+func TestAReaderHoldingASnapshotDelaysTheClearing(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	path, sh, keys := legacyLinkDB(t)
+
+	_, s := openLegacy(t, path, keys)
+	move, err := s.MoveShareTokens(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, move.Moved)
+
+	other, err := sqlite.Open(ctx, sqlite.Config{Path: path})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = other.Close() })
+
+	reader, err := other.Conn(ctx)
+	require.NoError(t, err)
+	_, err = reader.ExecContext(ctx, "BEGIN DEFERRED")
+	require.NoError(t, err)
+
+	var n int
+	require.NoError(t, reader.QueryRowContext(ctx, "SELECT count(*) FROM artifact_shares").Scan(&n))
+
+	done, _ := s.ScrubShareTokens(ctx)
+	assert.False(t, done, "the checkpoint is busy")
+
+	_, err = s.SharedArtifact(ctx, sh.Token)
+	require.ErrorIs(t, err, ErrUnavailable)
+
+	_, err = reader.ExecContext(ctx, "COMMIT")
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+
+	done, err = s.ScrubShareTokens(ctx)
+	require.NoError(t, err)
+	assert.True(t, done)
+	assert.False(t, onDisk(t, path, sh.Token))
+
+	_, err = s.SharedArtifact(ctx, sh.Token)
+	require.NoError(t, err)
+}
+
+// Scenario (issue #996): the control plane starts without its vault's keys on a database with a link from before.
+// The link is not served and its plaintext is not read back to the owner: it is kept only until a vault seals it,
+// since without a sealed copy he could never read it again; the move says it waits. A new link is refused rather
+// than kept by its hash alone. Once the keys are back, the next start moves it and clears the files.
+func TestWithoutTheVaultALinkFromBeforeWaitsAndNoLinkIsMade(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	path, sh, keys := legacyLinkDB(t)
+
+	db, s := openLegacy(t, path, nil)
 
 	move, err := s.MoveShareTokens(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, ShareTokenMove{Waiting: 1}, move)
 
+	done, err := s.ScrubShareTokens(ctx)
+	require.NoError(t, err)
+	assert.False(t, done, "nothing is cleared while a token waits")
+
 	var plain sql.NullString
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT token FROM artifact_shares WHERE id = ?", sh.ID).Scan(&plain))
-	assert.Equal(t, sh.Token, plain.String, "the plaintext stays until it can be sealed")
+	assert.Equal(t, sh.Token, plain.String, "kept until it can be sealed")
 
-	shown, err := s.SharedArtifact(ctx, sh.Token)
-	require.NoError(t, err)
-	assert.Equal(t, sh.ID, shown.ShareID, "its URL still opens")
+	_, err = s.SharedArtifact(ctx, sh.Token)
+	require.ErrorIs(t, err, ErrUnavailable, "not served from its plaintext")
 
 	listed, err := s.ListArtifactShares(ctx, sh.ArtifactID)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
-	assert.Equal(t, sh.Token, listed[0].Token, "the owner still reads it")
+	assert.Empty(t, listed[0].Token, "nor read back from it")
 
 	_, err = s.CreateArtifactShare(ctx, sh.ArtifactID, "Huy")
 	require.ErrorIs(t, err, ErrUnavailable, "no link is kept by its hash alone")
@@ -298,6 +387,13 @@ func TestWithoutTheVaultALinkFromBeforeKeepsItsTokenAndNoLinkIsMade(t *testing.T
 	move, err = s.MoveShareTokens(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, ShareTokenMove{Moved: 1}, move)
+
+	done, err = s.ScrubShareTokens(ctx)
+	require.NoError(t, err)
+	assert.True(t, done)
+
+	_, err = s.SharedArtifact(ctx, sh.Token)
+	require.NoError(t, err, "served once sealed")
 
 	listed, err = s.ListArtifactShares(ctx, sh.ArtifactID)
 	require.NoError(t, err)
@@ -730,4 +826,134 @@ func TestAShareLinksLastViewIsWrittenAtMostHourly(t *testing.T) {
 	views, revokedLast := read()
 	assert.Equal(t, int64(3), views, "a revoked link is not counted")
 	assert.Equal(t, last, revokedLast)
+}
+
+// Scenario (issue #996, review of #999): the owner removes a provider's machine. While it is being destroyed, and
+// after a failed try, no node token or Dispatch key is issued for it; keys that are still there when the provider
+// says it is gone stop working then, not at the next keys sweep.
+func TestAMachineBeingRemovedGetsNoCredentialAndItsKeysEndWhenItIsGone(t *testing.T) {
+	t.Parallel()
+
+	w, g, _ := credentialWorld(t)
+	ctx := t.Context()
+
+	provider, err := w.s.AddMachineProvider(ctx, NewMachineProvider{
+		Name: "aws", Kind: MachineProviderAWS, KeyRef: "vault:aws", Region: "ap-southeast-1", Size: "t3.large",
+	})
+	require.NoError(t, err)
+
+	d, c := w.start(w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0].ID)
+	require.NoError(t, w.finish(c, success("done")))
+
+	// The world's node as a provider's machine.
+	_, err = w.db.ExecContext(ctx, "UPDATE nodes SET provider_id = ?, machine_state = 'ready' WHERE id = ?",
+		provider.ID, w.node.ID)
+	require.NoError(t, err)
+	require.NoError(t, w.s.BeginMachineRemoval(ctx, w.node.ID))
+
+	refused := func(state string) {
+		t.Helper()
+
+		_, _, err := w.s.AddNodeToken(ctx, w.node.ID, "late")
+		require.ErrorIs(t, err, ErrNotFound, "a node token while %s", state)
+		_, err = w.s.AddAgentSession(ctx, d.ID, nil)
+		require.ErrorIs(t, err, ErrConflict, "an agent session while %s", state)
+		_, err = g.AddDispatchKey(ctx, d.ID, "model-a")
+		require.ErrorIs(t, err, modelgateway.ErrConflict, "a gateway key while %s", state)
+	}
+
+	refused("deleting")
+
+	require.NoError(t, w.s.MachineRemovalFailed(ctx, w.node.ID, "the provider said no", w.clock.now.Add(time.Hour)))
+	refused("delete_failed")
+
+	// Keys the machine still has, as made before their issuing checked it.
+	session, err := bearertoken.Generate(bearertoken.Session)
+	require.NoError(t, err)
+	key, err := bearertoken.Generate(bearertoken.Gateway)
+	require.NoError(t, err)
+	_, err = w.db.ExecContext(ctx, `INSERT INTO agent_sessions (id, key_hash, dispatch_id, uses, created_at)
+		VALUES ('ags_left', ?, ?, '', 1)`, bearertoken.Hash(session), d.ID)
+	require.NoError(t, err)
+	_, err = w.db.ExecContext(ctx, `INSERT INTO gateway_keys (id, name, key_hash, models, created_at, dispatch_id)
+		VALUES ('gwk_left', 'left', ?, '["*"]', 1, ?)`, bearertoken.Hash(key), d.ID)
+	require.NoError(t, err)
+
+	require.NoError(t, w.s.MachineRemoved(ctx, w.node.ID))
+
+	_, err = w.s.AgentSessionOf(ctx, session)
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = g.Authenticate(ctx, key)
+	require.ErrorIs(t, err, modelgateway.ErrUnauthorized)
+	assert.Equal(t, string(bearertoken.RevokedNodeRemoved), w.revocation("gateway_keys", "gwk_left"))
+}
+
+// Scenario (issue #996, review of #999): reading a Bot token's chat fails for a moment (its table cannot be read).
+// The token is refused for that request but not forgotten: once the database answers, it works again.
+func TestABotTokenOutlivesAFailedRead(t *testing.T) {
+	t.Parallel()
+
+	w, _, _ := credentialWorld(t)
+	ctx := t.Context()
+
+	_, _, err := w.s.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	secret, err := w.s.AddBotToken(ctx, "pi", chat.ID, chat.Bot)
+	require.NoError(t, err)
+
+	_, err = w.db.ExecContext(ctx, "ALTER TABLE chats RENAME TO chats_away")
+	require.NoError(t, err)
+
+	_, err = w.s.AuthenticateToken(ctx, secret)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrNotFound, "a failed read says nothing of the binding")
+
+	_, err = w.db.ExecContext(ctx, "ALTER TABLE chats_away RENAME TO chats")
+	require.NoError(t, err)
+
+	got, err := w.s.AuthenticateToken(ctx, secret)
+	require.NoError(t, err, "the token was kept")
+	assert.Equal(t, chat.ID, got.Chat)
+}
+
+// Scenario (issue #996, review of #999): a link is opened again and again within a minute. The openings are not
+// written one by one: the first is written at once, the next ones together after a minute, and the lists count
+// them all meanwhile.
+func TestAShareLinksViewsAreWrittenTogether(t *testing.T) {
+	t.Parallel()
+
+	w, _, _ := credentialWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	sh := w.shareOf(chat.ID, chat.Bot)
+
+	stored := func() int64 {
+		t.Helper()
+
+		var views int64
+		require.NoError(t, w.db.QueryRowContext(ctx, "SELECT views FROM artifact_shares WHERE id = ?", sh.ID).
+			Scan(&views))
+
+		return views
+	}
+
+	for range 5 {
+		require.NoError(t, w.s.CountArtifactShareView(ctx, sh.ID))
+		w.advance(time.Second)
+	}
+
+	assert.Equal(t, int64(1), stored(), "one write for five openings within the minute")
+
+	listed, err := w.s.ListArtifactShares(ctx, sh.ArtifactID)
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, int64(5), listed[0].Views, "the list counts the openings not written yet")
+
+	w.advance(time.Minute)
+	require.NoError(t, w.s.CountArtifactShareView(ctx, sh.ID))
+	assert.Equal(t, int64(6), stored(), "written together after the minute")
 }

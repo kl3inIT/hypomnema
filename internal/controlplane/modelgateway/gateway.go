@@ -696,7 +696,8 @@ func RevokeDeletedChatKeysTx(ctx context.Context, tx *sql.Tx, chatID string, now
 // keyParentLive refuses a key whose parent has ended, read in the transaction that makes it (issue #996), so a
 // revocation committed first is seen and one committed after ends the key with the rest: a Dispatch's whose Run's
 // coordinator token is revoked or whose node is removed, and a chat's whose pi runs under a revoked coordinator
-// token. A chat's new key keeps the coordinator token of the key its pi has now, as when pi's model changes.
+// token, or whose chat or its Bot is gone. A chat's new key that names no coordinator token keeps the one of the
+// chat's newest key.
 func keyParentLive(ctx context.Context, q *store.Queries, owner *keyOwner) error {
 	if owner.dispatchID != "" {
 		ended, err := q.DispatchKeysEnded(ctx, owner.dispatchID)
@@ -714,11 +715,23 @@ func keyParentLive(ctx context.Context, q *store.Queries, owner *keyOwner) error
 		return nil
 	}
 
+	bot, err := q.GetChatBotForKey(ctx, owner.chatID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("%w: chat %s or its bot is gone", ErrConflict, owner.chatID)
+	case err != nil:
+		return fmt.Errorf("reading chat %s: %w", owner.chatID, err)
+	case owner.botID != "" && bot != owner.botID:
+		return fmt.Errorf("%w: chat %s is with bot %s, not %s", ErrConflict, owner.chatID, bot, owner.botID)
+	}
+
+	// A key that names no coordinator token keeps the one of the chat's newest key, working or not: a pi's key made
+	// again, as for a model change, stays under its parent, and is refused once that parent is revoked.
 	if owner.coordinatorTokenID == "" {
-		live, err := q.GetLiveGatewayKeyOfChat(ctx, sql.NullString{String: owner.chatID, Valid: true})
+		latest, err := q.GetLatestGatewayKeyOfChat(ctx, sql.NullString{String: owner.chatID, Valid: true})
 		switch {
 		case err == nil:
-			owner.coordinatorTokenID = live.CoordinatorTokenID.String
+			owner.coordinatorTokenID = latest.CoordinatorTokenID.String
 		case !errors.Is(err, sql.ErrNoRows):
 			return fmt.Errorf("reading the key of chat %s: %w", owner.chatID, err)
 		}

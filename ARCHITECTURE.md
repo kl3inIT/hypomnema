@@ -1187,10 +1187,14 @@ sequenceDiagram
     the link, and a copy sealed in the vault (a generic secret named after the link, as an owner-made gateway key's
     value is) lets the owner copy it again; the lists open it. Without a vault's keys no link is made (503): none is
     kept by its hash alone. A link made before (its token in plaintext until migration `credential_state`) is moved
-    as the control plane starts, before anything is served (`MoveShareTokens`), so its URL keeps working: with
-    `secure_delete` on for the move, then `VACUUM` and `wal_checkpoint(TRUNCATE)`, so no plaintext is left in the
-    database's files or its log. Without the vault's keys it keeps its plaintext, which still opens it and which
-    the lists read, until a start with the keys moves it; the start logs how many wait. Only the owner
+    as the control plane starts, before anything is served (`MoveShareTokens`, with `secure_delete` on), so its URL
+    keeps working; then the files are cleared (`ScrubShareTokens`: `VACUUM`, and `wal_checkpoint(TRUNCATE)`, whose
+    busy column must say it was done), so no plaintext is left in the database's files or its log. The migration
+    records what the files owe (`share_token_scrub`), cleared only once they are clear: a stop in between, or a
+    reader holding an older snapshot, leaves it, the start tries again every 30 s, and no link is served meanwhile
+    (503). Without the vault's keys an old link is neither moved, served, nor read back from its plaintext, which
+    is kept only until a start with the keys seals it, since the owner could never read it again otherwise; the
+    start logs how many wait. Only the owner
     makes, lists and revokes links (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has
     no tool for it). Revoking marks the row with the reason and deletes its sealed copy; the Vault names a link as
     its copy's user and refuses to delete it. Deleting the artifact with its chat deletes its links
@@ -1200,7 +1204,8 @@ sequenceDiagram
     that `rev` is the newest on every request (OpenMausBot's `server/page-files.ts`), so a revoke takes effect at
     once and a file of a replaced revision answers 404; it mints no frame token and serves as the frame's route
     does (the same headers, a page with `pagePolicy` naming the link's folder). Opening the page itself counts a
-    view and sets the last view, at most once an hour (Grafana's request count, Metabase's anonymous view event);
+    view (Grafana's request count, Metabase's anonymous view event), counted in memory and written together at most
+    once a minute, the last view at most once an hour; the lists add the openings not written yet;
     reading the link does not, so the viewer's checks are not counted. Every answer under `/api/v1/shares/` and the web's page
     `/s/<token>` carry `X-Robots-Tag: noindex, nofollow` (LibreChat), `Referrer-Policy: no-referrer`,
     `Cache-Control: private, no-store` (LibreChat) and `frame-ancestors 'none'` (Grafana). An address that sends
@@ -3105,10 +3110,12 @@ which orchestration calls in its transaction (`orchestration.GatewayKeys`, `mode
   token; deleting a Bot ends its Gateway keys with `bot_deleted` and its pi's Bot tokens.
 - A child is not made once its parent ended: a Dispatch's agent session and gateway key are refused, in the
   transaction that would make them, when the coordinator token that created its Run is revoked or its node removed
-  (an offer read before the revocation and sent after it, as after a reconnect, carries no key); a chat's gateway
-  key is refused under a revoked coordinator token, and a new one for the chat keeps the coordinator token of the
-  key its pi has, as when pi's model changes. A Bot token is refused once its chat or Bot is gone, read at each use,
-  so the deletion ends it before its clean-up of memory.
+  or being removed (a provider's machine `deleting` or `delete_failed`; no node token is issued for it either, and
+  `MachineRemoved` ends what is left). An offer read before the revocation and sent after it, as after a reconnect,
+  carries no key. A chat's gateway key is refused when the chat or its Bot is gone, or under a revoked coordinator
+  token; one that names no coordinator token keeps the one of the chat's newest key, as when pi's model changes. A
+  Bot token is refused once its chat or Bot is read as gone, at each use, so the deletion ends it before its
+  clean-up of memory; a read that fails keeps it.
 - Without a cascade, a Dispatch's keys end when it settles (`dispatch_ended`), a chat's key when its pi ends
   (`process_ended`) or a new one is made (`replaced`), and every chat key as the control plane starts
   (`control_plane_started`).

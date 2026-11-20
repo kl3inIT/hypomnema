@@ -372,9 +372,10 @@ func (q *Queries) GetAccountByExternalID(ctx context.Context, arg GetAccountByEx
 const getLiveNodeTokenByHash = `-- name: GetLiveNodeTokenByHash :one
 SELECT t.id, t.node_id, t.name, t.token_hash, t.created_at, t.last_used_at, t.revoked_at, t.revoke_reason FROM node_tokens t JOIN nodes n ON n.id = t.node_id
 WHERE t.token_hash = ?1 AND t.revoked_at IS NULL AND n.status <> 'deleted'
+  AND coalesce(n.machine_state, '') NOT IN ('deleting', 'delete_failed')
 `
 
-// The token, when it is not revoked and its node has not been removed.
+// The token, when it is not revoked and its node has not been removed nor is being removed (issue #996).
 func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) (NodeToken, error) {
 	row := q.db.QueryRowContext(ctx, getLiveNodeTokenByHash, tokenHash)
 	var i NodeToken

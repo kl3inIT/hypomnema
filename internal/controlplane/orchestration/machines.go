@@ -359,12 +359,16 @@ func (s *Service) BeginMachineRemoval(ctx context.Context, nodeID string) error 
 }
 
 // MachineRemoved records that the provider no longer has the machine: the
-// node is removed.
+// node is removed, and whatever credential it or its Dispatches still have
+// ends with it, as BeginMachineRemoval ended them (issue #996).
 func (s *Service) MachineRemoved(ctx context.Context, nodeID string) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
+	return s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
 		n, err := q.FinishMachineDeletion(ctx, store.FinishMachineDeletionParams{Now: now, ID: nodeID})
+		if err := oneRow(n, err, "machine being deleted", nodeID); err != nil {
+			return err
+		}
 
-		return oneRow(n, err, "machine being deleted", nodeID)
+		return s.revokeNodeCredentials(ctx, tx, q, nodeID, now)
 	})
 }
 

@@ -153,6 +153,8 @@ func TestAChatsNewestKeyIsFoundWorkingOrNot(t *testing.T) {
 	_, err := g.svc.ChatKey(ctx, "cht_none")
 	require.ErrorIs(t, err, modelgateway.ErrNotFound)
 
+	g.chat(t, "cht_1", "bot_1")
+
 	first, _, err := g.svc.AddChatKey(ctx, "cht_1", "bot_1", "")
 	require.NoError(t, err)
 
@@ -183,6 +185,8 @@ func TestAChatsUsageKeyIsItsNewestOrOneMadeForIt(t *testing.T) {
 	again, err := g.svc.ChatUsageKey(ctx, "cht_new", "bot_1")
 	require.NoError(t, err)
 	assert.Equal(t, made.ID, again.ID, "made once")
+
+	g.chat(t, "cht_live", "bot_1")
 
 	live, secret, err := g.svc.AddChatKey(ctx, "cht_live", "bot_1", "")
 	require.NoError(t, err)

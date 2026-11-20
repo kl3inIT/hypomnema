@@ -137,22 +137,38 @@ func (q *Queries) ArtifactsBeforeReply(ctx context.Context, arg ArtifactsBeforeR
 	return items, nil
 }
 
+const clearShareScrub = `-- name: ClearShareScrub :exec
+DELETE FROM share_token_scrub
+`
+
+func (q *Queries) ClearShareScrub(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, clearShareScrub)
+	return err
+}
+
 const countArtifactShareView = `-- name: CountArtifactShareView :exec
-UPDATE artifact_shares SET views = views + 1,
-    last_viewed_at = CASE WHEN last_viewed_at IS NULL OR last_viewed_at <= CAST(?1 AS INTEGER)
-                          THEN CAST(?2 AS INTEGER) ELSE last_viewed_at END
-WHERE id = ?3 AND revoked_at IS NULL
+UPDATE artifact_shares SET views = views + CAST(?1 AS INTEGER),
+    last_viewed_at = CASE WHEN last_viewed_at IS NULL OR last_viewed_at <= CAST(?2 AS INTEGER)
+                          THEN CAST(?3 AS INTEGER) ELSE last_viewed_at END
+WHERE id = ?4 AND revoked_at IS NULL
 `
 
 type CountArtifactShareViewParams struct {
+	Views  int64
 	Before int64
 	Now    int64
 	ID     string
 }
 
-// Every opening is counted; its last use is written at most once an hour, as every credential's (issue #996).
+// The openings counted since the last write (issue #996), written together; its last use is written at most once an
+// hour, as every credential's. A revoked link's are dropped.
 func (q *Queries) CountArtifactShareView(ctx context.Context, arg CountArtifactShareViewParams) error {
-	_, err := q.db.ExecContext(ctx, countArtifactShareView, arg.Before, arg.Now, arg.ID)
+	_, err := q.db.ExecContext(ctx, countArtifactShareView,
+		arg.Views,
+		arg.Before,
+		arg.Now,
+		arg.ID,
+	)
 	return err
 }
 
@@ -807,20 +823,26 @@ func (q *Queries) SetArtifactMessage(ctx context.Context, arg SetArtifactMessage
 	return err
 }
 
+const shareScrubPending = `-- name: ShareScrubPending :one
+SELECT count(*) FROM share_token_scrub
+`
+
+// Whether the database's files may still hold old tokens in plaintext (issue #996).
+func (q *Queries) ShareScrubPending(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, shareScrubPending)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const sharedArtifact = `-- name: SharedArtifact :one
 SELECT s.id, s.artifact_id, a.revision, a.updated_at, r.title, r.type, r.entry, f.media_type
 FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id
 JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 JOIN artifact_files f ON f.artifact_id = a.id AND f.revision = a.revision AND f.path = r.entry
-WHERE s.revoked_at IS NULL
-  AND (s.token_hash = ?1 OR (s.token_hash IS NULL AND s.token = ?2))
+WHERE s.revoked_at IS NULL AND s.token_hash = ?1
 `
-
-type SharedArtifactParams struct {
-	TokenHash sql.NullString
-	Token     sql.NullString
-}
 
 type SharedArtifactRow struct {
 	ID         string
@@ -834,9 +856,9 @@ type SharedArtifactRow struct {
 }
 
 // What a working link shows: its artifact at the newest revision, with the type of the file shown. A link not moved
-// yet (issue #996) is found by its plaintext until a vault can seal it.
-func (q *Queries) SharedArtifact(ctx context.Context, arg SharedArtifactParams) (SharedArtifactRow, error) {
-	row := q.db.QueryRowContext(ctx, sharedArtifact, arg.TokenHash, arg.Token)
+// yet (issue #996) has no hash and is found by nothing until a vault seals it.
+func (q *Queries) SharedArtifact(ctx context.Context, tokenHash sql.NullString) (SharedArtifactRow, error) {
+	row := q.db.QueryRowContext(ctx, sharedArtifact, tokenHash)
 	var i SharedArtifactRow
 	err := row.Scan(
 		&i.ID,

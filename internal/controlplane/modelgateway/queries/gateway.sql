@@ -403,17 +403,19 @@ WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE
 
 -- name: DispatchKeysEnded :one
 -- Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is
--- revoked, or its node removed; read in the transaction that would make a key. A Dispatch not found is not refused.
+-- revoked, or its node removed or being removed; read in the transaction that would make a key. A Dispatch not found is not refused.
 SELECT count(*) FROM dispatches d
 LEFT JOIN nodes n ON n.id = d.node_id
 LEFT JOIN tasks t ON t.id = d.task_id
 LEFT JOIN runs r ON r.id = t.run_id
 LEFT JOIN client_tokens c ON c.id = r.coordinator_token_id
-WHERE d.id = @dispatch_id AND (n.status = 'deleted' OR c.revoked_at IS NOT NULL);
+WHERE d.id = @dispatch_id
+  AND (n.status = 'deleted' OR n.machine_state IN ('deleting', 'delete_failed') OR c.revoked_at IS NOT NULL);
 
 -- name: CountLiveClientToken :one
 SELECT count(*) FROM client_tokens WHERE id = @id AND revoked_at IS NULL;
 
--- name: GetLiveGatewayKeyOfChat :one
--- The key a chat's running pi has now: its newest that works.
-SELECT * FROM gateway_keys WHERE chat_id = @chat_id AND revoked_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1;
+-- name: GetChatBotForKey :one
+-- The Bot a chat is with, when the chat and that Bot are there (issue #996): a chat's key is made only then, in the
+-- transaction that makes it, so a key made from a read of the chat before its deletion, or its Bot's, is refused.
+SELECT c.bot_id FROM chats c JOIN bots b ON b.id = c.bot_id WHERE c.id = @chat_id;

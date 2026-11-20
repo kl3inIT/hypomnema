@@ -103,18 +103,18 @@ WHERE id = @id AND revoked_at IS NULL;
 
 -- name: SharedArtifact :one
 -- What a working link shows: its artifact at the newest revision, with the type of the file shown. A link not moved
--- yet (issue #996) is found by its plaintext until a vault can seal it.
+-- yet (issue #996) has no hash and is found by nothing until a vault seals it.
 SELECT s.id, s.artifact_id, a.revision, a.updated_at, r.title, r.type, r.entry, f.media_type
 FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id
 JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 JOIN artifact_files f ON f.artifact_id = a.id AND f.revision = a.revision AND f.path = r.entry
-WHERE s.revoked_at IS NULL
-  AND (s.token_hash = @token_hash OR (s.token_hash IS NULL AND s.token = @token));
+WHERE s.revoked_at IS NULL AND s.token_hash = @token_hash;
 
 -- name: CountArtifactShareView :exec
--- Every opening is counted; its last use is written at most once an hour, as every credential's (issue #996).
-UPDATE artifact_shares SET views = views + 1,
+-- The openings counted since the last write (issue #996), written together; its last use is written at most once an
+-- hour, as every credential's. A revoked link's are dropped.
+UPDATE artifact_shares SET views = views + CAST(@views AS INTEGER),
     last_viewed_at = CASE WHEN last_viewed_at IS NULL OR last_viewed_at <= CAST(@before AS INTEGER)
                           THEN CAST(@now AS INTEGER) ELSE last_viewed_at END
 WHERE id = @id AND revoked_at IS NULL;
@@ -150,3 +150,10 @@ JOIN secret_versions v ON v.id = s.secret_version_id
 JOIN secrets ON secrets.id = v.secret_id
 WHERE secrets.name = @secret_name
 ORDER BY s.id;
+
+-- name: ShareScrubPending :one
+-- Whether the database's files may still hold old tokens in plaintext (issue #996).
+SELECT count(*) FROM share_token_scrub;
+
+-- name: ClearShareScrub :exec
+DELETE FROM share_token_scrub;

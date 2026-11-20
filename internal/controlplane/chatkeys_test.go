@@ -106,3 +106,53 @@ func TestARunningPiGetsNoKeyOnceItsCoordinatorTokenIsRevoked(t *testing.T) {
 		assert.NotNil(t, k.RevokedAt, "no key of the chat works: %s", k.ID)
 	}
 }
+
+// Scenario (issue #996, review of #999): a pi's key is made from a read of its chat taken before the chat was
+// deleted, or before its Bot was removed with its chats; the gateway refuses it in the transaction that would make
+// it. A key that names no parent, made after the pi's coordinator token was revoked, is refused too.
+func TestNoChatKeyIsMadeForAChatGoneOrUnderARevokedToken(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
+		orchestration.WithGatewayKeys(modelgateway.Revocations{}))
+	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, nil, nil)
+	keys := chatKeys{gateway: gateway, chats: svc, coordinator: "pi"}
+
+	coordinator, _, err := svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	gone, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	stale, err := svc.GetChat(ctx, gone.ID)
+	require.NoError(t, err, "read before the deletion")
+	_, err = svc.DeleteChat(ctx, gone.ID)
+	require.NoError(t, err)
+
+	_, _, err = gateway.AddChatKeyUnder(ctx, coordinator.ID, stale.ID, stale.Bot, "")
+	require.ErrorIs(t, err, modelgateway.ErrConflict, "a deleted chat gets no key")
+
+	helper, err := svc.PutBot(ctx, orchestration.Bot{Name: "helper"})
+	require.NoError(t, err)
+	helperChat, err := svc.CreateChat(ctx, helper.ID, "")
+	require.NoError(t, err)
+	_, err = svc.ForceDeleteBot(ctx, helper.ID)
+	require.NoError(t, err)
+
+	_, _, err = gateway.AddChatKeyUnder(ctx, coordinator.ID, helperChat.ID, helper.ID, "")
+	require.ErrorIs(t, err, modelgateway.ErrConflict, "a removed Bot's chat gets no key")
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	_, _, err = keys.AddChatKey(ctx, chat.ID, "")
+	require.NoError(t, err)
+	require.NoError(t, svc.RevokeToken(ctx, coordinator.ID))
+
+	_, _, err = gateway.AddChatKey(ctx, chat.ID, chat.Bot, "")
+	require.ErrorIs(t, err, modelgateway.ErrConflict, "a key naming no parent keeps the chat's, which is revoked")
+}

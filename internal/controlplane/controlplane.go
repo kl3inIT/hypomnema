@@ -316,6 +316,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	logShareTokenMove(ctx, logger, move)
 
+	// Then the files are cleared of the old plaintext; until they are, no link is served, and it is tried again.
+	if !scrubShareTokens(ctx, svc, logger) {
+		go retryShareScrub(ctx, svc, logger)
+	}
+
 	// The account each git host token belongs to is read at its host once, so workers commit as it (issue #991).
 	tokens := connections{svc: svc, vault: secrets, identities: &gitIdentities{
 		ways: &connproxy.Transports{
@@ -1003,6 +1008,41 @@ type channelStore struct {
 	*channelstore.Store
 }
 
+// shareScrubEvery is how often clearing the database's files of old share tokens is tried again while a reader
+// holds an older snapshot or the vault is not configured (issue #996).
+const shareScrubEvery = 30 * time.Second
+
+// scrubShareTokens clears the database's files of old share tokens and reports whether nothing is left to clear.
+func scrubShareTokens(ctx context.Context, svc *orchestration.Service, logger *slog.Logger) bool {
+	done, err := svc.ScrubShareTokens(ctx)
+	if err != nil && ctx.Err() == nil {
+		logger.WarnContext(ctx, "clearing old share tokens from the database's files",
+			slog.String("event", "controlplane.share_scrub_failed"), slog.String("error", err.Error()))
+	}
+
+	return done
+}
+
+// retryShareScrub tries scrubShareTokens again until it is done or ctx ends.
+func retryShareScrub(ctx context.Context, svc *orchestration.Service, logger *slog.Logger) {
+	tick := time.NewTicker(shareScrubEvery)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			if scrubShareTokens(ctx, svc, logger) {
+				logger.InfoContext(ctx, "cleared old share tokens from the database's files; links are served",
+					slog.String("event", "controlplane.share_scrub_done"))
+
+				return
+			}
+		}
+	}
+}
+
 // logShareTokenMove says, once as the control plane starts, what MoveShareTokens did (issue #996).
 func logShareTokenMove(ctx context.Context, logger *slog.Logger, move orchestration.ShareTokenMove) {
 	if move.Moved > 0 {
@@ -1011,7 +1051,7 @@ func logShareTokenMove(ctx context.Context, logger *slog.Logger, move orchestrat
 	}
 
 	if move.Waiting > 0 {
-		logger.WarnContext(ctx, "share links keep their tokens in plaintext until the vault is configured",
+		logger.WarnContext(ctx, "share links made before are not served until the vault is configured to seal them",
 			slog.String("event", "controlplane.share_tokens_waiting"), slog.Int("links", move.Waiting))
 	}
 }

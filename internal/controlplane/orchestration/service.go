@@ -50,6 +50,8 @@ type Service struct {
 	gatewayKeys GatewayKeys
 	// shareVault keeps the sealed copies of share links' tokens (issue #996); nil keeps none.
 	shareVault ShareVault
+	// shareViews are the openings of links not written yet (issue #996).
+	shareViews *shareViews
 }
 
 // GatewayKeys revokes the model gateway's keys of what orchestration ends, in the transaction tx that ends it,
@@ -105,6 +107,7 @@ func (s *Service) WithShareVault(v ShareVault) *Service {
 func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opts ...ServiceOption) *Service {
 	s := &Service{
 		db: db, clock: clock, newID: newID, random: rand.Float64, notify: newNotifier(), botTokens: newBotTokens(),
+		shareViews: newShareViews(),
 	}
 	for _, o := range opts {
 		o(s)

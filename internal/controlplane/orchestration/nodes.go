@@ -497,8 +497,8 @@ func (s *Service) AddNodeToken(ctx context.Context, nodeID, name string) (NodeTo
 			return notFound(err, "node", nodeID)
 		}
 
-		if NodeStatus(n.Status) == NodeDeleted {
-			return fmt.Errorf("%w: node %s", ErrNotFound, nodeID)
+		if nodeLeaving(n) {
+			return fmt.Errorf("%w: node %s is removed or being removed", ErrNotFound, nodeID)
 		}
 
 		return q.InsertNodeToken(ctx, store.InsertNodeTokenParams{
@@ -585,6 +585,14 @@ func (s *Service) CheckNodeToken(ctx context.Context, tokenID string) error {
 	}
 
 	return nil
+}
+
+// nodeLeaving says whether a node is removed or being removed, a provider's machine deleting or failing to be:
+// no credential is issued for it (issue #996), as BeginMachineRemoval revoked what it had.
+func nodeLeaving(n store.Node) bool {
+	state := MachineState(n.MachineState.String)
+
+	return NodeStatus(n.Status) == NodeDeleted || state == MachineDeleting || state == MachineDeleteFailed
 }
 
 func newNodeToken() (string, error) {
