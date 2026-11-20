@@ -143,21 +143,42 @@ question, an escalation arrived, or the Run ended. It prints those events, the `
   Read the current Tasks, open questions (`questions --run <run_id> --json`) and PR evidence. Continue only what
   still needs a decision, review or follow-up. A reviewer Task that succeeded may still have found the change
   incorrect. Only the owner can assign legacy Runs with `runs adopt`; leave Runs in other chats alone.
-- On a review wake, read the Run again and load the `review` reference. The verdict and PR state in the wake
+<!-- Orca orchestration-legacy-coordinator-authority.ts:63-91 (a5c191cc; the stored binding holds); OpenHands SDK
+openhands-agent-server/openhands/agent_server/conversation_lease.py:167-209 (fb565cfe; a live owner is not
+displaced); issue #969 -->
+- A chat with an open Run cannot be deleted, nor its Bot removed with its chats: the answer is a conflict until
+  the Run is finished or canceled. Tell the owner which Run holds it; an ended Run lets the chat go as before.
+<!-- OpenMausBot server/runtime/envelope.ts:184,255 (71ada2b5; the requester checks the report and sends rework
+itself); Orca src/main/bots/bot-pr-events.ts:1-13 (a5c191cc; nothing wakes a worker's author on its PR); owner,
+2026-11-20, issues #967 and #969 -->
+- On a review wake, read the Run again and load the `review` reference. The wake names the verdict, the pull
+  request and the command that reads the findings; the control plane sends nothing to the author by itself, so the
+  fix is yours to decide and send. The verdict and PR state in the wake
   are a snapshot, not permission to merge. If a Task has already been added, do not repeat it. A Run stalled after
   review is not ready to finish merely because its Tasks ended.
 - When your turn began with a message from the control plane listing a Run's events, end your turn after acting;
   the control plane wakes you again.
-- In a session with the owner (Claude Code, Codex), use the wait only when the owner wants to observe the Run
-  here. Do not give duplicate work while the assigned chat is already coordinating it.
+<!-- One controller per Run: Orca src/main/runtime/rpc/orchestration/compatibility/orchestration-legacy-coordinator-authority.ts:39-91
+(a5c191cc; only the bound principal writes, another caller is read-only); OpenMausBot server/coordinator.ts:63-64
+(71ada2b5; the requester is woken). Applying it to the owner's CLI session is inference the owner accepted
+(owner, 2026-11-20, issue #969). -->
+- A Run with a `chat_id` (in `runs show`) has one controller: that chat's Bot. In a session with the owner (Claude
+  Code, Codex), only observe such a Run: `runs show`, `tasks show` and, when the owner wants to watch it here,
+  `runs wait`. Do not follow up, answer its questions to the coordinator, or create Tasks or reviews in it, even
+  after a wait returns its events. When the owner wants it changed, pass the request to that chat with
+  `hypomnema chat --chat <chat_id> --text-file <file>`, or tell the owner to write there. A question to the owner
+  stays the owner's, and the owner may still cancel the Run.
 
 Keep at most one wait per Run and no status loops. To be notified when it is done, let the assigned chat receive
 the next wake-up and report there.
 
 ## Questions
 
-A worker asks you when it cannot go on without a decision, and waits. Read the question with
-`hypomnema questions show <question_id> --json`.
+<!-- Orca mobile/src/session/native-chat/input/prompts/use-mobile-worker-approvals.ts:60 (a5c191cc; a coordinator
+chat shows its workers' open prompts); OpenMausBot server/coordinator.ts:63-64 (71ada2b5); issue #969 -->
+A worker asks you when it cannot go on without a decision, and waits. Its question reaches the chat its Run
+belongs to: one to the coordinator wakes that chat, one to the owner waits above that chat's composer. Read the
+question with `hypomnema questions show <question_id> --json`.
 
 - Answer when the answer follows from the spec, the objective, the owner's words, or the repository's existing code
   (read it), and say what you based it on: the file, or the owner's words quoted:
