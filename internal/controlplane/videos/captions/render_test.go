@@ -3,6 +3,7 @@ package captions
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/png"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/compose"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
 
 // The captions as libass draws them, before any encode (issue #908, PR 1, checks 3-5): each ASS file is burned
@@ -624,6 +626,123 @@ func TestARingInAPauseFlipsNothingAsDrawn(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestComposedRingAndCaptionFrameBoundaries(t *testing.T) {
+	t.Parallel()
+
+	tl := tools(t)
+	video, scene, size := composeRingFixture(t, tl)
+	rings := []compose.Ring{*scene.Ring}
+
+	for _, tc := range []struct {
+		name         string
+		firstEnd     float64
+		nextStart    float64
+		atTop        bool
+		frameToCheck int
+		wordDrawn    bool
+	}{
+		{"ring starts before the unrounded tap", 0.638, 1.25, true, 19, true},
+		{"ring finishes before the next word", 0.60, 1.12, false, 33, false},
+		{"ASS rounds the first word end down", 0.634, 1.25, false, 19, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cues, err := Build([]Scene{{StartMs: scene.OutStartMs, EndMs: scene.OutStartMs + scene.OutLengthMs,
+				Words: []Word{{"Rồi,", 0, tc.firstEnd}, {"bây", tc.nextStart, 1.7}, {"giờ", 1.7, 2.15},
+					{"kiểm", 2.15, 2.6}, {"tra.", 2.6, 3.05}},
+			}}, Default)
+			require.NoError(t, err)
+			require.Len(t, cues, 1)
+
+			ass, err := Render(t.Context(), tl, cues, Look{Preset: "one-word"}, size.Width, size.Height, rings)
+			require.NoError(t, err)
+
+			dir := t.TempDir()
+			path := filepath.Join(dir, "source.ass")
+			require.NoError(t, os.WriteFile(path, []byte(ass), 0o600))
+			burned, err := compose.Burn(t.Context(), tl, video, path, dir)
+			require.NoError(t, err)
+
+			wordY, ring := ringAndWordAtFrame(t, tl, burned, tc.frameToCheck, scene.Ring.Y)
+			assert.True(t, ring, "ring is visible on frame %d", tc.frameToCheck)
+			assert.Equal(t, tc.wordDrawn, wordY >= 0, "word visibility on frame %d", tc.frameToCheck)
+
+			for _, index := range []int{9, 45} {
+				wordY, _ := ringAndWordAtFrame(t, tl, burned, index, scene.Ring.Y)
+				require.GreaterOrEqual(t, wordY, 0, "word is visible on frame %d", index)
+				assert.Equal(t, tc.atTop, wordY < size.Height/2, "word on frame %d is at row %d", index, wordY)
+			}
+		})
+	}
+}
+
+func composeRingFixture(t *testing.T, tl ffmpeg.Tools) (string, compose.SceneResult, compose.Size) {
+	t.Helper()
+
+	dir := t.TempDir()
+	segment := devicetool.TakeSegment{File: "segment.mp4", LengthMs: 2500, Width: 180, Height: 320}
+	take := devicetool.Take{Segments: []devicetool.TakeSegment{segment}, Steps: []devicetool.TakeStep{
+		{AtMs: 400, Text: "Rồi, bây giờ kiểm tra.", Tap: &devicetool.TakeTap{X: 90, Y: 300}},
+	}}
+	data, err := json.Marshal(take)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "take.json"), data, 0o600))
+	ringFixtureFFmpeg(t, tl, "-f", "lavfi", "-i", "color=c=0x808080:s=180x320:r=30:d=2.5",
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", filepath.Join(dir, segment.File))
+	voice := filepath.Join(dir, "voice.wav")
+	ringFixtureFFmpeg(t, tl, "-f", "lavfi", "-i", "sine=duration=3.7", voice)
+	video := filepath.Join(dir, "composed.mp4")
+	result, err := compose.Compose(t.Context(), tl, compose.Input{
+		Dir: dir, Voice: []string{voice}, Aspect: compose.Portrait, Work: filepath.Join(dir, "work"), Out: video,
+		Screen: compose.Size{Width: segment.Width, Height: segment.Height},
+	})
+	require.NoError(t, err)
+	require.Len(t, result.Scenes, 1)
+	scene := result.Scenes[0]
+	require.NotNil(t, scene.Ring)
+	require.Equal(t, int64(640), scene.Ring.AtMs)
+
+	return video, scene, result.Size
+}
+
+func ringAndWordAtFrame(t *testing.T, tl ffmpeg.Tools, video string, index, ringY int) (int, bool) {
+	t.Helper()
+
+	data := ringFixtureFFmpeg(t, tl, "-i", video, "-vf", fmt.Sprintf(`select=eq(n\,%d)`, index),
+		"-frames:v", "1", "-c:v", "png", "-f", "image2pipe", "pipe:1")
+	img, err := png.Decode(bytes.NewReader(data))
+	require.NoError(t, err)
+
+	wordY, ring := -1, false
+	for row := range img.Bounds().Dy() {
+		for col := range img.Bounds().Dx() {
+			red, green, blue, _ := img.At(col, row).RGBA()
+			if min(red, green, blue) > 0xc000 {
+				wordY = row
+			}
+
+			ring = ring || row >= ringY && blue > red+0x0500 && blue > green+0x0300
+		}
+	}
+
+	return wordY, ring
+}
+
+func ringFixtureFFmpeg(t *testing.T, tl ffmpeg.Tools, args ...string) []byte {
+	t.Helper()
+
+	//nolint:gosec // The pinned ffmpeg.
+	cmd := exec.CommandContext(t.Context(), tl.FFmpeg, append([]string{"-nostdin", "-v", "error"}, args...)...)
+	var stderr bytes.Buffer
+
+	cmd.Stderr = &stderr
+	data, err := cmd.Output()
+	require.NoError(t, err, stderr.String())
+
+	return data
 }
 
 // Classic's video is the one made before the presets: burned with the fonts of then and of now, the stream is the

@@ -631,24 +631,36 @@ func (r *renderer) ringReaches(frames []frame, rings []compose.Ring) bool {
 
 	top := r.top(PositionBottom, tallest)
 
-	// The times the cue is drawn: each of its frames, after the cues before it hid its start (layoutCues), and not
-	// the pauses between them, where nothing is drawn (a word not yet popped in). aidemo tests a ring against the
-	// times its caption strip is shown (src/compose.ts, lines 1994-1999).
+	// aidemo tests a ring against the times its caption strip is shown (src/compose.ts, lines 1994-1999).
+	// Compare only output frames drawn after layoutCues and ASS rounding, excluding pauses and empty spans.
 	for _, g := range rings {
 		if float64(g.Y)+float64(g.Size)/2 < top {
 			continue
 		}
 
-		at := float64(g.AtMs) / 1000
+		start, end := g.FrameSpan()
 
 		for _, fr := range frames {
-			if at < fr.to && at+compose.RingMs/1000.0 > fr.from {
+			if max(start, assVideoFrame(fr.from)) < min(end, assVideoFrame(fr.to)) {
 				return true
 			}
 		}
 	}
 
 	return false
+}
+
+// assVideoFrame is the first output frame at or past the ASS-rounded timestamp. FFmpeg passes libass the
+// frame PTS in milliseconds, truncated after floating-point conversion, which can put an exact edge just below it.
+func assVideoFrame(sec float64) int64 {
+	const frameTime = float64(1.0 / compose.FPS)
+	cs := assCentiseconds(sec)
+	index := (cs*compose.FPS + 99) / 100
+	if int64(float64(index)*frameTime*1000) < cs*10 {
+		index++
+	}
+
+	return index
 }
 
 // header is the ASS file's script info and styles: the text's, and the box's.

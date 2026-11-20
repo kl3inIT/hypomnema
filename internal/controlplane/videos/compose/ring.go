@@ -44,6 +44,16 @@ const RingMs = 500
 // ringFrames is one PNG a frame of the ring's 0.5 s.
 const ringFrames = RingMs * FPS / 1000
 
+// FrameSpan returns the half-open span of output frames on which the ring is overlaid. drawRings adds AtMs in
+// units of the PNG input's 1/FPS time base; setpts truncates each shifted PTS to an integer. The overlay ends one
+// frame after the last PNG, so truncate both the first and the last PTS, not just the shift.
+func (r Ring) FrameSpan() (start, end int64) {
+	const timeBase = float64(1.0 / FPS)
+	offset := (float64(r.AtMs) / 1000) / timeBase
+
+	return int64(offset), int64(float64(ringFrames-1)+offset) + 1
+}
+
 // dpWidth is the width of a phone's screen in Android's density-independent
 // pixels, which stand for autodemo's CSS pixels: a ring is sized for a screen
 // this wide (an inference; autodemo films a browser, whose pixels are CSS's).

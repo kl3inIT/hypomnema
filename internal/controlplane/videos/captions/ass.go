@@ -197,7 +197,9 @@ func escape(s string) string {
 
 // assTime is a time as ASS writes it: h:mm:ss.cc.
 func assTime(sec float64) string {
-	cs := int64(math.Round(sec * 100))
+	cs := assCentiseconds(sec)
 
 	return fmt.Sprintf("%d:%02d:%02d.%02d", cs/360000, cs/6000%60, cs/100%60, cs%100)
 }
+
+func assCentiseconds(sec float64) int64 { return int64(math.Round(sec * 100)) }
