@@ -514,7 +514,9 @@ func (s *Service) writeKey(ctx context.Context, d Definition, label, secret stri
 			return "", nil, vaultError(err)
 		}
 
-		return keyVersion(made), func() { s.logged(ctx, "removing a key no Connection uses", s.vault.Delete(ctx, secret)) }, nil
+		return keyVersion(made), func() {
+			s.logged(ctx, "removing a key no Connection uses", s.vault.Delete(ctx, secret))
+		}, nil
 	case err != nil:
 		return "", nil, vaultError(err)
 	}

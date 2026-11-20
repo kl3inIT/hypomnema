@@ -723,7 +723,7 @@ func TestACallWaitingForTheTokenGivesUpAtItsDeadline(t *testing.T) {
 	assert.Less(t, time.Since(start), 600*time.Millisecond, "it gave up at its own deadline")
 
 	w.tokens.set(func(g *googleTokens) { g.delay = 0 })
-	<-slow
+	require.NoError(t, <-slow, "the first call got its token")
 }
 
 // cancelingStore cancels the request as the Connection is saved, as a client that hung up after the key was
@@ -801,8 +801,11 @@ func TestACallReadsKeyAndSettingsFromOneState(t *testing.T) {
 
 	w := newBigQueryWorld(t)
 	w.tokens.set(func(g *googleTokens) { g.perIssuer = true })
-	keyA, _ := serviceAccountKey(t, func(k map[string]any) { k["client_email"] = "a@data-project.iam.gserviceaccount.com" })
-	keyB, _ := serviceAccountKey(t, func(k map[string]any) { k["client_email"] = "b@data-project.iam.gserviceaccount.com" })
+	email := func(address string) func(map[string]any) {
+		return func(k map[string]any) { k["client_email"] = address }
+	}
+	keyA, _ := serviceAccountKey(t, email("a@data-project.iam.gserviceaccount.com"))
+	keyB, _ := serviceAccountKey(t, email("b@data-project.iam.gserviceaccount.com"))
 
 	_, err := w.connectTo(t.Context(), "ga4", keyA, "billing-aaa")
 	require.NoError(t, err)
