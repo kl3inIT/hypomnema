@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"log/slog"
 	"strings"
 	"testing"
@@ -672,4 +674,72 @@ func TestADomainScopedProjectIsOnePart(t *testing.T) {
 	got, err := bigquery.Settings{Datasets: []string{"example.com:my-project.analytics_1"}}.Check("key-project")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"example.com:my-project.analytics_1"}, got.Datasets)
+}
+
+// Scenario (review round 2, P1): BigQuery's error reason is its free text when it is not a documented code: a
+// refused dry run's and a failed job's reasons are repeated only as known codes, and their messages lose what
+// may be a credential.
+func TestReasonsAreRepeatedOnlyAsKnownCodes(t *testing.T) {
+	t.Parallel()
+
+	dry := bigquerytest.New(t)
+	dry.DryRunStatus, dry.DryRunReason, dry.DryRunMessage = 403, "echoedSecretReason42", "Access Denied"
+
+	_, err := client(t, dry, bigquery.Settings{}).Query(t.Context(), bigquery.Request{SQL: "SELECT 1"})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "echoedSecretReason42")
+	assert.Contains(t, err.Error(), "403 error")
+
+	job := bigquerytest.New(t)
+	job.JobErrorReason, job.JobErrorMessage = "leakedReason77", "Query failed: Bearer ya29.echoed-token"
+
+	_, err = client(t, job, bigquery.Settings{}).Query(t.Context(), bigquery.Request{SQL: "SELECT 1"})
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "leakedReason77")
+	assert.NotContains(t, err.Error(), "ya29.echoed-token")
+	assert.Contains(t, err.Error(), "the job failed, error")
+
+	known := bigquerytest.New(t)
+	known.JobErrorReason, known.JobErrorMessage = "resourcesExceeded", "Resources exceeded"
+
+	_, err = client(t, known, bigquery.Settings{}).Query(t.Context(), bigquery.Request{SQL: "SELECT 1"})
+	require.ErrorContains(t, err, "the job failed, resourcesExceeded: Resources exceeded")
+}
+
+// Scenario (review round 2, P2): with the SDK's debug logging on, nothing the SDK writes holds the SQL or a row:
+// its own logger is silenced, and the log holds only the client's job lines.
+func TestTheSDKLogsNoSQLOrRows(t *testing.T) { //nolint:paralleltest // sets the environment and swaps stderr
+	t.Setenv("GOOGLE_SDK_GO_LOGGING_LEVEL", "debug")
+
+	read, write, err := os.Pipe()
+	require.NoError(t, err)
+
+	stderr := os.Stderr
+	os.Stderr = write
+
+	defer func() { os.Stderr = stderr }()
+
+	fake := bigquerytest.New(t)
+	fake.Columns, fake.Rows = []string{"x"}, [][]string{{"rowMarker31337"}}
+
+	c, err := bigquery.New(t.Context(), bigquery.Config{
+		Settings: bigquery.Settings{
+			BillingProject: "billing-project", Datasets: []string{"data-project.analytics_1"},
+			MaxBytesBilled: bigquery.DefaultMaxBytes,
+		},
+		Options: []option.ClientOption{option.WithEndpoint(fake.URL), option.WithoutAuthentication()},
+	})
+	require.NoError(t, err)
+
+	got, err := c.Query(t.Context(), bigquery.Request{SQL: "SELECT 'sqlMarker424242' AS x"})
+	require.NoError(t, err)
+	assert.Equal(t, [][]any{{"rowMarker31337"}}, got.Rows)
+
+	os.Stderr = stderr
+	require.NoError(t, write.Close())
+
+	logged, err := io.ReadAll(read)
+	require.NoError(t, err)
+	assert.NotContains(t, string(logged), "sqlMarker424242")
+	assert.NotContains(t, string(logged), "rowMarker31337")
 }

@@ -80,8 +80,12 @@ type Server struct {
 	ResultsDelay  time.Duration
 	// JobRunning makes jobs.get say the job runs.
 	JobRunning bool
-	// DryRunMessage is the message of a refused dry run.
+	// DryRunMessage and DryRunReason are the message and the reason of a refused dry run.
 	DryRunMessage string
+	DryRunReason  string
+	// JobErrorReason and JobErrorMessage make the ended job fail with that error.
+	JobErrorReason  string
+	JobErrorMessage string
 	// CancelStatus answers jobs.cancel; zero is 200.
 	CancelStatus int
 	// RowStatus answers tabledata.list; zero is 200.
@@ -303,11 +307,19 @@ func (s *Server) insert(w http.ResponseWriter, r *http.Request, project string, 
 			message := s.DryRunMessage
 			s.mu.Unlock()
 
+			s.mu.Lock()
+			reason := s.DryRunReason
+			s.mu.Unlock()
+
 			if message == "" {
 				message = "Syntax error: the fake refused the query"
 			}
 
-			writeError(w, dryStatus, "invalidQuery", message)
+			if reason == "" {
+				reason = "invalidQuery"
+			}
+
+			writeError(w, dryStatus, reason, message)
 
 			return
 		}
@@ -363,21 +375,26 @@ func (s *Server) cancel(w http.ResponseWriter, project, job, location string) {
 func (s *Server) job(w http.ResponseWriter, project, job, location string) {
 	s.mu.Lock()
 	statement, hang := s.JobStatement, s.HangJob || s.JobRunning
+	reason, message := s.JobErrorReason, s.JobErrorMessage
 	s.mu.Unlock()
+
+	status := map[string]any{"state": "DONE"}
+	if reason != "" {
+		status["errorResult"] = map[string]any{"reason": reason, "message": message}
+	}
 
 	if statement == "" {
 		statement = "SELECT"
 	}
 
-	state := "DONE"
 	if hang {
-		state = "RUNNING"
+		status["state"] = "RUNNING"
 	}
 
 	writeJSON(w, map[string]any{
 		"jobReference":  map[string]any{"projectId": project, "jobId": job, "location": location},
 		"configuration": map[string]any{"query": map[string]any{"query": "SELECT"}},
-		"status":        map[string]any{"state": state},
+		"status":        status,
 		"statistics": map[string]any{
 			"creationTime": "1763510400000", "startTime": "1763510400000", "endTime": "1763510401000",
 			"query": map[string]any{

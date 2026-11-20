@@ -235,12 +235,16 @@ type Config struct {
 
 // New returns a Client. It sends nothing.
 func New(ctx context.Context, cfg Config) (*Client, error) {
-	sdk, err := bq.NewClient(ctx, cfg.Settings.BillingProject, cfg.Options...)
+	// The SDK's own logger is silenced: at GOOGLE_SDK_GO_LOGGING_LEVEL=debug it writes each request and answer,
+	// SQL and rows with them, and the log holds only the job lines below (design v3, decision 27).
+	options := append(slices.Clone(cfg.Options), option.WithLogger(slog.New(slog.DiscardHandler)))
+
+	sdk, err := bq.NewClient(ctx, cfg.Settings.BillingProject, options...)
 	if err != nil {
 		return nil, fmt.Errorf("making the BigQuery client: %w", err)
 	}
 
-	rest, err := bqrest.NewService(ctx, cfg.Options...)
+	rest, err := bqrest.NewService(ctx, options...)
 	if err != nil {
 		_ = sdk.Close()
 
@@ -635,6 +639,12 @@ func (c *Client) run(ctx context.Context, r Request, out Result, location string
 
 	job, err := q.Run(ctx)
 	if err != nil {
+		// No token, no request: nothing was sent, so nothing is canceled, and the Connection's key is judged.
+		var tokenErr *TokenError
+		if errors.As(err, &tokenErr) {
+			return out, googleError("submitting job "+out.JobID, err)
+		}
+
 		// The job may have been made though its answer did not come back.
 		return out, c.cancelJob(ctx, out, "its submission got no answer: "+googleCause(err))
 	}
@@ -906,10 +916,16 @@ func googleCause(err error) string {
 	if errors.As(err, &apiErr) {
 		reason := ""
 		if len(apiErr.Errors) > 0 {
-			reason = " " + apiErr.Errors[0].Reason
+			reason = " " + knownReason(apiErr.Errors[0].Reason)
 		}
 
 		return fmt.Sprintf("BigQuery answered %d%s: %s", apiErr.Code, reason, clip(apiErr.Message))
+	}
+
+	// A job's own error: its reason as a known code, its message with any credential taken out.
+	var jobErr *bq.Error
+	if errors.As(err, &jobErr) {
+		return fmt.Sprintf("the job failed, %s: %s", knownReason(jobErr.Reason), clip(jobErr.Message))
 	}
 
 	var tokenErr *TokenError
@@ -933,6 +949,25 @@ func googleCause(err error) string {
 
 		err = next
 	}
+}
+
+// bigqueryReasons are the reasons of BigQuery's documented error table (Google, "Troubleshoot errors"). Only these
+// are repeated; a reason is the service's free text otherwise, and is not (review round 2).
+var bigqueryReasons = []string{
+	"accessDenied", "backendError", "badRequest", "billingNotEnabled", "billingTierLimitExceeded", "blocked",
+	"bytesBilledLimitExceeded", "duplicate", "internalError", "invalid", "invalidQuery", "invalidUser",
+	"jobBackendError", "jobInternalError", "notFound", "notImplemented", "proxyAuthenticationRequired",
+	"quotaExceeded", "rateLimitExceeded", "resourceInUse", "resourcesExceeded", "responseTooLarge", "stopped",
+	"tableUnavailable", "timeout",
+}
+
+// knownReason is the reason when BigQuery documents it, and "error" otherwise.
+func knownReason(reason string) string {
+	if slices.Contains(bigqueryReasons, reason) {
+		return reason
+	}
+
+	return "error"
 }
 
 // AccessError is what BigQuery refused for the account: its IAM.
