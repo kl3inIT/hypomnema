@@ -10682,7 +10682,12 @@ components:
         zone: { type: string, maxLength: 64, description: The IANA time zone of a date or an instant. }
     TodoLinkKind:
       type: string
-      enum: [url, chat_message, mail, run, pull_request, meeting_line, lark_message, zalo_message]
+      description: >-
+        zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account,
+        named by account, chat and its id: the evidence a Bot gives that he answered.
+      enum:
+        [url, chat_message, mail, run, pull_request, meeting_line, lark_message, zalo_message, whatsapp_message,
+         zalo_sent, whatsapp_sent, lark_sent]
     TodoLink:
       type: object
       required: [kind, ref]
@@ -10695,19 +10700,30 @@ components:
           maxLength: 2000
           description: The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
         label: { type: string, maxLength: 300 }
+        account:
+          type: string
+          maxLength: 200
+          description: "The owner's account a message he sent was sent from; zalo_sent, whatsapp_sent, lark_sent only."
+        chat:
+          type: string
+          maxLength: 200
+          description: "The chat a message the owner sent is in, its id at the service; the *_sent kinds only."
+
     TodoSourceKind:
       type: string
       description: >-
-        owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark and
-        zalo, a Bot reading a chat of the owner's own account there.
-      enum: [owner, chat, routine, lark, zalo]
+        owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo
+        and whatsapp, a Bot reading a chat of the owner's own account there.
+      enum: [owner, chat, routine, lark, zalo, whatsapp]
     TodoSource:
       type: object
       required: [kind]
       properties:
         kind: { $ref: "#/components/schemas/TodoSourceKind" }
         id: { type: string, description: "The chat, the Routine's run, or the chat's id at Lark or Zalo." }
-        account: { type: string, description: The owner's Zalo account the chat is in; zalo only. }
+        account:
+          type: string
+          description: The owner's account the chat is in; zalo and whatsapp, and lark when given.
         quote: { type: string, description: The words it came from. }
         ref: { $ref: "#/components/schemas/TodoLink" }
     TodoWhyOpen:
@@ -10749,14 +10765,15 @@ components:
     Todo:
       type: object
       required:
-        [id, revision, title, notes, done_when, due, assignee, state, source, created_by, close_reason, evidence,
-         stale, created_at, updated_at]
+        [id, revision, title, notes, done_when, draft, due, assignee, state, source, created_by, close_reason,
+         evidence, stale, created_at, updated_at]
       properties:
         id: { type: string }
         revision: { type: integer, description: "Starts at 1 and grows with every change; a change carries it." }
         title: { type: string }
         notes: { type: string }
         done_when: { type: string }
+        draft: { type: string, description: The reply a Bot drafted for the owner to send himself. }
         due: { $ref: "#/components/schemas/TodoDue" }
         assignee: { $ref: "#/components/schemas/TodoAssignee" }
         state: { $ref: "#/components/schemas/TodoState" }
@@ -10797,12 +10814,15 @@ components:
     NewTodoSource:
       type: object
       description: >-
-        Where a Bot in a Routine's run found it: kind routine, or lark or zalo with the chat's id there (and the
-        Zalo account). The owner's and a chat's come from the token.
+        Where a Bot in a Routine's run found it: kind routine, or lark, zalo or whatsapp with the chat's id there
+        (and the account). The owner's and a chat's come from the token.
       properties:
         kind: { $ref: "#/components/schemas/TodoSourceKind" }
-        id: { type: string, maxLength: 200, description: "The chat's id at Lark or Zalo; lark and zalo only." }
-        account: { type: string, maxLength: 200, description: The owner's Zalo account the chat is in. }
+        id: { type: string, maxLength: 200, description: "The chat's id at Lark, Zalo or WhatsApp; those only." }
+        account:
+          type: string
+          maxLength: 200
+          description: The owner's account the chat is in; required for zalo and whatsapp.
         quote: { type: string, maxLength: 2000 }
         ref: { $ref: "#/components/schemas/TodoLink" }
     NewTodo:
@@ -10812,6 +10832,7 @@ components:
         title: { type: string, minLength: 1, maxLength: 300 }
         notes: { type: string, maxLength: 20000 }
         done_when: { type: string, maxLength: 1000 }
+        draft: { type: string, maxLength: 20000 }
         due: { $ref: "#/components/schemas/TodoDue" }
         assignee: { $ref: "#/components/schemas/TodoAssignee" }
         state: { type: string, enum: [open, proposed] }
@@ -10835,6 +10856,7 @@ components:
         title: { type: string, minLength: 1, maxLength: 300 }
         notes: { type: string, maxLength: 20000 }
         done_when: { type: string, maxLength: 1000 }
+        draft: { type: string, maxLength: 20000 }
         due: { $ref: "#/components/schemas/TodoDue" }
         assignee: { $ref: "#/components/schemas/TodoAssignee" }
     TodoDone:

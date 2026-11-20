@@ -333,6 +333,11 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 		args = append(args, q.Chat)
 	}
 
+	if q.ID != "" {
+		where = append(where, "m.msg_id = ?")
+		args = append(args, q.ID)
+	}
+
 	if !q.Before.IsZero() {
 		where = append(where, "m.ts < ?")
 		args = append(args, q.Before.UnixMilli())

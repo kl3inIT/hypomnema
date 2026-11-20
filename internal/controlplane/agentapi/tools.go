@@ -33,6 +33,7 @@ import (
 //     his turn only; a worker never;
 //   - routines (routines.go): a Bot's pi only, its own Bot's; a worker never,
 //     as Hermes keeps cronjob_manage from its sub-agents;
+//   - inbox_* (inbox.go, issue #1004): a Bot's pi only, as routines;
 //   - the browser's: a worker and a Bot's pi (issue #536, step 4), each in its
 //     own tab (agent.key: a worker's its Dispatch's, a pi's its chat's);
 //   - node_exec, node_process, node_process_kill (nodes.go, issue #543): a
@@ -71,6 +72,8 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	if t, ok := routineTool(a); ok {
 		out = append(out, t)
 	}
+
+	out = append(out, inboxTools(a)...)
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
 	out = append(out, s.supersetToolList(ctx, a)...)
@@ -205,6 +208,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		s.artifactCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolRoutines && makesRoutines(a):
 		s.routineCall(w, r, a, asked)
+	case isInboxTool(asked.Tool) && keepsInbox(a):
+		s.inboxCall(w, r, a, asked)
 	case slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool):
 		s.gatewayCall(w, r, a, asked)
 	case s.hasBrowser(a):

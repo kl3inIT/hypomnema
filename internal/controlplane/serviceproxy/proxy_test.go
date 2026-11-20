@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -111,6 +112,8 @@ type world struct {
 	chat    string
 	// rechecked gets each Connection whose access the proxy reads again (issue #567).
 	rechecked chan string
+	// todo is the Inbox item the next tunnels are opened for (agenttool.HeaderTodo, issue #1004).
+	todo string
 }
 
 // newWorld is a control plane with the owner's Google account "work", which
@@ -252,6 +255,10 @@ func (w *world) openAs(integration, key, label, host, chat, runKey string) (tl *
 
 	if runKey != "" {
 		header.Set(agenttool.HeaderRoutineRun, runKey)
+	}
+
+	if w.todo != "" {
+		header.Set(agenttool.HeaderTodo, w.todo)
 	}
 
 	//nolint:bodyclose // The library closes the handshake's body.
@@ -1347,4 +1354,58 @@ func TestAToolRunByTheLauncherReachesTheServiceThroughTheProxy(t *testing.T) {
 	require.Len(t, received, 1)
 	assert.Equal(t, "https://gmail.googleapis.com/gmail/v1/users/me/profile", received[0].URL)
 	assert.Equal(t, "Bearer "+realToken, received[0].Authorization)
+}
+
+// Scenario: issue #1004, section 5. A Bot's pi sends a mail through its tool for the Inbox item it is doing,
+// naming it (HYPOMNEMA_TODO, sent on the tunnel's opening): the Approval records the item's attempt and the item
+// waits in review; the owner's yes puts it back to doing, and the mail goes. A tunnel naming an item the Bot is not
+// doing is refused before anything reaches the service.
+func TestAMailSentForAnItemPutsItInReview(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	ctx := t.Context()
+
+	secret, err := w.svc.AddBotToken(ctx, "pi", w.chat, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	bot := inboxstore.Actor{Kind: inboxstore.Bot, ID: orchestration.DefaultBotID}
+	td, err := w.svc.Inbox().Create(ctx, inboxstore.Actor{Kind: inboxstore.Owner}, inboxstore.NewTodo{
+		Title: "Answer Minh about the invoice", State: inboxstore.Open,
+		Source:   inboxstore.Source{Kind: inboxstore.ByHand},
+		Assignee: inboxstore.Assignee{Kind: inboxstore.ABot, Name: orchestration.DefaultBotID},
+	})
+	require.NoError(t, err)
+
+	w.todo = td.ID
+	_, refused := w.open(secret, "work", "gmail.googleapis.com", "")
+	assert.Equal(t, http.StatusConflict, refused, "the Bot is not doing the item yet")
+
+	td, err = w.svc.Inbox().Start(ctx, inboxstore.Change{Actor: bot, ID: td.ID, Revision: td.Revision},
+		inboxstore.Work{Kind: inboxstore.WorkChat, ID: w.chat})
+	require.NoError(t, err)
+
+	gmail, refused := w.open(secret, "work", "gmail.googleapis.com", "")
+	require.Zero(t, refused)
+
+	contentType, body := mail("minh@example.com", "Re: October invoice", "Received.", 1)
+
+	answered := make(chan answer, 1)
+	go func() { answered <- gmail.do(http.MethodPost, sendPath, contentType, body) }()
+
+	asked := w.pending()
+	assert.Equal(t, td.Work.Attempt, asked.AttemptID)
+
+	waiting, err := w.svc.Inbox().Get(ctx, td.ID)
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Review, waiting.State)
+	assert.Equal(t, asked.ID, waiting.ApprovalID)
+
+	_, err = w.proxy.Decide(ctx, asked.ID, true, orchestration.ScopeOnce)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, (<-answered).Status)
+
+	again, err := w.svc.Inbox().Get(ctx, td.ID)
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Doing, again.State, "approved, the Bot goes on with the item")
 }

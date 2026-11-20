@@ -94,6 +94,28 @@ func (s *Store) change(
 	var got Todo
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		var err error
+		got, err = s.changeTx(ctx, q, now, c, kind, apply)
+
+		return err
+	})
+	if err != nil {
+		return Todo{}, err
+	}
+
+	// The item as this change left it, or as it was when nothing changed: read in the change's transaction.
+	return got, nil
+}
+
+// changeTx is change with the caller's transaction: the system's transitions are made in the transaction of what
+// causes them (an Approval asked or answered, a chat deleted, a Routine's run ended), so neither outlives the other.
+func (s *Store) changeTx(
+	ctx context.Context, q *store.Queries, now int64, c Change, kind string,
+	apply func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (extra map[string]any, err error),
+) (Todo, error) {
+	var got Todo
+
+	err := func() error {
 		cur, err := q.GetTodo(ctx, c.ID)
 		if err != nil {
 			return storeutil.NotFound(err, "to-do", c.ID)
@@ -151,7 +173,7 @@ func (s *Store) change(
 		}
 
 		n, err := q.UpdateTodo(ctx, store.UpdateTodoParams{
-			Title: next.Title, Notes: next.Notes, DoneWhen: next.DoneWhen, DueKind: next.DueKind,
+			Title: next.Title, Notes: next.Notes, DoneWhen: next.DoneWhen, Draft: next.Draft, DueKind: next.DueKind,
 			DueDate: next.DueDate, DueZone: next.DueZone, DueAt: next.DueAt, OverdueAt: next.OverdueAt,
 			AssigneeKind: next.AssigneeKind, Assignee: next.Assignee, State: next.State,
 			SnoozedUntil: next.SnoozedUntil, WorkAttempt: next.WorkAttempt, WorkKind: next.WorkKind, WorkID: next.WorkID,
@@ -184,14 +206,13 @@ func (s *Store) change(
 		got, err = s.get(ctx, q, c.ID)
 
 		return err
-	})
-	if err != nil {
-		return Todo{}, err
-	}
+	}()
 
-	// The item as this change left it, or as it was when nothing changed: read in the change's transaction.
-	return got, nil
+	return got, err
 }
+
+// applyFunc makes the next row of a change from the row read, or refuses it; extra goes into the event's after.
+type applyFunc = func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (extra map[string]any, err error)
 
 // Accept opens a proposed to-do; only the owner does.
 func (s *Store) Accept(ctx context.Context, c Change) (Todo, error) {
@@ -246,51 +267,57 @@ func (s *Store) Start(ctx context.Context, c Change, w Work) (Todo, error) {
 // attempt did not ask (the Approval's AttemptID is another or none): another item's in the same chat or Run, an
 // earlier attempt's at this item, or one asked outside any attempt. The chat or Run is only where the attempt works.
 func (s *Store) LinkApproval(ctx context.Context, c Change, approvalID string) (Todo, error) {
-	return s.change(ctx, c, EventLinkedApproval,
-		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
-			if cur.State == Review {
-				return nil, fmt.Errorf("%w: to-do %s already waits for Approval %s", storeerr.ErrConflict, cur.ID,
-					cur.ApprovalID.String)
-			}
+	return s.change(ctx, c, EventLinkedApproval, linkApproval(ctx, approvalID))
+}
 
-			a, err := q.GetApproval(ctx, approvalID)
-			if err != nil {
-				return nil, storeutil.NotFound(err, "Approval", approvalID)
-			}
+func linkApproval(ctx context.Context, approvalID string) applyFunc {
+	return func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
+		if cur.State == Review {
+			return nil, fmt.Errorf("%w: to-do %s already waits for Approval %s", storeerr.ErrConflict, cur.ID,
+				cur.ApprovalID.String)
+		}
 
-			if a.Status != "pending" {
-				return nil, fmt.Errorf("%w: Approval %s is %s, not pending", storeerr.ErrConflict, a.ID, a.Status)
-			}
+		a, err := q.GetApproval(ctx, approvalID)
+		if err != nil {
+			return nil, storeutil.NotFound(err, "Approval", approvalID)
+		}
 
-			if cur.State != Doing {
-				return nil, fmt.Errorf("%w: to-do %s is %s, not doing", storeerr.ErrConflict, cur.ID, cur.State)
-			}
+		if a.Status != "pending" {
+			return nil, fmt.Errorf("%w: Approval %s is %s, not pending", storeerr.ErrConflict, a.ID, a.Status)
+		}
 
-			if !a.AttemptID.Valid || a.AttemptID.String != cur.WorkAttempt.String {
-				return nil, fmt.Errorf("%w: Approval %s was not asked in the attempt on to-do %s", storeerr.ErrConflict,
-					a.ID, cur.ID)
-			}
+		if cur.State != Doing {
+			return nil, fmt.Errorf("%w: to-do %s is %s, not doing", storeerr.ErrConflict, cur.ID, cur.State)
+		}
 
-			next.State = Review
-			next.ApprovalID = nullString(approvalID)
+		if !a.AttemptID.Valid || a.AttemptID.String != cur.WorkAttempt.String {
+			return nil, fmt.Errorf("%w: Approval %s was not asked in the attempt on to-do %s", storeerr.ErrConflict,
+				a.ID, cur.ID)
+		}
 
-			return nil, nil
-		})
+		next.State = Review
+		next.ApprovalID = nullString(approvalID)
+
+		return nil, nil
+	}
 }
 
 // ApprovalApproved puts a to-do in review back to doing once the owner approved its Approval: the attempt goes on
 // (the service proxy continues a call on approval).
 func (s *Store) ApprovalApproved(ctx context.Context, c Change) (Todo, error) {
-	return s.change(ctx, c, EventState,
-		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
-			if err := decided(ctx, q, cur, "approved"); err != nil {
-				return nil, err
-			}
+	return s.change(ctx, c, EventState, approved(ctx))
+}
 
-			next.State = Doing
+func approved(ctx context.Context) applyFunc {
+	return func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
+		if err := decided(ctx, q, cur, "approved"); err != nil {
+			return nil, err
+		}
 
-			return nil, nil
-		})
+		next.State = Doing
+
+		return nil, nil
+	}
 }
 
 // ApprovalEnded opens a to-do in review again once its Approval was rejected or expired; the attempt is cleared and
@@ -300,16 +327,19 @@ func (s *Store) ApprovalEnded(ctx context.Context, c Change, reason string) (Tod
 		return Todo{}, err
 	}
 
-	return s.change(ctx, c, EventState,
-		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
-			if err := decided(ctx, q, cur, "rejected"); err != nil {
-				return nil, err
-			}
+	return s.change(ctx, c, EventState, ended(ctx, reason))
+}
 
-			next.State = Open
+func ended(ctx context.Context, reason string) applyFunc {
+	return func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
+		if err := decided(ctx, q, cur, "rejected"); err != nil {
+			return nil, err
+		}
 
-			return reasonOf(reason), nil
-		})
+		next.State = Open
+
+		return reasonOf(reason), nil
+	}
 }
 
 // decided checks that the item is in review and its Approval has the status the owner's answer gives it; an
@@ -338,16 +368,117 @@ func (s *Store) Release(ctx context.Context, c Change, reason string) (Todo, err
 		return Todo{}, err
 	}
 
-	return s.change(ctx, c, EventState,
-		func(_ *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
-			if cur.State != Doing {
-				return nil, fmt.Errorf("%w: to-do %s is %s, not doing", storeerr.ErrConflict, cur.ID, cur.State)
+	return s.change(ctx, c, EventState, released(reason))
+}
+
+func released(reason string) applyFunc {
+	return func(_ *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
+		if cur.State != Doing {
+			return nil, fmt.Errorf("%w: to-do %s is %s, not doing", storeerr.ErrConflict, cur.ID, cur.State)
+		}
+
+		next.State = Open
+
+		return reasonOf(reason), nil
+	}
+}
+
+// The system's transitions (issue #1004), each made in the transaction of what causes it, as the system Actor
+// named after it.
+var (
+	byApprovals = Actor{Kind: System, ID: "approvals"}
+	byChats     = Actor{Kind: System, ID: "chats"}
+	byRoutines  = Actor{Kind: System, ID: "routines"}
+)
+
+// LinkApprovalTx puts the item the attempt is on in review while the pending Approval approvalID, which the attempt
+// asked, waits for the owner: the control plane recorded the attempt on the Approval from the item the Bot named
+// (orchestration's NewApproval.AttemptID), so the Bot never handles attempt ids. Nothing changes when no item is
+// doing in that attempt any more (released, closed, or already waiting for this Approval).
+func (s *Store) LinkApprovalTx(ctx context.Context, q *store.Queries, now int64, approvalID, attempt string) error {
+	cur, err := q.GetTodoOfAttempt(ctx, nullString(attempt))
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("reading the to-do of attempt %s: %w", attempt, err)
+	case cur.State != Doing:
+		return nil
+	}
+
+	_, err = s.changeTx(ctx, q, now, Change{Actor: byApprovals, ID: cur.ID, Revision: int(cur.Revision)},
+		EventLinkedApproval, linkApproval(ctx, approvalID))
+
+	return err
+}
+
+// ApprovalAnsweredTx moves the item that waits for an Approval the owner answered: back to doing when he approved
+// it, open with the reason when he rejected it or nobody answered in time. Nothing changes when no item waits for
+// it.
+func (s *Store) ApprovalAnsweredTx(ctx context.Context, q *store.Queries, now int64, approvalID string, ok bool,
+	reason string,
+) error {
+	cur, err := q.GetTodoOfApproval(ctx, nullString(approvalID))
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("reading the to-do of Approval %s: %w", approvalID, err)
+	}
+
+	apply := ended(ctx, reason)
+	if ok {
+		apply = approved(ctx)
+	}
+
+	_, err = s.changeTx(ctx, q, now, Change{Actor: byApprovals, ID: cur.ID, Revision: int(cur.Revision)}, EventState,
+		apply)
+
+	return err
+}
+
+// EndAttemptsTx gives back to open, with the reason, every item a Bot is doing in a chat that is deleted or a
+// Routine's run that ended (Chatwoot's bot_handoff!; Coder ends an agent's token with its build), and every item there
+// in review whose Approval was refused meanwhile (a run's open Approvals are when it ends). An item whose Approval
+// still waits stays in review: the owner's answer moves it (ApprovalAnsweredTx).
+func (s *Store) EndAttemptsTx(ctx context.Context, q *store.Queries, now int64, kind, id, reason string) error {
+	rows, err := q.ListTodosOfWork(ctx, store.ListTodosOfWorkParams{
+		WorkKind: nullString(kind), WorkID: nullString(id),
+	})
+	if err != nil {
+		return fmt.Errorf("reading the to-dos worked on in %s %s: %w", kind, id, err)
+	}
+
+	actor := byChats
+	if kind == WorkRun {
+		actor = byRoutines
+	}
+
+	for _, cur := range rows {
+		apply := released(reason)
+
+		if cur.State == Review {
+			a, err := q.GetApproval(ctx, cur.ApprovalID.String)
+			if err != nil {
+				return storeutil.NotFound(err, "Approval", cur.ApprovalID.String)
 			}
 
-			next.State = Open
+			if a.Status != "rejected" {
+				continue
+			}
 
-			return reasonOf(reason), nil
-		})
+			apply = ended(ctx, reason)
+		}
+
+		if _, err := s.changeTx(ctx, q, now, Change{Actor: actor, ID: cur.ID, Revision: int(cur.Revision)}, EventState,
+			apply); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Closing is what Done records.
@@ -396,6 +527,21 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 		return Todo{}, fmt.Errorf("writing the evidence: %w", err)
 	}
 
+	// A message the owner sent is read before the write, from a store or an API outside this database; what it is
+	// checked against (the item's source and when it was made) never changes after the item is made.
+	sent := false
+
+	if forOwner && slices.ContainsFunc(cl.Evidence, func(l Link) bool { return sentService[l.Kind] != "" }) {
+		t, err := s.Get(ctx, c.ID)
+		if err != nil {
+			return Todo{}, err
+		}
+
+		if sent, err = s.ownerSent(ctx, t, cl.Evidence); err != nil {
+			return Todo{}, err
+		}
+	}
+
 	return s.change(ctx, c, EventState,
 		func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (map[string]any, error) {
 			if err := checkAssignee(ctx, q, cl.DoneBy); err != nil {
@@ -408,7 +554,13 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 				return nil, fmt.Errorf("%w: a Bot closes as its own only the to-do it is doing", storeerr.ErrForbidden)
 			}
 
-			if forOwner {
+			if c.Actor.Kind == Bot {
+				if err := notAnotherBots(cur, c.Actor); err != nil {
+					return nil, err
+				}
+			}
+
+			if forOwner && !sent {
 				if err := ownersMessage(ctx, q, c, cur, cl.Evidence); err != nil {
 					return nil, err
 				}
@@ -480,8 +632,57 @@ func ownersMessage(ctx context.Context, q *store.Queries, c Change, cur store.To
 		}
 	}
 
-	return fmt.Errorf("%w: a Bot recording for the owner gives as evidence his message in the to-do's chat",
-		storeerr.ErrInvalid)
+	return fmt.Errorf("%w: a Bot recording for the owner gives as evidence his message in the to-do's chat, or the "+
+		"message he sent himself in the to-do's Zalo, WhatsApp or Lark chat after it was made", storeerr.ErrInvalid)
+}
+
+// ownerSent says whether a message the owner sent is evidence that he answered the item (issue #1004; owner,
+// 2026-11-21: done when he sends): a LinkZaloSent, LinkWhatsAppSent or LinkLarkSent in the item's own chat at that
+// service (its source, account and chat), that the server keeps of that account or the service's API returns, that
+// he sent himself and that is later than the item. claude-chief-of-staff reads the Sent mail to skip a thread
+// already answered (commands/triage.md:65); matching on the owner's own outgoing message is inference from the
+// business analysis.
+func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (bool, error) {
+	if s.sent == nil {
+		return false, fmt.Errorf("%w: the messages the owner sent cannot be read on this control plane",
+			storeerr.ErrUnavailable)
+	}
+
+	for _, l := range evidence {
+		service := sentService[l.Kind]
+		if service == "" || t.Source.Kind != service || l.Chat != t.Source.ID ||
+			(t.Source.Account != "" && l.Account != t.Source.Account) {
+			continue
+		}
+
+		m, err := s.sent.SentMessage(ctx, service, l.Account, l.Chat, l.Ref)
+
+		switch {
+		case errors.Is(err, storeerr.ErrNotFound):
+			continue
+		case err != nil:
+			return false, err
+		case m.FromMe && m.Chat == l.Chat && m.At.After(t.CreatedAt):
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+// notAnotherBots refuses a Bot closing or dropping an item that is another Bot's: given to another, or added by
+// another and not given to this one. An item the owner added stays his to record, with his message.
+func notAnotherBots(cur store.Todo, bot Actor) error {
+	other := cur.AssigneeKind == ABot && cur.Assignee != bot.ID
+	if cur.AssigneeKind != ABot {
+		other = cur.CreatedByKind == Bot && cur.CreatedBy != bot.ID
+	}
+
+	if other {
+		return fmt.Errorf("%w: to-do %s is another Bot's", storeerr.ErrForbidden, cur.ID)
+	}
+
+	return nil
 }
 
 // Drop closes a proposed, open or doing to-do as dropped, with its reason; the owner does, or a Bot recording it
@@ -503,6 +704,10 @@ func (s *Store) Drop(ctx context.Context, c Change, reason string, evidence []Li
 	return s.change(ctx, c, EventState,
 		func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (map[string]any, error) {
 			if c.Actor.Kind == Bot {
+				if err := notAnotherBots(cur, c.Actor); err != nil {
+					return nil, err
+				}
+
 				if err := ownersMessage(ctx, q, c, cur, evidence); err != nil {
 					return nil, err
 				}
@@ -597,12 +802,14 @@ type Edit struct {
 	Title    *string
 	Notes    *string
 	DoneWhen *string
+	Draft    *string
 	Due      *Due
 	Assignee *Assignee
 }
 
 // Edit changes the fields of a to-do that is not closed. The owner edits any; a Bot only the items it created or
-// that are assigned to it, and not their assignee. An item in doing or review keeps its assignee while the Bot's
+// that are assigned to it, and not their assignee, except to hand the item back to the owner (Me) with the reply it
+// drafted (issue #1004). An item in doing or review keeps its assignee while the Bot's
 // attempt is on it: the attempt is released, closed or its Approval answered first, so the old Bot writes nothing
 // more and the new one can start.
 func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
@@ -634,9 +841,9 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 			if c.Actor.Kind == Bot {
 				mine := (cur.CreatedByKind == Bot && cur.CreatedBy == c.Actor.ID) ||
 					(cur.AssigneeKind == ABot && cur.Assignee == c.Actor.ID)
-				if !mine || e.Assignee != nil {
-					return nil, fmt.Errorf("%w: a Bot edits only the to-dos it added or is given, and not who does them",
-						storeerr.ErrForbidden)
+				if !mine || (e.Assignee != nil && e.Assignee.Kind != Me) {
+					return nil, fmt.Errorf("%w: a Bot edits only the to-dos it added or is given, and gives them only "+
+						"back to the owner", storeerr.ErrForbidden)
 				}
 			}
 
@@ -650,6 +857,14 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 
 			if e.DoneWhen != nil {
 				next.DoneWhen = *e.DoneWhen
+			}
+
+			if e.Draft != nil {
+				if err := checkDraft(*e.Draft); err != nil {
+					return nil, err
+				}
+
+				next.Draft = *e.Draft
 			}
 
 			if err := checkText(next.Title, next.Notes, next.DoneWhen); err != nil {
@@ -717,7 +932,7 @@ func nonNil(l []Link) []Link {
 // fields are the fields of a to-do an event shows, by their names in the table.
 func fields(r store.Todo) map[string]any {
 	m := map[string]any{
-		"title": r.Title, "notes": r.Notes, "done_when": r.DoneWhen, "due_kind": r.DueKind,
+		"title": r.Title, "notes": r.Notes, "done_when": r.DoneWhen, "draft": r.Draft, "due_kind": r.DueKind,
 		"assignee_kind": r.AssigneeKind, "assignee": r.Assignee, "state": r.State, "source_kind": r.SourceKind,
 		"close_reason": r.CloseReason, "evidence": json.RawMessage(r.Evidence),
 	}

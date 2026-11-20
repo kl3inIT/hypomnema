@@ -1026,6 +1026,7 @@ type Todo struct {
 	Title           string
 	Notes           string
 	DoneWhen        string
+	Draft           string
 	DueKind         string
 	DueDate         sql.NullString
 	DueZone         sql.NullString

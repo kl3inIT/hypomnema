@@ -70,6 +70,8 @@ type Caller struct {
 	// Approvals are shown there, whatever chat the request names.
 	ChatID  string
 	ReadRun bool
+	// Bot is the Bot of a pi's own token, by whose attempt at an Inbox item a request may be made (issue #1004).
+	Bot string
 }
 
 // Agents says who a request's credential belongs to and what it may use: the
@@ -94,6 +96,8 @@ type Store interface {
 	ConnectionOf(ctx context.Context, integration, label string) (orchestration.Connection, error)
 	// HostKinds says the kind of a git host, whose catalog is its kind's (GitLab's, issue #740).
 	HostKinds
+	// InboxAttempt is a Bot's attempt at the Inbox item it names, which the Approvals it asks record (issue #1004).
+	InboxAttempt(ctx context.Context, todoID, bot, chatID string) (string, error)
 }
 
 // Recheck reads again what a Connection's account can do and keeps it (issue #567): the control plane's own
@@ -197,7 +201,10 @@ type session struct {
 	label       string
 	chatID      string
 	// runKey is the key of the Routine's run whose script asks (issue #211); a prompt run is known by its chat.
-	runKey  string
+	runKey string
+	// attempt is the attempt at an Inbox item the requests are made in, from the item a Bot's pi named (issue
+	// #1004).
+	attempt string
 	host    string
 	catalog Catalog
 }
@@ -266,6 +273,26 @@ func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.chatID = caller.ChatID
+
+		// The Inbox item a Bot works on, named by its tool (agenttool.HeaderTodo): what it asks waits as the item's.
+		if todo := r.Header.Get(agenttool.HeaderTodo); todo != "" {
+			attempt, err := p.cfg.Store.InboxAttempt(r.Context(), todo, caller.Bot, s.chatID)
+
+			switch {
+			case errors.Is(err, orchestration.ErrConflict) || errors.Is(err, orchestration.ErrNotFound):
+				refuse(w, http.StatusConflict, err.Error())
+
+				return
+			case err != nil:
+				p.cfg.Logger.ErrorContext(r.Context(), "the proxy could not read the Inbox item an agent named",
+					slog.String("event", "serviceproxy.failed"), slog.String("error", err.Error()))
+				refuse(w, http.StatusInternalServerError, "the control plane could not answer; try again")
+
+				return
+			}
+
+			s.attempt = attempt
+		}
 	}
 
 	conn, err := websocket.Accept(w, r, nil)
@@ -607,7 +634,8 @@ func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking,
 
 	approval, granted, err := p.cfg.Store.AskApproval(ctx, orchestration.NewApproval{
 		Integration: s.integration, Label: s.label, Action: action.ID, ActionName: action.Name,
-		DispatchID: s.caller.DispatchID, ChatID: s.chatID, RunKey: s.runKey, AskedBy: askedBy, Title: q.title,
+		DispatchID: s.caller.DispatchID, ChatID: s.chatID, RunKey: s.runKey, AttemptID: s.attempt, AskedBy: askedBy,
+		Title:     q.title,
 		Payload:   q.fields,
 		MatchHash: q.hash,
 	})

@@ -58,6 +58,25 @@ const (
 	ToolZaloSend     = "zalo_send"
 )
 
+// The Inbox's tools (issue #1004): a Bot's pi keeps the owner's to-dos, over the Inbox's store (#845) as the client
+// API does (#966); Orca's `bot item add / set / done / cancel`, Hermes's kanban tools.
+const (
+	ToolInboxList    = "inbox_list"
+	ToolInboxGet     = "inbox_get"
+	ToolInboxAdd     = "inbox_add"
+	ToolInboxUpdate  = "inbox_update"
+	ToolInboxStart   = "inbox_start"
+	ToolInboxRelease = "inbox_release"
+	ToolInboxDone    = "inbox_done"
+	ToolInboxDrop    = "inbox_drop"
+)
+
+// InboxTools are the Inbox's tools.
+var InboxTools = []string{
+	ToolInboxList, ToolInboxGet, ToolInboxAdd, ToolInboxUpdate, ToolInboxStart, ToolInboxRelease, ToolInboxDone,
+	ToolInboxDrop,
+}
+
 const (
 	ToolAccountRead = "account_read"
 	ReadRunRefusal  = "This run reads only; do not try another way."
@@ -146,6 +165,21 @@ var ToolFamilies = []ToolFamily{
 			"is not there already, set it, then run it once and tell him what that run did. A Routine's script has " +
 			"commands, not tools: it reads Superset with `hypomnema superset chart` and refreshes an artifact with " +
 			"`hypomnema artifact show --id <id> --path <folder>`."},
+	{Name: "inbox", Description: "Keep the owner's to-dos in the Inbox (a Bot only)", Pattern: "inbox_*",
+		Tools: InboxTools,
+		// The Bots' rules of the Inbox (issue #1004, section 8), after Orca's botItemRules (bot-preamble.ts:47).
+		WhenToUse: "Keep the owner's to-dos in the Inbox with the inbox_* tools. Add one for each direct ask to " +
+			"him that he has not answered and each promise he makes, with the quote and the message it came " +
+			"from; one you only infer is proposed. An ask is two items: \"Reply to <person>\" due today, since " +
+			"everyone gets an answer the same day, and, when it asks for work, that work with its own due date. " +
+			"Waiting on someone is an item given to that person, due the day to chase them (2 days when none is " +
+			"said). For a reply, draft it in his voice, attach it with inbox_update draft and hand_back, so it " +
+			"waits in Needs you: never send a message to a client or a boss yourself. Close an item with " +
+			"inbox_done and evidence of what was done; close his item only with his own message: in this chat, " +
+			"or the one he sent in the item's Zalo, WhatsApp or Lark chat after it was made (zalo_sent, " +
+			"whatsapp_sent, lark_sent). Edit and close only your own items. A send you make while working on an " +
+			"item names it (todo, or HYPOMNEMA_TODO=<id> before the command) and waits for his approval in " +
+			"review."},
 	{Name: "web", Description: "Search the web and read pages", Pattern: "web_*",
 		Tools: []string{ToolWebSearch, ToolWebFetch},
 		WhenToUse: "Search the web with web_search for what may have changed since your training or to find a " +
