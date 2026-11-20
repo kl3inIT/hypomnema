@@ -80,6 +80,7 @@ type chatBody struct {
 	TopP              *float64          `json:"top_p"`
 	Stop              json.RawMessage   `json:"stop"`
 	ReasoningEffort   string            `json:"reasoning_effort"`
+	OutputConfig      item              `json:"output_config"`
 	System            json.RawMessage   `json:"system"`
 }
 
@@ -117,7 +118,7 @@ func BuildRequest(chat []byte, opt Options) (Request, error) {
 		body["tool_choice"] = choice
 	}
 
-	applyThinking(body, in.ReasoningEffort, in.Temperature != nil || in.TopP != nil)
+	applyThinking(body, opt.Model, in.ReasoningEffort, in.OutputConfig, in.Temperature != nil || in.TopP != nil)
 
 	if in.Temperature != nil {
 		if _, pinned := body["temperature"]; !pinned {

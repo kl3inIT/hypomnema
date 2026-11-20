@@ -675,20 +675,62 @@ func TestBuildRequestFillsMaxTokens(t *testing.T) {
 	assert.Positive(t, body["max_tokens"], "max_tokens is filled")
 }
 
-// Scenario: reasoning_effort turns into a Messages thinking budget.
+// Scenario: reasoning_effort turns into the thinking a model takes: adaptive
+// with output_config.effort for Haiku 5.5, Opus 4.6+ and the like (a budget
+// is refused there with a 400), a budget for older models (issue #986).
 func TestBuildRequestTranslatesThinking(t *testing.T) {
 	t.Parallel()
 
-	built, err := claude.BuildRequest(
-		[]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"high"}`),
-		claude.Options{Model: "claude-opus-5-5"})
-	require.NoError(t, err)
+	tests := []struct {
+		name, model, extra string
+		thinking           map[string]any // nil: no thinking
+		effort             any            // nil: no output_config
+	}{
+		{name: "haiku 5.5 is adaptive", model: "claude-haiku-5-5", extra: `"reasoning_effort":"high"`,
+			thinking: map[string]any{"type": "adaptive"}, effort: "high"},
+		{name: "opus 5.5 is adaptive", model: "claude-opus-5-5", extra: `"reasoning_effort":"high"`,
+			thinking: map[string]any{"type": "adaptive"}, effort: "high"},
+		{name: "a dotted name is matched", model: "claude-haiku-5.5", extra: `"reasoning_effort":"low"`,
+			thinking: map[string]any{"type": "adaptive"}, effort: "low"},
+		{name: "minimal is low", model: "claude-sonnet-5-5", extra: `"reasoning_effort":"minimal"`,
+			thinking: map[string]any{"type": "adaptive"}, effort: "low"},
+		{name: "xhigh stays where listed", model: "claude-opus-5-5", extra: `"reasoning_effort":"xhigh"`,
+			thinking: map[string]any{"type": "adaptive"}, effort: "xhigh"},
+		{name: "xhigh is high on a 4.6 model", model: "claude-opus-4-6", extra: `"reasoning_effort":"xhigh"`,
+			thinking: map[string]any{"type": "adaptive"}, effort: "high"},
+		{name: "a client's effort is kept", model: "claude-opus-5-5",
+			extra:    `"reasoning_effort":"high","output_config":{"effort":"max"}`,
+			thinking: map[string]any{"type": "adaptive"}, effort: "max"},
+		{name: "an older model gets a budget", model: "claude-sonnet-4-5-20250929", extra: `"reasoning_effort":"high"`,
+			thinking: map[string]any{"type": "enabled", "budget_tokens": float64(24576)}},
+		{name: "none adds no thinking", model: "claude-haiku-5-5", extra: `"reasoning_effort":"none"`},
+		{name: "none adds no budget", model: "claude-sonnet-4-5-20250929", extra: `"reasoning_effort":"none"`},
+	}
 
-	body := decode(t, built)
-	thinking, ok := body["thinking"].(map[string]any)
-	require.True(t, ok, "thinking is set")
-	assert.Equal(t, "enabled", thinking["type"])
-	assert.Positive(t, thinking["budget_tokens"])
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			built, err := claude.BuildRequest(
+				[]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],`+tc.extra+`}`),
+				claude.Options{Model: tc.model, Plain: true})
+			require.NoError(t, err)
+
+			body := decode(t, built)
+
+			if tc.thinking == nil {
+				assert.NotContains(t, body, "thinking")
+			} else {
+				assert.Equal(t, tc.thinking, body["thinking"])
+			}
+
+			if tc.effort == nil {
+				assert.NotContains(t, body, "output_config")
+			} else {
+				assert.Equal(t, map[string]any{"effort": tc.effort}, body["output_config"])
+			}
+		})
+	}
 }
 
 // event wraps a Messages SSE payload as one data frame.

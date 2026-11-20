@@ -3537,8 +3537,11 @@ capabilities do not exist yet.
   and reroutes a request that does not look like Claude Code's; the owner chose to build it knowing that, so the
   provider dresses each request as Claude Code's, which is what makes it work at all.
   - `modelgateway/claude` holds the translation. A chat body becomes an Anthropic Messages body: system messages
-    lifted out, a tool call and its result tied by a sanitized id, turns of one role merged, `reasoning_effort` a
-    thinking budget, `max_tokens` filled when absent.
+    lifted out, a tool call and its result tied by a sanitized id, turns of one role merged, `reasoning_effort`
+    thinking in the form the model takes (issue #986, 9router's `capabilities.js` table): adaptive with
+    `output_config.effort` for Haiku 5.5, Sonnet 4.6+ and 5.x, Opus 4.6+ and 5.x and Fable 5.x (minimal is low,
+    xhigh is high on a 4.6 model, a client's own effort kept), a thinking budget for older models, `max_tokens`
+    filled when absent.
   - The disguise (9router-go `claude_cloaking.go`; CLIProxyAPI `checkSystemInstructions` for a client that is not
     Claude Code): the request carries the `oauth-2025-04-20` beta on a Bearer token and Claude Code's identity
     headers; the top-level system is made exactly Claude Code's — a billing block then the line "You are Claude Code,
