@@ -566,13 +566,7 @@ func (s *Server) messagesCall(
 		return resp, err
 	}
 
-	drain(resp)
-
-	if *token, err = s.accounts.TokenAfterRefusal(ctx, *token); err != nil {
-		return nil, err
-	}
-
-	return send(*token)
+	return s.retryRefusedAccount(ctx, resp, token, false, send)
 }
 
 // messagesHeaders sets what Anthropic is told of the client. Claude Code's own

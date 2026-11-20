@@ -360,6 +360,31 @@ func TestARefreshDoesNotOverwriteANewLogin(t *testing.T) {
 	assert.Zero(t, count(t, db, "secret_refresh_leases"))
 }
 
+func TestARefusalDoesNotMarkANewerLogin(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db := newDB(t)
+	v := newVault(db, keyring(t, "k1", newKey(t, "k1")), nil)
+	newTokenSet(t, v)
+
+	_, err := v.Refresh(ctx, "codex", 1, func(context.Context, vault.Payload) (vault.Refreshed, error) {
+		_, err := v.Rotate(ctx, "codex", vault.Payload{vault.KeyRefreshToken: "new-login"})
+		if err != nil {
+			return vault.Refreshed{}, err
+		}
+		return vault.Refreshed{}, vault.ErrLoginRejected
+	})
+	require.ErrorIs(t, err, vault.ErrConflict)
+	require.NoError(t, v.MarkLoginRequired(ctx, "codex", 1))
+
+	opened, err := v.Open(ctx, "codex")
+	require.NoError(t, err)
+	assert.Equal(t, "new-login", opened.Payload[vault.KeyRefreshToken])
+	assert.False(t, opened.LoginRequired)
+	assert.Zero(t, count(t, db, "secret_refresh_leases"))
+}
+
 // Refresh is for token sets, on a configured vault, with an answer that is a
 // token set.
 func TestRefreshRefusesWhatItCannotDo(t *testing.T) {

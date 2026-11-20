@@ -44,3 +44,12 @@ func TestAWorkersEnvironmentCarriesItsPath(t *testing.T) {
 	assert.Contains(t, env, "PATH="+bin+string(os.PathListSeparator)+"/usr/bin")
 	assert.Contains(t, env, "HOME="+home)
 }
+
+func TestAWorkersEnvironmentKeepsTheUserRuntimeDir(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
+
+	env := tempEnv(HostEnv(), t.TempDir())
+
+	assert.Contains(t, env, "XDG_RUNTIME_DIR="+runtimeDir)
+}

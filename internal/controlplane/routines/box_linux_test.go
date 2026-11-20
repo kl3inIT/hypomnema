@@ -67,7 +67,7 @@ func needBox(t *testing.T) {
 // launchers leave it, in a directory of the test's own.
 type boxWorld struct {
 	root, userHome, home, launcher string
-	// outside is a file in the machine's /tmp, which the box must not see.
+	// outside is a host temp file which the box must not see.
 	outside string
 }
 
@@ -112,11 +112,8 @@ echo sync.sh
 echo "${ROUTINE_LIMIT:-60}"
 `, 0o700)
 
-	outside, err := os.CreateTemp("/tmp", "hypomnema-box-outside-")
-	require.NoError(t, err)
-	require.NoError(t, outside.Close())
-	t.Cleanup(func() { _ = os.Remove(outside.Name()) })
-	w.outside = outside.Name()
+	w.outside = filepath.Join(t.TempDir(), "outside")
+	require.NoError(t, os.WriteFile(w.outside, nil, 0o600))
 
 	text, err := os.ReadFile(routineLauncher)
 	require.NoError(t, err)
@@ -220,7 +217,7 @@ exit 3
 // namespace, in its Bot's directory, which it writes, with the run's token
 // in its client configuration and not the coordinator's, the run's key
 // beside its file, which it cannot change, the Bot's tools, and nothing of
-// the rest of stdin, other Bots, the chats or the machine's /tmp. Its exit
+// the rest of stdin, other Bots, the chats or host temp files. Its exit
 // code is the launcher's, and the run's folder is gone afterwards.
 func TestARoutinesScriptRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	t.Parallel()

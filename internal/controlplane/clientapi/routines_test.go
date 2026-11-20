@@ -13,6 +13,61 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
+func TestOnlyTheOwnerGrantsReadRoutineAccess(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+	_, _ = w.token("pi-coordinator", bearertoken.Coordinator)
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	pi := w.piToken("pi-coordinator", chat.ID, orchestration.DefaultBotID)
+	prompt, minutes := "Write a brief.", 60
+	spec := openapi.RoutineSettings{Kind: openapi.Prompt, Prompt: &prompt, EveryMinutes: &minutes}
+
+	made, err := pi.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "brief", spec)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, made.StatusCode(), string(made.Body))
+	assert.Equal(t, openapi.Full, made.JSON200.Access)
+	grant := openapi.PatchRoutineJSONRequestBody{Access: openapi.Read}
+
+	denied, err := pi.PatchRoutineWithResponse(ctx, made.JSON200.Id, grant)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, denied.StatusCode())
+
+	attempt := spec
+	attempt.Access = &grant.Access
+	put, err := pi.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "brief", attempt)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, put.StatusCode())
+
+	allowed, err := owner.PatchRoutineWithResponse(ctx, made.JSON200.Id, grant)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, allowed.StatusCode(), string(allowed.Body))
+	assert.Equal(t, openapi.Read, allowed.JSON200.Access)
+	started, err := w.svc.RunRoutineNow(ctx, made.JSON200.Id)
+	require.NoError(t, err)
+
+	changed := "Write a new brief."
+	spec.Prompt = &changed
+	updated, err := pi.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "brief", spec)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, updated.StatusCode(), string(updated.Body))
+	assert.Equal(t, openapi.Full, updated.JSON200.Access, "a Bot edit resets access for future runs")
+
+	readPi := w.piToken("pi-coordinator", started.Run.ChatID, orchestration.DefaultBotID)
+	blocked, err := readPi.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "other", spec)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, blocked.StatusCode())
+	assert.Contains(t, string(blocked.Body), "This run reads only")
+	read, err := owner.GetChatWithResponse(ctx, started.Run.ChatID)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, read.StatusCode(), string(read.Body))
+	require.NotNil(t, read.JSON200.ReadRun)
+	assert.True(t, *read.JSON200.ReadRun, "in-flight access is not reopened by the edit")
+}
+
 // Scenario: the web's form asks for a schedule in words and its next three
 // times; a schedule a Routine may not have is a bad request that says why.
 func TestTheFormPreviewsASchedule(t *testing.T) {

@@ -58,6 +58,11 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	if t, ok := memoryTool(a); ok && s.memoryOfferedNow(ctx, a) {
 		out = append(out, t)
 	}
+	if a.readRun {
+		out = append(out, s.supersetToolList(ctx, a)...)
+		out = append(out, s.messagingToolList(ctx, a, relayMentions)...)
+		return append(out, s.readAccountTools(ctx, a)...)
+	}
 
 	if t, ok := artifactTool(a); ok {
 		out = append(out, t)
@@ -185,6 +190,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case asked.Tool == agenttool.ToolAccountRead && a.readRun && s.relay != nil:
+		s.readAccount(w, r, a, asked)
 	case asked.Tool == agenttool.ToolMemory && s.memoryOfferedNow(r.Context(), a):
 		s.memoryCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolMemory:
@@ -239,12 +246,26 @@ func (s *Server) narrowed(ctx context.Context, a agent, tools []agenttool.Browse
 		return nil, err
 	}
 
-	return slices.DeleteFunc(tools, func(t agenttool.BrowserTool) bool { return !switches.Allows(t.Name) }), nil
+	return slices.DeleteFunc(tools, func(t agenttool.BrowserTool) bool { return !a.allowsTool(switches, t.Name) }), nil
+}
+
+func (a agent) allowsTool(switches agenttool.ToolSwitches, tool string) bool {
+	if a.readRun && !agenttool.ReadRunAllows(tool) {
+		return false
+	}
+
+	return (tool == agenttool.ToolAccountRead && a.readRun) || switches.Allows(tool)
 }
 
 // switchedOff refuses a call of a tool the agent's switches take away, with
 // the answer a tool it was never given gets, and says so.
 func (s *Server) switchedOff(w http.ResponseWriter, r *http.Request, a agent, tool string) bool {
+	if a.readRun && !agenttool.ReadRunAllows(tool) {
+		answerTool(w, agenttool.ReadRunRefusal, true)
+
+		return true
+	}
+
 	switches, err := s.switchesOf(r.Context(), a)
 	if err != nil {
 		s.fail(w, r, err)
@@ -252,7 +273,7 @@ func (s *Server) switchedOff(w http.ResponseWriter, r *http.Request, a agent, to
 		return true
 	}
 
-	if switches.Allows(tool) {
+	if a.allowsTool(switches, tool) {
 		return false
 	}
 

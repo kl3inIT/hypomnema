@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // A relayed request (issue #203). An Integration whose Connections each have
@@ -50,6 +52,7 @@ type Call struct {
 	Caller      Caller
 	Integration string
 	Label       string
+	Host        string
 	// ChatID is the chat a coordinator works in, so that the Approval it
 	// waits for is answered there.
 	ChatID string
@@ -80,8 +83,11 @@ var relayed = []string{http.MethodGet, http.MethodPost, http.MethodPut, http.Met
 // was not sent.
 func (p *Proxy) Relay(ctx context.Context, c Call) (Answer, Action, error) {
 	catalog, ok := CatalogOf(c.Integration)
-	if !ok || p.cfg.Send == nil {
+	if !ok || c.Host == "" && p.cfg.Send == nil {
 		return Answer{}, Action{}, fmt.Errorf("%w: %s takes no relayed request", orchestration.ErrInvalid, c.Integration)
+	}
+	if c.Host != "" && (!c.Caller.ReadRun || !readRunIntegration(c.Integration) || !catalog.Has(c.Host)) {
+		return Answer{}, Action{}, &RefusedError{Message: agenttool.ReadRunRefusal}
 	}
 
 	if !slices.Contains(relayed, c.Method) {
@@ -104,12 +110,15 @@ func (p *Proxy) Relay(ctx context.Context, c Call) (Answer, Action, error) {
 
 	s := session{
 		caller: c.Caller, integration: c.Integration, label: c.Label, chatID: c.ChatID, runKey: c.RunKey,
-		catalog: catalog,
+		catalog: catalog, host: c.Host,
 	}
 
 	action, message := p.judge(ctx, req, c.Body, s)
 	if message != "" {
 		return Answer{}, action, &RefusedError{Message: message}
+	}
+	if c.Host != "" {
+		return p.readRelay(ctx, req, c.Body, action, s)
 	}
 
 	// Only the path and the query are the caller's, and judge has checked them; the address is the
@@ -131,4 +140,29 @@ func (p *Proxy) Relay(ctx context.Context, c Call) (Answer, Action, error) {
 	p.noticed(ctx, s, action, answer.Status, answer.Body)
 
 	return answer, action, nil
+}
+
+func readRunIntegration(id string) bool {
+	return id == "lark" || id == "google"
+}
+
+func (p *Proxy) readRelay(ctx context.Context, req *http.Request, body []byte, action Action, s session,
+) (Answer, Action, error) {
+	const maxRecords = 512 << 10
+
+	resp, status, message := p.upstream(ctx, req, body, action, s)
+	if resp == nil {
+		return Answer{Status: status, Body: []byte(message)}, action, nil
+	}
+	defer resp.Body.Close() //nolint:errcheck // The response is already read or refused.
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxRecords+1))
+	if err != nil {
+		return Answer{}, action, err
+	}
+	if len(raw) > maxRecords {
+		return Answer{}, action, &RefusedError{Message: "The result is too large. Ask for fewer records at a time."}
+	}
+
+	return Answer{Status: status, ContentType: resp.Header.Get("Content-Type"), Body: raw}, action, nil
 }

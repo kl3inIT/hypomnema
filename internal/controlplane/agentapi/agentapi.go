@@ -71,6 +71,7 @@ type Store interface {
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
 	// OwnerTurn says whether a chat's pi works on the owner's own request now (issue #468).
 	OwnerTurn(ctx context.Context, chatID string) (bool, error)
+	ReadRun(ctx context.Context, chatID string) (bool, error)
 	// ChatTurn names the turn a chat's pi works on now, empty between turns (issue #817).
 	ChatTurn(ctx context.Context, chatID string) (string, error)
 	// ApprovedOnce says whether the owner approved a chat's request once and it has not run (issue #748).
@@ -189,8 +190,9 @@ type agent struct {
 	coordinator bool
 	owner       bool
 	// chatID is the chat a pi's own token is bound to, and bot that pi's Bot's id.
-	chatID string
-	bot    string
+	chatID  string
+	bot     string
+	readRun bool
 	// scope is the dashboards a Bot's agent may read of a Superset
 	// Connection (issue #562); nil for every other agent, which reads all.
 	scope func(label string) superset.Scope
@@ -210,7 +212,7 @@ func (a agent) hasAgentTools() bool { return a.owner || a.dispatchID != "" || a.
 
 func (a agent) proxyCaller() serviceproxy.Caller {
 	return serviceproxy.Caller{
-		Name: a.name, DispatchID: a.dispatchID, Coordinator: a.coordinator, ChatID: a.chatID,
+		Name: a.name, DispatchID: a.dispatchID, Coordinator: a.coordinator, ChatID: a.chatID, ReadRun: a.readRun,
 	}
 }
 
@@ -287,9 +289,14 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		// A pi's own token (issue #260): what the coordinator gets, and the chat it is bound to. Its ID is its
 		// coordinator token's, which every chat's pi shares, so its tab is its chat's: a chat has one Bot and
 		// one pi at a time, and the pi that follows goes on in the same tab.
+		readRun, err := s.store.ReadRun(r.Context(), token.Chat)
+		if err != nil {
+			return agent{}, err
+		}
+
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
-			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat),
+			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat, readRun), readRun: readRun,
 			offered:     bot.MayUse,
 			botSwitches: bot.ToolSwitches(),
 			scope:       func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
@@ -300,10 +307,10 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 }
 
 // botMay is what a Bot's pi in a chat may use: what its Bot may, and the
-// owner's own sign-in only on the owner's turn in that chat (issues #468,
-// #618), which is read once a request, when a user Connection is
+// owner's own sign-in on the owner's turn in that chat (issues #468,
+// #618), or in an owner-marked read run (#956). The turn is read once a request, when a user Connection is
 // asked about. A turn that cannot be read is not his.
-func (s *Server) botMay(ctx context.Context, bot orchestration.Bot, chatID string,
+func (s *Server) botMay(ctx context.Context, bot orchestration.Bot, chatID string, readRun bool,
 ) func(orchestration.Connection) bool {
 	var asked, ownerTurn bool
 
@@ -312,7 +319,7 @@ func (s *Server) botMay(ctx context.Context, bot orchestration.Bot, chatID strin
 			return false
 		}
 
-		if !c.User() {
+		if readRun || !c.User() {
 			return true
 		}
 
@@ -473,6 +480,11 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+	if a.readRun {
+		refuse(w, http.StatusForbidden, agenttool.ReadRunRefusal)
+
+		return
+	}
 
 	var asked agenttool.TokenRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&asked); err != nil ||
@@ -536,6 +548,11 @@ func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+	if a.readRun {
+		answer(w, agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}})
+
+		return
+	}
 
 	web := s.gatewayToolList(r.Context(), a)
 
@@ -581,6 +598,11 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 	a, err := s.authenticate(r)
 	if err != nil {
 		refuse(w, http.StatusUnauthorized, err.Error())
+
+		return
+	}
+	if a.readRun {
+		answerTool(w, agenttool.ReadRunRefusal, true)
 
 		return
 	}

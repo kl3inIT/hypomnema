@@ -46,6 +46,11 @@ func (s *Server) deviceTools(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+	if a.readRun {
+		answer(w, agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}})
+
+		return
+	}
 
 	switches, err := s.switchesOf(r.Context(), a)
 	if err != nil {
@@ -100,6 +105,11 @@ func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
 	a, err := s.authenticate(r)
 	if err != nil {
 		refuse(w, http.StatusUnauthorized, err.Error())
+
+		return
+	}
+	if a.readRun {
+		answerTool(w, agenttool.ReadRunRefusal, true)
 
 		return
 	}

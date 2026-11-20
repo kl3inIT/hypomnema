@@ -281,6 +281,9 @@ func (s *Server) goPost(
 	if err != nil {
 		return nil, fmt.Errorf("calling OpenCode Go: %w", err)
 	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		s.markTokenRefused(ctx, token)
+	}
 
 	return resp, nil
 }
