@@ -238,7 +238,8 @@ func (s *Service) SetConnectionAccess(ctx context.Context, integration, label st
 }
 
 // SetConnectionGitIdentity keeps the account a git host Connection's token belongs to (issue #991), read with the
-// token of the vault secret version versionID. A Connection whose token is another version by then reads it again.
+// token of the vault secret version versionID. Nothing is kept once versionID is no longer the current version of
+// the Connection's secret: a newer token's account is never overwritten.
 func (s *Service) SetConnectionGitIdentity(ctx context.Context, integration, label, versionID, name, email string,
 ) error {
 	err := s.write(ctx, func(q *store.Queries, _ int64) error {

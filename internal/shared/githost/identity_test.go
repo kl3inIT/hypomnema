@@ -114,3 +114,61 @@ func TestReadIdentityNeverRepeatsTheToken(t *testing.T) {
 		assert.NotContains(t, err.Error(), "the-token")
 	}
 }
+
+// redirecting answers the first request with a redirect to location, and any other with GitHub's user; it keeps
+// every request it was asked, with the Authorization header each carried.
+type redirecting struct {
+	location string
+	asked    []string
+}
+
+func (r *redirecting) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.asked = append(r.asked, req.URL.String()+" "+req.Header.Get("Authorization"))
+
+	if len(r.asked) == 1 {
+		return &http.Response{
+			StatusCode: http.StatusFound, Status: "302 Found", Header: http.Header{"Location": {r.location}},
+			Body: io.NopCloser(strings.NewReader("")), Request: req,
+		}, nil
+	}
+
+	return &http.Response{
+		StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{},
+		Body: io.NopCloser(strings.NewReader(`{"login":"octo","id":1}`)), Request: req,
+	}, nil
+}
+
+// Scenario (issue #991): the host's /user redirects. A redirect within the same https origin is followed with the
+// token; one to http on the same host, or to another host, is not followed: the token never crosses the network in
+// the clear nor reaches another host, and no identity comes of it.
+func TestReadIdentityFollowsRedirectsOnlyWithinTheHost(t *testing.T) {
+	t.Parallel()
+
+	const host = "github.company.example"
+
+	for _, c := range []struct {
+		location string
+		followed bool
+	}{
+		{"https://" + host + "/api/v3/users/octo", true},
+		{"http://" + host + "/api/v3/user", false},
+		{"https://elsewhere.example/api/v3/user", false},
+		{"https://" + host + ":8443/api/v3/user", false},
+	} {
+		r := &redirecting{location: c.location}
+		got, err := ReadIdentity(t.Context(), &http.Client{Transport: r}, GitHub, host, "the-token")
+
+		if !c.followed {
+			require.Error(t, err, c.location)
+			assert.Len(t, r.asked, 1, "%s is not followed", c.location)
+
+			continue
+		}
+
+		require.NoError(t, err, c.location)
+		assert.Equal(t, "octo", got.Name)
+		assert.Equal(t, []string{
+			"https://" + host + "/api/v3/user Bearer the-token", c.location + " Bearer the-token",
+		}, r.asked)
+	}
+}

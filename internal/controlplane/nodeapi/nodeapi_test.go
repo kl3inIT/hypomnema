@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -381,6 +382,53 @@ func TestANodeIsAskedWhichGitHostsItReaches(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, nodes, 1)
 	assert.Equal(t, []string{"github.com"}, nodes[0].GitHosts)
+}
+
+// Scenario (issue #991): the first offer after a token is given, while its account is still being read. The offer is
+// held, and the node's heartbeats are answered meanwhile; once the read ends the offer goes out with the account.
+func TestAnOfferWaitsForItsTokensAccount(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+
+	pending := make(chan struct{})
+	var read atomic.Bool
+
+	p.api.WithHostTokens(func(context.Context, string, string) (HostCredential, bool) {
+		if !read.Load() {
+			return HostCredential{Token: "ghp_new", Pending: pending}, true
+		}
+
+		return HostCredential{
+			Token: "ghp_new", Identity: githost.Identity{Name: "octo", Email: "1+octo@users.noreply.github.com"},
+		}, true
+	})
+
+	conn := p.connect()
+	p.task()
+
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	for {
+		var msg nodeproto.Message
+		require.NoError(t, wsjson.Read(ctx, conn, &msg))
+		require.NotEqual(t, nodeproto.TypeOffer, msg.Type, "the offer is held while its account is read")
+
+		if msg.Type == nodeproto.TypeHeartbeatAck {
+			break
+		}
+	}
+
+	read.Store(true)
+	close(pending)
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	assert.Equal(t, [3]string{"ghp_new", "octo", "1+octo@users.noreply.github.com"},
+		[3]string{offer.RepoToken, offer.GitName, offer.GitEmail})
 }
 
 // Scenario: the owner gave github.com a token. The offer of a Task on GitHub

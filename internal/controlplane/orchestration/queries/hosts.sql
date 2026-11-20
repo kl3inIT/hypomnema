@@ -54,9 +54,13 @@ UPDATE connections SET access = @access WHERE integration = @integration AND lab
 
 -- name: SetConnectionGitIdentity :execrows
 -- The account a git host Connection's token belongs to (issue #991), read with the token of the vault secret
--- version @git_secret_version_id. It is not a change of the Connection: updated_at stays.
+-- version @git_secret_version_id. It is kept only while that version is still the Connection's secret's current
+-- one, so a read that ends after a newer token's never overwrites the newer account. It is not a change of the
+-- Connection: updated_at stays.
 UPDATE connections SET git_name = @git_name, git_email = @git_email, git_secret_version_id = @git_secret_version_id
-WHERE integration = @integration AND label = @label;
+WHERE integration = @integration AND label = @label
+  AND EXISTS (SELECT 1 FROM secrets
+              WHERE secrets.name = connections.secret AND secrets.current_version_id = @git_secret_version_id);
 
 -- name: SetConnectionProxy :execrows
 UPDATE connections SET proxy = @proxy, updated_at = @now WHERE integration = @integration AND label = @label;

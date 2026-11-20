@@ -48,6 +48,9 @@ func (i Identity) Env() []string {
 // host has no address to use, or the account shows none.
 var ErrNoIdentity = errors.New("no git identity is known for the token")
 
+// maxRedirects bounds the redirects followed to the host's /user, as Go's client does.
+const maxRedirects = 10
+
 // maxUserBytes bounds the host's answer about the token's user; GitHub's and
 // GitLab's are a few kilobytes.
 const maxUserBytes = 1 << 20
@@ -81,7 +84,18 @@ func ReadIdentity(ctx context.Context, client *http.Client, kind Kind, host, tok
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := client.Do(req)
+	// The token is sent to the host alone: a redirect is followed only within the same https origin, never to
+	// http, where it would cross the network in the clear, nor to another host.
+	sameOrigin := *client
+	sameOrigin.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if next.URL.Scheme != "https" || next.URL.Host != via[0].URL.Host || len(via) >= maxRedirects {
+			return http.ErrUseLastResponse
+		}
+
+		return nil
+	}
+
+	resp, err := sameOrigin.Do(req)
 	if err != nil {
 		return Identity{}, fmt.Errorf("asking %s for the token's user: %w", host, transportError(err))
 	}

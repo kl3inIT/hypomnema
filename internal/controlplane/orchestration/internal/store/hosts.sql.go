@@ -711,6 +711,8 @@ func (q *Queries) SetConnectionDialAddress(ctx context.Context, arg SetConnectio
 const setConnectionGitIdentity = `-- name: SetConnectionGitIdentity :execrows
 UPDATE connections SET git_name = ?1, git_email = ?2, git_secret_version_id = ?3
 WHERE integration = ?4 AND label = ?5
+  AND EXISTS (SELECT 1 FROM secrets
+              WHERE secrets.name = connections.secret AND secrets.current_version_id = ?3)
 `
 
 type SetConnectionGitIdentityParams struct {
@@ -722,7 +724,9 @@ type SetConnectionGitIdentityParams struct {
 }
 
 // The account a git host Connection's token belongs to (issue #991), read with the token of the vault secret
-// version @git_secret_version_id. It is not a change of the Connection: updated_at stays.
+// version @git_secret_version_id. It is kept only while that version is still the Connection's secret's current
+// one, so a read that ends after a newer token's never overwrites the newer account. It is not a change of the
+// Connection: updated_at stays.
 func (q *Queries) SetConnectionGitIdentity(ctx context.Context, arg SetConnectionGitIdentityParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setConnectionGitIdentity,
 		arg.GitName,

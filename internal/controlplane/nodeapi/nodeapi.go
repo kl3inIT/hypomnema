@@ -93,10 +93,18 @@ func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 // HostCredential is what an offer is given to act on its repository's host:
 // the token, and the account it belongs to when that is known (issue #991),
 // which the worker's commits then name.
+//
+// Pending is set while that account is being read: it is closed when the read
+// ends, and the offer is held until then, or until identityWait.
 type HostCredential struct {
 	Token    string
 	Identity githost.Identity
+	Pending  <-chan struct{}
 }
+
+// identityWait bounds how long an offer is held for its token's account to be read (issue #991); the control plane's
+// read itself gives up sooner.
+const identityWait = 15 * time.Second
 
 // WithHostTokens sets where an offer's git host token comes from.
 func (s *Server) WithHostTokens(token func(ctx context.Context, host, path string) (HostCredential, bool)) *Server {
@@ -386,6 +394,7 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 		cancel:  cancel,
 		out:     make(chan nodeproto.Message, 64),
 		offered: map[string]bool{}, stopped: map[string]bool{}, answered: map[string]bool{},
+		identityWaits: map[string]bool{}, identityWaited: map[string]bool{}, identityRead: make(chan string),
 	}
 	s.take(ctx, sess)
 	defer s.drop(sess)
@@ -443,6 +452,13 @@ type session struct {
 	offered  map[string]bool
 	stopped  map[string]bool
 	answered map[string]bool
+
+	// The offers held while their token's account is read (issue #991), by Dispatch: identityWaits those waited
+	// for, identityWaited those whose wait ended, which go out then, with the account or without. identityRead
+	// says a wait ended. Only the session's loop reads and writes the maps.
+	identityWaits  map[string]bool
+	identityWaited map[string]bool
+	identityRead   chan string
 }
 
 func (c *session) replaced(ctx context.Context) {
@@ -492,6 +508,8 @@ func (c *session) run(ctx context.Context) error {
 			}
 		case <-wake:
 		case <-drain.C:
+		case id := <-c.identityRead:
+			c.identityWaited[id] = true
 		}
 
 		if err := c.push(ctx); err != nil {
@@ -524,6 +542,44 @@ func (c *session) read(ctx context.Context, in chan<- nodeproto.Message) error {
 			return nil
 		}
 	}
+}
+
+// holdForIdentity says whether an offer is held while its token's account is read: the first time it waits, beside
+// the loop, until pending is closed or identityWait passes, then says so on identityRead and the offer goes out at
+// the next push. An offer whose wait ended goes now, without the account if it is still not read, which is said.
+func (c *session) holdForIdentity(ctx context.Context, dispatchID string, pending <-chan struct{}) bool {
+	if c.identityWaited[dispatchID] {
+		c.srv.logger.WarnContext(ctx, "the account of a git host's token was not read in time; this Dispatch goes "+
+			"without it and its worker commits as its node's git configuration says",
+			slog.String("dispatch", dispatchID))
+
+		return false
+	}
+
+	if c.identityWaits[dispatchID] {
+		return true
+	}
+
+	c.identityWaits[dispatchID] = true
+
+	go func() {
+		timer := time.NewTimer(identityWait)
+		defer timer.Stop()
+
+		select {
+		case <-pending:
+		case <-timer.C:
+		case <-ctx.Done():
+			return
+		}
+
+		select {
+		case c.identityRead <- dispatchID:
+		case <-ctx.Done():
+		}
+	}()
+
+	return true
 }
 
 func (c *session) write(ctx context.Context) error {
@@ -574,18 +630,23 @@ func (c *session) push(ctx context.Context) error {
 			continue
 		}
 
-		c.offered[o.DispatchID] = true
-
 		// The token is read when the offer is sent and is kept nowhere in the control plane but the vault.
 		if c.srv.hostToken != nil && o.RepoHost != "" {
 			if cred, ok := c.srv.hostToken(ctx, o.RepoHost, o.Repo); ok {
+				// The account it belongs to goes with it, so the worker commits as that account (issue #991): an
+				// offer whose account is being read waits for it, beside this loop.
+				if cred.Pending != nil && c.holdForIdentity(ctx, o.DispatchID, cred.Pending) {
+					continue
+				}
+
 				o.RepoToken = cred.Token
-				// The account it belongs to goes with it, so the worker commits as that account (issue #991).
 				if cred.Identity.Known() {
 					o.GitName, o.GitEmail = cred.Identity.Name, cred.Identity.Email
 				}
 			}
 		}
+
+		c.offered[o.DispatchID] = true
 
 		// So is the gateway's key: made now, for this Dispatch and its model only.
 		if c.srv.modelKey != nil && o.AccountRef == orchestration.GatewayAccountRef {
