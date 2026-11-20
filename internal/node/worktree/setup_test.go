@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
+	"github.com/kl3inIT/hypomnema/internal/node/tempns"
 )
 
 func TestMain(tests *testing.M) {
@@ -115,25 +116,25 @@ func TestARepositorysSetupScriptRunsInANewWorktree(t *testing.T) {
 		t.Skip("Landlock is not available for the native command")
 	}
 	stopped := func() bool { return true }
-	require.NoError(t, git(t.Context(), path, nil, "config", "status.showUntrackedFiles", "no"))
+	run(t, path, "config", "status.showUntrackedFiles", "no")
 	require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "untracked")
 	assert.Equal(t, 1, runs(), "a dirty worktree is kept")
 	require.NoError(t, os.WriteFile(filepath.Join(path, "ignored"), nil, 0o600))
 	excludes := filepath.Join(t.TempDir(), "exclude")
 	require.NoError(t, os.WriteFile(excludes, []byte("ignored\n"), 0o600))
-	require.NoError(t, git(t.Context(), path, nil, "config", "core.excludesFile", excludes))
+	run(t, path, "config", "core.excludesFile", excludes)
 	require.NoError(t, os.Remove(filepath.Join(path, "setup.log")))
 	tracked := filepath.Join(path, "README.md")
 	require.NoError(t, os.WriteFile(tracked, []byte("not committed\n"), 0o600))
 	require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "tracked")
-	require.NoError(t, git(t.Context(), path, nil, "checkout", "--", "README.md"))
+	run(t, path, "checkout", "--", "README.md")
 	for _, flag := range []string{"assume-unchanged", "skip-worktree"} {
-		require.NoError(t, git(t.Context(), path, nil, "update-index", "--"+flag, "README.md"))
+		run(t, path, "update-index", "--"+flag, "README.md")
 		require.NoError(t, os.WriteFile(tracked, []byte("not committed\n"), 0o600))
 		require.ErrorContains(t, m.Clean(t.Context(), path, true, stopped), "hide tracked changes")
 		assert.FileExists(t, tracked)
-		require.NoError(t, git(t.Context(), path, nil, "update-index", "--no-"+flag, "README.md"))
-		require.NoError(t, git(t.Context(), path, nil, "checkout", "--", "README.md"))
+		run(t, path, "update-index", "--no-"+flag, "README.md")
+		run(t, path, "checkout", "--", "README.md")
 	}
 	require.NoError(t, m.Clean(t.Context(), path, true, stopped), "ignored files do not prevent removal")
 	require.NoDirExists(t, path)
@@ -151,6 +152,25 @@ func TestRepositorySetupUsesDispatchGoTemp(t *testing.T) {
 	value, err := os.ReadFile(filepath.Join(path, "go-temp")) //nolint:gosec // test worktree
 	require.NoError(t, err)
 	assert.Equal(t, m.TempDir, string(value))
+}
+
+func TestSetupUsesIsolatedTemp(t *testing.T) {
+	t.Parallel()
+	isolation := tempns.Probe(t.Context(), "")
+	if !isolation.On() {
+		t.Skip(isolation.Reason)
+	}
+	maker, repo, path, logged := declaring(t, `scripts:
+  setup: |
+    test /tmp -ef "$TMPDIR" && test /var/tmp -ef "$GOTMPDIR" && printf x > /var/tmp/setup
+`)
+	if strings.HasPrefix(path, "/tmp/") || strings.HasPrefix(path, "/var/tmp/") {
+		t.Skip("set TMPDIR outside the directories bubblewrap covers")
+	}
+	maker.TempDir, maker.Isolation = realTempDir(t), isolation
+	require.NoError(t, maker.Ensure(t.Context(), repo, "main", "tsk_1", path))
+	assert.Empty(t, logged.String())
+	assert.FileExists(t, filepath.Join(maker.TempDir, "setup"))
 }
 
 func TestLinkedWorktreeCanBeCleanedThroughCanonicalNodeHome(t *testing.T) {

@@ -88,15 +88,16 @@ func TestABotTokenNeedsItsCoordinatorAndItsChatsBot(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
-// A Routine's token (issue #211) is made only for a script Routine that
-// exists: a prompt Routine's run is a chat's, whose pi has its own.
+// A Routine's token (issue #211) is made only for a Routine that runs a
+// script: a prompt Routine's run is a chat's, whose pi has its own. The
+// token is bound to the Routine's Bot and to no chat, and ends with the run.
 func TestARoutineTokenIsMadeForAScriptRoutineOnly(t *testing.T) {
 	t.Parallel()
 
-	s, _, _ := newTestService(t)
+	s, _, clock := newTestService(t)
 	ctx := t.Context()
 
-	_, _, err := s.AddToken(ctx, "pi-coordinator", bearertoken.Coordinator)
+	parent, _, err := s.AddToken(ctx, "pi-coordinator", bearertoken.Coordinator)
 	require.NoError(t, err)
 
 	asked, err := s.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
@@ -109,4 +110,26 @@ func TestARoutineTokenIsMadeForAScriptRoutineOnly(t *testing.T) {
 
 	_, err = s.AddRoutineToken(ctx, "pi-coordinator", "rtn_missing")
 	require.ErrorIs(t, err, ErrNotFound)
+
+	syncRoutine, err := s.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: DefaultBotID, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh", ScriptText: syncScript,
+		EveryMinutes: 60,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+
+	secret, err := s.AddRoutineToken(ctx, "pi-coordinator", syncRoutine.ID)
+	require.NoError(t, err)
+
+	got, err := s.AuthenticateToken(ctx, secret)
+	require.NoError(t, err)
+	assert.Equal(t, Token{
+		ID: parent.ID, Name: "pi-coordinator", Kind: bearertoken.Bot, CreatedAt: clock.Now(),
+		Bot: DefaultBotID, Routine: syncRoutine.ID,
+	}, got)
+	assert.Empty(t, got.Chat, "a script answers no chat")
+
+	s.RevokeBotToken(secret)
+
+	_, err = s.AuthenticateToken(ctx, secret)
+	require.ErrorIs(t, err, ErrNotFound, "the token ends with the run")
 }

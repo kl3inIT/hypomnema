@@ -31,6 +31,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/tempns"
 	"github.com/kl3inIT/hypomnema/internal/node/terminal"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
@@ -53,6 +54,9 @@ type Config struct {
 	// WorktreeRoot is where the node makes its worktrees.
 	WorktreeRoot string           `json:"worktree_root"`
 	Disk         diskguard.Policy `json:"disk"`
+	// MirrorGitTimeout and MirrorGitGrace are optional Go durations for mirror Git commands.
+	MirrorGitTimeout string `json:"mirror_git_timeout,omitempty"`
+	MirrorGitGrace   string `json:"mirror_git_grace,omitempty"`
 	// DisableAutoUpdate keeps the node at its version (Nezha's
 	// disable_auto_update). UpdateEveryMinutes sets how often it looks for a
 	// newer release (Nezha's self_update_period); zero is a random interval of
@@ -190,6 +194,14 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	timeout, err := mirrorDuration("mirror_git_timeout", cfg.MirrorGitTimeout)
+	if err != nil {
+		return err
+	}
+	grace, err := mirrorDuration("mirror_git_grace", cfg.MirrorGitGrace)
+	if err != nil {
+		return err
+	}
 
 	exe, err := os.Executable()
 	if err != nil {
@@ -275,10 +287,18 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		},
 	}
 
+	// Workers get their Dispatch's temp directory as /tmp where bubblewrap can make the namespace (issue #895);
+	// elsewhere they run with TMPDIR only, which is said once here and at each hello.
+	isolation := tempns.Probe(ctx, codexPath)
+	if !isolation.On() {
+		logger.WarnContext(ctx, "workers' temp isolation is off: they run with TMPDIR only",
+			slog.String("event", "node.temp_isolation_off"), slog.String("reason", isolation.Reason))
+	}
+
 	all := runners{
 		supervisor: &runner.Supervisor{
-			Home: home, SocketHome: socketHome, Exe: exe, URL: cfg.URL, Logger: logger,
-			Worktrees: worktree.Maker{Root: home, Logger: logger},
+			Home: home, SocketHome: socketHome, Exe: exe, URL: cfg.URL, Logger: logger, Isolation: isolation,
+			Worktrees: worktree.Maker{Root: home, Logger: logger, GitTimeout: timeout, GitGrace: grace},
 		},
 		byRuntime: byRuntime, transcripts: transcripts, skills: skills.Cache{
 			Home: home, URL: cfg.URL, Token: cfg.Token, Client: &http.Client{Timeout: 5 * time.Minute},
@@ -320,6 +340,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		},
 		Terminal: terminals, Commands: commands,
 		Device: cfg.Device, KVM: CanUseKVM, Phone: phoneSays, WatchPhone: watchPhone, Takes: takes,
+		TempIsolation: isolation.Hello(),
 	}, db, all, logger)
 
 	transcripts.Send = d.SendItems
@@ -359,6 +380,17 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	}
 
 	return err
+}
+
+func mirrorDuration(name, value string) (time.Duration, error) {
+	if value == "" {
+		return 0, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return 0, fmt.Errorf("%s must be a positive duration, got %q", name, value)
+	}
+	return duration, nil
 }
 
 // Unit is a systemd user unit for the daemon. KillMode=process keeps workers

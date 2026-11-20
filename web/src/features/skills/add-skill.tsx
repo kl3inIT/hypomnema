@@ -1,11 +1,12 @@
 import { useMutation } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Search, Upload } from "lucide-react"
-import { useId, useRef, useState, type ReactElement } from "react"
+import { useState, type ReactElement } from "react"
 
 import "@/api/client"
 import { addSkill, uploadSkill } from "@/api/generated/sdk.gen"
 import type { Skill, SkillSearchResult } from "@/api/generated/types.gen"
+import { DropFile } from "@/components/drop-file"
 import { GitHubIcon } from "@/components/icons/brand-icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -24,7 +25,6 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { said } from "@/lib/said"
 import { ErrorAlert } from "@/components/error-alert"
-import { cn } from "@/lib/utils"
 
 import { SkillsShSearch } from "./skills-sh"
 import { size } from "./skills-state"
@@ -166,7 +166,26 @@ export function AddSkill({
               </Field>
             </TabsContent>
             <TabsContent value="upload">
-              <DropArchive file={file} onFile={setFile} />
+              <DropFile
+                label="Archive"
+                accept=".zip,.tar.gz,.tgz,application/zip,application/gzip"
+                file={file}
+                onFile={setFile}
+                chosen={
+                  file && (
+                    <>
+                      <span>{file.name}</span>{" "}
+                      <span className="text-muted-foreground">· {size(file.size)}</span>
+                    </>
+                  )
+                }
+                empty={
+                  <>
+                    <p>Drop a .zip or .tar.gz here</p>
+                    <p className="text-xs">A skill's folder with its SKILL.md, at most 25 MB</p>
+                  </>
+                }
+              />
             </TabsContent>
             <TabsContent value="skills-sh">
               <SkillsShSearch picked={picked} onPick={setPicked} />
@@ -187,65 +206,5 @@ export function AddSkill({
         </form>
       </DialogContent>
     </Dialog>
-  )
-}
-
-// DropArchive is Omnara's SkillSourcePicker for one archive (Apache-2.0, Copyright Omnara;
-// frontend/apps/web/src/components/skills/SkillSourcePicker.tsx): a place to drop it, or a button that opens the
-// file chooser. Changed: one .zip or .tar.gz only, since the server unpacks it; no folder, which a browser hands
-// over as loose files.
-function DropArchive({ file, onFile }: { file: File | null; onFile: (file: File) => void }) {
-  const input = useRef<HTMLInputElement>(null)
-  const id = useId()
-  const [over, setOver] = useState(false)
-
-  return (
-    <div
-      onDragOver={(event) => {
-        event.preventDefault()
-        setOver(true)
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(event) => {
-        event.preventDefault()
-        setOver(false)
-        const dropped = event.dataTransfer.files[0]
-        if (dropped) onFile(dropped)
-      }}
-      className={cn(
-        "flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground",
-        over && "border-ring bg-muted/40",
-      )}
-    >
-      <Upload className="size-5" aria-hidden />
-      {file ? (
-        <p className="text-foreground">
-          <span>{file.name}</span>{" "}
-          <span className="text-muted-foreground">· {size(file.size)}</span>
-        </p>
-      ) : (
-        <>
-          <p>Drop a .zip or .tar.gz here</p>
-          <p className="text-xs">A skill's folder with its SKILL.md, at most 25 MB</p>
-        </>
-      )}
-      <label htmlFor={id} className="sr-only">
-        Archive
-      </label>
-      <input
-        ref={input}
-        id={id}
-        type="file"
-        accept=".zip,.tar.gz,.tgz,application/zip,application/gzip"
-        className="hidden"
-        onChange={(event) => {
-          const chosen = event.target.files?.[0]
-          if (chosen) onFile(chosen)
-        }}
-      />
-      <Button type="button" variant="outline" size="sm" onClick={() => input.current?.click()}>
-        {file ? "Choose another" : "Choose a file"}
-      </Button>
-    </div>
   )
 }

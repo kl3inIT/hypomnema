@@ -41,6 +41,8 @@ type plane struct {
 	reports int
 	// storeGuides is what the node says at hello: it writes no guides of its own (issue #536).
 	storeGuides bool
+	// tempIsolation is what the node says at hello of its workers' temp isolation (issue #895).
+	tempIsolation *nodeproto.TempIsolation
 }
 
 func newPlane(t *testing.T) *plane {
@@ -79,7 +81,7 @@ func (p *plane) hello(token string, claims ...nodeproto.Claim) (int, nodeproto.H
 		InstanceID: "inst_1", DaemonVersion: "test", WorktreeRoot: "/srv/wt",
 		Runtimes: []nodeproto.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}},
 		System:   nodeproto.SystemInfo{OS: "linux", Arch: "arm64"},
-		Claims:   claims, StoreGuides: p.storeGuides,
+		Claims:   claims, StoreGuides: p.storeGuides, TempIsolation: p.tempIsolation,
 	})
 	require.NoError(p.t, err)
 
@@ -646,6 +648,35 @@ func TestHelloAnswersEachClaim(t *testing.T) {
 		{DispatchID: offer.DispatchID, Kind: nodeproto.DispositionRetain},
 		{DispatchID: "dsp_gone", Kind: nodeproto.DispositionRelease},
 	}, out.Dispositions)
+}
+
+// Scenario: a node says at hello that its workers' temp isolation is off, and why (issue #895). The control
+// plane keeps what it said; a node of an earlier release, which says nothing, is shown saying nothing.
+func TestHelloKeepsWhatTheNodeSaysOfTempIsolation(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	p.tempIsolation = &nodeproto.TempIsolation{Reason: "bubblewrap is not installed"}
+	status, _ := p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+
+	n, err := p.svc.GetNode(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, &orchestration.TempIsolation{Reason: "bubblewrap is not installed"}, n.TempIsolation)
+
+	p.tempIsolation = &nodeproto.TempIsolation{On: true}
+	status, _ = p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+	n, err = p.svc.GetNode(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, &orchestration.TempIsolation{On: true}, n.TempIsolation)
+
+	p.tempIsolation = nil
+	status, _ = p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+	n, err = p.svc.GetNode(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	assert.Nil(t, n.TempIsolation)
 }
 
 // Scenario: a node says hello. The control plane names where the node's

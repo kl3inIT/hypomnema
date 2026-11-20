@@ -155,17 +155,3 @@ func TestCreateTasksOnceReturnsTheFirstTasks(t *testing.T) {
 	_, err = s.CreateTasksOnce(ctx, o, run.ID, tasks[:1])
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 }
-
-func TestCreateRunRecordsItsCoordinator(t *testing.T) {
-	t.Parallel()
-
-	s, _, _ := newTestService(t)
-	ctx := t.Context()
-
-	tok, _, err := s.AddToken(ctx, "laptop", bearertoken.Coordinator)
-	require.NoError(t, err)
-
-	run, err := s.CreateRun(ctx, NewRun{Objective: "x", CreatedBy: tok.Name, CoordinatorTokenID: tok.ID})
-	require.NoError(t, err)
-	assert.Equal(t, tok.ID, run.CoordinatorTokenID)
-}

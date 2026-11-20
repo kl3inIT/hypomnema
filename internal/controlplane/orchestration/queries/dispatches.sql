@@ -91,7 +91,10 @@ WHERE c.node_id = @node_id AND (r.status = 'open' OR EXISTS (
 UPDATE dispatches
 SET updated_at = @now, status = 'starting', epoch = epoch + 1, accepted_at = @now,
     lease_expires_at = CAST(@lease_expires_at AS INTEGER)
-WHERE id = @id AND status = 'queued' AND node_id = @node_id AND created_at > @queued_after;
+WHERE dispatches.id = @id AND dispatches.status = 'queued' AND dispatches.node_id = @node_id
+  AND dispatches.created_at > @queued_after
+  AND EXISTS (SELECT 1 FROM tasks t JOIN nodes n ON n.id = dispatches.node_id WHERE t.id = dispatches.task_id
+    AND (n.task_branches <> 0 OR (t.push_branch IS NULL AND t.start_from IS NULL AND t.pr_base IS NULL)));
 
 -- name: RenewLease :execrows
 -- A lease that has run out is never renewed. The first heartbeat after a stop request acknowledges it.

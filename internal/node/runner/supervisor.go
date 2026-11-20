@@ -37,6 +37,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/tempns"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -93,6 +94,10 @@ type Turn interface {
 	State() []byte
 }
 
+type turnPoller interface {
+	Poll(ctx context.Context, w *Worker, caughtUp bool) (changed bool, killReason string)
+}
+
 // Result is what the CLI said of its turn.
 type Result struct {
 	// Done says the CLI ended the turn with its result.
@@ -122,6 +127,10 @@ type Supervisor struct {
 	// URL is the control plane's base URL, where a worker's tools reach the agent API.
 	URL       string
 	Worktrees worktree.Maker
+	// Isolation runs each worker, and its worktree's setup script, with its
+	// Dispatch's temp directory as /tmp and /var/tmp (issue #895); off: with
+	// TMPDIR only.
+	Isolation tempns.Isolation
 	Logger    *slog.Logger
 
 	mu   sync.Mutex
@@ -292,9 +301,9 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		hostEnv = src.Env
 
 		maker := s.Worktrees
-		maker.TempDir = temp
+		maker.TempDir, maker.Isolation = temp, s.Isolation
 
-		if err := maker.Ensure(ctx, src, o.Base, o.TaskID, o.Worktree); err != nil {
+		if err := maker.Ensure(ctx, src, startBranch(o), o.TaskID, o.Worktree); err != nil {
 			return err
 		}
 	} else if err := os.MkdirAll(o.Worktree, 0o700); err != nil {
@@ -308,6 +317,9 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 
 	spec.Dir = o.Worktree
 	spec.Env = tempEnv(spec.Env, temp)
+	if s.Isolation.On() {
+		spec.Argv, spec.Bwrap = s.Isolation.Wrap(spec.Argv, temp), true
+	}
 	if err := shim.WriteSpec(dir, spec); err != nil {
 		return err
 	}
@@ -458,7 +470,7 @@ func (s *Supervisor) Stop(id string) {
 
 	interrupt := w.turn.Interrupt()
 	if interrupt == nil {
-		_ = shim.RevokeLaunch(w.dir)
+		w.Report(context.Background(), shim.Stop(context.Background(), w.socketDir, "the worker was asked to stop"))
 
 		return
 	}
@@ -466,8 +478,9 @@ func (s *Supervisor) Stop(id string) {
 	_ = shim.Send(context.Background(), w.socketDir, interrupt, []byte(shim.CloseLine))
 
 	time.AfterFunc(stopGrace, func() {
-		if _, done, _ := shim.ReadExit(w.dir); !done && w.shimPID() > 0 {
-			_ = shim.KillRecorded(w.dir)
+		if s.get(id) == w {
+			w.Report(context.Background(),
+				shim.Stop(context.Background(), w.socketDir, "the worker did not exit after an interrupt"))
 		}
 	})
 }
@@ -476,7 +489,7 @@ func (s *Supervisor) Stop(id string) {
 // the worker's journal reader has, so nothing of the worker is reported
 // after it (Omnara's closeOutputWatch cancels its reader and waits for it to
 // be done). The reader never calls Release: its reports are queued, not
-// answered. The shim is found by its PID file, so a worker no daemon follows
+// answered. The shim is reached at its private socket, so a worker no daemon follows
 // is killed too.
 func (s *Supervisor) Release(id string) {
 	w := s.drop(id)
@@ -487,7 +500,12 @@ func (s *Supervisor) Release(id string) {
 		<-w.done
 	}
 
-	_ = shim.RevokeLaunch(dir)
+	// A shim that listens is asked to stop its worker's whole tree; one that never did has its launch revoked.
+	if _, err := os.Stat(filepath.Join(dir, shim.SocketFile)); err == nil {
+		_ = shim.Stop(context.Background(), s.socketDir(id), "the worker was released")
+	} else {
+		_ = shim.RevokeLaunch(dir)
+	}
 
 }
 
@@ -584,11 +602,12 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 	defer close(w.done)
 
 	offset, _ := readCheckpoint(w.dir)
+	poller, polls := w.turn.(turnPoller)
 
 	for {
 		relay(ctx, w)
 
-		n, err := readFrom(ctx, w, offset)
+		n, err := readFrom(ctx, w, offset, polls)
 		offset += n
 
 		if n > 0 {
@@ -606,7 +625,7 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 			exit, done, _ := shim.ReadExit(w.dir)
 			if done {
 				// Read once more: the last lines may have landed with the exit.
-				if more, _ := readFrom(ctx, w, offset); more > 0 {
+				if more, _ := readFrom(ctx, w, offset, polls); more > 0 {
 					offset += more
 					writeCheckpoint(w.dir, offset, w.turn.State())
 
@@ -620,6 +639,19 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 				return
 			}
 
+		}
+		forceStopping := false
+		if polls && ctx.Err() == nil {
+			changed, reason := poller.Poll(ctx, w, n == 0 && err == nil)
+			if changed {
+				writeCheckpoint(w.dir, offset, w.turn.State())
+			}
+			if reason != "" {
+				forceStopping = true
+				w.Report(ctx, shim.Stop(ctx, w.socketDir, reason))
+			}
+		}
+		if !forceStopping && n == 0 && ctx.Err() == nil {
 			if gone, why := shimGone(w); gone {
 				s.ended(ctx, w, shim.Exit{Code: -1, Error: why})
 
@@ -627,6 +659,9 @@ func (s *Supervisor) tail(ctx context.Context, w *Worker) {
 			}
 		}
 
+		if polls && n > 0 && ctx.Err() == nil {
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -654,7 +689,7 @@ func shimGone(w *Worker) (bool, string) {
 
 // readFrom hands every complete line after offset to the turn and returns
 // how many bytes it consumed; a released worker's turn is handed no more.
-func readFrom(ctx context.Context, w *Worker, offset int64) (int64, error) {
+func readFrom(ctx context.Context, w *Worker, offset int64, batch bool) (int64, error) {
 	f, err := os.Open(filepath.Join(w.dir, shim.JournalFile))
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
@@ -673,7 +708,7 @@ func readFrom(ctx context.Context, w *Worker, offset int64) (int64, error) {
 
 	var n int64
 
-	for ctx.Err() == nil {
+	for count := 0; (!batch || count < 128) && ctx.Err() == nil; count++ {
 		line, err := br.ReadBytes('\n')
 		if errors.Is(err, io.EOF) {
 			// A partial line waits for the rest.
@@ -711,7 +746,9 @@ func (s *Supervisor) ended(ctx context.Context, w *Worker, exit shim.Exit) {
 
 	switch {
 	case stopping:
-		w.Report(ctx, w.r.Stopped(ctx))
+		if !exit.Unconfirmed {
+			w.Report(ctx, w.r.Stopped(ctx))
+		}
 
 		return
 	case !started && !res.Done:

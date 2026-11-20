@@ -34,6 +34,15 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 		d.Offer.Profile = role
 		prompt := Prompt(d)
 		assert.Contains(t, prompt, "Do not edit project files")
+		assert.Contains(t, prompt, "You may run code to check a claim (the tests, a repro script) in a scratch "+
+			"copy of this worktree under $TMPDIR. Leave the tracked files here unchanged.",
+			"a reviewer may run a repro (issue #952)")
+		// Every "only here" line names the scratch copy, so none forbids it (issue #952, review round 1).
+		assert.Contains(t, prompt, "\nWork only in this directory and your scratch copy under $TMPDIR; this "+
+			"directory is a git worktree of kl3inIT/second-bite")
+		assert.NotContains(t, prompt, "outside this directory.", "no line forbids the scratch copy")
+		assert.NotContains(t, prompt, "outside this directory\n")
+		assert.NotContains(t, prompt, "is a flake", "a read-only worker fixes no check")
 		assert.NotContains(t, prompt, "gh pr create")
 		assert.NotContains(t, prompt, "publish_branch")
 		assert.NotContains(t, prompt, "Do not end your turn on a plan")
@@ -42,9 +51,17 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 			assert.Contains(t, prompt, "this CLI's subagents for independent read-only lookups")
 			assert.NotContains(t, prompt, "Do not start subagents")
 		} else {
-			assert.Contains(t, prompt, "Do not start subagents")
+			assert.Contains(t, prompt, "Do not start subagents, and do not work outside this directory and your "+
+				"scratch copy under $TMPDIR.")
 		}
 	}
+
+	d.Offer.Repo = ""
+	assert.Contains(t, Prompt(d), "\nWork only in this directory and your scratch copy under $TMPDIR.\n",
+		"without a repository too")
+
+	d.Offer.Profile = "implementer"
+	assert.NotContains(t, Prompt(d), "scratch copy", "a writer has its worktree for that")
 }
 
 func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
@@ -88,6 +105,12 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 		"CI: report the pushed commit and finish", "CI is waited for with one command, or not at all (issue #894)")
 	assert.Less(t, strings.Index(p, "never with a polling loop"), strings.Index(p, "Task (implementer):"),
 		"the rules come before the task, for the prompt cache (issue #672)")
+	assert.Contains(t, p, "Fix only the failures your diff causes. A red check that fails outside your diff and "+
+		"is also red on the base, or green on one rerun, is a flake: rerun it once, do not fix it in this pull "+
+		"request, and open an issue", "a flake earns one fresh build (issue #952)")
+	assert.Contains(t, p, "For a bug fix, commit a test that fails without the fix first, then the fix",
+		"the failing test lands before the fix (issue #952)")
+	assert.NotContains(t, p, "You may run code to check a claim", "a writer has its worktree for that")
 	assert.Contains(t, p, "outcome is unknown")
 	assert.Contains(t, p, "The owner answered the question you asked at `finish`.\n"+
 		"You asked: PR #7 is green. Merge it?\nThe answer: merge")
@@ -244,7 +267,8 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 		"On a conflict (mergeStateStatus is DIRTY), merge main into your branch, resolve it keeping the intent " +
 			"of both sides, rerun the checks the merge affects and push",
 		"`gh pr merge <url> --auto --merge --match-head-commit <sha>`, where <sha> is the commit you pushed",
-		"`gh pr checks <url> --required --watch`; fix a red one at its cause and push",
+		"`gh pr checks <url> --required --watch`; fix a red one your diff causes and push, rerun a flake once " +
+			"as the rules say",
 		"Once they are green, call `finish` without waiting longer",
 	} {
 		assert.Contains(t, p, want)
@@ -263,7 +287,9 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	for _, want := range []string{
 		"`glab api projects/team%2Fplatform%2Fapi`: has only_allow_merge_if_pipeline_succeeds: true",
 		"\"\"Pipelines must succeed\" is off in the project's settings\"",
-		"Before step 3, check that its pipeline is not null",
+		"Before step 3, check that its pipeline is not null; if it is null, wait once with `sleep 60` and " +
+			"read it one more time, never in a loop; if it is still null, do not enable auto-merge: finish and " +
+			"say the merge request has no pipeline.",
 		"`glab mr merge <iid> --auto-merge --yes --sha <sha>`",
 		"`glab ci status --live --branch hyp/tsk_1`",
 	} {
@@ -300,4 +326,57 @@ func TestPromptCarriesTheToolsBlockBeforeTheTask(t *testing.T) {
 
 	d.Offer.Tools = nil
 	assert.NotContains(t, Prompt(d), "## Tools")
+}
+
+// Scenario (issue #690, case a): the Task continues the earlier Task tsk_old, whose pull request is on hyp/tsk_old.
+// Its worker is told it works from that branch, that publish_branch pushes into it and so updates that pull request,
+// and not to open another; the auto-merge steps watch that branch. On a host without publish_branch it pushes there
+// itself, never forced.
+func TestPromptOfATaskThatContinuesAnotherBranch(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Offer.PushBranch, d.Offer.StartFrom = "hyp/tsk_old", "hyp/tsk_old"
+	p := Prompt(d)
+
+	for _, want := range []string{
+		"a git worktree of kl3inIT/second-bite on branch hyp/tsk_1, started from hyp/tsk_old.",
+		"hyp/tsk_old is the branch of an earlier Task whose work this Task continues, and of its pull request",
+		"push it with `publish_branch` (not `git push`, so the Run can prove its PR heads), which pushes it to " +
+			"hyp/tsk_old, which updates that pull request. Do not open a new one.",
+		"Find it with `gh pr list --head hyp/tsk_old --state open`",
+		"if none is open, open one with `gh pr create --base main --head hyp/tsk_old`",
+	} {
+		assert.Contains(t, p, want)
+	}
+	assert.NotContains(t, p, "--head hyp/tsk_1", "its own branch is never a pull request's head")
+
+	d.Offer.RepoHost, d.Offer.RepoKind = "gitlab.company.example", "gitlab"
+	p = Prompt(d)
+	assert.Contains(t, p, "push it with `git push origin hyp/tsk_1:hyp/tsk_old` (never forced)")
+	assert.Contains(t, p, "`glab mr list --source-branch hyp/tsk_old`")
+	assert.Contains(t, p, "`glab ci status --live --branch hyp/tsk_old`")
+}
+
+// Scenario (issue #690, case b): stacked work. The Task starts from its parent's branch and opens its pull request
+// against it, or against the Run's base when the coordinator chose that.
+func TestPromptOfAStackedTask(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Offer.StartFrom, d.Offer.PRBase = "hyp/tsk_parent", "hyp/tsk_parent"
+	p := Prompt(d)
+
+	assert.Contains(t, p, "on branch hyp/tsk_1, started from hyp/tsk_parent.")
+	assert.Contains(t, p, "push the branch with `publish_branch`")
+	assert.Contains(t, p, "open a pull request with `gh pr create --base hyp/tsk_parent --head hyp/tsk_1`")
+	assert.Contains(t, p, "repos/kl3inIT/second-bite/rules/branches/hyp/tsk_parent",
+		"auto-merge is checked against the branch it merges into")
+
+	d.Offer.PRBase = ""
+	assert.Contains(t, Prompt(d), "`gh pr create --base main --head hyp/tsk_1`", "or the Run's base")
 }

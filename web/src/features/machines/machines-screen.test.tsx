@@ -783,3 +783,22 @@ test("the table has no GPU columns when no machine has a GPU", async () => {
   await screen.findByRole("columnheader", { name: "CPU" })
   expect(screen.queryByRole("columnheader", { name: "GPU" })).toBeNull()
 })
+
+// Scenario: one node runs its workers with their temp directory as /tmp, one cannot and says why, and one of an
+// earlier release says nothing (issue #895). Only the one that cannot says so, with its reason.
+test("a machine whose workers' temp isolation is off says why", async () => {
+  nodesServer([
+    node("boxed", { temp_isolation: { on: true } }),
+    node("open", {
+      temp_isolation: { on: false, reason: "no bubblewrap can make the namespace" },
+    }),
+    node("older"),
+  ])
+  await open()
+
+  expect(await machine("open")).toHaveTextContent(
+    "Temp isolation off: no bubblewrap can make the namespace",
+  )
+  expect(await machine("boxed")).not.toHaveTextContent("Temp isolation")
+  expect(await machine("older")).not.toHaveTextContent("Temp isolation")
+})

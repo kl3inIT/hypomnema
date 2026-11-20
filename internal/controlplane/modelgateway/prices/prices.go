@@ -93,6 +93,8 @@ func vendorsOf(kind, model string) []string {
 		out = append(out, "anthropic")
 	case "codex_subscription":
 		out = append(out, "openai")
+	case "opencode_go":
+		out = append(out, "opencode-go")
 	}
 
 	lower := strings.ToLower(model)
@@ -115,14 +117,23 @@ func vendorsOf(kind, model string) []string {
 // Coder looks a price up (GetAIModelPriceForProvider).
 func Lookup(kind string, models ...string) (Price, bool) {
 	m, ok := find(kind, Model.priced, models)
+	if !ok && kind == "antigravity_subscription" {
+		for _, model := range models {
+			switch model {
+			case "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low":
+				m, ok = find(kind, Model.priced, []string{"gemini-3.8-flash"})
+				return m.Price, ok
+			}
+		}
+	}
 
 	return m.Price, ok
 }
 
-// Find returns what the book holds of the first of models found under the
-// provider's vendors, as Lookup looks a price up.
+// Find returns the first model's metadata under the provider's vendors.
+// OpenCode Go's rows are for pricing; its model list supplies live metadata.
 func Find(kind string, models ...string) (Model, bool) {
-	return find(kind, func(Model) bool { return true }, models)
+	return find(kind, func(m Model) bool { return m.Vendor != "opencode-go" }, models)
 }
 
 func find(kind string, keep func(Model) bool, models []string) (Model, bool) {

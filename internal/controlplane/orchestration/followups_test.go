@@ -128,7 +128,7 @@ func TestFollowUpIsRefusedWithoutAFinishedWorker(t *testing.T) {
 
 	_, err := w.s.FollowUpTask(t.Context(), closed, AddressCoordinator, "more")
 	require.ErrorIs(t, err, ErrConflict)
-	require.ErrorContains(t, err, "branch hyp/"+closed)
+	require.ErrorContains(t, err, `"continues": "`+closed)
 
 	_, err = w.s.FollowUpTask(t.Context(), closed, AddressCoordinator, " \n")
 	require.ErrorIs(t, err, ErrInvalid)

@@ -15,7 +15,10 @@ const acceptDispatch = `-- name: AcceptDispatch :execrows
 UPDATE dispatches
 SET updated_at = ?1, status = 'starting', epoch = epoch + 1, accepted_at = ?1,
     lease_expires_at = CAST(?2 AS INTEGER)
-WHERE id = ?3 AND status = 'queued' AND node_id = ?4 AND created_at > ?5
+WHERE dispatches.id = ?3 AND dispatches.status = 'queued' AND dispatches.node_id = ?4
+  AND dispatches.created_at > ?5
+  AND EXISTS (SELECT 1 FROM tasks t JOIN nodes n ON n.id = dispatches.node_id WHERE t.id = dispatches.task_id
+    AND (n.task_branches <> 0 OR (t.push_branch IS NULL AND t.start_from IS NULL AND t.pr_base IS NULL)))
 `
 
 type AcceptDispatchParams struct {

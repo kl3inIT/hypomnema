@@ -32,6 +32,8 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    ```text
    hypomnema runs create --repo <owner/name> --objective-file <file> --key <new key> --json
    ```
+   The Run belongs to your Bot's chat. Outside a Bot chat, the owner's command defaults to the main Bot's main
+   chat; `--chat <chat_id>` picks another chat. The result names the chat the control plane will wake.
    `--repo` also takes the URL of a repository on GitLab, or a name from `hypomnema repos list --json`. When the
    create answers that a host is not known, tell the owner the command it names; only the owner declares a host.
 2. Write every Task you already know to a file and create them in one call:
@@ -113,9 +115,17 @@ its branch does not hold another Task's unmerged changes. So:
 - Use separate Tasks for independent work, each with its own deliverable.
 - `depends_on` (refs earlier in the file, or ids of Tasks already in the Run) only orders Tasks: a Task starts once
   all of them succeeded. It does not carry their changes, nor their reports.
+<!-- t3code docs/orchestration-v2/orchestrator-mcp-server.md:354-355 and orchestrationInstructions.ts:10,14 (4d5bf2d5); Orca create-github-pull-request.ts:70-110 (issue #690) -->
+- Work that builds on an unmerged Task's changes (stacked) sets `"start_from": "hyp/<task_id>"` and lists that Task
+  in `depends_on`: its worktree starts from that branch, and its pull request targets it (`"pr_base":
+  "start_from"`, the default) or the Run's base (`"pr_base": "run_base"`). `start_from` may also name another
+  branch of the repository. Never write a branch to check out or merge in the spec: set the field.
 - When a Task needs what an earlier Task found (fixing the items an audit listed), paste that Task's report, the
   summary in `hypomnema tasks show <task_id> --json`, into the spec word for word, under a heading that names its
   Task id, such as `## Report of task <task_id>`. Do not shorten or reword it.
+<!-- pstack skills/poteto-mode/playbooks/bug-fix.md:11; skills/tdd/SKILL.md:9 (issue #952) -->
+- For a bug fix, ask for a test that fails without the fix, committed before the fix, so a disputed finding is
+  settled by running that test at either commit.
 
 <!-- omp packages/coding-agent/src/prompts/tools/task.md:38-46 -->
 Make each spec self-contained: the goal, decisions already made, what it may change, the deliverable and the
@@ -127,20 +137,25 @@ evidence that proves it is done.
 hypomnema runs wait <run_id> --after <after> --json
 ```
 
-It returns when something needs you: a Task ended or was blocked, a worker asked you a question, an escalation
-arrived, or the Run ended. It prints those events, the `after` for the next wait, and `next`. Start with `--after 0`.
+This is optional observation, not how a Run keeps its coordinator. The assigned chat is woken even when the
+session that created the Run has closed. The wait returns when a Task ended or was blocked, a worker asked a
+question, an escalation arrived, or the Run ended. It prints those events, the `after` for the next wait, and
+`next`. Start with `--after 0`.
 
+- When the control plane says the owner assigned an existing Run to this chat, start with `runs show <run_id> --json`.
+  Read the current Tasks, open questions (`questions --run <run_id> --json`) and PR evidence. Continue only what
+  still needs a decision, review or follow-up. A reviewer Task that succeeded may still have found the change
+  incorrect. Only the owner can assign legacy Runs with `runs adopt`; leave Runs in other chats alone.
 - On a review wake, read the Run again and load the `review` reference. The verdict and PR state in the wake
   are a snapshot, not permission to merge. If a Task has already been added, do not repeat it. A Run stalled after
   review is not ready to finish merely because its Tasks ended.
 - When your turn began with a message from the control plane listing a Run's events, end your turn after acting;
   the control plane wakes you again.
-- In a session with the owner (Claude Code, Codex), start the wait as a background command if your runtime tells you
-  when one exits, and end your turn; otherwise run it in the foreground. Each time a wait returns, act on it, then
-  start the next one with the `after` it printed.
+- In a session with the owner (Claude Code, Codex), use the wait only when the owner wants to observe the Run
+  here. Do not give duplicate work while the assigned chat is already coordinating it.
 
-Keep one wait per Run and no status loops: a loop sends a request every few seconds and sees nothing the wait does
-not. "Tell me when it's done" also means: start the wait and end your turn.
+Keep at most one wait per Run and no status loops. To be notified when it is done, let the assigned chat receive
+the next wake-up and report there.
 
 ## Questions
 
@@ -168,7 +183,8 @@ A worker's report is a claim; the Task's record and its evidence are what count.
 - For a succeeded implementer, `hypomnema tasks show <task_id> --json` has the latest Dispatch's summary and evidence, such as
   `{"kind": "pull_request", "ref": "<url>"}`. Check them against the spec: the pull request is in the right
   repository, and the checks the spec asked for ran. When the evidence has no pull request, look for one read-only
-  (`gh pr list --repo <owner/name> --head hyp/<task_id>`); when there is none, send the worker a follow-up (below)
+  (`gh pr list --repo <owner/name> --head <branch>`), using the Task's `push_branch` or `hyp/<task_id>` when unset;
+  when there is none, send the worker a follow-up (below)
   that names what is missing. `gh pr checks <url>` shows whether the checks ran.
 - More work on a succeeded Task, such as a fix after a review or a correction the owner gives, goes to the same
   worker as a follow-up, not to a new Task:
@@ -177,10 +193,16 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   ```
   The note says what to change or add. The Task is ready again; its worker continues its own conversation in the
   same worktree and branch, updates the same pull request, and finishes again; wait as before.
-  `tasks show` lists the follow-ups. When the follow-up is refused because the worker's conversation was closed,
-  create a new Task whose spec says to start from the branch `hyp/<task_id>` (fetch it and merge it into its own
-  branch) and names what is left. A follow-up is for a succeeded Task, or one blocked at a gate, whose gate it
+  `tasks show` lists the follow-ups. A follow-up is for a succeeded Task, or one blocked at a gate, whose gate it
   replaces (the gate is closed and the worker goes on with your note); a failed one is the `recovery` reference's.
+<!-- Orca pr-start-point.ts:226-245 (38aa9119); t3code GitManager.ts:1013-1069, 3361-3390 (4d5bf2d5) (issue #690) -->
+- When the follow-up is refused (the worker's conversation was closed, its Run finished) or the Task failed or was
+  canceled with its work on a pull request, create a Task with `"continues": "<task_id>"` and a spec that names
+  what is left. It works on that Task's branch and pushes into it, so the same pull request takes the commits and
+  keeps its number and reviews; the Task may be of another Run of the same repository. Do not open a new pull request
+  with `Supersedes #n`, and do not write a branch to check out in the spec. It is refused while a Task that pushes
+  to that branch is unfinished; its own pull request is found with `gh pr list --head <its push_branch>`, the
+  `push_branch` that `tasks show` gives.
 - `failed` or `blocked`: load the `recovery` reference before acting.
 - Report a failed, blocked or canceled Task as exactly that, with what is left.
 - Never merge a pull request, nor turn on its auto-merge: the worker that made it does, or the owner. A worker that

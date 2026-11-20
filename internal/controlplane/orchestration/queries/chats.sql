@@ -53,6 +53,10 @@ UPDATE bots SET main_chat = NULL WHERE main_chat = CAST(@chat_id AS TEXT);
 -- name: TouchChat :exec
 UPDATE chats SET updated_at = @now WHERE id = @id;
 
+-- name: InsertRunAdoptionNotice :exec
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (@chat_id, 'system', 'wake', @text, 1, @now);
+
 -- name: InsertChatMessage :one
 INSERT INTO chat_messages (chat_id, role, kind, text, parts, attachments, event_seq, sender_id, sender_name, created_at)
 VALUES (@chat_id, @role, @kind, @text, @parts, @attachments, @event_seq, @sender_id, @sender_name, @now)
@@ -150,7 +154,7 @@ SELECT DISTINCT chat_id FROM runs WHERE chat_id IS NOT NULL;
 -- Events of the chat's Runs after a cursor that need a coordinator (wakeText
 -- in chats.go says the same), so events that wake nobody never fill the page.
 SELECT e.* FROM events e JOIN runs r ON r.id = e.run_id
-WHERE r.chat_id = @chat_id AND e.seq > @after
+WHERE r.chat_id = @chat_id AND e.seq > @after AND e.seq > r.wake_after
   AND (
     e.kind IN ('escalation', 'run.finished', 'run.canceled')
     OR (e.kind = 'task.status'
