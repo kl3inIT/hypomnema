@@ -59,8 +59,9 @@ type openAI struct {
 	pendingPolls int
 	// challenge is the PKCE challenge of the browser login in progress.
 	challenge string
-	// plan is the plan the next id token claims.
-	plan string
+	// plan is the plan the next id token claims, and account its ChatGPT account (chatGPTAccount when empty).
+	plan    string
+	account string
 	// refreshFailure, when set, is the status and body every refresh gets.
 	refreshFailure struct {
 		status int
@@ -176,7 +177,7 @@ func (o *openAI) token(w http.ResponseWriter, r *http.Request) {
 	o.validRefresh = fmt.Sprintf("refresh-%d", o.issued)
 
 	_, _ = fmt.Fprintf(w, `{"access_token":"access-%d","refresh_token":%q,"id_token":%q,"expires_in":3600}`,
-		o.issued, o.validRefresh, idToken(o.plan))
+		o.issued, o.validRefresh, idToken(o.plan, o.account))
 }
 
 func (o *openAI) set(change func(*openAI)) {
@@ -194,9 +195,13 @@ func (o *openAI) refreshCalls() int {
 }
 
 // idToken is an unsigned JWT with the claims the Codex CLI reads.
-func idToken(plan string) string {
+func idToken(plan, account string) string {
+	if account == "" {
+		account = chatGPTAccount
+	}
+
 	claims := fmt.Sprintf(`{"email":%q,"https://api.openai.com/auth":{"chatgpt_account_id":%q,"chatgpt_plan_type":%q}}`,
-		ownerEmail, chatGPTAccount, plan)
+		ownerEmail, account, plan)
 
 	return "e30." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".sig"
 }

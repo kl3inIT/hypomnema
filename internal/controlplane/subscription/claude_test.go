@@ -197,6 +197,7 @@ type claudeWorld struct {
 	oauth *anthropicOAuth
 	clock *fakeClock
 	subs  *subscription.Service
+	orch  *orchestration.Service
 }
 
 func newClaudeWorld(t *testing.T) *claudeWorld {
@@ -213,6 +214,7 @@ func newClaudeWorld(t *testing.T) *claudeWorld {
 
 	w := &claudeWorld{t: t, oauth: newAnthropicOAuth(t), clock: &fakeClock{now: t0}}
 	orch := orchestration.New(db, w.clock, platform.NewID)
+	w.orch = orch
 	vlt := vault.New(db, w.clock, platform.NewID, keys, orch.AccountsUsingSecretRef)
 
 	vendor := subscription.NewClaude(subscription.ClaudeOptions{

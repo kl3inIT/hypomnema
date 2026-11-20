@@ -135,3 +135,25 @@ func TestOwnerSetsAntigravityRewrites(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "0 Antigravity rewrite(s) set")
 }
+
+// Scenario (review of #949, round 2): the gateway is told a provider's version floor (min_versions, issue #642), so
+// that a model below it is not served by a name the provider does not publish.
+func TestTheGatewayIsGivenAProvidersVersionFloor(t *testing.T) {
+	t.Parallel()
+
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	_, err = orch.ApplyProvider(t.Context(), "antigravity-subscription", "name: antigravity-subscription\n"+
+		"kind: antigravity_subscription\nmin_versions: {gemini: \"3.8\"}\nmodels: [gemini-3.8-flash-high]\n")
+	require.NoError(t, err)
+
+	p, err := gatewayProviders(orch)(t.Context(), "antigravity-subscription")
+	require.NoError(t, err)
+	require.NotNil(t, p.Admits)
+	assert.False(t, p.Admits("gemini-3.1-pro-high"), "below the floor")
+	assert.True(t, p.Admits("gemini-4-carbon-high"))
+	assert.True(t, p.Admits("claude-opus-5-5-high"), "a family with no floor")
+}

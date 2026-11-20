@@ -253,7 +253,7 @@ func (s *Server) underGo(
 
 		return answer(token, resp), nil
 	}
-	return s.underModelAccounts(ctx, openCodeGoRuntime, session, nil, nil, attempt)
+	return s.underModelAccounts(ctx, openCodeGoRuntime, forModel{}, session, nil, nil, attempt)
 }
 
 // goPost sends a body to Go on a wire under a key.

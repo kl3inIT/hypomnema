@@ -161,6 +161,9 @@ type ProviderInfo struct {
 	APIKeyRef string
 	// Models are the names the provider offers.
 	Models []string
+	// Admits says whether the provider takes a model its vendor lists, past its version floor (min_versions, issue
+	// #642); nil takes every model.
+	Admits func(model string) bool
 }
 
 // Providers looks a provider up; the control plane's wiring gives the
@@ -348,6 +351,47 @@ func (s *Service) subscriptionModel(ctx context.Context, name string) (Model, bo
 	}
 
 	return subscriptionModelOf(p, upstream), true, nil
+}
+
+// listingKinds are the subscriptions whose accounts each have their own list of models, which a request is routed by
+// (issue #814).
+var listingKinds = []string{"codex_subscription", "antigravity_subscription"}
+
+// unlistedModel is the model of a name "<provider>/<model>" of a subscription whose accounts each list their models
+// (Codex, Antigravity) when the provider's list, the union of theirs, does not have it, such as one the hourly reading
+// took off. It is served as a listed one is, by the accounts' own lists (Subscriptions' ModelTokens): the request is
+// answered alike whether or not the model is still published (issue #814). ok is false for another name. A model below
+// the provider's version floor is never served, whatever the accounts' lists say: the error is ErrModelNotServed.
+// A provider that cannot be read is an error.
+func (s *Service) unlistedModel(ctx context.Context, name string) (Model, bool, error) {
+	provider, upstream, found := strings.Cut(name, "/")
+	if !found || upstream == "" {
+		return Model{}, false, nil
+	}
+
+	p, err := s.providers(ctx, provider)
+	if errors.Is(err, ErrNotFound) {
+		return Model{}, false, nil
+	}
+
+	if err != nil {
+		return Model{}, false, fmt.Errorf("reading provider %q: %w", provider, err)
+	}
+
+	if !slices.Contains(listingKinds, p.Kind) || slices.Contains(p.Models, upstream) {
+		return Model{}, false, nil
+	}
+
+	if p.Admits != nil && !p.Admits(upstream) {
+		return Model{}, false, fmt.Errorf("%w: %s is below provider %s's min_versions", ErrModelNotServed, upstream, p.Name)
+	}
+
+	return subscriptionModelOf(p, upstream), true, nil
+}
+
+// notServedMessage is what the gateway says of a model no account's list has.
+func notServedMessage(model string) string {
+	return fmt.Sprintf("model %q is not served by any account", model)
 }
 
 func subscriptionModelOf(p ProviderInfo, upstream string) Model {

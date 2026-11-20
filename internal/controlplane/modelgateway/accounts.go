@@ -3,6 +3,7 @@ package modelgateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -70,11 +71,12 @@ func movesOn(status int) bool {
 }
 
 func (s *Server) retryRefusedAccount(
-	ctx context.Context, resp *http.Response, token *AccountToken, keepRefusalOnRefreshError bool,
+	ctx context.Context, resp *http.Response, token *AccountToken, model forModel, keepRefusalOnRefreshError bool,
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
-	fresh, err := s.accounts.TokenAfterRefusal(ctx, *token)
-	if err != nil && ctx.Err() == nil && (errors.Is(err, ErrTokenUnavailable) ||
+	fresh, err := s.tokenAfterRefusal(ctx, *token, model)
+	// An account whose list no longer has the model keeps its refusal, so the next account is tried (issue #814).
+	if err != nil && ctx.Err() == nil && (errors.Is(err, ErrTokenUnavailable) || errors.Is(err, ErrModelNotServed) ||
 		keepRefusalOnRefreshError && !errors.Is(err, ErrAccountResting)) {
 		return resp, nil
 	}
@@ -123,31 +125,41 @@ func newAccountState() *accountState {
 }
 
 // underAccounts serves a request under the accounts of a runtime in their
-// order. attempt runs it under one account and answers in OpenAI's shape; an
+// order, those that serve model when it is given (Subscriptions.Token).
+// attempt runs it under one account and answers in OpenAI's shape; an
 // answer that moves on is kept while the next account is tried, and is what
 // the client gets when none serves. usedLast, when given, says an account is
 // to be tried only after the others.
 func (s *Server) underAccounts(
-	ctx context.Context, runtime, session string, usedLast func(AccountToken) bool,
+	ctx context.Context, runtime string, model forModel, session string, usedLast func(AccountToken) bool,
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
-	resp, err := s.tryAccounts(ctx, runtime, session, usedLast, attempt, nil)
+	resp, err := s.tryAccounts(ctx, runtime, model, session, usedLast, attempt, nil)
+	if errors.Is(err, ErrModelNotServed) {
+		return modelNotServed(model.name, runtime), nil
+	}
 	var cooling *CoolingError
 	if errors.As(err, &cooling) {
 		if now := s.svc.clock.Now(); runtime == codexRuntime && cooling.Until.Sub(now) > codexWaitsUpTo {
 			return accountCoolingResponse("/v1/responses", cooling.Until, now), nil
 		}
+		// 429 with the time the first account is free again, as CLIProxyAPI
+		// answers when every credential cools (9router answers 503).
 		return openAIError(http.StatusTooManyRequests, "rate_limit_error", "account_unavailable",
 			accountsCoolingMessage, cooling.Until.Sub(s.svc.clock.Now())), nil
 	}
 	return resp, err
 }
 
+// underModelAccounts is underAccounts for a request that may move on to the
+// model's next target: a CoolingError, or ErrModelNotServed when no account's
+// list has the model, is returned as it is, for the caller to try the next
+// target or answer for them all (tryChat).
 func (s *Server) underModelAccounts(
-	ctx context.Context, runtime, session string, usedLast func(AccountToken) bool, modelReset func(string) time.Time,
-	attempt func(AccountToken) (*http.Response, error),
+	ctx context.Context, runtime string, model forModel, session string, usedLast func(AccountToken) bool,
+	modelReset func(string) time.Time, attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
-	return s.tryAccounts(ctx, runtime, session, usedLast, attempt, func() time.Time {
+	return s.tryAccounts(ctx, runtime, model, session, usedLast, attempt, func() time.Time {
 		until, err := s.accounts.FirstFree(ctx, runtime, modelReset)
 		if err != nil {
 			return time.Time{}
@@ -157,9 +169,13 @@ func (s *Server) underModelAccounts(
 }
 
 func (s *Server) tryAccounts(
-	ctx context.Context, runtime, session string, usedLast func(AccountToken) bool,
+	ctx context.Context, runtime string, model forModel, session string, usedLast func(AccountToken) bool,
 	attempt func(AccountToken) (*http.Response, error), firstFree func() time.Time,
 ) (*http.Response, error) {
+	if namesModels[runtime] && model.name == "" {
+		return nil, fmt.Errorf("%w: %s", ErrNoModel, runtime)
+	}
+
 	var (
 		tried    []string
 		spared   []AccountToken
@@ -185,7 +201,7 @@ func (s *Server) tryAccounts(
 	}
 
 	for {
-		token, err := s.accounts.Token(ctx, runtime, session, tried...)
+		token, err := s.token(ctx, runtime, model, session, tried...)
 		if err != nil {
 			stopping = err
 
@@ -205,13 +221,29 @@ func (s *Server) tryAccounts(
 		}
 	}
 
-	for _, token := range spared {
-		if resp, done, err := try(token); done {
+	for _, held := range spared {
+		if !s.stillServes(ctx, model, held) {
+			continue
+		}
+
+		if resp, done, err := try(held); done {
 			return resp, err
 		}
 	}
 
+	// The last pick found that no account's list has the model now, the accounts already tried included: an answer
+	// one of them gave before it lost the model (a 401 whose refresh found it gone) says nothing more. The request is
+	// answered as at the start: the model is not served when every list is known, and to be tried again while one is
+	// not (issue #814).
 	var cooling *CoolingError
+	if errors.Is(stopping, ErrModelNotServed) || errors.As(stopping, &cooling) && cooling.ListUnknown {
+		if refusal != nil {
+			drain(refusal)
+		}
+
+		return nil, stopping
+	}
+
 	if firstFree != nil && (refusal != nil && refusal.StatusCode == http.StatusTooManyRequests ||
 		refusal == nil && errors.As(stopping, &cooling)) {
 		if until := firstFree(); !until.IsZero() {
@@ -226,6 +258,73 @@ func (s *Server) tryAccounts(
 	}
 
 	return nil, stopping
+}
+
+// modelOf is the model a request names: the gateway's own (Service.GetModel), or, when the accounts' lists route
+// their models (ModelTokens), a Codex or Antigravity model the provider no longer publishes, for those lists to
+// decide (Service.unlistedModel, issue #814). Such a model below the provider's version floor is ErrModelNotServed.
+func (s *Server) modelOf(ctx context.Context, name string) (Model, error) {
+	model, err := s.svc.GetModel(ctx, name)
+	if !errors.Is(err, ErrNotFound) {
+		return model, err
+	}
+
+	if _, ok := s.accounts.(ModelTokens); ok {
+		unlisted, ok, err := s.svc.unlistedModel(ctx, name)
+		if err != nil {
+			return Model{}, err
+		}
+
+		if ok {
+			return unlisted, nil
+		}
+	}
+
+	return model, err
+}
+
+// modelNotServed is the answer when every account's list is known and none
+// has the model (issue #814).
+func modelNotServed(model, runtime string) *http.Response {
+	return openAIError(http.StatusNotFound, typeInvalidRequest, codeModelNotServed,
+		fmt.Sprintf("model %q is not served by any %s account", model, runtime), 0)
+}
+
+// token is a token of an account of a runtime, of one whose vendor lists
+// model when the accounts can say (ModelTokens) and a model is given.
+func (s *Server) token(
+	ctx context.Context, runtime string, model forModel, session string, skip ...string,
+) (AccountToken, error) {
+	if byModel, ok := s.accounts.(ModelTokens); ok && model.listed {
+		return byModel.TokenFor(ctx, runtime, model.name, session, skip...)
+	}
+
+	return s.accounts.Token(ctx, runtime, session, skip...)
+}
+
+// stillServes says a held account may still be sent to, right before it is,
+// for a model the accounts' lists name: it may have stopped serving the
+// model, or being usable, while others were tried (issue #814). The held token
+// is sent as it is, so anything given with it (a retry it claimed) stays.
+func (s *Server) stillServes(ctx context.Context, model forModel, held AccountToken) bool {
+	byModel, ok := s.accounts.(ModelTokens)
+	if !ok || !model.listed {
+		return true
+	}
+
+	return byModel.Serves(ctx, held.AccountID, model.name)
+}
+
+// tokenAfterRefusal refreshes an account whose token the vendor refused. For a
+// model the accounts' lists name, it is refreshed only while it is still
+// usable and its list still has the model (ModelTokens; issue #814): otherwise
+// the error is ErrModelNotServed, and the request goes on to another account.
+func (s *Server) tokenAfterRefusal(ctx context.Context, refused AccountToken, model forModel) (AccountToken, error) {
+	if byModel, ok := s.accounts.(ModelTokens); ok && model.listed {
+		return byModel.TokenAfterRefusalFor(ctx, refused, model.name)
+	}
+
+	return s.accounts.TokenAfterRefusal(ctx, refused)
 }
 
 // cool keeps an account out of use after a failure, for as long as 9router-go

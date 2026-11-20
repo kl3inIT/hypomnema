@@ -1945,7 +1945,8 @@ flowchart LR
   and may still outrank a node with fresh stats whose requests leave less room. A node whose fresh stats show less than
   1 GiB available (`NodeMemoryFloor`) takes no new Conversation (kubelet's `MemoryPressure`); one already on it
   continues. A new one goes with the first active account of the runtime that is not cooling down (none for a model the
-  gateway serves), in
+  gateway serves: the gateway picks one for each request, among the accounts whose list has the model for
+  Antigravity and Codex, issue [#814](https://github.com/kl3inIT/hypomnema/issues/814)), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
   Before scoring, the scheduler also applies the [node's disk policy](#node-disk-policy-issue-859), including on
@@ -3129,14 +3130,27 @@ capabilities do not exist yet.
   `claude-subscription/claude-opus-5-5`, with no row in its table (issue #549, as 9router-go lists the models of
   every active connection, `internal/handlers/chat/models_list.go`, and CLIProxyAPI's registry fills from its
   logged-in accounts). A subscription provider's models are what its migration listed plus what its vendor serves:
-  soon after the start and then every hour the control plane asks, with the first active account of each runtime,
+  soon after the start and then every hour the control plane asks, with every active account of Codex and
+  Antigravity, each read and kept for an hour on its own (a failed reading is tried again after 5 minutes and keeps
+  the last one; a read runs on its own, and the caller that starts it, or any caller while it is an account's first,
+  waits for it; a gateway request waits at most 30 s in all, from when it entered the gateway, through every pick and
+  fallback, however many accounts' lists it waits for), and takes the union
+  of their lists in the accounts' order (issue [#814](https://github.com/kl3inIT/hypomnema/issues/814), as omp's
+  `unionAccountCatalogs` and CLIProxyAPI's per-auth registry do for both; an account whose list cannot be read hides
+  no other's; when a read of an account with no list yet ends, answered or not, the providers are updated then, not at
+  the next hour), and for Claude the last list an account answered, kept for an hour and then replaced only by a
+  newer answer from its first active account that answers, whatever accounts are disabled or fail meanwhile, as before
+  (neither reads Anthropic's list per account; OpenCode Go's wires are read the same way),
   Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
   (`GET api.anthropic.com/v1/models` with the OAuth token), Antigravity (`fetchAvailableModels`, without internal
   or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`) and OpenCode Go
   (`GET opencode.ai/inference/go/v1/models`, its chat models on a wire the gateway calls, each with its wire, window
   and largest output; issue #854). OpenCode Go's provider is set to that list as Antigravity's is (OpenClaw, Hermes
-  and pi read Go's live list). Codex's and Claude's providers
-  gain the names they lack and lose none (issue [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex,
+  and pi read Go's live list). Codex's provider also drops a model it lists that two readings in a row left out
+  (each counted once, by when it was read), since its requests go only to accounts whose list has the model (issue
+  [#814](https://github.com/kl3inIT/hypomnema/issues/814)); each model is dropped on its own, so a model a profile
+  uses keeps only itself. Claude's provider
+  gains the names it lacks and loses none (issue [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex,
   OpenClaw and Hermes read them); Antigravity's is set to the roster, as omp takes it as authoritative, except a
   model a profile's current version uses (issue [#639](https://github.com/kl3inIT/hypomnema/issues/639)). A
   provider's `min_versions` (`{gpt: "6", gemini: "3.8"}`, by the name's first word) keeps older versions out of
@@ -3164,7 +3178,7 @@ capabilities do not exist yet.
   (500,000 for `gpt-6.2-sol`, `gpt-6.1-sol` and `gpt-6.1-terra`, 372,000 for `gpt-daybreak-red-latest`, 272,000 for
   every other model and one it does not list), an Antigravity one's window and largest
   output as Google serves them, `maxTokens` and `maxOutputTokens` of `fetchAvailableModels` under the first active
-  account, read once an hour (issue #587, as omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
+  account whose list has the model and gives them, read once an hour (issue #587, as omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
   levels are only those the gateway gives the first target's provider as levels of their own: Codex none to
   xhigh (max is sent as xhigh), Claude none, low to max (minimal's budget is low's), Antigravity's Gemini low,
   medium and high and its other models none; an OpenAI-compatible provider gets any. A level set that the provider
@@ -3453,6 +3467,8 @@ capabilities do not exist yet.
     tokens are sent unchanged, without refresh or a sign-in mark from this path. From: 9router-go `fallback.go`
     and `oauth_lock.go`, CLIProxyAPI `conductor_execution.go` and `conductor_refresh.go`, and omp `auth/select.ts`
     and `auth/refresh.ts` (#849).
+    Reading an account's list of models marks such a credential the same way, since a Codex or Antigravity account
+    whose list cannot be read is never picked for a model (issue #814).
     When none serves, the client gets the last refusal; when none could even be tried, a 429 with `Retry-After` to
     the time the first is free (CLIProxyAPI). For Codex accounts, when the first is free in more than a minute
     (OpenClaw's `maxRetryDelayMs`, past which a 429 fails over), that 429 has the backend's own shape for a used-up
@@ -3465,6 +3481,35 @@ capabilities do not exist yet.
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
     401, 402 or 403; 30 seconds after another 5xx.
+  - A request for an Antigravity or Codex model (chat on `/chat/completions`, `/responses` and `/messages`, and
+    Antigravity's images) goes only to the accounts whose own list (read as the gateway's models are) has it, as
+    CLIProxyAPI routes a model only to the auths that registered it (`sdk/cliproxy/auth/conductor_selection.go`
+    `authSupportsRouteModel`, :1419-1431, applied at :1687; issue
+    [#814](https://github.com/kl3inIT/hypomnema/issues/814), owner's design of 2026-11-18). Every rule here then
+    orders those. An account whose first list is being read is waited for, at most 30 s; while no account is known to
+    have the model and one's list is not known (still being read, or never read), the request gets a 429 to try
+    again in 30 s, never another account in its place; once every list is known and none has the model, it gets a
+    404 `model_not_served` (an Antigravity image asked for by name too). The accounts and what is known of their
+    lists are taken at one moment, after the lists were read, and the account picked is read again before its token is
+    refreshed and again after, the last thing before its token is given: one disabled, logged out or cooling since,
+    or whose list no longer has the model, is passed over. A token the vendor refuses (401) is refreshed only while
+    the account's list still has the model, checked again after the refresh; otherwise the request goes on to the
+    next account. An account held for last (near its quota) is checked again right before it is sent to, and sent the
+    token it was given. When the only account whose list had the model loses it meanwhile (a refresh in between,
+    or after a 401), the request is answered as at the start: the 404 `model_not_served` when every list is known,
+    the 429 to try again in 30 s while one is not; the 401 of an account that lost the model is not passed on. The
+    gateway's 404 for one target of a model does not answer for the others: the next target is tried, and the 404
+    is the answer only when no target answered or cools. A `<provider>/<model>` name of Codex or Antigravity that
+    the provider's list does not have, such as one dropped by the hourly reading or not read yet, is routed by the
+    accounts' lists as a listed one is, on chat, `/responses` and `/messages`: served by an account whose list has
+    it, the 429 while a list is not known, the 404 `model_not_served` once every list is known, never 400
+    `model_not_found`. A name below the provider's `min_versions` is the 404 `model_not_served` at once, whatever an
+    account's list says, so the floor holds on this path too. Reading OpenCode Go's wire
+    and a model's window during a request waits no later than the request's one 30 s wait. Every request for a Codex
+    or Antigravity account names its model (`underAccounts` refuses one that does not). Codex's images (`gpt-image-2`) and searches (`gpt-6-luna`)
+    and Antigravity's searches (`gemini-2.5-flash`) call models those lists do not name, so they go to any account,
+    as before (owner, 2026-11-18). Claude's requests are not narrowed: its list does not name every model it serves,
+    and it is the first account's.
   - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
     reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
     every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.

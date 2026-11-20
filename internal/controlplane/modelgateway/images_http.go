@@ -308,13 +308,15 @@ func (s *Server) imagesFailed(w http.ResponseWriter, r *http.Request, err error)
 	case errors.As(err, &failed):
 		status := failed.Status()
 
-		switch status {
-		case http.StatusTooManyRequests:
+		switch {
+		case failed.NotServed():
+			writeError(w, status, typeInvalidRequest, codeModelNotServed, err.Error())
+		case status == http.StatusTooManyRequests:
 			w.Header().Set("Retry-After", strconv.Itoa(max(1, int(failed.RetryAfter().Round(time.Second).Seconds()))))
 			writeError(w, status, typeRateLimit, "image_rate_limited", err.Error())
-		case http.StatusServiceUnavailable:
+		case status == http.StatusServiceUnavailable:
 			writeError(w, status, typeServer, "no_image_provider", err.Error())
-		case http.StatusBadGateway:
+		case status == http.StatusBadGateway:
 			writeError(w, status, typeServer, "upstream_failed", err.Error())
 		default:
 			writeError(w, status, typeInvalidRequest, "image_refused", err.Error())

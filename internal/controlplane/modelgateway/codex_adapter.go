@@ -81,7 +81,12 @@ var ErrAccountResting = errors.New("the account rests until its next try")
 var ErrTokenUnavailable = errors.New("the refused account token cannot be renewed")
 
 // CoolingError says every account of a kind waits for a usage limit to end.
-type CoolingError struct{ Until time.Time }
+type CoolingError struct {
+	Until time.Time
+	// ListUnknown says no account is known to have the model asked for while an account's list of models is not
+	// known yet (issue #814).
+	ListUnknown bool
+}
 
 func (e *CoolingError) Error() string {
 	return "every account waits for its usage limit, until " + e.Until.UTC().Format(time.RFC3339)
@@ -114,6 +119,54 @@ type Subscriptions interface {
 	NoteAnswer(runtime, accountID string, h http.Header)
 }
 
+// ModelTokens is Subscriptions that can give, for a request for a model, a
+// token of only the accounts whose own list of models has it (issue #814), as
+// CLIProxyAPI routes a model only to the auths that registered it
+// (sdk/cliproxy/auth/conductor_selection.go:1419-1431 authSupportsRouteModel,
+// applied at :1687). While no account is known to have it and one's list is
+// not known yet, it answers a *CoolingError; once every list is known and none
+// has it, ErrModelNotServed. Subscriptions without it give any account, as
+// Token does.
+type ModelTokens interface {
+	TokenFor(ctx context.Context, runtime, model, session string, skip ...string) (AccountToken, error)
+	// TokenAfterRefusalFor is TokenAfterRefusal for a request for a model:
+	// ErrModelNotServed when the account is no longer usable or its list no
+	// longer has the model.
+	TokenAfterRefusalFor(ctx context.Context, refused AccountToken, model string) (AccountToken, error)
+	// Serves says an account is still usable, not cooling, and its list has
+	// the model.
+	Serves(ctx context.Context, accountID, model string) bool
+}
+
+// ErrModelNotServed says no account's list of models has the model asked for
+// (issue #814); a client is told so with codeModelNotServed.
+var ErrModelNotServed = errors.New("the model is not served by any account")
+
+const codeModelNotServed = "model_not_served"
+
+// ErrNoModel says a token was asked for without the model it will call, of a
+// runtime whose accounts are each served their own models (issue #814).
+var ErrNoModel = errors.New("a token is asked for without its model")
+
+// forModel is the model a request calls under a runtime's accounts (issue
+// #814). A Codex or Antigravity request names it: underAccounts refuses one
+// that does not.
+type forModel struct {
+	name string
+	// listed says the vendor's list of an account's models names the model,
+	// so it goes only to the accounts whose list has it (ModelTokens). Codex's
+	// image and search models and Antigravity's search model are not on those
+	// lists: their requests go to any account, as before (owner, 2026-11-18).
+	listed bool
+}
+
+// listedModel is a model the accounts' lists name; unlistedModel one they do not.
+func listedModel(name string) forModel   { return forModel{name: name, listed: true} }
+func unlistedModel(name string) forModel { return forModel{name: name} }
+
+// namesModels are the runtimes whose requests name their model (issue #814).
+var namesModels = map[string]bool{codexRuntime: true, antigravityRuntime: true}
+
 // codexSubscription serves chat from the Codex backend.
 type codexSubscription struct{}
 
@@ -134,9 +187,9 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.underModelAccounts(ctx, codexRuntime, built.CacheKey, nil, nil,
+	resp, err := s.underModelAccounts(ctx, codexRuntime, listedModel(call.upstream.Model), built.CacheKey, nil, nil,
 		func(token AccountToken) (*http.Response, error) {
-			resp, err := s.codexCall(ctx, &token, built)
+			resp, err := s.codexCall(ctx, &token, listedModel(call.upstream.Model), built)
 			if err != nil {
 				return nil, err
 			}
@@ -156,16 +209,18 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 	return resp, nil
 }
 
-// codexCall sends a built request under an account. A token the backend
-// refuses is refreshed once and the request sent again; token is then the
-// new one.
-func (s *Server) codexCall(ctx context.Context, token *AccountToken, built codex.Request) (*http.Response, error) {
+// codexCall sends a built request for model under an account. A token the
+// backend refuses is refreshed once and the request sent again; token is then
+// the new one.
+func (s *Server) codexCall(
+	ctx context.Context, token *AccountToken, model forModel, built codex.Request,
+) (*http.Response, error) {
 	resp, err := s.codexPost(ctx, *token, built)
 	if err != nil || resp.StatusCode != http.StatusUnauthorized {
 		return resp, err
 	}
 
-	return s.retryRefusedAccount(ctx, resp, token, true, func(fresh AccountToken) (*http.Response, error) {
+	return s.retryRefusedAccount(ctx, resp, token, model, true, func(fresh AccountToken) (*http.Response, error) {
 		return s.codexPost(ctx, fresh, built)
 	})
 }

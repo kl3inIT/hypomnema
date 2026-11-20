@@ -14,9 +14,12 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/internal/store"
 )
 
+// modelCooling is what the targets of one model said when none answered: the first moment an account of one is free
+// again, that no account's list has the model (notServed, issue #814), and whether a target failed otherwise.
 type modelCooling struct {
-	first time.Time
-	other bool
+	first     time.Time
+	notServed bool
+	other     bool
 }
 
 func (c *modelCooling) add(err error) bool {
@@ -29,15 +32,34 @@ func (c *modelCooling) add(err error) bool {
 		return true
 	case errors.Is(err, ErrNoAccount):
 		return true
+	case errors.Is(err, ErrModelNotServed):
+		// The next target may serve the model: a target no account has it on does not answer for the others.
+		c.notServed = true
+		return true
 	default:
 		c.other = true
 		return false
 	}
 }
 
+// coolingResponse is the answer when no target of a model answered and none failed otherwise: 429 until the first
+// account is free again, or, when no target cools and no account's list has the model on one, 404 model_not_served
+// (issue #814); nil otherwise.
 func (s *Server) coolingResponse(ctx context.Context, route string, c modelCooling, record *Usage) *http.Response {
-	if c.other || c.first.IsZero() {
+	if c.other {
 		return nil
+	}
+
+	if c.first.IsZero() {
+		if !c.notServed {
+			return nil
+		}
+
+		noteServed(ctx, "")
+		record.Status, record.Outcome = http.StatusNotFound, OutcomeUpstreamError
+		record.Error = notServedMessage(record.Model)
+
+		return notServedResponse(route, record.Error)
 	}
 
 	now := s.svc.clock.Now()
@@ -90,7 +112,26 @@ func accountCoolingResponse(route string, until, now time.Time) *http.Response {
 	}
 }
 
+// notServedResponse is the gateway's 404 for a model no account's list has, in the route's shape.
+func notServedResponse(route, message string) *http.Response {
+	if route == "/v1/messages" || route == "/v1/messages/count_tokens" {
+		encoded, _ := json.Marshal(map[string]any{ //nolint:errchkjson // Strings always encode.
+			"type": "error", "error": map[string]string{"type": "not_found_error", "message": message},
+		})
+
+		return &http.Response{
+			StatusCode: http.StatusNotFound, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(bytes.NewReader(encoded)),
+		}
+	}
+
+	return openAIError(http.StatusNotFound, typeInvalidRequest, codeModelNotServed, message, 0)
+}
+
+// relayCooling passes the gateway's own answer for a model none of whose targets answered.
 func relayCooling(w http.ResponseWriter, resp *http.Response) {
-	w.Header().Set("Retry-After", resp.Header.Get("Retry-After"))
+	if retry := resp.Header.Get("Retry-After"); retry != "" {
+		w.Header().Set("Retry-After", retry)
+	}
 	copyBody(w, resp, resp.Header.Get("Content-Type"), maxErrorBytes)
 }

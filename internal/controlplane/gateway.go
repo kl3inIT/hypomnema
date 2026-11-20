@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
@@ -62,6 +64,23 @@ func (g gatewayAccounts) Token(
 	return accountToken(g.subs.Token(ctx, runtime, session, skip...))
 }
 
+// TokenFor is Token for a request for a model: only the accounts whose vendor lists it, when one does (issue #814).
+func (g gatewayAccounts) TokenFor(
+	ctx context.Context, runtime, model, session string, skip ...string,
+) (modelgateway.AccountToken, error) {
+	return accountToken(g.subs.TokenFor(listDeadline(ctx), runtime, model, session, skip...))
+}
+
+// listDeadline gives the subscriptions the moment the gateway's request stops waiting for the accounts' lists of
+// models: one bound for the whole request (issue #814).
+func listDeadline(ctx context.Context) context.Context {
+	if t, ok := modelgateway.AccountWaitEnds(ctx); ok {
+		return subscription.WithListDeadline(ctx, t)
+	}
+
+	return ctx
+}
+
 func (g gatewayAccounts) FirstFree(
 	ctx context.Context, runtime string, modelReset func(string) time.Time,
 ) (time.Time, error) {
@@ -83,6 +102,18 @@ func (g gatewayAccounts) NoteQuota(accountID string, left float64) {
 
 func (g gatewayAccounts) NoteAnswer(runtime, accountID string, h http.Header) {
 	g.subs.NoteAnswer(runtime, accountID, h)
+}
+
+// Serves says an account can still be sent a request for a model (issue #814).
+func (g gatewayAccounts) Serves(ctx context.Context, accountID, model string) bool {
+	return g.subs.Serves(ctx, accountID, model)
+}
+
+// TokenAfterRefusalFor is TokenAfterRefusal for a request for a model (issue #814).
+func (g gatewayAccounts) TokenAfterRefusalFor(
+	ctx context.Context, refused modelgateway.AccountToken, model string,
+) (modelgateway.AccountToken, error) {
+	return accountToken(g.subs.TokenAfterRefusalFor(ctx, subsToken(refused), model))
 }
 
 func (g gatewayAccounts) TokenAfterRefusal(
@@ -141,9 +172,13 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 	case errors.As(err, &verify):
 		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrAccountResting, err)
 	case errors.As(err, &cooling):
-		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: cooling.Until}
+		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: cooling.Until, ListUnknown: cooling.ListUnknown}
 	case errors.Is(err, subscription.ErrNoAccount):
 		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrNoAccount, err)
+	case errors.Is(err, subscription.ErrModelNotServed):
+		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrModelNotServed, err)
+	case errors.Is(err, subscription.ErrNoModel):
+		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrNoModel, err)
 	case err != nil:
 		return modelgateway.AccountToken{}, err
 	}
@@ -155,29 +190,42 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 	}, nil
 }
 
+// servedLimits and servedWires are what the subscriptions say of the models their vendors serve
+// (subscription.Service).
+type (
+	servedLimits interface {
+		ServedLimits(ctx context.Context, runtime, model string) (window, output int64, ok bool)
+	}
+	servedWires interface {
+		ServedWire(ctx context.Context, runtime, model string) (wire string, ok bool)
+	}
+)
+
 // gatewayServedLimits gives the gateway what an Antigravity account (issue #587) or an OpenCode Go key (issue #854)
-// is served each model with.
+// is served each model with, waiting for a list being read no later than the request's one wait (listDeadline,
+// issue #814).
 func gatewayServedLimits(
-	subs *subscription.Service,
+	subs servedLimits,
 ) func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 	return func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 		switch kind {
 		case orchestration.ProviderAntigravitySubscription, orchestration.ProviderOpenCodeGo:
-			return subs.ServedLimits(ctx, subscriptionRuntimes[kind], upstream)
+			return subs.ServedLimits(listDeadline(ctx), subscriptionRuntimes[kind], upstream)
 		default:
 			return 0, 0, false
 		}
 	}
 }
 
-// gatewayServedWire gives the gateway the wire OpenCode Go serves each model on, from its model list (issue #854).
-func gatewayServedWire(subs *subscription.Service) func(ctx context.Context, kind, upstream string) (string, bool) {
+// gatewayServedWire gives the gateway the wire OpenCode Go serves each model on, from its model list (issue #854),
+// waiting as gatewayServedLimits does.
+func gatewayServedWire(subs servedWires) func(ctx context.Context, kind, upstream string) (string, bool) {
 	return func(ctx context.Context, kind, upstream string) (string, bool) {
 		if kind != orchestration.ProviderOpenCodeGo {
 			return "", false
 		}
 
-		return subs.ServedWire(ctx, orchestration.OpenCodeGoRuntime, upstream)
+		return subs.ServedWire(listDeadline(ctx), orchestration.OpenCodeGoRuntime, upstream)
 	}
 }
 
@@ -214,6 +262,7 @@ func gatewayProviders(svc *orchestration.Service) modelgateway.Providers {
 
 		return modelgateway.ProviderInfo{
 			Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, APIKeyRef: p.APIKeyRef, Models: p.Models,
+			Admits: func(model string) bool { return !p.BelowFloor(model) },
 		}, nil
 	}
 }
@@ -655,7 +704,8 @@ const (
 
 // servedNames is what a runtime's accounts are served (subscription.Service.ServedNames).
 type servedNames interface {
-	ServedNames(ctx context.Context, runtime string) ([]string, bool)
+	// ServedList is what they are served, with when the latest list it was made from was read.
+	ServedList(ctx context.Context, runtime string) ([]string, time.Time, bool)
 }
 
 // providerModels lists the providers and adds models to one (orchestration.Service).
@@ -663,6 +713,7 @@ type providerModels interface {
 	ListProviders(ctx context.Context) ([]orchestration.Provider, error)
 	AddProviderModels(ctx context.Context, name string, models []string) ([]string, error)
 	SetProviderModels(ctx context.Context, name string, models []string) (added, removed []string, err error)
+	RemoveProviderModel(ctx context.Context, name, model string) (bool, error)
 }
 
 // rosterRuntimes are the runtimes whose vendor's list is the provider's list, as omp takes Antigravity's roster as
@@ -671,9 +722,104 @@ type providerModels interface {
 // it serves (OpenClaw, Hermes), and Codex's is read per account.
 var rosterRuntimes = map[string]bool{"antigravity": true, orchestration.OpenCodeGoRuntime: true}
 
+// vendorModels gives the subscription providers the models their vendors serve, one update at a time: every hour
+// (vendorModelsLoop) and when an account's first list of models is read (issue #814).
+type vendorModels struct {
+	mu        sync.Mutex
+	subs      servedNames
+	providers providerModels
+	logger    *slog.Logger
+	drops     *drops
+}
+
+func (v *vendorModels) update(ctx context.Context) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	if v.drops == nil {
+		v.drops = &drops{misses: map[string]map[string]int{}, reads: map[string]time.Time{}}
+	}
+
+	addVendorModels(ctx, v.subs, v.providers, v.logger, v.drops)
+}
+
+// dropAfter is how many readings in a row must leave a model out before a Codex provider drops it (review of #832):
+// one is not enough, as an account can be read without it once.
+const dropAfter = 2
+
+// droppingRuntimes are the runtimes whose providers drop, after dropAfter readings, a model their vendor's lists
+// leave out: Codex, whose requests go only to the accounts whose list has the model (issue #814), so a model no list
+// names would be listed by /v1/models and refused. Claude's list does not name every model it serves.
+var droppingRuntimes = map[string]bool{"codex": true}
+
+// drops counts, by provider and model, the readings in a row that left a model out; a reading is counted once, by
+// when it was read, however many updates see it.
+type drops struct {
+	misses map[string]map[string]int
+	reads  map[string]time.Time
+}
+
+// due are the models a provider lists that dropAfter readings in a row, the one read at read the last, left out.
+func (d *drops) due(provider string, listed, served []string, read time.Time) []string {
+	if !read.After(d.reads[provider]) {
+		return nil
+	}
+
+	d.reads[provider] = read
+
+	misses := d.misses[provider]
+	if misses == nil {
+		misses = map[string]int{}
+		d.misses[provider] = misses
+	}
+
+	for name := range misses {
+		if slices.Contains(served, name) || !slices.Contains(listed, name) {
+			delete(misses, name)
+		}
+	}
+
+	var out []string
+
+	for _, name := range listed {
+		if slices.Contains(served, name) {
+			continue
+		}
+
+		if misses[name]++; misses[name] >= dropAfter {
+			out = append(out, name)
+		}
+	}
+
+	return out
+}
+
+// drop takes each due model off a provider's list on its own, so that one a profile uses, which is refused, keeps
+// none of the others.
+func drop(
+	ctx context.Context, providers providerModels, logger *slog.Logger, provider string, due []string,
+) (removed []string) {
+	for _, name := range due {
+		ok, err := providers.RemoveProviderModel(ctx, provider, name)
+		if err != nil {
+			logger.WarnContext(ctx, "a model its vendor no longer serves was kept",
+				slog.String("event", "gateway.vendor_models_kept"), slog.String("provider", provider),
+				slog.String("model", name), slog.String("error", err.Error()))
+
+			continue
+		}
+
+		if ok {
+			removed = append(removed, name)
+		}
+	}
+
+	return removed
+}
+
 // vendorModelsLoop gives each subscription provider the models its vendor serves (issue #623), once soon after
 // the start and then every hour, until ctx ends.
-func vendorModelsLoop(ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger) {
+func vendorModelsLoop(ctx context.Context, v *vendorModels) {
 	timer := time.NewTimer(vendorModelsFirst)
 	defer timer.Stop()
 
@@ -684,7 +830,7 @@ func vendorModelsLoop(ctx context.Context, subs servedNames, providers providerM
 		case <-timer.C:
 		}
 
-		addVendorModels(ctx, subs, providers, logger)
+		v.update(ctx)
 		timer.Reset(vendorModelsEvery)
 	}
 }
@@ -692,7 +838,7 @@ func vendorModelsLoop(ctx context.Context, subs servedNames, providers providerM
 // addVendorModels adds to each subscription provider the models its vendor serves that it does not list, as Codex,
 // OpenClaw, omp and Hermes take a subscription's models from its vendor. A vendor that does not answer, or a runtime
 // with no account logged in, leaves the provider as it is: its list is the fallback.
-func addVendorModels(ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger) {
+func addVendorModels(ctx context.Context, subs servedNames, providers providerModels, logger *slog.Logger, d *drops) {
 	list, err := providers.ListProviders(ctx)
 	if err != nil {
 		logger.WarnContext(ctx, "the providers could not be read for their vendors' models",
@@ -707,7 +853,7 @@ func addVendorModels(ctx context.Context, subs servedNames, providers providerMo
 			continue
 		}
 
-		names, ok := subs.ServedNames(ctx, runtime)
+		names, read, ok := subs.ServedList(ctx, runtime)
 		if !ok {
 			continue
 		}
@@ -717,9 +863,15 @@ func addVendorModels(ctx context.Context, subs servedNames, providers providerMo
 			err            error
 		)
 
-		if rosterRuntimes[runtime] {
+		switch {
+		case rosterRuntimes[runtime]:
 			added, removed, err = providers.SetProviderModels(ctx, p.Name, names)
-		} else {
+		case droppingRuntimes[runtime] && d != nil:
+			added, err = providers.AddProviderModels(ctx, p.Name, names)
+			if err == nil {
+				removed = drop(ctx, providers, logger, p.Name, d.due(p.Name, p.Models, names, read))
+			}
+		default:
 			added, err = providers.AddProviderModels(ctx, p.Name, names)
 		}
 

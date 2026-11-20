@@ -558,3 +558,81 @@ func TestTheImageSettingsAreKept(t *testing.T) {
 	require.ErrorIs(t, g.svc.SetImageOrder(ctx, []string{"codex"}), modelgateway.ErrInvalid)
 	require.ErrorIs(t, g.svc.SetImageProvider(ctx, "claude", true), modelgateway.ErrNotFound)
 }
+
+// rosterAccounts are imageAccounts that say which models each account is served (modelgateway.ModelTokens): a
+// request for a model goes only to the accounts served it, when one is.
+type rosterAccounts struct {
+	imageAccounts
+
+	served map[string][]string
+	// asked are the models TokenFor was asked for, in order.
+	asked []string
+}
+
+func (a *rosterAccounts) TokenFor(
+	ctx context.Context, runtime, model, session string, skip ...string,
+) (modelgateway.AccountToken, error) {
+	var others []string
+
+	a.mu.Lock()
+	a.asked = append(a.asked, model)
+
+	for _, acc := range a.all {
+		if !slices.Contains(a.served[acc.id], model) {
+			others = append(others, acc.id)
+		}
+	}
+
+	none := len(others) == len(a.all)
+	a.mu.Unlock()
+
+	if none {
+		return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
+	}
+
+	return a.Token(ctx, runtime, session, append(skip, others...)...)
+}
+
+func (a *rosterAccounts) TokenAfterRefusalFor(
+	ctx context.Context, refused modelgateway.AccountToken, model string,
+) (modelgateway.AccountToken, error) {
+	a.mu.Lock()
+	serves := slices.Contains(a.served[refused.AccountID], model)
+	a.mu.Unlock()
+
+	if !serves {
+		return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
+	}
+
+	return a.TokenAfterRefusal(ctx, refused)
+}
+
+func (a *rosterAccounts) askedFor() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return slices.Clone(a.asked)
+}
+
+// Scenario (issue #814, review of #832): the first Antigravity account is not served the image model, the second
+// is. An image is made under the second.
+func TestAnAntigravityImageGoesToAnAccountServedItsModel(t *testing.T) {
+	t.Parallel()
+
+	backend, got := imageBackend(t, "/v1internal:generateContent", answerWith(http.StatusOK, antigravityImageAnswer))
+	subs := &rosterAccounts{
+		imageAccounts: imageAccounts{all: []imageAccount{
+			{id: "g_pro", runtime: "antigravity", plan: "g1-pro-tier", project: "bright-wave-1234"},
+			{id: "g_ultra", runtime: "antigravity", plan: "g1-ultra-tier", project: "bright-wave-1234"},
+		}},
+		served: map[string][]string{"g_ultra": {"gemini-3.1-flash-image"}},
+	}
+	g := newImageGateway(t, subs, "", backend.URL)
+	require.NoError(t, g.svc.SetImageOrder(t.Context(), []string{"antigravity", "codex"}))
+
+	status, _, body := g.post(t, "/v1/images/generations", g.key, `{"prompt":"a fox in snow"}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	header, _ := got.last(t)
+	assert.Equal(t, "Bearer fake-token-g_ultra", header.Get("Authorization"))
+}

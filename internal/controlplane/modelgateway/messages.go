@@ -110,7 +110,13 @@ func (s *Server) serveMessages(w http.ResponseWriter, r *http.Request, path stri
 		return
 	}
 
-	model, err := s.svc.GetModel(r.Context(), call.req.Model)
+	model, err := s.modelOf(r.Context(), call.req.Model)
+	if errors.Is(err, ErrModelNotServed) {
+		writeAnthropicError(w, http.StatusNotFound, "not_found_error", "", notServedMessage(call.req.Model))
+
+		return
+	}
+
 	if errors.Is(err, ErrNotFound) || (err == nil && model.Capability != CapabilityChat) {
 		writeAnthropicError(w, http.StatusNotFound, "not_found_error", "",
 			fmt.Sprintf("the gateway does not serve a chat model named %q", call.req.Model))
@@ -397,7 +403,7 @@ func chatFromMessages(raw []byte) (chatRequest, error) {
 
 // claudeMessages passes a request to a Claude subscription under its accounts.
 func (s *Server) claudeMessages(ctx context.Context, call messagesCall, upstreamModel string) (*http.Response, error) {
-	return s.underModelAccounts(ctx, claudeAccountRuntime, call.session, nil, nil,
+	return s.underModelAccounts(ctx, claudeAccountRuntime, unlistedModel(upstreamModel), call.session, nil, nil,
 		func(token AccountToken) (*http.Response, error) {
 			resp, err := s.messagesCall(ctx, &token, call, upstreamModel)
 			if err != nil {
@@ -566,7 +572,7 @@ func (s *Server) messagesCall(
 		return resp, err
 	}
 
-	return s.retryRefusedAccount(ctx, resp, token, false, send)
+	return s.retryRefusedAccount(ctx, resp, token, forModel{}, false, send)
 }
 
 // messagesHeaders sets what Anthropic is told of the client. Claude Code's own

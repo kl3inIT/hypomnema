@@ -136,7 +136,7 @@ func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall)
 
 	// Antigravity carries no per-account prompt cache through the gateway, so it
 	// round-robins (session empty) and leans on nearQuota ranking instead.
-	resp, err := s.underModelAccounts(ctx, antigravityRuntime, "", nearQuota, modelReset,
+	resp, err := s.underModelAccounts(ctx, antigravityRuntime, listedModel(model), "", nearQuota, modelReset,
 		func(token AccountToken) (*http.Response, error) {
 			return s.antigravityAttempt(ctx, call, token)
 		})
@@ -180,9 +180,10 @@ func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token Ac
 	resp, err := s.antigravityPost(ctx, token, built)
 	// A token the backend refuses is refreshed once, and the request sent again.
 	if err == nil && resp.StatusCode == http.StatusUnauthorized {
-		resp, err = s.retryRefusedAccount(ctx, resp, &token, true, func(fresh AccountToken) (*http.Response, error) {
-			return s.antigravityPost(ctx, fresh, built)
-		})
+		resp, err = s.retryRefusedAccount(ctx, resp, &token, listedModel(model), true,
+			func(fresh AccountToken) (*http.Response, error) {
+				return s.antigravityPost(ctx, fresh, built)
+			})
 	}
 
 	if err != nil {

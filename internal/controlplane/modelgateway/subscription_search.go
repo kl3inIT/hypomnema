@@ -53,22 +53,23 @@ func (g subscriptionSearch) Search(ctx context.Context, provider, query string, 
 
 	var (
 		runtime string
+		model   forModel
 		attempt searchAttempt
 	)
 
 	switch provider {
 	case websearch.ProviderCodex:
-		runtime = codexRuntime
+		runtime, model = codexRuntime, unlistedModel(codex.SearchModel)
 		attempt = func(token AccountToken) ([]websearch.Result, *http.Response, error) {
 			return s.codexSearch(ctx, token, query, limit)
 		}
 	case websearch.ProviderClaude:
-		runtime = claudeAccountRuntime
+		runtime, model = claudeAccountRuntime, unlistedModel(claude.SearchModel)
 		attempt = func(token AccountToken) ([]websearch.Result, *http.Response, error) {
 			return s.claudeSearch(ctx, token, query, limit)
 		}
 	case websearch.ProviderAntigravity:
-		runtime = antigravityRuntime
+		runtime, model = antigravityRuntime, unlistedModel(antigravity.SearchModel)
 		attempt = func(token AccountToken) ([]websearch.Result, *http.Response, error) {
 			return s.antigravitySearch(ctx, token, query, limit)
 		}
@@ -76,16 +77,18 @@ func (g subscriptionSearch) Search(ctx context.Context, provider, query string, 
 		return nil, fmt.Errorf("%w: no subscription search %q", websearch.ErrInvalid, provider)
 	}
 
-	return s.searchUnder(ctx, runtime, attempt)
+	return s.searchUnder(ctx, runtime, model, attempt)
 }
 
-// searchUnder runs a search under the accounts of a runtime in their order,
-// the next one asked when one is refused as chat moves on. A refusal is
+// searchUnder runs a search on model under the accounts of a runtime in their
+// order, the next one asked when one is refused as chat moves on. A refusal is
 // given to the web search package with its status and wait, for its rest.
-func (s *Server) searchUnder(ctx context.Context, runtime string, attempt searchAttempt) ([]websearch.Result, error) {
+func (s *Server) searchUnder(
+	ctx context.Context, runtime string, model forModel, attempt searchAttempt,
+) ([]websearch.Result, error) {
 	var found []websearch.Result
 
-	resp, err := s.underAccounts(ctx, runtime, "", nil, func(token AccountToken) (*http.Response, error) {
+	resp, err := s.underAccounts(ctx, runtime, model, "", nil, func(token AccountToken) (*http.Response, error) {
 		results, refusal, err := attempt(token)
 		if err != nil || refusal != nil {
 			return refusal, err
@@ -139,7 +142,8 @@ func readSearch(resp *http.Response) ([]byte, error) {
 func (s *Server) codexSearch(
 	ctx context.Context, token AccountToken, query string, limit int,
 ) ([]websearch.Result, *http.Response, error) {
-	resp, err := s.codexCall(ctx, &token, codex.Request{Body: codex.SearchBody(query, limit)})
+	resp, err := s.codexCall(ctx, &token, unlistedModel(codex.SearchModel),
+		codex.Request{Body: codex.SearchBody(query, limit)})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -207,7 +211,7 @@ func (s *Server) claudeSearch(
 
 	resp, err := send(token)
 	if err == nil && resp.StatusCode == http.StatusUnauthorized {
-		resp, err = s.retryRefusedAccount(ctx, resp, &token, false, send)
+		resp, err = s.retryRefusedAccount(ctx, resp, &token, forModel{}, false, send)
 	}
 
 	if err != nil {
@@ -280,7 +284,7 @@ func (s *Server) antigravitySearch(
 
 	resp, err := send(token)
 	if err == nil && resp.StatusCode == http.StatusUnauthorized {
-		resp, err = s.retryRefusedAccount(ctx, resp, &token, false, send)
+		resp, err = s.retryRefusedAccount(ctx, resp, &token, forModel{}, false, send)
 	}
 
 	if errors.Is(err, ErrAccountResting) {

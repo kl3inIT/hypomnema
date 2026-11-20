@@ -99,3 +99,168 @@ func TestNoAccountMeansNoServedModels(t *testing.T) {
 	assert.False(t, ok)
 	assert.Empty(t, names)
 }
+
+// Scenario (issue #814, review of #832): two Codex accounts are served different models, as omp and CLIProxyAPI
+// read Codex's list per account. Both lists are listed; a request for the model only the second account is served
+// goes to it every time, and one for a model both have takes either, as before.
+func TestCodexModelsAreListedAndRoutedPerAccount(t *testing.T) {
+	w := newWorld(t)
+	first := w.login()
+
+	w.openai.set(func(o *openAI) { o.account = "second-chatgpt-account" })
+	second := w.login()
+	require.NotEqual(t, first.ID, second.ID)
+
+	chatgpt := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Chatgpt-Account-Id") == "second-chatgpt-account" {
+			_, _ = rw.Write([]byte(`{"models": [
+				{"slug": "gpt-6.2-sol", "visibility": "list", "supported_in_api": true},
+				{"slug": "gpt-review-second-only", "visibility": "list", "supported_in_api": true}]}`))
+
+			return
+		}
+
+		_, _ = rw.Write([]byte(`{"models": [{"slug": "gpt-6.2-sol", "visibility": "list", "supported_in_api": true}]}`))
+	}))
+	t.Cleanup(chatgpt.Close)
+	w.codex.ReadLimitsFrom(chatgpt.URL)
+
+	names, ok := w.subs.ServedNames(t.Context(), "codex")
+	require.True(t, ok)
+	assert.ElementsMatch(t, []string{"gpt-6.2-sol", "gpt-review-second-only"}, names)
+
+	for _, session := range []string{"", "", "conversation-1", "conversation-2"} {
+		token, err := w.subs.TokenFor(t.Context(), "codex", "gpt-review-second-only", session)
+		require.NoError(t, err)
+		assert.Equal(t, second.ID, token.AccountID, "session %q", session)
+	}
+
+	var both []string
+
+	for range 2 {
+		token, err := w.subs.TokenFor(t.Context(), "codex", "gpt-6.2-sol", "")
+		require.NoError(t, err)
+
+		both = append(both, token.AccountID)
+	}
+
+	assert.ElementsMatch(t, []string{first.ID, second.ID}, both, "in turn, as without a model")
+}
+
+// Scenario (issue #814): with two Claude accounts, the list is the first account's, as before: neither omp nor
+// CLIProxyAPI reads Anthropic's list per account, and a request for a Claude model may go to either account.
+func TestAClaudeListIsTheFirstAccounts(t *testing.T) {
+	w := newClaudeWorld(t)
+	ids := w.loginN(2)
+
+	var calls atomic.Int32
+
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = rw.Write([]byte(`{"data": [{"id": "claude-opus-5-5"}], "has_more": false}`))
+	})
+
+	names, ok := w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-opus-5-5"}, names)
+	assert.EqualValues(t, 1, calls.Load(), "one account is asked")
+
+	var picked []string
+
+	for range 2 {
+		token, err := w.subs.TokenFor(t.Context(), "claude", "claude-opus-5-5", "")
+		require.NoError(t, err)
+
+		picked = append(picked, token.AccountID)
+	}
+
+	assert.ElementsMatch(t, ids, picked)
+}
+
+// Scenario (review of #832, round 4): two Claude accounts; an hour later the first one's list cannot be read again.
+// The list is the second account's, read now, as main read it, rather than the first one's old list.
+func TestAClaudeListFallsToTheNextAccountWhenTheFirstFails(t *testing.T) {
+	w := newClaudeWorld(t)
+	w.loginN(2)
+
+	var calls atomic.Int32
+
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		switch calls.Add(1) {
+		case 1:
+			_, _ = rw.Write([]byte(`{"data": [{"id": "claude-old"}], "has_more": false}`))
+		case 2:
+			http.Error(rw, `{"error":{"type":"overloaded_error"}}`, http.StatusServiceUnavailable)
+		default:
+			_, _ = rw.Write([]byte(`{"data": [{"id": "claude-new"}], "has_more": false}`))
+		}
+	})
+
+	names, ok := w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-old"}, names)
+
+	w.clock.advance(61 * time.Minute)
+
+	names, ok = w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-new"}, names, "the second account's list")
+	assert.EqualValues(t, 3, calls.Load())
+
+	// An hour on, neither account's list can be read: the last list answered stays, not the first account's older one.
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		http.Error(rw, `{"error":{"type":"overloaded_error"}}`, http.StatusServiceUnavailable)
+	})
+	w.clock.advance(61 * time.Minute)
+
+	names, ok = w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-new"}, names, "the last list answered")
+}
+
+// Scenario (review of #832, round 6): the last list a Claude account answered stays until a newer answer replaces it,
+// as main kept it: an hour without asking again, even when another account could now answer; and when the account
+// that answered is disabled and the other fails, the list stays.
+func TestTheLastClaudeListAnsweredStays(t *testing.T) {
+	w := newClaudeWorld(t)
+	ids := w.loginN(2)
+
+	var calls atomic.Int32
+
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			http.Error(rw, `{"error":{"type":"overloaded_error"}}`, http.StatusServiceUnavailable)
+
+			return
+		}
+
+		_, _ = rw.Write([]byte(`{"data": [{"id": "claude-second"}], "has_more": false}`))
+	})
+
+	names, ok := w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-second"}, names)
+
+	// Six minutes on, the first account could be asked again; the list answered is kept for the hour.
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = rw.Write([]byte(`{"data": [{"id": "claude-first"}], "has_more": false}`))
+	})
+	w.clock.advance(6 * time.Minute)
+
+	names, ok = w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-second"}, names)
+	assert.EqualValues(t, 2, calls.Load(), "nothing asked within the hour")
+
+	// The account that answered is disabled and the other fails: the list stays.
+	require.NoError(t, w.orch.DisableAccount(t.Context(), ids[1]))
+	w.oauth.answerModels(func(rw http.ResponseWriter, _ *http.Request) {
+		http.Error(rw, `{"error":{"type":"overloaded_error"}}`, http.StatusServiceUnavailable)
+	})
+	w.clock.advance(61 * time.Minute)
+
+	names, ok = w.subs.ServedNames(t.Context(), "claude")
+	require.True(t, ok)
+	assert.Equal(t, []string{"claude-second"}, names)
+}

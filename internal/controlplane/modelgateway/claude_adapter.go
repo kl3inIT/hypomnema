@@ -62,7 +62,8 @@ func (claudeSubscription) do(ctx context.Context, s *Server, call chatCall) (*ht
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.underModelAccounts(ctx, claudeAccountRuntime, built.Session, nil, nil,
+	resp, err := s.underModelAccounts(
+		ctx, claudeAccountRuntime, unlistedModel(call.upstream.Model), built.Session, nil, nil,
 		func(token AccountToken) (*http.Response, error) {
 			resp, err := s.claudeCall(ctx, &token, built)
 			if err != nil {
@@ -102,7 +103,7 @@ func (s *Server) claudeCall(ctx context.Context, token *AccountToken, built clau
 		return resp, err
 	}
 
-	return s.retryRefusedAccount(ctx, resp, token, true, func(fresh AccountToken) (*http.Response, error) {
+	return s.retryRefusedAccount(ctx, resp, token, forModel{}, true, func(fresh AccountToken) (*http.Response, error) {
 		return s.claudePost(ctx, fresh, built)
 	})
 }
