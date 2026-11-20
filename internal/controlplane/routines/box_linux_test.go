@@ -331,7 +331,7 @@ func TestALauncherStopsAScriptAtItsRoutinesLimit(t *testing.T) {
 	record := filepath.Join(w.root, "timeout-args")
 	bin := filepath.Join(w.root, "fake-bin")
 	boxWrite(t, filepath.Join(bin, "timeout"), "#!/bin/sh\nprintf '%s %s %s\\n' \"$1\" \"$2\" \"$3\" > '"+record+
-		"'\nexec '"+real+"' \"$@\"\n", 0o700)
+		"'\nexec '"+timeoutPath+"' \"$@\"\n", 0o700)
 
 	cmd := w.command(t, "ROUTINE_LIMIT=2520", "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
