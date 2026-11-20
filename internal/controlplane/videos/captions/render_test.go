@@ -531,6 +531,33 @@ func TestPlacementAsDrawn(t *testing.T) {
 	})
 }
 
+// Two cues that overlap in time are never drawn over each other (the fourth review of #943): One Word at 1.05 s,
+// while "xong." is still said and "Bây" has started, draws what the first cue alone draws, and at 1.15 s what the
+// second alone draws.
+func TestOverlappingCuesAreDrawnOneAtATime(t *testing.T) {
+	t.Parallel()
+
+	tl := tools(t)
+	cues := overlapping(t)
+
+	both, err := Render(t.Context(), tl, cues, Look{Preset: "one-word"}, 720, 1280, nil)
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		at  float64
+		cue Cue
+	}{{1.05, cues[0]}, {1.15, cues[1]}} {
+		alone, err := Render(t.Context(), tl, []Cue{tc.cue}, Look{Preset: "one-word"}, 720, 1280, nil)
+		require.NoError(t, err)
+
+		got, _ := burn(t, tl, both, 720, 1280, tc.at, "error")
+		want, _ := burn(t, tl, alone, 720, 1280, tc.at, "error")
+		_, drawn := bbox(want, notGrey(want))
+		require.True(t, drawn, "the cue alone draws a word at %.2f s", tc.at)
+		assert.Equal(t, want.Pix, got.Pix, "only %q is drawn at %.2f s", tc.cue.Text, tc.at)
+	}
+}
+
 // Classic's video is the one made before the presets: burned with the fonts of then and of now, the stream is the
 // same, byte for byte (check 5; its ASS is ASS's, TestLegacyIsTheCaptionsOfBefore).
 func TestClassicIsBurnedAsBefore(t *testing.T) {

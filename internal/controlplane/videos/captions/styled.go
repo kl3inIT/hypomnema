@@ -49,9 +49,11 @@
 package captions
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -194,20 +196,49 @@ func (r *renderer) place(cues []Cue, chosen Position, rings []compose.Ring) ([]p
 	return r.placeCues(cues, laid, chosen, rings), nil
 }
 
-// layoutCues is every cue's frames, each block laid out from the font's measures.
+// layoutCues is every cue's frames, each block laid out from the font's measures. As demotape draws only the first
+// cue, by start, that covers an instant (CaptionBurner.swift, captionOverlay, line 187, over the cues sorted by
+// Captions.reconcile, Captions.swift, line 162), a cue is shown only once the cues that start before it have
+// ended: two cues whose words overlap in time are never drawn over each other.
 func (r *renderer) layoutCues(cues []Cue) ([][]frame, error) {
-	out := make([][]frame, 0, len(cues))
+	out := make([][]frame, len(cues))
 
-	for _, c := range cues {
-		frames, err := r.frames(c)
+	order := make([]int, len(cues))
+	for k := range order {
+		order[k] = k
+	}
+
+	slices.SortStableFunc(order, func(a, b int) int { return cmp.Compare(cues[a].StartMs, cues[b].StartMs) })
+
+	shownTo := math.Inf(-1) // where the cues before end
+
+	for _, k := range order {
+		frames, err := r.frames(cues[k])
 		if err != nil {
 			return nil, err
 		}
 
-		out = append(out, frames)
+		out[k] = after(frames, shownTo)
+		shownTo = max(shownTo, float64(cues[k].EndMs)/1000)
 	}
 
 	return out, nil
+}
+
+// after is the frames from from on: those that end before it are dropped, and one across it starts there.
+func after(frames []frame, from float64) []frame {
+	var out []frame
+
+	for _, fr := range frames {
+		if fr.to <= from+1e-9 {
+			continue
+		}
+
+		fr.from = max(fr.from, from)
+		out = append(out, fr)
+	}
+
+	return out
 }
 
 // placeCues places every cue's frames: at the position, or, for a cue at the bottom that a ring reaches, at the

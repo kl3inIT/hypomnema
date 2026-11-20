@@ -285,3 +285,56 @@ func TestOnlyWhatTheFontDrawsIsShown(t *testing.T) {
 	// A cue of nothing drawable draws nothing.
 	assert.Empty(t, placed(t, "clean", PositionPreset, 720, 1280, []Cue{cue(0.5, "😀", "✅")}, nil))
 }
+
+// overlapping is the fourth review's speech: "xong." is still said when "Bây" starts, so the cue of the first
+// sentence ends (1.10 s) after the second starts (1.00 s).
+func overlapping(t *testing.T) []Cue {
+	t.Helper()
+
+	cues, err := Build([]Scene{{StartMs: 0, EndMs: 3000, Words: []Word{
+		{"Đăng", 0.2, 0.5}, {"nhập", 0.5, 0.8}, {"xong.", 0.8, 1.1},
+		{"Bây", 1.0, 1.3}, {"giờ", 1.3, 1.6}, {"kiểm", 1.6, 1.9}, {"tra.", 1.9, 2.2},
+	}}}, Default)
+	require.NoError(t, err)
+	require.Len(t, cues, 2)
+	require.Greater(t, cues[0].EndMs, cues[1].StartMs, "the cues overlap")
+
+	return cues
+}
+
+// Only the first cue that covers an instant is shown, as demotape draws (CaptionBurner.swift, line 187): a cue
+// starts to show once the cues before it end, so no two are ever drawn at once.
+func TestOverlappingCuesAreShownOneAtATime(t *testing.T) {
+	t.Parallel()
+
+	cues := overlapping(t)
+
+	for _, p := range Presets {
+		if p.ID == Legacy {
+			continue
+		}
+
+		frames := placed(t, p.ID, PositionPreset, 720, 1280, cues, nil)
+
+		for i, a := range frames {
+			for _, b := range frames[i+1:] {
+				assert.False(t, a.from < b.to-1e-9 && b.from < a.to-1e-9,
+					"%s: [%.2f, %.2f) %v and [%.2f, %.2f) %v at once", p.ID, a.from, a.to, shownWords(a),
+					b.from, b.to, shownWords(b))
+			}
+		}
+
+		var second []placedFrame
+
+		for _, pf := range frames {
+			for _, w := range shownWords(pf) {
+				if strings.EqualFold(w, "Bây") {
+					second = append(second, pf)
+				}
+			}
+		}
+
+		require.NotEmpty(t, second, p.ID)
+		assert.InDelta(t, 1.1, second[0].from, 1e-9, "%s: the second cue shows once the first ends", p.ID)
+	}
+}
