@@ -3,6 +3,7 @@ package clientapi
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -32,6 +33,8 @@ import (
 type world struct {
 	t   *testing.T
 	svc *orchestration.Service
+	// db is the database under svc, for a test that sets what no operation does, such as an item's age.
+	db *sql.DB
 	// srv is the server under test, for a test that wires more into it.
 	srv *Server
 	url string
@@ -72,7 +75,7 @@ func newWorld(t *testing.T) *world {
 		}
 	})
 
-	return &world{t: t, svc: svc, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi}
+	return &world{t: t, svc: svc, db: db, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi}
 }
 
 // token adds a token and returns a client that sends it.

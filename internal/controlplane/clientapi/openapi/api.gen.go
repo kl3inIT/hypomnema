@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for AccountSignIn.
@@ -1331,6 +1332,24 @@ func (e NewNodeDevice) Valid() bool {
 	}
 }
 
+// Defines values for NewTodoState.
+const (
+	NewTodoStateOpen     NewTodoState = "open"
+	NewTodoStateProposed NewTodoState = "proposed"
+)
+
+// Valid indicates whether the value is a known member of the NewTodoState enum.
+func (e NewTodoState) Valid() bool {
+	switch e {
+	case NewTodoStateOpen:
+		return true
+	case NewTodoStateProposed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NewTokenAccountRuntime.
 const (
 	NewTokenAccountRuntimeClaude     NewTokenAccountRuntime = "claude"
@@ -1922,6 +1941,231 @@ func (e TaskStatus) Valid() bool {
 	case TaskStatusRunning:
 		return true
 	case TaskStatusSucceeded:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TodoClosedHow.
+const (
+	TodoClosedHowAi   TodoClosedHow = "ai"
+	TodoClosedHowBot  TodoClosedHow = "bot"
+	TodoClosedHowHand TodoClosedHow = "hand"
+	TodoClosedHowTime TodoClosedHow = "time"
+)
+
+// Valid indicates whether the value is a known member of the TodoClosedHow enum.
+func (e TodoClosedHow) Valid() bool {
+	switch e {
+	case TodoClosedHowAi:
+		return true
+	case TodoClosedHowBot:
+		return true
+	case TodoClosedHowHand:
+		return true
+	case TodoClosedHowTime:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TodoActorKind.
+const (
+	TodoActorKindBot    TodoActorKind = "bot"
+	TodoActorKindOwner  TodoActorKind = "owner"
+	TodoActorKindSystem TodoActorKind = "system"
+)
+
+// Valid indicates whether the value is a known member of the TodoActorKind enum.
+func (e TodoActorKind) Valid() bool {
+	switch e {
+	case TodoActorKindBot:
+		return true
+	case TodoActorKindOwner:
+		return true
+	case TodoActorKindSystem:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TodoAssigneeKind.
+const (
+	TodoAssigneeKindBot     TodoAssigneeKind = "bot"
+	TodoAssigneeKindMe      TodoAssigneeKind = "me"
+	TodoAssigneeKindPerson  TodoAssigneeKind = "person"
+	TodoAssigneeKindUnknown TodoAssigneeKind = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the TodoAssigneeKind enum.
+func (e TodoAssigneeKind) Valid() bool {
+	switch e {
+	case TodoAssigneeKindBot:
+		return true
+	case TodoAssigneeKindMe:
+		return true
+	case TodoAssigneeKindPerson:
+		return true
+	case TodoAssigneeKindUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TodoDueKind.
+const (
+	TodoDueKindDate    TodoDueKind = "date"
+	TodoDueKindInstant TodoDueKind = "instant"
+	TodoDueKindNone    TodoDueKind = "none"
+	TodoDueKindUnknown TodoDueKind = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the TodoDueKind enum.
+func (e TodoDueKind) Valid() bool {
+	switch e {
+	case TodoDueKindDate:
+		return true
+	case TodoDueKindInstant:
+		return true
+	case TodoDueKindNone:
+		return true
+	case TodoDueKindUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TodoLinkKind.
+const (
+	TodoLinkKindChatMessage TodoLinkKind = "chat_message"
+	TodoLinkKindLarkMessage TodoLinkKind = "lark_message"
+	TodoLinkKindMail        TodoLinkKind = "mail"
+	TodoLinkKindMeetingLine TodoLinkKind = "meeting_line"
+	TodoLinkKindPullRequest TodoLinkKind = "pull_request"
+	TodoLinkKindRun         TodoLinkKind = "run"
+	TodoLinkKindUrl         TodoLinkKind = "url"
+	TodoLinkKindZaloMessage TodoLinkKind = "zalo_message"
+)
+
+// Valid indicates whether the value is a known member of the TodoLinkKind enum.
+func (e TodoLinkKind) Valid() bool {
+	switch e {
+	case TodoLinkKindChatMessage:
+		return true
+	case TodoLinkKindLarkMessage:
+		return true
+	case TodoLinkKindMail:
+		return true
+	case TodoLinkKindMeetingLine:
+		return true
+	case TodoLinkKindPullRequest:
+		return true
+	case TodoLinkKindRun:
+		return true
+	case TodoLinkKindUrl:
+		return true
+	case TodoLinkKindZaloMessage:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TodoSourceKind.
+const (
+	TodoSourceKindChat    TodoSourceKind = "chat"
+	TodoSourceKindLark    TodoSourceKind = "lark"
+	TodoSourceKindOwner   TodoSourceKind = "owner"
+	TodoSourceKindRoutine TodoSourceKind = "routine"
+	TodoSourceKindZalo    TodoSourceKind = "zalo"
+)
+
+// Valid indicates whether the value is a known member of the TodoSourceKind enum.
+func (e TodoSourceKind) Valid() bool {
+	switch e {
+	case TodoSourceKindChat:
+		return true
+	case TodoSourceKindLark:
+		return true
+	case TodoSourceKindOwner:
+		return true
+	case TodoSourceKindRoutine:
+		return true
+	case TodoSourceKindZalo:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TodoState.
+const (
+	TodoStateDoing     TodoState = "doing"
+	TodoStateDone      TodoState = "done"
+	TodoStateDropped   TodoState = "dropped"
+	TodoStateDuplicate TodoState = "duplicate"
+	TodoStateOpen      TodoState = "open"
+	TodoStateProposed  TodoState = "proposed"
+	TodoStateReview    TodoState = "review"
+)
+
+// Valid indicates whether the value is a known member of the TodoState enum.
+func (e TodoState) Valid() bool {
+	switch e {
+	case TodoStateDoing:
+		return true
+	case TodoStateDone:
+		return true
+	case TodoStateDropped:
+		return true
+	case TodoStateDuplicate:
+		return true
+	case TodoStateOpen:
+		return true
+	case TodoStateProposed:
+		return true
+	case TodoStateReview:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TodoWhyOpen.
+const (
+	AskedDirectly TodoWhyOpen = "asked_directly"
+	Promised      TodoWhyOpen = "promised"
+)
+
+// Valid indicates whether the value is a known member of the TodoWhyOpen enum.
+func (e TodoWhyOpen) Valid() bool {
+	switch e {
+	case AskedDirectly:
+		return true
+	case Promised:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TodoWorkKind.
+const (
+	TodoWorkKindChat TodoWorkKind = "chat"
+	TodoWorkKindRun  TodoWorkKind = "run"
+)
+
+// Valid indicates whether the value is a known member of the TodoWorkKind enum.
+func (e TodoWorkKind) Valid() bool {
+	switch e {
+	case TodoWorkKindChat:
+		return true
+	case TodoWorkKindRun:
 		return true
 	default:
 		return false
@@ -4201,6 +4445,11 @@ type Images struct {
 	Providers []ImageProviderLink `json:"providers"`
 }
 
+// InboxNeedsYou defines model for InboxNeedsYou.
+type InboxNeedsYou struct {
+	Count int `json:"count"`
+}
+
 // Integration A service that signs in with an account or is an app, and what the owner set up for it.
 type Integration struct {
 	// ClientId The id of the OAuth client it signs in with; absent until one is set, and for an app, whose Connections each have their own. Not secret.
@@ -5128,6 +5377,43 @@ type NewTasks struct {
 type NewTerminal struct {
 	// SessionId The session, a UUID the client makes and keeps. The same id returns to the same shell while the node keeps it: five minutes after the last connection left.
 	SessionId string `json:"session_id"`
+}
+
+// NewTodo defines model for NewTodo.
+type NewTodo struct {
+	Assignee *TodoAssignee `json:"assignee,omitempty"`
+	DoneWhen *string       `json:"done_when,omitempty"`
+
+	// Due none; unknown (due, when is not known); a calendar date in zone, with no time made up for it; or a moment with its zone.
+	Due   *TodoDue `json:"due,omitempty"`
+	Notes *string  `json:"notes,omitempty"`
+
+	// Source Where a Bot in a Routine's run found it: kind routine, or lark or zalo with the chat's id there (and the Zalo account). The owner's and a chat's come from the token.
+	Source *NewTodoSource `json:"source,omitempty"`
+	State  *NewTodoState  `json:"state,omitempty"`
+	Title  string         `json:"title"`
+
+	// WhyOpen Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself.
+	WhyOpen *TodoWhyOpen `json:"why_open,omitempty"`
+}
+
+// NewTodoState defines model for NewTodo.State.
+type NewTodoState string
+
+// NewTodoSource Where a Bot in a Routine's run found it: kind routine, or lark or zalo with the chat's id there (and the Zalo account). The owner's and a chat's come from the token.
+type NewTodoSource struct {
+	// Account The owner's Zalo account the chat is in.
+	Account *string `json:"account,omitempty"`
+
+	// Id The chat's id at Lark or Zalo; lark and zalo only.
+	Id *string `json:"id,omitempty"`
+
+	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark and zalo, a Bot reading a chat of the owner's own account there.
+	Kind  *TodoSourceKind `json:"kind,omitempty"`
+	Quote *string         `json:"quote,omitempty"`
+
+	// Ref A typed reference, to where an item came from or to what shows it is done.
+	Ref *TodoLink `json:"ref,omitempty"`
 }
 
 // NewTokenAccount defines model for NewTokenAccount.
@@ -6468,6 +6754,235 @@ type TerminalTicket struct {
 	Ticket    string    `json:"ticket"`
 }
 
+// Todo defines model for Todo.
+type Todo struct {
+	// ApprovalId The pending Approval it waits for, in review.
+	ApprovalId  *string        `json:"approval_id,omitempty"`
+	Assignee    TodoAssignee   `json:"assignee"`
+	CloseReason string         `json:"close_reason"`
+	ClosedAt    *time.Time     `json:"closed_at,omitempty"`
+	ClosedHow   *TodoClosedHow `json:"closed_how,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	CreatedBy   TodoActor      `json:"created_by"`
+	DoneBy      *TodoAssignee  `json:"done_by,omitempty"`
+	DoneWhen    string         `json:"done_when"`
+
+	// Due none; unknown (due, when is not known); a calendar date in zone, with no time made up for it; or a moment with its zone.
+	Due         TodoDue `json:"due"`
+	DuplicateOf *string `json:"duplicate_of,omitempty"`
+
+	// Events Its history, the oldest first; GET /inbox/{todo_id} only.
+	Events     *[]TodoEvent `json:"events,omitempty"`
+	Evidence   []TodoLink   `json:"evidence"`
+	Id         string       `json:"id"`
+	Notes      string       `json:"notes"`
+	RecordedBy *TodoActor   `json:"recorded_by,omitempty"`
+
+	// Revision Starts at 1 and grows with every change; a change carries it.
+	Revision     int        `json:"revision"`
+	SnoozedUntil *time.Time `json:"snoozed_until,omitempty"`
+	Source       TodoSource `json:"source"`
+
+	// Stale A proposal nobody touched for three days, left out of the list unless asked for.
+	Stale bool `json:"stale"`
+
+	// State proposed waits for the owner; open is to be done; doing, a Bot is on it; review, the Bot's action waits for an Approval; done, dropped and duplicate are closed.
+	State     TodoState `json:"state"`
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// WhyOpen Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself.
+	WhyOpen *TodoWhyOpen `json:"why_open,omitempty"`
+
+	// Work The Bot's current attempt, while doing or review.
+	Work *TodoWork `json:"work,omitempty"`
+}
+
+// TodoClosedHow defines model for Todo.ClosedHow.
+type TodoClosedHow string
+
+// TodoActor defines model for TodoActor.
+type TodoActor struct {
+	// Id The Bot's id, or what of the system.
+	Id   *string       `json:"id,omitempty"`
+	Kind TodoActorKind `json:"kind"`
+}
+
+// TodoActorKind defines model for TodoActorKind.
+type TodoActorKind string
+
+// TodoAssignee defines model for TodoAssignee.
+type TodoAssignee struct {
+	Kind TodoAssigneeKind `json:"kind"`
+
+	// Name The person's name or the Bot's id.
+	Name *string `json:"name,omitempty"`
+}
+
+// TodoAssigneeKind defines model for TodoAssigneeKind.
+type TodoAssigneeKind string
+
+// TodoChange defines model for TodoChange.
+type TodoChange struct {
+	// Attempt A Bot's attempt (work.attempt), on an item in doing or review.
+	Attempt *string `json:"attempt,omitempty"`
+
+	// Revision The revision read; another is a conflict.
+	Revision int `json:"revision"`
+}
+
+// TodoDone defines model for TodoDone.
+type TodoDone struct {
+	Attempt  *string       `json:"attempt,omitempty"`
+	DoneBy   *TodoAssignee `json:"done_by,omitempty"`
+	Evidence *[]TodoLink   `json:"evidence,omitempty"`
+	Reason   *string       `json:"reason,omitempty"`
+	Revision int           `json:"revision"`
+}
+
+// TodoDrop defines model for TodoDrop.
+type TodoDrop struct {
+	Attempt  *string     `json:"attempt,omitempty"`
+	Evidence *[]TodoLink `json:"evidence,omitempty"`
+	Reason   string      `json:"reason"`
+	Revision int         `json:"revision"`
+}
+
+// TodoDue none; unknown (due, when is not known); a calendar date in zone, with no time made up for it; or a moment with its zone.
+type TodoDue struct {
+	// At For an instant.
+	At *time.Time `json:"at,omitempty"`
+
+	// Date For a date.
+	Date *openapi_types.Date `json:"date,omitempty"`
+	Kind TodoDueKind         `json:"kind"`
+
+	// Zone The IANA time zone of a date or an instant.
+	Zone *string `json:"zone,omitempty"`
+}
+
+// TodoDueKind defines model for TodoDueKind.
+type TodoDueKind string
+
+// TodoDuplicate defines model for TodoDuplicate.
+type TodoDuplicate struct {
+	// Of The to-do it duplicates.
+	Of       string `json:"of"`
+	Revision int    `json:"revision"`
+}
+
+// TodoEdit defines model for TodoEdit.
+type TodoEdit struct {
+	Assignee *TodoAssignee `json:"assignee,omitempty"`
+	Attempt  *string       `json:"attempt,omitempty"`
+	DoneWhen *string       `json:"done_when,omitempty"`
+
+	// Due none; unknown (due, when is not known); a calendar date in zone, with no time made up for it; or a moment with its zone.
+	Due      *TodoDue `json:"due,omitempty"`
+	Notes    *string  `json:"notes,omitempty"`
+	Revision int      `json:"revision"`
+	Title    *string  `json:"title,omitempty"`
+}
+
+// TodoEvent defines model for TodoEvent.
+type TodoEvent struct {
+	Actor TodoActor `json:"actor"`
+
+	// After The fields that changed, after.
+	After map[string]interface{} `json:"after"`
+	At    time.Time              `json:"at"`
+
+	// Before The fields that changed, before.
+	Before map[string]interface{} `json:"before"`
+	Id     int64                  `json:"id"`
+
+	// Kind created, edited, state, snoozed or linked_approval.
+	Kind string `json:"kind"`
+
+	// Revision The revision the change made.
+	Revision int `json:"revision"`
+}
+
+// TodoLink A typed reference, to where an item came from or to what shows it is done.
+type TodoLink struct {
+	Kind  TodoLinkKind `json:"kind"`
+	Label *string      `json:"label,omitempty"`
+
+	// Ref The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+	Ref string `json:"ref"`
+}
+
+// TodoLinkKind defines model for TodoLinkKind.
+type TodoLinkKind string
+
+// TodoList defines model for TodoList.
+type TodoList struct {
+	Data []Todo `json:"data"`
+
+	// NextCursor Present when more items follow.
+	NextCursor *string `json:"next_cursor,omitempty"`
+
+	// Total How many items the filter matches, every page together.
+	Total int `json:"total"`
+}
+
+// TodoRelease defines model for TodoRelease.
+type TodoRelease struct {
+	Attempt  *string `json:"attempt,omitempty"`
+	Reason   string  `json:"reason"`
+	Revision int     `json:"revision"`
+}
+
+// TodoSnooze defines model for TodoSnooze.
+type TodoSnooze struct {
+	Revision int `json:"revision"`
+
+	// Until Hidden until then; absent, shown again.
+	Until *time.Time `json:"until,omitempty"`
+}
+
+// TodoSource defines model for TodoSource.
+type TodoSource struct {
+	// Account The owner's Zalo account the chat is in; zalo only.
+	Account *string `json:"account,omitempty"`
+
+	// Id The chat, the Routine's run, or the chat's id at Lark or Zalo.
+	Id *string `json:"id,omitempty"`
+
+	// Kind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark and zalo, a Bot reading a chat of the owner's own account there.
+	Kind TodoSourceKind `json:"kind"`
+
+	// Quote The words it came from.
+	Quote *string `json:"quote,omitempty"`
+
+	// Ref A typed reference, to where an item came from or to what shows it is done.
+	Ref *TodoLink `json:"ref,omitempty"`
+}
+
+// TodoSourceKind owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark and zalo, a Bot reading a chat of the owner's own account there.
+type TodoSourceKind string
+
+// TodoState proposed waits for the owner; open is to be done; doing, a Bot is on it; review, the Bot's action waits for an Approval; done, dropped and duplicate are closed.
+type TodoState string
+
+// TodoWhyOpen Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself.
+type TodoWhyOpen string
+
+// TodoWork The Bot's current attempt, while doing or review.
+type TodoWork struct {
+	// Attempt The attempt's own id, which the Bot's writes carry.
+	Attempt string `json:"attempt"`
+	Bot     string `json:"bot"`
+
+	// Id The chat or the Routine's run the attempt works in.
+	Id        string       `json:"id"`
+	Kind      TodoWorkKind `json:"kind"`
+	StartedAt time.Time    `json:"started_at"`
+}
+
+// TodoWorkKind defines model for TodoWork.Kind.
+type TodoWorkKind string
+
 // TokenKind defines model for TokenKind.
 type TokenKind string
 
@@ -7124,6 +7639,9 @@ type TakeID = string
 // TaskID defines model for TaskID.
 type TaskID = string
 
+// TodoID defines model for TodoID.
+type TodoID = string
+
 // VideoID defines model for VideoID.
 type VideoID = string
 
@@ -7362,6 +7880,41 @@ type ListGatewayRequestsParams struct {
 
 // ListGatewayRequestsParamsPeriod defines parameters for ListGatewayRequests.
 type ListGatewayRequestsParamsPeriod string
+
+// ListTodosParams defines parameters for ListTodos.
+type ListTodosParams struct {
+	// State Only these states.
+	State *[]TodoState `form:"state,omitempty" json:"state,omitempty"`
+
+	// AssigneeKind Only the items of this kind of assignee; a person's or a Bot's names it with assignee.
+	AssigneeKind *TodoAssigneeKind `form:"assignee_kind,omitempty" json:"assignee_kind,omitempty"`
+
+	// Assignee The person's name or the Bot's id, with assignee_kind person or bot.
+	Assignee *string `form:"assignee,omitempty" json:"assignee,omitempty"`
+
+	// SourceKind Only the items from this kind of source.
+	SourceKind *TodoSourceKind `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+
+	// DueFrom Only the items due at or after this moment; a date is due from its first moment.
+	DueFrom *time.Time `form:"due_from,omitempty" json:"due_from,omitempty"`
+
+	// DueTo Only the items due before this moment.
+	DueTo          *time.Time `form:"due_to,omitempty" json:"due_to,omitempty"`
+	NeedsYou       *bool      `form:"needs_you,omitempty" json:"needs_you,omitempty"`
+	IncludeSnoozed *bool      `form:"include_snoozed,omitempty" json:"include_snoozed,omitempty"`
+	IncludeClosed  *bool      `form:"include_closed,omitempty" json:"include_closed,omitempty"`
+	IncludeStale   *bool      `form:"include_stale,omitempty" json:"include_stale,omitempty"`
+
+	// Cursor The next_cursor of the previous page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateTodoParams defines parameters for CreateTodo.
+type CreateTodoParams struct {
+	// IdempotencyKey Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
 
 // RelaySupersetRequestParams defines parameters for RelaySupersetRequest.
 type RelaySupersetRequestParams struct {
@@ -7815,6 +8368,36 @@ type PutGitHostTokenJSONRequestBody = NewGitHostToken
 
 // GenerateImagesJSONRequestBody defines body for GenerateImages for application/json ContentType.
 type GenerateImagesJSONRequestBody = ImageRequest
+
+// CreateTodoJSONRequestBody defines body for CreateTodo for application/json ContentType.
+type CreateTodoJSONRequestBody = NewTodo
+
+// EditTodoJSONRequestBody defines body for EditTodo for application/json ContentType.
+type EditTodoJSONRequestBody = TodoEdit
+
+// AcceptTodoJSONRequestBody defines body for AcceptTodo for application/json ContentType.
+type AcceptTodoJSONRequestBody = TodoChange
+
+// DoneTodoJSONRequestBody defines body for DoneTodo for application/json ContentType.
+type DoneTodoJSONRequestBody = TodoDone
+
+// DropTodoJSONRequestBody defines body for DropTodo for application/json ContentType.
+type DropTodoJSONRequestBody = TodoDrop
+
+// DuplicateTodoJSONRequestBody defines body for DuplicateTodo for application/json ContentType.
+type DuplicateTodoJSONRequestBody = TodoDuplicate
+
+// ReleaseTodoJSONRequestBody defines body for ReleaseTodo for application/json ContentType.
+type ReleaseTodoJSONRequestBody = TodoRelease
+
+// ReopenTodoJSONRequestBody defines body for ReopenTodo for application/json ContentType.
+type ReopenTodoJSONRequestBody = TodoChange
+
+// SnoozeTodoJSONRequestBody defines body for SnoozeTodo for application/json ContentType.
+type SnoozeTodoJSONRequestBody = TodoSnooze
+
+// StartTodoJSONRequestBody defines body for StartTodo for application/json ContentType.
+type StartTodoJSONRequestBody = TodoChange
 
 // RelaySupersetRequestJSONRequestBody defines body for RelaySupersetRequest for application/json ContentType.
 type RelaySupersetRequestJSONRequestBody = SupersetRequest
@@ -9510,6 +10093,189 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /images/generations (the `GenerateImages` operationId).
 	GenerateImages(ctx context.Context, body GenerateImagesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListTodos One page of the Inbox's to-dos, by due (those without one last), then created
+	//
+	// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+	//
+	// Corresponds with GET /inbox (the `ListTodos` operationId).
+	ListTodos(ctx context.Context, params *ListTodosParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateTodoWithBody Add a to-do; the owner or a Bot, never a coordinator
+	//
+	// Who adds it, and where from, comes from the token, never from the body: the owner writes it by hand; a Bot in a chat with the owner adds it from that chat; a Bot in a Routine's run adds it from the run, or from a chat of the owner's Lark or Zalo account it names with source. The owner and a Bot in a chat add open items. A Bot in a Routine's run proposes them, or opens one when it gives why_open with the quote and the reference to the message (the owner's triage of 2026-11-20). state defaults to open when why_open is given and to what the token adds without it otherwise.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox (the `CreateTodo` operationId).
+	CreateTodoWithBody(ctx context.Context, params *CreateTodoParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
+	//
+	// Who adds it, and where from, comes from the token, never from the body: the owner writes it by hand; a Bot in a chat with the owner adds it from that chat; a Bot in a Routine's run adds it from the run, or from a chat of the owner's Lark or Zalo account it names with source. The owner and a Bot in a chat add open items. A Bot in a Routine's run proposes them, or opens one when it gives why_open with the quote and the reference to the message (the owner's triage of 2026-11-20). state defaults to open when why_open is given and to what the token adds without it otherwise.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox (the `CreateTodo` operationId).
+	CreateTodo(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetInboxNeedsYou How many to-dos need the owner now, for the sidebar
+	//
+	// Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+	//
+	// Corresponds with GET /inbox/needs-you (the `GetInboxNeedsYou` operationId).
+	GetInboxNeedsYou(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTodo A to-do with its history
+	//
+	// Corresponds with GET /inbox/{todo_id} (the `GetTodo` operationId).
+	GetTodo(ctx context.Context, todoId TodoID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EditTodoWithBody Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+	//
+	// A Bot does not change who does an item. A stale revision is a conflict.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /inbox/{todo_id} (the `EditTodo` operationId).
+	EditTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EditTodo Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+	//
+	// A Bot does not change who does an item. A stale revision is a conflict.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /inbox/{todo_id} (the `EditTodo` operationId).
+	EditTodo(ctx context.Context, todoId TodoID, body EditTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AcceptTodoWithBody Open a proposed to-do; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/accept (the `AcceptTodo` operationId).
+	AcceptTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AcceptTodo Open a proposed to-do; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/accept (the `AcceptTodo` operationId).
+	AcceptTodo(ctx context.Context, todoId TodoID, body AcceptTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DoneTodoWithBody Close an open or doing to-do as done
+	//
+	// The owner closes any, done by himself unless done_by says who. A Bot closes the item of its own attempt, done by itself, with evidence; or records for the owner what he did (done_by me), with his message in its chat as evidence.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/done (the `DoneTodo` operationId).
+	DoneTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DoneTodo Close an open or doing to-do as done
+	//
+	// The owner closes any, done by himself unless done_by says who. A Bot closes the item of its own attempt, done by itself, with evidence; or records for the owner what he did (done_by me), with his message in its chat as evidence.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/done (the `DoneTodo` operationId).
+	DoneTodo(ctx context.Context, todoId TodoID, body DoneTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DropTodoWithBody Close a proposed, open or doing to-do as dropped, with its reason
+	//
+	// The owner drops any; a Bot records it for him, with his message in its chat as evidence.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/drop (the `DropTodo` operationId).
+	DropTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DropTodo Close a proposed, open or doing to-do as dropped, with its reason
+	//
+	// The owner drops any; a Bot records it for him, with his message in its chat as evidence.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/drop (the `DropTodo` operationId).
+	DropTodo(ctx context.Context, todoId TodoID, body DropTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DuplicateTodoWithBody Close a proposed or open to-do as a duplicate of another; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/duplicate (the `DuplicateTodo` operationId).
+	DuplicateTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DuplicateTodo Close a proposed or open to-do as a duplicate of another; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/duplicate (the `DuplicateTodo` operationId).
+	DuplicateTodo(ctx context.Context, todoId TodoID, body DuplicateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReleaseTodoWithBody Give up a doing to-do, with the reason; only the Bot of the attempt
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/release (the `ReleaseTodo` operationId).
+	ReleaseTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReleaseTodo Give up a doing to-do, with the reason; only the Bot of the attempt
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/release (the `ReleaseTodo` operationId).
+	ReleaseTodo(ctx context.Context, todoId TodoID, body ReleaseTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReopenTodoWithBody Open a closed to-do again; only the owner
+	//
+	// Its close, duplicate link, attempt and Approval are cleared; the history keeps them.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/reopen (the `ReopenTodo` operationId).
+	ReopenTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReopenTodo Open a closed to-do again; only the owner
+	//
+	// Its close, duplicate link, attempt and Approval are cleared; the history keeps them.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/reopen (the `ReopenTodo` operationId).
+	ReopenTodo(ctx context.Context, todoId TodoID, body ReopenTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SnoozeTodoWithBody Hide a proposed or open to-do until a time to come, or show it again; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/snooze (the `SnoozeTodo` operationId).
+	SnoozeTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SnoozeTodo Hide a proposed or open to-do until a time to come, or show it again; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/snooze (the `SnoozeTodo` operationId).
+	SnoozeTodo(ctx context.Context, todoId TodoID, body SnoozeTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartTodoWithBody Start an open to-do given to this Bot, in a new attempt; only that Bot
+	//
+	// The attempt is the Bot's chat, or the Routine's run it is in. Its id, in work.attempt, is what the Bot's later writes to the item carry.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/start (the `StartTodo` operationId).
+	StartTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartTodo Start an open to-do given to this Bot, in a new attempt; only that Bot
+	//
+	// The attempt is the Bot's chat, or the Routine's run it is in. Its id, in work.attempt, is what the Bot's later writes to the item carry.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/{todo_id}/start (the `StartTodo` operationId).
+	StartTodo(ctx context.Context, todoId TodoID, body StartTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	//
@@ -13838,6 +14604,419 @@ func (c *Client) GenerateImagesWithBody(ctx context.Context, contentType string,
 // Corresponds with POST /images/generations (the `GenerateImages` operationId).
 func (c *Client) GenerateImages(ctx context.Context, body GenerateImagesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGenerateImagesRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListTodos One page of the Inbox's to-dos, by due (those without one last), then created
+//
+// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+//
+// Corresponds with GET /inbox (the `ListTodos` operationId).
+func (c *Client) ListTodos(ctx context.Context, params *ListTodosParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListTodosRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateTodoWithBody Add a to-do; the owner or a Bot, never a coordinator
+//
+// Who adds it, and where from, comes from the token, never from the body: the owner writes it by hand; a Bot in a chat with the owner adds it from that chat; a Bot in a Routine's run adds it from the run, or from a chat of the owner's Lark or Zalo account it names with source. The owner and a Bot in a chat add open items. A Bot in a Routine's run proposes them, or opens one when it gives why_open with the quote and the reference to the message (the owner's triage of 2026-11-20). state defaults to open when why_open is given and to what the token adds without it otherwise.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox (the `CreateTodo` operationId).
+func (c *Client) CreateTodoWithBody(ctx context.Context, params *CreateTodoParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTodoRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
+//
+// Who adds it, and where from, comes from the token, never from the body: the owner writes it by hand; a Bot in a chat with the owner adds it from that chat; a Bot in a Routine's run adds it from the run, or from a chat of the owner's Lark or Zalo account it names with source. The owner and a Bot in a chat add open items. A Bot in a Routine's run proposes them, or opens one when it gives why_open with the quote and the reference to the message (the owner's triage of 2026-11-20). state defaults to open when why_open is given and to what the token adds without it otherwise.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox (the `CreateTodo` operationId).
+func (c *Client) CreateTodo(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTodoRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetInboxNeedsYou How many to-dos need the owner now, for the sidebar
+//
+// Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+//
+// Corresponds with GET /inbox/needs-you (the `GetInboxNeedsYou` operationId).
+func (c *Client) GetInboxNeedsYou(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetInboxNeedsYouRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTodo A to-do with its history
+//
+// Corresponds with GET /inbox/{todo_id} (the `GetTodo` operationId).
+func (c *Client) GetTodo(ctx context.Context, todoId TodoID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTodoRequest(c.Server, todoId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EditTodoWithBody Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+//
+// A Bot does not change who does an item. A stale revision is a conflict.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /inbox/{todo_id} (the `EditTodo` operationId).
+func (c *Client) EditTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditTodoRequestWithBody(c.Server, todoId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EditTodo Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+//
+// A Bot does not change who does an item. A stale revision is a conflict.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /inbox/{todo_id} (the `EditTodo` operationId).
+func (c *Client) EditTodo(ctx context.Context, todoId TodoID, body EditTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditTodoRequest(c.Server, todoId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AcceptTodoWithBody Open a proposed to-do; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/{todo_id}/accept (the `AcceptTodo` operationId).
+func (c *Client) AcceptTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAcceptTodoRequestWithBody(c.Server, todoId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AcceptTodo Open a proposed to-do; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/{todo_id}/accept (the `AcceptTodo` operationId).
+func (c *Client) AcceptTodo(ctx context.Context, todoId TodoID, body AcceptTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAcceptTodoRequest(c.Server, todoId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DoneTodoWithBody Close an open or doing to-do as done
+//
+// The owner closes any, done by himself unless done_by says who. A Bot closes the item of its own attempt, done by itself, with evidence; or records for the owner what he did (done_by me), with his message in its chat as evidence.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/{todo_id}/done (the `DoneTodo` operationId).
+func (c *Client) DoneTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDoneTodoRequestWithBody(c.Server, todoId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DoneTodo Close an open or doing to-do as done
+//
+// The owner closes any, done by himself unless done_by says who. A Bot closes the item of its own attempt, done by itself, with evidence; or records for the owner what he did (done_by me), with his message in its chat as evidence.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/{todo_id}/done (the `DoneTodo` operationId).
+func (c *Client) DoneTodo(ctx context.Context, todoId TodoID, body DoneTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDoneTodoRequest(c.Server, todoId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DropTodoWithBody Close a proposed, open or doing to-do as dropped, with its reason
+//
+// The owner drops any; a Bot records it for him, with his message in its chat as evidence.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/{todo_id}/drop (the `DropTodo` operationId).
+func (c *Client) DropTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDropTodoRequestWithBody(c.Server, todoId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DropTodo Close a proposed, open or doing to-do as dropped, with its reason
+//
+// The owner drops any; a Bot records it for him, with his message in its chat as evidence.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/{todo_id}/drop (the `DropTodo` operationId).
+func (c *Client) DropTodo(ctx context.Context, todoId TodoID, body DropTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDropTodoRequest(c.Server, todoId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DuplicateTodoWithBody Close a proposed or open to-do as a duplicate of another; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/{todo_id}/duplicate (the `DuplicateTodo` operationId).
+func (c *Client) DuplicateTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDuplicateTodoRequestWithBody(c.Server, todoId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DuplicateTodo Close a proposed or open to-do as a duplicate of another; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/{todo_id}/duplicate (the `DuplicateTodo` operationId).
+func (c *Client) DuplicateTodo(ctx context.Context, todoId TodoID, body DuplicateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDuplicateTodoRequest(c.Server, todoId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReleaseTodoWithBody Give up a doing to-do, with the reason; only the Bot of the attempt
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/{todo_id}/release (the `ReleaseTodo` operationId).
+func (c *Client) ReleaseTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReleaseTodoRequestWithBody(c.Server, todoId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReleaseTodo Give up a doing to-do, with the reason; only the Bot of the attempt
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/{todo_id}/release (the `ReleaseTodo` operationId).
+func (c *Client) ReleaseTodo(ctx context.Context, todoId TodoID, body ReleaseTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReleaseTodoRequest(c.Server, todoId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReopenTodoWithBody Open a closed to-do again; only the owner
+//
+// Its close, duplicate link, attempt and Approval are cleared; the history keeps them.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/{todo_id}/reopen (the `ReopenTodo` operationId).
+func (c *Client) ReopenTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReopenTodoRequestWithBody(c.Server, todoId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReopenTodo Open a closed to-do again; only the owner
+//
+// Its close, duplicate link, attempt and Approval are cleared; the history keeps them.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/{todo_id}/reopen (the `ReopenTodo` operationId).
+func (c *Client) ReopenTodo(ctx context.Context, todoId TodoID, body ReopenTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReopenTodoRequest(c.Server, todoId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SnoozeTodoWithBody Hide a proposed or open to-do until a time to come, or show it again; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/{todo_id}/snooze (the `SnoozeTodo` operationId).
+func (c *Client) SnoozeTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSnoozeTodoRequestWithBody(c.Server, todoId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SnoozeTodo Hide a proposed or open to-do until a time to come, or show it again; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/{todo_id}/snooze (the `SnoozeTodo` operationId).
+func (c *Client) SnoozeTodo(ctx context.Context, todoId TodoID, body SnoozeTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSnoozeTodoRequest(c.Server, todoId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartTodoWithBody Start an open to-do given to this Bot, in a new attempt; only that Bot
+//
+// The attempt is the Bot's chat, or the Routine's run it is in. Its id, in work.attempt, is what the Bot's later writes to the item carry.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/{todo_id}/start (the `StartTodo` operationId).
+func (c *Client) StartTodoWithBody(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartTodoRequestWithBody(c.Server, todoId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartTodo Start an open to-do given to this Bot, in a new attempt; only that Bot
+//
+// The attempt is the Bot's chat, or the Routine's run it is in. Its id, in work.attempt, is what the Bot's later writes to the item carry.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/{todo_id}/start (the `StartTodo` operationId).
+func (c *Client) StartTodo(ctx context.Context, todoId TodoID, body StartTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartTodoRequest(c.Server, todoId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -22834,6 +24013,731 @@ func NewGenerateImagesRequestWithBody(server string, contentType string, body io
 	return req, nil
 }
 
+// NewListTodosRequest constructs an http.Request for the ListTodos method
+func NewListTodosRequest(server string, params *ListTodosParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "array", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.AssigneeKind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "assignee_kind", *params.AssigneeKind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Assignee != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "assignee", *params.Assignee, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.SourceKind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "source_kind", *params.SourceKind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.DueFrom != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "due_from", *params.DueFrom, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "date-time"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.DueTo != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "due_to", *params.DueTo, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "date-time"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.NeedsYou != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "needs_you", *params.NeedsYou, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.IncludeSnoozed != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "include_snoozed", *params.IncludeSnoozed, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.IncludeClosed != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "include_closed", *params.IncludeClosed, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.IncludeStale != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "include_stale", *params.IncludeStale, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateTodoRequest calls the generic CreateTodo builder with application/json body
+func NewCreateTodoRequest(server string, params *CreateTodoParams, body CreateTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateTodoRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewCreateTodoRequestWithBody constructs an http.Request for the CreateTodo method, with any body, and a specified content type
+func NewCreateTodoRequestWithBody(server string, params *CreateTodoParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IdempotencyKey != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", *params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Idempotency-Key", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewGetInboxNeedsYouRequest constructs an http.Request for the GetInboxNeedsYou method
+func NewGetInboxNeedsYouRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/needs-you")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetTodoRequest constructs an http.Request for the GetTodo method
+func NewGetTodoRequest(server string, todoId TodoID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewEditTodoRequest calls the generic EditTodo builder with application/json body
+func NewEditTodoRequest(server string, todoId TodoID, body EditTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEditTodoRequestWithBody(server, todoId, "application/json", bodyReader)
+}
+
+// NewEditTodoRequestWithBody constructs an http.Request for the EditTodo method, with any body, and a specified content type
+func NewEditTodoRequestWithBody(server string, todoId TodoID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAcceptTodoRequest calls the generic AcceptTodo builder with application/json body
+func NewAcceptTodoRequest(server string, todoId TodoID, body AcceptTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAcceptTodoRequestWithBody(server, todoId, "application/json", bodyReader)
+}
+
+// NewAcceptTodoRequestWithBody constructs an http.Request for the AcceptTodo method, with any body, and a specified content type
+func NewAcceptTodoRequestWithBody(server string, todoId TodoID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s/accept", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDoneTodoRequest calls the generic DoneTodo builder with application/json body
+func NewDoneTodoRequest(server string, todoId TodoID, body DoneTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDoneTodoRequestWithBody(server, todoId, "application/json", bodyReader)
+}
+
+// NewDoneTodoRequestWithBody constructs an http.Request for the DoneTodo method, with any body, and a specified content type
+func NewDoneTodoRequestWithBody(server string, todoId TodoID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s/done", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDropTodoRequest calls the generic DropTodo builder with application/json body
+func NewDropTodoRequest(server string, todoId TodoID, body DropTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDropTodoRequestWithBody(server, todoId, "application/json", bodyReader)
+}
+
+// NewDropTodoRequestWithBody constructs an http.Request for the DropTodo method, with any body, and a specified content type
+func NewDropTodoRequestWithBody(server string, todoId TodoID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s/drop", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDuplicateTodoRequest calls the generic DuplicateTodo builder with application/json body
+func NewDuplicateTodoRequest(server string, todoId TodoID, body DuplicateTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDuplicateTodoRequestWithBody(server, todoId, "application/json", bodyReader)
+}
+
+// NewDuplicateTodoRequestWithBody constructs an http.Request for the DuplicateTodo method, with any body, and a specified content type
+func NewDuplicateTodoRequestWithBody(server string, todoId TodoID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s/duplicate", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewReleaseTodoRequest calls the generic ReleaseTodo builder with application/json body
+func NewReleaseTodoRequest(server string, todoId TodoID, body ReleaseTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReleaseTodoRequestWithBody(server, todoId, "application/json", bodyReader)
+}
+
+// NewReleaseTodoRequestWithBody constructs an http.Request for the ReleaseTodo method, with any body, and a specified content type
+func NewReleaseTodoRequestWithBody(server string, todoId TodoID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s/release", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewReopenTodoRequest calls the generic ReopenTodo builder with application/json body
+func NewReopenTodoRequest(server string, todoId TodoID, body ReopenTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReopenTodoRequestWithBody(server, todoId, "application/json", bodyReader)
+}
+
+// NewReopenTodoRequestWithBody constructs an http.Request for the ReopenTodo method, with any body, and a specified content type
+func NewReopenTodoRequestWithBody(server string, todoId TodoID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s/reopen", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSnoozeTodoRequest calls the generic SnoozeTodo builder with application/json body
+func NewSnoozeTodoRequest(server string, todoId TodoID, body SnoozeTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSnoozeTodoRequestWithBody(server, todoId, "application/json", bodyReader)
+}
+
+// NewSnoozeTodoRequestWithBody constructs an http.Request for the SnoozeTodo method, with any body, and a specified content type
+func NewSnoozeTodoRequestWithBody(server string, todoId TodoID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s/snooze", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewStartTodoRequest calls the generic StartTodo builder with application/json body
+func NewStartTodoRequest(server string, todoId TodoID, body StartTodoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewStartTodoRequestWithBody(server, todoId, "application/json", bodyReader)
+}
+
+// NewStartTodoRequestWithBody constructs an http.Request for the StartTodo method, with any body, and a specified content type
+func NewStartTodoRequestWithBody(server string, todoId TodoID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "todo_id", todoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/%s/start", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListIntegrationsRequest constructs an http.Request for the ListIntegrations method
 func NewListIntegrationsRequest(server string) (*http.Request, error) {
 	var err error
@@ -30776,6 +32680,195 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /images/generations (the `GenerateImages` operationId).
 	GenerateImagesWithResponse(ctx context.Context, body GenerateImagesJSONRequestBody, reqEditors ...RequestEditorFn) (*GenerateImagesResponse, error)
 
+	// ListTodosWithResponse One page of the Inbox's to-dos, by due (those without one last), then created
+	//
+	// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /inbox (the `ListTodos` operationId).
+	ListTodosWithResponse(ctx context.Context, params *ListTodosParams, reqEditors ...RequestEditorFn) (*ListTodosResponse, error)
+
+	// CreateTodoWithBodyWithResponse Add a to-do; the owner or a Bot, never a coordinator
+	//
+	// Who adds it, and where from, comes from the token, never from the body: the owner writes it by hand; a Bot in a chat with the owner adds it from that chat; a Bot in a Routine's run adds it from the run, or from a chat of the owner's Lark or Zalo account it names with source. The owner and a Bot in a chat add open items. A Bot in a Routine's run proposes them, or opens one when it gives why_open with the quote and the reference to the message (the owner's triage of 2026-11-20). state defaults to open when why_open is given and to what the token adds without it otherwise.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox (the `CreateTodo` operationId).
+	CreateTodoWithBodyWithResponse(ctx context.Context, params *CreateTodoParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTodoResponse, error)
+
+	// CreateTodoWithResponse Add a to-do; the owner or a Bot, never a coordinator
+	//
+	// Who adds it, and where from, comes from the token, never from the body: the owner writes it by hand; a Bot in a chat with the owner adds it from that chat; a Bot in a Routine's run adds it from the run, or from a chat of the owner's Lark or Zalo account it names with source. The owner and a Bot in a chat add open items. A Bot in a Routine's run proposes them, or opens one when it gives why_open with the quote and the reference to the message (the owner's triage of 2026-11-20). state defaults to open when why_open is given and to what the token adds without it otherwise.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox (the `CreateTodo` operationId).
+	CreateTodoWithResponse(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTodoResponse, error)
+
+	// GetInboxNeedsYouWithResponse How many to-dos need the owner now, for the sidebar
+	//
+	// Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /inbox/needs-you (the `GetInboxNeedsYou` operationId).
+	GetInboxNeedsYouWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetInboxNeedsYouResponse, error)
+
+	// GetTodoWithResponse A to-do with its history
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /inbox/{todo_id} (the `GetTodo` operationId).
+	GetTodoWithResponse(ctx context.Context, todoId TodoID, reqEditors ...RequestEditorFn) (*GetTodoResponse, error)
+
+	// EditTodoWithBodyWithResponse Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+	//
+	// A Bot does not change who does an item. A stale revision is a conflict.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /inbox/{todo_id} (the `EditTodo` operationId).
+	EditTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditTodoResponse, error)
+
+	// EditTodoWithResponse Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+	//
+	// A Bot does not change who does an item. A stale revision is a conflict.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /inbox/{todo_id} (the `EditTodo` operationId).
+	EditTodoWithResponse(ctx context.Context, todoId TodoID, body EditTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*EditTodoResponse, error)
+
+	// AcceptTodoWithBodyWithResponse Open a proposed to-do; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/accept (the `AcceptTodo` operationId).
+	AcceptTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AcceptTodoResponse, error)
+
+	// AcceptTodoWithResponse Open a proposed to-do; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/accept (the `AcceptTodo` operationId).
+	AcceptTodoWithResponse(ctx context.Context, todoId TodoID, body AcceptTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*AcceptTodoResponse, error)
+
+	// DoneTodoWithBodyWithResponse Close an open or doing to-do as done
+	//
+	// The owner closes any, done by himself unless done_by says who. A Bot closes the item of its own attempt, done by itself, with evidence; or records for the owner what he did (done_by me), with his message in its chat as evidence.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/done (the `DoneTodo` operationId).
+	DoneTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DoneTodoResponse, error)
+
+	// DoneTodoWithResponse Close an open or doing to-do as done
+	//
+	// The owner closes any, done by himself unless done_by says who. A Bot closes the item of its own attempt, done by itself, with evidence; or records for the owner what he did (done_by me), with his message in its chat as evidence.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/done (the `DoneTodo` operationId).
+	DoneTodoWithResponse(ctx context.Context, todoId TodoID, body DoneTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*DoneTodoResponse, error)
+
+	// DropTodoWithBodyWithResponse Close a proposed, open or doing to-do as dropped, with its reason
+	//
+	// The owner drops any; a Bot records it for him, with his message in its chat as evidence.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/drop (the `DropTodo` operationId).
+	DropTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DropTodoResponse, error)
+
+	// DropTodoWithResponse Close a proposed, open or doing to-do as dropped, with its reason
+	//
+	// The owner drops any; a Bot records it for him, with his message in its chat as evidence.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/drop (the `DropTodo` operationId).
+	DropTodoWithResponse(ctx context.Context, todoId TodoID, body DropTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*DropTodoResponse, error)
+
+	// DuplicateTodoWithBodyWithResponse Close a proposed or open to-do as a duplicate of another; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/duplicate (the `DuplicateTodo` operationId).
+	DuplicateTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DuplicateTodoResponse, error)
+
+	// DuplicateTodoWithResponse Close a proposed or open to-do as a duplicate of another; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/duplicate (the `DuplicateTodo` operationId).
+	DuplicateTodoWithResponse(ctx context.Context, todoId TodoID, body DuplicateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*DuplicateTodoResponse, error)
+
+	// ReleaseTodoWithBodyWithResponse Give up a doing to-do, with the reason; only the Bot of the attempt
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/release (the `ReleaseTodo` operationId).
+	ReleaseTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReleaseTodoResponse, error)
+
+	// ReleaseTodoWithResponse Give up a doing to-do, with the reason; only the Bot of the attempt
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/release (the `ReleaseTodo` operationId).
+	ReleaseTodoWithResponse(ctx context.Context, todoId TodoID, body ReleaseTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*ReleaseTodoResponse, error)
+
+	// ReopenTodoWithBodyWithResponse Open a closed to-do again; only the owner
+	//
+	// Its close, duplicate link, attempt and Approval are cleared; the history keeps them.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/reopen (the `ReopenTodo` operationId).
+	ReopenTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReopenTodoResponse, error)
+
+	// ReopenTodoWithResponse Open a closed to-do again; only the owner
+	//
+	// Its close, duplicate link, attempt and Approval are cleared; the history keeps them.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/reopen (the `ReopenTodo` operationId).
+	ReopenTodoWithResponse(ctx context.Context, todoId TodoID, body ReopenTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*ReopenTodoResponse, error)
+
+	// SnoozeTodoWithBodyWithResponse Hide a proposed or open to-do until a time to come, or show it again; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/snooze (the `SnoozeTodo` operationId).
+	SnoozeTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SnoozeTodoResponse, error)
+
+	// SnoozeTodoWithResponse Hide a proposed or open to-do until a time to come, or show it again; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/snooze (the `SnoozeTodo` operationId).
+	SnoozeTodoWithResponse(ctx context.Context, todoId TodoID, body SnoozeTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*SnoozeTodoResponse, error)
+
+	// StartTodoWithBodyWithResponse Start an open to-do given to this Bot, in a new attempt; only that Bot
+	//
+	// The attempt is the Bot's chat, or the Routine's run it is in. Its id, in work.attempt, is what the Bot's later writes to the item carry.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/start (the `StartTodo` operationId).
+	StartTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartTodoResponse, error)
+
+	// StartTodoWithResponse Start an open to-do given to this Bot, in a new attempt; only that Bot
+	//
+	// The attempt is the Bot's chat, or the Routine's run it is in. Its id, in work.attempt, is what the Bot's later writes to the item carry.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/{todo_id}/start (the `StartTodo` operationId).
+	StartTodoWithResponse(ctx context.Context, todoId TodoID, body StartTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*StartTodoResponse, error)
+
 	// ListIntegrationsWithResponse The services that sign in with an account or are an app, with their Connections
 	//
 	// An Integration here signs an account in with OAuth, as Google, is an app of the service, as Lark, or is an account at an address of its own, as Superset. A git host is an Integration too and is listed under /hosts. No token, no password and no client secret is ever in the answer.
@@ -38102,6 +40195,630 @@ func (r GenerateImagesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GenerateImagesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListTodosResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TodoList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListTodosResponse) GetJSON200() *TodoList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListTodosResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListTodosResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListTodosResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListTodosResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListTodosResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateTodoResponse) GetJSON201() *Todo {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetInboxNeedsYouResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxNeedsYou
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetInboxNeedsYouResponse) GetJSON200() *InboxNeedsYou {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetInboxNeedsYouResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetInboxNeedsYouResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetInboxNeedsYouResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetInboxNeedsYouResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetInboxNeedsYouResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type EditTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r EditTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r EditTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r EditTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r EditTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EditTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r EditTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AcceptTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AcceptTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r AcceptTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AcceptTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AcceptTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AcceptTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AcceptTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DoneTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DoneTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DoneTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DoneTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DoneTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DoneTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DoneTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DropTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DropTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DropTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DropTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DropTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DropTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DropTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DuplicateTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DuplicateTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DuplicateTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DuplicateTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DuplicateTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DuplicateTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DuplicateTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReleaseTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReleaseTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReleaseTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReleaseTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReleaseTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReleaseTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReleaseTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReopenTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReopenTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReopenTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReopenTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReopenTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReopenTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReopenTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SnoozeTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SnoozeTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SnoozeTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SnoozeTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SnoozeTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SnoozeTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SnoozeTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StartTodoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Todo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r StartTodoResponse) GetJSON200() *Todo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StartTodoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StartTodoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartTodoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartTodoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartTodoResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -47226,6 +49943,333 @@ func (c *ClientWithResponses) GenerateImagesWithResponse(ctx context.Context, bo
 	return ParseGenerateImagesResponse(rsp)
 }
 
+// ListTodosWithResponse One page of the Inbox's to-dos, by due (those without one last), then created
+//
+// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /inbox (the `ListTodos` operationId).
+func (c *ClientWithResponses) ListTodosWithResponse(ctx context.Context, params *ListTodosParams, reqEditors ...RequestEditorFn) (*ListTodosResponse, error) {
+	rsp, err := c.ListTodos(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListTodosResponse(rsp)
+}
+
+// CreateTodoWithBodyWithResponse Add a to-do; the owner or a Bot, never a coordinator
+//
+// Who adds it, and where from, comes from the token, never from the body: the owner writes it by hand; a Bot in a chat with the owner adds it from that chat; a Bot in a Routine's run adds it from the run, or from a chat of the owner's Lark or Zalo account it names with source. The owner and a Bot in a chat add open items. A Bot in a Routine's run proposes them, or opens one when it gives why_open with the quote and the reference to the message (the owner's triage of 2026-11-20). state defaults to open when why_open is given and to what the token adds without it otherwise.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox (the `CreateTodo` operationId).
+func (c *ClientWithResponses) CreateTodoWithBodyWithResponse(ctx context.Context, params *CreateTodoParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTodoResponse, error) {
+	rsp, err := c.CreateTodoWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTodoResponse(rsp)
+}
+
+// CreateTodoWithResponse Add a to-do; the owner or a Bot, never a coordinator
+//
+// Who adds it, and where from, comes from the token, never from the body: the owner writes it by hand; a Bot in a chat with the owner adds it from that chat; a Bot in a Routine's run adds it from the run, or from a chat of the owner's Lark or Zalo account it names with source. The owner and a Bot in a chat add open items. A Bot in a Routine's run proposes them, or opens one when it gives why_open with the quote and the reference to the message (the owner's triage of 2026-11-20). state defaults to open when why_open is given and to what the token adds without it otherwise.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox (the `CreateTodo` operationId).
+func (c *ClientWithResponses) CreateTodoWithResponse(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTodoResponse, error) {
+	rsp, err := c.CreateTodo(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTodoResponse(rsp)
+}
+
+// GetInboxNeedsYouWithResponse How many to-dos need the owner now, for the sidebar
+//
+// Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /inbox/needs-you (the `GetInboxNeedsYou` operationId).
+func (c *ClientWithResponses) GetInboxNeedsYouWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetInboxNeedsYouResponse, error) {
+	rsp, err := c.GetInboxNeedsYou(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetInboxNeedsYouResponse(rsp)
+}
+
+// GetTodoWithResponse A to-do with its history
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /inbox/{todo_id} (the `GetTodo` operationId).
+func (c *ClientWithResponses) GetTodoWithResponse(ctx context.Context, todoId TodoID, reqEditors ...RequestEditorFn) (*GetTodoResponse, error) {
+	rsp, err := c.GetTodo(ctx, todoId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTodoResponse(rsp)
+}
+
+// EditTodoWithBodyWithResponse Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+//
+// A Bot does not change who does an item. A stale revision is a conflict.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /inbox/{todo_id} (the `EditTodo` operationId).
+func (c *ClientWithResponses) EditTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditTodoResponse, error) {
+	rsp, err := c.EditTodoWithBody(ctx, todoId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditTodoResponse(rsp)
+}
+
+// EditTodoWithResponse Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+//
+// A Bot does not change who does an item. A stale revision is a conflict.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /inbox/{todo_id} (the `EditTodo` operationId).
+func (c *ClientWithResponses) EditTodoWithResponse(ctx context.Context, todoId TodoID, body EditTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*EditTodoResponse, error) {
+	rsp, err := c.EditTodo(ctx, todoId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditTodoResponse(rsp)
+}
+
+// AcceptTodoWithBodyWithResponse Open a proposed to-do; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/accept (the `AcceptTodo` operationId).
+func (c *ClientWithResponses) AcceptTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AcceptTodoResponse, error) {
+	rsp, err := c.AcceptTodoWithBody(ctx, todoId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAcceptTodoResponse(rsp)
+}
+
+// AcceptTodoWithResponse Open a proposed to-do; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/accept (the `AcceptTodo` operationId).
+func (c *ClientWithResponses) AcceptTodoWithResponse(ctx context.Context, todoId TodoID, body AcceptTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*AcceptTodoResponse, error) {
+	rsp, err := c.AcceptTodo(ctx, todoId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAcceptTodoResponse(rsp)
+}
+
+// DoneTodoWithBodyWithResponse Close an open or doing to-do as done
+//
+// The owner closes any, done by himself unless done_by says who. A Bot closes the item of its own attempt, done by itself, with evidence; or records for the owner what he did (done_by me), with his message in its chat as evidence.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/done (the `DoneTodo` operationId).
+func (c *ClientWithResponses) DoneTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DoneTodoResponse, error) {
+	rsp, err := c.DoneTodoWithBody(ctx, todoId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDoneTodoResponse(rsp)
+}
+
+// DoneTodoWithResponse Close an open or doing to-do as done
+//
+// The owner closes any, done by himself unless done_by says who. A Bot closes the item of its own attempt, done by itself, with evidence; or records for the owner what he did (done_by me), with his message in its chat as evidence.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/done (the `DoneTodo` operationId).
+func (c *ClientWithResponses) DoneTodoWithResponse(ctx context.Context, todoId TodoID, body DoneTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*DoneTodoResponse, error) {
+	rsp, err := c.DoneTodo(ctx, todoId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDoneTodoResponse(rsp)
+}
+
+// DropTodoWithBodyWithResponse Close a proposed, open or doing to-do as dropped, with its reason
+//
+// The owner drops any; a Bot records it for him, with his message in its chat as evidence.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/drop (the `DropTodo` operationId).
+func (c *ClientWithResponses) DropTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DropTodoResponse, error) {
+	rsp, err := c.DropTodoWithBody(ctx, todoId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDropTodoResponse(rsp)
+}
+
+// DropTodoWithResponse Close a proposed, open or doing to-do as dropped, with its reason
+//
+// The owner drops any; a Bot records it for him, with his message in its chat as evidence.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/drop (the `DropTodo` operationId).
+func (c *ClientWithResponses) DropTodoWithResponse(ctx context.Context, todoId TodoID, body DropTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*DropTodoResponse, error) {
+	rsp, err := c.DropTodo(ctx, todoId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDropTodoResponse(rsp)
+}
+
+// DuplicateTodoWithBodyWithResponse Close a proposed or open to-do as a duplicate of another; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/duplicate (the `DuplicateTodo` operationId).
+func (c *ClientWithResponses) DuplicateTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DuplicateTodoResponse, error) {
+	rsp, err := c.DuplicateTodoWithBody(ctx, todoId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDuplicateTodoResponse(rsp)
+}
+
+// DuplicateTodoWithResponse Close a proposed or open to-do as a duplicate of another; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/duplicate (the `DuplicateTodo` operationId).
+func (c *ClientWithResponses) DuplicateTodoWithResponse(ctx context.Context, todoId TodoID, body DuplicateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*DuplicateTodoResponse, error) {
+	rsp, err := c.DuplicateTodo(ctx, todoId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDuplicateTodoResponse(rsp)
+}
+
+// ReleaseTodoWithBodyWithResponse Give up a doing to-do, with the reason; only the Bot of the attempt
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/release (the `ReleaseTodo` operationId).
+func (c *ClientWithResponses) ReleaseTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReleaseTodoResponse, error) {
+	rsp, err := c.ReleaseTodoWithBody(ctx, todoId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReleaseTodoResponse(rsp)
+}
+
+// ReleaseTodoWithResponse Give up a doing to-do, with the reason; only the Bot of the attempt
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/release (the `ReleaseTodo` operationId).
+func (c *ClientWithResponses) ReleaseTodoWithResponse(ctx context.Context, todoId TodoID, body ReleaseTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*ReleaseTodoResponse, error) {
+	rsp, err := c.ReleaseTodo(ctx, todoId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReleaseTodoResponse(rsp)
+}
+
+// ReopenTodoWithBodyWithResponse Open a closed to-do again; only the owner
+//
+// Its close, duplicate link, attempt and Approval are cleared; the history keeps them.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/reopen (the `ReopenTodo` operationId).
+func (c *ClientWithResponses) ReopenTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReopenTodoResponse, error) {
+	rsp, err := c.ReopenTodoWithBody(ctx, todoId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReopenTodoResponse(rsp)
+}
+
+// ReopenTodoWithResponse Open a closed to-do again; only the owner
+//
+// Its close, duplicate link, attempt and Approval are cleared; the history keeps them.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/reopen (the `ReopenTodo` operationId).
+func (c *ClientWithResponses) ReopenTodoWithResponse(ctx context.Context, todoId TodoID, body ReopenTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*ReopenTodoResponse, error) {
+	rsp, err := c.ReopenTodo(ctx, todoId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReopenTodoResponse(rsp)
+}
+
+// SnoozeTodoWithBodyWithResponse Hide a proposed or open to-do until a time to come, or show it again; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/snooze (the `SnoozeTodo` operationId).
+func (c *ClientWithResponses) SnoozeTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SnoozeTodoResponse, error) {
+	rsp, err := c.SnoozeTodoWithBody(ctx, todoId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSnoozeTodoResponse(rsp)
+}
+
+// SnoozeTodoWithResponse Hide a proposed or open to-do until a time to come, or show it again; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/snooze (the `SnoozeTodo` operationId).
+func (c *ClientWithResponses) SnoozeTodoWithResponse(ctx context.Context, todoId TodoID, body SnoozeTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*SnoozeTodoResponse, error) {
+	rsp, err := c.SnoozeTodo(ctx, todoId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSnoozeTodoResponse(rsp)
+}
+
+// StartTodoWithBodyWithResponse Start an open to-do given to this Bot, in a new attempt; only that Bot
+//
+// The attempt is the Bot's chat, or the Routine's run it is in. Its id, in work.attempt, is what the Bot's later writes to the item carry.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/start (the `StartTodo` operationId).
+func (c *ClientWithResponses) StartTodoWithBodyWithResponse(ctx context.Context, todoId TodoID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*StartTodoResponse, error) {
+	rsp, err := c.StartTodoWithBody(ctx, todoId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartTodoResponse(rsp)
+}
+
+// StartTodoWithResponse Start an open to-do given to this Bot, in a new attempt; only that Bot
+//
+// The attempt is the Bot's chat, or the Routine's run it is in. Its id, in work.attempt, is what the Bot's later writes to the item carry.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/{todo_id}/start (the `StartTodo` operationId).
+func (c *ClientWithResponses) StartTodoWithResponse(ctx context.Context, todoId TodoID, body StartTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*StartTodoResponse, error) {
+	rsp, err := c.StartTodo(ctx, todoId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartTodoResponse(rsp)
+}
+
 // ListIntegrationsWithResponse The services that sign in with an account or are an app, with their Connections
 //
 // An Integration here signs an account in with OAuth, as Google, is an app of the service, as Lark, or is an account at an address of its own, as Superset. A git host is an Integration too and is listed under /hosts. No token, no password and no client secret is ever in the answer.
@@ -53873,6 +56917,435 @@ func ParseGenerateImagesResponse(rsp *http.Response) (*GenerateImagesResponse, e
 	return response, nil
 }
 
+// ParseListTodosResponse parses an HTTP response from a ListTodosWithResponse call
+func ParseListTodosResponse(rsp *http.Response) (*ListTodosResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListTodosResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TodoList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateTodoResponse parses an HTTP response from a CreateTodoWithResponse call
+func ParseCreateTodoResponse(rsp *http.Response) (*CreateTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetInboxNeedsYouResponse parses an HTTP response from a GetInboxNeedsYouWithResponse call
+func ParseGetInboxNeedsYouResponse(rsp *http.Response) (*GetInboxNeedsYouResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetInboxNeedsYouResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxNeedsYou
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetTodoResponse parses an HTTP response from a GetTodoWithResponse call
+func ParseGetTodoResponse(rsp *http.Response) (*GetTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEditTodoResponse parses an HTTP response from a EditTodoWithResponse call
+func ParseEditTodoResponse(rsp *http.Response) (*EditTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EditTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAcceptTodoResponse parses an HTTP response from a AcceptTodoWithResponse call
+func ParseAcceptTodoResponse(rsp *http.Response) (*AcceptTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AcceptTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDoneTodoResponse parses an HTTP response from a DoneTodoWithResponse call
+func ParseDoneTodoResponse(rsp *http.Response) (*DoneTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DoneTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDropTodoResponse parses an HTTP response from a DropTodoWithResponse call
+func ParseDropTodoResponse(rsp *http.Response) (*DropTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DropTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDuplicateTodoResponse parses an HTTP response from a DuplicateTodoWithResponse call
+func ParseDuplicateTodoResponse(rsp *http.Response) (*DuplicateTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DuplicateTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReleaseTodoResponse parses an HTTP response from a ReleaseTodoWithResponse call
+func ParseReleaseTodoResponse(rsp *http.Response) (*ReleaseTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReleaseTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReopenTodoResponse parses an HTTP response from a ReopenTodoWithResponse call
+func ParseReopenTodoResponse(rsp *http.Response) (*ReopenTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReopenTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSnoozeTodoResponse parses an HTTP response from a SnoozeTodoWithResponse call
+func ParseSnoozeTodoResponse(rsp *http.Response) (*SnoozeTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SnoozeTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartTodoResponse parses an HTTP response from a StartTodoWithResponse call
+func ParseStartTodoResponse(rsp *http.Response) (*StartTodoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartTodoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Todo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListIntegrationsResponse parses an HTTP response from a ListIntegrationsWithResponse call
 func ParseListIntegrationsResponse(rsp *http.Response) (*ListIntegrationsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -58843,6 +62316,45 @@ type ServerInterface interface {
 	// GenerateImages Make or edit images through the owner's subscriptions; any token, a Bot's included
 	// (POST /images/generations)
 	GenerateImages(w http.ResponseWriter, r *http.Request)
+	// ListTodos One page of the Inbox's to-dos, by due (those without one last), then created
+	// (GET /inbox)
+	ListTodos(w http.ResponseWriter, r *http.Request, params ListTodosParams)
+	// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
+	// (POST /inbox)
+	CreateTodo(w http.ResponseWriter, r *http.Request, params CreateTodoParams)
+	// GetInboxNeedsYou How many to-dos need the owner now, for the sidebar
+	// (GET /inbox/needs-you)
+	GetInboxNeedsYou(w http.ResponseWriter, r *http.Request)
+	// GetTodo A to-do with its history
+	// (GET /inbox/{todo_id})
+	GetTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
+	// EditTodo Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+	// (PATCH /inbox/{todo_id})
+	EditTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
+	// AcceptTodo Open a proposed to-do; only the owner
+	// (POST /inbox/{todo_id}/accept)
+	AcceptTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
+	// DoneTodo Close an open or doing to-do as done
+	// (POST /inbox/{todo_id}/done)
+	DoneTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
+	// DropTodo Close a proposed, open or doing to-do as dropped, with its reason
+	// (POST /inbox/{todo_id}/drop)
+	DropTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
+	// DuplicateTodo Close a proposed or open to-do as a duplicate of another; only the owner
+	// (POST /inbox/{todo_id}/duplicate)
+	DuplicateTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
+	// ReleaseTodo Give up a doing to-do, with the reason; only the Bot of the attempt
+	// (POST /inbox/{todo_id}/release)
+	ReleaseTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
+	// ReopenTodo Open a closed to-do again; only the owner
+	// (POST /inbox/{todo_id}/reopen)
+	ReopenTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
+	// SnoozeTodo Hide a proposed or open to-do until a time to come, or show it again; only the owner
+	// (POST /inbox/{todo_id}/snooze)
+	SnoozeTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
+	// StartTodo Start an open to-do given to this Bot, in a new attempt; only that Bot
+	// (POST /inbox/{todo_id}/start)
+	StartTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(w http.ResponseWriter, r *http.Request)
@@ -63087,6 +66599,497 @@ func (siw *ServerInterfaceWrapper) GenerateImages(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GenerateImages(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTodos operation middleware
+func (siw *ServerInterfaceWrapper) ListTodos(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTodosParams
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "assignee_kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee_kind", r.URL.Query(), &params.AssigneeKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "assignee_kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assignee_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "assignee" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "assignee", r.URL.Query(), &params.Assignee, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "assignee"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assignee", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "source_kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "source_kind", r.URL.Query(), &params.SourceKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "source_kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "due_from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "due_from", r.URL.Query(), &params.DueFrom, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "due_from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "due_from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "due_to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "due_to", r.URL.Query(), &params.DueTo, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "due_to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "due_to", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "needs_you" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "needs_you", r.URL.Query(), &params.NeedsYou, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "needs_you"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "needs_you", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_snoozed" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_snoozed", r.URL.Query(), &params.IncludeSnoozed, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_snoozed"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_snoozed", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_closed" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_closed", r.URL.Query(), &params.IncludeClosed, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_closed"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_closed", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "include_stale" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "include_stale", r.URL.Query(), &params.IncludeStale, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_stale"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_stale", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTodos(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateTodo operation middleware
+func (siw *ServerInterfaceWrapper) CreateTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateTodoParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTodo(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetInboxNeedsYou operation middleware
+func (siw *ServerInterfaceWrapper) GetInboxNeedsYou(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetInboxNeedsYou(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetTodo operation middleware
+func (siw *ServerInterfaceWrapper) GetTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTodo(w, r, todoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EditTodo operation middleware
+func (siw *ServerInterfaceWrapper) EditTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EditTodo(w, r, todoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptTodo operation middleware
+func (siw *ServerInterfaceWrapper) AcceptTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptTodo(w, r, todoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DoneTodo operation middleware
+func (siw *ServerInterfaceWrapper) DoneTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DoneTodo(w, r, todoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DropTodo operation middleware
+func (siw *ServerInterfaceWrapper) DropTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DropTodo(w, r, todoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DuplicateTodo operation middleware
+func (siw *ServerInterfaceWrapper) DuplicateTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DuplicateTodo(w, r, todoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReleaseTodo operation middleware
+func (siw *ServerInterfaceWrapper) ReleaseTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReleaseTodo(w, r, todoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReopenTodo operation middleware
+func (siw *ServerInterfaceWrapper) ReopenTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReopenTodo(w, r, todoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SnoozeTodo operation middleware
+func (siw *ServerInterfaceWrapper) SnoozeTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SnoozeTodo(w, r, todoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartTodo operation middleware
+func (siw *ServerInterfaceWrapper) StartTodo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "todo_id" -------------
+	var todoId TodoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "todo_id", r.PathValue("todo_id"), &todoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "todo_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartTodo(w, r, todoId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -68031,6 +72034,19 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}/queue", wrapper.ListChatQueue)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/chats/{chat_id}/queue/{queue_id}", wrapper.RemoveQueuedChatMessage)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats/{chat_id}/queue/{queue_id}/send", wrapper.SendQueuedChatMessage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox", wrapper.ListTodos)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox", wrapper.CreateTodo)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/needs-you", wrapper.GetInboxNeedsYou)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.GetTodo)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.EditTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/accept", wrapper.AcceptTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/done", wrapper.DoneTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/drop", wrapper.DropTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/duplicate", wrapper.DuplicateTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/reopen", wrapper.ReopenTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/snooze", wrapper.SnoozeTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/start", wrapper.StartTodo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/release", wrapper.ReleaseTodo)
 
 	return m
 }
@@ -72974,6 +76990,522 @@ type GenerateImagesdefaultJSONResponse struct {
 }
 
 func (response GenerateImagesdefaultJSONResponse) VisitGenerateImagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTodosRequestObject struct {
+	Params ListTodosParams
+}
+
+type ListTodosResponseObject interface {
+	VisitListTodosResponse(w http.ResponseWriter) error
+}
+
+type ListTodos200JSONResponse TodoList
+
+func (response ListTodos200JSONResponse) VisitListTodosResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTodosdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListTodosdefaultJSONResponse) VisitListTodosResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTodoRequestObject struct {
+	Params CreateTodoParams
+	Body   *CreateTodoJSONRequestBody
+}
+
+type CreateTodoResponseObject interface {
+	VisitCreateTodoResponse(w http.ResponseWriter) error
+}
+
+type CreateTodo201JSONResponse Todo
+
+func (response CreateTodo201JSONResponse) VisitCreateTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateTododefaultJSONResponse) VisitCreateTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetInboxNeedsYouRequestObject struct {
+}
+
+type GetInboxNeedsYouResponseObject interface {
+	VisitGetInboxNeedsYouResponse(w http.ResponseWriter) error
+}
+
+type GetInboxNeedsYou200JSONResponse InboxNeedsYou
+
+func (response GetInboxNeedsYou200JSONResponse) VisitGetInboxNeedsYouResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetInboxNeedsYoudefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetInboxNeedsYoudefaultJSONResponse) VisitGetInboxNeedsYouResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+}
+
+type GetTodoResponseObject interface {
+	VisitGetTodoResponse(w http.ResponseWriter) error
+}
+
+type GetTodo200JSONResponse Todo
+
+func (response GetTodo200JSONResponse) VisitGetTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetTododefaultJSONResponse) VisitGetTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+	Body   *EditTodoJSONRequestBody
+}
+
+type EditTodoResponseObject interface {
+	VisitEditTodoResponse(w http.ResponseWriter) error
+}
+
+type EditTodo200JSONResponse Todo
+
+func (response EditTodo200JSONResponse) VisitEditTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response EditTododefaultJSONResponse) VisitEditTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+	Body   *AcceptTodoJSONRequestBody
+}
+
+type AcceptTodoResponseObject interface {
+	VisitAcceptTodoResponse(w http.ResponseWriter) error
+}
+
+type AcceptTodo200JSONResponse Todo
+
+func (response AcceptTodo200JSONResponse) VisitAcceptTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AcceptTododefaultJSONResponse) VisitAcceptTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DoneTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+	Body   *DoneTodoJSONRequestBody
+}
+
+type DoneTodoResponseObject interface {
+	VisitDoneTodoResponse(w http.ResponseWriter) error
+}
+
+type DoneTodo200JSONResponse Todo
+
+func (response DoneTodo200JSONResponse) VisitDoneTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DoneTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DoneTododefaultJSONResponse) VisitDoneTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DropTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+	Body   *DropTodoJSONRequestBody
+}
+
+type DropTodoResponseObject interface {
+	VisitDropTodoResponse(w http.ResponseWriter) error
+}
+
+type DropTodo200JSONResponse Todo
+
+func (response DropTodo200JSONResponse) VisitDropTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DropTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DropTododefaultJSONResponse) VisitDropTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DuplicateTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+	Body   *DuplicateTodoJSONRequestBody
+}
+
+type DuplicateTodoResponseObject interface {
+	VisitDuplicateTodoResponse(w http.ResponseWriter) error
+}
+
+type DuplicateTodo200JSONResponse Todo
+
+func (response DuplicateTodo200JSONResponse) VisitDuplicateTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DuplicateTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DuplicateTododefaultJSONResponse) VisitDuplicateTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+	Body   *ReleaseTodoJSONRequestBody
+}
+
+type ReleaseTodoResponseObject interface {
+	VisitReleaseTodoResponse(w http.ResponseWriter) error
+}
+
+type ReleaseTodo200JSONResponse Todo
+
+func (response ReleaseTodo200JSONResponse) VisitReleaseTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReleaseTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ReleaseTododefaultJSONResponse) VisitReleaseTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReopenTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+	Body   *ReopenTodoJSONRequestBody
+}
+
+type ReopenTodoResponseObject interface {
+	VisitReopenTodoResponse(w http.ResponseWriter) error
+}
+
+type ReopenTodo200JSONResponse Todo
+
+func (response ReopenTodo200JSONResponse) VisitReopenTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReopenTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ReopenTododefaultJSONResponse) VisitReopenTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SnoozeTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+	Body   *SnoozeTodoJSONRequestBody
+}
+
+type SnoozeTodoResponseObject interface {
+	VisitSnoozeTodoResponse(w http.ResponseWriter) error
+}
+
+type SnoozeTodo200JSONResponse Todo
+
+func (response SnoozeTodo200JSONResponse) VisitSnoozeTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SnoozeTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SnoozeTododefaultJSONResponse) VisitSnoozeTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartTodoRequestObject struct {
+	TodoId TodoID `json:"todo_id"`
+	Body   *StartTodoJSONRequestBody
+}
+
+type StartTodoResponseObject interface {
+	VisitStartTodoResponse(w http.ResponseWriter) error
+}
+
+type StartTodo200JSONResponse Todo
+
+func (response StartTodo200JSONResponse) VisitStartTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartTododefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StartTododefaultJSONResponse) VisitStartTodoResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -79000,6 +83532,45 @@ type StrictServerInterface interface {
 	// GenerateImages Make or edit images through the owner's subscriptions; any token, a Bot's included
 	// (POST /images/generations)
 	GenerateImages(ctx context.Context, request GenerateImagesRequestObject) (GenerateImagesResponseObject, error)
+	// ListTodos One page of the Inbox's to-dos, by due (those without one last), then created
+	// (GET /inbox)
+	ListTodos(ctx context.Context, request ListTodosRequestObject) (ListTodosResponseObject, error)
+	// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
+	// (POST /inbox)
+	CreateTodo(ctx context.Context, request CreateTodoRequestObject) (CreateTodoResponseObject, error)
+	// GetInboxNeedsYou How many to-dos need the owner now, for the sidebar
+	// (GET /inbox/needs-you)
+	GetInboxNeedsYou(ctx context.Context, request GetInboxNeedsYouRequestObject) (GetInboxNeedsYouResponseObject, error)
+	// GetTodo A to-do with its history
+	// (GET /inbox/{todo_id})
+	GetTodo(ctx context.Context, request GetTodoRequestObject) (GetTodoResponseObject, error)
+	// EditTodo Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+	// (PATCH /inbox/{todo_id})
+	EditTodo(ctx context.Context, request EditTodoRequestObject) (EditTodoResponseObject, error)
+	// AcceptTodo Open a proposed to-do; only the owner
+	// (POST /inbox/{todo_id}/accept)
+	AcceptTodo(ctx context.Context, request AcceptTodoRequestObject) (AcceptTodoResponseObject, error)
+	// DoneTodo Close an open or doing to-do as done
+	// (POST /inbox/{todo_id}/done)
+	DoneTodo(ctx context.Context, request DoneTodoRequestObject) (DoneTodoResponseObject, error)
+	// DropTodo Close a proposed, open or doing to-do as dropped, with its reason
+	// (POST /inbox/{todo_id}/drop)
+	DropTodo(ctx context.Context, request DropTodoRequestObject) (DropTodoResponseObject, error)
+	// DuplicateTodo Close a proposed or open to-do as a duplicate of another; only the owner
+	// (POST /inbox/{todo_id}/duplicate)
+	DuplicateTodo(ctx context.Context, request DuplicateTodoRequestObject) (DuplicateTodoResponseObject, error)
+	// ReleaseTodo Give up a doing to-do, with the reason; only the Bot of the attempt
+	// (POST /inbox/{todo_id}/release)
+	ReleaseTodo(ctx context.Context, request ReleaseTodoRequestObject) (ReleaseTodoResponseObject, error)
+	// ReopenTodo Open a closed to-do again; only the owner
+	// (POST /inbox/{todo_id}/reopen)
+	ReopenTodo(ctx context.Context, request ReopenTodoRequestObject) (ReopenTodoResponseObject, error)
+	// SnoozeTodo Hide a proposed or open to-do until a time to come, or show it again; only the owner
+	// (POST /inbox/{todo_id}/snooze)
+	SnoozeTodo(ctx context.Context, request SnoozeTodoRequestObject) (SnoozeTodoResponseObject, error)
+	// StartTodo Start an open to-do given to this Bot, in a new attempt; only that Bot
+	// (POST /inbox/{todo_id}/start)
+	StartTodo(ctx context.Context, request StartTodoRequestObject) (StartTodoResponseObject, error)
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(ctx context.Context, request ListIntegrationsRequestObject) (ListIntegrationsResponseObject, error)
@@ -82997,6 +87568,412 @@ func (sh *strictHandler) GenerateImages(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GenerateImagesResponseObject); ok {
 		if err := validResponse.VisitGenerateImagesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTodos operation middleware
+func (sh *strictHandler) ListTodos(w http.ResponseWriter, r *http.Request, params ListTodosParams) {
+	var request ListTodosRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTodos(ctx, request.(ListTodosRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTodos")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTodosResponseObject); ok {
+		if err := validResponse.VisitListTodosResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateTodo operation middleware
+func (sh *strictHandler) CreateTodo(w http.ResponseWriter, r *http.Request, params CreateTodoParams) {
+	var request CreateTodoRequestObject
+
+	request.Params = params
+
+	var body CreateTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateTodo(ctx, request.(CreateTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateTodoResponseObject); ok {
+		if err := validResponse.VisitCreateTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetInboxNeedsYou operation middleware
+func (sh *strictHandler) GetInboxNeedsYou(w http.ResponseWriter, r *http.Request) {
+	var request GetInboxNeedsYouRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetInboxNeedsYou(ctx, request.(GetInboxNeedsYouRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetInboxNeedsYou")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetInboxNeedsYouResponseObject); ok {
+		if err := validResponse.VisitGetInboxNeedsYouResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTodo operation middleware
+func (sh *strictHandler) GetTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request GetTodoRequestObject
+
+	request.TodoId = todoId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTodo(ctx, request.(GetTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTodoResponseObject); ok {
+		if err := validResponse.VisitGetTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EditTodo operation middleware
+func (sh *strictHandler) EditTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request EditTodoRequestObject
+
+	request.TodoId = todoId
+
+	var body EditTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EditTodo(ctx, request.(EditTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EditTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EditTodoResponseObject); ok {
+		if err := validResponse.VisitEditTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptTodo operation middleware
+func (sh *strictHandler) AcceptTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request AcceptTodoRequestObject
+
+	request.TodoId = todoId
+
+	var body AcceptTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptTodo(ctx, request.(AcceptTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptTodoResponseObject); ok {
+		if err := validResponse.VisitAcceptTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DoneTodo operation middleware
+func (sh *strictHandler) DoneTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request DoneTodoRequestObject
+
+	request.TodoId = todoId
+
+	var body DoneTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DoneTodo(ctx, request.(DoneTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DoneTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DoneTodoResponseObject); ok {
+		if err := validResponse.VisitDoneTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DropTodo operation middleware
+func (sh *strictHandler) DropTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request DropTodoRequestObject
+
+	request.TodoId = todoId
+
+	var body DropTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DropTodo(ctx, request.(DropTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DropTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DropTodoResponseObject); ok {
+		if err := validResponse.VisitDropTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DuplicateTodo operation middleware
+func (sh *strictHandler) DuplicateTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request DuplicateTodoRequestObject
+
+	request.TodoId = todoId
+
+	var body DuplicateTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DuplicateTodo(ctx, request.(DuplicateTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DuplicateTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DuplicateTodoResponseObject); ok {
+		if err := validResponse.VisitDuplicateTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReleaseTodo operation middleware
+func (sh *strictHandler) ReleaseTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request ReleaseTodoRequestObject
+
+	request.TodoId = todoId
+
+	var body ReleaseTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReleaseTodo(ctx, request.(ReleaseTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReleaseTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReleaseTodoResponseObject); ok {
+		if err := validResponse.VisitReleaseTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReopenTodo operation middleware
+func (sh *strictHandler) ReopenTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request ReopenTodoRequestObject
+
+	request.TodoId = todoId
+
+	var body ReopenTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReopenTodo(ctx, request.(ReopenTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReopenTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReopenTodoResponseObject); ok {
+		if err := validResponse.VisitReopenTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SnoozeTodo operation middleware
+func (sh *strictHandler) SnoozeTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request SnoozeTodoRequestObject
+
+	request.TodoId = todoId
+
+	var body SnoozeTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SnoozeTodo(ctx, request.(SnoozeTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SnoozeTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SnoozeTodoResponseObject); ok {
+		if err := validResponse.VisitSnoozeTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartTodo operation middleware
+func (sh *strictHandler) StartTodo(w http.ResponseWriter, r *http.Request, todoId TodoID) {
+	var request StartTodoRequestObject
+
+	request.TodoId = todoId
+
+	var body StartTodoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartTodo(ctx, request.(StartTodoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartTodo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartTodoResponseObject); ok {
+		if err := validResponse.VisitStartTodoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

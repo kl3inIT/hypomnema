@@ -4047,8 +4047,9 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migration 00143; issues #838 and #845, part 1 of the Inbox): the store of the
-to-dos that have to happen, whoever does them, and its state machine. Built is the store only.
+Inbox (`orchestration/inboxstore`, migrations 00143 and 00144; issues #838, #845 and #966, parts 1 and 2 of the
+Inbox): the store of the to-dos that have to happen, whoever does them, its state machine, its client API and its
+CLI.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
   `due_zone`) or `instant` (`due_at` and its zone), with `due_at` and `overdue_at` derived for order and the overdue
@@ -4066,13 +4067,18 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
   `ApprovalApproved` or `ApprovalEnded`; the close
   (`done_by_kind`/`done_by` apart from `recorded_by_kind`/`recorded_by`, `closed_how`, `close_reason`, `evidence`
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
-  `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `closed_at`); `duplicate_of`; a create's idempotency key, unique, with its request's hash. Checks
+  `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `closed_at`); `duplicate_of`; `why_open`
+  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00144); a create's idempotency key,
+  unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed` or `linked_approval`, the revision it made, JSON of the fields before and after, and the
   reason when one is given), written in the change's transaction.
 - Transitions (`inboxstore/transitions.go`, the `transitions` table lists every move and who may make it): the
   owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from the owner's
   Lark or Zalo chats adds proposed ones, which stay proposed until the owner accepts, drops or marks them duplicate;
+  by the owner's triage of 2026-11-20 (issue #966) that Bot adds an open item instead only when it gives `why_open`
+  (`asked_directly`: someone tagged or messaged the owner and he has not answered; `promised`: the owner promised
+  it), a quote and a reference to the message, and `why_open` is kept in the item and its created event;
   the Bot assigned starts an open item, and only an open one, in a chat or Run, in a new attempt with its own id,
   as Hermes binds a worker's session to its task, run and claim (`gateway/session_kanban.py`), so several items
   may be worked on in one chat or Run (`Start`); the system puts a doing item in review with one pending Approval
@@ -4096,8 +4102,28 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
   created, pages of at most 200 with a cursor and the filter's total, read in one transaction with the page; `NeedsYou(now)`, the distinct items not closed nor snoozed that are proposed, in
   review with a pending Approval, or the owner's own and overdue, the same predicate as `List`'s needs-you filter.
-- Not built: the API and CLI, the Bot tools and the wiring of Approvals to `LinkApproval`/`ApprovalApproved`/
-  `ApprovalEnded`, the web page and the morning brief (later parts of #838).
+  A stale proposal, proposed and untouched (at revision 1, no event after `created`) for `StaleAfter` (3 days, a
+  constant), is left out of `List` unless asked for (`WithStale`), never counted by `NeedsYou` nor listed by the
+  needs-you filter, and shown with `Stale`; it is neither accepted nor deleted, and any change makes it fresh.
+- Client API (`clientapi/inbox.go`, issue #966): `GET /inbox` (`ListTodos`, the filters of `List` with
+  `include_snoozed`, `include_closed`, `include_stale`, `cursor`, `limit` ≤ 200 and `total`), `GET /inbox/needs-you`
+  (`GetInboxNeedsYou`), `POST /inbox` (`CreateTodo`, with an optional `Idempotency-Key`), `GET /inbox/{todo_id}`
+  (`GetTodo`, with its events), `PATCH /inbox/{todo_id}` (`EditTodo`), and `POST /inbox/{todo_id}/accept`, `done`,
+  `drop`, `duplicate`, `reopen`, `snooze`, `start`, `release`, each carrying the `revision` read and a Bot's
+  `attempt`. Who acts comes from the token, never the body: the owner (token or web session) acts as `owner` and
+  writes by hand; a Bot token bound to a chat acts as its Bot, from that chat, which is also the chat its owner's
+  message is looked up in; a Bot token of a Routine's run (a script's token, or the pi of a prompt run's chat while
+  that run is live, `orchestration.RoutineRunOf`) acts as the Routine's Bot, from the run, or from a Lark or Zalo
+  chat the body names; such a Bot proposes by default and opens with `why_open`. A Bot starts an item in its chat,
+  or in the Routine's run. A coordinator token only reads: the writes have the policy `scopeActor`
+  (`clientapi/policy.go`). The store's errors map as elsewhere: invalid 400, forbidden 403, not found 404, a stale
+  revision or another attempt 409. The system transitions are not served.
+- CLI (`clientcli/inbox.go`): `hypomnema inbox list` (the API's filters; one line an item), `show`, `add "<title>"
+  [--due <date|date time|none|unknown> --tz <zone>] [--who me|unknown|bot:<id>|<name>] [--notes …] [--done-when …]`,
+  `edit`, `accept`, `done [--evidence url] [--reason …]`, `drop <id> "<reason>"`, `duplicate <id> <of>`,
+  `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision.
+- Not built: the Bot tools and the wiring of Approvals to `LinkApproval`/`ApprovalApproved`/`ApprovalEnded`, the
+  web page and the morning brief (later parts of #838).
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;

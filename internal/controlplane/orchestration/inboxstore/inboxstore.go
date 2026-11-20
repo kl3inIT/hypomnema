@@ -133,6 +133,21 @@ type Source struct {
 	Ref     *Link
 }
 
+// Why a to-do a Routine's run found starts open, not proposed (the owner's triage of 2026-11-20 on #838, issue
+// #966): what is clear opens, what is inferred is proposed. Omi's extraction takes only clear action items and
+// Hermes's meeting-action-items only commitments with an owner; splitting by clarity is the owner's decision.
+const (
+	// AskedDirectly: someone tagged or messaged the owner and he has not answered.
+	AskedDirectly = "asked_directly"
+	// Promised: the owner promised it himself ("để em check").
+	Promised = "promised"
+)
+
+// StaleAfter is how long a proposal nobody touched stays in sight (issue #966): after it, it is stale, left out of
+// List unless asked for and not counted by NeedsYou; it is neither accepted nor deleted, and its history stays.
+// Touched is any event after created. A constant the owner may change later (owner, 2026-11-20).
+const StaleAfter = 3 * 24 * time.Hour
+
 // The kinds of Link, Omi's typed source references.
 const (
 	LinkURL         = "url"
@@ -216,6 +231,10 @@ type Todo struct {
 	SnoozedUntil *time.Time
 	Source       Source
 	CreatedBy    Actor
+	// WhyOpen is AskedDirectly or Promised for an item a Routine's run opened; empty for any other.
+	WhyOpen string
+	// Stale says it is a proposal nobody touched for StaleAfter, when it was read.
+	Stale bool
 	// Work is the Bot's attempt while doing or review.
 	Work *Work
 	// ApprovalID is the one pending Approval while review.
@@ -296,13 +315,16 @@ type NewTodo struct {
 	// State is Open or Proposed.
 	State  string
 	Source Source
+	// WhyOpen is AskedDirectly or Promised when a Bot in a Routine's run, or reading the owner's Lark or Zalo
+	// chats, opens the item; it then gives the quote and the reference to the message too.
+	WhyOpen string
 	// IdempotencyKey, when given, makes a retried create return the first item.
 	IdempotencyKey string
 }
 
 // Create adds a to-do. The owner adds open items by hand; a Bot adds open items in a chat with the owner (Source
 // FromChat) and proposed ones in a Routine's run or from the owner's Lark or Zalo chats (Source FromRoutine,
-// FromLark, FromZalo). A create retried with the same
+// FromLark, FromZalo), or open ones there with WhyOpen, a quote and a reference. A create retried with the same
 // IdempotencyKey and the same request returns the first item and writes nothing; with another request it is a
 // conflict (docs/conventions.md, "Idempotency").
 func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error) {
@@ -313,7 +335,7 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		return Todo{}, err
 	}
 
-	if err := mayCreate(actor, n.State, n.Source.Kind); err != nil {
+	if err := mayCreate(actor, n); err != nil {
 		return Todo{}, err
 	}
 
@@ -374,7 +396,7 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, State: n.State,
 			SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
 			SourceQuote: n.Source.Quote, SourceRef: ref,
-			CreatedByKind: actor.Kind, CreatedBy: actor.ID,
+			CreatedByKind: actor.Kind, CreatedBy: actor.ID, WhyOpen: nullString(n.WhyOpen),
 			IdempotencyKey: nullString(n.IdempotencyKey), IdempotencyHash: nullString(keyed(n.IdempotencyKey, hash)),
 			Now: now,
 		}); err != nil {
@@ -401,20 +423,36 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 	return made, nil
 }
 
-// mayCreate is the creation rows of the transitions (issue #845): the owner adds open items by hand; a Bot adds
-// open items in a chat with the owner and proposed ones in a Routine's run or from the owner's Lark or Zalo chats
-// (Plane's intake: what is found waits as pending, what the owner asked for is an issue).
-func mayCreate(actor Actor, state, source string) error {
+// mayCreate is the creation rows of the transitions (issue #845) with the owner's triage of 2026-11-20 (issue
+// #966): the owner adds open items by hand; a Bot adds open items in a chat with the owner; in a Routine's run or
+// from the owner's Lark or Zalo chats it adds proposed ones (Plane's intake: what is found waits as pending), or open
+// ones when it says why (WhyOpen) and gives the quote and the reference to the message.
+func mayCreate(actor Actor, n NewTodo) error {
+	state, source := n.State, n.Source.Kind
+	found := source == FromRoutine || source == FromLark || source == FromZalo
+
 	switch {
 	case state != Open && state != Proposed:
 		return fmt.Errorf("%w: a to-do starts open or proposed", storeerr.ErrInvalid)
 	case !slices.Contains([]string{ByHand, FromChat, FromRoutine, FromLark, FromZalo}, source):
 		return fmt.Errorf("%w: unknown source %q", storeerr.ErrInvalid, source)
+	case n.WhyOpen != "" && n.WhyOpen != AskedDirectly && n.WhyOpen != Promised:
+		return fmt.Errorf("%w: why a to-do opens is %s or %s, not %q", storeerr.ErrInvalid, AskedDirectly, Promised,
+			n.WhyOpen)
+	case n.WhyOpen != "" && (state != Open || !found):
+		return fmt.Errorf("%w: only an open to-do a Routine's run found says why it opens", storeerr.ErrInvalid)
 	case actor.Kind == Owner && state == Open && source == ByHand:
 		return nil
 	case actor.Kind == Bot && state == Open && source == FromChat:
 		return nil
-	case actor.Kind == Bot && state == Proposed && (source == FromRoutine || source == FromLark || source == FromZalo):
+	case actor.Kind == Bot && state == Proposed && found:
+		return nil
+	case actor.Kind == Bot && state == Open && found:
+		if n.WhyOpen == "" || strings.TrimSpace(n.Source.Quote) == "" || n.Source.Ref == nil {
+			return fmt.Errorf("%w: a Bot opens a to-do it found only when it was asked directly or promised, with "+
+				"the quote and the reference to the message; else it proposes it", storeerr.ErrForbidden)
+		}
+
 		return nil
 	}
 
@@ -643,7 +681,7 @@ func (s *Store) get(ctx context.Context, q *store.Queries, id string) (Todo, err
 		return Todo{}, storeutil.NotFound(err, "to-do", id)
 	}
 
-	t, err := fromRow(row)
+	t, err := fromRow(row, s.clock.Now())
 	if err != nil {
 		return Todo{}, err
 	}
@@ -679,6 +717,8 @@ type Filter struct {
 	WithSnoozed bool
 	// NeedsYou lists only the items NeedsYou counts.
 	NeedsYou bool
+	// WithStale lists the stale proposals too: proposed, untouched for StaleAfter.
+	WithStale bool
 }
 
 // Page is one page of List.
@@ -709,7 +749,7 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 	p := store.ListTodosParams{
 		AnyState: cnt.AnyState, States: cnt.States, AssigneeKind: cnt.AssigneeKind, Assignee: cnt.Assignee,
 		SourceKind: cnt.SourceKind, HasDueFrom: cnt.HasDueFrom, DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
-		DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed,
+		DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed, WithStale: cnt.WithStale, StaleBefore: cnt.StaleBefore,
 		Now: cnt.Now, NeedsYou: cnt.NeedsYou, Lim: int64(limit) + 1,
 	}
 
@@ -742,6 +782,7 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 	}
 
 	page := Page{Items: make([]Todo, 0, min(len(rows), limit)), Total: int(total)}
+	now := storeutil.Millis(cnt.Now)
 
 	for i, row := range rows {
 		if i == limit {
@@ -751,7 +792,7 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 			break
 		}
 
-		t, err := fromRow(row)
+		t, err := fromRow(row, now)
 		if err != nil {
 			return Page{}, err
 		}
@@ -762,10 +803,12 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 	return page, nil
 }
 
-// NeedsYou is how many distinct to-dos need the owner at now: not closed, not snoozed, and proposed, or in review
-// with a pending Approval, or his own and overdue. List's NeedsYou filter is the same predicate.
+// NeedsYou is how many distinct to-dos need the owner at now: not closed, not snoozed, and proposed but not stale,
+// or in review with a pending Approval, or his own and overdue. List's NeedsYou filter is the same predicate.
 func (s *Store) NeedsYou(ctx context.Context, now time.Time) (int, error) {
-	n, err := store.New(s.db).CountTodos(ctx, store.CountTodosParams{AnyState: 1, Now: now.UnixMilli(), NeedsYou: 1})
+	n, err := store.New(s.db).CountTodos(ctx, store.CountTodosParams{
+		AnyState: 1, Now: now.UnixMilli(), NeedsYou: 1, StaleBefore: now.Add(-StaleAfter).UnixMilli(),
+	})
 	if err != nil {
 		return 0, fmt.Errorf("counting the to-dos that need the owner: %w", err)
 	}
@@ -774,7 +817,8 @@ func (s *Store) NeedsYou(ctx context.Context, now time.Time) (int, error) {
 }
 
 func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
-	p := store.CountTodosParams{Now: s.clock.Now().UnixMilli(), States: "[]"}
+	now := s.clock.Now()
+	p := store.CountTodosParams{Now: now.UnixMilli(), States: "[]", StaleBefore: now.Add(-StaleAfter).UnixMilli()}
 
 	states := f.States
 	if len(states) == 0 && !f.WithClosed {
@@ -825,6 +869,10 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 		p.NeedsYou = 1
 	}
 
+	if f.WithStale {
+		p.WithStale = 1
+	}
+
 	return p, nil
 }
 
@@ -865,8 +913,14 @@ func decodeCursor(c string) (due, at int64, id string, err error) {
 	return due, at, parts[2], nil
 }
 
-// fromRow is a stored to-do.
-func fromRow(r store.Todo) (Todo, error) {
+// stale is the predicate of the queries' stale proposal: proposed, at revision 1 (no event after created) and made
+// StaleAfter or longer before now.
+func stale(r store.Todo, now time.Time) bool {
+	return r.State == Proposed && r.Revision == 1 && r.CreatedAt <= now.Add(-StaleAfter).UnixMilli()
+}
+
+// fromRow is a stored to-do, read at now.
+func fromRow(r store.Todo, now time.Time) (Todo, error) {
 	t := Todo{
 		ID: r.ID, Revision: int(r.Revision), Title: r.Title, Notes: r.Notes, DoneWhen: r.DoneWhen,
 		Due:          Due{Kind: r.DueKind, Date: r.DueDate.String, Zone: r.DueZone.String},
@@ -874,7 +928,7 @@ func fromRow(r store.Todo) (Todo, error) {
 		State:        r.State,
 		SnoozedUntil: storeutil.OptionalMillis(r.SnoozedUntil),
 		Source:       Source{Kind: r.SourceKind, ID: r.SourceID, Account: r.SourceAccount, Quote: r.SourceQuote},
-		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy},
+		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy}, WhyOpen: r.WhyOpen.String, Stale: stale(r, now),
 		ApprovalID:   r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
 		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
