@@ -270,9 +270,9 @@ func (s *Server) modelOf(ctx context.Context, name string) (Model, error) {
 	}
 
 	if _, ok := s.accounts.(ModelTokens); ok {
-		unlisted, ok, notServed := s.svc.unlistedModel(ctx, name)
-		if notServed != nil {
-			return Model{}, notServed
+		unlisted, ok, err := s.svc.unlistedModel(ctx, name)
+		if err != nil {
+			return Model{}, err
 		}
 
 		if ok {

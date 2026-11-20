@@ -3477,7 +3477,8 @@ capabilities do not exist yet.
     the provider's list does not have, such as one dropped by the hourly reading or not read yet, is routed by the
     accounts' lists as a listed one is, on chat, `/responses` and `/messages`: served by an account whose list has
     it, the 429 while a list is not known, the 404 `model_not_served` once every list is known, never 400
-    `model_not_found`. Reading OpenCode Go's wire
+    `model_not_found`. A name below the provider's `min_versions` is the 404 `model_not_served` at once, whatever an
+    account's list says, so the floor holds on this path too. Reading OpenCode Go's wire
     and a model's window during a request waits no later than the request's one 30 s wait. Every request for a Codex
     or Antigravity account names its model (`underAccounts` refuses one that does not). Codex's images (`gpt-image-2`) and searches (`gpt-6-luna`)
     and Antigravity's searches (`gemini-2.5-flash`) call models those lists do not name, so they go to any account,

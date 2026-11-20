@@ -362,6 +362,7 @@ var listingKinds = []string{"codex_subscription", "antigravity_subscription"}
 // took off. It is served as a listed one is, by the accounts' own lists (Subscriptions' ModelTokens): the request is
 // answered alike whether or not the model is still published (issue #814). ok is false for another name. A model below
 // the provider's version floor is never served, whatever the accounts' lists say: the error is ErrModelNotServed.
+// A provider that cannot be read is an error.
 func (s *Service) unlistedModel(ctx context.Context, name string) (Model, bool, error) {
 	provider, upstream, found := strings.Cut(name, "/")
 	if !found || upstream == "" {
@@ -369,7 +370,15 @@ func (s *Service) unlistedModel(ctx context.Context, name string) (Model, bool, 
 	}
 
 	p, err := s.providers(ctx, provider)
-	if err != nil || !slices.Contains(listingKinds, p.Kind) || slices.Contains(p.Models, upstream) {
+	if errors.Is(err, ErrNotFound) {
+		return Model{}, false, nil
+	}
+
+	if err != nil {
+		return Model{}, false, fmt.Errorf("reading provider %q: %w", provider, err)
+	}
+
+	if !slices.Contains(listingKinds, p.Kind) || slices.Contains(p.Models, upstream) {
 		return Model{}, false, nil
 	}
 
