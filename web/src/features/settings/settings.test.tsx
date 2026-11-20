@@ -1120,7 +1120,7 @@ test("the owner connects BigQuery with a key file that is never shown back", asy
   )
   expect(await dialog.findByText("my-app-key.json chosen")).toBeInTheDocument()
   expect(document.body).not.toHaveTextContent("not-a-real-key-of-the-test")
-  await user.type(dialog.getByLabelText("GA4 dataset"), "my-app.analytics_123")
+  await user.type(dialog.getByLabelText("GA4 datasets"), "my-app.analytics_123")
   await user.click(dialog.getByRole("button", { name: "Connect" }))
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
 
@@ -1134,7 +1134,7 @@ test("the owner connects BigQuery with a key file that is never shown back", asy
   // Connecting again starts from the settings, without the key: the one kept is used.
   await user.click(account.getByRole("button", { name: "Connect again" }))
   const again = within(await screen.findByRole("dialog"))
-  expect(again.getByLabelText("GA4 dataset")).toHaveValue("my-app.analytics_123")
+  expect(again.getByLabelText("GA4 datasets")).toHaveValue("my-app.analytics_123")
   expect(again.getByText("The key kept is used")).toBeInTheDocument()
   await user.click(again.getByRole("button", { name: "Cancel" }))
 
@@ -1146,5 +1146,56 @@ test("the owner connects BigQuery with a key file that is never shown back", asy
   expect(requests[0]).toEqual({
     call: "PUT /integrations/bigquery/connections/ga4",
     body: { datasets: ["my-app.analytics_123"], service_account_key: key },
+  })
+})
+
+// Scenario (review round 1, CodeRabbit): a BigQuery account with two datasets is connected again from the web.
+// The dialog shows both and sends both, with no key (the kept one is used) and no cap (the kept one stays).
+test("connecting BigQuery again keeps every dataset and the cap", async () => {
+  const user = userEvent.setup()
+  const now = new Date().toISOString()
+  const requests = server({
+    services: [
+      {
+        id: "bigquery",
+        name: "BigQuery",
+        kind: "serviceaccount",
+        services: [],
+        connections: [
+          {
+            integration: "bigquery",
+            label: "ga4",
+            account: "hypomnema-ga4@my-app.iam.gserviceaccount.com",
+            services: [],
+            sign_in_required: false,
+            chats: false,
+            cannot: [],
+            created_at: now,
+            updated_at: now,
+            bigquery: {
+              billing_project: "my-app",
+              datasets: ["my-app.analytics_1", "my-app.analytics_2"],
+              max_bytes_billed: 1234567890,
+            },
+          },
+        ],
+      },
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  const account = within(await screen.findByLabelText("BigQuery account ga4"))
+  await user.click(account.getByRole("button", { name: "Connect again" }))
+  const dialog = within(await screen.findByRole("dialog"))
+  expect(dialog.getByLabelText("GA4 datasets")).toHaveValue(
+    "my-app.analytics_1, my-app.analytics_2",
+  )
+  expect(dialog.getByLabelText("Bytes cap")).toHaveValue("")
+  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+  expect(requests[0]).toEqual({
+    call: "PUT /integrations/bigquery/connections/ga4",
+    body: { datasets: ["my-app.analytics_1", "my-app.analytics_2"], billing_project: "my-app" },
   })
 })

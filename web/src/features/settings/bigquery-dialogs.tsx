@@ -40,16 +40,24 @@ const sizeSchema = z
   .string()
   .refine((s) => s.trim() === "" || parseSize(s) !== undefined, "A size such as 10GiB.")
 
+// datasetList reads the datasets as typed: separated by commas, spaces or lines.
+function datasetList(text: string): string[] {
+  return text.split(/[\s,]+/).filter((d) => d !== "")
+}
+
 function serviceAccountSchema(keyNeeded: boolean) {
   return z.object({
     label: labelSchema,
     key: keyNeeded ? z.string().min(1, "Choose the service account's JSON key file.") : z.string(),
-    dataset: z
+    datasets: z
       .string()
-      .trim()
-      .regex(
-        /^[a-z][a-z0-9-]{4,29}\.[A-Za-z0-9_]+$/,
-        "The dataset as project.dataset, such as my-app.analytics_123.",
+      .refine(
+        (s) =>
+          datasetList(s).length > 0 &&
+          datasetList(s).every((d) =>
+            /^([a-z][a-z0-9.-]*:)?[a-z][a-z0-9-]{4,29}\.[A-Za-z0-9_]+$/.test(d),
+          ),
+        "Each dataset as project.dataset, such as my-app.analytics_123, separated by commas.",
       ),
     billingProject: z
       .string()
@@ -81,6 +89,8 @@ export function ConnectServiceAccountDialog({
   const [open, setOpen] = useState(false)
   const [fileName, setFileName] = useState("")
   const chooser = useRef<HTMLInputElement>(null)
+  // Only the file chosen last is read into the form, whichever read ends first.
+  const readOf = useRef(0)
   const schema = serviceAccountSchema(!connection)
 
   const connect = useMutation({
@@ -88,7 +98,7 @@ export function ConnectServiceAccountDialog({
       putIntegrationConnection({
         path: { integration: service.id, label: value.label },
         body: {
-          datasets: [value.dataset.trim()],
+          datasets: datasetList(value.datasets),
           ...(value.key !== "" && { service_account_key: value.key }),
           ...(value.billingProject.trim() !== "" && {
             billing_project: value.billingProject.trim(),
@@ -104,10 +114,12 @@ export function ConnectServiceAccountDialog({
     defaultValues: {
       label: connection?.label ?? "",
       key: "",
-      dataset: settings?.datasets[0] ?? "",
+      // Every dataset the Connection has: a reconnect sends the whole list.
+      datasets: settings?.datasets.join(", ") ?? "",
       billingProject: settings?.billing_project ?? "",
       location: settings?.location ?? "",
-      maxBytes: settings ? formatSize(settings.max_bytes_billed) : "",
+      // Empty keeps the cap the Connection has, to the byte.
+      maxBytes: "",
     },
     validators: { onSubmit: schema },
     onSubmit: async ({ value }) => {
@@ -187,13 +199,17 @@ export function ConnectServiceAccountDialog({
                           const chosen = event.target.files?.[0]
                           event.target.value = ""
                           if (!chosen) return
+                          readOf.current += 1
+                          const read = readOf.current
                           void chosen.text().then(
                             (text) => {
+                              if (read !== readOf.current) return
                               setFileName(chosen.name)
                               field.handleChange(text)
                               field.handleBlur()
                             },
                             () => {
+                              if (read !== readOf.current) return
                               setFileName("")
                               field.handleChange("")
                             },
@@ -226,13 +242,13 @@ export function ConnectServiceAccountDialog({
                   )
                 }}
               </form.Field>
-              <form.Field name="dataset">
+              <form.Field name="datasets">
                 {(field) => (
                   <TextField
                     field={field}
-                    label="GA4 dataset"
+                    label="GA4 datasets"
                     placeholder="my-app.analytics_123456789"
-                    description="The GA4 export dataset, as project.dataset."
+                    description="The GA4 export datasets, as project.dataset, separated by commas."
                   />
                 )}
               </form.Field>
@@ -261,7 +277,11 @@ export function ConnectServiceAccountDialog({
                     field={field}
                     label="Bytes cap"
                     placeholder="10GiB"
-                    description="The most one query may bill on demand; 10GiB when left empty."
+                    description={
+                      settings
+                        ? `The most one query may bill on demand; now ${formatSize(settings.max_bytes_billed)}, kept when left empty.`
+                        : "The most one query may bill on demand; 10GiB when left empty."
+                    }
                   />
                 )}
               </form.Field>
