@@ -4866,6 +4866,278 @@ export type MeetingSettingsUpdate = {
   notes_model: string;
 };
 
+/**
+ * proposed waits for the owner; open is to be done; doing, a Bot is on it; review, the Bot's action waits for an Approval; done, dropped and duplicate are closed.
+ */
+export type TodoState = 'proposed' | 'open' | 'doing' | 'review' | 'done' | 'dropped' | 'duplicate';
+
+export type TodoAssigneeKind = 'me' | 'person' | 'bot' | 'unknown';
+
+export type TodoAssignee = {
+  kind: TodoAssigneeKind;
+  /**
+   * The person's name or the Bot's id.
+   */
+  name?: string;
+};
+
+export type TodoDueKind = 'none' | 'unknown' | 'date' | 'instant';
+
+/**
+ * none; unknown (due, when is not known); a calendar date in zone, with no time made up for it; or a moment with its zone.
+ */
+export type TodoDue = {
+  kind: TodoDueKind;
+  /**
+   * For a date.
+   */
+  date?: string;
+  /**
+   * For an instant.
+   */
+  at?: string;
+  /**
+   * The IANA time zone of a date or an instant.
+   */
+  zone?: string;
+};
+
+export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message';
+
+/**
+ * A typed reference, to where an item came from or to what shows it is done.
+ */
+export type TodoLink = {
+  kind: TodoLinkKind;
+  /**
+   * The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+   */
+  ref: string;
+  label?: string;
+};
+
+/**
+ * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark and zalo, a Bot reading a chat of the owner's own account there.
+ */
+export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo';
+
+export type TodoSource = {
+  kind: TodoSourceKind;
+  /**
+   * The chat, the Routine's run, or the chat's id at Lark or Zalo.
+   */
+  id?: string;
+  /**
+   * The owner's Zalo account the chat is in; zalo only.
+   */
+  account?: string;
+  /**
+   * The words it came from.
+   */
+  quote?: string;
+  ref?: TodoLink;
+};
+
+/**
+ * Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself.
+ */
+export type TodoWhyOpen = 'asked_directly' | 'promised';
+
+export type TodoActorKind = 'owner' | 'bot' | 'system';
+
+export type TodoActor = {
+  kind: TodoActorKind;
+  /**
+   * The Bot's id, or what of the system.
+   */
+  id?: string;
+};
+
+/**
+ * The Bot's current attempt, while doing or review.
+ */
+export type TodoWork = {
+  /**
+   * The attempt's own id, which the Bot's writes carry.
+   */
+  attempt: string;
+  kind: 'chat' | 'run';
+  /**
+   * The chat or the Routine's run the attempt works in.
+   */
+  id: string;
+  bot: string;
+  started_at: string;
+};
+
+export type TodoEvent = {
+  id: number;
+  at: string;
+  /**
+   * The revision the change made.
+   */
+  revision: number;
+  actor: TodoActor;
+  /**
+   * created, edited, state, snoozed or linked_approval.
+   */
+  kind: string;
+  /**
+   * The fields that changed, before.
+   */
+  before: {
+    [key: string]: unknown;
+  };
+  /**
+   * The fields that changed, after.
+   */
+  after: {
+    [key: string]: unknown;
+  };
+};
+
+export type Todo = {
+  id: string;
+  /**
+   * Starts at 1 and grows with every change; a change carries it.
+   */
+  revision: number;
+  title: string;
+  notes: string;
+  done_when: string;
+  due: TodoDue;
+  assignee: TodoAssignee;
+  state: TodoState;
+  snoozed_until?: string;
+  source: TodoSource;
+  created_by: TodoActor;
+  why_open?: TodoWhyOpen;
+  work?: TodoWork;
+  /**
+   * The pending Approval it waits for, in review.
+   */
+  approval_id?: string;
+  done_by?: TodoAssignee;
+  recorded_by?: TodoActor;
+  closed_how?: 'hand' | 'bot' | 'ai' | 'time';
+  close_reason: string;
+  evidence: Array<TodoLink>;
+  closed_at?: string;
+  duplicate_of?: string;
+  /**
+   * A proposal nobody touched for three days, left out of the list unless asked for.
+   */
+  stale: boolean;
+  created_at: string;
+  updated_at: string;
+  /**
+   * Its history, the oldest first; GET /inbox/{todo_id} only.
+   */
+  events?: Array<TodoEvent>;
+};
+
+export type TodoList = {
+  data: Array<Todo>;
+  /**
+   * How many items the filter matches, every page together.
+   */
+  total: number;
+  /**
+   * Present when more items follow.
+   */
+  next_cursor?: string;
+};
+
+export type InboxNeedsYou = {
+  count: number;
+};
+
+/**
+ * Where a Bot in a Routine's run found it: kind routine, or lark or zalo with the chat's id there (and the Zalo account). The owner's and a chat's come from the token.
+ */
+export type NewTodoSource = {
+  kind?: TodoSourceKind;
+  /**
+   * The chat's id at Lark or Zalo; lark and zalo only.
+   */
+  id?: string;
+  /**
+   * The owner's Zalo account the chat is in.
+   */
+  account?: string;
+  quote?: string;
+  ref?: TodoLink;
+};
+
+export type NewTodo = {
+  title: string;
+  notes?: string;
+  done_when?: string;
+  due?: TodoDue;
+  assignee?: TodoAssignee;
+  state?: 'open' | 'proposed';
+  why_open?: TodoWhyOpen;
+  source?: NewTodoSource;
+};
+
+export type TodoChange = {
+  /**
+   * The revision read; another is a conflict.
+   */
+  revision: number;
+  /**
+   * A Bot's attempt (work.attempt), on an item in doing or review.
+   */
+  attempt?: string;
+};
+
+export type TodoEdit = {
+  revision: number;
+  attempt?: string;
+  title?: string;
+  notes?: string;
+  done_when?: string;
+  due?: TodoDue;
+  assignee?: TodoAssignee;
+};
+
+export type TodoDone = {
+  revision: number;
+  attempt?: string;
+  done_by?: TodoAssignee;
+  reason?: string;
+  evidence?: Array<TodoLink>;
+};
+
+export type TodoDrop = {
+  revision: number;
+  attempt?: string;
+  reason: string;
+  evidence?: Array<TodoLink>;
+};
+
+export type TodoDuplicate = {
+  revision: number;
+  /**
+   * The to-do it duplicates.
+   */
+  of: string;
+};
+
+export type TodoSnooze = {
+  revision: number;
+  /**
+   * Hidden until then; absent, shown again.
+   */
+  until?: string;
+};
+
+export type TodoRelease = {
+  revision: number;
+  attempt?: string;
+  reason: string;
+};
+
 export type LarkChannelSettingsWritable = {
   /**
    * The id of the Bot the Channel talks to, which must exist; the main Bot for a new Channel that names none. A chat that is open keeps its Bot; the next one is with the new Bot.
@@ -4954,6 +5226,8 @@ export type NewAccountImportWritable = {
    */
   label?: string;
 };
+
+export type TodoId = string;
 
 export type MeetingId = string;
 
@@ -12741,3 +13015,388 @@ export type SendQueuedChatMessageResponses = {
 };
 
 export type SendQueuedChatMessageResponse = SendQueuedChatMessageResponses[keyof SendQueuedChatMessageResponses];
+
+export type ListTodosData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Only these states.
+     */
+    state?: Array<TodoState>;
+    /**
+     * Only the items of this kind of assignee; a person's or a Bot's names it with assignee.
+     */
+    assignee_kind?: TodoAssigneeKind;
+    /**
+     * The person's name or the Bot's id, with assignee_kind person or bot.
+     */
+    assignee?: string;
+    /**
+     * Only the items from this kind of source.
+     */
+    source_kind?: TodoSourceKind;
+    /**
+     * Only the items due at or after this moment; a date is due from its first moment.
+     */
+    due_from?: string;
+    /**
+     * Only the items due before this moment.
+     */
+    due_to?: string;
+    needs_you?: boolean;
+    include_snoozed?: boolean;
+    include_closed?: boolean;
+    include_stale?: boolean;
+    /**
+     * The next_cursor of the previous page.
+     */
+    cursor?: string;
+    limit?: number;
+  };
+  url: '/inbox';
+};
+
+export type ListTodosErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListTodosError = ListTodosErrors[keyof ListTodosErrors];
+
+export type ListTodosResponses = {
+  /**
+   * One page of to-dos.
+   */
+  200: TodoList;
+};
+
+export type ListTodosResponse = ListTodosResponses[keyof ListTodosResponses];
+
+export type CreateTodoData = {
+  body: NewTodo;
+  headers?: {
+    /**
+     * Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+     */
+    'Idempotency-Key'?: string;
+  };
+  path?: never;
+  query?: never;
+  url: '/inbox';
+};
+
+export type CreateTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateTodoError = CreateTodoErrors[keyof CreateTodoErrors];
+
+export type CreateTodoResponses = {
+  /**
+   * The to-do; a retry with the same key answers the first one.
+   */
+  201: Todo;
+};
+
+export type CreateTodoResponse = CreateTodoResponses[keyof CreateTodoResponses];
+
+export type GetInboxNeedsYouData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/inbox/needs-you';
+};
+
+export type GetInboxNeedsYouErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetInboxNeedsYouError = GetInboxNeedsYouErrors[keyof GetInboxNeedsYouErrors];
+
+export type GetInboxNeedsYouResponses = {
+  /**
+   * The count.
+   */
+  200: InboxNeedsYou;
+};
+
+export type GetInboxNeedsYouResponse = GetInboxNeedsYouResponses[keyof GetInboxNeedsYouResponses];
+
+export type GetTodoData = {
+  body?: never;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}';
+};
+
+export type GetTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetTodoError = GetTodoErrors[keyof GetTodoErrors];
+
+export type GetTodoResponses = {
+  /**
+   * The to-do, with its latest 500 events, the oldest first.
+   */
+  200: Todo;
+};
+
+export type GetTodoResponse = GetTodoResponses[keyof GetTodoResponses];
+
+export type EditTodoData = {
+  body: TodoEdit;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}';
+};
+
+export type EditTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type EditTodoError = EditTodoErrors[keyof EditTodoErrors];
+
+export type EditTodoResponses = {
+  /**
+   * The to-do.
+   */
+  200: Todo;
+};
+
+export type EditTodoResponse = EditTodoResponses[keyof EditTodoResponses];
+
+export type AcceptTodoData = {
+  body: TodoChange;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/accept';
+};
+
+export type AcceptTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AcceptTodoError = AcceptTodoErrors[keyof AcceptTodoErrors];
+
+export type AcceptTodoResponses = {
+  /**
+   * The to-do, open.
+   */
+  200: Todo;
+};
+
+export type AcceptTodoResponse = AcceptTodoResponses[keyof AcceptTodoResponses];
+
+export type DoneTodoData = {
+  body: TodoDone;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/done';
+};
+
+export type DoneTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DoneTodoError = DoneTodoErrors[keyof DoneTodoErrors];
+
+export type DoneTodoResponses = {
+  /**
+   * The to-do, done.
+   */
+  200: Todo;
+};
+
+export type DoneTodoResponse = DoneTodoResponses[keyof DoneTodoResponses];
+
+export type DropTodoData = {
+  body: TodoDrop;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/drop';
+};
+
+export type DropTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DropTodoError = DropTodoErrors[keyof DropTodoErrors];
+
+export type DropTodoResponses = {
+  /**
+   * The to-do, dropped.
+   */
+  200: Todo;
+};
+
+export type DropTodoResponse = DropTodoResponses[keyof DropTodoResponses];
+
+export type DuplicateTodoData = {
+  body: TodoDuplicate;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/duplicate';
+};
+
+export type DuplicateTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DuplicateTodoError = DuplicateTodoErrors[keyof DuplicateTodoErrors];
+
+export type DuplicateTodoResponses = {
+  /**
+   * The to-do, a duplicate.
+   */
+  200: Todo;
+};
+
+export type DuplicateTodoResponse = DuplicateTodoResponses[keyof DuplicateTodoResponses];
+
+export type ReopenTodoData = {
+  body: TodoChange;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/reopen';
+};
+
+export type ReopenTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReopenTodoError = ReopenTodoErrors[keyof ReopenTodoErrors];
+
+export type ReopenTodoResponses = {
+  /**
+   * The to-do, open.
+   */
+  200: Todo;
+};
+
+export type ReopenTodoResponse = ReopenTodoResponses[keyof ReopenTodoResponses];
+
+export type SnoozeTodoData = {
+  body: TodoSnooze;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/snooze';
+};
+
+export type SnoozeTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SnoozeTodoError = SnoozeTodoErrors[keyof SnoozeTodoErrors];
+
+export type SnoozeTodoResponses = {
+  /**
+   * The to-do.
+   */
+  200: Todo;
+};
+
+export type SnoozeTodoResponse = SnoozeTodoResponses[keyof SnoozeTodoResponses];
+
+export type StartTodoData = {
+  body: TodoChange;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/start';
+};
+
+export type StartTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartTodoError = StartTodoErrors[keyof StartTodoErrors];
+
+export type StartTodoResponses = {
+  /**
+   * The to-do, doing.
+   */
+  200: Todo;
+};
+
+export type StartTodoResponse = StartTodoResponses[keyof StartTodoResponses];
+
+export type ReleaseTodoData = {
+  body: TodoRelease;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/release';
+};
+
+export type ReleaseTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReleaseTodoError = ReleaseTodoErrors[keyof ReleaseTodoErrors];
+
+export type ReleaseTodoResponses = {
+  /**
+   * The to-do, open again.
+   */
+  200: Todo;
+};
+
+export type ReleaseTodoResponse = ReleaseTodoResponses[keyof ReleaseTodoResponses];
