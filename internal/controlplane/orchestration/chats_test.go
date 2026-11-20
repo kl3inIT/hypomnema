@@ -548,6 +548,9 @@ func TestTheOwnerDeletesAChat(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	_, err = w.s.DeleteChat(ctx, chat.ID)
+	require.ErrorIs(t, err, ErrConflict, "an open Run still needs its chat")
+	require.NoError(t, w.s.FinishRun(ctx, w.run.ID))
 	deleted, err := w.s.DeleteChat(ctx, chat.ID)
 	require.NoError(t, err)
 	assert.Equal(t, chat.ID, deleted.ID)

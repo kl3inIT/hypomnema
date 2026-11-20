@@ -84,7 +84,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: CreateRun
-      summary: Create a Run; a coordinator token becomes its coordinator
+      summary: Create a Run and assign interactive work to a supervised chat
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -111,6 +111,24 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/RunDetail" }
+        default: { $ref: "#/components/responses/Error" }
+  /runs/{run_id}/adopt:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    post:
+      operationId: AdoptRun
+      summary: Assign an open, unbound Run to a supervised chat (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunAdoption" }
+      responses:
+        "200":
+          description: The Run with its chat and coordinator.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
         default: { $ref: "#/components/responses/Error" }
   /runs/{run_id}/finish:
     parameters:
@@ -5329,7 +5347,9 @@ components:
         chat_id:
           type: string
           minLength: 1
-          description: The chat whose coordinator creates it; that chat is woken by the Run's events.
+          description: >-
+            The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat.
+            A Bot request uses its own chat; a script Routine's Run has no chat.
         uses:
           type: array
           maxItems: 16
@@ -5337,6 +5357,14 @@ components:
           description: >-
             The Connections the Run's workers may use, each as integration:label, such as google:work. None by
             default. A coordinator may give only Connections the owner allowed for chats.
+    RunAdoption:
+      type: object
+      additionalProperties: false
+      properties:
+        chat_id:
+          type: string
+          minLength: 1
+          description: The chat that continues the Run; defaults to the main Bot's main chat.
     TaskStatus:
       type: string
       enum: [pending, ready, running, blocked, succeeded, failed, canceled]
@@ -5378,6 +5406,20 @@ components:
             nodes_low_memory (every node that could run it has less than 1 GiB of memory
             available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and
             no_node_has_tool:<tool>.
+        continues:
+          type: string
+          description: The Task whose branch and pull request this Task continues (issue #690).
+        push_branch:
+          type: string
+          description: >-
+            The branch this Task's commits are pushed to when it is not its own hyp/<id>: the branch of the Task it
+            continues.
+        start_from:
+          type: string
+          description: The branch its worktree starts from when it is not the Run's base.
+        pr_base:
+          type: string
+          description: The base of the pull request it opens when it is not the Run's base.
     TaskDetail:
       allOf:
         - $ref: "#/components/schemas/Task"
@@ -5481,6 +5523,26 @@ components:
           maxItems: 100
           description: Refs of earlier Tasks in this request, or ids of Tasks already in the Run.
           items: { type: string, minLength: 1 }
+        continues:
+          type: string
+          minLength: 1
+          description: >-
+            The id of a Task of the same repository, of any Run, whose branch this Task works on and pushes into, so
+            that branch's pull request takes its commits and keeps its number and reviews. Refused while a Task that
+            pushes to that branch is not finished. Not with start_from or pr_base.
+        start_from:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: >-
+            A branch of the repository the worktree starts from instead of the Run's base: another Task's hyp/<id>
+            for stacked work, or a named branch.
+        pr_base:
+          type: string
+          enum: [start_from, run_base]
+          description: >-
+            With start_from, the base of the pull request the Task opens: start_from (the default, stacked) or the
+            Run's base.
     DispatchStatus:
       type: string
       enum: [queued, starting, running, stopping, unknown, stop_unknown, succeeded, failed, gated, canceled, expired, abandoned]

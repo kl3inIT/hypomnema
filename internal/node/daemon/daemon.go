@@ -349,7 +349,7 @@ func (d *Daemon) Hello(ctx context.Context) (string, error) {
 func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim, held []string) (nodeproto.HelloResponse, error) {
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		Held: held, ListsHeld: held != nil,
-		DiskPolicy: d.cfg.Disk != nil,
+		DiskPolicy: d.cfg.Disk != nil, TaskBranches: true,
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
 		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
 		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(), DeviceState: d.phoneState(),

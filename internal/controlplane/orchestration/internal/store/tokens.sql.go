@@ -46,6 +46,24 @@ func (q *Queries) GetClientTokenByHash(ctx context.Context, tokenHash string) (C
 	return i, err
 }
 
+const getClientTokenByName = `-- name: GetClientTokenByName :one
+SELECT id, name, kind, token_hash, created_at, revoked_at FROM client_tokens WHERE name = ?1
+`
+
+func (q *Queries) GetClientTokenByName(ctx context.Context, name string) (ClientToken, error) {
+	row := q.db.QueryRowContext(ctx, getClientTokenByName, name)
+	var i ClientToken
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Kind,
+		&i.TokenHash,
+		&i.CreatedAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const insertClientToken = `-- name: InsertClientToken :exec
 INSERT INTO client_tokens (id, name, kind, token_hash, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
 `

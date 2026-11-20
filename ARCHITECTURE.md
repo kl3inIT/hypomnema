@@ -283,9 +283,31 @@ sequenceDiagram
   every Dispatch of the Task carries the newest note (`dispatches.follow_up_id`) until one that carries it
   succeeds, so a retry in a new Conversation or a handoff gets it too; the node puts it in the worker's first turn
   as it puts a resolved Gate. Without an open Conversation the follow-up is refused (409), and the error says to
-  create a new Task from the branch `hyp/<task_id>`. Learned from Orca, whose finished worker gets a message "as a
+  create a new Task that `continues` it (below). A follow-up, and the reopening of a failed Task, are also refused
+  while another unfinished Task pushes to the Task's branch. Learned from Orca, whose finished worker gets a message "as a
   follow-up Task" (`skill-guides/orchestration.md`), Polly, which sends fixes "to the SAME implementer
   conversation", and omp's "Prefer messaging an existing agent" for follow-up work (`docs/tools/task.md`).
+- A Task's branches (issue #690, `orchestration/branches.go`, migration `task_branches`). A new Task may name
+  `continues: <task id>`: a Task of the same repository, of any Run, even a finished one, and whatever its status.
+  It then works on that Task's branch and pushes into it (`tasks.push_branch`, that Task's own push branch, so a
+  chain of them shares one branch), so that branch's pull request takes the commits and keeps its number and
+  reviews; a pull request it has to open targets what the earlier Task's did. Or it may name `start_from: <branch>`
+  (another Task's `hyp/<id>`, which resolves to the branch that Task pushes to, or a named branch git accepts) and
+  `pr_base`: `start_from`, the default, for stacked work, or `run_base`. Both are refused together, and a branch
+  git would refuse or that reads as an option never reaches a node. Creation is refused (409) while an unfinished
+  Task, the continued one included, pushes to the same branch: one pusher per branch. The Task's
+  `push_branch`, `start_from` and `pr_base` go to the node with the offer (empty for the defaults: `hyp/<id>`, the
+  Run's base), and `published_head` accepts only the Task's configured push branch, or its own if unset, so the
+  push is this Run's evidence for the pull request it updated. Tasks with non-default branches wait for a node
+  that advertises `task_branches` at hello; older nodes still take Tasks with default branches. From the approved
+  design for issue #690 (owner, 2026-11-20). Learned from Orca, whose worktree for a pull request starts at its head and pushes to it
+  (`src/main/github/pull-requests/start-points/pr-start-point.ts:226-245`, at `38aa9119`), and t3code, whose
+  worktree for a pull request sets its upstream to the head branch (`apps/server/src/git/GitManager.ts:1013-1069,
+  3361-3390`, at `4d5bf2d5`), and whose stacked work takes the parent branch as `baseRef`
+  (`docs/orchestration-v2/orchestrator-mcp-server.md:354-355`) and refuses a second worktree on an existing branch
+  (`ThreadLaunchService.ts:443-448`). The one-pusher rule held by the control plane, and allowing only a Task's
+  branch as a push target, are inferred; Hermes, by contrast, salvages a contributor's work into a new pull
+  request (`AGENTS.md:41`), which is what this replaces.
 - Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
@@ -969,26 +991,27 @@ sequenceDiagram
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
-  t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
+  t3code's typed timeline items): `wake` (a Run event or an adoption notice), `failed` (pi's model call failed), `stopped` (the
   owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
   (a restart cut the turn and it continues, or not; issue #716, migration 112); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
-  Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
+  Run records the chat that coordinates it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
   `GET /runs?chat_id=` lists only the Runs made from a chat and `GET /questions?chat_id=` only the questions of those
   Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). The owner
   deletes a chat for good (`DELETE /chats/{id}`, `hypomnema chats rm`, the sidebar row's menu; issue #484, after
-  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its Runs, Routines, Routines' runs
+  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its ended Runs, Routines, Routines' runs
   and approvals, revokes and keeps its gateway keys (they lose the chat; the gateway's own
   `RevokeDeletedChatKeysTx` writes them in that transaction, issue #405), and deletes its setup changes, its Lark chat, its artifacts
   (with their revisions, and the bytes no other artifact keeps), its messages and the chat. A chat pi works in is
-  refused (409, "stop it first"), as are a chat a Routine tells its runs in and the chat of a Routine's live run.
+  refused (409, "stop it first"), as are a chat with an open Run, a chat a Routine tells its runs in and the chat
+  of a Routine's live run. Removing a Bot with its chats also refuses to detach open Runs.
   After the commit (t3code's thread deletion) its pi is stopped and its files go: `attachments/<chat>` in its Bot's
   folder through the folders' helper, then `run/<chat>` and `sessions/<chat>` through `HYPOMNEMA_CHAT_RM_COMMAND`; a
   file that stays is logged and named in the answer's `files_left`, and the chat stays deleted. Each
   event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
   escalation, the Run ended) adds one wake-up to the chat, unique per event. A `task.status` event's `reason` is why
-  the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each `wake` row
+  the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each event-backed `wake` row
   with its event in the same query (issue #303) and sends it as `ChatMessage.wake`: the event, its Run, Task and
   question, the status, the reason and an escalation's kind; the event never changes, so nothing is kept in step.
   pi reads the row's text. The web draws a wake row as a card across the lane (after t3code's
@@ -996,6 +1019,25 @@ sequenceDiagram
   the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
   page's `?task=`, as the Team page's) or shows the Run docked above the composer (below); a Run the chat does not
   dock opens its own chat, or, with no chat, its first Task's panel (issue #327).
+- **Run custody** (issue #969, `orchestration/run_custody.go`): the client API assigns a new interactive Run to the
+  named chat or the main Bot's main chat (creating it if needed), and keeps the creator and the supervisor's
+  registered coordinator token ID. A Bot uses its own chat, a script Routine stays chatless, and other external
+  coordinator tokens cannot create an interactive Run. A read-only Routine chat cannot be a destination. Retry of
+  the same create does not resolve the default again.
+  Only the owner can adopt a specific open, unbound Run; another live coordinator's Run or an ambiguous chatless
+  Bot-created Run is left alone. A chatless Run stays as it was until selected. A Bot can follow up, answer
+  coordinator gates, and create reviews only with both the assigned chat and its coordinator token ID. The usual
+  Bot permissions, Connection checks, owner-only gates, and `review_of` rules still apply.
+  - From: Hermes `9f476774`, `hermes_cli/kanban_db_graph.py:113` (persist the receiving coordinator with the
+    work); Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:63`, and OpenHands SDK `fb565cfe`,
+    `conversation_lease.py:167` (respect an existing principal). The main-chat default and owner-only legacy
+    adoption are Hypomnema decisions approved by the owner on 2026-11-20.
+  - Adoption saves the binding, the Run's existing event cutoff and one undelivered notice in the same write.
+    The notice tells pi to read the current work; it has no event sequence and does not move the chat's shared
+    cursor. `ChatsWithRuns` and `WakeChats` route subsequent events normally, even after a restart.
+    From: Orca `a5c191cc0`, `send-point-to-point.ts:194` (commit before waking), and t3code `d2606600`,
+    `Orchestrator.ts:16532` (reoffer persisted completion messages). The per-Run cutoff is specific to Hypomnema's
+    shared chat cursor. See the [reference comparison](https://github.com/kl3inIT/hypomnema/issues/969#issuecomment-7029495213).
 - Artifacts (issue #402, `orchestration/artifacts.go`, `internal/shared/artifactpack`, after OpenMausBot's chat
   pages `server/chat-apps.ts`, `app-docs.ts`, `page-files.ts` and `server/pages/bundle.ts`): what a Bot hands the
   owner to look at in its chat, an HTML page or folder, a PDF, an image or any other file.
@@ -3349,7 +3391,11 @@ capabilities do not exist yet.
   through, each value as the bytes the client sent. The client's headers are not forwarded; the provider's key comes
   from the vault, so a provider served by the gateway names it as `vault:<name>`. Bodies are limited to 32 MiB
   (`/v1/messages` and `/v1/responses` too; 413 `request_too_large` above it), the request limit pi's catalog and
-  Hermes state for Anthropic (issue #675; it was 10 MiB, 9router-go's).
+  Hermes state for Anthropic (issue #675; it was 10 MiB, 9router-go's). A body has an hour to arrive, not the
+  server's 15 s read timeout, as a file uploaded to the client API (issue #977: a Codex conversation of megabytes,
+  passed on by a proxy as it came, was cut at 15 s and answered 400); none of 9router-go, CLIProxyAPI and LiteLLM
+  bounds the time a body takes. A body that cannot be read is answered 400 and logged (`modelgateway.body_unread`)
+  with the key, its `Content-Length`, `Transfer-Encoding` and `Content-Encoding`, the bytes that came and the time.
 - A stream is asked for its usage (`stream_options.include_usage`) whether or not the client asked, and the
   usage-only frame is kept from a client that did not. Data lines are passed on as the provider sent them;
   comments are not. A stream whose provider sends nothing for 5 min, or that ends without a finish reason or its end
@@ -3491,8 +3537,11 @@ capabilities do not exist yet.
   and reroutes a request that does not look like Claude Code's; the owner chose to build it knowing that, so the
   provider dresses each request as Claude Code's, which is what makes it work at all.
   - `modelgateway/claude` holds the translation. A chat body becomes an Anthropic Messages body: system messages
-    lifted out, a tool call and its result tied by a sanitized id, turns of one role merged, `reasoning_effort` a
-    thinking budget, `max_tokens` filled when absent.
+    lifted out, a tool call and its result tied by a sanitized id, turns of one role merged, `reasoning_effort`
+    thinking in the form the model takes (issue #986, 9router's `capabilities.js` table): adaptive with
+    `output_config.effort` for Haiku 5.5, Sonnet 4.6+ and 5.x, Opus 4.6+ and 5.x and Fable 5.x (minimal is low,
+    xhigh is high on a 4.6 model, a client's own effort kept), a thinking budget for older models, `max_tokens`
+    filled when absent.
   - The disguise (9router-go `claude_cloaking.go`; CLIProxyAPI `checkSystemInstructions` for a client that is not
     Claude Code): the request carries the `oauth-2025-04-20` beta on a Bearer token and Claude Code's identity
     headers; the top-level system is made exactly Claude Code's — a billing block then the line "You are Claude Code,
@@ -4529,7 +4578,9 @@ The owner's commands:
     over SSH with (owner). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
-  - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
+  - `runs create --chat <id>` and `run --chat <id>` choose the receiving chat (otherwise the API uses the default
+    described in Run custody); `runs adopt <run> [--chat <id>]` is the owner's command to assign existing work.
+  - `runs wait <run>` is optional observation. It returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
     escalation came or the Run ended, with the cursor for the next wait and the next commands (`questions show`,
     `tasks show`, `runs finish` once every Task ended); it sends one request per 50 s while nothing happens.
   - `tasks list` prints the Tasks in flight (`GET /tasks`), a line a Task with what its worker does now or its
@@ -4541,8 +4592,8 @@ The owner's commands:
   new chat, which becomes the Bot's main chat; `--bot` and `--new` are refused with `--chat` (issue #616); without
   a message it shows the chat, and a Bot with no main chat shows none and makes none; the message `/new` is
   `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`. `runs create` sends
-  `HYPOMNEMA_CHAT_ID` when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends
-  (issue #260).
+  `HYPOMNEMA_CHAT_ID` when pi's environment has it and `--chat` is absent; the API refuses another chat with
+  pi's own token (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
   the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).
@@ -4576,7 +4627,9 @@ The owner's commands:
   current GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
   with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
   Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
-  assigned ref, queues an authenticated `published_head` report only for a Git-accepted update, and the control
+  Task's branch to its push branch (its own, or the one it continues, issue #690), never forced; a push the host
+  refuses because the branch moved tells the worker to fetch that branch, merge `FETCH_HEAD`, and publish again.
+  It queues an authenticated `published_head` report only for a Git-accepted update, and the control
   plane records it in the Dispatch's effects. A no-op push, local ref or Task result is not evidence. Both PRs
   must share a closing issue. Visible closing keywords in Markdown also
   work when GitHub supplies no closing links. It comments and closes through the existing GitHub tool
@@ -4667,8 +4720,8 @@ Node (`internal/node`):
   given 10 s for the shim to write one, as a start is, and then ends as `start_failed` ("the shim did not start";
   Omnara fails a process whose execution was never committed).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
-  no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
-  process under a shim, as a Claude Code worker's: `codex exec --json --skip-git-repo-check --ignore-user-config
+  no login on the node: its model comes from the control plane's gateway under the offer's key. A Codex turn is one
+  process under a shim: `codex exec --json --skip-git-repo-check --ignore-user-config
   --dangerously-bypass-approvals-and-sandbox`, with `-c` overrides that name the gateway (`<control plane>/v1`,
   `wire_api = "responses"`, `supports_standalone_web_search = true` so that Codex offers its `web.run` search, which
   the gateway answers on `/v1/alpha/search` (codex-rs `ext/web-search/src/extension.rs`; OpenClaw sets it the same
@@ -4721,11 +4774,32 @@ Node (`internal/node`):
     worktree per Task, and the agent's memory is the control plane's (issue #21).
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The Supervisor reads the journal from a
-    saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt and closes stdin; a worker still
-    alive after 30 s is killed with its whole session group.
+    saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt
+    and closes stdin. If the worker is still alive after 30 s, the Supervisor asks the shim to kill it over the
+    Dispatch's private socket, not by a recorded PID. A stop first revokes a launch the shim has not claimed; a
+    shim that does not answer is killed with its process group only if its recorded identity still matches (the
+    temp-directory item below), and its exit stays unconfirmed.
+    Linux and macOS check ancestry and process start time before signaling descendants, including Claude Bash
+    jobs in separate sessions. After a bounded freeze attempt the shim sends SIGKILL even if a child cannot
+    freeze. Linux adopts and reaps orphans without consuming the CLI's exit status. Windows runs the worker in
+    a Job Object. If the shim cannot confirm the stop, the node records an error without inventing a signal.
   - Reported:
     - the session id from `system/init`, as started;
-    - one turn per Dispatch: stdin is closed after the turn's `result`.
+    - a Dispatch can include a follow-up turn from background work. A successful `result` while Claude reports
+      a background Bash, Agent (`local_agent`, as a planner runs) or workflow (`local_workflow`), or queued turns,
+      does not close stdin; permission replies still go over the same pipe.
+      If the background work settles without another result, the node closes stdin after 2 s with no pending
+      background work, queued turn, tool call, or active turn, and uses the most recent result. An explicit
+      `idle` with no such background task gives stale queue counts or missing tool results 5 s to settle, then closes
+      stdin unless new turn activity arrives. A `running`
+      state keeps stdin open even when Claude does not emit partial messages. The hold survives adoption.
+      A result with no outstanding work, a terminal error, or a result after `finish` also closes stdin.
+      Within a held continuation, the shim stops the worker and records its exit if Claude stays
+      alive for 30 s after stdin closes. There is no elapsed-time cutoff while work remains pending; the control
+      plane's 4-hour mark only warns (issue #867).
+    - if Claude's journal matches an explicit `finish` call to a closed-stdio permission error, the node validates
+      the same tool arguments and records a fallback in the bridge. A normal finish takes precedence. The node
+      sends the chosen report through the same durable outbox; prose or a PR alone is not a final report.
   - The worker's transcript goes to the control plane apart from its reports
     ([research](docs/research/2026-11-10-worker-sessions.md); one forwarder, `internal/node/transcript`, for every
     runtime since issue #157):
@@ -4818,7 +4892,11 @@ Node (`internal/node`):
       owner (issue #21);
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
-      of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
+      of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`, where base is the
+      offer's `pr_base` when it names one (stacked work, issue #690). A Task that continues another is told the
+      branch it started from is that Task's and its pull request's, that `publish_branch` pushes into it and so
+      updates that pull request, not to open a new one, and to open one with that branch as head only when
+      `gh pr list --head <branch> --state open` finds none;
     - how the host merges it by itself (issue #714, [research](docs/research/2026-11-17-auto-merge.md);
       `githost.AutoMerge`), skipped when the spec says a review comes first, that the owner merges, or to ask
       before merging:
@@ -4857,12 +4935,16 @@ Node (`internal/node`):
   unproven locks are left alone. Worker Git does not take the node's mirror lock. Mirror fetches disable hooks and
   automatic maintenance and retry `cannot lock ref` once (issue #868). Git's error is recognized while its output
   streams, before the error message keeps only the output's last 4 KiB. Worktree commands honor configured hooks.
-  `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
-  branch on a retry. A separate lock for the worktree path serializes checkout, setup and removal for that path.
+  `git worktree add -b hyp/<task>` from `origin/<base>`, where base is the
+  offer's `start_from` when it names one (issue #690: the continued or parent branch; one the host lacks fails with
+  its name), or from the existing branch on a retry; reused while it exists. The local branch is always the
+  Task's own, so an old worktree of the continued Task on the node, which holds that Task's branch, does not stop
+  it. A separate lock for the worktree path serializes checkout, setup and removal for that path.
   A pending marker written before checkout and cleared before setup distinguishes incomplete checkouts from
   completed or pre-upgrade ones. The node recreates a pending checkout on retry without forcing a branch already
   in use elsewhere. A retry does not rerun interrupted setup or discard commits it made. Other mirrors and worktrees
   do not wait for that setup. Git uses the node user's own credentials. The offer names the
+  Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
   the mirror's `origin` is set to the address it is fetched from, so the worker pushes the same way. A GitHub
@@ -5468,7 +5550,10 @@ the internet, so that a machine created at a provider can install the node from 
   `hypomnema-update.timer` (v0.9.7 was the first), listening on `0.0.0.0:18990` since 2026-11-16 (`127.0.0.1:18990`
   until then; the owner's choice, issue #581), so that the machine's Nginx Proxy Manager container reaches it at
   `172.17.0.1:18990`. It publishes `https://hypomnema.vadan.app` (Let's Encrypt, HTTPS forced, websockets on,
-  buffering off, 64 MiB bodies, 720 s timeouts; proxy host 33), which is `HYPOMNEMA_PUBLIC_URL` since 2026-11-16:
+  buffering off, 130 MiB bodies, a 4 MiB request body buffer, 720 s timeouts; proxy host 33, its advanced config
+  kept in NPM's Postgres `npm` database on `zeromail-postgres`; without the buffer, an HTTP/2 upload with request
+  buffering off moved in 16 KiB steps, one round trip each: 12 MB from a browser took 16.6 s, and 1.8 s with it,
+  2026-11-20), which is `HYPOMNEMA_PUBLIC_URL` since 2026-11-16:
   through Funnel each request took 1.5–14 s, the Funnel ingress in Tokyo reaching zm only through Tailscale's relay
   (issue #581); through the domain about 0.25 s. Tailscale runs without root (userspace networking, as the systemd unit `hypomnema-tailscale.service` since
   2026-11-13, a tmux session `hyp-ts` until then, state in `~/hypomnema-cp/tailscale`) and Tailscale Funnel publishes it to the internet as

@@ -47,7 +47,7 @@ func (s *Server) ListRuns(ctx context.Context, req openapi.ListRunsRequestObject
 	return out, nil
 }
 
-// CreateRun creates a Run. A coordinator token becomes its coordinator.
+// CreateRun creates a Run and assigns interactive work to a supervised chat.
 func (s *Server) CreateRun(ctx context.Context, req openapi.CreateRunRequestObject,
 ) (openapi.CreateRunResponseObject, error) {
 	tok := principal(ctx)
@@ -65,17 +65,49 @@ func (s *Server) CreateRun(ctx context.Context, req openapi.CreateRunRequestObje
 		nr.CoordinatorTokenID = tok.ID
 	}
 
-	// A Bot gives a Run only the Connections it may use itself (issue #169).
+	var run orchestration.Run
+	key := once(tok, req.Params.IdempotencyKey)
 	if tok.Kind == bearertoken.Bot {
+		if tok.Routine == "" && chat == "" {
+			return nil, fmt.Errorf("%w: a Bot needs a chat to coordinate a Run", orchestration.ErrForbidden)
+		}
 		nr.Bot = tok.Bot
+		run, err = s.svc.CreateRunOnce(ctx, key, nr)
+	} else {
+		if err := s.canAssignRun(); err != nil {
+			return nil, err
+		}
+		run, err = s.svc.CreateChatRunOnce(ctx, key, nr, s.runCoordinator)
 	}
-
-	run, err := s.svc.CreateRunOnce(ctx, once(tok, req.Params.IdempotencyKey), nr)
 	if err != nil {
 		return nil, err
 	}
 
 	return openapi.CreateRun201JSONResponse(toRun(run)), nil
+}
+
+// AdoptRun assigns a Run that has no chat to a coordinator that can continue it.
+func (s *Server) AdoptRun(ctx context.Context, req openapi.AdoptRunRequestObject,
+) (openapi.AdoptRunResponseObject, error) {
+	if err := s.canAssignRun(); err != nil {
+		return nil, err
+	}
+
+	run, err := s.svc.AdoptRun(ctx, req.RunId, val(req.Body.ChatId), s.runCoordinator)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.AdoptRun200JSONResponse(toRun(run)), nil
+}
+
+func (s *Server) canAssignRun() error {
+	if s.coordinator == nil || !s.coordinator.Enabled() || s.runCoordinator == "" {
+		return fmt.Errorf("%w: enable the chat supervisor and configure its coordinator token before assigning Runs",
+			orchestration.ErrConflict)
+	}
+
+	return nil
 }
 
 func once(tok orchestration.Token, key *string) orchestration.Once {

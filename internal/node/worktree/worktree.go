@@ -96,8 +96,15 @@ func (src Source) OverSSH(url string, env []string) (Source, error) {
 func Branch(taskID string) string { return "hyp/" + taskID }
 
 // Ensure makes the worktree at path on the Task's branch, starting from base,
-// or reuses it when it exists (a continued Conversation). Setup runs on a new
-// checkout only, after it is marked complete so a retry preserves its changes.
+// or reuses it when it exists (a continued Conversation). A worktree it made
+// has had the repository's setup script run in it (setup.go). base is the
+// Run's base, or the branch the Task starts from: another Task's branch it
+// continues or stacks on (issue #690). The Task's own branch is always its
+// local branch, so an old worktree of that other Task on this node, which
+// holds that Task's branch, does not stop it (t3code's local branch also
+// differs from the pull request's head it pushes to, GitManager.ts:3236).
+// Setup runs on a new checkout only, after it is marked complete so a retry
+// preserves its changes.
 func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("the worktree %q is not absolute", path)
@@ -187,7 +194,11 @@ func (m Maker) add(ctx context.Context, src Source, base, taskID, path string, r
 			errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return err
 		}
-		args = append(args, "--no-track", "-b", branch, path, "refs/remotes/origin/"+base)
+		start := "refs/remotes/origin/" + base
+		if err := git.run(ctx, mirror, nil, "rev-parse", "--verify", "--quiet", start+"^{commit}"); err != nil {
+			return fmt.Errorf("the branch %s does not exist on the repository's host", base)
+		}
+		args = append(args, "--no-track", "-b", branch, path, start)
 	} else {
 		args = append(args, path, branch)
 	}

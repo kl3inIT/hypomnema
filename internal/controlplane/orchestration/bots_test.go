@@ -308,6 +308,9 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	require.NoError(t, err)
 
 	require.ErrorIs(t, w.s.DeleteBot(ctx, trialBot.ID), ErrConflict, "it has a chat and a memory")
+	_, err = w.s.ForceDeleteBot(ctx, trialBot.ID)
+	require.ErrorIs(t, err, ErrConflict, "even force deletion must not orphan open work")
+	require.NoError(t, w.s.FinishRun(ctx, w.run.ID))
 	deleted, err := w.s.ForceDeleteBot(ctx, trialBot.ID)
 	require.NoError(t, err)
 	require.Len(t, deleted, 1, "the deleted chats come back, for their files (issue #503)")

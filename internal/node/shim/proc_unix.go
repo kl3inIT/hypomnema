@@ -21,6 +21,8 @@ func Alive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
+func killSignal() string { return syscall.SIGKILL.String() }
+
 func GroupGone(pid int) bool {
 	return pid > 1 && !Alive(pid) && errors.Is(syscall.Kill(-pid, 0), syscall.ESRCH)
 }

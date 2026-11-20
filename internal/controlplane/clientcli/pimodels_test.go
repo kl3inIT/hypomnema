@@ -91,7 +91,7 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 	require.Error(t, err, "the coordinator token is not the token of the chat's pi")
 
 	// pi calls with its own token, bound to its chat (issue #260).
-	secret, err := w.svc.AddBotToken(ctx, "cli-coordinator", chat.ID, chat.Bot)
+	secret, err := w.svc.AddBotToken(ctx, testChatCoordinator, chat.ID, chat.Bot)
 	require.NoError(t, err)
 	w.loginWith(t, secret)
 

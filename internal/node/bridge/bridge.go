@@ -155,9 +155,16 @@ func Marked(dir string, seq int, key string) (string, bool) {
 // Finish records the worker's final report; a second call replaces the first.
 func Finish(dir string, f Final) error { return writeFile(dir, "finish.json", f) }
 
+// RecoverFinish records a fallback that never replaces a report written by the tool.
+func RecoverFinish(dir string, f Final) error { return writeFile(dir, "finish-recovered.json", f) }
+
 // Finished returns the final report, if the worker made one.
 func Finished(dir string) (Final, bool, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "finish.json")) //nolint:gosec // the bridge's own file
+	if errors.Is(err, os.ErrNotExist) {
+		raw, err = os.ReadFile(filepath.Join(dir, "finish-recovered.json")) //nolint:gosec // the bridge's own file
+	}
+
 	if errors.Is(err, os.ErrNotExist) {
 		return Final{}, false, nil
 	}

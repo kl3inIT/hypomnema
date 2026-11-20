@@ -81,7 +81,10 @@ func (q *Queries) ListLiveDispatchesOfNode(ctx context.Context, nodeID string) (
 }
 
 const listQueuedDispatchesOfNode = `-- name: ListQueuedDispatchesOfNode :many
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff, stalled_reason, follow_up_id, cpu_millis, memory_bytes, role_chain, chain_entry, declined_low_disk FROM dispatches WHERE node_id = ?1 AND status = 'queued' ORDER BY created_at, id
+SELECT d.id, d.task_id, d.conversation_id, d.node_id, d.status, d.epoch, d.failure_class, d.unknown_cause, d.recovery, d.process_ref, d.result, d.resets_at, d.created_at, d.updated_at, d.accepted_at, d.started_at, d.lease_expires_at, d.progress_at, d.stop_requested_at, d.stop_acked_at, d.stalled_at, d.overrun_at, d.settled_at, d.waiting_since, d.waited_ms, d.gate_question_id, d.model, d.effort, d.profile_version_id, d.activity, d.fallback_for, d.fallback_until, d.handoff, d.stalled_reason, d.follow_up_id, d.cpu_millis, d.memory_bytes, d.role_chain, d.chain_entry, d.declined_low_disk FROM dispatches d JOIN tasks t ON t.id = d.task_id JOIN nodes n ON n.id = d.node_id
+WHERE d.node_id = ?1 AND d.status = 'queued'
+  AND (n.task_branches <> 0 OR (t.push_branch IS NULL AND t.start_from IS NULL AND t.pr_base IS NULL))
+ORDER BY d.created_at, d.id
 `
 
 func (q *Queries) ListQueuedDispatchesOfNode(ctx context.Context, nodeID string) ([]Dispatch, error) {

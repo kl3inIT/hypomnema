@@ -133,6 +133,19 @@ func (s *Service) CreateRun(ctx context.Context, nr NewRun) (Run, error) {
 
 // CreateRunOnce is CreateRun with an idempotency key.
 func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, error) {
+	return s.createRunOnce(ctx, o, nr, "")
+}
+
+// CreateChatRunOnce creates a Run for a supervised chat, choosing the main Bot's main chat when none is named.
+func (s *Service) CreateChatRunOnce(ctx context.Context, o Once, nr NewRun, coordinator string) (Run, error) {
+	if coordinator == "" {
+		return Run{}, fmt.Errorf("%w: no coordinator token is configured for chats", ErrConflict)
+	}
+
+	return s.createRunOnce(ctx, o, nr, coordinator)
+}
+
+func (s *Service) createRunOnce(ctx context.Context, o Once, nr NewRun, coordinator string) (Run, error) {
 	objective, createdBy := nr.Objective, nr.CreatedBy
 	if strings.TrimSpace(objective) == "" || createdBy == "" {
 		return Run{}, fmt.Errorf("%w: a run needs an objective and its creator", ErrInvalid)
@@ -144,7 +157,14 @@ func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, er
 		var err error
 
 		id, err = once(ctx, q, now, o, "runs.create", nr, func() (string, error) {
-			if nr.ChatID != "" {
+			if coordinator != "" {
+				chat, parent, err := s.bindNewRun(ctx, q, now, nr, coordinator)
+				if err != nil {
+					return "", err
+				}
+
+				nr.ChatID, nr.CoordinatorTokenID, nr.Bot = chat.ID, parent, chat.BotID
+			} else if nr.ChatID != "" {
 				if _, err := q.GetChat(ctx, nr.ChatID); err != nil {
 					return "", notFound(err, "chat", nr.ChatID)
 				}
@@ -409,6 +429,11 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 			return nil, err
 		}
 
+		branches, err := resolveBranches(ctx, q, run, nt)
+		if err != nil {
+			return nil, err
+		}
+
 		id := s.newID("tsk")
 		st, reason := initialStatus(deps, status)
 
@@ -417,6 +442,8 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 			Kind: nt.Kind, AuthorVendor: vendor,
 			Runtime: nullString(nt.Runtime), Model: nullString(nt.Model), Effort: nullString(nt.Effort),
 			Status: string(st), BlockedReason: nullString(string(reason)), Now: now,
+			Continues: nullString(branches.continues), PushBranch: nullString(branches.push),
+			StartFrom: nullString(branches.start), PrBase: nullString(branches.prBase),
 		}); err != nil {
 			return nil, fmt.Errorf("inserting task %q: %w", nt.Ref, err)
 		}
@@ -731,6 +758,10 @@ func (s *Service) ReopenTask(ctx context.Context, id string) error {
 				ErrConflict, id, task.Status)
 		}
 
+		if err := branchFree(ctx, q, pushBranchOf(task), id); err != nil {
+			return err
+		}
+
 		if err := q.ResetTaskFailures(ctx, store.ResetTaskFailuresParams{Now: now, ID: id}); err != nil {
 			return fmt.Errorf("resetting task %s: %w", id, err)
 		}
@@ -939,6 +970,8 @@ func taskFromRow(t store.Task) Task {
 		CreatedAt: millis(t.CreatedAt), UpdatedAt: millis(t.UpdatedAt), FinishedAt: optionalTime(t.FinishedAt),
 		NotBefore: optionalTime(t.NotBefore), CancelRequestedAt: optionalTime(t.CancelRequestedAt),
 		WaitingReason: waitingReason(t),
+		Continues:     t.Continues.String, PushBranch: t.PushBranch.String, StartFrom: t.StartFrom.String,
+		PRBase: t.PrBase.String,
 	}
 }
 

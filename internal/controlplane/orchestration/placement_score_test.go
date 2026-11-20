@@ -81,31 +81,33 @@ func TestPlacementRanksDownNodesWithTaskExpiries(t *testing.T) {
 			assert.Equal(t, map[string]string{task.Spec: wantNode}, w.placed(w.schedule().Created))
 		})
 	}
-}
 
-func TestPlacementRanksDownEveryNodeWithTaskExpiries(t *testing.T) {
-	t.Parallel()
+	// Each expired Task ranks its own node down for the next pass, not only
+	// the last: A and B each take their turn before C, which never expired.
+	t.Run("every node expired once", func(t *testing.T) {
+		t.Parallel()
 
-	w := newSchedWorld(t)
-	nodeA := w.node
-	nodeB := w.addNode("node_b", 2, "claude")
-	nodeC := w.addNode("node_c", 2, "claude")
-	task := w.tasks(specs(1)...)[0]
+		w := newSchedWorld(t)
+		nodeA := w.node
+		nodeB := w.addNode("node_b", 2, "claude")
+		nodeC := w.addNode("node_c", 2, "claude")
+		task := w.tasks(specs(1)...)[0]
 
-	for _, wantNode := range []Node{nodeA, nodeB} {
+		for _, wantNode := range []Node{nodeA, nodeB} {
+			w.measure(nodeA, 16*gib, 10, 4*gib)
+			w.measure(nodeB, 16*gib, 40, 4*gib)
+			w.measure(nodeC, 16*gib, 80, 4*gib)
+			created := w.schedule().Created
+			require.Equal(t, map[string]string{task.Spec: wantNode.ID}, w.placed(created))
+			w.advance(QueueTimeout)
+			require.Equal(t, created, w.reap().Expired)
+		}
+
 		w.measure(nodeA, 16*gib, 10, 4*gib)
 		w.measure(nodeB, 16*gib, 40, 4*gib)
 		w.measure(nodeC, 16*gib, 80, 4*gib)
-		created := w.schedule().Created
-		require.Equal(t, map[string]string{task.Spec: wantNode.ID}, w.placed(created))
-		w.advance(QueueTimeout)
-		require.Equal(t, created, w.reap().Expired)
-	}
-
-	w.measure(nodeA, 16*gib, 10, 4*gib)
-	w.measure(nodeB, 16*gib, 40, 4*gib)
-	w.measure(nodeC, 16*gib, 80, 4*gib)
-	assert.Equal(t, map[string]string{task.Spec: nodeC.ID}, w.placed(w.schedule().Created))
+		assert.Equal(t, map[string]string{task.Spec: nodeC.ID}, w.placed(w.schedule().Created))
+	})
 }
 
 // Scenario: zm on 2026-11-17. elitex (cap 1, 3.8 GiB, 99.8% CPU) and

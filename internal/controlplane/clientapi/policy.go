@@ -45,6 +45,7 @@ var policies = map[string]policy{
 	"DeleteSession":               {},
 	"ListRuns":                    {},
 	"CreateRun":                   {},
+	"AdoptRun":                    {scope: scopeOwner},
 	"GetRun":                      {},
 	"FinishRun":                   {scope: scopeRun},
 	"CancelRun":                   {scope: scopeRun},

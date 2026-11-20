@@ -432,3 +432,41 @@ func TestOutputTailNotesARefLockSplitAcrossWritesAndCutAway(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, other.refLock)
 }
+
+// Scenario (issue #690): an earlier Task's worktree on this node still holds its branch hyp/tsk_1, which it pushed.
+// A Task that continues it, or is stacked on it, starts from that branch as the host has it, on its own branch, so
+// git does not refuse a second worktree on hyp/tsk_1. A branch the host does not have is named in the error.
+func TestAWorktreeStartsFromAnotherTasksBranch(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	dir := realTempDir(t)
+	origin(t, filepath.Join(dir, "origin"))
+	upstream := filepath.Join(dir, "origin", "kl3inIT", "second-bite")
+
+	m := Maker{Root: filepath.Join(dir, "node"), URL: filepath.ToSlash(filepath.Join(dir, "origin")) + "/%s"}
+	repo, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+	require.NoError(t, err)
+
+	earlier := filepath.Join(dir, "wt", "run_1", "tsk_1")
+	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", earlier))
+	require.NoError(t, os.WriteFile(filepath.Join(earlier, "login.go"), []byte("package login\n"), 0o600))
+	run(t, earlier, "add", "login.go")
+	run(t, earlier, "commit", "-q", "-m", "login")
+	run(t, earlier, "push", "-q", "origin", "hyp/tsk_1")
+	pushed := run(t, upstream, "rev-parse", "hyp/tsk_1")
+
+	later := filepath.Join(dir, "wt", "run_2", "tsk_2")
+	require.NoError(t, m.Ensure(t.Context(), repo, "hyp/tsk_1", "tsk_2", later))
+	assert.Equal(t, "hyp/tsk_2", run(t, later, "rev-parse", "--abbrev-ref", "HEAD"))
+	assert.Equal(t, pushed, run(t, later, "rev-parse", "HEAD"), "it starts at the branch as the host has it")
+	assert.FileExists(t, filepath.Join(later, "login.go"))
+	assert.Equal(t, "hyp/tsk_1", run(t, earlier, "rev-parse", "--abbrev-ref", "HEAD"), "the old worktree is untouched")
+
+	err = m.Ensure(t.Context(), repo, "hyp/tsk_gone", "tsk_3", filepath.Join(dir, "wt", "run_2", "tsk_3"))
+	require.ErrorContains(t, err, "the branch hyp/tsk_gone does not exist on the repository's host")
+	assert.NoDirExists(t, filepath.Join(dir, "wt", "run_2", "tsk_3"))
+}
