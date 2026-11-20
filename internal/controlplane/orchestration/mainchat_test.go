@@ -133,15 +133,7 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 
 	// This migration and the ones before it only: a later one may add a column to a table the snapshot reads whole
 	// (the Inbox's adds approvals.attempt_id).
-	var version int64
-
-	for _, src := range p.ListSources() {
-		if strings.HasSuffix(src.Path, "_bot_main_chat.sql") {
-			version = src.Version
-		}
-	}
-
-	require.NotZero(t, version)
+	version := migrationVersion(t, p, "_bot_main_chat.sql")
 	_, err = p.UpTo(ctx, version)
 	require.NoError(t, err)
 
