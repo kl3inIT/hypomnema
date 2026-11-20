@@ -2889,6 +2889,22 @@ flowchart LR
     ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
     A Bot given the same Connection reads GitHub through the service proxy instead (issue #685, under
     Integrations).
+  - The worker commits as the account its token belongs to (issue
+    [#991](https://github.com/kl3inIT/hypomnema/issues/991)), not as the node user's `~/.gitconfig` says. The
+    control plane reads that account once a token at the host's `GET /user`, with the token and through the
+    Connection's route, and keeps it with the Connection (`connections.git_name`, `git_email`, and
+    `git_secret_version`, the version of the vault secret it was read with: a token replaced, by connecting again
+    or on the secret, is read again). GitHub gives the login and `<id>+<login>@users.noreply.github.com`, on
+    github.com only (a GitHub Enterprise host's noreply address is not known); GitLab the username and the
+    account's `commit_email`, else its `public_email`. The offer carries them (`git_name`, `git_email`), and the
+    node puts `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` into the
+    worker's environment and the repository's setup script's; git takes them over any configuration file. From
+    Paperclip (`server/src/services/git-credentials.ts:127-153`, the run's GitHub account as author and committer)
+    and Coder (`examples/templates/docker/main.tf:45-53`, `GIT_AUTHOR_*`/`GIT_COMMITTER_*` in the agent's
+    environment). An account that cannot be read (no token, a token without the scope to read its user, a host
+    that cannot be reached) is logged once a token and nothing is set: git keeps what the machine says. The
+    `Co-Authored-By` trailer stays, and the node's `~/.gitconfig` is not hidden (no `GIT_CONFIG_GLOBAL`), unlike
+    Paperclip's managed connection (`:344-347`), since the worker relies on its other settings.
   - A host without a token works as before: git and the host's tool use the node user's own logins.
   - A registered repository may carry an SSH address (`repos add|set --ssh-url`, `ssh_url` on `/repos/{name}`,
     `repos.ssh_url`; issue [#625](https://github.com/kl3inIT/hypomnema/issues/625)): its node then clones and

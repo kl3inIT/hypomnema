@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
 // A repository's setup script (issue #186): what the repository needs on the
@@ -70,8 +72,9 @@ func setupScript(path string) (string, error) {
 // setup runs the repository's setup script in a new worktree and waits for
 // it. A script that fails, runs out of time or cannot be read is logged and
 // the worktree stands, as in Orca (runtime-local-worktree-setup.ts): the
-// worker starts, and can still install what is missing itself.
-func (m Maker) setup(ctx context.Context, path string) {
+// worker starts, and can still install what is missing itself. A script that
+// commits commits as identity, as the worker does (issue #991).
+func (m Maker) setup(ctx context.Context, path string, identity githost.Identity) {
 	script, err := setupScript(path)
 	if err != nil {
 		m.warn(ctx, path, err.Error(), "")
@@ -106,6 +109,7 @@ func (m Maker) setup(ctx context.Context, path string) {
 	cmd.Stdout, cmd.Stderr = &output, &output
 	// Git must not wait for a person (Orca: promptGuardShellEnv).
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", worktreePathEnv+"="+path)
+	cmd.Env = append(cmd.Env, identity.Env()...)
 	if m.TempDir != "" {
 		cmd.Env = append(cmd.Env, "TMPDIR="+m.TempDir, "TEMP="+m.TempDir, "TMP="+m.TempDir, "GOTMPDIR="+m.TempDir)
 	}

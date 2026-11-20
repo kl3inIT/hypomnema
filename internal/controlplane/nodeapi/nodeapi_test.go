@@ -20,6 +20,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
@@ -391,10 +392,13 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	p := newPlane(t)
 
 	asked := make(chan string, 4)
-	p.api.WithHostTokens(func(_ context.Context, host, path string) (string, bool) {
+	p.api.WithHostTokens(func(_ context.Context, host, path string) (HostCredential, bool) {
 		asked <- host + " " + path
 
-		return "ghp_for_this_dispatch", host == "github.com"
+		return HostCredential{ //nolint:gosec // a test's made-up token
+			Token:    "ghp_for_this_dispatch",
+			Identity: githost.Identity{Name: "octo", Email: "1+octo@users.noreply.github.com"},
+		}, host == "github.com"
 	})
 
 	conn := p.connect()
@@ -405,6 +409,8 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	assert.Equal(t, "github.com kl3inIT/second-bite", <-asked, "asked by host and repository")
 	assert.Equal(t, [3]string{"github.com", "github", "ghp_for_this_dispatch"},
 		[3]string{offer.RepoHost, offer.RepoKind, offer.RepoToken})
+	assert.Equal(t, [2]string{"octo", "1+octo@users.noreply.github.com"}, [2]string{offer.GitName, offer.GitEmail},
+		"with the account the token belongs to (issue #991)")
 
 	stored, err := p.svc.NodePending(t.Context(), p.node.ID)
 	require.NoError(t, err)
@@ -412,7 +418,9 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	assert.Empty(t, stored.Offers[0].RepoToken, "orchestration never holds the token")
 
 	// Another connection of the node is told again; a host that has no token gives an offer without one.
-	p.api.WithHostTokens(func(context.Context, string, string) (string, bool) { return "", false })
+	p.api.WithHostTokens(func(context.Context, string, string) (HostCredential, bool) {
+		return HostCredential{}, false
+	})
 
 	again := p.connect()
 
@@ -420,6 +428,7 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	require.NoError(t, json.Unmarshal(p.next(again, nodeproto.TypeOffer).Payload, &second))
 	assert.Equal(t, offer.DispatchID, second.DispatchID)
 	assert.Empty(t, second.RepoToken)
+	assert.Empty(t, second.GitName+second.GitEmail, "no token, no account")
 }
 
 // Scenario: the node sends a running worker's transcript. Each batch is

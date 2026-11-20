@@ -24,6 +24,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	shippedrelease "github.com/kl3inIT/hypomnema/internal/shared/release"
@@ -36,10 +37,10 @@ const writeTimeout = 10 * time.Second
 type Server struct {
 	svc    *orchestration.Service
 	logger *slog.Logger
-	// hostToken returns the token of a git host for a Dispatch; nil when the
-	// control plane wired none. The node API may not open a secret itself
-	// (issue #66).
-	hostToken func(ctx context.Context, host, path string) (string, bool)
+	// hostToken returns the token of a git host for a Dispatch, with the
+	// account it belongs to; nil when the control plane wired none. The node
+	// API may not open a secret itself (issue #66).
+	hostToken func(ctx context.Context, host, path string) (HostCredential, bool)
 	// modelKey makes the model gateway's key for a Dispatch; nil when the
 	// control plane wired none.
 	modelKey func(ctx context.Context, dispatchID, model string) (string, bool)
@@ -89,8 +90,16 @@ func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 		storeGuides: map[string]bool{}, deviceCalls: map[string]*pendingDevice{}, execs: map[string]*pendingExec{}}
 }
 
+// HostCredential is what an offer is given to act on its repository's host:
+// the token, and the account it belongs to when that is known (issue #991),
+// which the worker's commits then name.
+type HostCredential struct {
+	Token    string
+	Identity githost.Identity
+}
+
 // WithHostTokens sets where an offer's git host token comes from.
-func (s *Server) WithHostTokens(token func(ctx context.Context, host, path string) (string, bool)) *Server {
+func (s *Server) WithHostTokens(token func(ctx context.Context, host, path string) (HostCredential, bool)) *Server {
 	s.hostToken = token
 
 	return s
@@ -569,8 +578,12 @@ func (c *session) push(ctx context.Context) error {
 
 		// The token is read when the offer is sent and is kept nowhere in the control plane but the vault.
 		if c.srv.hostToken != nil && o.RepoHost != "" {
-			if token, ok := c.srv.hostToken(ctx, o.RepoHost, o.Repo); ok {
-				o.RepoToken = token
+			if cred, ok := c.srv.hostToken(ctx, o.RepoHost, o.Repo); ok {
+				o.RepoToken = cred.Token
+				// The account it belongs to goes with it, so the worker commits as that account (issue #991).
+				if cred.Identity.Known() {
+					o.GitName, o.GitEmail = cred.Identity.Name, cred.Identity.Email
+				}
 			}
 		}
 

@@ -608,6 +608,13 @@ type Offer struct {
 	// node keeps it with the offer until the Dispatch ends; there is no proxy
 	// on the node (docs/decisions/2026-11-13-worker-credentials-in-the-environment.md).
 	RepoToken string `json:"repo_token,omitempty"`
+	// GitName and GitEmail are the account RepoToken belongs to (issue #991):
+	// the node gives them to the worker and the repository's setup script as
+	// GIT_AUTHOR_NAME/EMAIL and GIT_COMMITTER_NAME/EMAIL, which git takes over
+	// the node user's ~/.gitconfig. Empty when no account is known; nothing is
+	// set then. A node of an earlier release ignores them.
+	GitName  string `json:"git_name,omitempty"`
+	GitEmail string `json:"git_email,omitempty"`
 	// RepoSSHURL is where the node clones and fetches Repo from over SSH,
 	// when the owner registered it with one (issue #625). Git then runs
 	// `hypomnema-node gitssh` as its ssh, which asks the agent API for the
