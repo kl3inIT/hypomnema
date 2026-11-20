@@ -33,14 +33,14 @@ const maxFitRounds = 12
 // ink may reach far past its line (marks stacked on a letter), and what reaches past the frame is not drawn. A
 // shrink makes a block lower, which may move its cue (a ring's flip): every block whose place changed is drawn
 // again, until none is too wide and none has moved since it was drawn.
-func (r *renderer) fit(ctx context.Context, tools ffmpeg.Tools, cues []Cue, laid [][]frame, chosen Position,
+func (r *renderer) fit(ctx context.Context, tools ffmpeg.Tools, laid [][]frame, chosen Position,
 	rings []compose.Ring,
 ) error {
 	limit := math.Floor(r.w * SafeFraction)
 	measuredAt := map[*block]float64{}
 
 	for round := 0; ; round++ {
-		placed := r.placeCues(cues, laid, chosen, rings)
+		placed := r.placeCues(laid, chosen, rings)
 
 		var (
 			pending []*block

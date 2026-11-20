@@ -139,11 +139,11 @@ func (r *renderer) render(ctx context.Context, tools ffmpeg.Tools, cues []Cue, c
 		return nil, err
 	}
 
-	if err := r.fit(ctx, tools, cues, laid, chosen, rings); err != nil {
+	if err := r.fit(ctx, tools, laid, chosen, rings); err != nil {
 		return nil, err
 	}
 
-	return r.placeCues(cues, laid, chosen, rings), nil
+	return r.placeCues(laid, chosen, rings), nil
 }
 
 // resolveLook fills a look's defaults and checks its ids.
@@ -193,7 +193,7 @@ func (r *renderer) place(cues []Cue, chosen Position, rings []compose.Ring) ([]p
 		return nil, err
 	}
 
-	return r.placeCues(cues, laid, chosen, rings), nil
+	return r.placeCues(laid, chosen, rings), nil
 }
 
 // layoutCues is every cue's frames, each block laid out from the font's measures. As demotape draws only the first
@@ -242,15 +242,15 @@ func after(frames []frame, from float64) []frame {
 }
 
 // placeCues places every cue's frames: at the position, or, for a cue at the bottom that a ring reaches, at the
-// top.
-func (r *renderer) placeCues(cues []Cue, laid [][]frame, chosen Position, rings []compose.Ring) []placedFrame {
+// top. It reads only the frames, as layoutCues left them: a cue's own start may be hidden by the cue before it.
+func (r *renderer) placeCues(laid [][]frame, chosen Position, rings []compose.Ring) []placedFrame {
 	pos := r.position(chosen)
 
 	var out []placedFrame
 
-	for k, c := range cues {
+	for k := range laid {
 		at := pos
-		if at == PositionBottom && r.ringReaches(c, laid[k], rings) {
+		if at == PositionBottom && r.ringReaches(laid[k], rings) {
 			at = PositionTop
 		}
 
@@ -617,9 +617,9 @@ func (r *renderer) top(at Position, h float64) float64 {
 	}
 }
 
-// ringReaches says whether a tap's ring shows while a cue does and reaches the top of its tallest block at the
-// bottom: the cue then sits at the top, whole.
-func (r *renderer) ringReaches(c Cue, frames []frame, rings []compose.Ring) bool {
+// ringReaches says whether a tap's ring shows while a cue's frames are drawn and reaches the top of its tallest
+// block at the bottom: the cue then sits at the top, whole.
+func (r *renderer) ringReaches(frames []frame, rings []compose.Ring) bool {
 	tallest := 0.0
 	for _, fr := range frames {
 		tallest = max(tallest, fr.block.h)
@@ -631,8 +631,13 @@ func (r *renderer) ringReaches(c Cue, frames []frame, rings []compose.Ring) bool
 
 	top := r.top(PositionBottom, tallest)
 
+	// The span the cue is drawn in, after the cues before it hid its start (layoutCues): aidemo tests a ring
+	// against the times its caption strip is shown (src/compose.ts, lines 1994-1999).
+	from, to := frames[0].from, frames[len(frames)-1].to
+
 	for _, g := range rings {
-		if g.AtMs < c.EndMs && g.AtMs+compose.RingMs > c.StartMs && float64(g.Y)+float64(g.Size)/2 >= top {
+		at := float64(g.AtMs) / 1000
+		if at < to && at+compose.RingMs/1000.0 > from && float64(g.Y)+float64(g.Size)/2 >= top {
 			return true
 		}
 	}

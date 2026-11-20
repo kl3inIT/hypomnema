@@ -558,6 +558,41 @@ func TestOverlappingCuesAreDrawnOneAtATime(t *testing.T) {
 	}
 }
 
+// The fifth review's case, drawn: at 670 ms the second sentence is drawn at the bottom, as the ring that showed
+// while the first was drawn ended at 500 ms, before it showed (560 ms); at 300 ms the first is at the top.
+func TestARingFlipsOnlyTheCueItIsDrawnWithAsDrawn(t *testing.T) {
+	t.Parallel()
+
+	tl := tools(t)
+	cues, rings := ringBeforeShown(t)
+
+	for _, preset := range []string{"clean", "one-word", "bar"} {
+		t.Run(preset, func(t *testing.T) {
+			t.Parallel()
+
+			ass, err := Render(t.Context(), tl, cues, Look{Preset: preset}, 720, 1280, rings)
+			require.NoError(t, err)
+
+			for _, tc := range []struct {
+				at     float64
+				bottom bool
+			}{{0.3, false}, {0.67, true}} {
+				img, _ := burn(t, tl, ass, 720, 1280, tc.at, "error")
+				drawn, ok := bbox(img, notGrey(img))
+				require.True(t, ok, "drawn at %.2f s", tc.at)
+
+				if tc.bottom {
+					assert.Greater(t, drawn.y0, 640, "at %.2f s the caption is at the bottom: rows %d-%d",
+						tc.at, drawn.y0, drawn.y1)
+				} else {
+					assert.Less(t, drawn.y1, 640, "at %.2f s the caption is at the top: rows %d-%d",
+						tc.at, drawn.y0, drawn.y1)
+				}
+			}
+		})
+	}
+}
+
 // Classic's video is the one made before the presets: burned with the fonts of then and of now, the stream is the
 // same, byte for byte (check 5; its ASS is ASS's, TestLegacyIsTheCaptionsOfBefore).
 func TestClassicIsBurnedAsBefore(t *testing.T) {

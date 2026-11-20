@@ -338,3 +338,46 @@ func TestOverlappingCuesAreShownOneAtATime(t *testing.T) {
 		assert.InDelta(t, 1.1, second[0].from, 1e-9, "%s: the second cue shows once the first ends", p.ID)
 	}
 }
+
+// ringBeforeShown is the fifth review's speech: the second sentence starts at 450 ms, while "xong." is said until
+// 560 ms, so it shows from 560 ms; a tap's ring at the bottom shows from 0 to 500 ms.
+func ringBeforeShown(t *testing.T) ([]Cue, []compose.Ring) {
+	t.Helper()
+
+	cues, err := Build([]Scene{{StartMs: 0, EndMs: 3000, Words: []Word{
+		{"Đăng", 0, 0.2}, {"nhập", 0.2, 0.35}, {"xong.", 0.35, 0.56},
+		{"Bây", 0.45, 0.7}, {"giờ", 0.7, 1.0}, {"kiểm", 1.0, 1.3}, {"tra.", 1.3, 1.6},
+	}}}, Default)
+	require.NoError(t, err)
+	require.Len(t, cues, 2)
+	require.Equal(t, int64(450), cues[1].StartMs)
+	require.Equal(t, int64(560), cues[0].EndMs)
+
+	return cues, []compose.Ring{{AtMs: 0, X: 360, Y: 1200, Size: 101}}
+}
+
+// A ring flips a cue only while the cue is drawn (row 9, aidemo src/compose.ts, lines 1994-1999): the first
+// sentence, drawn with the ring, sits at the top, whole; the second, drawn only from 560 ms, after the ring ended
+// at 500 ms, stays at the bottom, though its own start (450 ms) is within the ring's.
+func TestARingFlipsOnlyTheCueItIsDrawnWith(t *testing.T) {
+	t.Parallel()
+
+	cues, rings := ringBeforeShown(t)
+
+	for _, preset := range []string{"clean", "one-word", "bar"} {
+		r, err := newRenderer(preset, 720, 1280)
+		require.NoError(t, err)
+
+		frames := placed(t, preset, PositionPreset, 720, 1280, cues, rings)
+		require.NotEmpty(t, frames)
+
+		for _, pf := range frames {
+			if pf.from < 0.56-1e-9 {
+				assert.InDelta(t, r.top(PositionTop, pf.block.h), pf.top, 0, "%s: the first sentence at the top", preset)
+			} else {
+				assert.InDelta(t, r.top(PositionBottom, pf.block.h), pf.top, 0,
+					"%s: %v at %.2f s stays at the bottom", preset, shownWords(pf), pf.from)
+			}
+		}
+	}
+}
