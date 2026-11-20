@@ -554,9 +554,9 @@ func (s *Service) deleteBot(ctx context.Context, chat, id string) error {
 // ForceDeleteBot removes a Bot with its chats and its memory (issue #330; owner, 2026-11-13): the owner's way out
 // when DeleteBot is refused only for those. Each chat is deleted as DeleteChat deletes one (issue #484): its
 // messages, setup changes and artifacts go, as Onyx's hard delete takes a chat's messages and then the chat
-// (backend/onyx/db/chat.py, delete_chat_session). Runs, Routines, their runs and approvals made in those chats stay
+// (backend/onyx/db/chat.py, delete_chat_session). Ended Runs, Routines, their runs and approvals made in those chats stay
 // and lose the chat; the chats' gateway keys are revoked and kept, so the gateway's usage records stay whole. It is
-// still refused for the main Bot, and for one with Routines or Lark
+// still refused for the main Bot, and for one with open Runs, Routines or Lark
 // Channels: those are live and are removed or moved first. The chats are
 // returned: their files, outside the database, are the caller's to remove
 // after the commit, as DeleteChat's are (issue #503).

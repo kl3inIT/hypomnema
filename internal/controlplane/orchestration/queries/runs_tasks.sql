@@ -7,6 +7,13 @@ VALUES (@id, @objective, 'open', @created_by, @repo, @repo_host, @base, @coordin
 -- name: GetRun :one
 SELECT * FROM runs WHERE id = @id;
 
+-- name: BindRunToChat :exec
+UPDATE runs SET chat_id = @chat_id, coordinator_token_id = @coordinator_token_id, bot_id = @bot, updated_at = @now
+WHERE id = @id;
+
+-- name: ChatHasOpenRuns :one
+SELECT EXISTS (SELECT 1 FROM runs WHERE chat_id = @chat_id AND status = 'open');
+
 -- name: GetRunWithBot :one
 -- A Run with the Bot of its chat; bot is empty for a Run without a chat.
 SELECT sqlc.embed(runs), CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot

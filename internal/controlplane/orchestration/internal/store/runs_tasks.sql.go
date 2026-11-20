@@ -11,6 +11,41 @@ import (
 	"strings"
 )
 
+const bindRunToChat = `-- name: BindRunToChat :exec
+UPDATE runs SET chat_id = ?1, coordinator_token_id = ?2, bot_id = ?3, updated_at = ?4
+WHERE id = ?5
+`
+
+type BindRunToChatParams struct {
+	ChatID             sql.NullString
+	CoordinatorTokenID sql.NullString
+	Bot                sql.NullString
+	Now                int64
+	ID                 string
+}
+
+func (q *Queries) BindRunToChat(ctx context.Context, arg BindRunToChatParams) error {
+	_, err := q.db.ExecContext(ctx, bindRunToChat,
+		arg.ChatID,
+		arg.CoordinatorTokenID,
+		arg.Bot,
+		arg.Now,
+		arg.ID,
+	)
+	return err
+}
+
+const chatHasOpenRuns = `-- name: ChatHasOpenRuns :one
+SELECT EXISTS (SELECT 1 FROM runs WHERE chat_id = ?1 AND status = 'open')
+`
+
+func (q *Queries) ChatHasOpenRuns(ctx context.Context, chatID sql.NullString) (bool, error) {
+	row := q.db.QueryRowContext(ctx, chatHasOpenRuns, chatID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const countUnfinishedTasks = `-- name: CountUnfinishedTasks :one
 SELECT count(*) FROM tasks WHERE run_id = ?1 AND status IN (/*SLICE:statuses*/?)
 `

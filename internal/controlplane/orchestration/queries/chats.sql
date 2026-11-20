@@ -53,6 +53,10 @@ UPDATE bots SET main_chat = NULL WHERE main_chat = CAST(@chat_id AS TEXT);
 -- name: TouchChat :exec
 UPDATE chats SET updated_at = @now WHERE id = @id;
 
+-- name: InsertRunAdoptionNotice :exec
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (@chat_id, 'system', 'wake', @text, 1, @now);
+
 -- name: InsertChatMessage :one
 INSERT INTO chat_messages (chat_id, role, kind, text, parts, attachments, event_seq, sender_id, sender_name, created_at)
 VALUES (@chat_id, @role, @kind, @text, @parts, @attachments, @event_seq, @sender_id, @sender_name, @now)

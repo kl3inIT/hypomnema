@@ -45,6 +45,8 @@ type world struct {
 	pi *fakeCoordinator
 }
 
+const testRunCoordinator = "test-run-coordinator"
+
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
@@ -53,10 +55,12 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { _ = db.Close() })
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	_, _, err = svc.AddToken(t.Context(), testRunCoordinator, bearertoken.Coordinator)
+	require.NoError(t, err)
 
 	stop := make(chan struct{})
 	pi := &fakeCoordinator{live: make(chan coordinator.Frame, 16)}
-	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(pi)
+	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(pi).WithRunCoordinator(testRunCoordinator)
 	srv.heartbeat = 50 * time.Millisecond
 
 	mux := http.NewServeMux()
@@ -232,6 +236,7 @@ func TestACoordinatorChangesOnlyItsOwnRuns(t *testing.T) {
 
 	w := newWorld(t)
 	laptop, laptopTok := w.token("laptop", bearertoken.Coordinator)
+	w.srv.WithRunCoordinator(laptopTok.Name)
 	other, _ := w.token("other", bearertoken.Coordinator)
 	owner, _ := w.token("web", bearertoken.Owner)
 	ctx := t.Context()
@@ -285,11 +290,11 @@ func TestACoordinatorChangesOnlyItsOwnRuns(t *testing.T) {
 	require.Equal(t, http.StatusOK, canceled.StatusCode(), string(canceled.Body))
 	assert.Equal(t, openapi.RunStatusCanceled, canceled.JSON200.Status)
 
-	// A Run the owner created has no coordinator: no coordinator token changes it.
-	ownerRun := w.createRun(owner, "owner's run")
-	assert.Nil(t, ownerRun.CoordinatorTokenId)
+	ownerRun, err := w.svc.CreateRun(ctx, orchestration.NewRun{CreatedBy: "web", Objective: "legacy owner run"})
+	require.NoError(t, err)
+	assert.Empty(t, ownerRun.CoordinatorTokenID)
 
-	finish, err := laptop.FinishRunWithResponse(ctx, ownerRun.Id)
+	finish, err := laptop.FinishRunWithResponse(ctx, ownerRun.ID)
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Forbidden, errorCode(t, finish.Body, finish.StatusCode(), http.StatusForbidden))
 
@@ -302,7 +307,7 @@ func TestCreatesWithAnIdempotencyKeyHappenOnce(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	c, _ := w.token("laptop", bearertoken.Coordinator)
+	c, _ := w.token("web", bearertoken.Owner)
 	ctx := t.Context()
 	key := "run-1"
 
@@ -427,10 +432,11 @@ func TestARunNamesItsChatsBot(t *testing.T) {
 	fromChat := *resp.JSON201
 	assert.Equal(t, &chat.Bot, fromChat.Bot)
 
-	alone := w.createRun(c, "alone")
-	assert.Nil(t, alone.Bot)
+	alone, err := w.svc.CreateRun(ctx, orchestration.NewRun{Objective: "alone", CreatedBy: "web"})
+	require.NoError(t, err)
+	assert.Empty(t, alone.Bot)
 
-	for _, r := range []openapi.Run{fromChat, alone} {
+	for _, r := range []openapi.Run{fromChat, toRun(alone)} {
 		tasks, err := c.CreateTasksWithResponse(ctx, r.Id, nil,
 			openapi.NewTasks{Tasks: []openapi.NewTask{{Ref: "a", Spec: "a"}}})
 		require.NoError(t, err)
@@ -483,10 +489,11 @@ func TestAChatListsItsRunsAndTheirQuestions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode(), string(resp.Body))
 	fromChat := resp.JSON201
-	alone := w.createRun(c, "alone")
+	alone, err := w.svc.CreateRun(ctx, orchestration.NewRun{Objective: "alone", CreatedBy: "web", Repo: "kl3inIT/demo"})
+	require.NoError(t, err)
 
 	// The Run without a chat asks first; then a Task of the chat's Run asks on the same machine.
-	w.askFromAWorker(c, alone.Id, "alone asks", orchestration.AddressOwner)
+	w.askFromAWorker(c, alone.ID, "alone asks", orchestration.AddressOwner)
 	asked := w.askOnTheSameNode(c, fromChat.Id, "the chat's Run asks")
 
 	runs, err := c.ListRunsWithResponse(ctx, &openapi.ListRunsParams{ChatId: &chat})
@@ -541,6 +548,7 @@ func TestTheRunsCoordinatorAnswersAndForwards(t *testing.T) {
 
 	w := newWorld(t)
 	laptop, _ := w.token("laptop", bearertoken.Coordinator)
+	w.srv.WithRunCoordinator("laptop")
 	other, _ := w.token("other", bearertoken.Coordinator)
 	owner, _ := w.token("web", bearertoken.Owner)
 	ctx := t.Context()

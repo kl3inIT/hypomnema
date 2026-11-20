@@ -133,6 +133,19 @@ func (s *Service) CreateRun(ctx context.Context, nr NewRun) (Run, error) {
 
 // CreateRunOnce is CreateRun with an idempotency key.
 func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, error) {
+	return s.createRunOnce(ctx, o, nr, "")
+}
+
+// CreateChatRunOnce creates a Run for a supervised chat, choosing the main Bot's main chat when none is named.
+func (s *Service) CreateChatRunOnce(ctx context.Context, o Once, nr NewRun, coordinator string) (Run, error) {
+	if coordinator == "" {
+		return Run{}, fmt.Errorf("%w: no coordinator token is configured for chats", ErrConflict)
+	}
+
+	return s.createRunOnce(ctx, o, nr, coordinator)
+}
+
+func (s *Service) createRunOnce(ctx context.Context, o Once, nr NewRun, coordinator string) (Run, error) {
 	objective, createdBy := nr.Objective, nr.CreatedBy
 	if strings.TrimSpace(objective) == "" || createdBy == "" {
 		return Run{}, fmt.Errorf("%w: a run needs an objective and its creator", ErrInvalid)
@@ -144,7 +157,14 @@ func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, er
 		var err error
 
 		id, err = once(ctx, q, now, o, "runs.create", nr, func() (string, error) {
-			if nr.ChatID != "" {
+			if coordinator != "" {
+				chat, parent, err := s.bindNewRun(ctx, q, now, nr, coordinator)
+				if err != nil {
+					return "", err
+				}
+
+				nr.ChatID, nr.CoordinatorTokenID, nr.Bot = chat.ID, parent, chat.BotID
+			} else if nr.ChatID != "" {
 				if _, err := q.GetChat(ctx, nr.ChatID); err != nil {
 					return "", notFound(err, "chat", nr.ChatID)
 				}

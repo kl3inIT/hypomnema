@@ -965,26 +965,27 @@ sequenceDiagram
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
-  t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
+  t3code's typed timeline items): `wake` (a Run event or an adoption notice), `failed` (pi's model call failed), `stopped` (the
   owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
   (a restart cut the turn and it continues, or not; issue #716, migration 112); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
-  Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
+  Run records the chat that coordinates it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
   `GET /runs?chat_id=` lists only the Runs made from a chat and `GET /questions?chat_id=` only the questions of those
   Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). The owner
   deletes a chat for good (`DELETE /chats/{id}`, `hypomnema chats rm`, the sidebar row's menu; issue #484, after
-  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its Runs, Routines, Routines' runs
+  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its ended Runs, Routines, Routines' runs
   and approvals, revokes and keeps its gateway keys (they lose the chat; the gateway's own
   `RevokeDeletedChatKeysTx` writes them in that transaction, issue #405), and deletes its setup changes, its Lark chat, its artifacts
   (with their revisions, and the bytes no other artifact keeps), its messages and the chat. A chat pi works in is
-  refused (409, "stop it first"), as are a chat a Routine tells its runs in and the chat of a Routine's live run.
+  refused (409, "stop it first"), as are a chat with an open Run, a chat a Routine tells its runs in and the chat
+  of a Routine's live run. Removing a Bot with its chats also refuses to detach open Runs.
   After the commit (t3code's thread deletion) its pi is stopped and its files go: `attachments/<chat>` in its Bot's
   folder through the folders' helper, then `run/<chat>` and `sessions/<chat>` through `HYPOMNEMA_CHAT_RM_COMMAND`; a
   file that stays is logged and named in the answer's `files_left`, and the chat stays deleted. Each
   event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
   escalation, the Run ended) adds one wake-up to the chat, unique per event. A `task.status` event's `reason` is why
-  the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each `wake` row
+  the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each event-backed `wake` row
   with its event in the same query (issue #303) and sends it as `ChatMessage.wake`: the event, its Run, Task and
   question, the status, the reason and an escalation's kind; the event never changes, so nothing is kept in step.
   pi reads the row's text. The web draws a wake row as a card across the lane (after t3code's
@@ -992,6 +993,24 @@ sequenceDiagram
   the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
   page's `?task=`, as the Team page's) or shows the Run docked above the composer (below); a Run the chat does not
   dock opens its own chat, or, with no chat, its first Task's panel (issue #327).
+- **Run custody** (issue #969, `orchestration/run_custody.go`): the client API assigns a new interactive Run to the
+  named chat or the main Bot's main chat (creating it if needed), and keeps the creator and the supervisor's
+  registered coordinator token ID. A Bot uses its own chat, a script Routine stays chatless, and other external
+  coordinator tokens cannot create an interactive Run. Retry of the same create does not resolve the default again.
+  Only the owner can adopt a specific open, unbound Run; another live coordinator's Run or an ambiguous chatless
+  Bot-created Run is left alone. A chatless Run stays as it was until selected. A Bot can follow up, answer
+  coordinator gates, and create reviews only with both the assigned chat and its coordinator token ID. The usual
+  Bot permissions, Connection checks, owner-only gates, and `review_of` rules still apply.
+  - From: Hermes `9f476774`, `hermes_cli/kanban_db_graph.py:113` (persist the receiving coordinator with the
+    work); Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:63`, and OpenHands SDK `fb565cfe`,
+    `conversation_lease.py:167` (respect an existing principal). The main-chat default and owner-only legacy
+    adoption are Hypomnema decisions approved by the owner on 2026-11-20.
+  - Adoption saves the binding, the Run's existing event cutoff and one undelivered notice in the same write.
+    The notice tells pi to read the current work; it has no event sequence and does not move the chat's shared
+    cursor. `ChatsWithRuns` and `WakeChats` route subsequent events normally, even after a restart.
+    From: Orca `a5c191cc0`, `send-point-to-point.ts:194` (commit before waking), and t3code `d2606600`,
+    `Orchestrator.ts:16532` (reoffer persisted completion messages). The per-Run cutoff is specific to Hypomnema's
+    shared chat cursor. See the [reference comparison](https://github.com/kl3inIT/hypomnema/issues/969#issuecomment-7029495213).
 - Artifacts (issue #402, `orchestration/artifacts.go`, `internal/shared/artifactpack`, after OpenMausBot's chat
   pages `server/chat-apps.ts`, `app-docs.ts`, `page-files.ts` and `server/pages/bundle.ts`): what a Bot hands the
   owner to look at in its chat, an HTML page or folder, a PDF, an image or any other file.
@@ -4524,7 +4543,9 @@ The owner's commands:
     over SSH with (owner). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
-  - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
+  - `runs create --chat <id>` and `run --chat <id>` choose the receiving chat (otherwise the API uses the default
+    described in Run custody); `runs adopt <run> [--chat <id>]` is the owner's command to assign existing work.
+  - `runs wait <run>` is optional observation. It returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
     escalation came or the Run ended, with the cursor for the next wait and the next commands (`questions show`,
     `tasks show`, `runs finish` once every Task ended); it sends one request per 50 s while nothing happens.
   - `tasks list` prints the Tasks in flight (`GET /tasks`), a line a Task with what its worker does now or its
@@ -4536,8 +4557,8 @@ The owner's commands:
   new chat, which becomes the Bot's main chat; `--bot` and `--new` are refused with `--chat` (issue #616); without
   a message it shows the chat, and a Bot with no main chat shows none and makes none; the message `/new` is
   `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`. `runs create` sends
-  `HYPOMNEMA_CHAT_ID` when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends
-  (issue #260).
+  `HYPOMNEMA_CHAT_ID` when pi's environment has it and `--chat` is absent; the API refuses another chat with
+  pi's own token (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
   the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).

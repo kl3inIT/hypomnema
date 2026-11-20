@@ -578,6 +578,22 @@ func (q *Queries) InsertRestartBoot(ctx context.Context, at int64) error {
 	return err
 }
 
+const insertRunAdoptionNotice = `-- name: InsertRunAdoptionNotice :exec
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (?1, 'system', 'wake', ?2, 1, ?3)
+`
+
+type InsertRunAdoptionNoticeParams struct {
+	ChatID string
+	Text   string
+	Now    int64
+}
+
+func (q *Queries) InsertRunAdoptionNotice(ctx context.Context, arg InsertRunAdoptionNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, insertRunAdoptionNotice, arg.ChatID, arg.Text, arg.Now)
+	return err
+}
+
 const isReadRun = `-- name: IsReadRun :one
 SELECT EXISTS (SELECT 1 FROM chat_messages WHERE chat_id = chats.id AND read_run = 1)
 FROM chats WHERE id = ?1

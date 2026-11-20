@@ -41,14 +41,40 @@ func runsCreate(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	run, err := createRun(ctx, e, openapi.NewRun{
-		Objective: objective, Repo: optional(fs, "repo"), Base: optional(fs, "base"), ChatId: chatOfThisAgent(),
+		Objective: objective, Repo: optional(fs, "repo"), Base: optional(fs, "base"), ChatId: runChat(fs),
 		Uses: uses(fs),
 	}, key(fs))
 	if err != nil {
 		return err
 	}
 
-	return e.print(fs, run, func() { e.printf("run %s (%s)\n", run.Id, run.Status) })
+	return e.print(fs, run, func() { e.printf("run %s (%s)%s\n", run.Id, run.Status, runChatSuffix(run)) })
+}
+
+func runChat(fs *flag.FlagSet) *string {
+	if named := optional(fs, "chat"); named != nil {
+		return named
+	}
+	return chatOfThisAgent()
+}
+
+func runChatSuffix(run openapi.Run) string {
+	if chat := val(run.ChatId); chat != "" {
+		return " in chat " + chat
+	}
+	return ""
+}
+
+func runsAdopt(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+	resp, err := e.api.AdoptRunWithResponse(ctx, id, openapi.RunAdoption{ChatId: optional(fs, "chat")})
+	if err != nil {
+		return fmt.Errorf("adopting run %s: %w", id, err)
+	}
+	if resp.JSON200 == nil {
+		return apiError("adopting run "+id, resp.StatusCode(), resp.JSONDefault)
+	}
+	return e.print(fs, resp.JSON200, func() { e.printf("run %s (%s)%s\n", id, resp.JSON200.Status, runChatSuffix(*resp.JSON200)) })
 }
 
 func runsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
