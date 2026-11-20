@@ -656,6 +656,13 @@ func checkModel(ctx context.Context, q *store.Queries, runtime, provider, model,
 	var fits []string
 
 	for _, m := range offers {
+		// A bare model name never picks OpenCode Zen, which spends the workspace's balance and lists the models
+		// the subscriptions and Go already serve: Zen is named (provider opencode-zen), as 9router and omniroute
+		// address a model by its provider's alias (issue #965).
+		if provider == "" && m.Kind == ProviderOpenCodeZen {
+			continue
+		}
+
 		if slices.Contains(kinds, m.Kind) && (provider == "" || m.Provider == provider) {
 			fits = append(fits, m.Provider)
 		}

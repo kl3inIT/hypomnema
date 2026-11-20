@@ -175,6 +175,39 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 		"claude reaches claude-sonnet-5-5 through the world's gateway and the subscription")
 }
 
+// Scenario: OpenCode Zen lists models the subscriptions and Go also serve
+// (issue #965). A bare model name keeps the provider it had, and is never
+// taken to Zen, which spends the workspace's balance; Zen is reached when it
+// is named.
+func TestABareModelNameNeverPicksOpenCodeZen(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+
+	_, err := w.s.ApplyProvider(t.Context(), "",
+		"name: opencode-zen\nkind: opencode_zen\nmodels: [claude-haiku-5-5, gpt-6.1-sol, glm-5.3, zen-only]\n")
+	require.NoError(t, err)
+
+	p, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-haiku-5-5}\n")
+	require.NoError(t, err)
+	assert.Equal(t, "claude-subscription", p.Provider, "the subscription keeps its bare name")
+
+	p, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: g\ndescription: d\nruntime: omp\nmodel: {name: glm-5.3}\n")
+	require.NoError(t, err)
+	assert.Equal(t, "opencode-go", p.Provider, "Go keeps its bare name")
+
+	_, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: y\ndescription: d\nruntime: omp\nmodel: {name: zen-only}\n")
+	require.ErrorContains(t, err, "offers model", "a model only Zen lists is named with Zen")
+
+	p, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: z\ndescription: d\nruntime: omp\nmodel: {provider: opencode-zen, name: zen-only}\n")
+	require.NoError(t, err)
+	assert.Equal(t, "opencode-zen", p.Provider)
+}
+
 // A provider names where its key is kept, never the key; and it cannot drop
 // a model or a kind a profile depends on.
 func TestAProviderKeepsItsProfilesWorking(t *testing.T) {
