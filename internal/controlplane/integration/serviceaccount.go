@@ -118,7 +118,7 @@ type serviceAccountTokens struct {
 
 // tokenSource is a key's token, signed and exchanged here and renewed before it ends (x/oauth2/jwt, which keeps
 // it in a ReuseTokenSource).
-func (s *Service) tokenSource(key serviceAccountKey) oauth2.TokenSource {
+func (s *Service) tokenSource(ctx context.Context, key serviceAccountKey) oauth2.TokenSource {
 	tokenURL := key.TokenURI
 	if s.googleTokenURL != "" {
 		tokenURL = s.googleTokenURL
@@ -129,7 +129,8 @@ func (s *Service) tokenSource(key serviceAccountKey) oauth2.TokenSource {
 		Scopes: []string{bigqueryScope}, TokenURL: tokenURL,
 	}
 
-	return cfg.TokenSource(context.WithValue(context.Background(), oauth2.HTTPClient, s.client))
+	// The source outlives the request that made it: it renews the token for later calls.
+	return cfg.TokenSource(context.WithValue(context.WithoutCancel(ctx), oauth2.HTTPClient, s.client))
 }
 
 // bigqueryClient is a client of BigQuery that sends each request with the token of the source.
@@ -198,7 +199,7 @@ func (s *Service) ConnectServiceAccount(ctx context.Context, integration, label 
 		return Connection{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 
-	source := s.tokenSource(key)
+	source := s.tokenSource(ctx, key)
 	if err := s.checkServiceAccount(ctx, orchestration.Use(d.ID, label), settings, source); err != nil {
 		return Connection{}, err
 	}
@@ -310,7 +311,7 @@ func (s *Service) serviceAccount(ctx context.Context, conn orchestration.Connect
 		return nil, err
 	}
 
-	source := s.tokenSource(key)
+	source := s.tokenSource(ctx, key)
 
 	s.mu.Lock()
 	s.serviceAccounts[k] = serviceAccountTokens{secret: conn.Secret, version: opened.Version, source: source}

@@ -175,7 +175,9 @@ func (s *Server) bigqueryCall(w http.ResponseWriter, r *http.Request, a agent, l
 	}
 
 	ctx := r.Context()
-	action, subject, fields := "bigquery.read", "", []orchestration.Field(nil)
+	action, fields := "bigquery.read", []orchestration.Field(nil)
+
+	var subject string
 
 	switch call.Tool {
 	case agenttool.ToolBigQueryDatasets:

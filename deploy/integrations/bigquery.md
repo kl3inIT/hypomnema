@@ -86,8 +86,8 @@ Each query is one GoogleSQL `SELECT`, checked by a lexer and by a dry run before
 one query job may bill on demand: 10 GiB unless set (about $0.061 at $6.25 a TiB). A query whose dry run says more
 is refused before it runs; the job itself carries the same cap. Change it with
 `hypomnema integrations max-bytes bigquery:ga4 2GiB` or on the web (Bytes cap). It is not a daily budget: use
-BigQuery's custom daily quotas on the billing project for that. A job stopped at its time limit is cancelled, which
-BigQuery may not honour before it ends and bills.
+BigQuery's custom daily quotas on the billing project for that. A job stopped at its time limit is canceled, which
+BigQuery may not honor before it ends and bills.
 
 ## In a Routine's script
 

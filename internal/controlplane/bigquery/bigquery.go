@@ -265,7 +265,8 @@ func (c *Client) Datasets(ctx context.Context) ([]DatasetRef, error) {
 	out := []DatasetRef{}
 
 	for _, p := range projects {
-		it := c.sdk.DatasetsInProject(ctx, p)
+		it := c.sdk.Datasets(ctx)
+		it.ProjectID = p
 
 		for len(out) < maxDatasets*len(projects) {
 			d, err := it.Next()
@@ -457,7 +458,7 @@ type Result struct {
 }
 
 // CancelError is a job stopped at its limit, or whose answer was lost: its cancel was requested, which BigQuery
-// may not honour before the job ends and bills up to the cap.
+// may not honor before the job ends and bills up to the cap.
 type CancelError struct {
 	Project, JobID, Location string
 	// Never says BigQuery answered the cancel that it has no such job: it was never made.
@@ -506,7 +507,8 @@ func (c *Client) Query(ctx context.Context, r Request) (Result, error) {
 	}
 
 	for _, t := range stats.ReferencedTables {
-		out.ReferencedTabs = append(out.ReferencedTabs, TableRef{Project: t.ProjectId, Dataset: t.DatasetId, Table: t.TableId})
+		out.ReferencedTabs = append(out.ReferencedTabs,
+			TableRef{Project: t.ProjectId, Dataset: t.DatasetId, Table: t.TableId})
 	}
 
 	if r.DryRun {
@@ -580,7 +582,7 @@ func routineName(r *bqrest.RoutineReference) string {
 }
 
 // run runs the job the dry run allowed. Its project, id and location are kept, and logged, before it is sent, so a
-// job whose answer is lost can still be cancelled.
+// job whose answer is lost can still be canceled.
 func (c *Client) run(ctx context.Context, r Request, out Result, location string) (Result, error) {
 	out.Project, out.JobID, out.Location = c.settings.BillingProject, c.newID(), location
 	digest := sha256.Sum256([]byte(r.SQL))
@@ -824,7 +826,7 @@ func googleCause(err error) string {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "it took too long"
 	case errors.Is(err, context.Canceled):
-		return "it was cancelled"
+		return "it was canceled"
 	}
 
 	// Only the innermost error: the outer ones of net/http repeat the address.

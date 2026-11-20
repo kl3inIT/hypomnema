@@ -40,7 +40,7 @@ import (
 // with the key, the vault, the service proxy that decides, the client API), against a fake Google token endpoint
 // and a fake BigQuery. The key is made in the test; no real credential is anywhere here.
 
-const bqFakeToken = "ya29.fake-token-of-the-cli-test"
+const bqFakeToken = "ya29.fake-token-of-the-cli-test" //nolint:gosec // A made-up token of a test.
 
 type bigqueryCLIWorld struct {
 	*world
@@ -117,6 +117,7 @@ func newBigQueryCLIWorld(t *testing.T, hold time.Duration) *bigqueryCLIWorld {
 	require.NoError(t, err)
 
 	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+	//nolint:gosec // A key made by this test, with a throwaway RSA key.
 	key, err := json.Marshal(map[string]string{
 		"type": "service_account", "project_id": "key-project", "private_key_id": "k1", "private_key": pemKey,
 		"client_email": "hypomnema-ga4@data-project.iam.gserviceaccount.com",

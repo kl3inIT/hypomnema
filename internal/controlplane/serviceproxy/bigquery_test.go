@@ -47,7 +47,8 @@ func TestAReadRunReadsBigQueryAndIsNeverAsked(t *testing.T) {
 		require.NoError(t, w.proxy.Judge(ctx, bigqueryAct(reader, action, "")), action)
 	}
 
-	require.NoError(t, w.svc.SetActionPolicy(ctx, serviceproxy.BigQueryID, "ga4", "bigquery.query", orchestration.PolicyAsk))
+	require.NoError(t, w.svc.SetActionPolicy(ctx, serviceproxy.BigQueryID, "ga4", "bigquery.query",
+		orchestration.PolicyAsk))
 
 	err := w.proxy.Judge(ctx, bigqueryAct(reader, "bigquery.query", ""))
 
@@ -68,7 +69,8 @@ func TestARoutinesQueryAsksOnceForTheRoutine(t *testing.T) {
 	w := newWorld(t, time.Minute)
 	ctx := t.Context()
 	w.bigqueryConnection()
-	require.NoError(t, w.svc.SetActionPolicy(ctx, serviceproxy.BigQueryID, "ga4", "bigquery.query", orchestration.PolicyAsk))
+	require.NoError(t, w.svc.SetActionPolicy(ctx, serviceproxy.BigQueryID, "ga4", "bigquery.query",
+		orchestration.PolicyAsk))
 
 	put := func(name string) routinestore.Routine {
 		r, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{

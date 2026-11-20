@@ -30,7 +30,7 @@ import (
 
 const (
 	saEmail    = "hypomnema-ga4@data-project.iam.gserviceaccount.com"
-	fakeToken  = "ya29.fake-access-token-of-the-test"
+	fakeToken  = "ya29.fake-access-token-of-the-test" //nolint:gosec // A made-up token of a test.
 	ga4Dataset = "data-project.analytics_1"
 )
 
@@ -101,6 +101,7 @@ func serviceAccountKey(t *testing.T, change func(map[string]any)) ([]byte, strin
 
 	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
 
+	//nolint:gosec // A key made by this test, with a throwaway RSA key.
 	key := map[string]any{
 		"type": "service_account", "project_id": "key-project", "private_key_id": "abc123",
 		"private_key": pemKey, "client_email": saEmail, "client_id": "1",

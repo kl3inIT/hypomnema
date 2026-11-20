@@ -102,8 +102,8 @@ func (s *Server) judgeBigQuery(ctx context.Context, act serviceproxy.Act, action
 // bigqueryError turns what BigQuery or the gate said into this API's errors. None holds a key or a token.
 func bigqueryError(err error) error {
 	var (
-		access    *bigquery.AccessError
-		cancelled *bigquery.CancelError
+		access   *bigquery.AccessError
+		canceled *bigquery.CancelError
 	)
 
 	switch {
@@ -115,7 +115,7 @@ func bigqueryError(err error) error {
 		return fmt.Errorf("%w: %s", orchestration.ErrInvalid, err.Error())
 	case errors.Is(err, bigquery.ErrNotFound):
 		return fmt.Errorf("%w: %s", orchestration.ErrNotFound, err.Error())
-	case errors.As(err, &cancelled):
+	case errors.As(err, &canceled):
 		return fmt.Errorf("%w: %s", orchestration.ErrUnavailable, err.Error())
 	case errors.Is(err, orchestration.ErrInvalid), errors.Is(err, orchestration.ErrNotFound),
 		errors.Is(err, orchestration.ErrConflict), errors.Is(err, orchestration.ErrUnavailable):

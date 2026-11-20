@@ -180,12 +180,17 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, reason, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+
+	//nolint:errchkjson // maps of strings and numbers always encode; the status is already sent.
 	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{
 		"code": status, "message": message, "errors": []map[string]any{{"reason": reason, "message": message}},
 	}})
@@ -387,8 +392,8 @@ func (s *Server) results(w http.ResponseWriter, r *http.Request) {
 	page := rows[min(start, len(rows)):]
 
 	size := len(page)
-	if max := r.URL.Query().Get("maxResults"); max != "" {
-		_, _ = fmt.Sscan(max, &size)
+	if asked := r.URL.Query().Get("maxResults"); asked != "" {
+		_, _ = fmt.Sscan(asked, &size)
 	}
 
 	if size > len(page) {

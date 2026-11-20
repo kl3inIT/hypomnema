@@ -22,6 +22,26 @@ const ga4Sample = "WITH base AS (SELECT event_name, user_pseudo_id, PARSE_DATE('
 	"'20261119' AND event_name IN ('first_open','user_engagement','app_remove')) SELECT d, COUNT(DISTINCT " +
 	"user_pseudo_id) FROM base GROUP BY d ORDER BY d;"
 
+// field is an object of a request's JSON body.
+func field(t *testing.T, body map[string]any, name string) map[string]any {
+	t.Helper()
+
+	got, ok := body[name].(map[string]any)
+	require.True(t, ok, "%s is an object", name)
+
+	return got
+}
+
+// text is a text of a request's JSON body.
+func text(t *testing.T, body map[string]any, name string) string {
+	t.Helper()
+
+	got, ok := body[name].(string)
+	require.True(t, ok, "%s is a text", name)
+
+	return got
+}
+
 func client(t *testing.T, fake *bigquerytest.Server, s bigquery.Settings) *bigquery.Client {
 	t.Helper()
 
@@ -76,7 +96,7 @@ func TestTheGateLetsOneSelectThrough(t *testing.T) {
 			require.Len(t, requests, 1)
 			assert.True(t, requests[0].IsDryRun())
 
-			query, _ := requests[0].Body["configuration"].(map[string]any)["query"].(map[string]any)
+			query := field(t, field(t, requests[0].Body, "configuration"), "query")
 			assert.Equal(t, sql, query["query"], "the same bytes")
 		})
 	}
@@ -174,7 +194,7 @@ func TestAGoodQueryRunsAsItsDryRunSaid(t *testing.T) {
 	requests := fake.Requests()
 	require.True(t, requests[0].IsDryRun())
 
-	dryQuery := requests[0].Body["configuration"].(map[string]any)["query"].(map[string]any)
+	dryQuery := field(t, field(t, requests[0].Body, "configuration"), "query")
 	assert.Equal(t, "10737418240", dryQuery["maximumBytesBilled"])
 	assert.Equal(t, false, dryQuery["useLegacySql"])
 	assert.Equal(t, "/projects/billing-project/jobs", requests[0].Path)
@@ -182,14 +202,14 @@ func TestAGoodQueryRunsAsItsDryRunSaid(t *testing.T) {
 	jobs := fake.Jobs()
 	require.Len(t, jobs, 1)
 
-	ref := jobs[0].Body["jobReference"].(map[string]any)
+	ref := field(t, jobs[0].Body, "jobReference")
 	assert.Equal(t, "billing-project", ref["projectId"])
 	assert.Equal(t, "US", ref["location"], "the dry run's location, the Connection naming none")
-	assert.True(t, strings.HasPrefix(ref["jobId"].(string), "hyp-"))
+	assert.True(t, strings.HasPrefix(text(t, ref, "jobId"), "hyp-"))
 	assert.Equal(t, got.JobID, ref["jobId"])
 
-	config := jobs[0].Body["configuration"].(map[string]any)
-	query := config["query"].(map[string]any)
+	config := field(t, jobs[0].Body, "configuration")
+	query := field(t, config, "query")
 	assert.Equal(t, ga4Sample, query["query"], "the same bytes as the dry run")
 	assert.Equal(t, "10737418240", query["maximumBytesBilled"])
 	assert.NotContains(t, query, "destinationTable")
@@ -216,7 +236,7 @@ func TestTheConnectionsLocationWins(t *testing.T) {
 	_, err := client(t, fake, bigquery.Settings{Location: "asia-southeast1"}).Query(t.Context(),
 		bigquery.Request{SQL: "SELECT 1"})
 	require.NoError(t, err)
-	assert.Equal(t, "asia-southeast1", fake.Jobs()[0].Body["jobReference"].(map[string]any)["location"])
+	assert.Equal(t, "asia-southeast1", field(t, fake.Jobs()[0].Body, "jobReference")["location"])
 }
 
 // Scenario: the job ends as something else than a SELECT: its rows are not read.
@@ -236,9 +256,9 @@ func TestAJobThatEndsAsNoSelectIsNotRead(t *testing.T) {
 	}
 }
 
-// Scenario: jobs.insert is accepted but never answered. At the limit the job is cancelled from the project, id and
+// Scenario: jobs.insert is accepted but never answered. At the limit the job is canceled from the project, id and
 // location kept before it was sent, on a context that outlived the request.
-func TestALostSubmitIsCancelledFromWhatWasKept(t *testing.T) {
+func TestALostSubmitIsCanceledFromWhatWasKept(t *testing.T) {
 	t.Parallel()
 
 	fake := bigquerytest.New(t)
@@ -248,8 +268,8 @@ func TestALostSubmitIsCancelledFromWhatWasKept(t *testing.T) {
 		SQL: "SELECT 1", Timeout: 300 * time.Millisecond,
 	})
 
-	var cancelled *bigquery.CancelError
-	require.ErrorAs(t, err, &cancelled)
+	var canceled *bigquery.CancelError
+	require.ErrorAs(t, err, &canceled)
 	assert.Contains(t, err.Error(), "cancel requested")
 
 	jobs := fake.Jobs()
@@ -261,12 +281,12 @@ func TestALostSubmitIsCancelledFromWhatWasKept(t *testing.T) {
 		t.Fatal("the submit's request had not ended when the cancel was sent")
 	}
 
-	ref := jobs[0].Body["jobReference"].(map[string]any)
+	ref := field(t, jobs[0].Body, "jobReference")
 	cancels := fake.Cancels()
 	require.Len(t, cancels, 1)
-	assert.Equal(t, "/projects/"+ref["projectId"].(string)+"/jobs/"+ref["jobId"].(string)+"/cancel", cancels[0].Path)
+	assert.Equal(t, "/projects/"+text(t, ref, "projectId")+"/jobs/"+text(t, ref, "jobId")+"/cancel", cancels[0].Path)
 	assert.Contains(t, cancels[0].Query, "location=US")
-	assert.Equal(t, cancelled.JobID, ref["jobId"])
+	assert.Equal(t, canceled.JobID, ref["jobId"])
 }
 
 // Scenario: a cancel BigQuery answers with 404 says the job was never made.
@@ -280,14 +300,14 @@ func TestACancelOfAJobNeverMadeSaysSo(t *testing.T) {
 		SQL: "SELECT 1", Timeout: 200 * time.Millisecond,
 	})
 
-	var cancelled *bigquery.CancelError
-	require.ErrorAs(t, err, &cancelled)
-	assert.True(t, cancelled.Never)
+	var canceled *bigquery.CancelError
+	require.ErrorAs(t, err, &canceled)
+	assert.True(t, canceled.Never)
 	assert.Contains(t, err.Error(), "did not start")
 }
 
-// Scenario: a job still running at the limit is cancelled, and the answer says the cancel was requested.
-func TestAJobRunningAtItsLimitIsCancelled(t *testing.T) {
+// Scenario: a job still running at the limit is canceled, and the answer says the cancel was requested.
+func TestAJobRunningAtItsLimitIsCanceled(t *testing.T) {
 	t.Parallel()
 
 	fake := bigquerytest.New(t)
@@ -297,12 +317,12 @@ func TestAJobRunningAtItsLimitIsCancelled(t *testing.T) {
 		SQL: "SELECT 1", Timeout: 500 * time.Millisecond,
 	})
 
-	var cancelled *bigquery.CancelError
-	require.ErrorAs(t, err, &cancelled)
+	var canceled *bigquery.CancelError
+	require.ErrorAs(t, err, &canceled)
 	assert.Contains(t, err.Error(), "cancel requested")
 	assert.Contains(t, err.Error(), "billed up to the cap")
 	require.Len(t, fake.Cancels(), 1)
-	assert.Contains(t, fake.Cancels()[0].Path, cancelled.JobID)
+	assert.Contains(t, fake.Cancels()[0].Path, canceled.JobID)
 }
 
 // Scenario: more rows than asked for: the answer has as many, with the total and truncated.
@@ -401,7 +421,7 @@ func TestTheCheckReadsANativeTable(t *testing.T) {
 	last := fake.Requests()[len(fake.Requests())-1]
 	require.True(t, last.IsDryRun())
 	assert.Equal(t, "SELECT 1 FROM `data-project.analytics_1.events_20261119` LIMIT 1",
-		last.Body["configuration"].(map[string]any)["query"].(map[string]any)["query"])
+		field(t, field(t, last.Body, "configuration"), "query")["query"])
 	assert.Empty(t, fake.Jobs())
 
 	for name, c := range map[string]struct {
@@ -431,7 +451,9 @@ func TestTheCheckReadsANativeTable(t *testing.T) {
 func TestSizes(t *testing.T) {
 	t.Parallel()
 
-	for in, want := range map[string]int64{"10GiB": 10 << 30, "500MB": 500e6, "1TiB": 1 << 40, "2048": 2048, "1.5GiB": 3 << 29} {
+	for in, want := range map[string]int64{
+		"10GiB": 10 << 30, "500MB": 500e6, "1TiB": 1 << 40, "2048": 2048, "1.5GiB": 3 << 29,
+	} {
 		got, err := bigquery.ParseSize(in)
 		require.NoError(t, err, in)
 		assert.Equal(t, want, got, in)
