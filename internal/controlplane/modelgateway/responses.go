@@ -159,8 +159,7 @@ func (s *Server) serveResponses(
 	for _, target := range model.Targets {
 		u, _, err := s.svc.upstreamFor(ctx, target)
 		// An OpenCode Go model served on Responses is passed the request too (issue #854).
-		if err == nil && (u.Kind == "codex_subscription" ||
-			(u.Kind == openCodeGoKind && s.svc.goWire(ctx, u.Model) == goWireResponses)) {
+		if err == nil && s.svc.servedOnResponses(ctx, u.Kind, u.Model) {
 			targets = append(targets, u)
 		}
 	}

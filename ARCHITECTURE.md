@@ -3295,7 +3295,48 @@ capabilities do not exist yet.
   31 days and every revoked key no request names any more; a live key is never deleted (issue
   [#628](https://github.com/kl3inIT/hypomnema/issues/628), as Coder's dbpurge deletes expired API keys).
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
-  errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
+  errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key. Each model has a `display_name`
+  and `name` (the web client's `modelName` rule, `modelgateway/display.go`) and, for a Codex subscription's model
+  Codex bundles, Codex's `description`, which Claude Code adds to `/model` with gateway model discovery; and what
+  omp's proxy discovery reads (`discoverProxyModels`): `supported_endpoint_types` (`["anthropic", "openai"]` for a
+  model whose first target's subscription speaks Messages, `agentconfig.Wires`, else `["openai"]`), and, when known,
+  `context_length`, `reasoning` and `supported_reasoning_levels`. `?limit=N` gives the first N and `has_more`
+  (issue #907; Claude Code asks `?limit=1000`).
+- `GET /v1/codex/models` (issue #907, `modelgateway/codex_catalog.go`; in `api/openapi.yaml` as
+  `GetCodexModelCatalog`, tagged `gateway` with the `gatewayKey` scheme, which neither the client API's generated
+  server nor the web client's SDK includes) is the key's catalog in Codex's own format (`{"models": [ModelInfo…]}`,
+  codex-rs `protocol/src/openai_models.rs`), for a Codex provider's `model_catalog_url`: the models the key may use
+  that `/v1/responses` serves, in the gateway's order, each Codex's bundled entry for the model behind it
+  (`modelgateway/codexmodels/models.json`, Codex `rust-v0.169.1`, third_party/codex, whose license and notice the
+  control plane's release carries) or Codex's entry for a model it does not know, renamed to the gateway's name,
+  listed in the picker, without an upgrade, notice or review model, and given the window, inputs and effort levels
+  of the target `/v1/responses` serves (the model's own attributes when it is the first target; else the target's
+  alone; else the entry's levels the provider takes; the default stays Codex's when offered, else medium, else the
+  first). The body stays under 1 MiB, past which Codex keeps its bundled catalog (as CLIProxyAPI found): only the
+  first entry of each bundled model keeps Codex's instructions, a model Codex does not bundle and a second name for
+  the same one get CLIProxyAPI's short ones, and when it is still too big the last entries that keep theirs give
+  them up. When even every entry compact is too big (hundreds of names), only the entries that fit are listed, the
+  subscriptions' own models before the table's names, then by name (our own choice: no reference trims a catalog);
+  the answer's `X-Hypomnema-Omitted-Models` says how many were left out (0 when none) and the gateway logs it. The
+  release script's dry run (`RELEASE_DRY_RUN=1`) is how a test checks that Codex's license and notice go out with
+  the control plane. Codex then lists the models in `/model` instead of its bundled ones, and a level it sends is one the
+  gateway passes on.
+- Settings → Connect a tool (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
+  Claude Code, Codex, omp and OpenCode with a key (the owner's keys whose value is stored; a key opened with its
+  row's Connect on Gateway keys even without, its files then holding `<your gateway key>`), a model the key may use
+  from the tool, and the files with their paths and copy buttons; a card shows and copies only the answer for the
+  key, model and tool chosen now, not an earlier one kept while the next is read. `GET
+  /gateway/keys/{key_id}/connect/{tool}?base_url=&model=` (the owner's, `no-store`) answers the models, the model
+  chosen (the one asked when offered, else the first; `<model>` when none), `key_stored` and the files, written by
+  `internal/shared/agentconfig`, which also writes the workers' omp and OpenCode files
+  (`internal/node/acp/agents.go`, one model each): `~/.claude/settings.json` (the env block: the gateway's root,
+  the key, the model pinned for Opus, Sonnet and Haiku, model discovery on, the model's window as
+  `CLAUDE_CODE_AUTO_COMPACT_WINDOW`), `~/.codex/config.toml` (the provider `hypomnema` on Responses with
+  `model_catalog_url` and the key as `experimental_bearer_token`, no WebSocket), `~/.omp/agent/models.yml` (the
+  provider with `discovery: proxy`, which reads every model of the key from `/v1/models`) with
+  `~/.omp/agent/config.yml` (`modelRoles.default` the chosen model), and `~/.config/opencode/opencode.json` (every
+  model of the key with its window and largest output, the chosen one as `model`). Nothing is written onto the
+  machine the tool runs on.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
   read as a map of its top-level keys, the model's name is replaced by the provider's and everything else goes
   through, each value as the bytes the client sent. The client's headers are not forwarded; the provider's key comes
@@ -4600,7 +4641,8 @@ Node (`internal/node`):
   table: the command (`omp acp`, `opencode acp`) and the configuration written under
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
-  own, away from the user's and the project's). Each CLI's own web and image tools are off, so that the worker has
+  own, away from the user's and the project's); the part that names the gateway is `internal/shared/agentconfig`'s,
+  which writes Settings → Connect a tool's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
   the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
   opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
   out of its tools. Neither is given an image model. A turn is `initialize`, `session/new` with the tools server as an

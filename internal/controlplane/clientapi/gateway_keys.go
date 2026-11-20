@@ -88,6 +88,37 @@ func (s *Server) GetGatewayKeyValue(ctx context.Context, req openapi.GetGatewayK
 	}, nil
 }
 
+// GetGatewayToolConfig writes the file that points a tool at the gateway with an owner-made key (issue #907).
+func (s *Server) GetGatewayToolConfig(ctx context.Context, req openapi.GetGatewayToolConfigRequestObject,
+) (openapi.GetGatewayToolConfigResponseObject, error) {
+	if s.gatewayKeys == nil {
+		return nil, fmt.Errorf("%w: this control plane runs no model gateway", orchestration.ErrUnavailable)
+	}
+
+	c, err := s.gatewayKeys.ToolConfig(ctx, req.KeyId, modelgateway.Tool(req.Tool), val(req.Params.Model),
+		req.Params.BaseUrl)
+	if err != nil {
+		return nil, gatewayKeyError(err)
+	}
+
+	out := openapi.GatewayToolConfig{
+		Tool: openapi.GatewayTool(c.Tool), Models: c.Models, Model: c.Model, KeyStored: c.KeyStored,
+		Files: make([]openapi.GatewayToolFile, 0, len(c.Files)),
+	}
+
+	for _, f := range c.Files {
+		out.Files = append(out.Files, openapi.GatewayToolFile{
+			Path: f.Path, Content: f.Content, Format: f.Format,
+		})
+	}
+
+	noStore := "no-store"
+
+	return openapi.GetGatewayToolConfig200JSONResponse{
+		Body: out, Headers: openapi.GetGatewayToolConfig200ResponseHeaders{CacheControl: &noStore},
+	}, nil
+}
+
 func gatewayEndpoints[Endpoint ~string](endpoints *[]Endpoint) []modelgateway.Endpoint {
 	if endpoints == nil {
 		return nil

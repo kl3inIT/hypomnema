@@ -183,6 +183,9 @@ type GatewayKeys interface {
 	UpdateKey(ctx context.Context, id string, change modelgateway.KeyUpdate) (modelgateway.Key, error)
 	KeyValue(ctx context.Context, id string) (string, error)
 	RevokeKey(ctx context.Context, id string) error
+	// ToolConfig writes the file that points a tool at the gateway with a key (issue #907).
+	ToolConfig(ctx context.Context, keyID string, tool modelgateway.Tool, model, baseURL string,
+	) (modelgateway.ToolConfig, error)
 }
 
 // WithGatewayKeys lets the owner manage the gateway's keys.

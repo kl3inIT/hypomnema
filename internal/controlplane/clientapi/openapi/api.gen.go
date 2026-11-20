@@ -899,6 +899,30 @@ func (e GatewayRequestOutcome) Valid() bool {
 	}
 }
 
+// Defines values for GatewayTool.
+const (
+	GatewayToolClaudeCode GatewayTool = "claude_code"
+	GatewayToolCodex      GatewayTool = "codex"
+	GatewayToolOmp        GatewayTool = "omp"
+	GatewayToolOpencode   GatewayTool = "opencode"
+)
+
+// Valid indicates whether the value is a known member of the GatewayTool enum.
+func (e GatewayTool) Valid() bool {
+	switch e {
+	case GatewayToolClaudeCode:
+		return true
+	case GatewayToolCodex:
+		return true
+	case GatewayToolOmp:
+		return true
+	case GatewayToolOpencode:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GitHostKind.
 const (
 	Github GitHostKind = "github"
@@ -3366,6 +3390,32 @@ type ChatWake struct {
 // ChatWakeEvent defines model for ChatWake.Event.
 type ChatWakeEvent string
 
+// CodexModelCatalog Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
+type CodexModelCatalog struct {
+	Models []CodexModelInfo `json:"models"`
+}
+
+// CodexModelInfo One of Codex's ModelInfo; the fields below are the ones the gateway sets, every other field is Codex's bundled entry's as written. Codex's `description` and `default_reasoning_level` (the level it starts at, one of supported_reasoning_levels) are a string or null.
+type CodexModelInfo struct {
+	BaseInstructions *string                 `json:"base_instructions,omitempty"`
+	ContextWindow    *int64                  `json:"context_window,omitempty"`
+	DisplayName      string                  `json:"display_name"`
+	InputModalities  *[]string               `json:"input_modalities,omitempty"`
+	MaxContextWindow *int64                  `json:"max_context_window,omitempty"`
+	ModelMessages    *map[string]interface{} `json:"model_messages,omitempty"`
+	Priority         int                     `json:"priority"`
+
+	// Slug The gateway's name for the model.
+	Slug                     string `json:"slug"`
+	SupportedInApi           bool   `json:"supported_in_api"`
+	SupportedReasoningLevels []struct {
+		Description string `json:"description"`
+		Effort      string `json:"effort"`
+	} `json:"supported_reasoning_levels"`
+	Visibility           string                 `json:"visibility"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
 // ConnectionAction One thing an agent can do with a Connection, and the owner's answer to it.
 type ConnectionAction struct {
 	// Access Whether the account can really do the action at the service, as last read: granted, missing (a request for it is refused before it is sent, whatever the policy), or unknown (it could not be read; requests go on).
@@ -3613,6 +3663,15 @@ type GatewayEndpoint string
 
 // GatewayEndpointSelection defines model for GatewayEndpointSelection.
 type GatewayEndpointSelection string
+
+// GatewayError The model gateway's errors, in OpenAI's shape.
+type GatewayError struct {
+	Error struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error"`
+}
 
 // GatewayKey defines model for GatewayKey.
 type GatewayKey struct {
@@ -3876,6 +3935,37 @@ type GatewayRequestList struct {
 
 	// HasMore Older requests of the period follow.
 	HasMore bool `json:"has_more"`
+}
+
+// GatewayTool A tool Settings → Connect a tool writes a file for.
+type GatewayTool string
+
+// GatewayToolConfig defines model for GatewayToolConfig.
+type GatewayToolConfig struct {
+	Files []GatewayToolFile `json:"files"`
+
+	// KeyStored The files hold the key's value; false, a placeholder in its place.
+	KeyStored bool `json:"key_stored"`
+
+	// Model The model the files name; empty when the key may use none from the tool.
+	Model string `json:"model"`
+
+	// Models The models the key may use from the tool, by name.
+	Models []string `json:"models"`
+
+	// Tool A tool Settings → Connect a tool writes a file for.
+	Tool GatewayTool `json:"tool"`
+}
+
+// GatewayToolFile defines model for GatewayToolFile.
+type GatewayToolFile struct {
+	Content string `json:"content"`
+
+	// Format The file's format: json, toml or yaml.
+	Format string `json:"format"`
+
+	// Path Where the tool reads the file
+	Path string `json:"path"`
 }
 
 // GatewayUsage defines model for GatewayUsage.
@@ -7210,6 +7300,15 @@ type StreamEventsParams struct {
 	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
 }
 
+// GetGatewayToolConfigParams defines parameters for GetGatewayToolConfig.
+type GetGatewayToolConfigParams struct {
+	// BaseUrl The gateway's origin as the tool will reach it, such as the web page's own.
+	BaseUrl string `form:"base_url" json:"base_url"`
+
+	// Model The model the file names; one the key may not use from the tool is the first it may.
+	Model *string `form:"model,omitempty" json:"model,omitempty"`
+}
+
 // GetGatewayUsageParams defines parameters for GetGatewayUsage.
 type GetGatewayUsageParams struct {
 	Period GetGatewayUsageParamsPeriod `form:"period" json:"period"`
@@ -7806,6 +7905,214 @@ type FetchWebJSONRequestBody = WebFetchRequest
 
 // SearchWebJSONRequestBody defines body for SearchWeb for application/json ContentType.
 type SearchWebJSONRequestBody = WebSearchRequest
+
+// Getter for additional properties for CodexModelInfo. Returns the specified
+// element and whether it was found
+func (a CodexModelInfo) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for CodexModelInfo
+func (a *CodexModelInfo) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for CodexModelInfo to handle AdditionalProperties
+func (a *CodexModelInfo) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["base_instructions"]; found {
+		err = json.Unmarshal(raw, &a.BaseInstructions)
+		if err != nil {
+			return fmt.Errorf("error reading 'base_instructions': %w", err)
+		}
+		delete(object, "base_instructions")
+	}
+
+	if raw, found := object["context_window"]; found {
+		err = json.Unmarshal(raw, &a.ContextWindow)
+		if err != nil {
+			return fmt.Errorf("error reading 'context_window': %w", err)
+		}
+		delete(object, "context_window")
+	}
+
+	if raw, found := object["display_name"]; found {
+		err = json.Unmarshal(raw, &a.DisplayName)
+		if err != nil {
+			return fmt.Errorf("error reading 'display_name': %w", err)
+		}
+		delete(object, "display_name")
+	}
+
+	if raw, found := object["input_modalities"]; found {
+		err = json.Unmarshal(raw, &a.InputModalities)
+		if err != nil {
+			return fmt.Errorf("error reading 'input_modalities': %w", err)
+		}
+		delete(object, "input_modalities")
+	}
+
+	if raw, found := object["max_context_window"]; found {
+		err = json.Unmarshal(raw, &a.MaxContextWindow)
+		if err != nil {
+			return fmt.Errorf("error reading 'max_context_window': %w", err)
+		}
+		delete(object, "max_context_window")
+	}
+
+	if raw, found := object["model_messages"]; found {
+		err = json.Unmarshal(raw, &a.ModelMessages)
+		if err != nil {
+			return fmt.Errorf("error reading 'model_messages': %w", err)
+		}
+		delete(object, "model_messages")
+	}
+
+	if raw, found := object["priority"]; found {
+		err = json.Unmarshal(raw, &a.Priority)
+		if err != nil {
+			return fmt.Errorf("error reading 'priority': %w", err)
+		}
+		delete(object, "priority")
+	}
+
+	if raw, found := object["slug"]; found {
+		err = json.Unmarshal(raw, &a.Slug)
+		if err != nil {
+			return fmt.Errorf("error reading 'slug': %w", err)
+		}
+		delete(object, "slug")
+	}
+
+	if raw, found := object["supported_in_api"]; found {
+		err = json.Unmarshal(raw, &a.SupportedInApi)
+		if err != nil {
+			return fmt.Errorf("error reading 'supported_in_api': %w", err)
+		}
+		delete(object, "supported_in_api")
+	}
+
+	if raw, found := object["supported_reasoning_levels"]; found {
+		err = json.Unmarshal(raw, &a.SupportedReasoningLevels)
+		if err != nil {
+			return fmt.Errorf("error reading 'supported_reasoning_levels': %w", err)
+		}
+		delete(object, "supported_reasoning_levels")
+	}
+
+	if raw, found := object["visibility"]; found {
+		err = json.Unmarshal(raw, &a.Visibility)
+		if err != nil {
+			return fmt.Errorf("error reading 'visibility': %w", err)
+		}
+		delete(object, "visibility")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for CodexModelInfo to handle AdditionalProperties
+func (a CodexModelInfo) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.BaseInstructions != nil {
+		object["base_instructions"], err = json.Marshal(a.BaseInstructions)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'base_instructions': %w", err)
+		}
+	}
+
+	if a.ContextWindow != nil {
+		object["context_window"], err = json.Marshal(a.ContextWindow)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'context_window': %w", err)
+		}
+	}
+
+	object["display_name"], err = json.Marshal(a.DisplayName)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'display_name': %w", err)
+	}
+
+	if a.InputModalities != nil {
+		object["input_modalities"], err = json.Marshal(a.InputModalities)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'input_modalities': %w", err)
+		}
+	}
+
+	if a.MaxContextWindow != nil {
+		object["max_context_window"], err = json.Marshal(a.MaxContextWindow)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'max_context_window': %w", err)
+		}
+	}
+
+	if a.ModelMessages != nil {
+		object["model_messages"], err = json.Marshal(a.ModelMessages)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'model_messages': %w", err)
+		}
+	}
+
+	object["priority"], err = json.Marshal(a.Priority)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'priority': %w", err)
+	}
+
+	object["slug"], err = json.Marshal(a.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'slug': %w", err)
+	}
+
+	object["supported_in_api"], err = json.Marshal(a.SupportedInApi)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'supported_in_api': %w", err)
+	}
+
+	if a.SupportedReasoningLevels != nil {
+		object["supported_reasoning_levels"], err = json.Marshal(a.SupportedReasoningLevels)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'supported_reasoning_levels': %w", err)
+		}
+	}
+
+	object["visibility"], err = json.Marshal(a.Visibility)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'visibility': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -8873,6 +9180,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
 	UpdateGatewayKey(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
+	//
+	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	//
+	// Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
+	GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
 	//
@@ -12790,6 +13104,23 @@ func (c *Client) UpdateGatewayKeyWithBody(ctx context.Context, keyId string, con
 // Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
 func (c *Client) UpdateGatewayKey(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateGatewayKeyRequest(c.Server, keyId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
+//
+// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+//
+// Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
+func (c *Client) GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetGatewayToolConfigRequest(c.Server, keyId, tool, params)
 	if err != nil {
 		return nil, err
 	}
@@ -21265,6 +21596,82 @@ func NewUpdateGatewayKeyRequestWithBody(server string, keyId string, contentType
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetGatewayToolConfigRequest constructs an http.Request for the GetGatewayToolConfig method
+func NewGetGatewayToolConfigRequest(server string, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "key_id", keyId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "tool", tool, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/keys/%s/connect/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "base_url", params.BaseUrl, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Model != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "model", *params.Model, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -29914,6 +30321,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /gateway/keys/{key_id} (the `UpdateGatewayKey` operationId).
 	UpdateGatewayKeyWithResponse(ctx context.Context, keyId string, body UpdateGatewayKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateGatewayKeyResponse, error)
 
+	// GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
+	//
+	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
+	GetGatewayToolConfigWithResponse(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*GetGatewayToolConfigResponse, error)
+
 	// GetGatewayKeyValueWithResponse Read the stored value of an owner-made key; only the owner
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -36235,6 +36651,61 @@ func (r UpdateGatewayKeyResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateGatewayKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetGatewayToolConfigResponse200Headers the declared response headers of an HTTP 200 response for GetGatewayToolConfig
+type GetGatewayToolConfigResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetGatewayToolConfigResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GatewayToolConfig
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetGatewayToolConfigResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetGatewayToolConfigResponse) GetJSON200() *GatewayToolConfig {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetGatewayToolConfigResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetGatewayToolConfigResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetGatewayToolConfigResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetGatewayToolConfigResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetGatewayToolConfigResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -46004,6 +46475,21 @@ func (c *ClientWithResponses) UpdateGatewayKeyWithResponse(ctx context.Context, 
 	return ParseUpdateGatewayKeyResponse(rsp)
 }
 
+// GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
+//
+// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
+func (c *ClientWithResponses) GetGatewayToolConfigWithResponse(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*GetGatewayToolConfigResponse, error) {
+	rsp, err := c.GetGatewayToolConfig(ctx, keyId, tool, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetGatewayToolConfigResponse(rsp)
+}
+
 // GetGatewayKeyValueWithResponse Read the stored value of an owner-made key; only the owner
 //
 // Returns a wrapper object for the known response body format(s).
@@ -52249,6 +52735,52 @@ func ParseUpdateGatewayKeyResponse(rsp *http.Response) (*UpdateGatewayKeyRespons
 	return response, nil
 }
 
+// ParseGetGatewayToolConfigResponse parses an HTTP response from a GetGatewayToolConfigWithResponse call
+func ParseGetGatewayToolConfigResponse(rsp *http.Response) (*GetGatewayToolConfigResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetGatewayToolConfigResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GatewayToolConfig
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetGatewayToolConfigResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseGetGatewayKeyValueResponse parses an HTTP response from a GetGatewayKeyValueWithResponse call
 func ParseGetGatewayKeyValueResponse(rsp *http.Response) (*GetGatewayKeyValueResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -57975,6 +58507,9 @@ type ServerInterface interface {
 	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
 	// (PATCH /gateway/keys/{key_id})
 	UpdateGatewayKey(w http.ResponseWriter, r *http.Request, keyId string)
+	// GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
+	// (GET /gateway/keys/{key_id}/connect/{tool})
+	GetGatewayToolConfig(w http.ResponseWriter, r *http.Request, keyId string, tool GatewayTool, params GetGatewayToolConfigParams)
 	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
 	// (GET /gateway/keys/{key_id}/value)
 	GetGatewayKeyValue(w http.ResponseWriter, r *http.Request, keyId string)
@@ -61581,6 +62116,70 @@ func (siw *ServerInterfaceWrapper) UpdateGatewayKey(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateGatewayKey(w, r, keyId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetGatewayToolConfig operation middleware
+func (siw *ServerInterfaceWrapper) GetGatewayToolConfig(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key_id" -------------
+	var keyId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key_id", r.PathValue("key_id"), &keyId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "tool" -------------
+	var tool GatewayTool
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tool", r.PathValue("tool"), &tool, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tool", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetGatewayToolConfigParams
+
+	// ------------- Required query parameter "base_url" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "base_url", r.URL.Query(), &params.BaseUrl, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "base_url"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "base_url", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "model" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "model", r.URL.Query(), &params.Model, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "model"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGatewayToolConfig(w, r, keyId, tool, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -66997,6 +67596,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/gateway/keys/{key_id}", wrapper.RevokeGatewayKey)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/gateway/keys/{key_id}", wrapper.UpdateGatewayKey)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/keys/{key_id}/value", wrapper.GetGatewayKeyValue)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/keys/{key_id}/connect/{tool}", wrapper.GetGatewayToolConfig)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/usage", wrapper.GetGatewayUsage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/usage/requests", wrapper.ListGatewayRequests)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/web-search", wrapper.GetWebSearch)
@@ -71007,6 +71607,57 @@ type UpdateGatewayKeydefaultJSONResponse struct {
 }
 
 func (response UpdateGatewayKeydefaultJSONResponse) VisitUpdateGatewayKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayToolConfigRequestObject struct {
+	KeyId  string      `json:"key_id"`
+	Tool   GatewayTool `json:"tool"`
+	Params GetGatewayToolConfigParams
+}
+
+type GetGatewayToolConfigResponseObject interface {
+	VisitGetGatewayToolConfigResponse(w http.ResponseWriter) error
+}
+
+type GetGatewayToolConfig200ResponseHeaders struct {
+	CacheControl *string
+}
+
+type GetGatewayToolConfig200JSONResponse struct {
+	Body    GatewayToolConfig
+	Headers GetGatewayToolConfig200ResponseHeaders
+}
+
+func (response GetGatewayToolConfig200JSONResponse) VisitGetGatewayToolConfigResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGatewayToolConfigdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetGatewayToolConfigdefaultJSONResponse) VisitGetGatewayToolConfigResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -77943,6 +78594,9 @@ type StrictServerInterface interface {
 	// UpdateGatewayKey Edit an owner-made key without changing its value; only the owner
 	// (PATCH /gateway/keys/{key_id})
 	UpdateGatewayKey(ctx context.Context, request UpdateGatewayKeyRequestObject) (UpdateGatewayKeyResponseObject, error)
+	// GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
+	// (GET /gateway/keys/{key_id}/connect/{tool})
+	GetGatewayToolConfig(ctx context.Context, request GetGatewayToolConfigRequestObject) (GetGatewayToolConfigResponseObject, error)
 	// GetGatewayKeyValue Read the stored value of an owner-made key; only the owner
 	// (GET /gateway/keys/{key_id}/value)
 	GetGatewayKeyValue(ctx context.Context, request GetGatewayKeyValueRequestObject) (GetGatewayKeyValueResponseObject, error)
@@ -81244,6 +81898,34 @@ func (sh *strictHandler) UpdateGatewayKey(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateGatewayKeyResponseObject); ok {
 		if err := validResponse.VisitUpdateGatewayKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetGatewayToolConfig operation middleware
+func (sh *strictHandler) GetGatewayToolConfig(w http.ResponseWriter, r *http.Request, keyId string, tool GatewayTool, params GetGatewayToolConfigParams) {
+	var request GetGatewayToolConfigRequestObject
+
+	request.KeyId = keyId
+	request.Tool = tool
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGatewayToolConfig(ctx, request.(GetGatewayToolConfigRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGatewayToolConfig")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGatewayToolConfigResponseObject); ok {
+		if err := validResponse.VisitGetGatewayToolConfigResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

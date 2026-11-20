@@ -18,6 +18,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/shared/agentconfig"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -120,13 +121,8 @@ func (s *Service) PiModel(ctx context.Context, m ChatModel) (ChatModel, error) {
 }
 
 // GatewayWires is the wire a worker speaks to the gateway for a subscription's model, where it can choose
-// (issue #549): the subscription's own, as Claude Code and Codex speak; chat for the rest. Measured on zm on
-// 2026-11-15 with pi, a Claude turn is a fifth smaller on Messages with the same cache, and Codex's cache is the
-// same on Responses.
-var GatewayWires = map[string]string{
-	ProviderClaudeSubscription: "anthropic-messages",
-	ProviderCodexSubscription:  "openai-responses",
-}
+// (issue #549); its one home is agentconfig.Wires, which the Connect a tool page's files use too (issue #907).
+var GatewayWires = agentconfig.Wires
 
 // modelAPI is the wire for a Dispatch's model: its subscription's, when the gateway serves it under
 // "<provider>/<model>".
