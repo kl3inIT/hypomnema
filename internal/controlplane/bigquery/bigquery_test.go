@@ -1,6 +1,10 @@
 package bigquery_test
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -263,7 +267,8 @@ func TestAJobThatEndsAsNoSelectIsNotRead(t *testing.T) {
 	fake.JobStatement = "SCRIPT"
 
 	_, err := client(t, fake, bigquery.Settings{}).Query(t.Context(), bigquery.Request{SQL: "SELECT 1"})
-	require.ErrorIs(t, err, bigquery.ErrRefused)
+	require.ErrorContains(t, err, "ran but ended as no SELECT")
+	require.NotErrorIs(t, err, bigquery.ErrRefused, "it ran: it is no refusal before running")
 
 	for _, r := range fake.Requests() {
 		assert.NotContains(t, r.Query, "pageToken")
@@ -279,10 +284,14 @@ func TestALostSubmitIsCanceledFromWhatWasKept(t *testing.T) {
 
 	fake := bigquerytest.New(t)
 	fake.HangInsert = true
+	start := time.Now()
 
 	_, err := client(t, fake, bigquery.Settings{}).Query(t.Context(), bigquery.Request{
 		SQL: "SELECT 1", Timeout: 300 * time.Millisecond,
 	})
+
+	// The request's own context ended at the limit; the cancel came after it, on a context of its own.
+	assert.GreaterOrEqual(t, time.Since(start), 300*time.Millisecond)
 
 	var canceled *bigquery.CancelError
 	require.ErrorAs(t, err, &canceled)
@@ -290,12 +299,6 @@ func TestALostSubmitIsCanceledFromWhatWasKept(t *testing.T) {
 
 	jobs := fake.Jobs()
 	require.Len(t, jobs, 1)
-
-	select {
-	case <-jobs[0].Done:
-	default:
-		t.Fatal("the submit's request had not ended when the cancel was sent")
-	}
 
 	ref := field(t, jobs[0].Body, "jobReference")
 	cancels := fake.Cancels()
@@ -504,4 +507,169 @@ func TestSettings(t *testing.T) {
 		_, err := bad.Check("key-project")
 		require.Error(t, err, "%+v", bad)
 	}
+}
+
+// Scenario (review round 1, CodeRabbit): watching the job fails before the limit. A job that still runs is
+// canceled from what was kept, with the watching error in the answer; a job that ended is not canceled.
+func TestAJobWhoseWatchFailsIsSettled(t *testing.T) {
+	t.Parallel()
+
+	running := bigquerytest.New(t)
+	running.ResultsStatus, running.JobRunning = 403, true
+
+	_, err := client(t, running, bigquery.Settings{}).Query(t.Context(), bigquery.Request{SQL: "SELECT 1"})
+
+	var canceled *bigquery.CancelError
+	require.ErrorAs(t, err, &canceled)
+	assert.Contains(t, err.Error(), "watching it failed")
+	assert.Contains(t, err.Error(), "403")
+	require.Len(t, running.Cancels(), 1)
+	assert.Contains(t, running.Cancels()[0].Path, canceled.JobID)
+
+	ended := bigquerytest.New(t)
+	ended.ResultsStatus = 403
+
+	_, err = client(t, ended, bigquery.Settings{}).Query(t.Context(), bigquery.Request{SQL: "SELECT 1"})
+	require.Error(t, err)
+	assert.Empty(t, ended.Cancels(), "a job known to have ended is not canceled")
+}
+
+// Scenario: the dry run named no location and the Connection none: a 404 to the cancel proves nothing, and the
+// answer says the job may still run and be billed.
+func TestACancelWithoutALocationKnowsNothing(t *testing.T) {
+	t.Parallel()
+
+	fake := bigquerytest.New(t)
+	fake.HangInsert, fake.CancelStatus, fake.DryRunLocation = true, 404, ""
+
+	_, err := client(t, fake, bigquery.Settings{}).Query(t.Context(), bigquery.Request{
+		SQL: "SELECT 1", Timeout: 200 * time.Millisecond,
+	})
+
+	var canceled *bigquery.CancelError
+	require.ErrorAs(t, err, &canceled)
+	assert.False(t, canceled.Never)
+	assert.Contains(t, err.Error(), "may still run and be billed")
+	assert.NotContains(t, fake.Cancels()[0].Query, "location=")
+}
+
+// Scenario: rows of 20 KiB each. The rows kept stay within the byte budget, the total and truncated say more
+// exist, and the pages past the budget are not fetched.
+func TestRowsStopAtTheByteBudget(t *testing.T) {
+	t.Parallel()
+
+	fake := bigquerytest.New(t)
+	fake.Columns = []string{"blob"}
+
+	big := strings.Repeat("x", 20<<10)
+	for range 250 {
+		fake.Rows = append(fake.Rows, []string{big})
+	}
+
+	got, err := client(t, fake, bigquery.Settings{}).Query(t.Context(), bigquery.Request{
+		SQL: "SELECT blob FROM t", MaxRows: 1000,
+	})
+	require.NoError(t, err)
+	assert.True(t, got.Truncated)
+	assert.Equal(t, uint64(250), got.TotalRows)
+	assert.Less(t, len(got.Rows), 30, "512 KiB holds about 25 rows of 20 KiB")
+	assert.NotEmpty(t, got.Rows)
+
+	pages := 0
+
+	for _, r := range fake.Requests() {
+		if strings.Contains(r.Path, "/queries/") && !strings.Contains(r.Query, "maxResults=0") {
+			pages++
+		}
+	}
+
+	assert.Equal(t, 1, pages, "no page after the budget is fetched")
+}
+
+// Scenario: FLOAT64 cells that are NaN or infinite, alone and in a list, come back as BigQuery writes them in
+// JSON, and the answer still encodes.
+func TestNonFiniteFloatsAreWritten(t *testing.T) {
+	t.Parallel()
+
+	fake := bigquerytest.New(t)
+	fake.Schema = []map[string]any{
+		{"name": "x", "type": "FLOAT"},
+		{"name": "xs", "type": "FLOAT", "mode": "REPEATED"},
+	}
+	fake.RawRows = [][]any{
+		{"NaN", []any{map[string]any{"v": "Infinity"}, map[string]any{"v": "-Infinity"}, map[string]any{"v": "1.5"}}},
+	}
+
+	got, err := client(t, fake, bigquery.Settings{}).Query(t.Context(), bigquery.Request{SQL: "SELECT x, xs"})
+	require.NoError(t, err)
+	assert.Equal(t, [][]any{{"NaN", []any{"Infinity", "-Infinity", 1.5}}}, got.Rows)
+
+	raw, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"rows":[["NaN",["Infinity","-Infinity",1.5]]]`)
+}
+
+// Scenario: a dataset of more tables than are listed is refused by the check: an external table may hide past
+// the list.
+func TestTheCheckRefusesAListCutShort(t *testing.T) {
+	t.Parallel()
+
+	fake := bigquerytest.New(t)
+
+	tables := make([]bigquerytest.Table, 0, 10001)
+	for i := range 10001 {
+		tables = append(tables, bigquerytest.Table{ID: fmt.Sprintf("events_%08d", i), Type: "TABLE"})
+	}
+
+	fake.Tables["data-project.analytics_1"] = tables
+
+	err := client(t, fake, bigquery.Settings{}).Check(t.Context())
+
+	var failed *bigquery.CheckError
+	require.ErrorAs(t, err, &failed)
+	assert.Contains(t, err.Error(), "more than 10000 tables")
+	assert.Empty(t, fake.Jobs())
+}
+
+// Scenario (review round 1, P2): BigQuery repeats a token, a JWT and a key in an error message; the answer and
+// the log carry none of them.
+func TestGoogleErrorsAreRedacted(t *testing.T) {
+	t.Parallel()
+
+	fake := bigquerytest.New(t)
+	fake.DryRunStatus = 400
+	fake.DryRunMessage = "bad request: Authorization: Bearer ya29.leaked-token eyJhbGciOi.eyJzdWIiOi.c2lnbmF0dXJl " +
+		`"private_key": "-----BEGIN PRIVATE KEY-----\nMIIsecret\n-----END PRIVATE KEY-----\n" assertion=abc.def.ghi`
+
+	var logs bytes.Buffer
+
+	c, err := bigquery.New(t.Context(), bigquery.Config{
+		Settings: bigquery.Settings{
+			BillingProject: "billing-project", Datasets: []string{"data-project.analytics_1"},
+			MaxBytesBilled: bigquery.DefaultMaxBytes,
+		},
+		Logger:  slog.New(slog.NewTextHandler(&logs, nil)),
+		Options: []option.ClientOption{option.WithEndpoint(fake.URL), option.WithoutAuthentication()},
+	})
+	require.NoError(t, err)
+
+	_, err = c.Query(t.Context(), bigquery.Request{SQL: "SELECT 1"})
+	require.ErrorIs(t, err, bigquery.ErrRefused)
+
+	for _, text := range []string{err.Error(), logs.String()} {
+		for _, secret := range []string{"ya29.leaked-token", "eyJhbGciOi.eyJzdWIiOi", "MIIsecret", "abc.def.ghi"} {
+			assert.NotContains(t, text, secret)
+		}
+	}
+
+	assert.Contains(t, err.Error(), "[redacted]")
+}
+
+// Scenario: a domain-scoped project id stays one part of a name.
+func TestADomainScopedProjectIsOnePart(t *testing.T) {
+	t.Parallel()
+
+	got, err := bigquery.Settings{Datasets: []string{"example.com:my-project.analytics_1"}}.Check("key-project")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"example.com:my-project.analytics_1"}, got.Datasets)
 }

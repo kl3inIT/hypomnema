@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/big"
 	"net/http"
 	"regexp"
@@ -28,7 +29,6 @@ import (
 	"time"
 
 	bq "cloud.google.com/go/bigquery"
-	"golang.org/x/oauth2"
 	bqrest "google.golang.org/api/bigquery/v2"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
@@ -91,6 +91,9 @@ func (s Settings) Check(keyProject string) (Settings, error) {
 		return s, errors.New("name the GA4 export dataset, as project.dataset")
 	}
 
+	// The caller's list is left as it was given.
+	s.Datasets = slices.Clone(s.Datasets)
+
 	seen := map[string]bool{}
 
 	for i, d := range s.Datasets {
@@ -128,7 +131,7 @@ func (s Settings) dataProject() string {
 		return s.BillingProject
 	}
 
-	project, _, _ := strings.Cut(s.Datasets[0], ".")
+	project := s.Datasets[0][:max(strings.LastIndex(s.Datasets[0], "."), 0)]
 
 	return project
 }
@@ -150,9 +153,27 @@ type TableRef struct {
 
 func (t TableRef) String() string { return t.Project + "." + t.Dataset + "." + t.Table }
 
+// splitRight splits a dotted name into at most n parts from the right, so that a domain-scoped project id
+// (example.com:my-project) stays one part.
+func splitRight(s string, n int) []string {
+	var parts []string
+
+	for len(parts) < n-1 {
+		i := strings.LastIndex(s, ".")
+		if i < 0 {
+			break
+		}
+
+		parts = append([]string{s[i+1:]}, parts...)
+		s = s[:i]
+	}
+
+	return append([]string{s}, parts...)
+}
+
 // parseDataset reads project.dataset, or a dataset alone in the default project.
 func parseDataset(s, defaultProject string) (DatasetRef, error) {
-	parts := strings.Split(strings.Trim(strings.TrimSpace(s), "`"), ".")
+	parts := splitRight(strings.Trim(strings.TrimSpace(s), "`"), 2)
 
 	var ref DatasetRef
 
@@ -174,7 +195,7 @@ func parseDataset(s, defaultProject string) (DatasetRef, error) {
 
 // parseTable reads project.dataset.table, or dataset.table in the default project.
 func parseTable(s, defaultProject string) (TableRef, error) {
-	parts := strings.Split(strings.Trim(strings.TrimSpace(s), "`"), ".")
+	parts := splitRight(strings.Trim(strings.TrimSpace(s), "`"), 3)
 	if len(parts) == 2 && defaultProject != "" {
 		parts = append([]string{defaultProject}, parts...)
 	}
@@ -256,7 +277,7 @@ func (c *Client) Datasets(ctx context.Context) ([]DatasetRef, error) {
 	var projects []string
 
 	for _, d := range c.settings.Datasets {
-		project, _, _ := strings.Cut(d, ".")
+		project := d[:max(strings.LastIndex(d, "."), 0)]
 		if !slices.Contains(projects, project) {
 			projects = append(projects, project)
 		}
@@ -431,6 +452,8 @@ type Request struct {
 	Timeout time.Duration
 	// Agent and Tool label the job and its log line.
 	Agent, Tool string
+	// MaxBytes bounds the rows read into memory, as JSON; zero is MaxAnswerBytes. Rows past it are not fetched.
+	MaxBytes int
 }
 
 // Result is what a query gave.
@@ -461,7 +484,8 @@ type Result struct {
 // may not honor before the job ends and bills up to the cap.
 type CancelError struct {
 	Project, JobID, Location string
-	// Never says BigQuery answered the cancel that it has no such job: it was never made.
+	// Never says BigQuery answered the cancel, in the job's own location, that it has no such job: it was never
+	// made. A 404 to a cancel sent without a location proves nothing: the job may be in another one.
 	Never bool
 	Cause string
 }
@@ -469,6 +493,11 @@ type CancelError struct {
 func (e *CancelError) Error() string {
 	if e.Never {
 		return fmt.Sprintf("the query did not start (%s): BigQuery has no job %s", e.Cause, e.JobID)
+	}
+
+	if e.Location == "" {
+		return fmt.Sprintf("the query was stopped (%s): a cancel was sent for job %s:%s, whose location is not known, "+
+			"so whether it runs is not known; it may still run and be billed up to the cap", e.Cause, e.Project, e.JobID)
 	}
 
 	return fmt.Sprintf("the query was stopped (%s): cancel requested for job %s:%s.%s; it may still finish and be "+
@@ -482,6 +511,10 @@ func (c *Client) Query(ctx context.Context, r Request) (Result, error) {
 		r.MaxRows = DefaultMaxRows
 	case r.MaxRows < 0 || r.MaxRows > MaxRows:
 		return Result{}, fmt.Errorf("%w: max_rows is 1 to %d", ErrInvalid, MaxRows)
+	}
+
+	if r.MaxBytes <= 0 {
+		r.MaxBytes = MaxAnswerBytes
 	}
 
 	switch {
@@ -612,7 +645,11 @@ func (c *Client) run(ctx context.Context, r Request, out Result, location string
 			return out, c.cancelJob(ctx, out, "it ran longer than "+r.Timeout.String())
 		}
 
-		return out, googleError("waiting for job "+out.JobID, err)
+		// Watching failed before the limit: the job's state is read once more, and a job not known to have
+		// ended is canceled, so it does not run on unwatched.
+		if status, err = c.settle(ctx, job, out, err); err != nil {
+			return out, err
+		}
 	}
 
 	if err := status.Err(); err != nil {
@@ -621,13 +658,15 @@ func (c *Client) run(ctx context.Context, r Request, out Result, location string
 
 	stats, _ := status.Statistics.Details.(*bq.QueryStatistics)
 	if stats == nil || stats.StatementType != "SELECT" {
-		return out, fmt.Errorf("%w: job %s ended as no SELECT; its rows are not read", ErrRefused, out.JobID)
+		// It ran, so it is no refusal before running: it may have been billed.
+		return out, fmt.Errorf("job %s ran but ended as no SELECT; its rows are not read, and it may have been billed "+
+			"up to the cap", out.JobID)
 	}
 
 	out.BytesProcessed, out.BytesBilled, out.CacheHit = stats.TotalBytesProcessed, stats.TotalBytesBilled, stats.CacheHit
 	out.ComputedAt = status.Statistics.EndTime.UTC()
 
-	if err := c.readRows(ctx, job, r.MaxRows, &out); err != nil {
+	if err := c.readRows(ctx, job, r.MaxRows, r.MaxBytes, &out); err != nil {
 		if ctx.Err() != nil {
 			return out, fmt.Errorf("the job %s ended but its rows were not read in %s", out.JobID, r.Timeout)
 		}
@@ -645,13 +684,31 @@ func (c *Client) run(ctx context.Context, r Request, out Result, location string
 	return out, nil
 }
 
-func (c *Client) readRows(ctx context.Context, job *bq.Job, maxRows int, out *Result) error {
+// settle reads a job's state after watching it failed: its status when it ended, or, when it did not or cannot be
+// told, a cancel from what was kept, with the watching error in the answer.
+func (c *Client) settle(ctx context.Context, job *bq.Job, out Result, watching error) (*bq.JobStatus, error) {
+	checkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelTimeout)
+	defer cancel()
+
+	status, err := job.Status(checkCtx)
+	if err == nil && status.Done() {
+		return status, nil
+	}
+
+	return nil, c.cancelJob(ctx, out, "watching it failed: "+googleCause(watching))
+}
+
+// rowPage is the rows asked for at once: a page past the byte budget is not fetched.
+const rowPage = 100
+
+func (c *Client) readRows(ctx context.Context, job *bq.Job, maxRows, maxBytes int, out *Result) error {
 	it, err := job.Read(ctx)
 	if err != nil {
 		return googleError("reading the rows of job "+out.JobID, err)
 	}
 
-	it.PageInfo().MaxSize = min(maxRows, 1000)
+	it.PageInfo().MaxSize = min(maxRows, rowPage)
+	used := 0
 
 	for len(out.Rows) < maxRows {
 		var row []bq.Value
@@ -675,6 +732,14 @@ func (c *Client) readRows(ctx context.Context, job *bq.Job, maxRows int, out *Re
 			values[i] = normalize(v, f)
 		}
 
+		// The rows kept stay within the answer's bytes: the row that would pass it, and the pages after it, are
+		// neither kept nor fetched.
+		raw, err := json.Marshal(values)
+		if err != nil || used+len(raw) > maxBytes {
+			break
+		}
+
+		used += len(raw)
 		out.Rows = append(out.Rows, values)
 	}
 
@@ -703,7 +768,8 @@ func (c *Client) cancelJob(ctx context.Context, out Result, why string) error {
 
 	var apiErr *googleapi.Error
 
-	never := errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound
+	// A 404 proves the job was never made only when the cancel named the job's location.
+	never := errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound && out.Location != ""
 
 	c.logger.WarnContext(ctx, "a BigQuery job's cancel was requested", slog.String("event", "bigquery.cancel"),
 		slog.String("connection", c.connection), slog.String("project", out.Project), slog.String("job", out.JobID),
@@ -763,7 +829,19 @@ func normalize(v bq.Value, f *bq.FieldSchema) any {
 		return text
 	case time.Time:
 		return x.UTC().Format(time.RFC3339Nano)
-	case string, int64, float64, bool, []byte:
+	case float64:
+		// JSON has no NaN or infinity: they are written as BigQuery's own JSON writes them.
+		switch {
+		case math.IsNaN(x):
+			return "NaN"
+		case math.IsInf(x, 1):
+			return "Infinity"
+		case math.IsInf(x, -1):
+			return "-Infinity"
+		}
+
+		return x
+	case string, int64, bool, []byte:
 		return x
 	case fmt.Stringer:
 		return x.String()
@@ -786,8 +864,30 @@ func label(s string) string {
 	return s
 }
 
-// clip shortens what Google said to a line or two.
+// secretPatterns are what may stand for a credential in a text: a PEM block, a key file's private_key, an access
+// token, a bearer header, a JWT, a token or an assertion in a form.
+var secretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*-----.*?(-----END [A-Z ]*-----|$)`),
+	regexp.MustCompile(`"private_key"\s*:\s*"(\\.|[^"\\])*"?`),
+	regexp.MustCompile(`ya29\.[A-Za-z0-9._~+/=-]+`),
+	regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._~+/=-]+`),
+	regexp.MustCompile(`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*`),
+	regexp.MustCompile(`(?i)(access_token|refresh_token|id_token|assertion|client_secret)=[^&\s"]+`),
+}
+
+// Redact takes out of a text what may be a credential, before it is logged or answered.
+func Redact(s string) string {
+	for _, p := range secretPatterns {
+		s = p.ReplaceAllString(s, "[redacted]")
+	}
+
+	return s
+}
+
+// clip shortens what Google said to a line or two, credentials taken out first.
 func clip(s string) string {
+	s = Redact(s)
+
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > 400 {
 		return s[:400] + "…"
@@ -812,14 +912,9 @@ func googleCause(err error) string {
 		return fmt.Sprintf("BigQuery answered %d%s: %s", apiErr.Code, reason, clip(apiErr.Message))
 	}
 
-	var tokenErr *oauth2.RetrieveError
+	var tokenErr *TokenError
 	if errors.As(err, &tokenErr) {
-		code := tokenErr.ErrorCode
-		if code == "" && tokenErr.Response != nil {
-			code = tokenErr.Response.Status
-		}
-
-		return "Google refused the service account's token: " + clip(code)
+		return clip(tokenErr.Message)
 	}
 
 	switch {
@@ -845,8 +940,13 @@ type AccessError struct{ Message string }
 
 func (e *AccessError) Error() string { return e.Message }
 
-// TokenError is a token Google would not give for the key: the Connection is connected again.
-type TokenError struct{ Message string }
+// TokenError is a token Google did not give for the key. Refused says Google refused the key itself
+// (invalid_grant and the like): the Connection is connected again. Otherwise the exchange failed for a passing
+// reason, a 503 or the network, and nothing is marked.
+type TokenError struct {
+	Message string
+	Refused bool
+}
 
 func (e *TokenError) Error() string { return e.Message }
 
@@ -854,9 +954,9 @@ func (e *TokenError) Error() string { return e.Message }
 func googleError(doing string, err error) error {
 	cause := googleCause(err)
 
-	var tokenErr *oauth2.RetrieveError
+	var tokenErr *TokenError
 	if errors.As(err, &tokenErr) {
-		return &TokenError{Message: doing + ": " + cause}
+		return &TokenError{Message: doing + ": " + tokenErr.Message, Refused: tokenErr.Refused}
 	}
 
 	var apiErr *googleapi.Error
@@ -959,9 +1059,15 @@ func (c *Client) Check(ctx context.Context) error {
 			return &CheckError{Step: "reading the settings", Cause: err}
 		}
 
-		tables, _, err := c.listTables(ctx, ref)
+		tables, truncated, err := c.listTables(ctx, ref)
 		if err != nil {
 			return &CheckError{Step: "listing the tables of " + ref.String(), Cause: err}
+		}
+
+		// A list cut short may hide an external table: the check passes only on a whole list.
+		if truncated {
+			return &CheckError{Step: "listing the tables of " + ref.String(), Cause: fmt.Errorf(
+				"%w: it holds more than %d tables, so not all of them can be checked", ErrRefused, maxTables)}
 		}
 
 		var external, native []string
@@ -1052,7 +1158,8 @@ func (r *Result) Fit(limit int) {
 	size := func() int {
 		raw, err := json.Marshal(r)
 		if err != nil {
-			return 0
+			// What cannot be written is never small enough.
+			return math.MaxInt
 		}
 
 		return len(raw)

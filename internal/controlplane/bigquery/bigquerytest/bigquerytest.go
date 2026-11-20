@@ -68,9 +68,20 @@ type Server struct {
 	HangJob    bool
 	// JobStatement is the statement type the ended job reports; empty is SELECT.
 	JobStatement string
-	// Columns and Rows are the job's result, each value as BigQuery's REST sends it.
+	// Columns and Rows are the job's result, each value as BigQuery's REST sends it. Schema, when set, is the
+	// result's fields in place of Columns as STRINGs, and RawRows its cells in place of Rows (a REPEATED cell is
+	// a list of {"v": …}).
 	Columns []string
 	Rows    [][]string
+	Schema  []map[string]any
+	RawRows [][]any
+	// ResultsStatus answers getQueryResults with that status; ResultsDelay holds each answer of it.
+	ResultsStatus int
+	ResultsDelay  time.Duration
+	// JobRunning makes jobs.get say the job runs.
+	JobRunning bool
+	// DryRunMessage is the message of a refused dry run.
+	DryRunMessage string
 	// CancelStatus answers jobs.cancel; zero is 200.
 	CancelStatus int
 	// RowStatus answers tabledata.list; zero is 200.
@@ -288,7 +299,15 @@ func (s *Server) insert(w http.ResponseWriter, r *http.Request, project string, 
 
 	if dry, _ := config["dryRun"].(bool); dry {
 		if dryStatus != 0 {
-			writeError(w, dryStatus, "invalidQuery", "Syntax error: the fake refused the query")
+			s.mu.Lock()
+			message := s.DryRunMessage
+			s.mu.Unlock()
+
+			if message == "" {
+				message = "Syntax error: the fake refused the query"
+			}
+
+			writeError(w, dryStatus, "invalidQuery", message)
 
 			return
 		}
@@ -343,7 +362,7 @@ func (s *Server) cancel(w http.ResponseWriter, project, job, location string) {
 
 func (s *Server) job(w http.ResponseWriter, project, job, location string) {
 	s.mu.Lock()
-	statement, hang := s.JobStatement, s.HangJob
+	statement, hang := s.JobStatement, s.HangJob || s.JobRunning
 	s.mu.Unlock()
 
 	if statement == "" {
@@ -370,8 +389,30 @@ func (s *Server) job(w http.ResponseWriter, project, job, location string) {
 
 func (s *Server) results(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	columns, rows, hang := s.Columns, s.Rows, s.HangJob
+	columns, hang, fields, status, delay := s.Columns, s.HangJob, s.Schema, s.ResultsStatus, s.ResultsDelay
+	rows := s.RawRows
+
+	if rows == nil {
+		for _, r := range s.Rows {
+			row := make([]any, len(r))
+			for i, v := range r {
+				row[i] = v
+			}
+
+			rows = append(rows, row)
+		}
+	}
 	s.mu.Unlock()
+
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+
+	if status != 0 {
+		writeError(w, status, "accessDenied", "Access Denied: the fake refused the results")
+
+		return
+	}
 
 	if hang {
 		writeJSON(w, map[string]any{"jobComplete": false})
@@ -379,9 +420,10 @@ func (s *Server) results(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fields := make([]map[string]any, 0, len(columns))
-	for _, c := range columns {
-		fields = append(fields, map[string]any{"name": c, "type": "STRING"})
+	if fields == nil {
+		for _, c := range columns {
+			fields = append(fields, map[string]any{"name": c, "type": "STRING"})
+		}
 	}
 
 	start := 0
