@@ -52,7 +52,18 @@ const writeRules =
 	// (internal/controlplane/clientcli/skills/hypomnema-coordinator/references/review.md; owner, 2026-11-19).
 	"- Wait for CI with one command that blocks until it ends (the host's watch command, as in the merge steps " +
 	"below when they are given), never with a polling loop. When the task says a review comes first, do not wait for " +
-	"CI: report the pushed commit and finish; the coordinator follows CI.\n"
+	"CI: report the pushed commit and finish; the coordinator follows CI.\n" +
+	// Issue #952: a flake earns one fresh build and only the diff's own failures get a commit, after pstack
+	// skills/poteto-mode/playbooks/babysit.md:8; the flaky test is fixed in its own change, after
+	// playbooks/autonomous-run.md:9. The issue is the owner's allowance (owner, 2026-11-19).
+	"- Fix only the failures your diff causes. A red check that fails outside your diff and is also red on the " +
+	"base, or green on one rerun, is a flake: rerun it once, do not fix it in this pull request, and open an issue " +
+	"for the flaky test or comment on the one that exists (yours to do without asking).\n" +
+	// Issue #952: the failing test lands before the fix, so a disputed finding is settled by running it, after
+	// pstack skills/poteto-mode/playbooks/bug-fix.md:11 and skills/tdd/SKILL.md:9. The exception is theirs too:
+	// bug-fix.md:11 "Skip it when the test would be expensive, integration-heavy, or unclear", tdd/SKILL.md:11.
+	"- For a bug fix, commit a test that fails without the fix first, then the fix; skip it when no cheap test " +
+	"reaches the bug, and say so.\n"
 
 const rules =
 // Issue #672: Orca's worker "needs no progress updates unless the task asks"
@@ -118,6 +129,12 @@ func Prompt(d statedb.Dispatch) string {
 	o := d.Offer
 	readOnly := o.RoleRouted && o.Profile != "implementer"
 
+	// Issue #952: a read-only worker may also use its scratch copy (below), so every "only here" line names it.
+	here := "this directory"
+	if readOnly {
+		here = "this directory and your scratch copy under $TMPDIR"
+	}
+
 	var b strings.Builder
 
 	b.WriteString("You are a worker dispatched by Hypomnema, a software factory. ")
@@ -126,6 +143,11 @@ func Prompt(d statedb.Dispatch) string {
 	if readOnly {
 		b.WriteString("- Read and report. Do not edit project files, commit, push, open a pull request, " +
 			"or use AskUserQuestion.\n")
+		// Issue #952: run the code to check a claim, after orchestrate skills/orchestrate/prompts/verifier.md:23
+		// ("Run the code. Reading the diff is not verification") and pstack skills/interrogate/SKILL.md:19 ("Keep
+		// repros in your own worktree"). $TMPDIR is the Dispatch's own (issue #895).
+		b.WriteString("- You may run code to check a claim (the tests, a repro script) in a scratch copy of this " +
+			"worktree under $TMPDIR. Leave the tracked files here unchanged.\n")
 		b.WriteString("- Deliver the complete answer, plan or review requested in the Task through `finish`.\n")
 	} else {
 		b.WriteString(writeRules)
@@ -133,9 +155,9 @@ func Prompt(d statedb.Dispatch) string {
 	if o.RoleRouted && o.Profile == "planner" {
 		// Codex codex-rs/core/src/tools/handlers/multi_agents_spec.rs:738-745; owner, 2026-11-18.
 		b.WriteString("- Keep analysis and blocking work here. You may use this CLI's subagents for independent " +
-			"read-only lookups. Do not dispatch separate Hypomnema Tasks or work outside this directory.\n")
+			"read-only lookups. Do not dispatch separate Hypomnema Tasks or work outside " + here + ".\n")
 	} else {
-		b.WriteString("- Do not start subagents, and do not work outside this directory.\n")
+		b.WriteString("- Do not start subagents, and do not work outside " + here + ".\n")
 	}
 	b.WriteString(rules)
 
@@ -156,9 +178,9 @@ func Prompt(d statedb.Dispatch) string {
 	b.WriteString(memoryBrief(o.Memory, o.OwnerMemory, o.MemoryNotes, o.AgentKey != ""))
 
 	if o.Repo != "" {
-		b.WriteString(repoBrief(o, readOnly))
+		b.WriteString(repoBrief(o, readOnly, here))
 	} else {
-		b.WriteString("\nWork only in this directory.\n")
+		b.WriteString("\nWork only in " + here + ".\n")
 	}
 
 	fmt.Fprintf(&b, "\nTask (%s):\n%s\n", o.Profile, o.Spec)
@@ -264,9 +286,10 @@ func autoMerge(kind, host, path, base, branch string) string {
 		b.WriteString("; " + m.Method)
 	}
 
-	fmt.Fprintf(&b, ".\n4. Wait for the required checks with `%s`; fix a red one at its cause and push, and do "+
-		"step 2 again if a conflict appears. Once they are green, call `finish` without waiting longer, saying "+
-		"whether the pull request merged (`%s`) or that auto-merge is on.\n",
+	// Issue #952: a red check outside the diff is a flake (writeRules), after pstack babysit.md:8.
+	fmt.Fprintf(&b, ".\n4. Wait for the required checks with `%s`; fix a red one your diff causes and push, "+
+		"rerun a flake once as the rules say, and do step 2 again if a conflict appears. Once they are green, call "+
+		"`finish` without waiting longer, saying whether the pull request merged (`%s`) or that auto-merge is on.\n",
 		strings.ReplaceAll(m.Watch, "<branch>", branch), m.Merged)
 
 	return b.String()
@@ -367,12 +390,18 @@ func memoryBrief(agent, owner string, notes []string, hasTool bool) string {
 // request pushes to its head (pr-start-point.ts:226-245); one that starts from another branch opens its pull request
 // against the base it was given, as t3code's stacked work on a parent branch (orchestrator-mcp-server.md:354-355)
 // (issue #690).
-func repoBrief(o nodeproto.Offer, readOnly bool) string {
+func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 	var b strings.Builder
 
 	own, push, base := worktree.Branch(o.TaskID), pushBranch(o), prBase(o)
 
-	fmt.Fprintf(&b, "\nWork only in this directory, a git worktree of %s on branch %s, started from %s. ",
+	fmt.Fprintf(&b, "\nWork only in %s", here)
+	if readOnly {
+		b.WriteString("; this directory is")
+	} else {
+		b.WriteString(",")
+	}
+	fmt.Fprintf(&b, " a git worktree of %s on branch %s, started from %s. ",
 		o.Repo, own, startBranch(o))
 
 	// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
