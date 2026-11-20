@@ -404,7 +404,11 @@ SELECT
         OR EXISTS (
             SELECT 1 FROM chat_messages m WHERE m.chat_id = c.id AND m.role = 'owner' AND m.sender_id IS NOT NULL
         )
-        OR c.title LIKE 'Lark: %' AS INTEGER) AS channel
+        OR (c.title LIKE 'Lark: %' AND EXISTS (
+            SELECT 1 FROM chat_messages m
+            WHERE m.chat_id = c.id AND m.role = 'owner' AND m.sender_id IS NULL
+              AND m.text LIKE '[' || substr(c.title, 7) || ']: %'
+        )) AS INTEGER) AS channel
 FROM chats c WHERE c.id = ?1
 `
 
@@ -418,8 +422,10 @@ type GetChatMarksRow struct {
 // chat was opened for a Routine's run (routine_runs), or with a Routine's prompt, which runs pruned later leave
 // behind (orchestration/routines.go promptNotice). channel: a Lark chat, mapped to a person or a group of a Channel
 // (channel_chats), a group's (channel_group, which a group's later chats keep after a reset), one someone other
-// than the owner wrote in (sender_id, migration 00087), or one titled "Lark: <name>", another person's direct chat
-// from before 00087 whose mapping a /new moved, as migration 00138 tells them. ListChats reads the same marks by the same rules.
+// than the owner wrote in (sender_id, migration 00087), or another person's direct chat from before 00087 whose
+// mapping a /new moved: titled "Lark: <name>", as migration 00138 tells them, with a line of the owner's role that
+// Lark labelled "[<name>]: ", as the Channel wrote another person's lines then (commit 49050bf6). The label is asked
+// too, since the web titles a chat by its first line and the owner may begin one with "Lark: ". ListChats reads the same marks by the same rules.
 func (q *Queries) GetChatMarks(ctx context.Context, id string) (GetChatMarksRow, error) {
 	row := q.db.QueryRowContext(ctx, getChatMarks, id)
 	var i GetChatMarksRow
@@ -943,7 +949,11 @@ SELECT chats.id, chats.title, chats.created_at, chats.updated_at, chats.bot_id, 
                SELECT 1 FROM chat_messages m
                WHERE m.chat_id = chats.id AND m.role = 'owner' AND m.sender_id IS NOT NULL
            )
-           OR chats.title LIKE 'Lark: %' AS INTEGER) AS channel,
+           OR (chats.title LIKE 'Lark: %' AND EXISTS (
+               SELECT 1 FROM chat_messages m
+               WHERE m.chat_id = chats.id AND m.role = 'owner' AND m.sender_id IS NULL
+                 AND m.text LIKE '[' || substr(chats.title, 7) || ']: %'
+           )) AS INTEGER) AS channel,
        CAST(coalesce((
            SELECT substr(m.text, 1, 400) FROM chat_messages m
            WHERE m.chat_id = chats.id AND m.role IN ('owner', 'coordinator') AND trim(m.text) <> ''

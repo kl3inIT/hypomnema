@@ -3189,7 +3189,7 @@ type Chat struct {
 	// Bot The id of the Bot the chat talks with.
 	Bot string `json:"bot"`
 
-	// Channel A Lark chat (issue #923): a person's or a group's at a Channel, one someone other than the owner wrote in, or one titled "Lark: <name>" (another person's from before sender ids); it is never its Bot's main chat.
+	// Channel A Lark chat (issue #923): a person's or a group's at a Channel, one someone other than the owner wrote in, or another person's from before sender ids (titled "Lark: <name>", with Lark's "[<name>]: " label in its lines); it is never its Bot's main chat.
 	Channel bool `json:"channel"`
 
 	// ContextUsage How full the chat's context window is, as pi last reported it after a turn or a compaction (issue #384; pi's get_session_stats). Absent from a chat before pi first reported it.

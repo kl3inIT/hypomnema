@@ -10,8 +10,10 @@ import (
 
 // Scenario: the owner makes an older chat of a Bot its main chat (issue #923). The chat chosen becomes the main
 // chat and the former one stays as it was; a chat of another Bot, one that is not there, a Routine's chat, a Lark
-// chat mapped to a person, a Lark group's chat, one another person wrote in and another person's titled "Lark: <name>"
-// (migration 00138) are refused and leave the main chat where it was; a Bot that is not there is not found. Each chat says what it is when read alone and in a list.
+// chat mapped to a person, a Lark group's chat, one another person wrote in and another person's from before sender
+// ids, titled "Lark: <name>" with Lark's "[<name>]: " label in its lines (migration 00138), are refused and leave the
+// main chat where it was; a Bot that is not there is not found. A web chat the owner began with "Lark: " is no Lark
+// chat and is made the main chat. Each chat says what it is when read alone and in a list.
 func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	t.Parallel()
 
@@ -32,9 +34,14 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	require.NoError(t, err)
 	wrote, err := w.s.CreateChatWithID(ctx, "", "", "a DM a /new left", ChatModel{})
 	require.NoError(t, err)
-	// Another person's direct chat from before migration 00087, whose mapping a /new moved: its title alone says so,
-	// as migration 00138 reads it.
+	// Another person's direct chat from before migration 00087, whose mapping a /new moved: titled by Lark, its lines
+	// the owner's with Lark's label.
 	titled, err := w.s.CreateChatWithID(ctx, "", "", "Lark: Someone", ChatModel{})
+	require.NoError(t, err)
+	// A web chat, titled by its first line, which begins with "Lark: ".
+	web, err := w.s.CreateChatWithID(ctx, "", "", "Lark: fix the notice", ChatModel{})
+	require.NoError(t, err)
+	_, err = w.s.AddChatMessage(ctx, web.ID, ChatOwner, "Lark: fix the notice")
 	require.NoError(t, err)
 
 	for _, stmt := range []string{
@@ -50,6 +57,8 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 		`UPDATE chats SET channel_group = 1 WHERE id = '` + group.ID + `'`,
 		`INSERT INTO chat_messages (chat_id, role, kind, text, sender_id, sender_name, created_at)
 			VALUES ('` + wrote.ID + `', 'owner', '', 'hi', 'ou_other', 'Other', 1)`,
+		`INSERT INTO chat_messages (chat_id, role, kind, text, created_at)
+			VALUES ('` + titled.ID + `', 'owner', '', '[Someone]: hi', 1)`,
 	} {
 		_, err := w.db.ExecContext(ctx, stmt)
 		require.NoError(t, err, stmt)
@@ -81,7 +90,7 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 
 	want := map[string]marks{
 		older.ID: {}, home.ID: {}, routine.ID: {routine: true}, person.ID: {channel: true},
-		group.ID: {channel: true}, wrote.ID: {channel: true}, titled.ID: {channel: true},
+		group.ID: {channel: true}, wrote.ID: {channel: true}, titled.ID: {channel: true}, web.ID: {},
 	}
 
 	read := map[string]marks{}
@@ -103,6 +112,10 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	}
 
 	assert.Equal(t, want, listed, "in a list")
+
+	b, err = w.s.SetMainChat(ctx, DefaultBotID, web.ID)
+	require.NoError(t, err)
+	assert.Equal(t, web.ID, b.MainChat, "a web chat begun with \"Lark: \" is made the main chat")
 }
 
 // Scenario: a Bot with no main chat whose chats are all older than the first page of chats (issue #923). The page

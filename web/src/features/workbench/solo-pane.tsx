@@ -5,7 +5,7 @@ import { GridDrop } from "./grid-drop"
 import { closeHome, dropTab, openAllBeside, type Bench, type Dragged } from "./moves"
 import { BackToMainChat } from "./back-to-main"
 import { frontChat, hasTab, openTab, tabKey, type PaneTab } from "./pane"
-import { soloPaneOf } from "./solo-chat"
+import { showSoloChat, soloPaneOf } from "./solo-chat"
 import { PaneView } from "./pane-view"
 import { newPaneId, setBench, setPane, soloId, useGridOffered, usePane } from "./use-grid"
 
@@ -63,7 +63,8 @@ export function SoloPane({ chat, start }: { chat: string; start?: ReactNode }) {
           }
         }}
         start={start}
-        // Back to main chat brings the main chat in front where the pane has it, and opens its page otherwise.
+        // Back to main chat brings the main chat in front where the pane has it, and otherwise opens its page with it
+        // in front.
         end={
           <BackToMainChat
             chatId={viewed}
@@ -74,6 +75,7 @@ export function SoloPane({ chat, start }: { chat: string; start?: ReactNode }) {
                 return
               }
 
+              showSoloChat(main)
               void navigate({ to: "/chats/$chatId", params: { chatId: main } })
             }}
           />

@@ -334,3 +334,48 @@ test("in a grid, each pane leads back to the main chat and the sidebar acts on t
   await expect(second.getByRole("tab")).toHaveText(["Daily digest", "The release plan"])
   await expect(second).toHaveAccessibleName("The release plan")
 })
+
+// Scenario: a new chat with writer is being written in front of coordinator's main chat's page, and the Routine's run
+// page is open on another visit while that page keeps the draft in front (issue #923). The sidebar does not offer to
+// make the hidden chat the main one, the draft has no way back, and Back to main chat from the Routine's run lands on
+// the main chat in front of its page, not on the draft.
+test("nothing acts on a chat behind a draft, and Back to main chat lands on the main chat", async ({
+  page,
+}) => {
+  const calls = await fakeServer(page)
+  await keep(page, {
+    "chat-cht_1": {
+      tabs: [
+        { kind: "chat", chat: "cht_1" },
+        { kind: "draft", id: "d1", bot: "writer" },
+      ],
+      active: "draft:d1",
+    },
+  })
+  await page.goto("/chats/cht_1")
+
+  const back = page.getByRole("button", { name: "Back to main chat" })
+  await expect(page.getByRole("tab", { name: "Fix the header" })).toHaveAttribute(
+    "aria-selected",
+    "false",
+  )
+  await actionsOf(page)
+  await expect(page.getByRole("menuitem", { name: /Delete/ })).toBeVisible()
+  await expect(page.getByRole("menuitem", { name: /Set as main chat/ })).toHaveCount(0)
+  await page.keyboard.press("Escape")
+  const drawer = page.getByRole("dialog", { name: "Sidebar" })
+  if (await drawer.isVisible()) {
+    await page.keyboard.press("Escape")
+    await expect(drawer).toBeHidden()
+  }
+  await expect(back).toHaveCount(0)
+
+  await page.goto("/chats/cht_run")
+  await back.click()
+  await expect(page).toHaveURL(/\/chats\/cht_1$/)
+  await expect(page.getByRole("tab", { name: "Fix the header" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  )
+  expect(calls).toEqual([])
+})

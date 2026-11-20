@@ -183,8 +183,9 @@ OpenMausBot's "Set as main thread", `mainThreadChoice` in its `PATCH /api/bots/:
 there, a Routine's chat and a Lark chat; the web's Bot row menu and `hypomnema chats main <chat>` send it. Opening
 another chat to read it (a card, a question, an approval, a link) does not move the main chat. A chat carries
 `routine` (opened for a Routine's run: named by a run, or opened with a Routine's prompt) and `channel` (a Lark chat:
-mapped in `channel_chats`, a group's, one someone other than the owner wrote in, or one titled "Lark: <name>", as
-migration 138 tells another person's chat from before sender ids), read in `GetChat` and in a list
+mapped in `channel_chats`, a group's, one someone other than the owner wrote in, or another person's chat from
+before sender ids: titled "Lark: <name>", as migration 138 tells them, with a line Lark labelled "[<name>]: ", so
+that a web chat the owner began with "Lark: " is not one), read in `GetChat` and in a list
 by the same rules (`queries/chats.sql` `GetChatMarks`); neither is ever a main chat. The migration chose each Bot's main chat among its chats that are not a
 Lark chat (no `channel_chats` row), a Lark group's (`channel_group`), another person's (a person message with a
 sender, or a title "Lark: <name>"), a Lark chat a `/new` moved away from (an owner message with a file Lark sent,
@@ -5237,10 +5238,12 @@ Node (`internal/node`):
     chat with its Bot. The chat being viewed is the chat in front of a pane, not the address: on a chat's page, the
     tab in front of its pane (a chat dragged into its middle comes in front while the address stays; `useSoloChat`
     in `web/src/features/workbench/solo-chat.ts`, read by the sidebar and the phone's drawer); in the grid, the tab in
-    front of the pane last pointed at or focused, the first pane until then. Each pane has "Back to main chat" at
-    the end of its tab strip while the chat in front is another chat of a Bot that has a main chat (OpenMausBot's
-    "Back to your chat"): it brings the main chat in front in that pane, and on a chat's page whose pane does not
-    have it, opens its page. The Bot's page lists its other chats ("Other chats",
+    front of the pane last pointed at or focused, the first pane until then. While a tab that is not a chat is in
+    front (a new chat's draft, a file, the browser, the phone), no chat is being viewed and nothing acts on the chat
+    behind it. Each pane has "Back to main chat" at the end of its tab strip while the chat in front is another chat
+    of a Bot that has a main chat (OpenMausBot's "Back to your chat"): it brings the main chat in front in that pane,
+    and on a chat's page whose pane does not have it, opens its page with the main chat in front of the pane that page
+    kept. The Bot's page lists its other chats ("Other chats",
     `GET /chats?bot=`, 100 at a time with Show more), each with the same menu; on the Bots page a Bot's name opens
     the chat it opens to and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
     their links (`/chats/<id>`). The phone's start page lists the same Bots.
