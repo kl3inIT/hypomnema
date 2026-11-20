@@ -113,6 +113,11 @@ its branch does not hold another Task's unmerged changes. So:
 - Use separate Tasks for independent work, each with its own deliverable.
 - `depends_on` (refs earlier in the file, or ids of Tasks already in the Run) only orders Tasks: a Task starts once
   all of them succeeded. It does not carry their changes, nor their reports.
+<!-- t3code docs/orchestration-v2/orchestrator-mcp-server.md:354-355 and orchestrationInstructions.ts:10,14 (4d5bf2d5); Orca create-github-pull-request.ts:70-110 (issue #690) -->
+- Work that builds on an unmerged Task's changes (stacked) sets `"start_from": "hyp/<task_id>"` and lists that Task
+  in `depends_on`: its worktree starts from that branch, and its pull request targets it (`"pr_base":
+  "start_from"`, the default) or the Run's base (`"pr_base": "run_base"`). `start_from` may also name another
+  branch of the repository. Never write a branch to check out or merge in the spec: set the field.
 - When a Task needs what an earlier Task found (fixing the items an audit listed), paste that Task's report, the
   summary in `hypomnema tasks show <task_id> --json`, into the spec word for word, under a heading that names its
   Task id, such as `## Report of task <task_id>`. Do not shorten or reword it.
@@ -177,10 +182,16 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   ```
   The note says what to change or add. The Task is ready again; its worker continues its own conversation in the
   same worktree and branch, updates the same pull request, and finishes again; wait as before.
-  `tasks show` lists the follow-ups. When the follow-up is refused because the worker's conversation was closed,
-  create a new Task whose spec says to start from the branch `hyp/<task_id>` (fetch it and merge it into its own
-  branch) and names what is left. A follow-up is for a succeeded Task, or one blocked at a gate, whose gate it
+  `tasks show` lists the follow-ups. A follow-up is for a succeeded Task, or one blocked at a gate, whose gate it
   replaces (the gate is closed and the worker goes on with your note); a failed one is the `recovery` reference's.
+<!-- Orca pr-start-point.ts:226-245 (38aa9119); t3code GitManager.ts:1013-1069, 3361-3390 (4d5bf2d5) (issue #690) -->
+- When the follow-up is refused (the worker's conversation was closed, its Run finished) or the Task failed or was
+  canceled with its work on a pull request, create a Task with `"continues": "<task_id>"` and a spec that names
+  what is left. It works on that Task's branch and pushes into it, so the same pull request takes the commits and
+  keeps its number and reviews; the Task may be of another Run of the same repository. Do not open a new pull request
+  with `Supersedes #n`, and do not write a branch to check out in the spec. It is refused while a Task that pushes
+  to that branch is unfinished; its own pull request is found with `gh pr list --head <its push_branch>`, the
+  `push_branch` that `tasks show` gives.
 - `failed` or `blocked`: load the `recovery` reference before acting.
 - Report a failed, blocked or canceled Task as exactly that, with what is left.
 - Never merge a pull request, nor turn on its auto-merge: the worker that made it does, or the owner. A worker that

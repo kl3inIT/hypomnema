@@ -19,6 +19,30 @@ func canPublish(o nodeproto.Offer) bool {
 	return o.Repo != "" && o.RepoHost == githost.GitHubHost && (!o.RoleRouted || o.Profile == "implementer")
 }
 
+// pushBranch is the branch the Task's commits go to: the branch of the Task it continues, else its own (issue #690).
+func pushBranch(o nodeproto.Offer) string {
+	if o.PushBranch != "" {
+		return o.PushBranch
+	}
+	return worktree.Branch(o.TaskID)
+}
+
+// startBranch is the branch the Task's worktree starts from: the Run's base, or the branch it continues or stacks on.
+func startBranch(o nodeproto.Offer) string {
+	if o.StartFrom != "" {
+		return o.StartFrom
+	}
+	return o.Base
+}
+
+// prBase is the base of the pull request the Task opens.
+func prBase(o nodeproto.Offer) string {
+	if o.PRBase != "" {
+		return o.PRBase
+	}
+	return o.Base
+}
+
 func githubPushRemote(o nodeproto.Offer) bool {
 	if o.RepoSSHURL == "" {
 		return true
@@ -94,14 +118,14 @@ func (s *Supervisor) publishBranch(ctx context.Context, w *Worker) (string, erro
 	if err != nil {
 		return "", err
 	}
-	sha, err := worktree.Publish(ctx, src, o.Worktree, o.TaskID)
+	branch := pushBranch(o)
+	sha, err := worktree.Publish(ctx, src, o.Worktree, o.TaskID, branch)
 	if err != nil {
 		return "", err
 	}
 	if sha == "" {
 		return "The branch is already up to date. No new push evidence was recorded.", nil
 	}
-	branch := worktree.Branch(o.TaskID)
 	if err := w.r.PublishedHead(ctx, nodeproto.PublishedHead{Branch: branch, SHA: sha}); err != nil {
 		return "", fmt.Errorf("pushed %s but could not queue its push evidence: %w", branch, err)
 	}

@@ -279,9 +279,30 @@ sequenceDiagram
   every Dispatch of the Task carries the newest note (`dispatches.follow_up_id`) until one that carries it
   succeeds, so a retry in a new Conversation or a handoff gets it too; the node puts it in the worker's first turn
   as it puts a resolved Gate. Without an open Conversation the follow-up is refused (409), and the error says to
-  create a new Task from the branch `hyp/<task_id>`. Learned from Orca, whose finished worker gets a message "as a
+  create a new Task that `continues` it (below). A follow-up, and the reopening of a failed Task, are also refused
+  while another unfinished Task pushes to the Task's branch. Learned from Orca, whose finished worker gets a message "as a
   follow-up Task" (`skill-guides/orchestration.md`), Polly, which sends fixes "to the SAME implementer
   conversation", and omp's "Prefer messaging an existing agent" for follow-up work (`docs/tools/task.md`).
+- A Task's branches (issue #690, `orchestration/branches.go`, migration 00144). A new Task may name
+  `continues: <task id>`: a Task of the same repository, of any Run, even a finished one, and whatever its status.
+  It then works on that Task's branch and pushes into it (`tasks.push_branch`, that Task's own push branch, so a
+  chain of them shares one branch), so that branch's pull request takes the commits and keeps its number and
+  reviews; a pull request it has to open targets what the earlier Task's did. Or it may name `start_from: <branch>`
+  (another Task's `hyp/<id>`, which resolves to the branch that Task pushes to, or a named branch git accepts) and
+  `pr_base`: `start_from`, the default, for stacked work, or `run_base`. Both are refused together, and a branch
+  git would refuse or that reads as an option never reaches a node. Creation is refused (409) while an unfinished
+  Task, the continued one included, pushes to the same branch: one pusher per branch. The Task's
+  `push_branch`, `start_from` and `pr_base` go to the node with the offer (empty for the defaults: `hyp/<id>`, the
+  Run's base), and `published_head` accepts the Task's push branch as well as its own, so the push is this Run's
+  evidence for the pull request it updated. A node of an earlier release ignores the three fields and works as
+  before. Learned from Orca, whose worktree for a pull request starts at its head and pushes to it
+  (`src/main/github/pull-requests/start-points/pr-start-point.ts:226-245`, at `38aa9119`), and t3code, whose
+  worktree for a pull request sets its upstream to the head branch (`apps/server/src/git/GitManager.ts:1013-1069,
+  3361-3390`, at `4d5bf2d5`), and whose stacked work takes the parent branch as `baseRef`
+  (`docs/orchestration-v2/orchestrator-mcp-server.md:354-355`) and refuses a second worktree on an existing branch
+  (`ThreadLaunchService.ts:443-448`). The one-pusher rule held by the control plane, and allowing only a Task's
+  branch as a push target, are inferred; Hermes, by contrast, salvages a contributor's work into a new pull
+  request (`AGENTS.md:41`), which is what this replaces.
 - Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
@@ -4570,7 +4591,8 @@ The owner's commands:
   current GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
   with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
   Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
-  assigned ref, queues an authenticated `published_head` report only for a Git-accepted update, and the control
+  Task's branch to its push branch (its own, or the one it continues, issue #690), never forced; a push the host
+  refuses because the branch moved tells the worker to merge `origin/<branch>` and publish again. It queues an authenticated `published_head` report only for a Git-accepted update, and the control
   plane records it in the Dispatch's effects. A no-op push, local ref or Task result is not evidence. Both PRs
   must share a closing issue. Visible closing keywords in Markdown also
   work when GitHub supplies no closing links. It comments and closes through the existing GitHub tool
@@ -4812,7 +4834,11 @@ Node (`internal/node`):
       owner (issue #21);
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
-      of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
+      of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`, where base is the
+      offer's `pr_base` when it names one (stacked work, issue #690). A Task that continues another is told the
+      branch it started from is that Task's and its pull request's, that `publish_branch` pushes into it and so
+      updates that pull request, not to open a new one, and to open one with that branch as head only when
+      `gh pr list --head <branch> --state open` finds none;
     - how the host merges it by itself (issue #714, [research](docs/research/2026-11-17-auto-merge.md);
       `githost.AutoMerge`), skipped when the spec says a review comes first, that the owner merges, or to ask
       before merging:
@@ -4836,8 +4862,11 @@ Node (`internal/node`):
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
-  `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
-  branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
+  `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, where base is the
+  offer's `start_from` when it names one (issue #690: the continued or parent branch; one the host lacks fails with
+  its name), or from the existing branch on a retry; reused while it exists. The local branch is always the
+  Task's own, so an old worktree of the continued Task on the node, which holds that Task's branch, does not stop
+  it. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
   the mirror's `origin` is set to the address it is fetched from, so the worker pushes the same way. A GitHub

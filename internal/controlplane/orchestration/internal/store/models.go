@@ -986,6 +986,10 @@ type Task struct {
 	WaitingReason     sql.NullString
 	Kind              string
 	AuthorVendor      string
+	Continues         sql.NullString
+	PushBranch        sql.NullString
+	StartFrom         sql.NullString
+	PrBase            sql.NullString
 }
 
 type TaskDep struct {

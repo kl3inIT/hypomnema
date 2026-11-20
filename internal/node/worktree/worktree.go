@@ -83,7 +83,12 @@ func Branch(taskID string) string { return "hyp/" + taskID }
 
 // Ensure makes the worktree at path on the Task's branch, starting from base,
 // or reuses it when it exists (a continued Conversation). A worktree it made
-// has had the repository's setup script run in it (setup.go).
+// has had the repository's setup script run in it (setup.go). base is the
+// Run's base, or the branch the Task starts from: another Task's branch it
+// continues or stacks on (issue #690). The Task's own branch is always its
+// local branch, so an old worktree of that other Task on this node, which
+// holds that Task's branch, does not stop it (t3code's local branch also
+// differs from the pull request's head it pushes to, GitManager.ts:3236).
 func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("the worktree %q is not absolute", path)
@@ -108,7 +113,12 @@ func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string
 		// A retry: the branch keeps what the earlier attempt committed.
 		err = git(ctx, mirror, nil, "worktree", "add", path, branch)
 	} else {
-		err = git(ctx, mirror, nil, "worktree", "add", "--no-track", "-b", branch, path, "refs/remotes/origin/"+base)
+		start := "refs/remotes/origin/" + base
+		if git(ctx, mirror, nil, "rev-parse", "--verify", "--quiet", start+"^{commit}") != nil {
+			return fmt.Errorf("the branch %s does not exist on the repository's host", base)
+		}
+
+		err = git(ctx, mirror, nil, "worktree", "add", "--no-track", "-b", branch, path, start)
 	}
 
 	if err != nil {
