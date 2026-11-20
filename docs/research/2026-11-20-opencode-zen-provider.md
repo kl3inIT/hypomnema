@@ -46,6 +46,7 @@ answers 200, one Zen call on each wire) are to run after deploy.
 | 7 | Go's own free models stay as they are, served as `opencode-go/*` under the Go key | omniroute `opencodeFreeTierContract.ts` ("For `opencode-go`, there is no free tier") |
 | 8 | On Zen, a 402 or one of the five quota codes rests the key an hour (`quotaCooldown`, or a `Retry-After` up to two hours) and the next key is tried on a status that moves on (402, 403, 429); a 401 marks the key refused; any other refusal rests as every account does | opencode `provider-error.ts`; omniroute `providerErrorRules.ts`; `modelgateway/accounts.go` `cool` |
 | 9 | Left out: the free lane (`Bearer public` and the imitation), Zen's balance and usage, recording `usage.cost`, a Zen price row (a Claude or GPT model is priced by its maker's row), Gemini, `interactions`, image models | owner, 2026-11-20; the issue |
+| 10 | A bare model name (a profile's, a Task's, a role chain's) never picks Zen; Zen is reached by naming `opencode-zen`. Without it, every bare name Zen also lists (`claude-opus-5-5`, `deepseek-v4-pro`, named bare by Tasks on zm in the week to 2026-11-20) would be refused as offered by two providers (`orchestration/profiles.go` `checkModel`), at creation and at dispatch | 9router and omniroute address a model by its provider's alias (`ocz/<model>`; 9router `providers/registry/opencode-zen.js:3-8`); found while building, not in the approved design, so it is put to the owner |
 
 Row 6 is not built (owner, 2026-11-20).
 
