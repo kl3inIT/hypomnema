@@ -131,6 +131,7 @@ func dueText(d openapi.TodoDue) string {
 		}
 	case openapi.TodoDueKindUnknown:
 		return "due, unknown"
+	case openapi.TodoDueKindNone:
 	}
 
 	return "-"
@@ -384,7 +385,9 @@ func inboxDuplicate(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		func(t openapi.Todo) (*openapi.DuplicateTodoResponse, error) {
 			return e.api.DuplicateTodoWithResponse(ctx, t.Id, openapi.TodoDuplicate{Revision: t.Revision, Of: fs.Arg(1)})
 		},
-		func(r *openapi.DuplicateTodoResponse) (*openapi.Todo, *openapi.Error) { return r.JSON200, r.JSONDefault })
+		func(r *openapi.DuplicateTodoResponse) (*openapi.Todo, *openapi.Error) {
+			return r.JSON200, r.JSONDefault
+		})
 }
 
 func inboxSnooze(ctx context.Context, e *env, fs *flag.FlagSet) error {

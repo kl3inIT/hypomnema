@@ -1,10 +1,12 @@
 package clientapi
 
 import (
+	"context"
 	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
 // inboxWorld is the client API with the four kinds of caller of issue #966, section 2: the owner; a Bot in its
@@ -33,8 +36,14 @@ type inboxWorld struct {
 func newInboxWorld(t *testing.T) *inboxWorld {
 	t.Helper()
 
+	return newInboxWorldAt(t, platform.SystemClock{})
+}
+
+func newInboxWorldAt(t *testing.T, clock platform.Clock) *inboxWorld {
+	t.Helper()
+
 	ctx := t.Context()
-	w := newWorld(t)
+	w := newWorldAt(t, clock)
 	owner, _ := w.token("owner", bearertoken.Owner)
 	coordinator, _ := w.token("pi-coordinator", bearertoken.Coordinator)
 
@@ -69,10 +78,10 @@ func newInboxWorld(t *testing.T) *inboxWorld {
 }
 
 // add is an item the owner wrote, given to whom.
-func (w *inboxWorld) add(t *testing.T, title string, who openapi.TodoAssignee) openapi.Todo {
+func (w *inboxWorld) add(ctx context.Context, t *testing.T, title string, who openapi.TodoAssignee) openapi.Todo {
 	t.Helper()
 
-	resp, err := w.owner.CreateTodoWithResponse(t.Context(), &openapi.CreateTodoParams{},
+	resp, err := w.owner.CreateTodoWithResponse(ctx, &openapi.CreateTodoParams{},
 		openapi.NewTodo{Title: title, Assignee: &who})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode(), string(resp.Body))
@@ -93,8 +102,8 @@ func (w *inboxWorld) proposed(t *testing.T) openapi.Todo {
 }
 
 var (
-	toOwner  = openapi.TodoAssignee{Kind: openapi.TodoAssigneeKindMe}
-	toMain = openapi.TodoAssignee{Kind: openapi.TodoAssigneeKindBot, Name: ptr(orchestration.DefaultBotID)}
+	toOwner = openapi.TodoAssignee{Kind: openapi.TodoAssigneeKindMe}
+	toMain  = openapi.TodoAssignee{Kind: openapi.TodoAssigneeKindBot, Name: ptr(orchestration.DefaultBotID)}
 )
 
 func (w *inboxWorld) get(t *testing.T, id string) openapi.Todo {
@@ -144,14 +153,14 @@ func TestEachTokenActsAsItsCaller(t *testing.T) {
 		{"GetInboxNeedsYou", nil, func(c *openapi.ClientWithResponses, _ openapi.Todo) (any, error) {
 			return c.GetInboxNeedsYouWithResponse(ctx)
 		}, [4]int{200, 200, 200, 200}},
-		{"GetTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(t, "Read", toOwner) },
+		{"GetTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Read", toOwner) },
 			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
 				return c.GetTodoWithResponse(ctx, td.Id)
 			}, [4]int{200, 200, 200, 200}},
 		{"CreateTodo", nil, func(c *openapi.ClientWithResponses, _ openapi.Todo) (any, error) {
 			return c.CreateTodoWithResponse(ctx, &openapi.CreateTodoParams{}, openapi.NewTodo{Title: "Pay"})
 		}, [4]int{201, 201, 201, 403}},
-		{"EditTodo", func(t *testing.T, c inboxCallerCase) openapi.Todo { return w.add(t, "Edit", c.bot) },
+		{"EditTodo", func(t *testing.T, c inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Edit", c.bot) },
 			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
 				return c.EditTodoWithResponse(ctx, td.Id, openapi.TodoEdit{Revision: td.Revision, Notes: ptr("x")})
 			}, [4]int{200, 200, 200, 403}},
@@ -159,23 +168,23 @@ func TestEachTokenActsAsItsCaller(t *testing.T) {
 			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
 				return c.AcceptTodoWithResponse(ctx, td.Id, openapi.TodoChange{Revision: td.Revision})
 			}, [4]int{200, 403, 403, 403}},
-		{"DoneTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(t, "Done", toOwner) },
+		{"DoneTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Done", toOwner) },
 			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
 				return c.DoneTodoWithResponse(ctx, td.Id, openapi.TodoDone{Revision: td.Revision, DoneBy: &toOwner,
 					Evidence: &w.said})
 			}, [4]int{200, 200, 400, 403}},
-		{"DropTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(t, "Drop", toOwner) },
+		{"DropTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Drop", toOwner) },
 			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
 				return c.DropTodoWithResponse(ctx, td.Id, openapi.TodoDrop{Revision: td.Revision, Reason: "No need",
 					Evidence: &w.said})
 			}, [4]int{200, 200, 400, 403}},
-		{"DuplicateTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(t, "Twice", toOwner) },
+		{"DuplicateTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Twice", toOwner) },
 			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
 				return c.DuplicateTodoWithResponse(ctx, td.Id, openapi.TodoDuplicate{Revision: td.Revision,
-					Of: w.add(t, "Once", toOwner).Id})
+					Of: w.add(ctx, t, "Once", toOwner).Id})
 			}, [4]int{200, 403, 403, 403}},
 		{"ReopenTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo {
-			td := w.add(t, "Reopen", toOwner)
+			td := w.add(ctx, t, "Reopen", toOwner)
 			r, err := w.owner.DoneTodoWithResponse(ctx, td.Id, openapi.TodoDone{Revision: td.Revision})
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, r.StatusCode(), string(r.Body))
@@ -184,13 +193,13 @@ func TestEachTokenActsAsItsCaller(t *testing.T) {
 		}, func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
 			return c.ReopenTodoWithResponse(ctx, td.Id, openapi.TodoChange{Revision: td.Revision})
 		}, [4]int{200, 403, 403, 403}},
-		{"SnoozeTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(t, "Later", toOwner) },
+		{"SnoozeTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Later", toOwner) },
 			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
 				until := time.Now().Add(time.Hour)
 
 				return c.SnoozeTodoWithResponse(ctx, td.Id, openapi.TodoSnooze{Revision: td.Revision, Until: &until})
 			}, [4]int{200, 403, 403, 403}},
-		{"StartTodo", func(t *testing.T, c inboxCallerCase) openapi.Todo { return w.add(t, "Start", c.bot) },
+		{"StartTodo", func(t *testing.T, c inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Start", c.bot) },
 			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
 				return c.StartTodoWithResponse(ctx, td.Id, openapi.TodoChange{Revision: td.Revision})
 			}, [4]int{403, 200, 200, 403}},
@@ -200,7 +209,7 @@ func TestEachTokenActsAsItsCaller(t *testing.T) {
 				starter = w.routineBot
 			}
 
-			td := w.add(t, "Release", c.bot)
+			td := w.add(ctx, t, "Release", c.bot)
 			r, err := starter.StartTodoWithResponse(ctx, td.Id, openapi.TodoChange{Revision: td.Revision})
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, r.StatusCode(), string(r.Body))
@@ -266,7 +275,7 @@ func TestEachTokenActsAsItsCaller(t *testing.T) {
 func status(r any) (int, string) {
 	v := reflect.ValueOf(r).Elem()
 
-	return int(v.FieldByName("HTTPResponse").Interface().(*http.Response).StatusCode), //nolint:forcetypeassert // generated
+	return v.FieldByName("HTTPResponse").Interface().(*http.Response).StatusCode, //nolint:forcetypeassert // generated
 		string(v.FieldByName("Body").Bytes())
 }
 
@@ -379,23 +388,28 @@ func TestARoutineBotOpensOnlyWhatIsClear(t *testing.T) {
 	assert.Equal(t, openapi.TodoSource{Kind: openapi.TodoSourceKindRoutine, Id: &started.Run.ID}, r.JSON201.Source)
 }
 
+// movedClock is the wall clock moved by an offset.
+type movedClock struct{ by atomic.Int64 }
+
+func (c *movedClock) Now() time.Time { return time.Now().Add(time.Duration(c.by.Load())) }
+
 // Scenario: an untouched proposal three days old is stale: the list and the count leave it out, include_stale
 // shows it, marked stale; one the owner touched is not stale.
 func TestAStaleProposalIsHiddenUntilAskedFor(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	w := newInboxWorld(t)
+	clock := &movedClock{}
+	clock.by.Store(int64(-inboxstore.StaleAfter - time.Minute))
+	w := newInboxWorldAt(t, clock)
 	old, touched := w.proposed(t), w.proposed(t)
+
+	clock.by.Store(0)
 
 	r, err := w.owner.EditTodoWithResponse(ctx, touched.Id, openapi.TodoEdit{Revision: touched.Revision,
 		Notes: ptr("Linh asked again")})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, r.StatusCode(), string(r.Body))
-
-	ago := time.Now().Add(-inboxstore.StaleAfter - time.Minute).UnixMilli()
-	_, err = w.db.ExecContext(ctx, `UPDATE todos SET created_at = ? WHERE id IN (?, ?)`, ago, old.Id, touched.Id)
-	require.NoError(t, err)
 
 	list := func(p openapi.ListTodosParams) map[string]bool {
 		t.Helper()
@@ -431,7 +445,7 @@ func TestInboxErrorsAndRetries(t *testing.T) {
 
 	ctx := t.Context()
 	w := newInboxWorld(t)
-	td := w.add(t, "Send the contract", toMain)
+	td := w.add(ctx, t, "Send the contract", toMain)
 
 	r, err := w.owner.EditTodoWithResponse(ctx, td.Id, openapi.TodoEdit{Revision: td.Revision, Notes: ptr("a")})
 	require.NoError(t, err)
@@ -457,7 +471,7 @@ func TestInboxErrorsAndRetries(t *testing.T) {
 	assert.Equal(t, openapi.Conflict, errorCode(t, fenced.Body, fenced.StatusCode(), http.StatusConflict))
 
 	past := time.Now().Add(-time.Hour)
-	later := w.add(t, "Later", toOwner)
+	later := w.add(ctx, t, "Later", toOwner)
 	snoozed, err := w.owner.SnoozeTodoWithResponse(ctx, later.Id, openapi.TodoSnooze{Revision: later.Revision,
 		Until: &past})
 	require.NoError(t, err)

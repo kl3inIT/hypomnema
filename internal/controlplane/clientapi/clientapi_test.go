@@ -3,7 +3,6 @@ package clientapi
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -33,8 +32,6 @@ import (
 type world struct {
 	t   *testing.T
 	svc *orchestration.Service
-	// db is the database under svc, for a test that sets what no operation does, such as an item's age.
-	db *sql.DB
 	// srv is the server under test, for a test that wires more into it.
 	srv *Server
 	url string
@@ -51,11 +48,18 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
+	return newWorldAt(t, platform.SystemClock{})
+}
+
+// newWorldAt is newWorld whose control plane reads clock, for a test that moves time.
+func newWorldAt(t *testing.T, clock platform.Clock) *world {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	svc := orchestration.New(db, clock, platform.NewID)
 
 	stop := make(chan struct{})
 	pi := &fakeCoordinator{live: make(chan coordinator.Frame, 16)}
@@ -75,7 +79,7 @@ func newWorld(t *testing.T) *world {
 		}
 	})
 
-	return &world{t: t, svc: svc, db: db, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi}
+	return &world{t: t, svc: svc, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi}
 }
 
 // token adds a token and returns a client that sends it.

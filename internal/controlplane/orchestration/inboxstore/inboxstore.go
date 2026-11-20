@@ -929,7 +929,7 @@ func fromRow(r store.Todo, now time.Time) (Todo, error) {
 		SnoozedUntil: storeutil.OptionalMillis(r.SnoozedUntil),
 		Source:       Source{Kind: r.SourceKind, ID: r.SourceID, Account: r.SourceAccount, Quote: r.SourceQuote},
 		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy}, WhyOpen: r.WhyOpen.String, Stale: stale(r, now),
-		ApprovalID:   r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
+		ApprovalID: r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
 		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
