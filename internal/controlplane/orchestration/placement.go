@@ -757,8 +757,17 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 		LastSeenAt:    optionalTime(n.row.LastSeenAt),
 		UnavailableAt: optionalTime(n.row.UnavailableAt), Connected: p.connected(n), Active: n.active,
 		Terminal: n.row.Terminal == 1, Device: n.row.Device, KVM: n.row.Kvm == 1,
-		CreatedAt: millis(n.row.CreatedAt), UpdatedAt: millis(n.row.UpdatedAt),
+		TempIsolation: tempIsolationOut(n.row), CreatedAt: millis(n.row.CreatedAt), UpdatedAt: millis(n.row.UpdatedAt),
 	}
+}
+
+// tempIsolationOut is what the node said of its workers' temp isolation at its last hello; nil when it did not say.
+func tempIsolationOut(row store.Node) *TempIsolation {
+	if !row.TempIsolation.Valid {
+		return nil
+	}
+
+	return &TempIsolation{On: row.TempIsolation.Int64 == 1, Reason: row.TempIsolationReason}
 }
 
 func (p *placement) accountOut(a store.Account) Account {

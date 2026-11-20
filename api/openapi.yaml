@@ -5770,6 +5770,7 @@ components:
           type: boolean
           description: >-
             The node said at its last connect that its user can use /dev/kvm, which an Android emulator needs.
+        temp_isolation: { $ref: "#/components/schemas/NodeTempIsolation" }
         active:
           type: integer
           description: Its Dispatches that have not settled.
@@ -6555,6 +6556,19 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/MachineProvider" }
+    NodeTempIsolation:
+      type: object
+      additionalProperties: false
+      required: [on]
+      description: >-
+        Whether the node runs its workers with their Dispatch's temp directory as /tmp and /var/tmp, in bubblewrap,
+        as it said at its last connect (issue #895). Off, they run with TMPDIR only, and what they write to /tmp
+        stays after their Task. Left out for a node whose version does not say.
+      properties:
+        "on": { type: boolean }
+        reason:
+          type: string
+          description: Why it is off, in the node's words.
     NodeDisk:
       type: object
       required: [floor_bytes, trim_bytes]

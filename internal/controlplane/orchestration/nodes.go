@@ -58,6 +58,9 @@ type Hello struct {
 	Device string
 	// KVM says the node's user can use /dev/kvm, which an Android emulator needs.
 	KVM bool
+	// TempIsolation says whether the node's workers get their temp directory as /tmp (issue #895); nil: the node
+	// does not say.
+	TempIsolation *TempIsolation
 	// Held lists every Dispatch the node holds when ListsHeld is set: the ones
 	// it claims, and the ones whose accept or final report is still queued
 	// (Omnara's daemon claims its preparing and terminal processes too,
@@ -70,6 +73,13 @@ type Hello struct {
 
 // DeviceAndroid is a node that holds an Android emulator (issue #417).
 const DeviceAndroid = "android"
+
+// TempIsolation is whether a node runs its workers with their Dispatch's temp directory as /tmp and /var/tmp
+// (issue #895), and why not when it does not.
+type TempIsolation struct {
+	On     bool
+	Reason string
+}
 
 // SystemInfo is what a node is: its daemon and its machine. A zero field was
 // not reported.
@@ -167,6 +177,9 @@ type Node struct {
 	// it can use /dev/kvm to run it (issue #417).
 	Device string
 	KVM    bool
+	// TempIsolation is what the node said at its last hello of its workers' temp isolation (issue #895); nil
+	// for a node that did not say.
+	TempIsolation *TempIsolation
 	// Machine is set for a node created at a provider; nil for one the owner installed.
 	Machine    *Machine
 	LastSeenAt *time.Time
@@ -594,7 +607,13 @@ func (s *Service) NodeHello(ctx context.Context, nodeID string, h Hello) error {
 			kvm = 1
 		}
 
+		isolation, reason := sql.NullInt64{}, ""
+		if h.TempIsolation != nil {
+			isolation, reason = sql.NullInt64{Int64: boolInt(h.TempIsolation.On), Valid: true}, h.TempIsolation.Reason
+		}
+
 		n, err := q.NodeHello(ctx, store.NodeHelloParams{
+			TempIsolation: isolation, TempIsolationReason: reason,
 			DiskPolicy: boolInt(h.DiskPolicy), TaskBranches: boolInt(h.TaskBranches),
 			Now: now, WorktreeRoot: nullString(h.WorktreeRoot), Runtimes: string(runtimes),
 			DaemonVersion: nullString(h.System.DaemonVersion), Os: nullString(h.System.OS),

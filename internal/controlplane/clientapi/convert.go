@@ -180,8 +180,21 @@ func toNode(n orchestration.Node) openapi.Node {
 		Stats: toNodeStats(n.Stats), Disk: toNodeDisk(n.Disk), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 		Terminal: ptr(n.Terminal), Device: ptr(openapi.NodeDevice(n.Device)), Kvm: ptr(n.KVM),
-		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools),
+		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools), TempIsolation: toNodeTempIsolation(n.TempIsolation),
 	}
+}
+
+func toNodeTempIsolation(t *orchestration.TempIsolation) *openapi.NodeTempIsolation {
+	if t == nil {
+		return nil
+	}
+
+	out := &openapi.NodeTempIsolation{On: t.On}
+	if t.Reason != "" {
+		out.Reason = &t.Reason
+	}
+
+	return out
 }
 
 func toNodeDisk(d *orchestration.DiskStatus) *openapi.NodeDisk {

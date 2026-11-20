@@ -5218,6 +5218,9 @@ type Node struct {
 	// System What the node said about itself at its last connect. A field it could not find is left out.
 	System *NodeSystem `json:"system,omitempty"`
 
+	// TempIsolation Whether the node runs its workers with their Dispatch's temp directory as /tmp and /var/tmp, in bubblewrap, as it said at its last connect (issue #895). Off, they run with TMPDIR only, and what they write to /tmp stays after their Task. Left out for a node whose version does not say.
+	TempIsolation *NodeTempIsolation `json:"temp_isolation,omitempty"`
+
 	// Terminal The node said at its last connect that it opens a terminal when asked. Left out for a node whose version has none or whose own configuration turned it off.
 	Terminal *bool `json:"terminal,omitempty"`
 
@@ -5327,6 +5330,14 @@ type NodeSystem struct {
 	DiskBytes   *int64  `json:"disk_bytes,omitempty"`
 	MemoryBytes *int64  `json:"memory_bytes,omitempty"`
 	Os          *string `json:"os,omitempty"`
+}
+
+// NodeTempIsolation Whether the node runs its workers with their Dispatch's temp directory as /tmp and /var/tmp, in bubblewrap, as it said at its last connect (issue #895). Off, they run with TMPDIR only, and what they write to /tmp stays after their Task. Left out for a node whose version does not say.
+type NodeTempIsolation struct {
+	On bool `json:"on"`
+
+	// Reason Why it is off, in the node's words.
+	Reason *string `json:"reason,omitempty"`
 }
 
 // NodeTool A command-line tool a node installed for an Integration, or why it could not.
