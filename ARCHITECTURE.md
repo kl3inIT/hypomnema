@@ -2455,9 +2455,11 @@ flowchart LR
       sends it) and keeps the token in memory, renewed a minute before it ends; the exchange runs on the context of
       the call that needs it. Only a key Google refuses (400 or 401) marks the Connection as needing to be connected
       again, and only while that key is still the Connection's; a 503 or the network marks nothing. A Connection's
-      writes (connect, disconnect, the cap, the refused mark) run one at a time: a Connection that cannot be saved
-      leaves the vault as it was (a new key removed, a replaced one put back), and a disconnect whose key's removal
-      failed is finished by disconnecting again. Google's error messages are stripped of tokens, JWTs and key
+      writes (connect, disconnect, the cap, the refused mark) run one at a time; the key and the Connection are written
+      in one transaction (`vault.CreateTx`/`RotateTx` in `SaveServiceConnectionTx`), so they are committed together
+      or not at all and nothing is undone; a disconnect whose key's removal failed is finished by disconnecting
+      again. A 404 to a job's cancel says it never started only when its submission got no answer; once BigQuery
+      confirmed it, the job's state is unknown and may still be billed. Google's error messages are stripped of tokens, JWTs and key
       material before they are logged or answered.
       Calls go through `cloud.google.com/go/bigquery` (metadata, jobs, rows) and its REST client (the dry run,
       `tables.list` with types, `jobs.cancel`); the node links none of it (`make deps-check`).

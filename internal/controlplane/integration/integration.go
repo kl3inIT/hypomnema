@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -74,6 +75,8 @@ type Store interface {
 	IntegrationClientOf(ctx context.Context, integration string) (orchestration.IntegrationClient, error)
 	SetConnectionSignInFailed(ctx context.Context, integration, label string, failed bool) error
 	SetConnectionSettings(ctx context.Context, integration, label, settings string) (orchestration.Connection, error)
+	SaveServiceConnectionTx(ctx context.Context, c orchestration.Connection,
+		with func(tx *sql.Tx, now int64) error) (orchestration.Connection, error)
 }
 
 // Service signs in and refreshes the Connections of the Integrations it was
@@ -116,7 +119,9 @@ type Service struct {
 	// saMu orders the writes of a service account's Connection: connect, disconnect, the cap, the refused mark.
 	saMu sync.Mutex
 	// betweenReads runs between the reads of a Connection's settings and of its key, for a test.
-	betweenReads     func()
+	betweenReads func()
+	// saWriteTimeout replaces the bound of a Connection's writes, for a test; zero is defaultWriteTimeout.
+	saWriteTimeout   time.Duration
 	googleTokenURL   string
 	bigqueryEndpoint string
 	// logger is where a BigQuery job's lines are written; nil writes none.

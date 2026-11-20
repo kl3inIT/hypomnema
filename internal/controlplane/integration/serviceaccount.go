@@ -8,6 +8,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -330,7 +331,7 @@ type serviceAccountTokens struct {
 }
 
 // keyVersion is a vault secret's identity as a token is kept under it.
-func keyVersion(sec vault.Secret) string { return fmt.Sprintf("%s:%d", sec.ID, sec.Version) }
+func keyVersion(sec vault.Secret) string { return sec.VersionID }
 
 // bigqueryClient is a client of BigQuery that sends each request with the key's token.
 func (s *Service) bigqueryClient(ctx context.Context, connection string, settings bigquery.Settings, token *saToken,
@@ -425,9 +426,9 @@ func (s *Service) ConnectServiceAccount(ctx context.Context, integration, label 
 	s.saMu.Lock()
 	defer s.saMu.Unlock()
 
-	// From here the writes go to their end, or are undone, whatever becomes of the request: a request canceled
-	// after the key was written must not leave the key without its Connection (review round 2).
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+	// From here the writes no longer follow the request (review round 2), and they are one transaction: the key and
+	// the Connection that names it are committed together or not at all, so nothing is ever undone (review round 3).
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.writeTimeout())
 	defer cancel()
 
 	previous, hadSettings := s.previousSettings(ctx, d.ID, label)
@@ -440,17 +441,24 @@ func (s *Service) ConnectServiceAccount(ctx context.Context, integration, label 
 		return Connection{}, fmt.Errorf("encoding the settings: %w", err)
 	}
 
-	version, undo, err := s.writeKey(ctx, d, label, secret, key, sa.Key, keptVersion)
+	write, err := s.keyWrite(ctx, d, label, secret, key, sa.Key, keptVersion)
 	if err != nil {
 		return Connection{}, err
 	}
 
-	saved, err := s.store.SaveServiceConnection(ctx, orchestration.Connection{
+	var version string
+
+	saved, err := s.store.SaveServiceConnectionTx(ctx, orchestration.Connection{
 		Integration: d.ID, Label: label, Account: key.ClientEmail, Secret: secret, Settings: string(encoded),
+	}, func(tx *sql.Tx, now int64) error {
+		var err error
+		version, err = write(tx, now)
+
+		return err
 	})
 	if err != nil {
-		undo()
-
+		// Committed or not, the key and the Connection agree: a Connection that was saved but not read back is
+		// read with its own key at its next call.
 		return Connection{}, err
 	}
 
@@ -462,8 +470,16 @@ func (s *Service) ConnectServiceAccount(ctx context.Context, integration, label 
 	return s.checked(ctx, d, saved), nil
 }
 
-// writeTimeout bounds the writes of a Connection, which no longer follow the request's own context.
-const writeTimeout = 30 * time.Second
+// defaultWriteTimeout bounds the writes of a Connection, which no longer follow the request's own context.
+const defaultWriteTimeout = 30 * time.Second
+
+func (s *Service) writeTimeout() time.Duration {
+	if s.saWriteTimeout > 0 {
+		return s.saWriteTimeout
+	}
+
+	return defaultWriteTimeout
+}
 
 // previousSettings are the settings a label has, when it has a Connection.
 func (s *Service) previousSettings(ctx context.Context, integration, label string) (bigquery.Settings, bool) {
@@ -477,58 +493,55 @@ func (s *Service) previousSettings(ctx context.Context, integration, label strin
 	return settings, err == nil
 }
 
-// writeKey keeps a key given, creating or rotating the label's secret, and returns the version of the key the
-// Connection uses and what undoes the write: the secret removed when it was made here, the old key put back when it
-// was replaced. With no key given, the kept one must be the version that was checked. Under saMu.
-func (s *Service) writeKey(ctx context.Context, d Definition, label, secret string, key serviceAccountKey,
+// keyWrite is the write of a Connection's key, run in the transaction that saves the Connection: a key given makes
+// or rotates the label's secret, and the version id it answers is the one the Connection uses. With no key given,
+// the kept one must still be the version that was checked. What can be read is read before the transaction, under
+// saMu, which every write of the key takes.
+func (s *Service) keyWrite(ctx context.Context, d Definition, label, secret string, key serviceAccountKey,
 	given []byte, keptVersion string,
-) (string, func(), error) {
-	if len(given) == 0 {
-		kept, err := s.vault.Get(ctx, secret)
-		if err != nil {
-			return "", nil, vaultError(err)
-		}
+) (func(tx *sql.Tx, now int64) (string, error), error) {
+	kept, err := s.vault.Get(ctx, secret)
 
+	switch {
+	case len(given) == 0 && err != nil:
+		return nil, vaultError(err)
+	case len(given) == 0:
 		if keyVersion(kept) != keptVersion {
-			return "", nil, fmt.Errorf("%w: the key of %s changed while it was checked; connect again", ErrConflict,
+			return nil, fmt.Errorf("%w: the key of %s changed while it was checked; connect again", ErrConflict,
 				orchestration.Use(d.ID, label))
 		}
 
-		return keptVersion, func() {}, nil
+		return func(*sql.Tx, int64) (string, error) { return keptVersion, nil }, nil
+	case err != nil && !errors.Is(err, vault.ErrNotFound):
+		return nil, vaultError(err)
 	}
 
 	payload := vault.Payload{vault.KeyValue: string(given)}
 
-	old, err := s.vault.Open(ctx, secret)
+	if errors.Is(err, vault.ErrNotFound) {
+		return func(tx *sql.Tx, now int64) (string, error) {
+			id, err := s.vault.CreateTx(ctx, tx, vault.NewSecret{
+				Name: secret, Kind: vault.KindGeneric, Payload: payload,
+				Metadata: map[string]string{
+					"integration": d.ID, "connection": label, "account": key.ClientEmail,
+					"what": "a service account's JSON key",
+				},
+			}, now)
+			if err != nil {
+				return "", vaultError(err)
+			}
 
-	switch {
-	case errors.Is(err, vault.ErrNotFound):
-		made, err := s.vault.Create(ctx, vault.NewSecret{
-			Name: secret, Kind: vault.KindGeneric, Payload: payload,
-			Metadata: map[string]string{
-				"integration": d.ID, "connection": label, "account": key.ClientEmail,
-				"what": "a service account's JSON key",
-			},
-		})
+			return id, nil
+		}, nil
+	}
+
+	return func(tx *sql.Tx, now int64) (string, error) {
+		id, err := s.vault.RotateTx(ctx, tx, secret, payload, now)
 		if err != nil {
-			return "", nil, vaultError(err)
+			return "", vaultError(err)
 		}
 
-		return keyVersion(made), func() {
-			s.logged(ctx, "removing a key no Connection uses", s.vault.Delete(ctx, secret))
-		}, nil
-	case err != nil:
-		return "", nil, vaultError(err)
-	}
-
-	rotated, err := s.vault.Rotate(ctx, secret, payload)
-	if err != nil {
-		return "", nil, vaultError(err)
-	}
-
-	return keyVersion(rotated), func() {
-		_, err := s.vault.Rotate(ctx, secret, old.Payload)
-		s.logged(ctx, "putting the replaced key back", err)
+		return id, nil
 	}, nil
 }
 

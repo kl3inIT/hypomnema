@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -532,8 +533,17 @@ type failingStore struct {
 	*orchestration.Service
 }
 
-func (failingStore) SaveServiceConnection(context.Context, orchestration.Connection) (orchestration.Connection, error) {
-	return orchestration.Connection{}, errors.New("the database is gone")
+// SaveServiceConnectionTx writes the key in the Connection's transaction, then fails the save itself.
+func (f failingStore) SaveServiceConnectionTx(ctx context.Context, c orchestration.Connection,
+	with func(tx *sql.Tx, now int64) error,
+) (orchestration.Connection, error) {
+	return f.Service.SaveServiceConnectionTx(ctx, c, func(tx *sql.Tx, now int64) error {
+		if err := with(tx, now); err != nil {
+			return err
+		}
+
+		return errors.New("the database is gone")
+	})
 }
 
 // Scenario (review round 1): the Connection cannot be saved after its key was written. A new label leaves no
@@ -735,15 +745,22 @@ type cancelingStore struct {
 	fail   bool
 }
 
-func (c cancelingStore) SaveServiceConnection(ctx context.Context, conn orchestration.Connection,
+func (c cancelingStore) SaveServiceConnectionTx(ctx context.Context, conn orchestration.Connection,
+	with func(tx *sql.Tx, now int64) error,
 ) (orchestration.Connection, error) {
-	c.cancel()
+	return c.Service.SaveServiceConnectionTx(ctx, conn, func(tx *sql.Tx, now int64) error {
+		if err := with(tx, now); err != nil {
+			return err
+		}
 
-	if c.fail {
-		return orchestration.Connection{}, errors.New("the database is gone")
-	}
+		c.cancel() // the request ends once the key is written
 
-	return c.Service.SaveServiceConnection(ctx, conn)
+		if c.fail {
+			return errors.New("the database is gone")
+		}
+
+		return nil
+	})
 }
 
 // Scenario (review round 2, CodeRabbit #4641253084): the request is canceled right after the key was written.
@@ -872,4 +889,122 @@ func TestARefusalOfAKeyMadeAgainUnderItsNameMarksNothing(t *testing.T) {
 	})
 	require.ErrorIs(t, err, integration.ErrSignInRequired)
 	assert.False(t, w.needsSignIn("ga4"), "the key made again is not marked")
+}
+
+// expiringStore holds the Connection's transaction, after its key is written, until the writes' own deadline ends,
+// as a database too slow for the 30 seconds (review round 3, the reviewer's first probe).
+type expiringStore struct {
+	*orchestration.Service
+}
+
+func (e expiringStore) SaveServiceConnectionTx(ctx context.Context, c orchestration.Connection,
+	with func(tx *sql.Tx, now int64) error,
+) (orchestration.Connection, error) {
+	return e.Service.SaveServiceConnectionTx(ctx, c, func(tx *sql.Tx, now int64) error {
+		if err := with(tx, now); err != nil {
+			return err
+		}
+
+		<-ctx.Done()
+
+		return ctx.Err()
+	})
+}
+
+// unreadableStore saves the Connection, then fails as if reading it back failed (review round 3, the reviewer's
+// second probe).
+type unreadableStore struct {
+	*orchestration.Service
+}
+
+func (u unreadableStore) SaveServiceConnectionTx(ctx context.Context, c orchestration.Connection,
+	with func(tx *sql.Tx, now int64) error,
+) (orchestration.Connection, error) {
+	if _, err := u.Service.SaveServiceConnectionTx(ctx, c, with); err != nil {
+		return orchestration.Connection{}, err
+	}
+
+	return orchestration.Connection{}, errors.New("reading connection back: the database is gone")
+}
+
+// Scenario (review round 3, CodeRabbit #4641253084): the writes' deadline ends after the key was written. The
+// key and the Connection are one transaction, so nothing of it stays: a new label leaves no key, and a replaced
+// key stays the old one beside its old settings.
+func TestAWriteDeadlineAfterTheKeyLeavesNothingHalfDone(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorld(t)
+	first, _ := serviceAccountKey(t, nil)
+	second, _ := serviceAccountKey(t, nil)
+	good := w.svc
+
+	_, err := w.connectTo(t.Context(), "ga4", first, "billing-one")
+	require.NoError(t, err)
+
+	w.svc = integration.New(expiringStore{w.orch}, w.vault, w.clock, platform.NewID, integration.BigQuery()).
+		WithGoogle(w.tokens.URL, w.fake.URL).WithWriteTimeout(100 * time.Millisecond)
+
+	_, err = w.connectTo(t.Context(), "other", second, "billing-two")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	_, err = w.vault.Get(t.Context(), "integration-bigquery-other")
+	require.ErrorIs(t, err, vault.ErrNotFound, "no key without its Connection")
+
+	_, err = w.connectTo(t.Context(), "ga4", second, "billing-two")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	opened, err := w.vault.Open(t.Context(), "integration-bigquery-ga4")
+	require.NoError(t, err)
+	assert.JSONEq(t, string(first), opened.Payload["value"])
+
+	conn, err := w.orch.ConnectionOf(t.Context(), integration.BigQueryID, "ga4")
+	require.NoError(t, err)
+	assert.Contains(t, conn.Settings, "billing-one")
+
+	w.svc = good
+}
+
+// Scenario (review round 3, CodeRabbit #4641253084): the Connection is saved, then reading it back fails. What
+// was committed is not undone: the new key stays beside the new settings, never the old key beside them, and the
+// next call uses the new key with the new billing project.
+func TestASavedConnectionThatCannotBeReadBackKeepsItsKey(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorld(t)
+	w.tokens.set(func(g *googleTokens) { g.perIssuer = true })
+
+	email := func(address string) func(map[string]any) {
+		return func(k map[string]any) { k["client_email"] = address }
+	}
+	first, _ := serviceAccountKey(t, email("a@data-project.iam.gserviceaccount.com"))
+	second, _ := serviceAccountKey(t, email("b@data-project.iam.gserviceaccount.com"))
+
+	_, err := w.connectTo(t.Context(), "ga4", first, "billing-aaa")
+	require.NoError(t, err)
+
+	w.svc = integration.New(unreadableStore{w.orch}, w.vault, w.clock, platform.NewID, integration.BigQuery()).
+		WithGoogle(w.tokens.URL, w.fake.URL)
+
+	_, err = w.connectTo(t.Context(), "ga4", second, "billing-bbb")
+	require.ErrorContains(t, err, "reading connection back")
+
+	opened, err := w.vault.Open(t.Context(), "integration-bigquery-ga4")
+	require.NoError(t, err)
+	assert.JSONEq(t, string(second), opened.Payload["value"], "the committed key stays")
+
+	conn, err := w.orch.ConnectionOf(t.Context(), integration.BigQueryID, "ga4")
+	require.NoError(t, err)
+	assert.Contains(t, conn.Settings, "billing-bbb")
+	assert.Equal(t, "b@data-project.iam.gserviceaccount.com", conn.Account)
+
+	w.restart()
+
+	before := len(w.fake.Requests())
+	w.fake.Columns = []string{"n"}
+	require.NoError(t, w.query("ga4"))
+
+	for _, r := range w.fake.Requests()[before:] {
+		assert.True(t, strings.HasSuffix(r.Authorization, "-b@data-project.iam.gserviceaccount.com"), r.Authorization)
+		assert.NotContains(t, r.Path, "billing-aaa")
+	}
 }

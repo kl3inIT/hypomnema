@@ -23,3 +23,10 @@ func (s *Service) BetweenReads(do func()) *Service {
 
 	return s
 }
+
+// WithWriteTimeout bounds a BigQuery Connection's writes by d in place of 30 seconds.
+func (s *Service) WithWriteTimeout(d time.Duration) *Service {
+	s.saWriteTimeout = d
+
+	return s
+}

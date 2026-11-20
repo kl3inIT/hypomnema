@@ -189,6 +189,39 @@ func (s *Service) SaveServiceConnection(ctx context.Context, c Connection) (Conn
 	return s.ConnectionOf(ctx, c.Integration, c.Label)
 }
 
+// SaveServiceConnectionTx is SaveServiceConnection with another package's write in the same transaction, run first:
+// the vault's key of a Connection and the Connection that names it are kept together or not at all (issue #976).
+// A Connection that cannot be read back after the commit is still saved: the error says so, and nothing is undone.
+func (s *Service) SaveServiceConnectionTx(ctx context.Context, c Connection,
+	with func(tx *sql.Tx, now int64) error,
+) (Connection, error) {
+	if !ValidConnectionLabel(c.Label) {
+		return Connection{}, fmt.Errorf("%w: a label is lower-case letters, digits and dashes, such as work", ErrInvalid)
+	}
+
+	if c.Integration == "" || c.Secret == "" {
+		return Connection{}, fmt.Errorf("%w: a connection needs its integration and its secret", ErrInvalid)
+	}
+
+	err := s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
+		if err := with(tx, now); err != nil {
+			return err
+		}
+
+		return q.UpsertConnection(ctx, store.UpsertConnectionParams{
+			Integration: c.Integration, Label: c.Label, Account: nullString(c.Account), Secret: c.Secret,
+			Services: nullString(strings.Join(c.Services, ",")), Address: nullString(c.Address),
+			Version: nullString(c.Version), AppID: nullString(c.AppID), AppLabel: nullString(c.AppLabel),
+			Settings: nullString(c.Settings), Now: now,
+		})
+	})
+	if err != nil {
+		return Connection{}, fmt.Errorf("recording connection %s:%s: %w", c.Integration, c.Label, err)
+	}
+
+	return s.ConnectionOf(ctx, c.Integration, c.Label)
+}
+
 // SetConnectionSignInFailed records whether the service refused a
 // Connection's account the last time the control plane signed in.
 func (s *Service) SetConnectionSignInFailed(ctx context.Context, integration, label string, failed bool) error {

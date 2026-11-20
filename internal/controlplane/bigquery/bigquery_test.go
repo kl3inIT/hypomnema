@@ -743,3 +743,37 @@ func TestTheSDKLogsNoSQLOrRows(t *testing.T) { //nolint:paralleltest // sets the
 	assert.NotContains(t, string(logged), "sqlMarker424242")
 	assert.NotContains(t, string(logged), "rowMarker31337")
 }
+
+// Scenario (review round 3, CodeRabbit #4641253054, the reviewer's probe): BigQuery confirmed the job RUNNING,
+// it ran past its limit, and the cancel, sent with the job's location, answers 404. The job exists, so it never
+// says it did not start: its state is unknown and it may still be billed. A job whose cancel worked still says
+// the cancel was requested.
+func TestACancelOf404AfterAConfirmedSubmitKnowsNothing(t *testing.T) {
+	t.Parallel()
+
+	fake := bigquerytest.New(t)
+	fake.HangJob, fake.CancelStatus = true, 404
+
+	_, err := client(t, fake, bigquery.Settings{}).Query(t.Context(), bigquery.Request{
+		SQL: "SELECT 1", Timeout: 300 * time.Millisecond,
+	})
+
+	var canceled *bigquery.CancelError
+	require.ErrorAs(t, err, &canceled)
+	assert.False(t, canceled.Never, "a confirmed job was made")
+	assert.True(t, canceled.Unknown)
+	assert.NotContains(t, err.Error(), "did not start")
+	assert.Contains(t, err.Error(), "may still run and be billed up to the cap")
+	require.Len(t, fake.Cancels(), 1)
+	assert.Contains(t, fake.Cancels()[0].Query, "location=US")
+
+	worked := bigquerytest.New(t)
+	worked.HangJob = true
+
+	_, err = client(t, worked, bigquery.Settings{}).Query(t.Context(), bigquery.Request{
+		SQL: "SELECT 1", Timeout: 300 * time.Millisecond,
+	})
+	require.ErrorAs(t, err, &canceled)
+	assert.False(t, canceled.Unknown)
+	assert.Contains(t, err.Error(), "cancel requested")
+}

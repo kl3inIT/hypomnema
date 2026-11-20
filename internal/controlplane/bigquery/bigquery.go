@@ -488,10 +488,14 @@ type Result struct {
 // may not honor before the job ends and bills up to the cap.
 type CancelError struct {
 	Project, JobID, Location string
-	// Never says BigQuery answered the cancel, in the job's own location, that it has no such job: it was never
-	// made. A 404 to a cancel sent without a location proves nothing: the job may be in another one.
+	// Never says BigQuery answered the cancel, in the job's own location, that it has no such job, for a job whose
+	// submission got no answer: it was never made. A 404 proves nothing when the cancel named no location, nor
+	// once BigQuery confirmed the submission: the job exists, and its state is not known (review round 3).
 	Never bool
-	Cause string
+	// Unknown says the cancel itself failed, or found no job BigQuery had confirmed: whether the job runs is not
+	// known.
+	Unknown bool
+	Cause   string
 }
 
 func (e *CancelError) Error() string {
@@ -502,6 +506,12 @@ func (e *CancelError) Error() string {
 	if e.Location == "" {
 		return fmt.Sprintf("the query was stopped (%s): a cancel was sent for job %s:%s, whose location is not known, "+
 			"so whether it runs is not known; it may still run and be billed up to the cap", e.Cause, e.Project, e.JobID)
+	}
+
+	if e.Unknown {
+		return fmt.Sprintf("the query was stopped (%s): the cancel of job %s:%s.%s did not go through, so whether "+
+			"it runs is not known; it may still run and be billed up to the cap", e.Cause, e.Project, e.Location,
+			e.JobID)
 	}
 
 	return fmt.Sprintf("the query was stopped (%s): cancel requested for job %s:%s.%s; it may still finish and be "+
@@ -646,13 +656,13 @@ func (c *Client) run(ctx context.Context, r Request, out Result, location string
 		}
 
 		// The job may have been made though its answer did not come back.
-		return out, c.cancelJob(ctx, out, "its submission got no answer: "+googleCause(err))
+		return out, c.cancelJob(ctx, out, false, "its submission got no answer: "+googleCause(err))
 	}
 
 	status, err := job.Wait(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
-			return out, c.cancelJob(ctx, out, "it ran longer than "+r.Timeout.String())
+			return out, c.cancelJob(ctx, out, true, "it ran longer than "+r.Timeout.String())
 		}
 
 		// Watching failed before the limit: the job's state is read once more, and a job not known to have
@@ -705,7 +715,7 @@ func (c *Client) settle(ctx context.Context, job *bq.Job, out Result, watching e
 		return status, nil
 	}
 
-	return nil, c.cancelJob(ctx, out, "watching it failed: "+googleCause(watching))
+	return nil, c.cancelJob(ctx, out, true, "watching it failed: "+googleCause(watching))
 }
 
 // rowPage is the rows asked for at once: a page past the byte budget is not fetched.
@@ -764,8 +774,8 @@ func (c *Client) readRows(ctx context.Context, job *bq.Job, maxRows, maxBytes in
 }
 
 // cancelJob asks BigQuery to cancel a job, from the project, id and location kept before it was sent, on a
-// context of its own: the caller's has ended.
-func (c *Client) cancelJob(ctx context.Context, out Result, why string) error {
+// context of its own: the caller's has ended. submitted says BigQuery confirmed the job's submission.
+func (c *Client) cancelJob(ctx context.Context, out Result, submitted bool, why string) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelTimeout)
 	defer cancel()
 
@@ -778,15 +788,19 @@ func (c *Client) cancelJob(ctx context.Context, out Result, why string) error {
 
 	var apiErr *googleapi.Error
 
-	// A 404 proves the job was never made only when the cancel named the job's location.
-	never := errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound && out.Location != ""
+	// A 404 proves the job was never made only when the cancel named the job's location and its submission was
+	// never confirmed; any other failure of the cancel leaves its state unknown.
+	never := !submitted && errors.As(err, &apiErr) && apiErr.Code == http.StatusNotFound && out.Location != ""
+	unknown := err != nil && !never
 
 	c.logger.WarnContext(ctx, "a BigQuery job's cancel was requested", slog.String("event", "bigquery.cancel"),
 		slog.String("connection", c.connection), slog.String("project", out.Project), slog.String("job", out.JobID),
 		slog.String("location", out.Location), slog.String("why", why), slog.Bool("never_made", never),
-		slog.Bool("cancel_failed", err != nil && !never))
+		slog.Bool("cancel_failed", unknown))
 
-	return &CancelError{Project: out.Project, JobID: out.JobID, Location: out.Location, Never: never, Cause: why}
+	return &CancelError{
+		Project: out.Project, JobID: out.JobID, Location: out.Location, Never: never, Unknown: unknown, Cause: why,
+	}
 }
 
 // normalize makes a value JSON can carry as it reads: NUMERIC as its decimal text, a date or a time as its text, a
