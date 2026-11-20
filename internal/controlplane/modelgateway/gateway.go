@@ -904,7 +904,7 @@ func (s *Service) ListKeys(ctx context.Context) ([]Key, error) {
 		}
 
 		if t, ok := lastUsed[k.ID]; ok {
-			k.usedLater(t)
+			k.LastUsedAt = usedLater(k.LastUsedAt, t)
 		}
 
 		out = append(out, k)
@@ -1027,11 +1027,13 @@ func keyFromRow(r store.GatewayKey) (Key, error) {
 	return k, nil
 }
 
-// usedLater sets a key's last use to the later of its touch and its newest request.
-func (k *Key) usedLater(t time.Time) {
-	if k.LastUsedAt == nil || t.After(*k.LastUsedAt) {
-		k.LastUsedAt = &t
+// usedLater returns a key's last use as the later of its touch and its newest request.
+func usedLater(lastUsed *time.Time, t time.Time) *time.Time {
+	if lastUsed == nil || t.After(*lastUsed) {
+		return &t
 	}
+
+	return lastUsed
 }
 
 func at(now int64) sql.NullInt64 { return sql.NullInt64{Int64: now, Valid: true} }

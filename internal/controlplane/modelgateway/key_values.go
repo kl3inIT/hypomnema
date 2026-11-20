@@ -88,7 +88,7 @@ func (s *Service) UpdateKey(ctx context.Context, id string, change KeyUpdate) (K
 		lastUsed, err := q.GatewayKeyLastUsed(ctx, id)
 		switch {
 		case err == nil:
-			updated.usedLater(time.UnixMilli(lastUsed).UTC())
+			updated.LastUsedAt = usedLater(updated.LastUsedAt, time.UnixMilli(lastUsed).UTC())
 		case !errors.Is(err, sql.ErrNoRows):
 			return fmt.Errorf("reading when key %s was last used: %w", id, err)
 		}

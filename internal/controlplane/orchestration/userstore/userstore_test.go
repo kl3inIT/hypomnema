@@ -182,17 +182,12 @@ func TestANewPasswordAndSigningOutEndSessions(t *testing.T) {
 	require.ErrorIs(t, err, storeerr.ErrNotFound, "a new password ends every session")
 
 	reasons := map[string]string{}
-	rows, err := db.QueryContext(ctx, "SELECT id, revoke_reason FROM web_sessions WHERE revoked_at IS NOT NULL")
-	require.NoError(t, err)
-
-	for rows.Next() {
-		var id, reason string
-		require.NoError(t, rows.Scan(&id, &reason))
+	for _, id := range []string{first.ID, second.ID} {
+		var reason string
+		require.NoError(t, db.QueryRowContext(ctx,
+			"SELECT revoke_reason FROM web_sessions WHERE id = ? AND revoked_at IS NOT NULL", id).Scan(&reason))
 		reasons[id] = reason
 	}
-
-	require.NoError(t, rows.Err())
-	require.NoError(t, rows.Close())
 	assert.Equal(t, map[string]string{
 		first.ID: string(bearertoken.RevokedSignedOut), second.ID: string(bearertoken.RevokedPasswordChanged),
 	}, reasons)

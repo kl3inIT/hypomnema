@@ -68,17 +68,6 @@ func (w *world) revocation(table, id string) string {
 	return reason.String
 }
 
-// live reports whether a credential's row is not revoked.
-func (w *world) live(table, id string) bool {
-	w.t.Helper()
-
-	var revoked sql.NullInt64
-	require.NoError(w.t, w.db.QueryRowContext(w.t.Context(),
-		"SELECT revoked_at FROM "+table+" WHERE id = ?", id).Scan(&revoked))
-
-	return !revoked.Valid
-}
-
 // Scenario (issue #996, rule 2 of #995): the owner makes a link. Its token is nowhere in the database in plaintext:
 // the link keeps its SHA-256 and a copy sealed in the vault. The link opens by its token, and the owner reads it
 // again from both lists; the vault names it as its sealed copy's user. Revoked, it is kept with the reason and its sealed copy is gone; it opens no more, is listed
