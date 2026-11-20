@@ -3065,6 +3065,16 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   a window Go calls `rate-limited` shown used up (omp `opencode-go.ts`). A 403 there is a key whose workspace has no
   Go subscription: the account's plan is set to "no Go subscription" (opencode `usage-limits.ts`); an answer clears
   it. The gateway's OpenCode Go provider runs under these accounts (below).
+- OpenCode Zen (issue #965, [research](docs/research/2026-11-20-opencode-zen-provider.md)): no login. Each Console
+  API key is an account of runtime `opencode_zen`, added as a Go key is (`accounts add opencode_zen <label> --token -`
+  or the Models page); a runtime of its own, so a Go key resting on its monthly limit does not stop Zen and an empty
+  balance does not stop Go (9router and omniroute keep the two providers apart). The same key may be added under
+  both. `accounts models` reads the Console list, `GET opencode.ai/console/api/v1/models`, provider `opencode`: the
+  models the workspace has enabled, their chat models on a wire the gateway calls, each with its wire, window and
+  largest output, leaving out models priced 0 in and out (free models, which OpenCode serves only to OpenCode and
+  refuses with 403 to other clients, even with a key; omniroute tells them by their price). There is no limits
+  call: Zen spends the workspace's balance, and no balance or usage is read. The gateway's OpenCode Zen provider runs
+  under these accounts (below).
 - A login makes an account, or gives new tokens to the account that already has the vendor's id (Codex: the
   ChatGPT account id, read with the email and the plan from the id token; Antigravity: Google's id of the user, with
   the tier as the plan and the project) and the same email, case aside. The email is asked too since issue #326:
@@ -3144,13 +3154,13 @@ flowchart LR
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
-OpenAI-compatible providers the owner declares and from four built-in providers, the owner's Codex, Antigravity and
-Claude subscriptions and OpenCode Go, searches the web and reads pages, and makes images (below). Other provider formats and other
+OpenAI-compatible providers the owner declares and from five built-in providers, the owner's Codex, Antigravity and
+Claude subscriptions, OpenCode Go and OpenCode Zen, searches the web and reads pages, and makes images (below). Other provider formats and other
 capabilities do not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
   kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`,
-  `claude_subscription`, `opencode_go`) and
+  `claude_subscription`, `opencode_go`, `opencode_zen`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
 - The gateway serves every model of every subscription under `<provider>/<model>`, such as
@@ -3167,13 +3177,14 @@ capabilities do not exist yet.
   no other's; when a read of an account with no list yet ends, answered or not, the providers are updated then, not at
   the next hour), and for Claude the last list an account answered, kept for an hour and then replaced only by a
   newer answer from its first active account that answers, whatever accounts are disabled or fail meanwhile, as before
-  (neither reads Anthropic's list per account; OpenCode Go's wires are read the same way),
+  (neither reads Anthropic's list per account; OpenCode Go's and Zen's wires are read the same way),
   Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
   (`GET api.anthropic.com/v1/models` with the OAuth token), Antigravity (`fetchAvailableModels`, without internal
   or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`) and OpenCode Go
   (`GET opencode.ai/inference/go/v1/models`, its chat models on a wire the gateway calls, each with its wire, window
-  and largest output; issue #854). OpenCode Go's provider is set to that list as Antigravity's is (OpenClaw, Hermes
-  and pi read Go's live list). Codex's provider also drops a model it lists that two readings in a row left out
+  and largest output; issue #854) and OpenCode Zen (the Console list above; issue #965). OpenCode Go's and Zen's
+  providers are set to their lists as Antigravity's is (OpenClaw, Hermes and pi read Go's live list; OpenCode's docs
+  name the Console list the one to offer what OpenCode offers). Codex's provider also drops a model it lists that two readings in a row left out
   (each counted once, by when it was read), since its requests go only to accounts whose list has the model (issue
   [#814](https://github.com/kl3inIT/hypomnema/issues/814)); each model is dropped on its own, so a model a profile
   uses keeps only itself. Claude's provider
@@ -3275,8 +3286,9 @@ capabilities do not exist yet.
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
   format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets, and its
-  `opencode_go` targets whose model Go serves on Responses (issue #854; the body as the client sent it, the model's
-  name at Go and `stream` on, under the Go keys as the chat route sends it below):
+  `opencode_go` and `opencode_zen` targets whose model OpenCode serves on Responses (issues #854, #965; the body as
+  the client sent it, the model's name at OpenCode and `stream` on, under the provider's keys as the chat route sends
+  it below):
   - The client's body is passed on, not translated (`modelgateway/codex`, `PassThrough`): the model's name at the
     backend, `stream` on and `store` off, a string input as a user message, references to stored items and their ids
     taken out, `service_tier` `fast` as `priority`, the lite shape for the models that take it, the client's session
@@ -3291,9 +3303,9 @@ capabilities do not exist yet.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
   [research](docs/research/2026-11-13-gateway-features.md)) are for a client that speaks Anthropic's Messages format,
   Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They try a
-  model's targets in order, the next on 429 or 5xx. An `opencode_go` target whose model Go serves on Messages is
-  passed the body as sent but for the model's name, under the Go keys (issue #854), and its answer comes back as
-  Anthropic's does below. A `claude_subscription` target is passed the request:
+  model's targets in order, the next on 429 or 5xx. An `opencode_go` or `opencode_zen` target whose model OpenCode
+  serves on Messages is passed the body as sent but for the model's name, under the provider's keys (issues #854,
+  #965), and its answer comes back as Anthropic's does below. A `claude_subscription` target is passed the request:
   - The body is passed on as sent but for the model's name (`modelgateway/claude`, `PassThrough`). A client that is
     Claude Code (`X-App: cli`, a `claude-cli/` User-Agent, a `claude-code-` beta, a `metadata.user_id`) keeps its
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
@@ -3678,7 +3690,7 @@ capabilities do not exist yet.
   models, as `opencode-go/<model>` under the Go keys the owner added as accounts (above). The owner chose no limit on
   which callers may use it (owner, 2026-11-18).
   - Each model is called at `opencode.ai/inference/go` on the wire Go's model list names for it
-    (`modelgateway/opencode_go_adapter.go`): OpenAI's chat at `/openai/v1/chat/completions`, OpenAI's Responses at
+    (`modelgateway/opencode_adapter.go`): OpenAI's chat at `/openai/v1/chat/completions`, OpenAI's Responses at
     `/openai/v1/responses`, Anthropic's Messages at `/anthropic/v1/messages`; a model whose wire is not known yet is
     called on chat, the provider's API in models.dev. Gemini models (`generate-content`) are not served.
   - The chat route passes a chat model the request as `openai_compatible` does. A Messages model is asked with the
@@ -3694,8 +3706,25 @@ capabilities do not exist yet.
     refusal naming `GoUsageLimitError`, rests that key until the reset Go named, with no cap (an hour when it named
     none), and the request moves to the next key at once (omniroute `opencode-monthly-quota-resets-in`, opencode
     `QUOTA_CODES`). Any other refusal rests the key as every built-in provider's account rests (above).
-  - Not built: OpenCode Zen, the "Extra Usage" balance, a per-model wire for pi's `models.json` (pi speaks chat to a
+  - Not built: the "Extra Usage" balance, a per-model wire for pi's `models.json` (pi speaks chat to a
     Go model), moving the `ocg/*` models off 9Router on zm (#670).
+- `opencode-zen` (kind `opencode_zen`, issue #965, seeded by its migration;
+  [research](docs/research/2026-11-20-opencode-zen-provider.md)) serves OpenCode Zen, OpenCode's models paid from the
+  workspace's balance, as `opencode-zen/<model>` under the Zen keys the owner added as accounts (above). It is
+  OpenCode Go's adapter with Zen's kind, runtime and root:
+  - Each model is called at `opencode.ai/inference` (OpenCode's inference root, not the references' older `/zen/v1`)
+    on the wire the Console list names for it, at the same three paths, translated the same way, with the same
+    headers: the key, `User-Agent: hypomnema/<version>` and the hashed `x-opencode-session`. No OpenCode identity is
+    sent (owner, 2026-11-20), so OpenCode's free models are not served.
+  - A 402, or a refusal carrying one of OpenCode's quota codes (`insufficient_quota`, `usage_not_included`,
+    `billing_error`, `budgetlimiterror`, `creditlimitexceeded`, read where opencode reads codes: `code`,
+    `error_type`, `error.code`, `error.type`, `error.error_type`, or a message's `[code]` label), is a used-up balance
+    or budget: the key rests an hour (or until a `Retry-After` up to two hours) and the request moves to the next key
+    on a status that moves on (opencode `provider-error.ts` `QUOTA_CODES`; omniroute's 402 `quota_exhausted`). A 401
+    marks the key refused. Any other refusal rests the key as every built-in provider's account rests (above).
+  - Not built: the free models (`Bearer public` and OpenCode's identity, which the owner refused), Zen's balance or
+    usage, recording the `usage.cost` Zen answers, a Zen price in the price book (a Claude or GPT model is priced by
+    its maker's row; another Zen model is unpriced), Gemini, `interactions`, image models.
 - When all usable accounts for a model on a text route are cooling (issue #803), the gateway answers 429
   `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
   `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
