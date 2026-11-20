@@ -116,8 +116,19 @@ func TestEnsureInstallsTheBuildOnce(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{"LICENSE.txt", "ffmpeg", "ffprobe"}, names)
-	assert.FileExists(t, filepath.Join(dir, "fonts", "BeVietnamPro-SemiBold.ttf"))
-	assert.FileExists(t, filepath.Join(dir, "fonts", "OFL.txt"))
+
+	fonts, err := os.ReadDir(filepath.Join(dir, "fonts"))
+	require.NoError(t, err)
+
+	names = nil
+	for _, e := range fonts {
+		names = append(names, e.Name())
+	}
+
+	assert.Equal(t, []string{
+		"BeVietnamPro-Bold.ttf", "BeVietnamPro-ExtraBold.ttf", "BeVietnamPro-Medium.ttf", "BeVietnamPro-SemiBold.ttf",
+		"JetBrainsMono-OFL.txt", "JetBrainsMono-SemiBold.ttf", "OFL.txt",
+	}, names, "each family's license next to it")
 	assert.NoDirExists(t, filepath.Join(dir, downloadsDir))
 
 	current, err := os.ReadFile(filepath.Join(dir, currentFile)) //nolint:gosec // The test's folder.

@@ -38,3 +38,8 @@ Part 2 of issue #818 ports, in Go, from src/captions.ts the cue rules
 endsClause, endsSentence) into internal/controlplane/videos/captions, and from
 src/voice.ts the voice cache (voiceHash and the reuse of a scene's clip) into
 internal/controlplane/videos (voice.go).
+
+Issue #908, part 1, takes the "bar" caption style of src/caption-render.ts
+(its band color, full width and no rounding) as a preset of
+internal/controlplane/videos/captions (presets.go), and its caption flip on a
+collision (src/compose.ts) for a tap's ring (styled.go).
