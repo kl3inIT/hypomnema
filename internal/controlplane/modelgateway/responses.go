@@ -284,7 +284,8 @@ func (s *Server) passResponses(
 			return nil, &badMessagesError{err: err}
 		}
 
-		return s.underOpenCode(ctx, p, openCodeGoSession(session), goWireResponses, body, "text/event-stream", nil)
+		return s.underOpenCode(ctx, p, target.Model, openCodeGoSession(session), goWireResponses, body,
+			"text/event-stream", nil)
 	}
 
 	built, err := codex.PassThrough(raw, codex.PassOptions{Model: target.Model, Session: session})

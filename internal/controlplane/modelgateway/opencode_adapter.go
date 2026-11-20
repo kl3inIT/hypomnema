@@ -191,7 +191,7 @@ func (a openCode) do(ctx context.Context, s *Server, call chatCall) (*http.Respo
 			accept = "text/event-stream"
 		}
 
-		resp, err = s.underOpenCode(ctx, a.p, session, goWireChat, body, accept, nil)
+		resp, err = s.underOpenCode(ctx, a.p, call.upstream.Model, session, goWireChat, body, accept, nil)
 	}
 
 	if err != nil {
@@ -215,7 +215,7 @@ func (s *Server) openCodeChatAsMessages(
 		}, s.svc.clock.Now()), nil
 	}
 
-	return s.underOpenCode(ctx, p, session, goWireMessages, built.Body, "text/event-stream",
+	return s.underOpenCode(ctx, p, call.upstream.Model, session, goWireMessages, built.Body, "text/event-stream",
 		func(token AccountToken, resp *http.Response) *http.Response {
 			now := s.svc.clock.Now()
 			stream := claude.NewStream(s.svc.newID("chatcmpl"), now.Unix(), call.model, built.Names)
@@ -256,7 +256,7 @@ func (s *Server) openCodeChatAsResponses(
 		}, s.svc.clock.Now()), nil
 	}
 
-	return s.underOpenCode(ctx, p, session, goWireResponses, built.Body, "text/event-stream",
+	return s.underOpenCode(ctx, p, call.upstream.Model, session, goWireResponses, built.Body, "text/event-stream",
 		func(token AccountToken, resp *http.Response) *http.Response {
 			now := s.svc.clock.Now()
 			stream := codex.NewStream(s.svc.newID("chatcmpl"), now.Unix(), call.model, built.Names)
@@ -292,9 +292,13 @@ var goPaths = map[string]string{
 // underOpenCode sends a body to an OpenCode provider on a wire under its keys
 // in turn: a key it refuses rests and the next is tried (underAccounts).
 // answer, when given, turns a 200 into the answer; without it the 200 is the
-// answer.
+// answer. A Zen key goes only to a model its own workspace's Console list
+// names, as Codex and Antigravity accounts do (issue #814): the list is the
+// workspace's (opencode console/api/models.mdx "Every provider and model the
+// caller can use"), and two keys may be of two workspaces. Go's list is the
+// same for every key.
 func (s *Server) underOpenCode(
-	ctx context.Context, p openCodeProvider, session, wire string, body []byte, accept string,
+	ctx context.Context, p openCodeProvider, model, session, wire string, body []byte, accept string,
 	answer func(AccountToken, *http.Response) *http.Response,
 ) (*http.Response, error) {
 	attempt := func(token AccountToken) (*http.Response, error) {
@@ -315,7 +319,12 @@ func (s *Server) underOpenCode(
 
 		return answer(token, resp), nil
 	}
-	return s.underModelAccounts(ctx, p.runtime, forModel{}, session, nil, nil, attempt)
+	accountsFor := forModel{}
+	if p.zen {
+		accountsFor = listedModel(model)
+	}
+
+	return s.underModelAccounts(ctx, p.runtime, accountsFor, session, nil, nil, attempt)
 }
 
 // openCodePost sends a body to an OpenCode provider on a wire under a key.

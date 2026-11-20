@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -420,4 +421,73 @@ func TestABareModelNameReachesNoProvider(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, status, "responses: %s", body)
 
 	assert.Zero(t, zen.got.calls(), "no provider is asked")
+}
+
+// zenRosters are accounts whose keys are of different workspaces, each served the models its own Console list names
+// (modelgateway.ModelTokens).
+type zenRosters struct {
+	accounts
+
+	served map[string][]string
+}
+
+func (a *zenRosters) TokenFor(
+	ctx context.Context, runtime, model, session string, skip ...string,
+) (modelgateway.AccountToken, error) {
+	var others []string
+
+	for _, id := range a.ids {
+		if !slices.Contains(a.served[id], model) {
+			others = append(others, id)
+		}
+	}
+
+	if len(others) == len(a.ids) {
+		return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
+	}
+
+	return a.Token(ctx, runtime, session, append(skip, others...)...)
+}
+
+func (a *zenRosters) TokenAfterRefusalFor(
+	ctx context.Context, refused modelgateway.AccountToken, model string,
+) (modelgateway.AccountToken, error) {
+	if !slices.Contains(a.served[refused.AccountID], model) {
+		return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
+	}
+
+	return a.TokenAfterRefusal(ctx, refused)
+}
+
+func (a *zenRosters) Serves(_ context.Context, accountID, model string) bool {
+	return slices.Contains(a.served[accountID], model)
+}
+
+// Scenario (review of PR #1000): two Zen keys of two workspaces. The first key's workspace has not enabled glm-5.3,
+// and Zen answers it 404; the second's has. A request for glm-5.3 goes to the second key alone, as a Codex model
+// goes only to the accounts whose list has it (issue #814).
+func TestAZenModelGoesToAKeyWhoseWorkspaceHasIt(t *testing.T) {
+	t.Parallel()
+
+	zen := newGoBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer access-0" {
+			plain(http.StatusNotFound, `{"error":{"type":"ModelError","message":"Model glm-5.3 not supported"}}`)(w, r)
+
+			return
+		}
+
+		chatHi(w, r)
+	})
+	subs := &zenRosters{
+		accounts: accounts{ids: []string{"acc_1", "acc_2"}},
+		served:   map[string][]string{"acc_1": {"gpt-6.1-sol"}, "acc_2": {"glm-5.3", "gpt-6.1-sol"}},
+	}
+	g := newZenGateway(t, zen, newGoBackend(t, chatHi), subs)
+
+	status, _, body := g.call(t, g.key, fmt.Sprintf(askZen, "glm-5.3"))
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, 1, zen.got.calls())
+
+	headers, _ := zen.got.last(t)
+	assert.Equal(t, "Bearer acc_2-access-0", headers.Get("Authorization"))
 }

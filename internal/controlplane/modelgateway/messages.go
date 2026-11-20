@@ -395,7 +395,7 @@ func (s *Server) openCodeMessages(
 		accept = "text/event-stream"
 	}
 
-	return s.underOpenCode(ctx, p, openCodeGoSession(call.session), goWireMessages, body, accept, nil)
+	return s.underOpenCode(ctx, p, upstreamModel, openCodeGoSession(call.session), goWireMessages, body, accept, nil)
 }
 
 // chatFromMessages is a Messages request as the chat route reads one.

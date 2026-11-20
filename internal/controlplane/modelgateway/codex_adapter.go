@@ -165,7 +165,7 @@ func listedModel(name string) forModel   { return forModel{name: name, listed: t
 func unlistedModel(name string) forModel { return forModel{name: name} }
 
 // namesModels are the runtimes whose requests name their model (issue #814).
-var namesModels = map[string]bool{codexRuntime: true, antigravityRuntime: true}
+var namesModels = map[string]bool{codexRuntime: true, antigravityRuntime: true, openCodeZenRuntime: true}
 
 // codexSubscription serves chat from the Codex backend.
 type codexSubscription struct{}

@@ -720,12 +720,9 @@ type providerModels interface {
 
 // rosterRuntimes are the runtimes whose vendor's list is the provider's list, as omp takes Antigravity's roster as
 // authoritative (packages/catalog/src/discovery/antigravity.ts; issue #639), and as OpenClaw, Hermes and pi take
-// OpenCode Go's live /v1/models (issue #854); OpenCode Zen's is the workspace's Console list, which OpenCode's docs
-// name the list to offer what OpenCode offers (console/api/models.mdx; issue #965). The others only gain models:
-// Anthropic's list does not name every model it serves (OpenClaw, Hermes), and Codex's is read per account.
-var rosterRuntimes = map[string]bool{
-	"antigravity": true, orchestration.OpenCodeGoRuntime: true, orchestration.OpenCodeZenRuntime: true,
-}
+// OpenCode Go's live /v1/models (issue #854). The others only gain models: Anthropic's list does not name every model
+// it serves (OpenClaw, Hermes), and Codex's and OpenCode Zen's are read per account (droppingRuntimes).
+var rosterRuntimes = map[string]bool{"antigravity": true, orchestration.OpenCodeGoRuntime: true}
 
 // vendorModels gives the subscription providers the models their vendors serve, one update at a time: every hour
 // (vendorModelsLoop) and when an account's first list of models is read (issue #814).
@@ -754,8 +751,11 @@ const dropAfter = 2
 
 // droppingRuntimes are the runtimes whose providers drop, after dropAfter readings, a model their vendor's lists
 // leave out: Codex, whose requests go only to the accounts whose list has the model (issue #814), so a model no list
-// names would be listed by /v1/models and refused. Claude's list does not name every model it serves.
-var droppingRuntimes = map[string]bool{"codex": true}
+// names would be listed by /v1/models and refused, and OpenCode Zen, whose keys are routed the same way by their
+// workspace's Console list (issue #965). Each model is dropped on its own, so one a Bot or profile still uses keeps
+// only itself and the new ones are added all the same (review of PR #1000). Claude's list does not name every model
+// it serves.
+var droppingRuntimes = map[string]bool{"codex": true, orchestration.OpenCodeZenRuntime: true}
 
 // drops counts, by provider and model, the readings in a row that left a model out; a reading is counted once, by
 // when it was read, however many updates see it.

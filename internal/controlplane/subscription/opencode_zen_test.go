@@ -45,6 +45,13 @@ const consoleModels = `{
   }}
 }`
 
+// otherWorkspace is the Console list of a second workspace's key, which enabled kimi-k3 only.
+const otherWorkspace = `{"opencode": {"id": "opencode", "name": "Other / OpenCode", "models": {
+  "kimi-k3": {"type": "chat", "id": "kimi-k3", "limit": {"context": 262144, "output": 65536},
+    "cost": {"text": {"input": {"price": 0.6}, "output": {"price": 2.5}}},
+    "api": {"chat-completions": {"base_url": "https://opencode.ai/inference/openai/v1"}}}
+}}}`
+
 // newZenWorld is the control plane with OpenCode Zen keys added as accounts,
 // and an OpenCode stand-in answering the Console list.
 func newZenWorld(t *testing.T) (*subscription.Service, func(label, key string) orchestration.Account) {
@@ -64,7 +71,6 @@ func newZenWorld(t *testing.T) (*subscription.Service, func(label, key string) o
 	secrets := vault.New(db, clock, platform.NewID, keys, orch.AccountsUsingSecretRef)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "Bearer sk-zen-1", r.Header.Get("Authorization"), "the key")
 		assert.Equal(t, "hypomnema/"+platform.Version, r.Header.Get("User-Agent"))
 
 		if r.URL.Path != "/console/api/v1/models" {
@@ -74,7 +80,15 @@ func newZenWorld(t *testing.T) (*subscription.Service, func(label, key string) o
 		}
 
 		rw.Header().Set("Content-Type", "application/json")
-		_, _ = rw.Write([]byte(consoleModels))
+
+		switch r.Header.Get("Authorization") {
+		case "Bearer sk-zen-1":
+			_, _ = rw.Write([]byte(consoleModels))
+		case "Bearer sk-zen-2":
+			_, _ = rw.Write([]byte(otherWorkspace))
+		default:
+			http.Error(rw, "the key", http.StatusUnauthorized)
+		}
 	}))
 	t.Cleanup(srv.Close)
 
@@ -131,4 +145,25 @@ func TestAZenKeySaysItsPaidModelsFromTheConsoleList(t *testing.T) {
 
 	_, err = subs.Begin(t.Context(), subscription.OpenCodeZenRuntime)
 	require.ErrorIs(t, err, subscription.ErrUnknownVendor, "a Zen key is pasted, never signed in")
+}
+
+// Scenario (review of PR #1000): two Zen keys of two workspaces, each with its own models enabled. Each key is served
+// its own workspace's list, the runtime the union of both, and a model goes only to a key whose list has it, as a
+// Codex account's does (issue #814).
+func TestEachZenKeyIsServedItsOwnWorkspacesModels(t *testing.T) {
+	t.Parallel()
+
+	subs, add := newZenWorld(t)
+	first := add("main", "sk-zen-1")
+	second := add("other", "sk-zen-2")
+
+	names, ok := subs.ServedNames(t.Context(), subscription.OpenCodeZenRuntime)
+	assert.True(t, ok)
+	assert.Equal(t, []string{"claude-sonnet-5-5", "glm-5.3", "gpt-6.1-sol", "kimi-k3"}, names)
+
+	for model, want := range map[string]string{"kimi-k3": second.ID, "glm-5.3": first.ID} {
+		token, err := subs.TokenFor(t.Context(), subscription.OpenCodeZenRuntime, model, "")
+		require.NoError(t, err, model)
+		assert.Equal(t, want, token.AccountID, model)
+	}
 }
