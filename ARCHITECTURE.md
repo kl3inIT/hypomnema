@@ -2898,7 +2898,9 @@ flowchart LR
     that version is still current, so a read that ends late never overwrites a newer token's account). It reads
     beside the offers, never in the node API's loop, which also answers heartbeats: when a token is connected, for
     every Connection when the control plane starts, and at the first offer of a token not read yet. An offer whose
-    account is being read is held, beside the loop, until the read ends or 15 seconds pass, then goes out.
+    account is being read is held, beside the loop, until the read ends or 15 seconds pass, then goes out; a token
+    replaced meanwhile is waited for in the same 15 seconds, so the offer never carries the new token without its
+    account because the old token's read ended.
     GitHub gives the login and `<id>+<login>@users.noreply.<host>` (`users.noreply.github.com`; on a GitHub
     Enterprise host its REST API under `/api/v3` and its host name without the port, as claude-code-action does,
     `src/github/operations/git-config.ts:29-42`); GitLab the username and the account's `commit_email`, else its

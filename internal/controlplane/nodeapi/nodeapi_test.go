@@ -455,7 +455,7 @@ func TestReviewPendingOfferTokenRotation(t *testing.T) {
 
 			return HostCredential{Token: "ghp_new", Pending: newRead}, true
 		default:
-			return HostCredential{ //nolint:gosec // a test's made-up token
+			return HostCredential{
 				Token: "ghp_new", Identity: githost.Identity{Name: "hubot", Email: "2+hubot@users.noreply.github.com"},
 			}, true
 		}

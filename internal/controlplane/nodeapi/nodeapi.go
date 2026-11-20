@@ -394,7 +394,8 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 		cancel:  cancel,
 		out:     make(chan nodeproto.Message, 64),
 		offered: map[string]bool{}, stopped: map[string]bool{}, answered: map[string]bool{},
-		identityWaits: map[string]bool{}, identityWaited: map[string]bool{}, identityRead: make(chan string),
+		identityWaits: map[string]<-chan struct{}{}, identityDeadline: map[string]time.Time{},
+		identityRead: make(chan identityEnded),
 	}
 	s.take(ctx, sess)
 	defer s.drop(sess)
@@ -453,12 +454,18 @@ type session struct {
 	stopped  map[string]bool
 	answered map[string]bool
 
-	// The offers held while their token's account is read (issue #991), by Dispatch: identityWaits those waited
-	// for, identityWaited those whose wait ended, which go out then, with the account or without. identityRead
-	// says a wait ended. Only the session's loop reads and writes the maps.
-	identityWaits  map[string]bool
-	identityWaited map[string]bool
-	identityRead   chan string
+	// The offers held while their token's account is read (issue #991), by Dispatch: identityWaits the read each
+	// waits for, identityDeadline when its hold ends (identityWait after it was first held). identityRead says a
+	// wait ended: the offer is looked at again. Only the session's loop reads and writes the maps.
+	identityWaits    map[string]<-chan struct{}
+	identityDeadline map[string]time.Time
+	identityRead     chan identityEnded
+}
+
+// identityEnded is the end of an offer's wait for one read of its token's account.
+type identityEnded struct {
+	dispatchID string
+	read       <-chan struct{}
 }
 
 func (c *session) replaced(ctx context.Context) {
@@ -508,8 +515,11 @@ func (c *session) run(ctx context.Context) error {
 			}
 		case <-wake:
 		case <-drain.C:
-		case id := <-c.identityRead:
-			c.identityWaited[id] = true
+		case ended := <-c.identityRead:
+			// The end of a read the offer no longer waits for (its token was replaced) changes nothing.
+			if c.identityWaits[ended.dispatchID] == ended.read {
+				delete(c.identityWaits, ended.dispatchID)
+			}
 		}
 
 		if err := c.push(ctx); err != nil {
@@ -544,11 +554,21 @@ func (c *session) read(ctx context.Context, in chan<- nodeproto.Message) error {
 	}
 }
 
-// holdForIdentity says whether an offer is held while its token's account is read: the first time it waits, beside
-// the loop, until pending is closed or identityWait passes, then says so on identityRead and the offer goes out at
-// the next push. An offer whose wait ended goes now, without the account if it is still not read, which is said.
+// holdForIdentity says whether an offer is held while its token's account is read. It is held for the read its
+// credential names now, beside the loop, until that read ends or identityWait has passed since the offer was first
+// held; then identityRead says so and the offer is looked at again. A token replaced meanwhile names another read:
+// the offer then waits for that one, within the same limit, so it never goes out with the new token and without its
+// account because the old token's read ended. An offer whose limit has passed goes now, without the account, which
+// is said.
 func (c *session) holdForIdentity(ctx context.Context, dispatchID string, pending <-chan struct{}) bool {
-	if c.identityWaited[dispatchID] {
+	deadline, held := c.identityDeadline[dispatchID]
+	if !held {
+		deadline = time.Now().Add(identityWait)
+		c.identityDeadline[dispatchID] = deadline
+	}
+
+	left := time.Until(deadline)
+	if left <= 0 {
 		c.srv.logger.WarnContext(ctx, "the account of a git host's token was not read in time; this Dispatch goes "+
 			"without it and its worker commits as its node's git configuration says",
 			slog.String("dispatch", dispatchID))
@@ -556,14 +576,14 @@ func (c *session) holdForIdentity(ctx context.Context, dispatchID string, pendin
 		return false
 	}
 
-	if c.identityWaits[dispatchID] {
+	if c.identityWaits[dispatchID] == pending {
 		return true
 	}
 
-	c.identityWaits[dispatchID] = true
+	c.identityWaits[dispatchID] = pending
 
 	go func() {
-		timer := time.NewTimer(identityWait)
+		timer := time.NewTimer(left)
 		defer timer.Stop()
 
 		select {
@@ -574,7 +594,7 @@ func (c *session) holdForIdentity(ctx context.Context, dispatchID string, pendin
 		}
 
 		select {
-		case c.identityRead <- dispatchID:
+		case c.identityRead <- identityEnded{dispatchID: dispatchID, read: pending}:
 		case <-ctx.Done():
 		}
 	}()
@@ -647,6 +667,8 @@ func (c *session) push(ctx context.Context) error {
 		}
 
 		c.offered[o.DispatchID] = true
+		delete(c.identityWaits, o.DispatchID)
+		delete(c.identityDeadline, o.DispatchID)
 
 		// So is the gateway's key: made now, for this Dispatch and its model only.
 		if c.srv.modelKey != nil && o.AccountRef == orchestration.GatewayAccountRef {
