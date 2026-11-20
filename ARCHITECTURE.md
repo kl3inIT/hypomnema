@@ -1833,8 +1833,18 @@ flowchart LR
   Codex subscription alone); its Dispatch runs under the gateway with the model `<provider>/<model>`, and no
   subscription token leaves the control plane. Such a profile is available, and its Task placed, only while the
   control plane keeps an active account of the subscription (`ReasonNoAccount` otherwise); whether that account
-  cools down is the gateway's to find. A Task's own model picks its provider again, as it is checked when the Task
-  is made. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
+  cools down is the gateway's to find. Every model is named with its provider (issue #1002, owner 2026-11-20): a
+  profile's `model` gives its `provider`, a Bot's and a chat's model their provider, a role-routing entry its
+  `provider`, and a Task's own model is `<provider>/<model>` (`-model opencode-go/deepseek-v4-pro`), read at its
+  first slash (`orchestration` `modelRef`, as 9router's `parseModel`). A bare name is refused when it is applied,
+  when the Task is made and when it is dispatched, with the names it could be written as ("name it
+  <provider>/<model>, such as …", as omniroute's "Use provider/model prefix" and LiteLLM's "Pass model as E.g.
+  huggingface/starcoder"); it is never resolved by which provider offers it, so a provider added later (OpenCode
+  Zen, #965) changes no meaning. A migration gave what was stored without a provider the one it resolved to: a
+  Task the provider of its latest Dispatch's gateway name, else the one provider that offers the name; a profile
+  version, a Bot and a chat the one provider that offers the name; a name two providers offered, or none, is left
+  and refused when next used. The gateway itself already takes only `<provider>/<model>` or a name of its own
+  table, and every worker and Bot is given those names. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
   another provider is refused when applied, and a Task that would run Claude Code without the gateway (a profile
