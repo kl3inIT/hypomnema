@@ -3260,7 +3260,10 @@ type Bot struct {
 	// Connections What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
 	Connections AllowList `json:"connections"`
 	CreatedAt   time.Time `json:"created_at"`
-	Effort      *string   `json:"effort,omitempty"`
+
+	// Department The id of the department the sidebar lists the Bot in (issue #471); absent when it is in none. The main Bot is in none.
+	Department *string `json:"department,omitempty"`
+	Effort     *string `json:"effort,omitempty"`
 
 	// Fallbacks Ordered gateway models (provider/model), tried when accounts cannot serve the inherited model.
 	Fallbacks []string `json:"fallbacks"`
@@ -3289,9 +3292,6 @@ type Bot struct {
 
 	// Persona What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
 	Persona string `json:"persona"`
-
-	// Pinned Listed in the sidebar's Pinned section, under the main Bot.
-	Pinned bool `json:"pinned"`
 
 	// Position The Bot's place in the order the owner sets, 0 first (issue #470); the main Bot is first.
 	Position int `json:"position"`
@@ -3328,10 +3328,12 @@ type Bot struct {
 
 // BotChange defines model for BotChange.
 type BotChange struct {
-	Name *string `json:"name,omitempty"`
+	// Department The id of the department to list the Bot in, or empty for none (issue #471); only the owner. The main Bot is in none.
+	Department *string `json:"department,omitempty"`
 
-	// Pinned Listed in the sidebar's Pinned section, under the main Bot; only the owner.
-	Pinned *bool `json:"pinned,omitempty"`
+	// MainChat The id of one of the Bot's chats, which becomes its main chat (issue #923): the web's Set as main chat and `hypomnema chats main`; only the owner. A chat of another Bot, a Routine's chat and a Lark chat are refused (400). The former main chat stays as it was.
+	MainChat *string `json:"main_chat,omitempty"`
+	Name     *string `json:"name,omitempty"`
 }
 
 // BotList defines model for BotList.
@@ -3449,6 +3451,9 @@ type Chat struct {
 	// Bot The id of the Bot the chat talks with.
 	Bot string `json:"bot"`
 
+	// Channel A Lark chat (issue #923): a person's or a group's at a Channel, one someone other than the owner wrote in, or another person's from before sender ids (titled "Lark: <name>", with Lark's "[Lark message from <name>, who is not the owner. …]" label in its lines); it is never its Bot's main chat.
+	Channel bool `json:"channel"`
+
 	// ContextUsage How full the chat's context window is, as pi last reported it after a turn or a compaction (issue #384; pi's get_session_stats). Absent from a chat before pi first reported it.
 	ContextUsage *ChatContextUsage `json:"context_usage,omitempty"`
 
@@ -3470,7 +3475,10 @@ type Chat struct {
 	Provider *string `json:"provider,omitempty"`
 
 	// ReadRun This chat belongs to a read-only Routine run.
-	ReadRun   *bool     `json:"read_run,omitempty"`
+	ReadRun *bool `json:"read_run,omitempty"`
+
+	// Routine The chat was opened for a Routine's run (issue #923); it is never its Bot's main chat.
+	Routine   bool      `json:"routine"`
 	Title     string    `json:"title"`
 	UpdatedAt time.Time `json:"updated_at"`
 
@@ -3774,6 +3782,32 @@ type CreatedNode struct {
 type Credentials struct {
 	Password string `json:"password"`
 	Username string `json:"username"`
+}
+
+// Department defines model for Department.
+type Department struct {
+	Id string `json:"id"`
+
+	// Name What the department is called; one department's.
+	Name string `json:"name"`
+
+	// Position Its place among the departments, 0 first.
+	Position int `json:"position"`
+}
+
+// DepartmentChange defines model for DepartmentChange.
+type DepartmentChange struct {
+	Name string `json:"name"`
+}
+
+// DepartmentList defines model for DepartmentList.
+type DepartmentList struct {
+	Data []Department `json:"data"`
+}
+
+// DepartmentOrder defines model for DepartmentOrder.
+type DepartmentOrder struct {
+	DepartmentIds []string `json:"department_ids"`
 }
 
 // DeviceComponent defines model for DeviceComponent.
@@ -5239,6 +5273,13 @@ type NewChatMessage struct {
 	// Attachments Files uploaded into the chat's Bot's folder for this message.
 	Attachments *[]ChatAttachment `json:"attachments,omitempty"`
 	Text        string            `json:"text"`
+}
+
+// NewDepartment defines model for NewDepartment.
+type NewDepartment struct {
+	// BotIds The Bots to move into it.
+	BotIds *[]string `json:"bot_ids,omitempty"`
+	Name   string    `json:"name"`
 }
 
 // NewFollowUp defines model for NewFollowUp.
@@ -7659,6 +7700,9 @@ type ChatID = string
 // ConnectionLabel defines model for ConnectionLabel.
 type ConnectionLabel = string
 
+// DepartmentID defines model for DepartmentID.
+type DepartmentID = string
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
@@ -7782,7 +7826,7 @@ type ListChatsParams struct {
 	// Bot Only the chats of the Bot of this id (issue
 	Bot *string `form:"bot,omitempty" json:"bot,omitempty"`
 
-	// Offset How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+	// Offset How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with no main chat, its latest chat that is not a Routine's run (issue #923), whatever their age, so that a client showing Bots has them all.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
@@ -8379,6 +8423,15 @@ type SendWorkspaceUploadChunkJSONRequestBody = WorkspaceUploadChunk
 
 // CommitWorkspaceUploadJSONRequestBody defines body for CommitWorkspaceUpload for application/json ContentType.
 type CommitWorkspaceUploadJSONRequestBody = WorkspaceUploadCommit
+
+// CreateDepartmentJSONRequestBody defines body for CreateDepartment for application/json ContentType.
+type CreateDepartmentJSONRequestBody = NewDepartment
+
+// ReorderDepartmentsJSONRequestBody defines body for ReorderDepartments for application/json ContentType.
+type ReorderDepartmentsJSONRequestBody = DepartmentOrder
+
+// RenameDepartmentJSONRequestBody defines body for RenameDepartment for application/json ContentType.
+type RenameDepartmentJSONRequestBody = DepartmentChange
 
 // SetAudioOrderJSONRequestBody defines body for SetAudioOrder for application/json ContentType.
 type SetAudioOrderJSONRequestBody = AudioOrder
@@ -9209,18 +9262,18 @@ type ClientInterface interface {
 	// Corresponds with GET /bots/{bot_id} (the `GetBot` operationId).
 	GetBot(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RenameBotWithBody Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBotWithBody Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 	//
-	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PATCH /bots/{bot_id} (the `RenameBot` operationId).
 	RenameBotWithBody(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RenameBot Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBot Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 	//
-	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -9686,6 +9739,72 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit (the `CommitWorkspaceUpload` operationId).
 	CommitWorkspaceUpload(ctx context.Context, chatId ChatID, workspaceId WorkspaceID, params *CommitWorkspaceUploadParams, body CommitWorkspaceUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListDepartments The departments the sidebar lists Bots in, in the owner's order
+	//
+	// A department is a named section of the sidebar that lists Bots together (issue #471), as OpenMausBot's departments. A Bot is in at most one; a department shares nothing between its Bots.
+	//
+	// Corresponds with GET /departments (the `ListDepartments` operationId).
+	ListDepartments(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateDepartmentWithBody Make a department, last in the order, with the Bots named in it; only the owner
+	//
+	// A name another department has is refused; the main Bot cannot be put in one.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /departments (the `CreateDepartment` operationId).
+	CreateDepartmentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateDepartment Make a department, last in the order, with the Bots named in it; only the owner
+	//
+	// A name another department has is refused; the main Bot cannot be put in one.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /departments (the `CreateDepartment` operationId).
+	CreateDepartment(ctx context.Context, body CreateDepartmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReorderDepartmentsWithBody Move departments in the order the sidebar lists them; only the owner
+	//
+	// The departments named take, in the order given, the places they already hold together; every other keeps its place, as the Bots' order does. A repeated or unknown id is refused.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /departments/order (the `ReorderDepartments` operationId).
+	ReorderDepartmentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReorderDepartments Move departments in the order the sidebar lists them; only the owner
+	//
+	// The departments named take, in the order given, the places they already hold together; every other keeps its place, as the Bots' order does. A repeated or unknown id is refused.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /departments/order (the `ReorderDepartments` operationId).
+	ReorderDepartments(ctx context.Context, body ReorderDepartmentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteDepartment Remove a department; its Bots go back to the Bots in none; only the owner
+	//
+	// Corresponds with DELETE /departments/{department_id} (the `DeleteDepartment` operationId).
+	DeleteDepartment(ctx context.Context, departmentId DepartmentID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenameDepartmentWithBody Give a department another name; only the owner
+	//
+	// Its Bots stay in it. A name another department has is refused.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /departments/{department_id} (the `RenameDepartment` operationId).
+	RenameDepartmentWithBody(ctx context.Context, departmentId DepartmentID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenameDepartment Give a department another name; only the owner
+	//
+	// Its Bots stay in it. A name another department has is refused.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /departments/{department_id} (the `RenameDepartment` operationId).
+	RenameDepartment(ctx context.Context, departmentId DepartmentID, body RenameDepartmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetDevice The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner only)
 	//
@@ -12433,9 +12552,9 @@ func (c *Client) GetBot(ctx context.Context, botId BotID, reqEditors ...RequestE
 	return c.Client.Do(req)
 }
 
-// RenameBotWithBody Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+// RenameBotWithBody Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 //
-// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
 //
 // Takes any type of body and a specified content type.
 //
@@ -12452,9 +12571,9 @@ func (c *Client) RenameBotWithBody(ctx context.Context, botId BotID, contentType
 	return c.Client.Do(req)
 }
 
-// RenameBot Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+// RenameBot Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 //
-// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
 //
 // Takes a body of the `application/json` content type.
 //
@@ -13561,6 +13680,152 @@ func (c *Client) CommitWorkspaceUploadWithBody(ctx context.Context, chatId ChatI
 // Corresponds with POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit (the `CommitWorkspaceUpload` operationId).
 func (c *Client) CommitWorkspaceUpload(ctx context.Context, chatId ChatID, workspaceId WorkspaceID, params *CommitWorkspaceUploadParams, body CommitWorkspaceUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCommitWorkspaceUploadRequest(c.Server, chatId, workspaceId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListDepartments The departments the sidebar lists Bots in, in the owner's order
+//
+// A department is a named section of the sidebar that lists Bots together (issue #471), as OpenMausBot's departments. A Bot is in at most one; a department shares nothing between its Bots.
+//
+// Corresponds with GET /departments (the `ListDepartments` operationId).
+func (c *Client) ListDepartments(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListDepartmentsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateDepartmentWithBody Make a department, last in the order, with the Bots named in it; only the owner
+//
+// A name another department has is refused; the main Bot cannot be put in one.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /departments (the `CreateDepartment` operationId).
+func (c *Client) CreateDepartmentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateDepartmentRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateDepartment Make a department, last in the order, with the Bots named in it; only the owner
+//
+// A name another department has is refused; the main Bot cannot be put in one.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /departments (the `CreateDepartment` operationId).
+func (c *Client) CreateDepartment(ctx context.Context, body CreateDepartmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateDepartmentRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReorderDepartmentsWithBody Move departments in the order the sidebar lists them; only the owner
+//
+// The departments named take, in the order given, the places they already hold together; every other keeps its place, as the Bots' order does. A repeated or unknown id is refused.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /departments/order (the `ReorderDepartments` operationId).
+func (c *Client) ReorderDepartmentsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReorderDepartmentsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReorderDepartments Move departments in the order the sidebar lists them; only the owner
+//
+// The departments named take, in the order given, the places they already hold together; every other keeps its place, as the Bots' order does. A repeated or unknown id is refused.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /departments/order (the `ReorderDepartments` operationId).
+func (c *Client) ReorderDepartments(ctx context.Context, body ReorderDepartmentsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReorderDepartmentsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteDepartment Remove a department; its Bots go back to the Bots in none; only the owner
+//
+// Corresponds with DELETE /departments/{department_id} (the `DeleteDepartment` operationId).
+func (c *Client) DeleteDepartment(ctx context.Context, departmentId DepartmentID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteDepartmentRequest(c.Server, departmentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenameDepartmentWithBody Give a department another name; only the owner
+//
+// Its Bots stay in it. A name another department has is refused.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /departments/{department_id} (the `RenameDepartment` operationId).
+func (c *Client) RenameDepartmentWithBody(ctx context.Context, departmentId DepartmentID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenameDepartmentRequestWithBody(c.Server, departmentId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenameDepartment Give a department another name; only the owner
+//
+// Its Bots stay in it. A name another department has is refused.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /departments/{department_id} (the `RenameDepartment` operationId).
+func (c *Client) RenameDepartment(ctx context.Context, departmentId DepartmentID, body RenameDepartmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenameDepartmentRequest(c.Server, departmentId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -22115,6 +22380,194 @@ func NewCommitWorkspaceUploadRequestWithBody(server string, chatId ChatID, works
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListDepartmentsRequest constructs an http.Request for the ListDepartments method
+func NewListDepartmentsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/departments")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateDepartmentRequest calls the generic CreateDepartment builder with application/json body
+func NewCreateDepartmentRequest(server string, body CreateDepartmentJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateDepartmentRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateDepartmentRequestWithBody constructs an http.Request for the CreateDepartment method, with any body, and a specified content type
+func NewCreateDepartmentRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/departments")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewReorderDepartmentsRequest calls the generic ReorderDepartments builder with application/json body
+func NewReorderDepartmentsRequest(server string, body ReorderDepartmentsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReorderDepartmentsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewReorderDepartmentsRequestWithBody constructs an http.Request for the ReorderDepartments method, with any body, and a specified content type
+func NewReorderDepartmentsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/departments/order")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteDepartmentRequest constructs an http.Request for the DeleteDepartment method
+func NewDeleteDepartmentRequest(server string, departmentId DepartmentID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "department_id", departmentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/departments/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRenameDepartmentRequest calls the generic RenameDepartment builder with application/json body
+func NewRenameDepartmentRequest(server string, departmentId DepartmentID, body RenameDepartmentJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRenameDepartmentRequestWithBody(server, departmentId, "application/json", bodyReader)
+}
+
+// NewRenameDepartmentRequestWithBody constructs an http.Request for the RenameDepartment method, with any body, and a specified content type
+func NewRenameDepartmentRequestWithBody(server string, departmentId DepartmentID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "department_id", departmentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/departments/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -31784,18 +32237,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /bots/{bot_id} (the `GetBot` operationId).
 	GetBotWithResponse(ctx context.Context, botId BotID, reqEditors ...RequestEditorFn) (*GetBotResponse, error)
 
-	// RenameBotWithBodyWithResponse Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBotWithBodyWithResponse Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 	//
-	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /bots/{bot_id} (the `RenameBot` operationId).
 	RenameBotWithBodyWithResponse(ctx context.Context, botId BotID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenameBotResponse, error)
 
-	// RenameBotWithResponse Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBotWithResponse Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 	//
-	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+	// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -32317,6 +32770,76 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit (the `CommitWorkspaceUpload` operationId).
 	CommitWorkspaceUploadWithResponse(ctx context.Context, chatId ChatID, workspaceId WorkspaceID, params *CommitWorkspaceUploadParams, body CommitWorkspaceUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*CommitWorkspaceUploadResponse, error)
+
+	// ListDepartmentsWithResponse The departments the sidebar lists Bots in, in the owner's order
+	//
+	// A department is a named section of the sidebar that lists Bots together (issue #471), as OpenMausBot's departments. A Bot is in at most one; a department shares nothing between its Bots.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /departments (the `ListDepartments` operationId).
+	ListDepartmentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListDepartmentsResponse, error)
+
+	// CreateDepartmentWithBodyWithResponse Make a department, last in the order, with the Bots named in it; only the owner
+	//
+	// A name another department has is refused; the main Bot cannot be put in one.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /departments (the `CreateDepartment` operationId).
+	CreateDepartmentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateDepartmentResponse, error)
+
+	// CreateDepartmentWithResponse Make a department, last in the order, with the Bots named in it; only the owner
+	//
+	// A name another department has is refused; the main Bot cannot be put in one.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /departments (the `CreateDepartment` operationId).
+	CreateDepartmentWithResponse(ctx context.Context, body CreateDepartmentJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateDepartmentResponse, error)
+
+	// ReorderDepartmentsWithBodyWithResponse Move departments in the order the sidebar lists them; only the owner
+	//
+	// The departments named take, in the order given, the places they already hold together; every other keeps its place, as the Bots' order does. A repeated or unknown id is refused.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /departments/order (the `ReorderDepartments` operationId).
+	ReorderDepartmentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReorderDepartmentsResponse, error)
+
+	// ReorderDepartmentsWithResponse Move departments in the order the sidebar lists them; only the owner
+	//
+	// The departments named take, in the order given, the places they already hold together; every other keeps its place, as the Bots' order does. A repeated or unknown id is refused.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /departments/order (the `ReorderDepartments` operationId).
+	ReorderDepartmentsWithResponse(ctx context.Context, body ReorderDepartmentsJSONRequestBody, reqEditors ...RequestEditorFn) (*ReorderDepartmentsResponse, error)
+
+	// DeleteDepartmentWithResponse Remove a department; its Bots go back to the Bots in none; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /departments/{department_id} (the `DeleteDepartment` operationId).
+	DeleteDepartmentWithResponse(ctx context.Context, departmentId DepartmentID, reqEditors ...RequestEditorFn) (*DeleteDepartmentResponse, error)
+
+	// RenameDepartmentWithBodyWithResponse Give a department another name; only the owner
+	//
+	// Its Bots stay in it. A name another department has is refused.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /departments/{department_id} (the `RenameDepartment` operationId).
+	RenameDepartmentWithBodyWithResponse(ctx context.Context, departmentId DepartmentID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenameDepartmentResponse, error)
+
+	// RenameDepartmentWithResponse Give a department another name; only the owner
+	//
+	// Its Bots stay in it. A name another department has is refused.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /departments/{department_id} (the `RenameDepartment` operationId).
+	RenameDepartmentWithResponse(ctx context.Context, departmentId DepartmentID, body RenameDepartmentJSONRequestBody, reqEditors ...RequestEditorFn) (*RenameDepartmentResponse, error)
 
 	// GetDeviceWithResponse The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner only)
 	//
@@ -38225,6 +38748,239 @@ func (r CommitWorkspaceUploadResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CommitWorkspaceUploadResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListDepartmentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DepartmentList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListDepartmentsResponse) GetJSON200() *DepartmentList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListDepartmentsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListDepartmentsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListDepartmentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListDepartmentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListDepartmentsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateDepartmentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Department
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateDepartmentResponse) GetJSON201() *Department {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateDepartmentResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateDepartmentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateDepartmentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateDepartmentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateDepartmentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReorderDepartmentsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DepartmentOrder
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReorderDepartmentsResponse) GetJSON200() *DepartmentOrder {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReorderDepartmentsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReorderDepartmentsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReorderDepartmentsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReorderDepartmentsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReorderDepartmentsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteDepartmentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteDepartmentResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteDepartmentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteDepartmentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteDepartmentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteDepartmentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RenameDepartmentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Department
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RenameDepartmentResponse) GetJSON200() *Department {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RenameDepartmentResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RenameDepartmentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RenameDepartmentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RenameDepartmentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RenameDepartmentResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -48323,9 +49079,9 @@ func (c *ClientWithResponses) GetBotWithResponse(ctx context.Context, botId BotI
 	return ParseGetBotResponse(rsp)
 }
 
-// RenameBotWithBodyWithResponse Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+// RenameBotWithBodyWithResponse Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 //
-// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -48338,9 +49094,9 @@ func (c *ClientWithResponses) RenameBotWithBodyWithResponse(ctx context.Context,
 	return ParseRenameBotResponse(rsp)
 }
 
-// RenameBotWithResponse Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+// RenameBotWithResponse Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 //
-// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner pins or unpins a Bot (issue #470); the main Bot, always first, is not pinned.
+// Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -49251,6 +50007,124 @@ func (c *ClientWithResponses) CommitWorkspaceUploadWithResponse(ctx context.Cont
 		return nil, err
 	}
 	return ParseCommitWorkspaceUploadResponse(rsp)
+}
+
+// ListDepartmentsWithResponse The departments the sidebar lists Bots in, in the owner's order
+//
+// A department is a named section of the sidebar that lists Bots together (issue #471), as OpenMausBot's departments. A Bot is in at most one; a department shares nothing between its Bots.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /departments (the `ListDepartments` operationId).
+func (c *ClientWithResponses) ListDepartmentsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListDepartmentsResponse, error) {
+	rsp, err := c.ListDepartments(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListDepartmentsResponse(rsp)
+}
+
+// CreateDepartmentWithBodyWithResponse Make a department, last in the order, with the Bots named in it; only the owner
+//
+// A name another department has is refused; the main Bot cannot be put in one.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /departments (the `CreateDepartment` operationId).
+func (c *ClientWithResponses) CreateDepartmentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateDepartmentResponse, error) {
+	rsp, err := c.CreateDepartmentWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateDepartmentResponse(rsp)
+}
+
+// CreateDepartmentWithResponse Make a department, last in the order, with the Bots named in it; only the owner
+//
+// A name another department has is refused; the main Bot cannot be put in one.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /departments (the `CreateDepartment` operationId).
+func (c *ClientWithResponses) CreateDepartmentWithResponse(ctx context.Context, body CreateDepartmentJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateDepartmentResponse, error) {
+	rsp, err := c.CreateDepartment(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateDepartmentResponse(rsp)
+}
+
+// ReorderDepartmentsWithBodyWithResponse Move departments in the order the sidebar lists them; only the owner
+//
+// The departments named take, in the order given, the places they already hold together; every other keeps its place, as the Bots' order does. A repeated or unknown id is refused.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /departments/order (the `ReorderDepartments` operationId).
+func (c *ClientWithResponses) ReorderDepartmentsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReorderDepartmentsResponse, error) {
+	rsp, err := c.ReorderDepartmentsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReorderDepartmentsResponse(rsp)
+}
+
+// ReorderDepartmentsWithResponse Move departments in the order the sidebar lists them; only the owner
+//
+// The departments named take, in the order given, the places they already hold together; every other keeps its place, as the Bots' order does. A repeated or unknown id is refused.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /departments/order (the `ReorderDepartments` operationId).
+func (c *ClientWithResponses) ReorderDepartmentsWithResponse(ctx context.Context, body ReorderDepartmentsJSONRequestBody, reqEditors ...RequestEditorFn) (*ReorderDepartmentsResponse, error) {
+	rsp, err := c.ReorderDepartments(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReorderDepartmentsResponse(rsp)
+}
+
+// DeleteDepartmentWithResponse Remove a department; its Bots go back to the Bots in none; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /departments/{department_id} (the `DeleteDepartment` operationId).
+func (c *ClientWithResponses) DeleteDepartmentWithResponse(ctx context.Context, departmentId DepartmentID, reqEditors ...RequestEditorFn) (*DeleteDepartmentResponse, error) {
+	rsp, err := c.DeleteDepartment(ctx, departmentId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteDepartmentResponse(rsp)
+}
+
+// RenameDepartmentWithBodyWithResponse Give a department another name; only the owner
+//
+// Its Bots stay in it. A name another department has is refused.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /departments/{department_id} (the `RenameDepartment` operationId).
+func (c *ClientWithResponses) RenameDepartmentWithBodyWithResponse(ctx context.Context, departmentId DepartmentID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RenameDepartmentResponse, error) {
+	rsp, err := c.RenameDepartmentWithBody(ctx, departmentId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenameDepartmentResponse(rsp)
+}
+
+// RenameDepartmentWithResponse Give a department another name; only the owner
+//
+// Its Bots stay in it. A name another department has is refused.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /departments/{department_id} (the `RenameDepartment` operationId).
+func (c *ClientWithResponses) RenameDepartmentWithResponse(ctx context.Context, departmentId DepartmentID, body RenameDepartmentJSONRequestBody, reqEditors ...RequestEditorFn) (*RenameDepartmentResponse, error) {
+	rsp, err := c.RenameDepartment(ctx, departmentId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenameDepartmentResponse(rsp)
 }
 
 // GetDeviceWithResponse The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner only)
@@ -55658,6 +56532,167 @@ func ParseCommitWorkspaceUploadResponse(rsp *http.Response) (*CommitWorkspaceUpl
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest WorkspaceDone
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListDepartmentsResponse parses an HTTP response from a ListDepartmentsWithResponse call
+func ParseListDepartmentsResponse(rsp *http.Response) (*ListDepartmentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListDepartmentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DepartmentList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateDepartmentResponse parses an HTTP response from a CreateDepartmentWithResponse call
+func ParseCreateDepartmentResponse(rsp *http.Response) (*CreateDepartmentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateDepartmentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Department
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReorderDepartmentsResponse parses an HTTP response from a ReorderDepartmentsWithResponse call
+func ParseReorderDepartmentsResponse(rsp *http.Response) (*ReorderDepartmentsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReorderDepartmentsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DepartmentOrder
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteDepartmentResponse parses an HTTP response from a DeleteDepartmentWithResponse call
+func ParseDeleteDepartmentResponse(rsp *http.Response) (*DeleteDepartmentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteDepartmentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRenameDepartmentResponse parses an HTTP response from a RenameDepartmentWithResponse call
+func ParseRenameDepartmentResponse(rsp *http.Response) (*RenameDepartmentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RenameDepartmentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Department
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -62330,7 +63365,7 @@ type ServerInterface interface {
 	// GetBot A Bot, with its persona and memory
 	// (GET /bots/{bot_id})
 	GetBot(w http.ResponseWriter, r *http.Request, botId BotID)
-	// RenameBot Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBot Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 	// (PATCH /bots/{bot_id})
 	RenameBot(w http.ResponseWriter, r *http.Request, botId BotID)
 	// PutBot Change a Bot's settings; the owner, or the main Bot from its chat
@@ -62471,6 +63506,21 @@ type ServerInterface interface {
 	// CommitWorkspaceUpload Put an upload in its place, where nothing is or over the file expect_sha256 names (owner only)
 	// (POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit)
 	CommitWorkspaceUpload(w http.ResponseWriter, r *http.Request, chatId ChatID, workspaceId WorkspaceID, params CommitWorkspaceUploadParams)
+	// ListDepartments The departments the sidebar lists Bots in, in the owner's order
+	// (GET /departments)
+	ListDepartments(w http.ResponseWriter, r *http.Request)
+	// CreateDepartment Make a department, last in the order, with the Bots named in it; only the owner
+	// (POST /departments)
+	CreateDepartment(w http.ResponseWriter, r *http.Request)
+	// ReorderDepartments Move departments in the order the sidebar lists them; only the owner
+	// (PUT /departments/order)
+	ReorderDepartments(w http.ResponseWriter, r *http.Request)
+	// DeleteDepartment Remove a department; its Bots go back to the Bots in none; only the owner
+	// (DELETE /departments/{department_id})
+	DeleteDepartment(w http.ResponseWriter, r *http.Request, departmentId DepartmentID)
+	// RenameDepartment Give a department another name; only the owner
+	// (PATCH /departments/{department_id})
+	RenameDepartment(w http.ResponseWriter, r *http.Request, departmentId DepartmentID)
 	// GetDevice The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner only)
 	// (GET /device)
 	GetDevice(w http.ResponseWriter, r *http.Request)
@@ -65618,6 +66668,100 @@ func (siw *ServerInterfaceWrapper) CommitWorkspaceUpload(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CommitWorkspaceUpload(w, r, chatId, workspaceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDepartments operation middleware
+func (siw *ServerInterfaceWrapper) ListDepartments(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDepartments(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDepartment operation middleware
+func (siw *ServerInterfaceWrapper) CreateDepartment(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDepartment(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReorderDepartments operation middleware
+func (siw *ServerInterfaceWrapper) ReorderDepartments(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReorderDepartments(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteDepartment operation middleware
+func (siw *ServerInterfaceWrapper) DeleteDepartment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "department_id" -------------
+	var departmentId DepartmentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "department_id", r.PathValue("department_id"), &departmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "department_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteDepartment(w, r, departmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RenameDepartment operation middleware
+func (siw *ServerInterfaceWrapper) RenameDepartment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "department_id" -------------
+	var departmentId DepartmentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "department_id", r.PathValue("department_id"), &departmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "department_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RenameDepartment(w, r, departmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -72230,6 +73374,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots", wrapper.ListBots)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots", wrapper.CreateBot)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/order", wrapper.ReorderBots)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/departments", wrapper.ListDepartments)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/departments", wrapper.CreateDepartment)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/departments/order", wrapper.ReorderDepartments)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/departments/{department_id}", wrapper.DeleteDepartment)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/departments/{department_id}", wrapper.RenameDepartment)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/bots/{bot_id}", wrapper.DeleteBot)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{bot_id}", wrapper.GetBot)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/bots/{bot_id}", wrapper.RenameBot)
@@ -75500,6 +76649,195 @@ type CommitWorkspaceUploaddefaultJSONResponse struct {
 }
 
 func (response CommitWorkspaceUploaddefaultJSONResponse) VisitCommitWorkspaceUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDepartmentsRequestObject struct {
+}
+
+type ListDepartmentsResponseObject interface {
+	VisitListDepartmentsResponse(w http.ResponseWriter) error
+}
+
+type ListDepartments200JSONResponse DepartmentList
+
+func (response ListDepartments200JSONResponse) VisitListDepartmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDepartmentsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListDepartmentsdefaultJSONResponse) VisitListDepartmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDepartmentRequestObject struct {
+	Body *CreateDepartmentJSONRequestBody
+}
+
+type CreateDepartmentResponseObject interface {
+	VisitCreateDepartmentResponse(w http.ResponseWriter) error
+}
+
+type CreateDepartment201JSONResponse Department
+
+func (response CreateDepartment201JSONResponse) VisitCreateDepartmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateDepartmentdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateDepartmentdefaultJSONResponse) VisitCreateDepartmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderDepartmentsRequestObject struct {
+	Body *ReorderDepartmentsJSONRequestBody
+}
+
+type ReorderDepartmentsResponseObject interface {
+	VisitReorderDepartmentsResponse(w http.ResponseWriter) error
+}
+
+type ReorderDepartments200JSONResponse DepartmentOrder
+
+func (response ReorderDepartments200JSONResponse) VisitReorderDepartmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReorderDepartmentsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ReorderDepartmentsdefaultJSONResponse) VisitReorderDepartmentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteDepartmentRequestObject struct {
+	DepartmentId DepartmentID `json:"department_id"`
+}
+
+type DeleteDepartmentResponseObject interface {
+	VisitDeleteDepartmentResponse(w http.ResponseWriter) error
+}
+
+type DeleteDepartment204Response struct {
+}
+
+func (response DeleteDepartment204Response) VisitDeleteDepartmentResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteDepartmentdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteDepartmentdefaultJSONResponse) VisitDeleteDepartmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameDepartmentRequestObject struct {
+	DepartmentId DepartmentID `json:"department_id"`
+	Body         *RenameDepartmentJSONRequestBody
+}
+
+type RenameDepartmentResponseObject interface {
+	VisitRenameDepartmentResponse(w http.ResponseWriter) error
+}
+
+type RenameDepartment200JSONResponse Department
+
+func (response RenameDepartment200JSONResponse) VisitRenameDepartmentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RenameDepartmentdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RenameDepartmentdefaultJSONResponse) VisitRenameDepartmentResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -83616,7 +84954,7 @@ type StrictServerInterface interface {
 	// GetBot A Bot, with its persona and memory
 	// (GET /bots/{bot_id})
 	GetBot(ctx context.Context, request GetBotRequestObject) (GetBotResponseObject, error)
-	// RenameBot Give a Bot another name, or pin or unpin it; the owner, or the main Bot from its chat for a name
+	// RenameBot Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
 	// (PATCH /bots/{bot_id})
 	RenameBot(ctx context.Context, request RenameBotRequestObject) (RenameBotResponseObject, error)
 	// PutBot Change a Bot's settings; the owner, or the main Bot from its chat
@@ -83757,6 +85095,21 @@ type StrictServerInterface interface {
 	// CommitWorkspaceUpload Put an upload in its place, where nothing is or over the file expect_sha256 names (owner only)
 	// (POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit)
 	CommitWorkspaceUpload(ctx context.Context, request CommitWorkspaceUploadRequestObject) (CommitWorkspaceUploadResponseObject, error)
+	// ListDepartments The departments the sidebar lists Bots in, in the owner's order
+	// (GET /departments)
+	ListDepartments(ctx context.Context, request ListDepartmentsRequestObject) (ListDepartmentsResponseObject, error)
+	// CreateDepartment Make a department, last in the order, with the Bots named in it; only the owner
+	// (POST /departments)
+	CreateDepartment(ctx context.Context, request CreateDepartmentRequestObject) (CreateDepartmentResponseObject, error)
+	// ReorderDepartments Move departments in the order the sidebar lists them; only the owner
+	// (PUT /departments/order)
+	ReorderDepartments(ctx context.Context, request ReorderDepartmentsRequestObject) (ReorderDepartmentsResponseObject, error)
+	// DeleteDepartment Remove a department; its Bots go back to the Bots in none; only the owner
+	// (DELETE /departments/{department_id})
+	DeleteDepartment(ctx context.Context, request DeleteDepartmentRequestObject) (DeleteDepartmentResponseObject, error)
+	// RenameDepartment Give a department another name; only the owner
+	// (PATCH /departments/{department_id})
+	RenameDepartment(ctx context.Context, request RenameDepartmentRequestObject) (RenameDepartmentResponseObject, error)
 	// GetDevice The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner only)
 	// (GET /device)
 	GetDevice(ctx context.Context, request GetDeviceRequestObject) (GetDeviceResponseObject, error)
@@ -86648,6 +88001,151 @@ func (sh *strictHandler) CommitWorkspaceUpload(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CommitWorkspaceUploadResponseObject); ok {
 		if err := validResponse.VisitCommitWorkspaceUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListDepartments operation middleware
+func (sh *strictHandler) ListDepartments(w http.ResponseWriter, r *http.Request) {
+	var request ListDepartmentsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDepartments(ctx, request.(ListDepartmentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDepartments")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDepartmentsResponseObject); ok {
+		if err := validResponse.VisitListDepartmentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateDepartment operation middleware
+func (sh *strictHandler) CreateDepartment(w http.ResponseWriter, r *http.Request) {
+	var request CreateDepartmentRequestObject
+
+	var body CreateDepartmentJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateDepartment(ctx, request.(CreateDepartmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateDepartment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateDepartmentResponseObject); ok {
+		if err := validResponse.VisitCreateDepartmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReorderDepartments operation middleware
+func (sh *strictHandler) ReorderDepartments(w http.ResponseWriter, r *http.Request) {
+	var request ReorderDepartmentsRequestObject
+
+	var body ReorderDepartmentsJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReorderDepartments(ctx, request.(ReorderDepartmentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReorderDepartments")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReorderDepartmentsResponseObject); ok {
+		if err := validResponse.VisitReorderDepartmentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteDepartment operation middleware
+func (sh *strictHandler) DeleteDepartment(w http.ResponseWriter, r *http.Request, departmentId DepartmentID) {
+	var request DeleteDepartmentRequestObject
+
+	request.DepartmentId = departmentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteDepartment(ctx, request.(DeleteDepartmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteDepartment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteDepartmentResponseObject); ok {
+		if err := validResponse.VisitDeleteDepartmentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RenameDepartment operation middleware
+func (sh *strictHandler) RenameDepartment(w http.ResponseWriter, r *http.Request, departmentId DepartmentID) {
+	var request RenameDepartmentRequestObject
+
+	request.DepartmentId = departmentId
+
+	var body RenameDepartmentJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RenameDepartment(ctx, request.(RenameDepartmentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RenameDepartment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RenameDepartmentResponseObject); ok {
+		if err := validResponse.VisitRenameDepartmentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

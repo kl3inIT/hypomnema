@@ -157,7 +157,6 @@ type Bot struct {
 	ToolDisplay          string
 	Name                 string
 	Position             int64
-	Pinned               int64
 	Tools                string
 	ToolsOff             string
 	ConnectionScopes     sql.NullString
@@ -165,6 +164,7 @@ type Bot struct {
 	Fallbacks            string
 	Preset               string
 	MainChat             sql.NullString
+	Department           sql.NullString
 }
 
 type Channel struct {
@@ -314,6 +314,13 @@ type Conversation struct {
 	CloseReason   sql.NullString
 	CreatedAt     int64
 	UpdatedAt     int64
+}
+
+type Department struct {
+	ID        string
+	Name      string
+	Position  int64
+	CreatedAt int64
 }
 
 type Dispatch struct {

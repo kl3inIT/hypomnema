@@ -3259,9 +3259,9 @@ export type Bot = {
    */
   position: number;
   /**
-   * Listed in the sidebar's Pinned section, under the main Bot.
+   * The id of the department the sidebar lists the Bot in (issue #471); absent when it is in none. The main Bot is in none.
    */
-  pinned: boolean;
+  department?: string;
   /**
    * The id of the Bot's main chat, the one a click on the Bot opens and the web and the CLI write to (issue #471); absent until the first message from either makes it. Its other chats stay and open by their ids.
    */
@@ -3603,13 +3603,49 @@ export type NewBot = {
 export type BotChange = {
   name?: string;
   /**
-   * Listed in the sidebar's Pinned section, under the main Bot; only the owner.
+   * The id of the department to list the Bot in, or empty for none (issue #471); only the owner. The main Bot is in none.
    */
-  pinned?: boolean;
+  department?: string;
+  /**
+   * The id of one of the Bot's chats, which becomes its main chat (issue #923): the web's Set as main chat and `hypomnema chats main`; only the owner. A chat of another Bot, a Routine's chat and a Lark chat are refused (400). The former main chat stays as it was.
+   */
+  main_chat?: string;
 };
 
 export type BotOrder = {
   bot_ids: Array<string>;
+};
+
+export type Department = {
+  id: string;
+  /**
+   * What the department is called; one department's.
+   */
+  name: string;
+  /**
+   * Its place among the departments, 0 first.
+   */
+  position: number;
+};
+
+export type DepartmentList = {
+  data: Array<Department>;
+};
+
+export type NewDepartment = {
+  name: string;
+  /**
+   * The Bots to move into it.
+   */
+  bot_ids?: Array<string>;
+};
+
+export type DepartmentChange = {
+  name: string;
+};
+
+export type DepartmentOrder = {
+  department_ids: Array<string>;
 };
 
 export type BotSettings = {
@@ -4134,6 +4170,14 @@ export type Chat = {
    * The first line of its latest message of the owner or its Bot, at most 120 characters (issue #471); in a list only, absent before either wrote.
    */
   last_line?: string;
+  /**
+   * The chat was opened for a Routine's run (issue #923); it is never its Bot's main chat.
+   */
+  routine: boolean;
+  /**
+   * A Lark chat (issue #923): a person's or a group's at a Channel, one someone other than the owner wrote in, or another person's from before sender ids (titled "Lark: <name>", with Lark's "[Lark message from <name>, who is not the owner. …]" label in its lines); it is never its Bot's main chat.
+   */
+  channel: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -5265,6 +5309,11 @@ export type Name = string;
  * The Bot's id, which never changes (issue
  */
 export type BotId = string;
+
+/**
+ * The department's id (issue
+ */
+export type DepartmentId = string;
 
 /**
  * A Bot's memory, by its id; give this or agent.
@@ -9365,6 +9414,141 @@ export type ReorderBotsResponses = {
 
 export type ReorderBotsResponse = ReorderBotsResponses[keyof ReorderBotsResponses];
 
+export type ListDepartmentsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/departments';
+};
+
+export type ListDepartmentsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListDepartmentsError = ListDepartmentsErrors[keyof ListDepartmentsErrors];
+
+export type ListDepartmentsResponses = {
+  /**
+   * The departments, first first.
+   */
+  200: DepartmentList;
+};
+
+export type ListDepartmentsResponse = ListDepartmentsResponses[keyof ListDepartmentsResponses];
+
+export type CreateDepartmentData = {
+  body: NewDepartment;
+  path?: never;
+  query?: never;
+  url: '/departments';
+};
+
+export type CreateDepartmentErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateDepartmentError = CreateDepartmentErrors[keyof CreateDepartmentErrors];
+
+export type CreateDepartmentResponses = {
+  /**
+   * The department.
+   */
+  201: Department;
+};
+
+export type CreateDepartmentResponse = CreateDepartmentResponses[keyof CreateDepartmentResponses];
+
+export type ReorderDepartmentsData = {
+  body: DepartmentOrder;
+  path?: never;
+  query?: never;
+  url: '/departments/order';
+};
+
+export type ReorderDepartmentsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReorderDepartmentsError = ReorderDepartmentsErrors[keyof ReorderDepartmentsErrors];
+
+export type ReorderDepartmentsResponses = {
+  /**
+   * Every department's id, in the new order.
+   */
+  200: DepartmentOrder;
+};
+
+export type ReorderDepartmentsResponse = ReorderDepartmentsResponses[keyof ReorderDepartmentsResponses];
+
+export type DeleteDepartmentData = {
+  body?: never;
+  path: {
+    /**
+     * The department's id (issue
+     */
+    department_id: string;
+  };
+  query?: never;
+  url: '/departments/{department_id}';
+};
+
+export type DeleteDepartmentErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteDepartmentError = DeleteDepartmentErrors[keyof DeleteDepartmentErrors];
+
+export type DeleteDepartmentResponses = {
+  /**
+   * The department is removed.
+   */
+  204: void;
+};
+
+export type DeleteDepartmentResponse = DeleteDepartmentResponses[keyof DeleteDepartmentResponses];
+
+export type RenameDepartmentData = {
+  body: DepartmentChange;
+  path: {
+    /**
+     * The department's id (issue
+     */
+    department_id: string;
+  };
+  query?: never;
+  url: '/departments/{department_id}';
+};
+
+export type RenameDepartmentErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RenameDepartmentError = RenameDepartmentErrors[keyof RenameDepartmentErrors];
+
+export type RenameDepartmentResponses = {
+  /**
+   * The department.
+   */
+  200: Department;
+};
+
+export type RenameDepartmentResponse = RenameDepartmentResponses[keyof RenameDepartmentResponses];
+
 export type DeleteBotData = {
   body?: never;
   path: {
@@ -12056,7 +12240,7 @@ export type ListChatsData = {
      */
     bot?: string;
     /**
-     * How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+     * How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with no main chat, its latest chat that is not a Routine's run (issue #923), whatever their age, so that a client showing Bots has them all.
      */
     offset?: number;
   };

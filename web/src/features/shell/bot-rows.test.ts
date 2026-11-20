@@ -1,17 +1,20 @@
 import { expect, test } from "vitest"
 
-import type { Bot, Chat } from "@/api/generated/types.gen"
+import type { Bot, Chat, Department } from "@/api/generated/types.gen"
 
-import { botSections, reorderBots, rowChat } from "./bot-rows"
+import { botSections, opensTo, reorderBots, rowChat } from "./bot-rows"
 
-const chat = (id: string, bot: string, updated: string): Chat => ({
+const chat = (id: string, bot: string, updated: string, m: Partial<Chat> = {}): Chat => ({
   id,
   title: id,
   bot,
   working: false,
   coordinator: true,
+  routine: false,
+  channel: false,
   created_at: "2026-11-01T00:00:00Z",
   updated_at: updated,
+  ...m,
 })
 
 const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
@@ -19,7 +22,6 @@ const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
   name: id,
   main: id === "coordinator",
   position,
-  pinned: false,
   persona: "",
   memory: "",
   memory_limit: 2200,
@@ -41,27 +43,38 @@ const bot = (id: string, position: number, m: Partial<Bot> = {}): Bot => ({
 
 const ids = (rows: { bot: string }[]) => rows.map((r) => r.bot)
 
-// Scenario: the sidebar lists every Bot, with chats or not, in the order the owner set (issue #470): the main Bot
-// first whatever its place, the pinned ones next, the others after; each Bot's chats newest first.
-test("every Bot is listed by its position, the main one first and the pinned ones next", () => {
+const department = (id: string, position: number): Department => ({ id, name: id, position })
+
+// Scenario: the sidebar lists every Bot, with chats or not, in the order the owner set (issues #470 and #471): the
+// main Bot first whatever its place and whatever department it names, then each department by its position with
+// its Bots by theirs, an empty one too, then the Bots in none; a Bot naming a department not read yet is in none;
+// each Bot's chats newest first.
+test("every Bot is listed by its position, the main one first, then each department, then the rest", () => {
   const sections = botSections(
     [
       bot("reporter", 1),
-      bot("researcher", 3, { pinned: true }),
-      bot("coordinator", 2, { pinned: true }),
+      bot("researcher", 3, { department: "maps" }),
+      bot("coordinator", 2, { department: "maps" }),
       bot("writer", 0),
-      bot("tester", 4, { pinned: true }),
+      bot("tester", 4, { department: "maps" }),
+      bot("pilot", 5, { department: "pilot" }),
+      bot("stray", 6, { department: "gone" }),
     ],
     [
       chat("old", "researcher", "2026-11-10T09:00:00Z"),
       chat("new", "researcher", "2026-11-11T09:00:00Z"),
     ],
+    [department("pilot", 1), department("maps", 0), department("empty", 2)],
   )
 
   expect(sections.main?.bot).toBe("coordinator")
-  expect(ids(sections.pinned)).toEqual(["researcher", "tester"])
-  expect(ids(sections.rest)).toEqual(["writer", "reporter"])
-  expect(sections.pinned[0]!.chats.map((c) => c.id)).toEqual(["new", "old"])
+  expect(sections.departments.map((d) => [d.department.id, ids(d.rows)])).toEqual([
+    ["maps", ["researcher", "tester"]],
+    ["pilot", ["pilot"]],
+    ["empty", []],
+  ])
+  expect(ids(sections.rest)).toEqual(["writer", "reporter", "stray"])
+  expect(sections.departments[0]!.rows[0]!.chats.map((c) => c.id)).toEqual(["new", "old"])
   expect(sections.rest[0]!.chats).toEqual([])
 })
 
@@ -74,7 +87,7 @@ test("a chat of a Bot not read yet is listed after the others", () => {
 
   expect(sections.main?.bot).toBe("coordinator")
   expect(ids(sections.rest)).toEqual(["fresh"])
-  expect(botSections([], [])).toEqual({ main: undefined, pinned: [], rest: [] })
+  expect(botSections([], [])).toEqual({ main: undefined, departments: [], rest: [] })
 })
 
 // Scenario: a drag in one section names only that section's Bots; they take the places they held together and the
@@ -126,4 +139,26 @@ test("a Bot's row opens its main chat, or the chat that waits on the owner", () 
   expect(rowChat(row, new Set(["old", "home"]))).toBe("home")
   expect(rowChat({ bot: "writer", chats: [] }, new Set())).toBeUndefined()
   expect(rowChat({ bot: "coordinator", chats }, new Set(["old"]))).toBe("old")
+})
+
+// Scenario: the chat a Bot opens to (issue #923). Its main chat when it has one, whatever moved later; with none,
+// its most recently active chat that is not a Routine's run, a Lark chat included, never an empty chat while it has
+// one; an empty chat only when it has no chat but Routines' runs, or none.
+test("a Bot opens its main chat, else its latest chat that is not a Routine's run", () => {
+  const chats = [
+    chat("run", "writer", "2026-11-13T09:00:00Z", { routine: true }),
+    chat("lark", "writer", "2026-11-12T09:00:00Z", { channel: true }),
+    chat("latest", "writer", "2026-11-11T09:00:00Z"),
+    chat("older", "writer", "2026-11-10T09:00:00Z"),
+  ]
+
+  expect(opensTo("older", chats)).toBe("older")
+  expect(opensTo(undefined, chats)).toBe("lark")
+  expect(opensTo(undefined, chats.slice(1, 2))).toBe("lark")
+  expect(opensTo(undefined, chats.slice(0, 1))).toBeUndefined()
+  expect(opensTo(undefined, [])).toBeUndefined()
+
+  const row = { bot: "writer", chats }
+  expect(rowChat(row, new Set())).toBe("lark")
+  expect(rowChat(row, new Set(["run"]))).toBe("run")
 })

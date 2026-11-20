@@ -131,6 +131,11 @@ export function latestBench() {
   return bench
 }
 
+// latestPane is a pane kept now, or undefined: the page a click goes to is set up before it is shown (issue #923).
+export function latestPane(id: string): Pane | undefined {
+  return panes[id]
+}
+
 // useBench is the grid and its panes, or null when there is no grid.
 export function useBench() {
   return useSyncExternalStore(subscribe, () => bench)

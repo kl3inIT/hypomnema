@@ -24,7 +24,6 @@ const bots = botIds.map((id, index) => ({
   main: index === 0,
   name: id,
   position: index,
-  pinned: false,
   main_chat: `cht_${index + 1}`,
   persona: "",
   memory: "",
