@@ -75,6 +75,51 @@ func TestLookupFollowsTheAskedModelThenTheProvidersModel(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestOpenCodeGoListPricesAreProviderSpecific(t *testing.T) {
+	t.Parallel()
+
+	for _, want := range []struct {
+		model               string
+		input, output, read int64
+	}{
+		{"deepseek-v4.1-flash", 150_000, 600_000, 3_000},
+		{"glm-5.3", 1_400_000, 4_400_000, 260_000},
+		{"glm-5.3-flash", 150_000, 500_000, 30_000},
+	} {
+		got, ok := prices.Lookup("opencode_go", "opencode-go/"+want.model, want.model)
+		require.True(t, ok, want.model)
+		assert.Equal(t, prices.Price{
+			Vendor: "opencode-go", Model: want.model, Input: ptr(want.input), Output: ptr(want.output),
+			CacheRead: ptr(want.read),
+		}, got)
+
+		_, ok = prices.Lookup("openai_compatible", want.model)
+		assert.False(t, ok, want.model)
+	}
+
+	_, ok := prices.Find("opencode_go", "glm-5.3")
+	assert.False(t, ok, "Go's price rows do not seed the model catalog")
+}
+
+func TestAntigravityFlashEffortPricesFallBackToTheBasePrice(t *testing.T) {
+	t.Parallel()
+
+	base, ok := prices.Lookup("antigravity_subscription", "gemini-3.8-flash")
+	require.True(t, ok)
+
+	for _, model := range []string{"gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low"} {
+		got, ok := prices.Lookup("antigravity_subscription", "flash", model)
+		require.True(t, ok, model)
+		assert.Equal(t, base, got)
+
+		_, ok = prices.Lookup("openai_compatible", model)
+		assert.False(t, ok, model)
+	}
+
+	_, ok = prices.Lookup("antigravity_subscription", "gemini-3.8-flash-unknown")
+	assert.False(t, ok)
+}
+
 // What models.dev says of a model is found as its price is: a Codex model
 // takes images and has its window, its largest output and its effort levels.
 func TestFindGivesWhatModelsDevSaysOfAModel(t *testing.T) {
@@ -94,18 +139,19 @@ func TestFindGivesWhatModelsDevSaysOfAModel(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// Scenario (issue #723): the prices by unit are LiteLLM's, under the names
+// Scenario (issues #723 and #972): the prices by unit are under the names
 // the gateway records: a provider's search by the query, a transcription by
 // the second, speech by the character, and a model's own web search by the
-// search, found under the provider's vendor as a token price is. A unit
-// LiteLLM does not price is not found. A cost is rounded to the micro-dollar.
-func TestThePricesByUnitAreLiteLLMs(t *testing.T) {
+// search, found under the provider's vendor as a token price is. Exa falls
+// back to its base API rate. A cost is rounded to the micro-dollar.
+func TestThePricesByUnitMatchTheProvidersRates(t *testing.T) {
 	t.Parallel()
 
 	for _, tt := range []struct {
 		unit, name string
 		nanos      int64
 	}{
+		{prices.UnitQuery, "exa/search", 7_000_000},
 		{prices.UnitQuery, "tavily/search", 8_000_000},
 		{prices.UnitQuery, "parallel/search", 5_000_000},
 		{prices.UnitSecond, "elevenlabs/scribe_v2", 61_100},
@@ -117,10 +163,7 @@ func TestThePricesByUnitAreLiteLLMs(t *testing.T) {
 		assert.Equal(t, tt.nanos, p.Nanos, tt.name)
 	}
 
-	_, ok := prices.LookupUnit(prices.UnitQuery, "exa/search")
-	assert.False(t, ok, "LiteLLM gives Exa no price")
-
-	_, ok = prices.LookupUnit(prices.UnitCharacter, "soniox/tts-rt-v2")
+	_, ok := prices.LookupUnit(prices.UnitCharacter, "soniox/tts-rt-v2")
 	assert.False(t, ok)
 
 	search, ok := prices.LookupWebSearch("codex_subscription", "gpt-6.1-sol")
