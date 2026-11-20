@@ -3807,6 +3807,32 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProfileList" }
         default: { $ref: "#/components/responses/Error" }
+  /profiles/{name}/versions/{version_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+      - name: version_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 100 }
+    post:
+      operationId: RestoreProfileVersion
+      summary: Apply one of a profile's versions again; the owner, or the main Bot from its chat
+      description: >-
+        Applies that version's own source again, as ApplyProfile does. A model its YAML names
+        without a provider, as versions before issue #1002 were written, runs under the provider
+        that version recorded, never one another version recorded for the same YAML.
+      responses:
+        "200":
+          description: The version equals the current one, which is returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "201":
+          description: A new version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        default: { $ref: "#/components/responses/Error" }
   /profiles/{name}/memory:
     parameters:
       - $ref: "#/components/parameters/Name"

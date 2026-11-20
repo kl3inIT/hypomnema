@@ -11106,6 +11106,38 @@ export type ListProfileVersionsResponses = {
 
 export type ListProfileVersionsResponse = ListProfileVersionsResponses[keyof ListProfileVersionsResponses];
 
+export type RestoreProfileVersionData = {
+  body?: never;
+  path: {
+    name: string;
+    version_id: string;
+  };
+  query?: never;
+  url: '/profiles/{name}/versions/{version_id}/restore';
+};
+
+export type RestoreProfileVersionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RestoreProfileVersionError = RestoreProfileVersionErrors[keyof RestoreProfileVersionErrors];
+
+export type RestoreProfileVersionResponses = {
+  /**
+   * The version equals the current one, which is returned.
+   */
+  200: Profile;
+  /**
+   * A new version.
+   */
+  201: Profile;
+};
+
+export type RestoreProfileVersionResponse = RestoreProfileVersionResponses[keyof RestoreProfileVersionResponses];
+
 export type GetAgentMemoryData = {
   body?: never;
   path: {
