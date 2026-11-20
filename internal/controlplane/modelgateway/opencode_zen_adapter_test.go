@@ -267,20 +267,31 @@ func TestAZenKeyWithNoBalanceRestsAnHourAndTheNextKeyServes(t *testing.T) {
 	t.Parallel()
 
 	for name, refusal := range map[string]struct {
-		status int
-		body   string
+		status     int
+		body       string
+		retryAfter string
 	}{
-		"402":                 {http.StatusPaymentRequired, `{"error":{"message":"Insufficient balance"}}`},
-		"creditlimitexceeded": {http.StatusTooManyRequests, `{"type":"error","error":{"type":"CreditLimitExceeded"}}`},
+		"402": {http.StatusPaymentRequired, `{"error":{"message":"Insufficient balance"}}`, ""},
+		// Review of PR #1000: a quota code on a 400 moves on as a 402 does, and a quota rest is an hour whatever
+		// Retry-After says.
+		"400 insufficient_quota": {http.StatusBadRequest, `{"error":{"code":"insufficient_quota"}}`, ""},
+		"402, Retry-After 30":    {http.StatusPaymentRequired, `{"error":{"message":"Insufficient balance"}}`, "30"},
+		"creditlimitexceeded": {
+			http.StatusTooManyRequests, `{"type":"error","error":{"type":"CreditLimitExceeded"}}`, "",
+		},
 		"budget, labeled": {http.StatusTooManyRequests,
-			`{"error":{"message":"OpenCode: [budgetlimiterror] the workspace's monthly budget is reached"}}`},
-		"insufficient_quota": {http.StatusForbidden, `{"error":{"code":"insufficient_quota","message":"no"}}`},
+			`{"error":{"message":"OpenCode: [budgetlimiterror] the workspace's monthly budget is reached"}}`, ""},
+		"insufficient_quota": {http.StatusForbidden, `{"error":{"code":"insufficient_quota","message":"no"}}`, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			zen := newGoBackend(t, func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") == "Bearer access-0" {
+					if refusal.retryAfter != "" {
+						w.Header().Set("Retry-After", refusal.retryAfter)
+					}
+
 					plain(refusal.status, refusal.body)(w, r)
 
 					return

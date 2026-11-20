@@ -373,6 +373,13 @@ func (s *Server) openCodeRefused(
 		Body: io.NopCloser(bytes.NewReader(body)),
 	}
 
+	// A used-up Zen balance or budget that OpenCode answers on a status the next key is not tried on (a 400
+	// insufficient_quota) is answered as the 402 opencode reads it as (provider-error.ts classifyProviderFailure:
+	// a 402 and a quota code are one QuotaExceededError), so the next key is tried (movesOn) as on a 402.
+	if p.zen && !movesOn(resp.StatusCode) && zenQuotaUsedUp(resp.StatusCode, body) {
+		out.StatusCode = http.StatusPaymentRequired
+	}
+
 	if out.Header.Get("Content-Type") == "" {
 		out.Header.Set("Content-Type", "application/json")
 	}
@@ -387,7 +394,8 @@ func (s *Server) openCodeRefused(
 // openCodeCool rests a key after a refusal and says until when, when it
 // knows: a used-up Go allowance until the reset Go names, uncapped as
 // omniroute keeps its cooldown, else an hour (quotaCooldown); a used-up Zen
-// balance or budget an hour (zenQuotaUsedUp); anything else as every built-in
+// balance or budget an hour, whatever Retry-After says (zenQuotaUsedUp);
+// anything else as every built-in
 // provider's account rests (cool).
 func (s *Server) openCodeCool(
 	ctx context.Context, p openCodeProvider, token AccountToken, status int, body []byte, reset time.Time,
@@ -396,9 +404,13 @@ func (s *Server) openCodeCool(
 
 	if p.zen {
 		if zenQuotaUsedUp(status, body) {
-			s.cool(ctx, p.runtime, token, status, true, reset, "OpenCode Zen balance or budget used up")
+			// An hour whatever Retry-After says: a used-up balance or budget comes back only when the owner adds
+			// credit or raises the budget, not after a throttle's wait (opencode provider-error.ts: a quota is
+			// not retried; 9router-go QuotaExhaustedCooldownMs).
+			until := now.Add(quotaCooldown)
+			s.park(ctx, p.runtime, token, until, "OpenCode Zen balance or budget used up")
 
-			return reset
+			return until
 		}
 
 		s.cool(ctx, p.runtime, token, status, false, reset, "OpenCode Zen refused the key")
