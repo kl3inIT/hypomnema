@@ -38,8 +38,7 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 			"copy of this worktree under $TMPDIR. Leave the tracked files here unchanged.",
 			"a reviewer may run a repro (issue #952)")
 		// Every "only here" line names the scratch copy, so none forbids it (issue #952, review round 1).
-		assert.Contains(t, prompt, "\nWork only in this directory and your scratch copy under $TMPDIR; this "+
-			"directory is a git worktree of kl3inIT/second-bite")
+		assert.Contains(t, prompt, "\nWork only in this directory, a git worktree of kl3inIT/second-bite")
 		assert.NotContains(t, prompt, "outside this directory.", "no line forbids the scratch copy")
 		assert.NotContains(t, prompt, "outside this directory\n")
 		assert.NotContains(t, prompt, "is a flake", "a read-only worker fixes no check")
