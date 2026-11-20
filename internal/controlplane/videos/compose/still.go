@@ -103,6 +103,11 @@ func Still(ctx context.Context, tools ffmpeg.Tools, in StillInput) error {
 		graph += "[picture];[picture]" + c.frameGraph(1)
 	}
 
+	// The picture becomes the video's pixels, limited-range yuv420p, as the encoder makes them, before the captions
+	// are drawn on it as Burn draws them on the made MP4: libass blends in limited range, and on the PNG's full-range
+	// pixels the box's black came out as 16 (#937).
+	graph += ",scale=out_range=tv,format=yuv420p"
+
 	if in.Captions != "" {
 		if err := stageCaptions(in.Captions, in.Work, tools.FontsDir); err != nil {
 			return err
