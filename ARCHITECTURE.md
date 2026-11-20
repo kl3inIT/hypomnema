@@ -3371,7 +3371,11 @@ capabilities do not exist yet.
   through, each value as the bytes the client sent. The client's headers are not forwarded; the provider's key comes
   from the vault, so a provider served by the gateway names it as `vault:<name>`. Bodies are limited to 32 MiB
   (`/v1/messages` and `/v1/responses` too; 413 `request_too_large` above it), the request limit pi's catalog and
-  Hermes state for Anthropic (issue #675; it was 10 MiB, 9router-go's).
+  Hermes state for Anthropic (issue #675; it was 10 MiB, 9router-go's). A body has an hour to arrive, not the
+  server's 15 s read timeout, as a file uploaded to the client API (issue #977: a Codex conversation of megabytes,
+  passed on by a proxy as it came, was cut at 15 s and answered 400); none of 9router-go, CLIProxyAPI and LiteLLM
+  bounds the time a body takes. A body that cannot be read is answered 400 and logged (`modelgateway.body_unread`)
+  with the key, its `Content-Length`, `Transfer-Encoding` and `Content-Encoding`, the bytes that came and the time.
 - A stream is asked for its usage (`stream_options.include_usage`) whether or not the client asked, and the
   usage-only frame is kept from a client that did not. Data lines are passed on as the provider sent them;
   comments are not. A stream whose provider sends nothing for 5 min, or that ends without a finish reason or its end
