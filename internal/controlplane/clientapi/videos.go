@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -31,6 +32,10 @@ type Videos interface {
 	Delete(ctx context.Context, id string) error
 	File(ctx context.Context, id string, rev int) (string, error)
 	Thumbnail(ctx context.Context, id string, rev int) (string, error)
+	ChangeLook(ctx context.Context, id string, rev int, req videos.LookChange) (videos.Video, videos.Revision, error)
+	Retry(ctx context.Context, id string, rev int, by, requestID string) (videos.Video, videos.Revision, error)
+	Preview(ctx context.Context, req videos.PreviewRequest) ([]byte, error)
+	Looks(ctx context.Context) (videos.Catalog, error)
 }
 
 // WithVideos sets the videos the owner reads. Without them the routes answer
@@ -54,9 +59,24 @@ func videoError(err error) error {
 		return fmt.Errorf("%w: %w", orchestration.ErrInvalid, err)
 	case errors.Is(err, videos.ErrIdempotency):
 		return fmt.Errorf("%w: %w", orchestration.ErrIdempotencyConflict, err)
+	case errors.Is(err, videos.ErrUnavailable):
+		return fmt.Errorf("%w: %w", orchestration.ErrUnavailable, err)
 	}
 
 	return err
+}
+
+// videoCode is the code of a look sample's limits (issue #908, row 14): busy is rate_limited, with a Retry-After of a
+// second; too long is timed_out.
+func videoCode(err error) (openapi.ErrorCode, bool) {
+	switch {
+	case errors.Is(err, videos.ErrBusy):
+		return openapi.RateLimited, true
+	case errors.Is(err, videos.ErrTimedOut):
+		return openapi.TimedOut, true
+	}
+
+	return "", false
 }
 
 func videoOf(v videos.Video) openapi.Video {
@@ -76,13 +96,74 @@ func videoOf(v videos.Video) openapi.Video {
 			CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 			Parent: nonZero(r.Parent), Voice: nonZero(r.Voice), Provider: nonZero(r.Provider),
 			Model: nonZero(r.Model), UsedVoice: nonZero(r.UsedVoice), FailedStage: nonZero(r.FailedStage),
-			FailedCause: nonZero(r.FailedCause), Note: nonZero(r.Note),
+			FailedCause: nonZero(r.FailedCause), Note: nonZero(r.Note), Look: lookOf(r.Look),
 		}
 		if r.Progress != nil {
 			rev.Progress = &openapi.VideoProgress{ScenesDone: r.Progress.ScenesDone, ScenesTotal: r.Progress.ScenesTotal}
 		}
 
 		out.Revisions = append(out.Revisions, rev)
+	}
+
+	return out
+}
+
+func lookOf(l videos.Look) openapi.VideoLook {
+	out := openapi.VideoLook{
+		Captions: openapi.VideoCaptions{
+			Preset: l.Captions.Preset, Position: openapi.VideoCaptionPosition(l.Captions.Position),
+		},
+		Frame: openapi.VideoFrame{
+			Chrome: openapi.VideoChrome(l.Frame.Chrome), Padding: l.Frame.Padding, Radius: l.Frame.Radius,
+			Shadow: l.Frame.Shadow, SafeTop: l.Frame.SafeTop,
+		},
+	}
+
+	if l.Background != nil {
+		out.Background = &openapi.VideoBackground{Preset: nonZero(l.Background.Preset)}
+		if l.Background.Colors != nil {
+			colors := append([]string{}, l.Background.Colors...)
+			out.Background.Colors = &colors
+		}
+	}
+
+	if l.FellBackFrom != "" {
+		out.FellBackFrom = ptr(openapi.VideoChrome(l.FellBackFrom))
+	}
+
+	return out
+}
+
+// lookInput is a look as sent, its sections and fields left out kept out.
+func lookInput(in *openapi.VideoLookInput) *videos.LookInput {
+	if in == nil {
+		return nil
+	}
+
+	out := &videos.LookInput{}
+
+	if c := in.Captions; c != nil {
+		out.Captions = &videos.CaptionsInput{Preset: c.Preset}
+		if c.Position != nil {
+			position := string(*c.Position)
+			out.Captions.Position = &position
+		}
+	}
+
+	if f := in.Frame; f != nil {
+		out.Frame = &videos.FrameInput{Padding: f.Padding, Radius: f.Radius, Shadow: f.Shadow, SafeTop: f.SafeTop}
+		if f.Chrome != nil {
+			chrome := string(*f.Chrome)
+			out.Frame.Chrome = &chrome
+		}
+	}
+
+	if b := in.Background; b != nil {
+		out.Background = &videos.BackgroundInput{Preset: b.Preset}
+		if b.Colors != nil {
+			colors := append([]string{}, *b.Colors...)
+			out.Background.Colors = &colors
+		}
 	}
 
 	return out
@@ -128,7 +209,7 @@ func (s *Server) MakeVideo(ctx context.Context, req openapi.MakeVideoRequestObje
 	b := req.Body
 	in := videos.MakeRequest{
 		Take: b.Take, Title: val(b.Title), Captions: b.Captions, Voice: val(b.Voice), By: videos.Owner,
-		ByName: videos.Owner, RequestID: val(req.Params.IdempotencyKey),
+		ByName: videos.Owner, RequestID: val(req.Params.IdempotencyKey), Look: lookInput(b.Look),
 	}
 
 	if b.Aspect != nil {
@@ -205,6 +286,104 @@ func (s *Server) RequestVideoChanges(ctx context.Context, req openapi.RequestVid
 	}
 
 	return openapi.RequestVideoChanges200JSONResponse(videoOf(v)), nil
+}
+
+// ChangeVideoLook queues a revision of a made one in another look.
+func (s *Server) ChangeVideoLook(ctx context.Context, req openapi.ChangeVideoLookRequestObject,
+) (openapi.ChangeVideoLookResponseObject, error) {
+	if s.videos == nil {
+		return nil, errNoVideos
+	}
+
+	v, _, err := s.videos.ChangeLook(ctx, req.VideoId, req.Rev, videos.LookChange{
+		Look: lookInput(req.Body.Look), By: videos.Owner, RequestID: val(req.Params.IdempotencyKey),
+	})
+	if err != nil {
+		return nil, videoError(err)
+	}
+
+	return openapi.ChangeVideoLook201JSONResponse(videoOf(v)), nil
+}
+
+// RetryVideoRevision queues a failed revision again, as it was asked.
+func (s *Server) RetryVideoRevision(ctx context.Context, req openapi.RetryVideoRevisionRequestObject,
+) (openapi.RetryVideoRevisionResponseObject, error) {
+	if s.videos == nil {
+		return nil, errNoVideos
+	}
+
+	v, _, err := s.videos.Retry(ctx, req.VideoId, req.Rev, videos.Owner, val(req.Params.IdempotencyKey))
+	if err != nil {
+		return nil, videoError(err)
+	}
+
+	return openapi.RetryVideoRevision201JSONResponse(videoOf(v)), nil
+}
+
+// ListVideoLooks is what a look is chosen from, and the saved default.
+func (s *Server) ListVideoLooks(ctx context.Context, _ openapi.ListVideoLooksRequestObject,
+) (openapi.ListVideoLooksResponseObject, error) {
+	if s.videos == nil {
+		return nil, errNoVideos
+	}
+
+	c, err := s.videos.Looks(ctx)
+	if err != nil {
+		return nil, videoError(err)
+	}
+
+	out := openapi.VideoLooks{
+		Backgrounds: c.Backgrounds, Default: lookOf(c.Default),
+		Chromes: make([]openapi.VideoChrome, 0, len(c.Chromes)), Presets: make([]openapi.VideoPreset, 0, len(c.Presets)),
+	}
+
+	for _, ch := range c.Chromes {
+		out.Chromes = append(out.Chromes, openapi.VideoChrome(ch))
+	}
+
+	for _, p := range c.Presets {
+		out.Presets = append(out.Presets, openapi.VideoPreset{Id: p.ID, Name: p.Name})
+	}
+
+	return openapi.ListVideoLooks200JSONResponse(out), nil
+}
+
+// PreviewVideoLook answers a look sample, a JPEG.
+func (s *Server) PreviewVideoLook(ctx context.Context, req openapi.PreviewVideoLookRequestObject,
+) (openapi.PreviewVideoLookResponseObject, error) {
+	if s.videos == nil {
+		return nil, errNoVideos
+	}
+
+	b := req.Body
+	in := videos.PreviewRequest{Take: b.Take, Captions: b.Captions, Look: lookInput(b.Look), Rev: val(b.Rev)}
+
+	if b.Aspect != nil {
+		in.Aspect = string(*b.Aspect)
+	}
+
+	jpeg, err := s.videos.Preview(ctx, in)
+	if err != nil {
+		return nil, videoError(err)
+	}
+
+	return lookSample(jpeg), nil
+}
+
+// lookSample is a look sample's JPEG, never cached: the same request draws the default as it is now.
+type lookSample []byte
+
+func (j lookSample) VisitPreviewVideoLookResponse(w http.ResponseWriter) error {
+	h := w.Header()
+	h.Set("Content-Type", "image/jpeg")
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Length", strconv.Itoa(len(j)))
+	w.WriteHeader(http.StatusOK)
+
+	_, err := w.Write(j)
+
+	return err
 }
 
 // ReadVideoFile serves a made revision's MP4, with ranges.

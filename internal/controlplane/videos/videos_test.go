@@ -269,7 +269,20 @@ func newRig(t *testing.T) *rig {
 	})
 	require.NoError(t, err)
 
+	// The fake ffmpeg draws no preset: the rig's makes keep the captions made before the presets, with no frame,
+	// unless a test sets another default.
+	r.setDefault(t, legacyLook)
+
 	return r
+}
+
+// setDefault sets the saved default look.
+func (r *rig) setDefault(t *testing.T, l Look) {
+	t.Helper()
+
+	require.NoError(t, store.New(r.svc.db).SetVideoSettings(t.Context(), store.SetVideoSettingsParams{
+		Look: l.encode(), Now: 1,
+	}))
 }
 
 func (r *rig) make(t *testing.T, requestID string) (Video, Revision) {

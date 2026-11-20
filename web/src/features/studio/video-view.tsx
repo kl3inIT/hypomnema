@@ -18,8 +18,8 @@ import {
   getVideoQueryKey,
   listStudioItemsInfiniteQueryKey,
   listVideosQueryKey,
-  makeVideoMutation,
   requestVideoChangesMutation,
+  retryVideoRevisionMutation,
 } from "@/api/generated/@tanstack/react-query.gen"
 import type { Video, VideoRevision } from "@/api/generated/types.gen"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -65,8 +65,8 @@ import {
 // VideoView is a video as a tab (issue #818, rows 10 and 12): a bar with the take it was made of, a switch between
 // its revisions, the MP4's download and the video's delete; under it the revision picked. While it is made, its
 // stages and its scenes say how far it has come, as aidemo's render job says its stage and scenes done
-// (src/mcp/jobs.ts:64-67); a failure says the stage and why, with "Make again", which adds a revision with the same
-// lines (POST /videos). Once made, the player, and beside it or under it the review: each scene's line, editable,
+// (src/mcp/jobs.ts:64-67); a failure says the stage and why, with "Make again", which adds a revision made as the
+// failed one was asked: its lines, look and voice (POST /videos/{id}/revisions/{rev}/retry, #937). Once made, the player, and beside it or under it the review: each scene's line, editable,
 // and a note; Approve, or Request changes, which queues a revision with the lines changed, reusing the voice of each
 // line kept, or keeps the note alone for the agent.
 export function VideoView({
@@ -246,7 +246,7 @@ function Making({
   const failed = rev.state === "failed"
   const steps = stages(rev)
   const current = steps.find((s) => s.status === "now")
-  const again = useMutation({ ...makeVideoMutation(), onSuccess: onChanged })
+  const again = useMutation({ ...retryVideoRevisionMutation(), onSuccess: onChanged })
   const [key] = useState(() => crypto.randomUUID())
 
   return (
@@ -307,12 +307,7 @@ function Making({
                     onClick={() =>
                       again.mutate({
                         headers: { "Idempotency-Key": key },
-                        body: {
-                          take: video.take,
-                          captions: rev.captions,
-                          aspect: rev.aspect,
-                          ...(rev.voice ? { voice: rev.voice } : {}),
-                        },
+                        path: { video_id: video.id, rev: rev.rev },
                       })
                     }
                   >

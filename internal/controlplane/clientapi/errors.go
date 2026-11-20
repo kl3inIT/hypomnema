@@ -10,6 +10,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
@@ -34,6 +35,8 @@ func statusOf(code openapi.ErrorCode) int {
 		return http.StatusServiceUnavailable
 	case openapi.RateLimited:
 		return http.StatusTooManyRequests
+	case openapi.TimedOut:
+		return http.StatusGatewayTimeout
 	default:
 		return http.StatusInternalServerError
 	}
@@ -55,6 +58,10 @@ func codeOf(err error) openapi.ErrorCode {
 	}
 
 	if code, ok := audioCode(err); ok {
+		return code
+	}
+
+	if code, ok := videoCode(err); ok {
 		return code
 	}
 
@@ -118,6 +125,10 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 
 	if wait, ok := s.audioWait(err); ok {
 		w.Header().Set("Retry-After", wait)
+	}
+
+	if errors.Is(err, videos.ErrBusy) {
+		w.Header().Set("Retry-After", "1")
 	}
 
 	writeJSONError(w, statusOf(code), code, message)

@@ -94,7 +94,7 @@ func (e *env) printVideo(v *openapi.Video) {
 			captions = "no captions"
 		}
 
-		e.printf("  r%d %s  %s %s%s\n", r.Rev, revState(r), r.Aspect, captions, by)
+		e.printf("  r%d %s  %s %s  %s%s\n", r.Rev, revState(r), r.Aspect, captions, lookLine(r.Look), by)
 
 		if r.Note != nil {
 			e.printf("    note: %s\n", *r.Note)
@@ -124,6 +124,13 @@ func videosMake(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		body.Captions = &off
 	}
 
+	look, err := lookArg(fs)
+	if err != nil {
+		return err
+	}
+
+	body.Look = look
+
 	resp, err := e.api.MakeVideoWithResponse(ctx, &openapi.MakeVideoParams{IdempotencyKey: key(fs)}, body)
 	if err != nil {
 		return fmt.Errorf("making a video of %s: %w", body.Take, err)
@@ -134,6 +141,265 @@ func videosMake(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	return e.print(fs, resp.JSON201, func() { e.printVideo(resp.JSON201) })
+}
+
+// lookFlags are the flags of a look (issue #908, row 16): only the sections whose flags are given are sent.
+func lookFlags(fs *flag.FlagSet) {
+	fs.String("caption-preset", "", "the captions' preset, from `videos looks` (default clean)")
+	fs.String("caption-position", "", "where captions sit: preset, bottom, lower_third, center or top (default preset)")
+	fs.String("chrome", "", "what is drawn around the picture: full, none, android or iphone (default none)")
+	fs.Int("padding", 48, "the room around the frame, 0-400")
+	fs.Int("radius", 0, "the picture's corner radius, 0-80 (default 40 for a device, 14 otherwise)")
+	fs.Bool("shadow", true, "the frame's shadow; -shadow=false for none")
+	fs.Bool("safe-top", false, "a status strip of bezel above the picture, for a device")
+	fs.String("background", "", "the background, from `videos looks` (default midnight)")
+	fs.String("background-colors", "", "two colors as #rrggbb,#rrggbb, in place of a background")
+}
+
+// lookArg is the look the flags give: a section only when one of its flags is given, a field only when its flag
+// is; nil when none is.
+func lookArg(fs *flag.FlagSet) (*openapi.VideoLookInput, error) {
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+
+	var look openapi.VideoLookInput
+
+	if set["caption-preset"] || set["caption-position"] {
+		look.Captions = &openapi.VideoCaptionsInput{}
+		if set["caption-preset"] {
+			look.Captions.Preset = ref(str(fs, "caption-preset"))
+		}
+
+		if set["caption-position"] {
+			look.Captions.Position = ref(openapi.VideoCaptionPosition(str(fs, "caption-position")))
+		}
+	}
+
+	if set["chrome"] || set["padding"] || set["radius"] || set["shadow"] || set["safe-top"] {
+		look.Frame = &openapi.VideoFrameInput{}
+		if set["chrome"] {
+			look.Frame.Chrome = ref(openapi.VideoChrome(str(fs, "chrome")))
+		}
+
+		for name, to := range map[string]**int{"padding": &look.Frame.Padding, "radius": &look.Frame.Radius} {
+			if set[name] {
+				n, err := strconv.Atoi(str(fs, name))
+				if err != nil {
+					return nil, fmt.Errorf("%w: --%s is a number", ErrUsage, name)
+				}
+
+				*to = &n
+			}
+		}
+
+		if set["shadow"] {
+			look.Frame.Shadow = ref(str(fs, "shadow") == "true")
+		}
+
+		if set["safe-top"] {
+			look.Frame.SafeTop = ref(str(fs, "safe-top") == "true")
+		}
+	}
+
+	if set["background"] || set["background-colors"] {
+		look.Background = &openapi.VideoBackground{}
+		if set["background"] {
+			look.Background.Preset = ref(str(fs, "background"))
+		}
+
+		if set["background-colors"] {
+			colors := strings.Split(str(fs, "background-colors"), ",")
+			for i := range colors {
+				colors[i] = strings.TrimSpace(colors[i])
+			}
+
+			look.Background.Colors = &colors
+		}
+	}
+
+	if look.Captions == nil && look.Frame == nil && look.Background == nil {
+		return nil, nil //nolint:nilnil // No flag is no look, and no error.
+	}
+
+	return &look, nil
+}
+
+// ref is a pointer to v, its zero value too: a flag given is sent as it is.
+func ref[T any](v T) *T { return &v }
+
+// lookLine is a look in a few words: the captions' preset, the frame and the background.
+func lookLine(l openapi.VideoLook) string {
+	line := "captions " + l.Captions.Preset
+	if l.Captions.Position != openapi.PositionPreset {
+		line += " " + string(l.Captions.Position)
+	}
+
+	line += ", " + string(l.Frame.Chrome)
+	if l.FellBackFrom != nil {
+		line += " (the phone turned: no " + string(*l.FellBackFrom) + " frame)"
+	}
+
+	if l.Frame.Chrome != openapi.ChromeFull && l.Background != nil {
+		switch {
+		case l.Background.Colors != nil:
+			line += " on " + strings.Join(*l.Background.Colors, "-")
+		case l.Background.Preset != nil:
+			line += " on " + *l.Background.Preset
+		}
+	}
+
+	return line
+}
+
+func videosLook(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	rev, err := revArg(fs.Arg(1))
+	if err != nil {
+		return err
+	}
+
+	look, err := lookArg(fs)
+	if err != nil {
+		return err
+	}
+
+	if look == nil {
+		return fmt.Errorf("%w: give the parts of the look to change, such as --caption-preset or --chrome", ErrUsage)
+	}
+
+	resp, err := e.api.ChangeVideoLookWithResponse(ctx, id, rev, &openapi.ChangeVideoLookParams{IdempotencyKey: key(fs)},
+		openapi.VideoLookChange{Look: look})
+	if err != nil {
+		return fmt.Errorf("changing the look of %s r%d: %w", id, rev, err)
+	}
+
+	if resp.JSON201 == nil {
+		return apiError(fmt.Sprintf("changing the look of %s r%d", id, rev), resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON201, func() { e.printVideo(resp.JSON201) })
+}
+
+func videosRetry(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	rev, err := revArg(fs.Arg(1))
+	if err != nil {
+		return err
+	}
+
+	resp, err := e.api.RetryVideoRevisionWithResponse(ctx, id, rev,
+		&openapi.RetryVideoRevisionParams{IdempotencyKey: key(fs)})
+	if err != nil {
+		return fmt.Errorf("making %s r%d again: %w", id, rev, err)
+	}
+
+	if resp.JSON201 == nil {
+		return apiError(fmt.Sprintf("making %s r%d again", id, rev), resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON201, func() { e.printVideo(resp.JSON201) })
+}
+
+func videosLooks(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	resp, err := e.api.ListVideoLooksWithResponse(ctx)
+	if err != nil {
+		return fmt.Errorf("listing the looks: %w", err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("listing the looks", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	c := resp.JSON200
+
+	return e.print(fs, c, func() {
+		presets := make([]string, 0, len(c.Presets))
+		for _, p := range c.Presets {
+			presets = append(presets, p.Id+" ("+p.Name+")")
+		}
+
+		chromes := make([]string, 0, len(c.Chromes))
+		for _, ch := range c.Chromes {
+			chromes = append(chromes, string(ch))
+		}
+
+		e.printf("caption presets: %s\n", strings.Join(presets, ", "))
+		e.printf("chromes: %s\n", strings.Join(chromes, ", "))
+		e.printf("backgrounds: %s\n", strings.Join(c.Backgrounds, ", "))
+		e.printf("default: %s\n", lookLine(c.Default))
+	})
+}
+
+func videosPreview(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	take := fs.Arg(0)
+	body := openapi.VideoPreview{Take: take}
+
+	if a := str(fs, "aspect"); a != "" {
+		aspect := openapi.VideoPreviewAspect(a)
+		body.Aspect = &aspect
+	}
+
+	if str(fs, "no-captions") == "true" {
+		off := false
+		body.Captions = &off
+	}
+
+	if r := str(fs, "rev"); r != "0" {
+		rev, err := revArg(r)
+		if err != nil {
+			return err
+		}
+
+		body.Rev = &rev
+	}
+
+	look, err := lookArg(fs)
+	if err != nil {
+		return err
+	}
+
+	body.Look = look
+
+	name := take + "-look.jpg"
+	if out := str(fs, "out"); out != "" {
+		name = out
+	}
+
+	resp, err := e.api.PreviewVideoLookWithResponse(ctx, body)
+	if err != nil {
+		return fmt.Errorf("making a look sample of %s: %w", take, err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return apiError("making a look sample of "+take, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	// A new file that never replaces one, as a download is.
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // a name of this directory
+	if errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("%s is already there and is not replaced; give another name with --out", name)
+	}
+
+	if err != nil {
+		return fmt.Errorf("saving %s: %w", name, err)
+	}
+
+	_, err = f.Write(resp.Body)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+
+	if err != nil {
+		_ = os.Remove(name)
+
+		return fmt.Errorf("saving %s: %w", name, err)
+	}
+
+	return e.print(fs, map[string]any{"file": name, "size": len(resp.Body)}, func() {
+		e.printf("saved the look sample of %s as %s (%s)\n", take, name, size(int64(len(resp.Body))))
+	})
 }
 
 // revArg reads a revision's number.

@@ -251,6 +251,7 @@ type Server = {
   makeKeys: string[]
   changes: Record<string, unknown>[]
   approved: number[]
+  retried: string[]
   studioCalls: string[]
 }
 
@@ -277,6 +278,7 @@ async function fakeServer(page: Page): Promise<Server> {
     makeKeys: [],
     changes: [],
     approved: [],
+    retried: [],
     studioCalls: [],
   }
   const video = () => ({
@@ -384,6 +386,10 @@ async function fakeServer(page: Page): Promise<Server> {
         )
 
         return json(video())
+      case `POST /videos/${failedVideo}/revisions/1/retry`:
+        server.retried.push(request.headers()["idempotency-key"] ? `${failedVideo}/1` : "no key")
+
+        return json({ data: [] }, 201)
       case `GET /videos/${failedVideo}`:
         return json({
           id: failedVideo,
@@ -606,4 +612,10 @@ test("a take is made into a video the owner reviews and approves", async ({ page
   await expect(failed.locator("li[data-status=failed]")).toContainText("Voice")
   await expect(failed.getByRole("button", { name: "Make again" })).toBeVisible()
   await shot(page, "studio-video-failed")
+
+  // Make again makes the failed revision as it was asked, by its own route, not by a new make (#937).
+  const made = server.made.length
+  await failed.getByRole("button", { name: "Make again" }).click()
+  await expect.poll(() => server.retried).toEqual([`${failedVideo}/1`])
+  expect(server.made).toHaveLength(made)
 })

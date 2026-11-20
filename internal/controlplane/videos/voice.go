@@ -73,10 +73,29 @@ func voiceHash(text, provider, model, voice, lang string) string {
 
 // speak voices each line: the first provider of the owner's order that
 // answers speaks the first, and every other line with it; a clip made before
-// with the same text, provider, model and voice is reused. done is told how
-// many lines are voiced, after each.
-func (s *Service) speak(ctx context.Context, source AudioSource, lines []string, asked string, done func(n int),
+// with the same text, provider, model and voice is reused. A pinned revision
+// is spoken only by its pin's provider, with exactly its voice, and the
+// owner's settings are not read (issue #908, row 4). done is told how many
+// lines are voiced, after each.
+func (s *Service) speak(ctx context.Context, source AudioSource, lines []string, asked string, pin *voicePin,
+	done func(n int),
 ) (spoken, error) {
+	if pin != nil {
+		out := spoken{provider: pin.provider, model: speech.Model(pin.provider, speech.KindTTS), voice: pin.voice}
+
+		for k, line := range lines {
+			clip, err := s.clip(ctx, source, line, pin.provider, pin.voice)
+			if err != nil {
+				return spoken{}, fmt.Errorf("scene %d, %s: %w", k+1, pin.provider, err)
+			}
+
+			out.clips = append(out.clips, clip)
+			done(len(out.clips))
+		}
+
+		return out, nil
+	}
+
 	set, err := s.settings(ctx)
 	if err != nil {
 		return spoken{}, err

@@ -133,10 +133,22 @@ type Revision struct {
 	FailedCause string   `json:"failed_cause,omitempty"`
 	Note        string   `json:"note,omitempty"`
 	Warnings    []string `json:"warnings"`
+	// Look is how it is drawn: its captions, frame and background (issue #908).
+	Look Look `json:"look"`
 	// Progress is how far the stage it is at has come, while it is made.
 	Progress  *Progress `json:"progress,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// pin is the voice it must be spoken with, when it was made from another revision (a look change, a retry).
+	pin *voicePin
+}
+
+// voicePin is a provider and the exact voice it speaks with, even an empty one: its own default (issue #908, row
+// 4). A pinned revision asks only that provider, and never reads the owner's audio settings.
+type voicePin struct {
+	provider string
+	voice    string
 }
 
 // Progress is how many of a revision's scenes the stage it is at has done,
@@ -207,8 +219,12 @@ type Config struct {
 	FreeBytes func(path string) (uint64, error)
 	// Timeout bounds one revision; zero: MakeTimeout.
 	Timeout time.Duration
-	Clock   platform.Clock
-	Logger  *slog.Logger
+	// PreviewWait is how long a look sample waits for the one being made; zero: PreviewWait.
+	PreviewWait time.Duration
+	// PreviewTimeout bounds one look sample; zero: PreviewTimeout.
+	PreviewTimeout time.Duration
+	Clock          platform.Clock
+	Logger         *slog.Logger
 }
 
 // Service keeps the videos and makes their revisions.
@@ -221,6 +237,8 @@ type Service struct {
 	// progress is the stage's progress of the revision being made, by revKey; pmu guards it.
 	pmu      sync.Mutex
 	progress map[string]Progress
+	// preview is held while a look sample is made: one at a time.
+	preview chan struct{}
 }
 
 // New returns a Service.
@@ -237,6 +255,14 @@ func New(cfg Config) (*Service, error) {
 		cfg.Timeout = MakeTimeout
 	}
 
+	if cfg.PreviewWait <= 0 {
+		cfg.PreviewWait = PreviewWait
+	}
+
+	if cfg.PreviewTimeout <= 0 {
+		cfg.PreviewTimeout = PreviewTimeout
+	}
+
 	if cfg.Clock == nil {
 		cfg.Clock = platform.SystemClock{}
 	}
@@ -249,7 +275,10 @@ func New(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("making the videos' folder: %w", err)
 	}
 
-	return &Service{cfg: cfg, db: cfg.DB, wake: make(chan struct{}, 1), progress: map[string]Progress{}}, nil
+	return &Service{
+		cfg: cfg, db: cfg.DB, wake: make(chan struct{}, 1), progress: map[string]Progress{},
+		preview: make(chan struct{}, 1),
+	}, nil
 }
 
 var (
@@ -273,11 +302,15 @@ type MakeRequest struct {
 	ByName string
 	// RequestID makes the make safe to repeat: the same By and RequestID answer the same revision.
 	RequestID string
+	// Look is the sections of the look sent; nil: the saved default's (issue #908, row 2).
+	Look *LookInput
 }
 
 // Make queues a revision of the take's video, making the video on the
 // take's first make. Its lines are the latest revision's, or the take's
-// scenes' on the first make.
+// scenes' on the first make. Its look is the sections sent, the others the
+// saved default's; an owner's make that sends sections saves them as the
+// default, in the same transaction (issue #908, rows 2 and 3).
 func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, error) {
 	req.Title, req.Voice = strings.TrimSpace(req.Title), strings.TrimSpace(req.Voice)
 	if req.Aspect == "" {
@@ -301,7 +334,17 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		return Video{}, Revision{}, fmt.Errorf("%w: a make needs who asks", ErrInvalid)
 	}
 
-	hash := requestHash("make", req.Take, req.Title, req.Aspect, strconv.FormatBool(captionsOn), req.Voice)
+	if _, err := resolveLook(req.Look, DefaultLook()); err != nil {
+		return Video{}, Revision{}, err
+	}
+
+	// A make that sends no look keeps the hash it had before the looks, so that its retry answers the same revision.
+	parts := []string{"make", req.Take, req.Title, req.Aspect, strconv.FormatBool(captionsOn), req.Voice}
+	if req.Look != nil {
+		parts = append(parts, req.Look.canonical())
+	}
+
+	hash := requestHash(parts...)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -378,8 +421,32 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 			parent = sql.NullInt64{Int64: last, Valid: true}
 		}
 
-		return s.insertRevision(ctx, q, now, id, parent, lines, req.Voice, captionsOn, req.Aspect, req.By,
-			req.RequestID, hash)
+		saved, err := s.savedLook(ctx, q)
+		if err != nil {
+			return err
+		}
+
+		look, err := resolveLook(req.Look, saved)
+		if err != nil {
+			return err
+		}
+
+		if look, err = fitTake(look, req.Look != nil && req.Look.Frame != nil, take, req.Aspect); err != nil {
+			return err
+		}
+
+		if req.Look != nil && req.By == Owner {
+			if err := q.SetVideoSettings(ctx, store.SetVideoSettingsParams{
+				Look: mergeDefault(saved, req.Look, look).encode(), Now: now,
+			}); err != nil {
+				return err
+			}
+		}
+
+		return s.insertRevision(ctx, q, now, id, newRevision{
+			parent: parent, lines: lines, voice: req.Voice, captions: captionsOn, aspect: req.Aspect,
+			look: look.encode(), by: req.By, requestID: req.RequestID, hash: hash,
+		})
 	})
 	if err != nil {
 		return Video{}, Revision{}, err
@@ -395,23 +462,51 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 	return v, v.Latest(), nil
 }
 
-func (s *Service) insertRevision(ctx context.Context, q *store.Queries, now int64, id string, parent sql.NullInt64,
-	lines []string, voice string, captionsOn bool, aspect, by, requestID, hash string,
-) error {
+// newRevision is what a revision is queued with.
+type newRevision struct {
+	parent   sql.NullInt64
+	lines    []string
+	voice    string
+	captions bool
+	aspect   string
+	// look is the resolved look, as stored.
+	look string
+	pin  *voicePin
+
+	by, requestID, hash string
+}
+
+// insertRevision queues a revision numbered after the video's last.
+func (s *Service) insertRevision(ctx context.Context, q *store.Queries, now int64, id string, r newRevision) error {
 	last, err := q.LastRev(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	raw, err := json.Marshal(lines)
+	raw, err := json.Marshal(r.lines)
 	if err != nil {
 		return err
 	}
 
-	return q.InsertRevision(ctx, store.InsertRevisionParams{
-		VideoID: id, Rev: last + 1, Parent: parent, Lines: string(raw), Voice: voice, Captions: flag(captionsOn),
-		Aspect: aspect, RequestedBy: by, RequestID: requestID, RequestHash: hash, Now: now,
-	})
+	p := store.InsertRevisionParams{
+		VideoID: id, Rev: last + 1, Parent: r.parent, Lines: string(raw), Voice: r.voice, Captions: flag(r.captions),
+		Aspect: r.aspect, Look: r.look, RequestedBy: r.by, RequestID: r.requestID, RequestHash: r.hash, Now: now,
+	}
+	if r.pin != nil {
+		p.PinProvider, p.PinVoice = r.pin.provider, r.pin.voice
+	}
+
+	return q.InsertRevision(ctx, p)
+}
+
+// savedLook is the saved default look.
+func (s *Service) savedLook(ctx context.Context, q *store.Queries) (Look, error) {
+	raw, err := q.GetVideoSettings(ctx)
+	if err != nil {
+		return Look{}, fmt.Errorf("reading the default look: %w", err)
+	}
+
+	return parseLook(raw)
 }
 
 // byRequest is the revision a request id made before: ok when there is one,
@@ -553,6 +648,16 @@ func revisionOf(r store.VideoRevision) Revision {
 
 	_ = json.Unmarshal([]byte(r.Lines), &out.Lines)
 	_ = json.Unmarshal([]byte(r.Warnings), &out.Warnings)
+
+	if l, err := parseLook(r.Look); err == nil {
+		out.Look = l
+	} else {
+		out.Look = legacyLook
+	}
+
+	if r.PinProvider != "" {
+		out.pin = &voicePin{provider: r.PinProvider, voice: r.PinVoice}
+	}
 
 	if out.Lines == nil {
 		out.Lines = []string{}
@@ -699,8 +804,11 @@ func (s *Service) RequestChanges(ctx context.Context, id string, rev int, req Ch
 
 		queued = true
 
-		return s.insertRevision(ctx, q, now, id, sql.NullInt64{Int64: int64(rev), Valid: true}, req.Lines, r.Voice,
-			r.Captions != 0, r.Aspect, req.By, req.RequestID, hash)
+		// The new revision is drawn as the one it changes: its look is copied as stored (row 2).
+		return s.insertRevision(ctx, q, now, id, newRevision{
+			parent: sql.NullInt64{Int64: int64(rev), Valid: true}, lines: req.Lines, voice: r.Voice,
+			captions: r.Captions != 0, aspect: r.Aspect, look: r.Look, by: req.By, requestID: req.RequestID, hash: hash,
+		})
 	})
 	if err != nil {
 		return Video{}, err

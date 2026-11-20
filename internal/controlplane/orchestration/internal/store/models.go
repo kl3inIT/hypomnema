@@ -1106,6 +1106,15 @@ type VideoRevision struct {
 	RequestHash string
 	CreatedAt   int64
 	UpdatedAt   int64
+	Look        string
+	PinProvider string
+	PinVoice    string
+}
+
+type VideoSetting struct {
+	ID        int64
+	Look      string
+	UpdatedAt int64
 }
 
 type WebSession struct {

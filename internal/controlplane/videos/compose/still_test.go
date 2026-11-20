@@ -179,6 +179,7 @@ func TestAStillAtACuesStartShowsIt(t *testing.T) {
 	require.NoError(t, err)
 
 	ass := filepath.Join(dir, "at-230.ass")
+	//nolint:gosec // The test's own file.
 	require.NoError(t, os.WriteFile(ass, []byte(strings.Replace(string(raw), "0:00:00.20,0:00:01.00",
 		"0:00:00.23,0:00:00.47", 1)), 0o600))
 

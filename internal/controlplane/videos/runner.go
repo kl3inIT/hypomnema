@@ -227,7 +227,7 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 	stage := func(n int) { s.setProgress(id, rev.Rev, n, total) }
 	stage(0)
 
-	said, err := s.speak(ctx, source, rev.Lines, rev.Voice, stage)
+	said, err := s.speak(ctx, source, rev.Lines, rev.Voice, rev.pin, stage)
 	if err != nil {
 		return nil, 0, at(Voicing, err)
 	}
@@ -254,6 +254,8 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 	in := compose.Input{
 		Dir: filepath.Dir(takeJSON), Voice: said.clips, Aspect: compose.Aspect(rev.Aspect),
 		Work: filepath.Join(work, "compose"), Out: filepath.Join(work, "composed.mp4"), Progress: stage,
+		// The look as stored: a revision made before the looks is full, with no frame, as it was (issue #908).
+		Frame: rev.Look.Frame, Background: background(rev.Look),
 	}
 	if take.Screen != nil {
 		in.Screen = compose.Size{Width: take.Screen.Width, Height: take.Screen.Height}
@@ -273,7 +275,8 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 
 		stage(0)
 
-		ass, err := s.captions(ctx, tools, source, said.clips, made, filepath.Join(work, "captions.ass"), stage)
+		ass, err := s.captions(ctx, tools, source, said.clips, made, rev.Look.Captions,
+			filepath.Join(work, "captions.ass"), stage)
 		if err != nil {
 			return nil, 0, at(Captioning, err)
 		}
@@ -302,14 +305,20 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 		return nil, 0, at(last, err)
 	}
 
-	return made.Warnings, made.LengthMs, nil
+	warnings := made.Warnings
+	if rev.Look.FellBackFrom != "" {
+		warnings = append(warnings, fellBackWarning(rev.Look.FellBackFrom))
+	}
+
+	return warnings, made.LengthMs, nil
 }
 
 // captions transcribes each scene's clip with its words' times, builds the
-// cues on the video's time and writes them as an ASS file (row 6). done is
-// told how many scenes are transcribed, after each.
+// cues on the video's time and writes them as an ASS file in the look's
+// preset and position (row 6; issue #908). done is told how many scenes are
+// transcribed, after each.
 func (s *Service) captions(ctx context.Context, tools ffmpeg.Tools, source AudioSource, clips []string,
-	made compose.Result, out string, done func(n int),
+	made compose.Result, look CaptionsLook, out string, done func(n int),
 ) (string, error) {
 	if len(made.Scenes) != len(clips) {
 		return "", fmt.Errorf("the video has %d scenes and %d clips", len(made.Scenes), len(clips))
@@ -344,9 +353,8 @@ func (s *Service) captions(ctx context.Context, tools ffmpeg.Tools, source Audio
 		}
 	}
 
-	// Every revision keeps the captions it was made with until a revision stores its look (#908, part 3).
-	ass, err := captions.Render(ctx, tools, cues, captions.Look{Preset: captions.Legacy}, made.Size.Width,
-		made.Size.Height, rings)
+	ass, err := captions.Render(ctx, tools, cues, captions.Look{Preset: look.Preset, Position: look.Position},
+		made.Size.Width, made.Size.Height, rings)
 	if err != nil {
 		return "", err
 	}

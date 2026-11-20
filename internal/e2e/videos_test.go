@@ -141,6 +141,11 @@ func newVideoRig(t *testing.T) *videoRig {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
+	// The fake maker draws no caption preset: the default look keeps the captions made before the presets.
+	_, err = db.ExecContext(ctx, `UPDATE video_settings SET look = '{"captions":{"preset":"legacy"},`+
+		`"frame":{"chrome":"full"}}'`)
+	require.NoError(t, err)
+
 	logger := slog.New(slog.DiscardHandler)
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
@@ -367,6 +372,10 @@ func TestAWorkerMakesAVideoTheOwnerApproves(t *testing.T) {
 			{http.MethodGet, rev1 + "/thumbnail.jpg", ""},
 			{http.MethodPost, rev1 + "/approve", ""},
 			{http.MethodPost, rev1 + "/changes", `{"note":"x"}`},
+			{http.MethodPost, rev1 + "/look", `{"look":{"frame":{"chrome":"none"}}}`},
+			{http.MethodPost, rev1 + "/retry", ""},
+			{http.MethodGet, "/videos/looks", ""},
+			{http.MethodPost, "/videos/preview", `{"take":"` + r.take + `"}`},
 			{http.MethodDelete, base, ""},
 			{http.MethodGet, "/studio/items", ""},
 			{http.MethodGet, "/takes/" + r.take + "/thumbnail.jpg", ""},

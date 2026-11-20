@@ -1,0 +1,129 @@
+package clientapi
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
+)
+
+// lookVideos answers look samples with the error its test sets, and records what it was sent.
+type lookVideos struct {
+	Videos
+
+	err  error
+	sent []videos.PreviewRequest
+}
+
+func (v *lookVideos) Preview(_ context.Context, req videos.PreviewRequest) ([]byte, error) {
+	v.sent = append(v.sent, req)
+	if v.err != nil {
+		return nil, v.err
+	}
+
+	return []byte{0xFF, 0xD8, 0xFF, 0xD9}, nil
+}
+
+func (v *lookVideos) Looks(context.Context) (videos.Catalog, error) {
+	return videos.Catalog{Presets: []videos.PresetInfo{{ID: "legacy", Name: "Classic"}}, Default: videos.DefaultLook()},
+		nil
+}
+
+// Scenario: the look sample (issue #908, row 14) is the owner's: a JPEG never cached; a look refused by the
+// contract or the service is 400, an unknown take 404, a busy sampler 429 with Retry-After, a slow one 504, no
+// ffmpeg 503; a Bot's and a coordinator's tokens are refused.
+func TestTheLookSampleAnswersItsLimits(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	fake := &lookVideos{}
+	w.srv.WithVideos(fake)
+
+	owner, _ := w.token("owner", bearertoken.Owner)
+	coordinator, _ := w.token("pi", bearertoken.Coordinator)
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	bot := w.piToken("pi", chat.ID, orchestration.DefaultBotID)
+
+	chrome := openapi.ChromeAndroid
+	body := openapi.VideoPreview{Take: "tk_0123456789abcdef", Look: &openapi.VideoLookInput{
+		Frame: &openapi.VideoFrameInput{Chrome: &chrome},
+	}}
+
+	ok, err := owner.PreviewVideoLookWithResponse(ctx, body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, ok.StatusCode(), string(ok.Body))
+	assert.Equal(t, "image/jpeg", ok.HTTPResponse.Header.Get("Content-Type"))
+	assert.Equal(t, "no-store", ok.HTTPResponse.Header.Get("Cache-Control"))
+	assert.Equal(t, []byte{0xFF, 0xD8, 0xFF, 0xD9}, ok.Body)
+	require.Len(t, fake.sent, 1)
+	require.NotNil(t, fake.sent[0].Look.Frame)
+	assert.Equal(t, "android", *fake.sent[0].Look.Frame.Chrome)
+	assert.Nil(t, fake.sent[0].Look.Captions, "a section not sent stays unsent")
+
+	for name, c := range map[string]*openapi.ClientWithResponses{"bot": bot, "coordinator": coordinator} {
+		refused, err := c.PreviewVideoLookWithResponse(ctx, body)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusForbidden, refused.StatusCode(), name)
+
+		looks, err := c.ListVideoLooksWithResponse(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusForbidden, looks.StatusCode(), name)
+	}
+
+	bad := openapi.ChromeIPhone
+	empty := []string{}
+	for name, b := range map[string]openapi.VideoPreview{
+		"no colors": {Take: body.Take, Look: &openapi.VideoLookInput{Background: &openapi.VideoBackground{
+			Colors: &empty,
+		}}},
+		"a take's id": {Take: "take-1", Look: &openapi.VideoLookInput{Frame: &openapi.VideoFrameInput{Chrome: &bad}}},
+	} {
+		resp, err := owner.PreviewVideoLookWithResponse(ctx, b)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode(), name)
+	}
+
+	for _, c := range []struct {
+		err    error
+		status int
+		code   openapi.ErrorCode
+	}{
+		{fmt.Errorf("%w: no caption preset is named %q", videos.ErrInvalid, "comic"), http.StatusBadRequest,
+			openapi.InvalidRequest},
+		{fmt.Errorf("%w: take tk_0123456789abcdef", videos.ErrNotFound), http.StatusNotFound, openapi.NotFound},
+		{fmt.Errorf("%w: the phone turned", videos.ErrConflict), http.StatusConflict, openapi.Conflict},
+		{videos.ErrBusy, http.StatusTooManyRequests, openapi.RateLimited},
+		{fmt.Errorf("%w: longer than 20s", videos.ErrTimedOut), http.StatusGatewayTimeout, openapi.TimedOut},
+		{fmt.Errorf("%w: ffmpeg is not installed", videos.ErrUnavailable), http.StatusServiceUnavailable,
+			openapi.Unavailable},
+	} {
+		fake.err = c.err
+
+		resp, err := owner.PreviewVideoLookWithResponse(ctx, body)
+		require.NoError(t, err)
+		require.Equal(t, c.status, resp.StatusCode(), c.err.Error())
+		require.NotNil(t, resp.JSONDefault, c.err.Error())
+		assert.Equal(t, c.code, resp.JSONDefault.Code)
+
+		if c.status == http.StatusTooManyRequests {
+			assert.Equal(t, "1", resp.HTTPResponse.Header.Get("Retry-After"))
+		}
+	}
+
+	looks, err := owner.ListVideoLooksWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, looks.StatusCode(), string(looks.Body))
+	assert.Equal(t, openapi.ChromeAndroid, looks.JSON200.Default.Frame.Chrome)
+	assert.Equal(t, []openapi.VideoPreset{{Id: "legacy", Name: "Classic"}}, looks.JSON200.Presets)
+}

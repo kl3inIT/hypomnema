@@ -39,4 +39,7 @@ type VideoRevision struct {
 	RequestHash string
 	CreatedAt   int64
 	UpdatedAt   int64
+	Look        string
+	PinProvider string
+	PinVoice    string
 }

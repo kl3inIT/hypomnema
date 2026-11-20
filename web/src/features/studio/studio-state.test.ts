@@ -4,6 +4,8 @@ import type { StudioItem, VideoRevision } from "@/api/generated/types.gen"
 
 import { filming, inProgress, sceneDone, stages, stateTone } from "./studio-state"
 
+const fullFrame = { chrome: "full", padding: 0, radius: 0, shadow: false, safe_top: false } as const
+
 const rev = (state: VideoRevision["state"], more: Partial<VideoRevision> = {}): VideoRevision => ({
   rev: 1,
   state,
@@ -12,6 +14,7 @@ const rev = (state: VideoRevision["state"], more: Partial<VideoRevision> = {}): 
   aspect: "9:16",
   length_ms: 0,
   warnings: [],
+  look: { captions: { preset: "legacy", position: "preset" }, frame: fullFrame },
   created_at: "2026-11-18T09:00:00Z",
   updated_at: "2026-11-18T09:00:00Z",
   ...more,
