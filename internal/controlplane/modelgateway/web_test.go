@@ -95,6 +95,8 @@ func TestAKeySearchesTheWebAndTheCallIsRecorded(t *testing.T) {
 	assert.Equal(t, "exa", u.Provider)
 	assert.Equal(t, "pi", u.KeyName)
 	assert.Equal(t, modelgateway.OutcomeOK, u.Outcome)
+	require.NotNil(t, u.CostMicros)
+	assert.EqualValues(t, 7000, *u.CostMicros)
 
 	status, _, body = g.post(t, "/v1/web/fetch", g.key, `{"url":"`+page.URL+`/hello"}`)
 	require.Equal(t, http.StatusOK, status, body)

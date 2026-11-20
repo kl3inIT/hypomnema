@@ -7,9 +7,10 @@
 // output_cost_per_second, Soniox's), input_cost_per_character and
 // search_context_cost_per_query (model_prices_and_context_window.json; MIT,
 // third_party/litellm/NOTICE). Only the providers the gateway asks are kept,
-// under the names it records them by; a price LiteLLM does not give is left
-// out, and its rows stay unpriced. Each is in nano-dollars a unit, sorted so
-// that a new snapshot changes only what changed.
+// under the names it records them by. Exa's auto search price comes from
+// OmniRoute's searchRegistry.ts when LiteLLM does not give one (issue #972).
+// Other missing prices are left out. Each is in nano-dollars a unit, sorted
+// so that a new snapshot changes only what changed.
 //
 //	curl -sSo litellm.json https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
 //	go run ./internal/controlplane/modelgateway/prices/unitsgen litellm.json > internal/controlplane/modelgateway/prices/units.json
@@ -20,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -87,6 +89,10 @@ func main() {
 		if p, ok := unitOf(name, e); ok {
 			out = append(out, p)
 		}
+	}
+
+	if !slices.ContainsFunc(out, func(p unitPrice) bool { return p.Name == "exa/search" && p.Unit == unitQuery }) {
+		out = append(out, unitPrice{Name: "exa/search", Unit: unitQuery, Nanos: nanos(0.007)})
 	}
 
 	sort.Slice(out, func(i, j int) bool {

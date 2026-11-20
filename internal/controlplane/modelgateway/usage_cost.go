@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"strings"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/codex"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/prices"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
 // price reckons a request's cost from the price book when it is recorded,
@@ -20,6 +22,10 @@ import (
 // model whose tokens have no price stays unpriced, its searches too.
 func (s *Service) price(ctx context.Context, u *Usage) {
 	switch {
+	case u.Model == ModelWebSearch && u.Provider == websearch.ProviderCodex:
+		s.priceUnits(u, prices.UnitWebSearch, "openai/"+codex.SearchModel, u.WebSearches*1000)
+
+		return
 	case u.Model == ModelWebSearch:
 		s.priceUnits(u, prices.UnitQuery, u.Provider+"/search", u.WebSearches*1000)
 
