@@ -578,6 +578,18 @@ func (q *Queries) InsertRestartBoot(ctx context.Context, at int64) error {
 	return err
 }
 
+const isReadRun = `-- name: IsReadRun :one
+SELECT EXISTS (SELECT 1 FROM chat_messages WHERE chat_id = chats.id AND read_run = 1)
+FROM chats WHERE id = ?1
+`
+
+func (q *Queries) IsReadRun(ctx context.Context, chatID string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isReadRun, chatID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const lastTurnInput = `-- name: LastTurnInput :one
 SELECT role, sender_id FROM chat_messages
 WHERE chat_id = ?1 AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1) AND kind <> 'continued'
@@ -630,7 +642,7 @@ func (q *Queries) ListArtifactBlobsOfChat(ctx context.Context, chatID string) ([
 }
 
 const listChatArtifactMessages = `-- name: ListChatArtifactMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind, chat_messages.read_run,
        artifacts.id         AS artifact_id,
        artifacts.revision   AS artifact_revision,
        artifacts.updated_at AS artifact_updated_at,
@@ -679,6 +691,7 @@ func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) (
 			&i.ChatMessage.SenderID,
 			&i.ChatMessage.SenderName,
 			&i.ChatMessage.Kind,
+			&i.ChatMessage.ReadRun,
 			&i.ArtifactID,
 			&i.ArtifactRevision,
 			&i.ArtifactUpdatedAt,
@@ -726,7 +739,7 @@ func (q *Queries) ListChatIDsOfBot(ctx context.Context, bot string) ([]string, e
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.approval_id, chat_messages.sender_id, chat_messages.sender_name, chat_messages.kind, chat_messages.read_run,
        CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
        CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
@@ -814,6 +827,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.ChatMessage.SenderID,
 			&i.ChatMessage.SenderName,
 			&i.ChatMessage.Kind,
+			&i.ChatMessage.ReadRun,
 			&i.EventKind,
 			&i.EventRunID,
 			&i.EventTaskID,
@@ -1155,7 +1169,7 @@ func (q *Queries) TouchChat(ctx context.Context, arg TouchChatParams) error {
 }
 
 const undeliveredChatMessages = `-- name: UndeliveredChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, approval_id, sender_id, sender_name, kind FROM chat_messages
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, approval_id, sender_id, sender_name, kind, read_run FROM chat_messages
 WHERE chat_id = ?1 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 ORDER BY seq
 `
@@ -1185,6 +1199,7 @@ func (q *Queries) UndeliveredChatMessages(ctx context.Context, chatID string) ([
 			&i.SenderID,
 			&i.SenderName,
 			&i.Kind,
+			&i.ReadRun,
 		); err != nil {
 			return nil, err
 		}

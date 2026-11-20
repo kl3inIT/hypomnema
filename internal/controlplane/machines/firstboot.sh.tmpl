@@ -13,7 +13,28 @@ id "$user" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$user" ||
 # The CLIs are a convenience: a failure here leaves a node that reports none, which the owner sees.
 export DEBIAN_FRONTEND=noninteractive
 if command -v apt-get >/dev/null 2>&1; then
-  apt-get update -y && apt-get install -y git curl ca-certificates build-essential unzip || log "installing packages failed"
+  apt-get update -y && apt-get install -y git curl ca-certificates build-essential unzip bubblewrap ||
+    log "installing packages failed"
+fi
+
+# The node runs each worker in bubblewrap with its Dispatch's temp directory as /tmp (issue #895). Ubuntu 23.10 and
+# later refuse an unprivileged user namespace unless an AppArmor profile allows it; the profile is the one
+# deploy/coordinator/setup-box.sh writes for the Bots' box. Without it the node runs workers with TMPDIR only and
+# says so on the Machines page.
+if [ -x /usr/bin/bwrap ] && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ] &&
+  ! runuser -u "$user" -- /usr/bin/bwrap --dev-bind / / /usr/bin/true 2>/dev/null; then
+  cat > /etc/apparmor.d/hypomnema-bwrap <<'PROFILE'
+# Written by the first boot of a Hypomnema machine: lets bubblewrap make the namespace a worker runs in (issue #895).
+abi <abi/4.0>,
+include <tunables/global>
+
+profile hypomnema-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+
+  include if exists <local/hypomnema-bwrap>
+}
+PROFILE
+  apparmor_parser -r /etc/apparmor.d/hypomnema-bwrap || log "loading the bubblewrap profile failed"
 fi
 {{- if .Device}}
 
@@ -32,7 +53,7 @@ usermod -aG kvm "$user" || log "adding the user to kvm failed"
 # Node.js for the agent CLIs comes from nodejs.org as one archive, checked against the checksum published beside
 # it. Ubuntu's nodejs and npm packages bring 565 others, which once took over ten minutes to download, and are a
 # version older than Claude Code asks for.
-install_node() {
+install_node() (
   case "$(uname -m)" in
     x86_64) node_arch=x64 ;;
     aarch64) node_arch=arm64 ;;
@@ -44,11 +65,12 @@ install_node() {
   node_sum=${node_line%% *}
   node_file=${node_line##* }
   [ -n "$node_sum" ] && [ -n "$node_file" ] || return 1
-  curl --fail --silent --show-error --location --proto "=https" --output "/tmp/$node_file" "$node_base/$node_file" || return 1
-  printf '%s  %s\n' "$node_sum" "/tmp/$node_file" | sha256sum --check --status || return 1
-  tar -xzf "/tmp/$node_file" -C /usr/local --strip-components=1 || return 1
-  rm -f "/tmp/$node_file"
-}
+  node_tmp=$(mktemp -d) || return 1
+  trap 'rm -rf "$node_tmp"' EXIT
+  curl --fail --silent --show-error --location --proto "=https" --output "$node_tmp/$node_file" "$node_base/$node_file" || return 1
+  printf '%s  %s\n' "$node_sum" "$node_tmp/$node_file" | sha256sum --check --status || return 1
+  tar -xzf "$node_tmp/$node_file" -C /usr/local --strip-components=1
+)
 
 if install_node; then
   npm install --global @anthropic-ai/claude-code @openai/codex || log "installing the agent CLIs failed"

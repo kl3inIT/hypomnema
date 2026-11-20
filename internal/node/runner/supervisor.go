@@ -37,6 +37,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/tempns"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -126,6 +127,10 @@ type Supervisor struct {
 	// URL is the control plane's base URL, where a worker's tools reach the agent API.
 	URL       string
 	Worktrees worktree.Maker
+	// Isolation runs each worker, and its worktree's setup script, with its
+	// Dispatch's temp directory as /tmp and /var/tmp (issue #895); off: with
+	// TMPDIR only.
+	Isolation tempns.Isolation
 	Logger    *slog.Logger
 
 	mu   sync.Mutex
@@ -296,7 +301,7 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		hostEnv = src.Env
 
 		maker := s.Worktrees
-		maker.TempDir = temp
+		maker.TempDir, maker.Isolation = temp, s.Isolation
 
 		if err := maker.Ensure(ctx, src, o.Base, o.TaskID, o.Worktree); err != nil {
 			return err
@@ -312,6 +317,9 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 
 	spec.Dir = o.Worktree
 	spec.Env = tempEnv(spec.Env, temp)
+	if s.Isolation.On() {
+		spec.Argv, spec.Bwrap = s.Isolation.Wrap(spec.Argv, temp), true
+	}
 	if err := shim.WriteSpec(dir, spec); err != nil {
 		return err
 	}

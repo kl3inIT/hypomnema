@@ -77,6 +77,9 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 		"research and design read the references' code (issue #719)")
 	assert.Less(t, strings.Index(p, "read the code of the references"), strings.Index(p, "Task (implementer):"),
 		"the rule comes before the task, for the prompt cache (issue #672)")
+	assert.Contains(t, p, "- Keep temporary files and directories under $TMPDIR, "+
+		"private to this task and removed after it ends. "+
+		"Never use /tmp or another hard-coded temp path, even for databases, sockets or clones you start yourself.\n")
 	assert.Contains(t, p, "Run the checks of what you changed, once, after your last edit or merge and before "+
 		"pushing; CI runs the full suite.", "a worker runs the touched checks once (issue #894)")
 	assert.Contains(t, p, "Merge the base branch into yours only for a conflict, a red check whose cause is on "+
@@ -260,7 +263,9 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	for _, want := range []string{
 		"`glab api projects/team%2Fplatform%2Fapi`: has only_allow_merge_if_pipeline_succeeds: true",
 		"\"\"Pipelines must succeed\" is off in the project's settings\"",
-		"Before step 3, check that its pipeline is not null",
+		"Before step 3, check that its pipeline is not null; if it is null, wait once with `sleep 60` and " +
+			"read it one more time, never in a loop; if it is still null, do not enable auto-merge: finish and " +
+			"say the merge request has no pipeline.",
 		"`glab mr merge <iid> --auto-merge --yes --sha <sha>`",
 		"`glab ci status --live --branch hyp/tsk_1`",
 	} {

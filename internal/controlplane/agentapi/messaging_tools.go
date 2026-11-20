@@ -275,6 +275,12 @@ type messagingArgs struct {
 func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, m messagingService, labels []string,
 	call agenttool.BrowserCall,
 ) {
+	if a.readRun && call.Tool == m.send {
+		answerTool(w, agenttool.ReadRunRefusal, true)
+
+		return
+	}
+
 	var in messagingArgs
 	if json.Unmarshal(orEmpty(call.Arguments), &in) != nil {
 		answerTool(w, call.Tool+" takes a JSON object of its arguments", true)
@@ -313,7 +319,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 	switch call.Tool {
 	case m.chats:
 		chats, err := s.messaging.Chats(ctx, m.integration, label, in.Limit)
-		s.answerJSON(w, r, map[string]any{"chats": chats}, err)
+		s.answerJSON(w, r, map[string]any{"note": untrusted, "chats": chats}, err)
 	case m.messages:
 		q := messaging.Query{Chat: strings.TrimSpace(in.Chat), Search: in.Search, Limit: in.Limit}
 		if in.Before != "" {
@@ -374,8 +380,11 @@ func (s *Server) messagingMedia(w http.ResponseWriter, r *http.Request, a agent,
 	if media.FileName != "" {
 		about += "\nname: " + media.FileName
 	}
+	if a.readRun {
+		about += "\n" + untrusted
+	}
 
-	if strings.HasPrefix(media.MimeType, "audio/") && s.audio != nil {
+	if !a.readRun && strings.HasPrefix(media.MimeType, "audio/") && s.audio != nil {
 		// A voice note is heard before the model reads it (issue #723, incoming voice).
 		answerTool(w, about+"\n"+s.heard(r.Context(), a, media.Path, media.MimeType, info.Size()), false)
 
@@ -383,6 +392,9 @@ func (s *Server) messagingMedia(w http.ResponseWriter, r *http.Request, a agent,
 	}
 
 	if !strings.HasPrefix(media.MimeType, "image/") || info.Size() > maxInlineImage {
+		if a.readRun {
+			about += "\nThis media is not available to view in a read-only run."
+		}
 		answerTool(w, about, false)
 
 		return

@@ -79,9 +79,13 @@
   browser jobs are the full proof (t3code `AGENTS.md:102,111`, OpenClaw `AGENTS.md:86`, Orca `AGENTS.md:8`, Coder
   `AGENTS.md:46`; owner, 2026-11-19).
 - Do not merge main into a branch only because main advanced. Merge it for a conflict, for a red check whose cause
-  is on main, or for a migration: a pull request that adds one merges main and runs `make migration-check` again
-  right before it is merged, as another may have taken its number meanwhile (#334). After a merge, rerun only the
-  checks it affects (OpenClaw `AGENTS.md:46`).
+  is on main, or for a migration. After a merge, rerun only the checks it affects (OpenClaw `AGENTS.md:46`).
+- A migration is made with `make migration-create NAME=what_it_does`, which names it by its time, so branches open
+  side by side never take the same version (#954; goose `create`, Omnara's `migration-create`). Its pull request
+  stays green with that name while open; right before it is merged (for a worker, before turning on auto-merge) it
+  merges main, runs `make migration-fix`, which numbers it after main's last (goose `fix`), and `make
+  migration-check`, then pushes and merges once green. A push to main refuses a migration named by its time, and
+  one whose number main took meanwhile; then run `make migration-fix` again (#334, #954).
 - A merge conflict in generated code (`internal/controlplane/clientapi/openapi/api.gen.go`,
   `web/src/api/generated/*.gen.ts`) is never edited by hand: resolve `api/openapi.yaml` first, take either side of
   the generated files, then run `make openapi-generate`, `make web-api-generate` and `make openapi-check` (#754).
@@ -94,7 +98,7 @@
   `pnpm --dir web exec playwright install-deps --dry-run chromium` names the system libraries it lacks, which take
   sudo. Without `make` (it takes sudo too), run the recipes of the Makefile's targets by hand: `make verify` is
   `verify-static` (`fmt-check`, `tidy-check`, `lint`, `deps-check`, `sqlc-check`, `openapi-check`,
-  `migration-check`), `unit` and `race`, with `go` for `$(GO)`. What needs sudo, such as gcc for `make race` and
+  `migration-check`, `goose-version-check`), `unit` and `race`, with `go` for `$(GO)`. What needs sudo, such as gcc for `make race` and
   Chromium's libraries, is left to CI and said in the pull request
   ([research](docs/research/2026-11-12-a-repository-tools-for-workers.md); owner, 2026-11-12; issue #718).
 - Work in its own `git worktree` when another session may use this checkout; never switch the branch of a checkout
@@ -106,6 +110,25 @@
   link instead of repeating.
 - Once a week, or when asked: close stale issues and branches, remove merged worktrees, and fix docs that no longer
   match the code.
+
+## Rules and what enforces them
+
+A rule that something checks cannot be forgotten; a rule that only this file states can. Each row pairs a rule with
+what fails when it is broken. A new rule gets its row; a rule that nothing enforces and that is broken twice gets a
+check in the same change, and a rule whose mistake can no longer happen is dropped (pstack
+`skills/correct/SKILL.md:15-30`; #954).
+
+| Rule | Enforced by |
+|---|---|
+| Go files are gofmt-formatted; `go.mod` and `go.sum` of each module are tidy | `make fmt-check`, `make tidy-check` (CI Static) |
+| Import boundaries, no wall clock in the orchestration core, the banned packages ([conventions](docs/conventions.md#layout-and-boundaries)) | `make lint`, `.golangci.yml` depguard and forbidigo (CI Static) |
+| The node links no control plane code, and the control plane no node code | `make deps-check` (CI Static) |
+| Generated code is what its source generates, never edited by hand | `make sqlc-check`, `make openapi-check`, `make web-api-check` (CI Static, Web) |
+| A numbered migration on main never changes; no two share a number; a new one comes after main's last | `make migration-check` against main, or on a push the commit before (CI Static) |
+| A migration named by its time never reaches main or a release | `make migration-check MIGRATION_TIMESTAMPS=refuse` on a push to main (`ci.yml`); `release.yml` releases only a green commit |
+| The goose that makes migration files is the goose the binary migrates with | `make goose-version-check` (CI Static) |
+| A pull request merges only with its checks green | the `Required` check on main's branch protection |
+| Reference-based design, asking first, a "From" for each decision, the merge steps above, docs in the change | nothing: the reviewer and the owner |
 
 ## Skills
 

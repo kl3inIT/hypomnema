@@ -321,6 +321,19 @@ type HelloRequest struct {
 	// films that holds no lease of the phone any more, and has the node drop one the owner deleted.
 	Takes      []TakeHeld `json:"takes,omitempty"`
 	ListsTakes bool       `json:"lists_takes,omitempty"`
+	// TempIsolation says whether the node's workers get their Dispatch's temp
+	// directory as /tmp and /var/tmp (issue #895); nil: a node of an earlier
+	// release, which does not say.
+	TempIsolation *TempIsolation `json:"temp_isolation,omitempty"`
+}
+
+// TempIsolation is whether a node runs its workers with their Dispatch's
+// temp directory bound over /tmp and /var/tmp (issue #895).
+type TempIsolation struct {
+	On bool `json:"on"`
+	// Reason says why it is off: no bubblewrap could make the namespace, or
+	// the machine is not Linux.
+	Reason string `json:"reason,omitempty"`
 }
 
 // DeviceAndroid is a node that holds an Android emulator (issue #417).

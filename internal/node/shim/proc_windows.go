@@ -122,3 +122,5 @@ func reapOrphans(int) func() { return func() {} }
 func signalOf(*os.ProcessState) string { return "" }
 
 func killSignal() string { return "" }
+
+func codeSignal(int) string { return "" }

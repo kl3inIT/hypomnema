@@ -353,7 +353,7 @@ func TestOmpThroughTheGateway(t *testing.T) {
 	models, err := os.ReadFile(filepath.Join(conversation, "agent", "models.yml")) //nolint:gosec // the test's own
 	require.NoError(t, err)
 	assert.Contains(t, string(models), `baseUrl: "https://hypomnema.example/v1"`)
-	assert.Contains(t, string(models), "apiKey: HYPOMNEMA_MODEL_KEY")
+	assert.Contains(t, string(models), `apiKey: "HYPOMNEMA_MODEL_KEY"`)
 	assert.Contains(t, string(models), "api: openai-completions")
 	assert.NotContains(t, string(models), "hyp_gateway_v1_test", "the key is in no file")
 

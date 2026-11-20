@@ -119,7 +119,9 @@ The three boundaries that matter:
 - **Determinism in the orchestration core** (as Nomad's semgrep rule on its state machine): no `time.Now` or `math/rand`
   in `controlplane/orchestration`; a clock is passed in, so lease and timeout tests are exact.
 - **Generated and tidy**: `go mod tidy`, `sqlc generate` and the OpenAPI generation leave `git diff --exit-code`
-  clean; released migrations are never edited (as Omnara's `migration-check`).
+  clean; released migrations are never edited (as Omnara's `migration-check`). A new migration is named by its time
+  and numbered right before its merge (`make migration-create`, `make migration-fix`, goose's `create` and `fix`, as
+  Omnara's), so parallel branches never collide on a number (issue #954).
 
 ## Orchestration core
 
@@ -304,7 +306,9 @@ How the references keep a UI consistent is in
 ## Go
 
 - One application module, `go.mod` at the repository root, where the Go version is pinned; the linters and generators
-  are `tool` directives of a second module, `tools/ci/go.mod`. `golangci-lint` configuration in the root.
+  are `tool` directives of a second module, `tools/ci/go.mod`; goose's CLI, whose drivers would move the linters'
+  dependencies, has a third, `tools/goose/go.mod`, kept at the goose of `go.mod` by hand (`make goose-version-check`;
+  as Omnara's). `golangci-lint` configuration in the root.
 - Errors are wrapped with context (`fmt.Errorf("claim dispatch: %w", err)`) and matched with `errors.Is` / `errors.As`;
   expected failures have typed errors.
 - Applications follow the twelve-factor rules: configuration from the environment, logs to stdout, graceful shutdown

@@ -57,6 +57,7 @@ func (s *Server) routine(ctx context.Context, r routinestore.Routine) (openapi.R
 
 	out := openapi.Routine{
 		Id: r.ID, Bot: r.Bot, Name: r.Name, Kind: openapi.RoutineKind(r.Kind), Prompt: opt(r.Prompt),
+		Access: openapi.RoutineAccess(r.Access),
 		Script: opt(r.Script), ScriptText: opt(r.ScriptText), EveryMinutes: ptr(r.EveryMinutes), Cron: opt(r.Cron),
 		Timezone: opt(r.Timezone), Schedule: routinestore.ScheduleWords(r),
 		Sentence:       routinestore.RoutineSentence(r, bot.Name),
@@ -143,6 +144,12 @@ func (s *Server) PutRoutine(ctx context.Context, req openapi.PutRoutineRequestOb
 	if err := botAllowed(tok, req.BotId); err != nil {
 		return nil, err
 	}
+	if b.Access != nil && tok.Kind != bearertoken.Owner {
+		return nil, fmt.Errorf("%w: only the owner sets routine access", errForbidden)
+	}
+	if b.Access != nil && !b.Access.Valid() {
+		return nil, fmt.Errorf("%w: routine access is full or read", orchestration.ErrInvalid)
+	}
 
 	chat, err := chatOf(tok, val(b.ChatId))
 	if err != nil {
@@ -150,7 +157,8 @@ func (s *Server) PutRoutine(ctx context.Context, req openapi.PutRoutineRequestOb
 	}
 
 	r, err := s.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
-		Bot: req.BotId, Name: req.Routine, Kind: routinestore.RoutineKind(b.Kind), Prompt: val(b.Prompt),
+		Bot: req.BotId, Name: req.Routine, Kind: routinestore.RoutineKind(b.Kind),
+		Prompt: val(b.Prompt), Access: string(val(b.Access)),
 		Script: val(b.Script), ScriptText: val(b.ScriptText), EveryMinutes: val(b.EveryMinutes), Cron: val(b.Cron),
 		Timezone: val(b.Timezone), TimeoutSeconds: val(b.TimeoutSeconds), Summary: val(b.Summary),
 		ChatID: chat,
@@ -169,6 +177,21 @@ func (s *Server) PutRoutine(ctx context.Context, req openapi.PutRoutineRequestOb
 	}
 
 	return openapi.PutRoutine200JSONResponse(shown), nil
+}
+
+func (s *Server) PatchRoutine(ctx context.Context, req openapi.PatchRoutineRequestObject,
+) (openapi.PatchRoutineResponseObject, error) {
+	r, err := s.svc.Routines().SetRoutineAccess(ctx, req.RoutineId, string(req.Body.Access))
+	if err != nil {
+		return nil, err
+	}
+
+	shown, err := s.routine(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.PatchRoutine200JSONResponse(shown), nil
 }
 
 // UndoRoutine undoes a Bot's last change of a Routine.

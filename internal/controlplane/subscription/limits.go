@@ -342,7 +342,7 @@ func (s *Service) usableToken(ctx context.Context, a Account) (Token, error) {
 	if a.Runtime == antigravityRuntime {
 		retry = new(atomic.Int64)
 	}
-	if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
+	if !a.claudeSetupToken() && a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
 		if err := s.refresh(ctx, a, 0, retry); err != nil {
 			return Token{}, err
 		}

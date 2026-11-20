@@ -15,7 +15,7 @@ vi.mock("@/api/generated/sdk.gen", async (actual) => ({
 }))
 
 // reply draws a Bot's message, given as its text or as the text parts the server keeps.
-const reply = (text: string | string[]) => {
+const reply = (text: string | string[], readOnly = false) => {
   const parts = typeof text === "string" ? undefined : text
   const message: ChatMessage = {
     seq: 3,
@@ -30,11 +30,24 @@ const reply = (text: string | string[]) => {
   render(
     <>
       {items.map((item) => (
-        <ChatItemView key={item.key} item={item} working={false} botName="reporter" />
+        <ChatItemView
+          key={item.key}
+          item={item}
+          working={false}
+          botName="reporter"
+          readOnly={readOnly}
+        />
       ))}
     </>,
   )
 }
+
+test("a read-only run does not load images or turn MEDIA lines into downloads", () => {
+  reply("![Logo](https://example.org/pixel.png)\n\nMEDIA:out/private.txt", true)
+  expect(screen.queryByRole("img")).not.toBeInTheDocument()
+  expect(screen.getByText("MEDIA:out/private.txt")).toBeInTheDocument()
+  expect(screen.queryByRole("link")).not.toBeInTheDocument()
+})
 
 // link is the Files panel's download of a file of the Bot's folder, after the client's base address.
 const link = (path: string) =>

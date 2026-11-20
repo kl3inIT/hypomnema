@@ -22,6 +22,7 @@ hypomnema=/usr/local/bin/hypomnema
 node=/opt/hypomnema-node
 bwrap=/usr/bin/bwrap
 images=/usr/local/lib/hypomnema/pi-image-eviction.mts
+read_files=/usr/local/lib/hypomnema/pi-read-run.mts
 
 home="$user_home/.hypomnema-coordinator"
 
@@ -31,7 +32,7 @@ fail() {
 }
 
 usage() {
-  echo "usage: hypomnema-pi <chat id> --bot B [--group] [--provider P] [--model M] [--thinking T]" \
+  echo "usage: hypomnema-pi <chat id> --bot B [--group] [--read-run] [--provider P] [--model M] [--thinking T]" \
     "(pi's token on stdin)" >&2
   exit 2
 }
@@ -52,6 +53,7 @@ esac
 # group's (issue #246). The Bot's id and --group are taken out; the model flags stay for pi.
 bot=""
 group=""
+read_run=""
 expect=flag
 left=$#
 while [ "$left" -gt 0 ]; do
@@ -63,6 +65,7 @@ while [ "$left" -gt 0 ]; do
       case "$arg" in
         --bot) expect=bot ;;
         --group) group=--group ;;
+        --read-run) read_run=1 ;;
         --provider | --model | --thinking)
           expect=value
           set -- "$@" "$arg"
@@ -157,10 +160,19 @@ set -- "$@" --append-system-prompt "$prompt"
 # left there would send what this launcher writes, outside the box, somewhere else (issue #260); in the box it is
 # read-only. Without them pi would lack what the owner gave the Bot, so pi does not start.
 skills="$run/skills"
-if ! HOME="$user_home" "$hypomnema" skills sync --bot "$bot" --dir "$skills" > /dev/null < /dev/null; then
-  fail "putting bot $bot's skills in place failed"
+work="$dir"
+if [ -n "$read_run" ]; then
+  [ -r "$read_files" ] || fail "pi's read-run extension is not installed"
+  mkdir -p "$run/notes"
+  work="$run/notes"
+  set -- "$@" --no-approve --no-extensions --no-skills --no-context-files --no-prompt-templates \
+    --extension builtin:mcp --extension "$read_files" --tools 'routine_read,routine_write,routine_edit,mcp__hypomnema__*'
+else
+  if ! HOME="$user_home" "$hypomnema" skills sync --bot "$bot" --dir "$skills" > /dev/null < /dev/null; then
+    fail "putting bot $bot's skills in place failed"
+  fi
+  set -- "$@" --skill "$skills"
 fi
-set -- "$@" --skill "$skills"
 
 # pi's extension that keeps a chat full of images under the model gateway's request limit (issue #675): before each
 # call it sends the oldest tool images as a line of text once the images are over 24 MB, as Hermes does, and leaves
@@ -271,7 +283,7 @@ exec env -i \
   --ro-bind "$models" "$agent/models.json" \
   --ro-bind "$settings" "$agent/settings.json"   --ro-bind "$mcp" "$agent/mcp.json" \
   --ro-bind "$run" "$run" \
-  --bind "$dir" "$dir" \
+  --bind "$work" "$dir" \
   --bind "$sessions" "$sessions" \
   --chdir "$dir" \
   -- pi --mode rpc --session-dir "$sessions" --session-id "$chat" "$@" 3<<CLIENT

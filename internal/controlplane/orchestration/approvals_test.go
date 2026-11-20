@@ -81,6 +81,101 @@ func TestAnApprovalAnsweredLaterAnswersTheQuestionItsWorkerWaitsOn(t *testing.T)
 	require.ErrorIs(t, err, ErrConflict)
 }
 
+// Scenario: an Approval records the attempt at an Inbox to-do that asked it (issue #845; Hermes binds a session to
+// its task's run and claim, gateway/session_kanban.py): the same request again in that attempt waits on the same
+// Approval; in a new attempt, as when the item is started again, or by no attempt, it is a new one; and an
+// approval for that request once, approved and unused, is not used by another attempt.
+func TestAnApprovalIsOfTheAttemptThatAsked(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
+	d, _ := w.start(task.ID)
+
+	in := func(attempt string) NewApproval {
+		n := share(d.ID, "digest-1")
+		n.AttemptID = attempt
+
+		return n
+	}
+
+	first, granted, err := w.s.AskApproval(ctx, in("att_1"))
+	require.NoError(t, err)
+	require.False(t, granted)
+	assert.Equal(t, "att_1", first.AttemptID)
+
+	again, _, err := w.s.AskApproval(ctx, in("att_1"))
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, again.ID, "the same attempt waits on the same Approval")
+
+	retried, _, err := w.s.AskApproval(ctx, in("att_2"))
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, retried.ID, "a new attempt asks anew")
+	assert.Equal(t, "att_2", retried.AttemptID)
+
+	none, _, err := w.s.AskApproval(ctx, in(""))
+	require.NoError(t, err)
+	assert.NotContains(t, []string{first.ID, retried.ID}, none.ID, "no attempt is not an attempt's")
+	assert.Empty(t, none.AttemptID)
+
+	_, err = w.s.DecideApproval(ctx, first.ID, true, ScopeOnce)
+	require.NoError(t, err)
+
+	_, granted, err = w.s.AskApproval(ctx, in("att_3"))
+	require.NoError(t, err)
+	assert.False(t, granted, "another attempt does not use att_1's approval")
+
+	_, granted, err = w.s.AskApproval(ctx, in("att_1"))
+	require.NoError(t, err)
+	assert.True(t, granted, "its own attempt does")
+}
+
+// Scenario: a chat's request approved once in an attempt at an Inbox to-do, and not yet run, is approved for that
+// attempt only (issue #845): ApprovedOnce, which lets an act run off its turn, says so for the same attempt and not
+// for another attempt or for no attempt, as AskApproval grants it.
+func TestApprovedOnceIsOfTheAttemptThatAsked(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	in := func(attempt string) NewApproval {
+		return NewApproval{
+			Integration: "google", Label: "work", Action: "gmail.send", ActionName: "Send mail", ChatID: chat.ID,
+			AskedBy: "pi", Title: "Send mail", MatchHash: "digest", AttemptID: attempt,
+		}
+	}
+
+	asked, granted, err := w.s.AskApproval(ctx, in("att_1"))
+	require.NoError(t, err)
+	require.False(t, granted)
+
+	_, err = w.s.DecideApproval(ctx, asked.ID, true, ScopeOnce)
+	require.NoError(t, err)
+
+	for _, attempt := range []string{"", "att_2"} {
+		approved, err := w.s.ApprovedOnce(ctx, in(attempt))
+		require.NoError(t, err)
+		assert.False(t, approved, "attempt %q does not have att_1's approval", attempt)
+	}
+
+	approved, err := w.s.ApprovedOnce(ctx, in("att_1"))
+	require.NoError(t, err)
+	assert.True(t, approved, "its own attempt has it")
+
+	_, granted, err = w.s.AskApproval(ctx, in("att_1"))
+	require.NoError(t, err)
+	assert.True(t, granted, "and AskApproval grants it there")
+
+	approved, err = w.s.ApprovedOnce(ctx, in("att_1"))
+	require.NoError(t, err)
+	assert.False(t, approved, "once")
+}
+
 // Scenario: approved for the session, an action stops asking for the rest
 // of its Run, for any request; another Run's worker still asks. An approval
 // with no Run or chat behind it cannot be for a session.

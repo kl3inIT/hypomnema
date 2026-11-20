@@ -712,6 +712,9 @@ func (r *Runner) finish(ctx context.Context, runID string, result routinestore.R
 	}
 
 	routine, run := settled.Routine, settled.Run
+	if settled.ReadRun {
+		return
+	}
 
 	r.cfg.Logger.InfoContext(ctx, "a routine's run ended", slog.String("event", "routines.ended"),
 		slog.String("routine", routine.ID), slog.String("bot", routine.Bot), slog.String("run", run.ID),

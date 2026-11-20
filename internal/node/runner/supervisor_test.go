@@ -71,6 +71,12 @@ func fakeCLI(mode string) int {
 
 		switch l.Type {
 		case "go":
+			if mode == "isolated-temp" && !writeIsolatedScratch() {
+				return 6
+			}
+			if mode == "env-temp" && !writeScratch(os.Getenv("GOTMPDIR"), "env", "value") {
+				return 6
+			}
 			say(line{Type: "started", Session: "ses_fake"})
 
 			notes++
@@ -93,6 +99,24 @@ func fakeCLI(mode string) int {
 	}
 
 	return 0
+}
+
+func writeIsolatedScratch() bool {
+	temp, err := os.Stat(os.Getenv("TMPDIR")) //nolint:gosec // the supervisor sets this to the fixture's scratch
+	if err != nil {
+		return false
+	}
+	for _, dir := range []string{"/tmp", "/var/tmp"} {
+		bound, err := os.Stat(dir)
+		if err != nil || !os.SameFile(temp, bound) {
+			return false
+		}
+	}
+	return writeScratch("/tmp", "a", "x\n") && writeScratch("/var/tmp", "b", "y\n")
+}
+
+func writeScratch(dir, name, value string) bool {
+	return dir != "" && os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600) == nil //nolint:gosec // test scratch
 }
 
 func ask(say func(line)) int {
@@ -407,14 +431,26 @@ func TestAdoptedWorkerCanBeStopped(t *testing.T) {
 	t.Parallel()
 
 	g := newRig(t, "hang")
-	g.start(newReporter())
+	checkAdoptedWorkerCanBeStopped(t, g)
+}
 
-	again := g.restart()
+func checkAdoptedWorkerCanBeStopped(t *testing.T, fixture *rig) {
+	t.Helper()
+	fixture.start(newReporter())
+
+	again := fixture.restart()
 	second := newReporter()
 	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, again.dispatch(), second))
 	temp := filepath.Join(again.sup.dir("dsp_1"), "tmp")
 	assert.DirExists(t, temp)
 	assert.False(t, again.sup.Stopped("dsp_1", false))
+	if fixture.sup.Isolation.On() {
+		for name, want := range map[string]string{"a": "x\n", "b": "y\n"} {
+			got, err := os.ReadFile(filepath.Join(temp, name)) //nolint:gosec // test Dispatch's scratch
+			require.NoError(t, err)
+			assert.Equal(t, want, string(got))
+		}
+	}
 
 	again.sup.Stop("dsp_1")
 	second.wait(t)
@@ -427,6 +463,18 @@ func TestAdoptedWorkerCanBeStopped(t *testing.T) {
 		assert.NoDirExists(t, temp)
 		assert.FileExists(t, filepath.Join(again.sup.dir("dsp_1"), shim.JournalFile))
 	}
+}
+
+func TestWorkerWithoutTempIsolationUsesGoTemp(t *testing.T) {
+	t.Parallel()
+	fixture := newRig(t, "env-temp")
+	report := newReporter()
+	fixture.start(report)
+	dir := fixture.sup.dir("dsp_1")
+	t.Cleanup(func() { _ = shim.KillRecorded(dir) })
+	assert.FileExists(t, filepath.Join(dir, "tmp", "env"))
+	fixture.sup.Stop("dsp_1")
+	report.wait(t)
 }
 
 func TestWorkerUsesShortConfiguredHomeForSocket(t *testing.T) {
