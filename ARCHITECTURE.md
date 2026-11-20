@@ -1042,15 +1042,20 @@ sequenceDiagram
     questions and creates reviews; another coordinator token, or the same parent token from another chat, is
     refused (`clientapi/policy.go`, `checkPolicy`). The owner's principal is not fenced: the web's session and the
     CLI's owner token are both `owner` (`clientapi/server.go`), and a question to the owner only the owner answers
-    (`orchestration/questions.go`, `AnswerQuestion`). An owner CLI session is held to observing by the coordinator
-    guide, which tells it to pass a change to the Run's chat (`hypomnema chat --chat`), not by the server.
+    (`orchestration/questions.go`, `AnswerQuestion`). The coordinator guide, not the server, splits the two paths:
+    an owner CLI session hands a Run off (creates it and its first Tasks, then stops) and afterwards only observes,
+    passing a change to the Run's chat (`hypomnema chat --chat`); the chat's Bot handles every event, sends fix
+    rounds and finishes the Run.
     From: Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:39-91` (the stored binding writes,
     another known coordinator is read-only, the binding's owner is admitted); OpenMausBot `71ada2b5`,
     `server/coordinator.ts:63-64` (the requester is woken). Applying it to the owner's CLI session is inference the
     owner accepted on 2026-11-20.
   - A review's wake carries the verdict, the pull request, the merge state and checks, and the command that reads
     the findings (`reviewWakeText`); the control plane sends no follow-up to the author by itself, the Run's
-    chat decides the fix (issue #967 folded in). From: OpenMausBot `71ada2b5`, `server/runtime/envelope.ts:184,255`
+    chat decides the fix (issue #967 folded in). That enriched wake comes only when the review leaves its open Run
+    with no unfinished Task; while another Task of the Run is still unfinished, the review's end sends only the
+    plain Task wake, and the coordinator reads the verdict from `tasks show` (`reviewAfterTask` in
+    `orchestration/review.go`). From: OpenMausBot `71ada2b5`, `server/runtime/envelope.ts:184,255`
     (the requester checks the report and sends rework); Orca `a5c191cc0`, `src/main/bots/bot-pr-events.ts:1-13`
     (nothing wakes on a worker's pull request).
   - A worker's question reaches the chat its Run is bound to, adopted or not: one to the coordinator is a wake-up

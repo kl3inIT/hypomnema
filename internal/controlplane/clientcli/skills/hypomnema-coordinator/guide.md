@@ -11,9 +11,10 @@ description: >-
 # Coordinating Hypomnema workers
 
 <!-- Omnigent examples/polly/config.yaml:174-192; no reference for Hypomnema's Run, Task and branch names (owner, 2026-11-18) -->
-You coordinate a Run. The control plane starts each Task when a node and account are free. An implementer
-opens a pull request from its own branch `hyp/<task_id>`; the other roles return their reports. You verify
-the result. `hypomnema runs show <run_id> --json` tells you where the Run stands after you lose context.
+In a Bot chat you coordinate a Run; in a session with the owner you hand it off to a Bot chat (Recipe, below).
+The control plane starts each Task when a node and account are free. An implementer opens a pull request from its
+own branch `hyp/<task_id>`; the other roles return their reports. The coordinator verifies the result.
+`hypomnema runs show <run_id> --json` tells you where the Run stands after you lose context.
 
 <!-- Omnigent examples/polly/config.yaml:174-192; no reference for the Bot's daily work (owner, 2026-11-18) -->
 Bots coordinate and do day-to-day work (messages, Lark, Superset, reports and the phone). Give repository changes
@@ -23,6 +24,17 @@ Add `--json` to every command and read the result before the next step. When a r
 commands to run next. `hypomnema <command> --help` lists a command's flags; a flag it does not list does not exist.
 
 ## Recipe
+
+<!-- One controller per Run: Orca orchestration-legacy-coordinator-authority.ts:39-91 (a5c191cc); OpenMausBot
+server/coordinator.ts:63-64 (71ada2b5); the hand-off path for the owner's session is inference the owner accepted
+(owner, 2026-11-20, issue #969) -->
+A Run has one controller: the Bot of the chat it belongs to. There are two paths, by where you are:
+
+- **In a Bot chat** you coordinate the Run to its end: steps 0 to 4.
+- **In a session with the owner** (Claude Code, Codex), outside a Bot chat, you hand the Run off: steps 0 to 2,
+  then tell the owner the Run, the chat that `runs create` named and the Tasks, and stop. That chat's Bot is
+  woken by each event and takes it from there: it answers questions, sends reviews and fix rounds, and finishes
+  the Run. Do not do step 3 or 4 yourself, and after the hand-off only observe (Waiting, below).
 
 0. Before a Run that comes from an issue, a document or a memory, check that its premise still holds on the base
    branch: read the code it names, or run a read-only command on the system it names. When the work is already there
@@ -45,9 +57,9 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    The profile names a role, and the scheduler selects its model. Text
    goes through a file, or `-` for standard input, because shell quoting can change it; check the specs in the
    output.
-3. Wait (below), handle what the wait returns, and wait again until every Task has ended: succeeded, failed or
+3. In a Bot chat: handle each wake-up (Waiting, below) until every Task has ended: succeeded, failed or
    canceled. A blocked Task has not ended.
-4. Finish the Run with `hypomnema runs finish <run_id> --json` as soon as every Task has ended, without waiting
+4. In a Bot chat: finish the Run with `hypomnema runs finish <run_id> --json` as soon as every Task has ended, without waiting
    for the owner to press anything, then report to the owner per Task: the outcome, its evidence, and what is left.
    <!-- Hermes hermes_cli/kanban_db_graph.py:156 (the root wakes when all children complete) and
    kanban_db_workspace.py:419; Orca src/main/runtime/orchestration/db/worker-terminal/worker-terminal-user-keep.ts:140
@@ -134,20 +146,17 @@ evidence that proves it is done.
 hypomnema runs wait <run_id> --after <after> --json
 ```
 
-This is optional observation, not how a Run keeps its coordinator. The assigned chat is woken even when the
-session that created the Run has closed. The wait returns when a Task ended or was blocked, a worker asked a
-question, an escalation arrived, or the Run ended. It prints those events, the `after` for the next wait, and
-`next`. Start with `--after 0`.
+This is optional observation, not how a Run keeps its coordinator. The Run's chat is woken by each event even
+when the session that created the Run has closed, so a Bot needs no wait: the wake-up starts its turn. The wait
+returns when a Task ended or was blocked, a worker asked a question, an escalation arrived, or the Run ended. It
+prints those events, the `after` for the next wait, and `next`. Start with `--after 0`.
+
+In a Bot chat, on a wake-up:
 
 - When the control plane says the owner assigned an existing Run to this chat, start with `runs show <run_id> --json`.
   Read the current Tasks, open questions (`questions --run <run_id> --json`) and PR evidence. Continue only what
   still needs a decision, review or follow-up. A reviewer Task that succeeded may still have found the change
   incorrect. Only the owner can assign legacy Runs with `runs adopt`; leave Runs in other chats alone.
-<!-- Orca orchestration-legacy-coordinator-authority.ts:63-91 (a5c191cc; the stored binding holds); OpenHands SDK
-openhands-agent-server/openhands/agent_server/conversation_lease.py:167-209 (fb565cfe; a live owner is not
-displaced); issue #969 -->
-- A chat with an open Run cannot be deleted, nor its Bot removed with its chats: the answer is a conflict until
-  the Run is finished or canceled. Tell the owner which Run holds it; an ended Run lets the chat go as before.
 <!-- OpenMausBot server/runtime/envelope.ts:184,255 (71ada2b5; the requester checks the report and sends rework
 itself); Orca src/main/bots/bot-pr-events.ts:1-13 (a5c191cc; nothing wakes a worker's author on its PR); owner,
 2026-11-20, issues #967 and #969 -->
@@ -155,19 +164,27 @@ itself); Orca src/main/bots/bot-pr-events.ts:1-13 (a5c191cc; nothing wakes a wor
   request and the command that reads the findings; the control plane sends nothing to the author by itself, so the
   fix is yours to decide and send. The verdict and PR state in the wake
   are a snapshot, not permission to merge. If a Task has already been added, do not repeat it. A Run stalled after
-  review is not ready to finish merely because its Tasks ended.
+  review is not ready to finish merely because its Tasks ended. While another Task of the Run is unfinished, a
+  review's end comes as a plain Task wake: read its verdict with `tasks show` before acting.
 - When your turn began with a message from the control plane listing a Run's events, end your turn after acting;
   the control plane wakes you again.
 <!-- One controller per Run: Orca src/main/runtime/rpc/orchestration/compatibility/orchestration-legacy-coordinator-authority.ts:39-91
 (a5c191cc; only the bound principal writes, another caller is read-only); OpenMausBot server/coordinator.ts:63-64
 (71ada2b5; the requester is woken). Applying it to the owner's CLI session is inference the owner accepted
 (owner, 2026-11-20, issue #969). -->
-- A Run with a `chat_id` (in `runs show`) has one controller: that chat's Bot. In a session with the owner (Claude
-  Code, Codex), only observe such a Run: `runs show`, `tasks show` and, when the owner wants to watch it here,
-  `runs wait`. Do not follow up, answer its questions to the coordinator, or create Tasks or reviews in it, even
-  after a wait returns its events. When the owner wants it changed, pass the request to that chat with
-  `hypomnema chat --chat <chat_id> --text-file <file>`, or tell the owner to write there. A question to the owner
-  stays the owner's, and the owner may still cancel the Run.
+
+In a session with the owner (Claude Code, Codex), after the hand-off (Recipe, step 2), a Run with a `chat_id` (in
+`runs show`) is that chat's Bot's to control. Only observe it: `runs show`, `tasks show` and, when the owner wants
+to watch it here, `runs wait`. Do not follow up, answer its questions to the coordinator, create Tasks or reviews,
+or finish it, even after a wait returns its events: a finished Run takes no fix round. When the owner wants it
+changed, pass the request to that chat with `hypomnema chat --chat <chat_id> --text-file <file>`, or tell the owner
+to write there. A question to the owner stays the owner's, and the owner may still cancel the Run.
+
+<!-- Orca orchestration-legacy-coordinator-authority.ts:63-91 (a5c191cc; the stored binding holds); OpenHands SDK
+openhands-agent-server/openhands/agent_server/conversation_lease.py:167-209 (fb565cfe; a live owner is not
+displaced); issue #969 -->
+A chat with an open Run cannot be deleted, nor its Bot removed with its chats: the answer is a conflict until
+the Run is finished or canceled. Tell the owner which Run holds it; an ended Run lets the chat go as before.
 
 Keep at most one wait per Run and no status loops. To be notified when it is done, let the assigned chat receive
 the next wake-up and report there.
@@ -210,7 +227,7 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   hypomnema tasks follow-up <task_id> --note-file <file> --json
   ```
   The note says what to change or add. The Task is ready again; its worker continues its own conversation in the
-  same worktree and branch, updates the same pull request, and finishes again; wait as before.
+  same worktree and branch, updates the same pull request, and finishes again; its end wakes you as before.
   `tasks show` lists the follow-ups. A follow-up is for a succeeded Task, or one blocked at a gate, whose gate it
   replaces (the gate is closed and the worker goes on with your note); a failed one is the `recovery` reference's.
 <!-- Orca pr-start-point.ts:226-245 (38aa9119); t3code GitManager.ts:1013-1069, 3361-3390 (4d5bf2d5) (issue #690) -->
