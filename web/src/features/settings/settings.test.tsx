@@ -1199,3 +1199,53 @@ test("connecting BigQuery again keeps every dataset and the cap", async () => {
     body: { datasets: ["my-app.analytics_1", "my-app.analytics_2"], billing_project: "my-app" },
   })
 })
+
+// Scenario (review round 2, minor): the cap dialog shows the exact cap and starts empty, so a cap shown rounded
+// is never saved back; what is typed is sent in bytes.
+test("the bytes cap is typed anew and sent exactly", async () => {
+  const user = userEvent.setup()
+  const now = new Date().toISOString()
+  const requests = server({
+    services: [
+      {
+        id: "bigquery",
+        name: "BigQuery",
+        kind: "serviceaccount",
+        services: [],
+        connections: [
+          {
+            integration: "bigquery",
+            label: "ga4",
+            account: "hypomnema-ga4@my-app.iam.gserviceaccount.com",
+            services: [],
+            sign_in_required: false,
+            chats: false,
+            cannot: [],
+            created_at: now,
+            updated_at: now,
+            bigquery: {
+              billing_project: "my-app",
+              datasets: ["my-app.analytics_1"],
+              max_bytes_billed: 1234567890,
+            },
+          },
+        ],
+      },
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  const account = within(await screen.findByLabelText("BigQuery account ga4"))
+  await user.click(account.getByRole("button", { name: "Bytes cap" }))
+  const dialog = within(await screen.findByRole("dialog"))
+  expect(dialog.getByLabelText("Bytes cap")).toHaveValue("")
+  expect(dialog.getByText(/Now 1,234,567,890 bytes/)).toBeInTheDocument()
+  await user.type(dialog.getByLabelText("Bytes cap"), "2GiB")
+  await user.click(dialog.getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+  expect(requests[0]).toEqual({
+    call: "PATCH /integrations/bigquery/connections/ga4",
+    body: { max_bytes_billed: 2 * 2 ** 30 },
+  })
+})

@@ -333,7 +333,8 @@ export function BytesCapDialog({
 
   const form = useForm({
     defaultValues: {
-      maxBytes: connection.bigquery ? formatSize(connection.bigquery.max_bytes_billed) : "",
+      // Typed anew: a cap shown rounded and saved back unchanged would change it.
+      maxBytes: "",
     },
     validators: { onSubmit: capSchema },
     onSubmit: async ({ value }) => {
@@ -390,7 +391,18 @@ export function BytesCapDialog({
           >
             <FieldGroup>
               <form.Field name="maxBytes">
-                {(field) => <TextField field={field} label="Bytes cap" placeholder="10GiB" />}
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Bytes cap"
+                    placeholder="10GiB"
+                    description={
+                      connection.bigquery
+                        ? `Now ${connection.bigquery.max_bytes_billed.toLocaleString("en-US")} bytes (about ${formatSize(connection.bigquery.max_bytes_billed)}).`
+                        : undefined
+                    }
+                  />
+                )}
               </form.Field>
             </FieldGroup>
             <ErrorAlert error={save.error} />
