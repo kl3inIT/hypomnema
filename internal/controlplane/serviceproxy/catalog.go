@@ -265,6 +265,8 @@ func CatalogOf(integration string) (Catalog, bool) {
 		return zaloCatalog(), true
 	case GitHubID:
 		return githubCatalog(), true
+	case BigQueryID:
+		return bigqueryCatalog(), true
 	}
 
 	return Catalog{}, false

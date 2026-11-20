@@ -21,6 +21,9 @@ type Act struct {
 	Label       string
 	// ChatID is the chat a coordinator works in, so that the Approval it waits for is answered there.
 	ChatID string
+	// RunKey is the key of the Routine's run whose script asks (issue #976, as Call's), so that the Approval it
+	// waits for belongs to that run, waits as long as a run waits, and a grant for the Routine passes its later runs.
+	RunKey string
 	// Action is the id of the action, one of the Integration's catalog.
 	Action string
 	// Subject says which one it is, after the action's name in the Approval's title.
@@ -43,7 +46,10 @@ func (p *Proxy) Judge(ctx context.Context, a Act) error {
 		return fmt.Errorf("%w: %s has no action %s", orchestration.ErrInvalid, a.Integration, a.Action)
 	}
 
-	s := session{caller: a.Caller, integration: a.Integration, label: a.Label, chatID: a.ChatID, catalog: catalog}
+	s := session{
+		caller: a.Caller, integration: a.Integration, label: a.Label, chatID: a.ChatID, runKey: a.RunKey,
+		catalog: catalog,
+	}
 
 	title := action.Name
 	if a.Subject != "" {

@@ -393,7 +393,7 @@ func (p *Proxy) decide(ctx context.Context, action Action, s session, describe f
 ) (governing Action, verdict, message string, err error) {
 	all := append([]Action{action}, action.With...)
 	if s.caller.ReadRun {
-		if !readRunIntegration(s.integration) && s.integration != SupersetID {
+		if !readRunIntegration(s.integration) && s.integration != SupersetID && s.integration != BigQueryID {
 			return action, "read-only", agenttool.ReadRunRefusal, nil
 		}
 

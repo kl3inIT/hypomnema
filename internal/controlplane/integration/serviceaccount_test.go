@@ -3,10 +3,10 @@ package integration_test
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"log/slog"
@@ -353,4 +353,3 @@ func TestARefusedTokenAsksToConnectAgain(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, all[0].Connections[0].SignInRequired)
 }
-
