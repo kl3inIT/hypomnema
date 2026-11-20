@@ -102,7 +102,7 @@ func fakeCLI(mode string) int {
 }
 
 func writeIsolatedScratch() bool {
-	temp, err := os.Stat(os.Getenv("TMPDIR"))
+	temp, err := os.Stat(os.Getenv("TMPDIR")) //nolint:gosec // the supervisor sets this to the fixture's scratch
 	if err != nil {
 		return false
 	}
@@ -116,7 +116,7 @@ func writeIsolatedScratch() bool {
 }
 
 func writeScratch(dir, name, value string) bool {
-	return dir != "" && os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600) == nil
+	return dir != "" && os.WriteFile(filepath.Join(dir, name), []byte(value), 0o600) == nil //nolint:gosec // test scratch
 }
 
 func ask(say func(line)) int {
@@ -434,17 +434,17 @@ func TestAdoptedWorkerCanBeStopped(t *testing.T) {
 	checkAdoptedWorkerCanBeStopped(t, g)
 }
 
-func checkAdoptedWorkerCanBeStopped(t *testing.T, g *rig) {
+func checkAdoptedWorkerCanBeStopped(t *testing.T, fixture *rig) {
 	t.Helper()
-	g.start(newReporter())
+	fixture.start(newReporter())
 
-	again := g.restart()
+	again := fixture.restart()
 	second := newReporter()
 	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, again.dispatch(), second))
 	temp := filepath.Join(again.sup.dir("dsp_1"), "tmp")
 	assert.DirExists(t, temp)
 	assert.False(t, again.sup.Stopped("dsp_1", false))
-	if g.sup.Isolation.On() {
+	if fixture.sup.Isolation.On() {
 		for name, want := range map[string]string{"a": "x\n", "b": "y\n"} {
 			got, err := os.ReadFile(filepath.Join(temp, name)) //nolint:gosec // test Dispatch's scratch
 			require.NoError(t, err)
@@ -467,13 +467,13 @@ func checkAdoptedWorkerCanBeStopped(t *testing.T, g *rig) {
 
 func TestWorkerWithoutTempIsolationUsesGoTemp(t *testing.T) {
 	t.Parallel()
-	g := newRig(t, "env-temp")
+	fixture := newRig(t, "env-temp")
 	report := newReporter()
-	g.start(report)
-	dir := g.sup.dir("dsp_1")
+	fixture.start(report)
+	dir := fixture.sup.dir("dsp_1")
 	t.Cleanup(func() { _ = shim.KillRecorded(dir) })
 	assert.FileExists(t, filepath.Join(dir, "tmp", "env"))
-	g.sup.Stop("dsp_1")
+	fixture.sup.Stop("dsp_1")
 	report.wait(t)
 }
 

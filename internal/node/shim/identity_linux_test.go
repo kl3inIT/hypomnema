@@ -90,7 +90,7 @@ func TestIsolatedWorkerExitAndOrphanedGroup(t *testing.T) {
 			require.True(t, done)
 			assert.Equal(t, scenario.want, exit)
 			if scenario.name == "exit" {
-				raw, err := os.ReadFile(filepath.Join(temp, "child"))
+				raw, err := os.ReadFile(filepath.Join(temp, "child")) //nolint:gosec // test scratch
 				require.NoError(t, err)
 				child, err := strconv.Atoi(string(raw))
 				require.NoError(t, err)
