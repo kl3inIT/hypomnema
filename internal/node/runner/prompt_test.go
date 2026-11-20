@@ -35,8 +35,13 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 		prompt := Prompt(d)
 		assert.Contains(t, prompt, "Do not edit project files")
 		assert.Contains(t, prompt, "You may run code to check a claim (the tests, a repro script) in a scratch "+
-			"place: a copy of this worktree or a temporary directory", "a reviewer may run a repro (issue #952)")
-		assert.Contains(t, prompt, "Tracked files stay unchanged.")
+			"copy of this worktree under $TMPDIR. Leave the tracked files here unchanged.",
+			"a reviewer may run a repro (issue #952)")
+		// Every "only here" line names the scratch copy, so none forbids it (issue #952, review round 1).
+		assert.Contains(t, prompt, "\nWork only in this directory and your scratch copy under $TMPDIR; this "+
+			"directory is a git worktree of kl3inIT/second-bite")
+		assert.NotContains(t, prompt, "outside this directory.", "no line forbids the scratch copy")
+		assert.NotContains(t, prompt, "outside this directory\n")
 		assert.NotContains(t, prompt, "is a flake", "a read-only worker fixes no check")
 		assert.NotContains(t, prompt, "gh pr create")
 		assert.NotContains(t, prompt, "publish_branch")
@@ -46,9 +51,17 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 			assert.Contains(t, prompt, "this CLI's subagents for independent read-only lookups")
 			assert.NotContains(t, prompt, "Do not start subagents")
 		} else {
-			assert.Contains(t, prompt, "Do not start subagents")
+			assert.Contains(t, prompt, "Do not start subagents, and do not work outside this directory and your "+
+				"scratch copy under $TMPDIR.")
 		}
 	}
+
+	d.Offer.Repo = ""
+	assert.Contains(t, Prompt(d), "\nWork only in this directory and your scratch copy under $TMPDIR.\n",
+		"without a repository too")
+
+	d.Offer.Profile = "implementer"
+	assert.NotContains(t, Prompt(d), "scratch copy", "a writer has its worktree for that")
 }
 
 func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {

@@ -907,7 +907,10 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 		"A P0 or P1, and so\n   `incorrect`, needs proof at the head",
 		"`Head: <sha>` (the commit the verdict covers), `Evidence: <level>`",
 		"only `git diff <reviewed_sha>..<head>`",
-		"is a flake: it gets one rerun and an issue",
+		"A red check gets one fresh build before you decide: rerun its failed jobs once",
+		"`Verdict: correct` (or `incorrect` or `blocked`)",
+		"an `incorrect` verdict where none has it is\n   handled as `blocked` (below), never as a pass",
+		"A verdict of `blocked` is not a pass and not a fix round.",
 	} {
 		assert.Contains(t, out, want, "reviews converge faster (issue #952)")
 	}

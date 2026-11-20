@@ -1822,8 +1822,9 @@ flowchart LR
   the change makes wrong), a problem the base already has blocking only when the change copies or newly reaches
   it and the rest listed as follow-ups; names the head commit the verdict covers, an evidence level (`ran-live`,
   `test-verified`, `typecheck-only`, `blocked`, never a pass, or `failed`) and an `Execution` list of what it ran;
-  and checks a plan only for its cited code and whether it can be carried out. No migration seeds it: a reviewer
-  gets it when the owner applies the file.
+  checks a plan only for its cited code and whether it can be carried out; and returns `blocked` in place of
+  `correct` or `incorrect` when it could not run what the verdict needs, saying what stopped it (`review_stall`
+  shows it as `unknown`). No migration seeds it: a reviewer gets it when the owner applies the file.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
   requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
@@ -4484,11 +4485,13 @@ The owner's commands:
   A first PR review receives the pull request and spec, not the report or transcript, and is told to block only on
   a P0 or P1 proved at the head and to give its `Head:` and evidence level in the summary (issue #952, after
   pstack's `autopilot-full.md:16` and orchestrate's `verifier.md:23,41-61`); a P0 or P1 without proof is a
-  follow-up. From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
+  follow-up, and an `incorrect` verdict with none proved is handled as `blocked`: never a pass nor a fix round,
+  one new review once its cause is gone, then the owner told (orchestrate's `handoffs.md:137`). From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
   effort `medium`, and the whole change again only for new behavior, a redesign or a large new diff; a clean merge
-  of the base or a wording-only change needs green CI only (pstack's `autopilot-full.md:5,14`). A red check outside
-  the diff that is also red on the base, or green on one rerun, is a flake: one rerun and an issue, no fix in the
-  pull request (pstack's `babysit.md:8`). A bug fix's spec asks for the failing test committed before the fix
+  of the base or a wording-only change needs green CI only (pstack's `autopilot-full.md:5,14`). Before a review,
+  a red check gets one rerun of its failed jobs, noted in the report; one green on the rerun, or failing outside
+  the diff and also red on the base, is a flake: the review goes on, and the author opens an issue, with no fix
+  in the pull request (pstack's `babysit.md:8`). A bug fix's spec asks for the failing test committed before the fix
   (pstack's `bug-fix.md:11`), and a failed Task's offered retry fits its cause: a smaller scope for time or memory,
   another runtime the owner names for a tool or model error, never a third identical attempt (orchestrate's
   `handoffs.md:61-67`). Findings that make a change
@@ -4753,11 +4756,12 @@ Node (`internal/node`):
       - for a worker that writes, that only its diff's failures get a commit: a red check outside the diff that is
         also red on the base, or green on one rerun, is a flake, rerun once and given an issue, which the worker
         opens or comments on without asking; and that a bug fix commits a test failing without the fix before the
-        fix, unless no cheap test reaches the bug (issue #952, after pstack's `babysit.md:8`,
+        fix, unless the test would be expensive or unclear, as pstack's playbook itself allows (issue #952, after pstack's `babysit.md:8`,
         `autonomous-run.md:9`, `bug-fix.md:11` and `tdd/SKILL.md`);
       - for a routed `planner`, `explorer` or `reviewer`, which changes no project file, that it may run code to
-        check a claim (the tests, a repro script) in a copy of its worktree or a temporary directory, leaving tracked
-        files unchanged (issue #952, after orchestrate's `verifier.md:23` and pstack's `interrogate/SKILL.md:19`);
+        check a claim (the tests, a repro script) in a scratch copy of its worktree under its `$TMPDIR`, leaving
+        tracked files unchanged, and its "only here" lines name that copy too (issue #952, after orchestrate's
+        `verifier.md:23` and pstack's `interrogate/SKILL.md:19`);
     - the profile's instruction, the accounts and phone of the Run, then the agent's memory and the one about the
       owner (issue #21);
     - the repository and branch, and the instruction to open a pull request with the host's command:
