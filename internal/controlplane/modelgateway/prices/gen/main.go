@@ -1,6 +1,6 @@
 // Command gen writes the gateway's price book from a models.dev snapshot
 // (issue #304), as Coder generates its own (scripts/aibridgepricesgen): the
-// anthropic, openai and google models, each with its input, output, cache
+// anthropic, openai, google and opencode-go models, each with its input, output, cache
 // read and cache write prices in micro-dollars per million tokens, sorted so a
 // new snapshot changes only what changed. A price models.dev does not give is
 // left out (null). Only the base tier is kept; a long context's tier is not.
@@ -26,7 +26,7 @@ import (
 
 // vendors are the models.dev providers kept: the makers whose models the
 // gateway serves from subscriptions.
-var vendors = []string{"anthropic", "google", "openai"}
+var vendors = []string{"anthropic", "google", "openai", "opencode-go"}
 
 // inputs are the inputs kept: those a client of the gateway's chat sends.
 var inputs = []string{"text", "image"}
