@@ -54,7 +54,7 @@ export function SetupChangeCard({ change }: { change: SetupChange }) {
                 Open
               </Link>
             ) : (
-              <Link to="/agents/$name" params={{ name: change.name }} className={action}>
+              <Link to="/settings/agents/$name" params={{ name: change.name }} className={action}>
                 Open
               </Link>
             ))}

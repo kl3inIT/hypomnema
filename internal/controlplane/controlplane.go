@@ -706,13 +706,17 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		subscriptions.Loop(ctx)
 	}()
 
-	// The subscription providers are given the models their vendors serve (issue #623).
+	// The subscription providers are given the models their vendors serve (issue #623), and again as soon as an
+	// account's first list of models is read (issue #814).
 	vendorModelsDone := make(chan struct{})
+	vendor := &vendorModels{subs: subscriptions, providers: svc, logger: logger}
+
+	subscriptions.OnFirstList(func(string) { vendor.update(ctx) })
 
 	go func() {
 		defer close(vendorModelsDone)
 
-		vendorModelsLoop(ctx, subscriptions, svc, logger)
+		vendorModelsLoop(ctx, vendor)
 	}()
 
 	// Old requests and the revoked keys no request names are deleted once a day (issue #628).

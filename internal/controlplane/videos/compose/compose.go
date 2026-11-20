@@ -101,7 +101,7 @@ type Input struct {
 }
 
 // SceneResult is how a scene was made, in the take's time (Keeps) and in the video's (OutStartMs, OutLengthMs,
-// RingAtMs).
+// Ring).
 type SceneResult struct {
 	Scene
 	Keeps       []Span  `json:"keeps"`
@@ -113,8 +113,17 @@ type SceneResult struct {
 	HoldMs      int64   `json:"hold_ms"`
 	OutStartMs  int64   `json:"out_start_ms"`
 	OutLengthMs int64   `json:"out_length_ms"`
-	// RingAtMs is when the tap's ring starts, when the scene has a tap.
-	RingAtMs *int64 `json:"ring_at_ms,omitempty"`
+	// Ring is the tap's ring, when the scene has a tap and the take its screen's size.
+	Ring *Ring `json:"ring,omitempty"`
+}
+
+// Ring is a tap's ring on the video, in its pixels: from AtMs for RingMs, centered at X, Y, Size pixels across
+// (issue #908, row 9: the captions keep clear of it).
+type Ring struct {
+	AtMs int64 `json:"at_ms"`
+	X    int   `json:"x"`
+	Y    int   `json:"y"`
+	Size int   `json:"size"`
 }
 
 // Result is what Compose made.
@@ -199,12 +208,6 @@ type composer struct {
 	noScreen bool
 }
 
-// ring is a tap's ring placed on the video.
-type ring struct {
-	atMs int64
-	x, y int
-}
-
 func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) {
 	c.result = Result{Size: c.size}
 
@@ -216,7 +219,7 @@ func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) 
 
 	var (
 		sceneFiles []string
-		rings      []ring
+		rings      []Ring
 		cursor     int64
 	)
 
@@ -228,15 +231,14 @@ func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) 
 
 		res.OutStartMs = cursor
 
-		if c.noScreen {
-			res.RingAtMs = nil
+		if res.Ring != nil && c.noScreen {
+			res.Ring = nil
 		}
 
-		if res.RingAtMs != nil {
-			at := cursor + *res.RingAtMs
-			res.RingAtMs = &at
+		if res.Ring != nil {
 			x, y := c.place(sc)
-			rings = append(rings, ring{atMs: at, x: x, y: y})
+			res.Ring = &Ring{AtMs: cursor + res.Ring.AtMs, X: x, Y: y, Size: ringSize(c.ringScale())}
+			rings = append(rings, *res.Ring)
 		}
 
 		cursor += res.OutLengthMs
@@ -385,7 +387,7 @@ func (c *composer) scene(
 	if sc.Tap != nil {
 		// The tap's time through the kept spans and the retime, as aidemo places a click (toContent).
 		at := int64(math.Round(math.Min(float64(offsetInKeeps(res.Keeps, sc.TapAtMs))*rt.Factor, rt.StretchedMs)))
-		res.RingAtMs = &at
+		res.Ring = &Ring{AtMs: at}
 	}
 
 	return res, file, nil
@@ -514,14 +516,12 @@ func (c *composer) concatTo(ctx context.Context, parts []string, out, list strin
 }
 
 // drawRings overlays the taps' rings, in passes of at most overlayBatch.
-func (c *composer) drawRings(ctx context.Context, video string, rings []ring) (string, error) {
+func (c *composer) drawRings(ctx context.Context, video string, rings []Ring) (string, error) {
 	if len(rings) == 0 {
 		return video, nil
 	}
 
-	// A ring is sized for a phone's screen as wide as the video shows it.
-	s, _, _ := c.fit(c.segs[0])
-	scale := float64(c.segs[0].Width) * s / dpWidth
+	scale := c.ringScale()
 
 	pattern, err := writeRing(filepath.Join(c.in.Work, "ring"), scale)
 	if err != nil {
@@ -545,9 +545,9 @@ func (c *composer) drawRings(ctx context.Context, video string, rings []ring) (s
 			}
 
 			chain = append(chain,
-				fmt.Sprintf("[%d:v]setpts=PTS-STARTPTS+%.3f/TB[r%d]", k+1, float64(r.atMs)/1000, k),
+				fmt.Sprintf("[%d:v]setpts=PTS-STARTPTS+%.3f/TB[r%d]", k+1, float64(r.AtMs)/1000, k),
 				fmt.Sprintf("[%s][r%d]overlay=x=%d:y=%d:eof_action=pass:repeatlast=0[%s]",
-					prev, k, r.x-half, r.y-half, label))
+					prev, k, r.X-half, r.Y-half, label))
 			prev = label
 		}
 
@@ -562,6 +562,13 @@ func (c *composer) drawRings(ctx context.Context, video string, rings []ring) (s
 	}
 
 	return video, nil
+}
+
+// ringScale is the scale a ring is drawn at: sized for a phone's screen as wide as the video shows it.
+func (c *composer) ringScale() float64 {
+	s, _, _ := c.fit(c.segs[0])
+
+	return float64(c.segs[0].Width) * s / dpWidth
 }
 
 // mux burns the captions, when there are any, and adds the voice: each

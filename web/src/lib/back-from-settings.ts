@@ -7,7 +7,15 @@ const key = "hypomnema.app-page"
 let kept = ""
 
 function inSettings(href: string) {
-  return href === "/settings" || href.startsWith("/settings/") || href.startsWith("/settings?")
+  const [path = ""] = href.split(/[?#]/, 1)
+  // Issue #857 moved the Agents pages and Machines list into Settings. Older tabs may still have their old URLs.
+  return (
+    path === "/settings" ||
+    path.startsWith("/settings/") ||
+    /^\/agents(?:\/[^/]+)?\/?$/.test(path) ||
+    path === "/machines" ||
+    path === "/machines/"
+  )
 }
 
 // rememberAppPage keeps where the owner is, unless it is a page of Settings.

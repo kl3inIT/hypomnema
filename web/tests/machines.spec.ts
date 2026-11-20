@@ -128,7 +128,7 @@ for (const theme of ["light", "dark"] as const) {
   test(`disk pressure stays separate from connectivity in ${theme} mode`, async ({ page }) => {
     await page.addInitScript((choice) => localStorage.setItem("theme", choice), theme)
     await fakeServer(page, true)
-    await page.goto("/machines")
+    await page.goto("/settings/machines")
     await expect(page.locator("html")).toHaveClass(new RegExp(theme))
     const blocked = page.getByRole("article", { name: "build-node" })
     await expect(blocked).toContainText("Online")
@@ -149,7 +149,7 @@ for (const theme of ["light", "dark"] as const) {
 // group, then looks at them as a table that scrolls inside its box, and the choice survives a reload.
 test("the machines show as cards and as a table", async ({ page }) => {
   await fakeServer(page)
-  await page.goto("/machines")
+  await page.goto("/settings/machines")
 
   await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible()
   await expect(page.getByText("The machines your workers run on.")).toBeVisible()
@@ -212,7 +212,7 @@ test("the machines show as cards and as a table", async ({ page }) => {
 // and is refused when removing one that still works.
 test("the owner adds, resumes and fails to remove a machine", async ({ page, baseURL }) => {
   const calls = await fakeServer(page)
-  await page.goto("/machines")
+  await page.goto("/settings/machines")
 
   await page.getByRole("button", { name: "Add machine" }).click()
   const dialog = page.getByRole("dialog")
@@ -238,4 +238,38 @@ test("the owner adds, resumes and fails to remove a machine", async ({ page, bas
   await expect(confirm.getByRole("alert")).toHaveText("the node still runs 3 Dispatches")
 
   expect(calls).toEqual(["POST /nodes", "POST /nodes/nod_2/resume", "DELETE /nodes/nod_1"])
+})
+
+// Scenario: the Machines moved from the app's sidebar into Settings, under Workers beside the Agents (issue #857). An
+// old link to /machines leads there; a computer shows Settings' sidebar with Machines picked, a phone a way back to
+// the list of Settings' sections.
+test("the old address of the Machines opens them in Settings", async ({ page, isMobile }) => {
+  await fakeServer(page)
+  await page.goto("/machines")
+
+  await expect(page).toHaveURL(/\/settings\/machines$/)
+  await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible()
+  await expect(page.getByRole("navigation", { name: "Places" })).toHaveCount(0)
+  if (isMobile) {
+    await shot(page, "settings-machines")
+    await page.getByRole("link", { name: "Settings" }).click()
+    await expect(page).toHaveURL(/\/settings$/)
+    const workers = page.getByRole("region", { name: "Workers" })
+    await expect(workers.getByRole("link")).toHaveText(["Agents", "Machines"])
+    await workers.scrollIntoViewIfNeeded()
+    await shot(page, "settings-workers")
+    await workers.getByRole("link", { name: "Agents" }).click()
+    await expect(page).toHaveURL(/\/settings\/agents$/)
+
+    return
+  }
+
+  const workers = page
+    .getByRole("navigation", { name: "Settings" })
+    .locator("div")
+    .filter({ has: page.getByText("Workers", { exact: true }) })
+  await expect(workers.getByRole("link")).toHaveText(["Agents", "Machines"])
+  await expect(workers.getByRole("link", { name: "Machines" })).toHaveClass(/active/)
+  await workers.scrollIntoViewIfNeeded()
+  await shot(page, "settings-machines")
 })

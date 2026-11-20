@@ -126,7 +126,7 @@ export function TerminalScreen({
     <div className="dark flex h-svh w-full min-w-0 flex-col bg-background text-foreground">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b px-3 text-sm">
         <Link
-          to="/machines"
+          to="/settings/machines"
           aria-label="Back to machines"
           className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >

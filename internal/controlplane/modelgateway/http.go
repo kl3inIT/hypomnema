@@ -161,8 +161,32 @@ func (s *Server) Register(mux *http.ServeMux) {
 func longAnswer(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
-		h(w, r)
+		h(w, withAccountWait(r))
 	}
+}
+
+// accountWait is how long a request may wait, in all, for the accounts' lists of models being read before it is told
+// to try again (issue #814): one bound for the whole request, through every pick and fallback.
+const accountWait = 30 * time.Second
+
+type accountWaitKey struct{}
+
+// withAccountWait gives a request the moment its wait for the accounts' lists ends.
+func withAccountWait(r *http.Request) *http.Request {
+	return r.WithContext(WithAccountWait(r.Context(), time.Now().Add(accountWait)))
+}
+
+// WithAccountWait gives ctx the moment its request stops waiting for the accounts' lists of models (AccountWaitEnds).
+func WithAccountWait(ctx context.Context, ends time.Time) context.Context {
+	return context.WithValue(ctx, accountWaitKey{}, ends)
+}
+
+// AccountWaitEnds is when the request of ctx stops waiting for the accounts' lists of models; ok is false outside
+// one.
+func AccountWaitEnds(ctx context.Context) (time.Time, bool) {
+	t, ok := ctx.Value(accountWaitKey{}).(time.Time)
+
+	return t, ok
 }
 
 // longBody is longAnswer for a request whose body may take longer to arrive than the server's read timeout (15 s,
@@ -177,7 +201,7 @@ func longBody(h http.HandlerFunc) http.HandlerFunc {
 		rc := http.NewResponseController(w)
 		_ = rc.SetReadDeadline(time.Now().Add(time.Hour))
 		_ = rc.SetWriteDeadline(time.Time{})
-		h(w, r)
+		h(w, withAccountWait(r))
 	}
 }
 

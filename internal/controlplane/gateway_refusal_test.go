@@ -48,6 +48,22 @@ func (v *refusalVendor) Refresh(ctx context.Context, _ vault.Payload) (vault.Ref
 	}, v.err
 }
 
+// Models lists the model the Codex cases ask for: a Codex request goes only to an account whose own list has its model
+// (issue #814).
+func (v *refusalVendor) Models(context.Context, subscription.Token) ([]subscription.ServedModel, error) {
+	return []subscription.ServedModel{{Name: codexRefusalModel, Remaining: -1}}, nil
+}
+
+// codexRefusalModel is the model the Codex cases ask for, which every account's list has.
+const codexRefusalModel = "gpt-5.6-sol"
+
+// listedCodex is Codex whose accounts' lists have codexRefusalModel, without asking chatgpt.com.
+type listedCodex struct{ *subscription.Codex }
+
+func (listedCodex) Models(context.Context, subscription.Token) ([]subscription.ServedModel, error) {
+	return []subscription.ServedModel{{Name: codexRefusalModel, Remaining: -1}}, nil
+}
+
 func (v *refusalVendor) Identify(vault.Payload) (subscription.Identity, error) {
 	return subscription.Identity{}, errors.New("the fake token carries no identity")
 }
@@ -176,7 +192,7 @@ func TestGatewayMovesPastUnusableCredentials(t *testing.T) {
 			var exchange subscription.Vendor = vendor
 			switch {
 			case tc.refreshHTTP != 0 && runtime == "codex":
-				exchange = subscription.NewCodex(backend.URL, clock)
+				exchange = listedCodex{subscription.NewCodex(backend.URL, clock)}
 			case tc.refreshHTTP != 0:
 				exchange = subscription.NewClaude(subscription.ClaudeOptions{TokenBase: backend.URL}, clock)
 			}
@@ -194,7 +210,7 @@ func TestGatewayMovesPastUnusableCredentials(t *testing.T) {
 			body := `{"model":"claude-subscription/claude-opus-5-5","messages":[{"role":"user","content":"hi"}]}`
 			if runtime == "codex" {
 				path = "/v1/responses"
-				body = `{"model":"codex-subscription/gpt-5.6-sol","input":"hi","prompt_cache_key":"a","stream":true}`
+				body = `{"model":"codex-subscription/` + codexRefusalModel + `","input":"hi","prompt_cache_key":"a","stream":true}`
 			}
 			req := httptest.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(body))
 			req.Header.Set("Authorization", "Bearer "+key)

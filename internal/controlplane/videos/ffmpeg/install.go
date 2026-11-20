@@ -33,7 +33,8 @@ import (
 // shared browser its programs (internal/controlplane/browser/install.go):
 //
 //	<dir>/<version>/ffmpeg, <dir>/<version>/ffprobe, <dir>/<version>/LICENSE.txt
-//	<dir>/fonts/BeVietnamPro-SemiBold.ttf, <dir>/fonts/OFL.txt
+//	<dir>/fonts/BeVietnamPro-*.ttf, <dir>/fonts/OFL.txt (theirs)
+//	<dir>/fonts/JetBrainsMono-SemiBold.ttf, <dir>/fonts/JetBrainsMono-OFL.txt
 //	<dir>/current   the version in use
 //
 // The file is downloaded beside its place, checked against its size and
@@ -51,12 +52,28 @@ const (
 	fontsDir        = "fonts"
 )
 
-// fonts are the font captions are drawn with, which has every Vietnamese
-// letter, and its license: Be Vietnam Pro SemiBold (SIL Open Font License
-// 1.1), from github.com/google/fonts at c133902 (ofl/bevietnampro).
+// fonts are the fonts captions are drawn with, each with every Vietnamese
+// letter, and their licenses (SIL Open Font License 1.1), each family's next
+// to it:
+//
+//   - Be Vietnam Pro SemiBold, ExtraBold, Bold and Medium, from
+//     github.com/google/fonts at c133902 (ofl/bevietnampro), license OFL.txt;
+//   - JetBrains Mono SemiBold, from github.com/JetBrains/JetBrainsMono at
+//     19371302 (fonts/ttf), the commit google/fonts takes it from (ofl/jetbrainsmono), license
+//     JetBrainsMono-OFL.txt.
+//
+// The caption presets map demotape's macOS fonts onto them (issue #908, row 7).
 //
 //go:embed fonts/BeVietnamPro-SemiBold.ttf fonts/OFL.txt
+//go:embed fonts/BeVietnamPro-ExtraBold.ttf fonts/BeVietnamPro-Bold.ttf fonts/BeVietnamPro-Medium.ttf
+//go:embed fonts/JetBrainsMono-SemiBold.ttf fonts/JetBrainsMono-OFL.txt
 var fonts embed.FS
+
+// FontFile is one of the fonts installed with ffmpeg, by its file's name, as
+// the captions measure their text with it (issue #908, row 8).
+func FontFile(name string) ([]byte, error) {
+	return fonts.ReadFile(fontsDir + "/" + name)
+}
 
 // Tools are the installed programs, by absolute path, and the folder of the
 // fonts ffmpeg's subtitles filter is given (fontsdir).

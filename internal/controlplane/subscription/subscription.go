@@ -57,11 +57,22 @@ var (
 	// ErrNoAccount is returned when no account of a runtime can be used:
 	// none was logged in here, or every one is disabled or needs a new login.
 	ErrNoAccount = errors.New("no account logged in here can be used")
+	// ErrModelNotServed is returned for a model no account's list has, once every usable account's list is known
+	// (issue #814).
+	ErrModelNotServed = errors.New("the model is not served by any account")
+	// ErrNoModel is returned when a token is asked for without the model it will call, of a runtime whose accounts
+	// are each served their own models (issue #814).
+	ErrNoModel = errors.New("a token is asked for without its model")
 )
 
 // CoolingError says every usable account of a runtime waits for a usage
 // limit to end; Until is when the first one is free.
-type CoolingError struct{ Until time.Time }
+type CoolingError struct {
+	Until time.Time
+	// ListUnknown says no account is known to have the model asked for while an account's list of models is not
+	// known yet (TokenFor, issue #814): the request is to be tried again then, whatever an account answered before.
+	ListUnknown bool
+}
 
 func (e *CoolingError) Error() string {
 	return "every account waits for its usage limit, until " + e.Until.UTC().Format(time.RFC3339)
@@ -216,9 +227,18 @@ type Service struct {
 	// pins is the account each conversation is on (rank.go); pinsMu guards it.
 	pins   map[string]pin
 	pinsMu sync.Mutex
-	// served is the last reading of what each runtime's accounts are served with (served.go); servedMu guards it.
+	// served is the last reading of the models each account is served (served.go); servedMu guards it.
 	served   map[string]servedReading
 	servedMu sync.Mutex
+	// servedWait bounds the wait for an account's first reading in flight (served.go).
+	servedWait time.Duration
+	// firstGood is, by runtime, the last list answered of a runtime whose list is not each account's own (served.go).
+	firstGood map[string]servedView
+	// firstList, when set, is told the runtime of an account whose first list of models was just read (served.go).
+	firstList func(runtime string)
+	// afterAccounts, when set, runs in TokenFor between reading the accounts and what is known of their lists: a
+	// test's moment to finish a list.
+	afterAccounts func()
 }
 
 const (
@@ -247,7 +267,7 @@ func New(
 	s := &Service{
 		accounts: accounts, vault: v, clock: clock, logger: logger, vendors: map[string]Vendor{}, after: time.After,
 		rr: map[string]int{}, left: map[string]quotaReading{}, limits: map[string]limitsEntry{}, pins: map[string]pin{},
-		served: map[string]servedReading{},
+		served: map[string]servedReading{}, servedWait: servedWait, firstGood: map[string]servedView{},
 	}
 	for _, vendor := range vendors {
 		s.vendors[vendor.Runtime()] = vendor
@@ -502,20 +522,81 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 		return Token{}, err
 	}
 
-	// Every account of the runtime logged in here, in a stable order, so the
-	// home a session hashes to does not move between its requests.
-	var ofRuntime []Account
+	return s.tokenAmong(ctx, runtime, "", session, usable(accounts, runtime), skip)
+}
+
+// TokenFor is Token for a request for a model, which goes only to the accounts whose own list of models has it
+// (issue #814), as CLIProxyAPI routes a model only to the auths that registered it
+// (sdk/cliproxy/auth/conductor_selection.go:1419-1431 authSupportsRouteModel, applied at :1687). Every rule of Token
+// then orders those. Of a runtime whose vendor lists each account's own models (perAccount):
+//   - an account whose first list is being read is waited for, at most servedWait; while no account is known to have
+//     the model and one's list is not known (still being read, or never read), the answer is a CoolingError to try
+//     again soon, never another account in its place;
+//   - when every account's list is known and none has the model, the answer is ErrModelNotServed;
+//   - a request names its model: an empty one is ErrNoModel.
+//
+// Another runtime's accounts are taken as Token takes them. The accounts and what is known of their lists are taken
+// together, after the lists were read, so that what reading them found of an account decides, and no list read
+// between two steps of the pick is half seen (owner, 2026-11-18).
+func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, skip ...string) (Token, error) {
+	if !perAccount[runtime] {
+		return s.Token(ctx, runtime, session, skip...)
+	}
+
+	if model == "" {
+		return Token{}, fmt.Errorf("%w: %s", ErrNoModel, runtime)
+	}
+
+	s.servedOf(ctx, runtime) // reads the lists not read yet, and waits for those being read
+
+	accounts, err := s.List(ctx)
+	if err != nil {
+		return Token{}, err
+	}
+
+	if s.afterAccounts != nil {
+		s.afterAccounts()
+	}
+
+	ofRuntime := usable(accounts, runtime)
+	servers, unknown := s.servers(ofRuntime, model)
+
+	switch {
+	case len(servers) > 0:
+		return s.tokenAmong(ctx, runtime, model, session, servers, skip)
+	case unknown:
+		return Token{}, &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry), ListUnknown: true}
+	case len(ofRuntime) == 0:
+		return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
+	default:
+		return Token{}, fmt.Errorf("%w: %s by no %s account", ErrModelNotServed, model, runtime)
+	}
+}
+
+// usable are the accounts of a runtime that can be used: active and logged in here.
+func usable(accounts []Account, runtime string) []Account {
+	var out []Account
 
 	for _, a := range accounts {
 		if a.usableBy(runtime) {
-			ofRuntime = append(ofRuntime, a)
+			out = append(out, a)
 		}
 	}
 
+	return out
+}
+
+// tokenAmong is Token among the given accounts of a runtime. For a model, the account picked is read again right
+// before its token is given, and passed over unless it is still usable and its list still has the model: the
+// accounts and the lists live apart (the database and memory), so no single read holds both (issue #814).
+func (s *Service) tokenAmong(
+	ctx context.Context, runtime, model, session string, ofRuntime []Account, skip []string,
+) (Token, error) {
 	if len(ofRuntime) == 0 {
 		return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
 	}
 
+	// The accounts in a stable order, so the home a session hashes to does not move between its requests.
 	slices.SortFunc(ofRuntime, func(a, b Account) int { return strings.Compare(a.ID, b.ID) })
 
 	start := s.startIndex(runtime, session, len(ofRuntime), len(skip) == 0)
@@ -546,6 +627,33 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 			continue
 		}
 
+		// Read again before a refresh, so no account that cannot serve is refreshed, and again after it, which
+		// waits on the vendor: the last check before the token is given (issue #814).
+		recheck := func() bool {
+			if model == "" {
+				return true
+			}
+
+			fresh, ok := s.stillServes(ctx, a, model)
+			if ok && fresh.CoolingUntil != nil {
+				if free == nil || fresh.CoolingUntil.Before(*free) {
+					free = fresh.CoolingUntil
+				}
+
+				ok = false
+			}
+
+			if ok {
+				a = fresh
+			}
+
+			return ok
+		}
+
+		if !recheck() {
+			continue
+		}
+
 		// An account Google wants verified rests until its next try (issue #822).
 		if v := a.Verification; v != nil && v.RetryAt.After(now) {
 			if free == nil || v.RetryAt.Before(*free) {
@@ -572,6 +680,11 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 			continue
 		}
 
+		// The refresh waited on the vendor: the last check before the token is given.
+		if !recheck() {
+			continue
+		}
+
 		s.keepPin(runtime, session, a.ID, now)
 
 		return token, nil
@@ -581,7 +694,94 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 		return Token{}, &CoolingError{Until: *free}
 	}
 
+	// The accounts' lists may have changed while they were tried (a refresh in between): when no account's list has
+	// the model now, the answer is TokenFor's for such a model (issue #814).
+	if model != "" {
+		if err := s.notServedNow(ctx, runtime, model); err != nil {
+			return Token{}, err
+		}
+	}
+
 	return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
+}
+
+// notServedNow is TokenFor's answer for a model no usable account of a runtime has on its list now: ErrModelNotServed
+// when every list is known, a CoolingError to try again soon while one is not. It is nil while an account's list has
+// the model, when there is no usable account, or when the accounts cannot be read.
+func (s *Service) notServedNow(ctx context.Context, runtime, model string) error {
+	accounts, err := s.List(ctx)
+	if err != nil {
+		return nil //nolint:nilerr // Nothing more is known: the answer stays the pick's own.
+	}
+
+	ofRuntime := usable(accounts, runtime)
+	servers, unknown := s.servers(ofRuntime, model)
+
+	switch {
+	case len(ofRuntime) == 0 || len(servers) > 0:
+		return nil
+	case unknown:
+		return &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry), ListUnknown: true}
+	default:
+		return fmt.Errorf("%w: %s by no %s account", ErrModelNotServed, model, runtime)
+	}
+}
+
+// stillServes reads an account again and says whether it can still be used for model: active, logged in here, and
+// its list has the model. Whether it cools is the caller's to see on the account returned.
+func (s *Service) stillServes(ctx context.Context, a Account, model string) (Account, bool) {
+	fresh, err := s.Get(ctx, a.ID)
+	if err != nil || fresh.Runtime != a.Runtime || fresh.Status != orchestration.AccountActive ||
+		fresh.State != StateActive {
+		return Account{}, false
+	}
+
+	return fresh, s.hasModel(a.ID, model)
+}
+
+// Serves says an account can still be sent a request for model: active, logged in here, not cooling, and its list has
+// the model (issue #814).
+func (s *Service) Serves(ctx context.Context, accountID, model string) bool {
+	a, err := s.Get(ctx, accountID)
+	if err != nil {
+		return false
+	}
+
+	fresh, ok := s.stillServes(ctx, a, model)
+
+	return ok && fresh.CoolingUntil == nil
+}
+
+// TokenAfterRefusalFor is TokenAfterRefusal for a request for a model (issue #814): of a runtime whose accounts are
+// each served their own models, the account is refreshed only while it is still usable and its list still has the
+// model; otherwise the answer is ErrModelNotServed, and the request goes on to another account.
+func (s *Service) TokenAfterRefusalFor(ctx context.Context, refused Token, model string) (Token, error) {
+	a, err := s.Get(ctx, refused.AccountID)
+	if err != nil {
+		return Token{}, err
+	}
+
+	if perAccount[a.Runtime] {
+		if model == "" {
+			return Token{}, fmt.Errorf("%w: %s", ErrNoModel, a.Runtime)
+		}
+
+		if fresh, ok := s.stillServes(ctx, a, model); !ok || fresh.CoolingUntil != nil {
+			return Token{}, fmt.Errorf("%w: %s by account %s", ErrModelNotServed, model, a.ID)
+		}
+	}
+
+	token, err := s.TokenAfterRefusal(ctx, refused)
+	if err != nil || !perAccount[a.Runtime] {
+		return token, err
+	}
+
+	// The refresh waited on the vendor: the account is read again, the last check before its token is given.
+	if fresh, ok := s.stillServes(ctx, a, model); !ok || fresh.CoolingUntil != nil {
+		return Token{}, fmt.Errorf("%w: %s by account %s", ErrModelNotServed, model, a.ID)
+	}
+
+	return token, nil
 }
 
 func (a Account) usableBy(runtime string) bool {
@@ -791,6 +991,10 @@ func vendorToken[T any](ctx context.Context, s *Service, id string) (T, Token, e
 
 	token, err := s.usableToken(ctx, a)
 	if err != nil {
+		// An account whose credential cannot be used is marked as a pick marks it (#849): a Codex or Antigravity account
+		// whose list cannot be read is never picked for a model (issue #814), so this read may be the one that meets it.
+		s.skipFailedToken(ctx, a, a.secretVersion, err)
+
 		return none, Token{}, err
 	}
 
