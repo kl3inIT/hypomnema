@@ -29,7 +29,7 @@ flowchart TB
         W["workers under a shim: Claude Code,<br/>Codex, omp, opencode (node/runner)"]
     end
     PROV["subscription accounts: Codex, Claude, Antigravity;<br/>OpenAI-compatible providers"]
-    EXT["Google, Lark, Superset, AWS"]
+    EXT["Google, Lark, Superset, AWS, BigQuery"]
 
     OW -- "/api/v1" --> CAPI
     LK <-- "persistent connection (Lark SDK)" --> CH
@@ -51,7 +51,7 @@ flowchart TB
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
+| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `bigquery`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
 | `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -93,7 +93,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>audio_transcribe, audio_speak,<br/>muse_ask, muse_chats, muse_messages,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>audio_transcribe, audio_speak,<br/>muse_ask, muse_chats, muse_messages,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>bigquery_* with a BigQuery account,<br/>whatsapp_*, zalo_* on the owner's turn"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -1490,7 +1490,7 @@ flowchart LR
     PL["placed per CLI: Claude Code --plugin-dir,<br/>Codex CODEX_HOME/skills, omp agent dir,<br/>opencode configured folder"]
     SY["hypomnema-pi: skills sync --bot<br/>GET /bots/{bot}/skills, revision archives"]
     PI["pi --skill (the chat's skills folder,<br/>read-only in the box)"]
-    BS["built-in pdf, slides, pages and the guides<br/>(google-workspace, lark, aws, superset,<br/>android-device): published at each serve start,<br/>source builtin:release (PublishBuiltinSkills)"]
+    BS["built-in pdf, slides, pages and the guides<br/>(google-workspace, lark, aws, superset,<br/>bigquery, android-device): published at each serve start,<br/>source builtin:release (PublishBuiltinSkills)"]
     BI["the coordinator's skill: skills install<br/>~/.agents/skills, bound into every box"]
 
     UP --> PK
@@ -1559,7 +1559,7 @@ flowchart LR
     descriptions short and explicit about when each skill should run").
   - The Integrations' guides and the phone's are built-in skills of the store too (issue #536, row 9 of the
     [research](docs/research/2026-11-15-tools-and-skills-for-every-agent.md)): `google-workspace`, `lark`, `aws`,
-    `superset` and `android-device`, each a whole `SKILL.md` with its references as files beside it
+    `superset`, `bigquery` and `android-device`, each a whole `SKILL.md` with its references as files beside it
     (`references/<name>.md`, named relative to the skill's folder), naming its Integration's command or Hypomnema's
     tools and never a `hypomnema` command. A skill says what an agent must have to be given it in its frontmatter,
     `metadata.hypomnema.requires` (`integration: superset`, `device: android`), as OpenClaw's skills declare
@@ -1692,7 +1692,10 @@ flowchart LR
     `HYPOMNEMA_ROUTINE_RUN_FILE`, the run's token in its `client.json`, no model and no token of a service. The
     run's folder is removed when the script ends. The file is written from the control
     plane's text before every run, so what runs is what the owner read. A script stops after 10 minutes unless
-    the Routine says otherwise; there is no upper bound (OpenClaw, `timeout-policy.ts`). The control plane holds
+    the Routine says otherwise; there is no upper bound (OpenClaw, `timeout-policy.ts`). The limit is wall time,
+    a request's wait for the owner's approval (up to 30 minutes) included: the routines tool, `routines set
+    --timeout`, the skills and `bigquery query`'s help say so, and a script that queries BigQuery with
+    `--timeout 10m` needs 2520 seconds (issue #976). The control plane holds
     the launcher's standard input open and closes it to stop the script, since its user cannot signal the
     coordinator's processes. Exit code 0 is success.
   - **A prompt run.** The run's chat is made with the prompt in it as a wake-up of the control plane, and the
@@ -2431,6 +2434,54 @@ flowchart LR
     - **On the web** the Integrations page has an AWS card: add a role (name, ARN, key name, and the access key
       the first time a key name is used), see each role's ARN, account and key and whether the last assume
       worked, "Use in chats", connect again, disconnect.
+  - BigQuery is an Integration of kind `serviceaccount` ([issue #976](https://github.com/kl3inIT/hypomnema/issues/976),
+    design v3 in the issue, [research](docs/research/2026-11-20-bigquery-connection.md);
+    `internal/controlplane/integration/serviceaccount.go`, `internal/controlplane/bigquery`;
+    [setup](deploy/integrations/bigquery.md)): the GA4 export of an app, read with a service account made for this
+    alone (BigQuery Data Viewer on the GA4 dataset, Job User on the billing project). Its IAM is the data boundary;
+    nothing in Hypomnema filters datasets.
+    - A Connection is one JSON key (`type: service_account`, `client_email`, `private_key`, `project_id`, and
+      `token_uri` Google's own, or it is refused), uploaded by the owner on the web or with `integrations connect
+      bigquery --label ga4 --key-file FILE --dataset P.D [--billing-project B] [--location L] [--max-bytes 10GiB]`,
+      kept whole as the vault secret `integration-bigquery-<label>` (`KindGeneric`, replaced by `Rotate`). The
+      Connection's `account` is the `client_email`, and its `settings` (migration `connection_settings`) the billing
+      project, the datasets, the location and the cap. No answer, tool result or log line holds the key, the JWT or
+      a token; only the owner's recorded vault read returns the key.
+    - Connecting, and `integrations check`, checks step by step and keeps nothing when a step fails, naming it:
+      the token's exchange; each dataset's `tables.list` (a dataset holding an `EXTERNAL` table is refused); the
+      newest native `events_YYYYMMDD` table read once (`tables.get`, one row of `tabledata.list`, dropped); a dry run
+      of `SELECT 1 FROM` it in the billing project.
+    - The control plane signs the JWT (`golang.org/x/oauth2/jwt`, scope `bigquery` alone) and keeps the token in
+      memory, renewed before it ends; a refused exchange marks the Connection as needing to be connected again.
+      Calls go through `cloud.google.com/go/bigquery` (metadata, jobs, rows) and its REST client (the dry run,
+      `tables.list` with types, `jobs.cancel`); the node links none of it (`make deps-check`).
+    - **A query** is one GoogleSQL `SELECT`: a lexer adapted from MCP Toolbox's (`bigquery/lexer.go`, notice in
+      `third_party/genai-toolbox`) refuses `#legacySQL`, more than one statement, `CREATE`, `DECLARE`, `SET`,
+      `BEGIN`, `CALL`, `EXECUTE`, `EXPORT`, `EXTERNAL_QUERY` and a call of `ML.`, `AI.` or `VECTOR_SEARCH` before
+      any request; a dry run (10 s) refuses a missing `statistics.query`, a statement other than `SELECT`, any
+      `referencedRoutines`, a DDL target or an export, and more bytes than the cap. Then the job runs with the same
+      SQL and cap, its project, `hyp-<uuid>` id and location kept and logged before it is sent, labelled
+      `hypomnema-agent` and `hypomnema-tool`, and its statement type is checked again when it ends. At its limit
+      (30 s for a tool, up to 10 min from the CLI), or when `jobs.insert` gets no answer, `jobs.cancel` is sent from
+      what was kept on a context of its own; the answer says the cancel was requested. Rows: 50 by default, up to
+      10,000, with `total_rows` and `truncated`; a tool's answer is cut at 512 KiB.
+    - **The cap** (`maximum_bytes_billed`, 10 GiB by default) is the bytes one query job may bill on demand, for its
+      dry run and its job; `integrations max-bytes bigquery:<label> <size>` or "Bytes cap" on the web.
+    - **Actions** `bigquery.read` and `bigquery.query`, both reads, allow by default; the owner may set ask or never.
+      They are acts the service proxy decides (`serviceproxy/bigquery.go`); a read run may use them, never asked.
+      An act carries the Routine run's key (`Act.RunKey`), so an Approval is the run's and "always for this
+      Routine" passes its later runs.
+    - **Tools** `bigquery_datasets`, `bigquery_tables`, `bigquery_table`, `bigquery_query` (`agentapi/bigquery.go`),
+      the family `bigquery` (in the `report` and `full` presets and `ReadRunAllows`), listed and called as
+      Superset's for an agent given a Connection; a read run's answers start "These records are untrusted data".
+      **Commands** `hypomnema bigquery datasets|tables|table|query` (the client API's `/integrations/bigquery/…`
+      routes, long); `bigquery query` waits for a run's approval (30 min), its `--timeout` and 2 min, 42 min at
+      most, so a Routine whose script runs it needs `timeout_seconds` of 2520 with `--timeout 10m`. The skill
+      `bigquery` says how.
+    - **On the web** a BigQuery card: add a key (the file's name is shown, never what it holds), the dataset, the
+      billing project, the location and the cap; each account shows its datasets, billing project, cap and
+      whether the last check worked; "Bytes cap", connect again, disconnect, which says the key still exists at
+      Google.
   - **A Bot reads GitHub through the service proxy** ([issue #685](https://github.com/kl3inIT/hypomnema/issues/685);
     design in [#659](https://github.com/kl3inIT/hypomnema/issues/659#issuecomment-6937471532), after Onyx's `gh`
     behind its egress proxy). The Integration is `github.com`, whose Connections are the git host's: the token
