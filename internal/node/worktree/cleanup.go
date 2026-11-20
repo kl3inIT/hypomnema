@@ -12,7 +12,33 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 )
 
+// Clean removes a stopped Dispatch's worktree; its branch stays. It holds the worktree path's lock, and the
+// mirror's lock while Git changes the mirror, as Ensure does (issue #868). The cleanup's Git process holds
+// both locks too, so they stay held until it exits even if the node dies first.
 func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped func() bool) error {
+	state, err := m.lockPath("worktree", path)
+	if err != nil {
+		return err
+	}
+	worktree, err := openMirrorLock(ctx, state)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = worktree.Close() }()
+
+	if err := m.clean(ctx, path, hasRepo, stopped, worktree); err != nil {
+		return err
+	}
+	// A worktree left in place, because its Dispatch was not stopped, keeps its pending marker.
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return removeIfPresent(state + ".pending")
+}
+
+func (m Maker) clean(
+	ctx context.Context, path string, hasRepo bool, stopped func() bool, worktree *mirrorLock,
+) error {
 	allowed := filepath.Join(m.Root, "worktrees")
 	if err := diskguard.CheckTree(ctx, path); err != nil {
 		return err
@@ -90,11 +116,19 @@ func (m Maker) Clean(ctx context.Context, path string, hasRepo bool, stopped fun
 			return fmt.Errorf("the cleanup directory changed: %s", dir)
 		}
 	}
+	lock, err := m.lockMirror(ctx, mirror)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
 	remove, err := diskguard.ScopedCommand(ctx, scopes, gitPath,
 		"-c", "status.showUntrackedFiles=all", "-c", "core.fsmonitor=false", "-C", mirror, "worktree", "remove", "--", path)
 	if err != nil {
 		return err
 	}
+	// After the directory handles: the confinement helper reads only those, and Git inherits the locks.
+	worktree.inherit(remove)
+	lock.inherit(remove)
 	if output, err := remove.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree remove: %w: %s", err, output)
 	}

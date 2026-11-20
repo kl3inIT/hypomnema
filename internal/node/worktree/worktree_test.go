@@ -1,14 +1,19 @@
 package worktree
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 )
@@ -37,6 +42,249 @@ func origin(t *testing.T, dir string) {
 	require.NoError(t, os.WriteFile(filepath.Join(src, "README.md"), []byte("second-bite\n"), 0o600))
 	run(t, src, "add", "README.md")
 	run(t, src, "commit", "-q", "-m", "first")
+}
+
+func TestConcurrentEnsuresOnOneMirror(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	for _, count := range []int{2, 5} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			origin(t, dir)
+			src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+			require.NoError(t, err)
+			src.URL = filepath.Join(dir, filepath.FromSlash(src.Repo.Path))
+			maker := Maker{Root: filepath.Join(dir, "node")}
+			if count > 2 {
+				require.NoError(t, maker.Ensure(t.Context(), src, "main", "seed", filepath.Join(dir, "wt", "seed")))
+			}
+
+			run(t, src.URL, "commit", "--allow-empty", "-qm", "base "+t.Name())
+			want := run(t, src.URL, "rev-parse", "HEAD")
+			start := make(chan struct{})
+			var group errgroup.Group
+			for index := range count {
+				task := "task-" + strconv.Itoa(index)
+				group.Go(func() error {
+					<-start
+					return maker.Ensure(t.Context(), src, "main", task, filepath.Join(dir, "wt", task))
+				})
+			}
+			close(start)
+
+			require.NoError(t, group.Wait())
+			for index := range count {
+				task := "task-" + strconv.Itoa(index)
+				path := filepath.Join(dir, "wt", task)
+				assert.Equal(t, Branch(task), run(t, path, "branch", "--show-current"))
+				assert.Equal(t, want, run(t, path, "rev-parse", "HEAD"))
+			}
+		})
+	}
+}
+
+func TestMirrorLockDoesNotBlockAnotherRepository(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	dir := t.TempDir()
+	origin(t, dir)
+	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+	require.NoError(t, err)
+	other, err := SourceOf("github.com", "github", "kl3inIT/other", "")
+	require.NoError(t, err)
+	src.URL = filepath.Join(dir, filepath.FromSlash(src.Repo.Path))
+	other.URL = src.URL
+	maker := Maker{Root: filepath.Join(dir, "node")}
+
+	mirror := maker.mirrorPath(src.Repo)
+	require.NoError(t, os.MkdirAll(filepath.Dir(mirror), 0o700))
+	lock, err := maker.lockMirror(t.Context(), mirror)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, lock.Close()) })
+
+	blocked, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer cancel()
+	err = maker.Ensure(blocked, src, "main", "blocked", filepath.Join(dir, "wt", "blocked"))
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "locking mirror")
+	assert.NoDirExists(t, mirror)
+
+	ctx, cancelOther := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancelOther()
+	path := filepath.Join(dir, "wt", "other")
+	require.NoError(t, maker.Ensure(ctx, other, "main", "other", path))
+	assert.Equal(t, Branch("other"), run(t, path, "branch", "--show-current"))
+}
+
+func TestMirrorLockCannotCollideWithGitLabSubgroup(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	for _, order := range []struct{ name, first, second string }{
+		{"project-first", "team/project", "team/project.git.lock/other"},
+		{"subgroup-first", "team/project.git.lock/other", "team/project"},
+	} {
+		t.Run(order.name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			origin(t, dir)
+			maker := Maker{Root: filepath.Join(dir, "node")}
+			for index, repo := range []string{order.first, order.second} {
+				src, err := SourceOf("gitlab.com", "gitlab", repo, "")
+				require.NoError(t, err)
+				src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
+				task := strconv.Itoa(index)
+				path := filepath.Join(dir, "wt", task)
+				require.NoError(t, maker.Ensure(t.Context(), src, "main", task, path))
+				assert.Equal(t, Branch(task), run(t, path, "branch", "--show-current"))
+			}
+		})
+	}
+}
+
+func TestMirrorFetchDoesNotStartAutomaticMaintenance(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+
+	dir := t.TempDir()
+	origin(t, dir)
+	maker := Maker{Root: filepath.Join(dir, "node")}
+	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+	require.NoError(t, err)
+	src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
+	require.NoError(t, maker.Ensure(t.Context(), src, "main", "seed", filepath.Join(dir, "wt", "seed")))
+
+	src.Env = []string{
+		"GIT_TRACE2_EVENT=" + filepath.Join(dir, "trace"),
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=true",
+	}
+	require.NoError(t, maker.Ensure(t.Context(), src, "main", "next", filepath.Join(dir, "wt", "next")))
+	root, err := os.OpenRoot(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, root.Close()) })
+	trace, err := root.ReadFile("trace")
+	require.NoError(t, err)
+	assert.Contains(t, string(trace), `"name":"fetch"`)
+	assert.NotContains(t, string(trace), `"name":"maintenance"`)
+	assert.NotContains(t, string(trace), `"name":"gc"`)
+}
+
+func TestMirrorCleanWaitsForTheSameLock(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	if !diskguard.ScopeAvailable() {
+		t.Skip("filesystem confinement is unavailable")
+	}
+
+	dir := realTempDir(t)
+	origin(t, dir)
+	maker := Maker{Root: filepath.Join(dir, "node")}
+	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+	require.NoError(t, err)
+	src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
+	path := filepath.Join(maker.Root, "worktrees", "run_1", "task")
+	require.NoError(t, maker.Ensure(t.Context(), src, "main", "task", path))
+	stopped := func() bool { return true }
+
+	for _, held := range []string{"worktree", "mirror"} {
+		var lock *mirrorLock
+		if held == "worktree" {
+			state, err := maker.lockPath("worktree", path)
+			require.NoError(t, err)
+			lock, err = openMirrorLock(t.Context(), state)
+			require.NoError(t, err)
+		} else {
+			lock, err = maker.lockMirror(t.Context(), maker.mirrorPath(src.Repo))
+			require.NoError(t, err)
+		}
+
+		blocked, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		err = maker.Clean(blocked, path, true, stopped)
+		cancel()
+		require.ErrorIs(t, err, context.DeadlineExceeded, "the %s lock is held", held)
+		assert.FileExists(t, filepath.Join(path, ".git"))
+		require.NoError(t, lock.Close())
+	}
+
+	require.NoError(t, maker.Clean(t.Context(), path, true, stopped))
+	assert.NoDirExists(t, path)
+}
+
+func TestFetchRetriesARefLockErrorOnlyOnce(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the test uses a shell executable in PATH")
+	}
+
+	dir := t.TempDir()
+	fakeGit := []byte(`#!/bin/sh
+if { [ "$GIT_TEST_MODE" = transient ] || [ "$GIT_TEST_MODE" = buried ]; } && [ -s "$GIT_TEST_ATTEMPTS" ]; then
+    echo fetch >> "$GIT_TEST_ATTEMPTS"
+    exit 0
+fi
+echo fetch >> "$GIT_TEST_ATTEMPTS"
+if [ "$GIT_TEST_MODE" = unrelated ]; then
+    echo 'fatal: repository not found' >&2
+else
+    echo "error: cannot lock ref 'refs/remotes/origin/main': is at new but expected old" >&2
+fi
+if [ "$GIT_TEST_MODE" = buried ] || [ "$GIT_TEST_MODE" = buried-persistent ]; then
+    # Git goes on to report every other branch it fetched, past what the error keeps.
+    count=0
+    while [ $count -lt 160 ]; do
+        echo " * [new branch]      feature/branch-number-$count -> origin/feature/branch-number-$count" >&2
+        count=$((count + 1))
+    done
+fi
+exit 1
+`)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "git"), fakeGit, 0o700)) //nolint:gosec // executable fixture
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	for _, trial := range []struct {
+		mode     string
+		attempts int
+		failure  string
+	}{
+		{"transient", 2, ""},
+		{"persistent", 2, "cannot lock ref"},
+		{"unrelated", 1, "repository not found"},
+		{"buried", 2, ""},
+		{"buried-persistent", 2, "cannot lock ref"},
+	} {
+		t.Run(trial.mode, func(t *testing.T) {
+			trialDir := t.TempDir()
+			root, err := os.OpenRoot(trialDir)
+			require.NoError(t, err)
+			t.Cleanup(func() { assert.NoError(t, root.Close()) })
+			err = (mirrorGit{}).fetch(t.Context(), dir, "origin", []string{
+				"GIT_TEST_MODE=" + trial.mode, "GIT_TEST_ATTEMPTS=" + filepath.Join(trialDir, "attempts"),
+			})
+			if trial.failure == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, trial.failure)
+			}
+			log, err := root.ReadFile("attempts")
+			require.NoError(t, err)
+			assert.Equal(t, strings.Repeat("fetch\n", trial.attempts), string(log))
+		})
+	}
 }
 
 // Scenario: the first Dispatch of a Task makes a worktree on its own branch
@@ -164,6 +412,25 @@ func TestARepositoryWithAnSSHAddressIsClonedOverSSH(t *testing.T) {
 	// Git may ask ssh to pass on its protocol version first (-o SendEnv=GIT_PROTOCOL).
 	assert.True(t, strings.HasSuffix(strings.ReplaceAll(string(raw), "\r\n", "\n"),
 		"-p\n222\ngit@gitlab.company.example\ngit-upload-pack '/mobility/platform.git'\n"), string(raw))
+}
+
+func TestOutputTailNotesARefLockSplitAcrossWritesAndCutAway(t *testing.T) {
+	t.Parallel()
+	var output outputTail
+	for _, part := range []string{"error: cannot lo", "ck ref 'refs/remotes/origin/main'\n"} {
+		_, err := output.Write([]byte(part))
+		require.NoError(t, err)
+	}
+	_, err := output.Write([]byte(strings.Repeat("x", 2*setupOutputKept)))
+	require.NoError(t, err)
+	assert.True(t, output.refLock)
+	assert.Len(t, output.String(), setupOutputKept)
+	assert.NotContains(t, output.String(), "cannot lock ref")
+
+	var other outputTail
+	_, err = other.Write([]byte("fatal: repository not found\n"))
+	require.NoError(t, err)
+	assert.False(t, other.refLock)
 }
 
 // Scenario (issue #690): an earlier Task's worktree on this node still holds its branch hyp/tsk_1, which it pushed.
