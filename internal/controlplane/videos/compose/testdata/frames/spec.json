@@ -1,0 +1,691 @@
+{
+  "solid": "#0e1322",
+  "frames": [
+    {
+      "name": "frame-android-portrait",
+      "layout": {
+        "size": {
+          "width": 720,
+          "height": 1280
+        },
+        "scale": 1.4285714285714286,
+        "content_w": 514.2857142857143,
+        "content_h": 1142.857142857143,
+        "hole": {
+          "x": 102,
+          "y": 68,
+          "w": 514,
+          "h": 1142
+        },
+        "hole_radius": 57,
+        "window": {
+          "x": 102,
+          "y": 68,
+          "w": 514,
+          "h": 1142
+        },
+        "strip": 0,
+        "bezel": {
+          "x": 82,
+          "y": 48,
+          "w": 554,
+          "h": 1182
+        },
+        "bezel_radius": 77,
+        "border": 3,
+        "cutout": {
+          "left": 349,
+          "top": 88,
+          "w": 20,
+          "h": 20,
+          "radius": 10
+        },
+        "shadow": true,
+        "shadow_y": [
+          34.285714285714285,
+          2.857142857142857
+        ],
+        "shadow_blur": [
+          85.71428571428572,
+          11.428571428571429
+        ]
+      }
+    },
+    {
+      "name": "frame-android-safe-portrait",
+      "layout": {
+        "size": {
+          "width": 720,
+          "height": 1280
+        },
+        "scale": 1.3588110403397027,
+        "content_w": 489.17197452229294,
+        "content_h": 1087.0488322717622,
+        "hole": {
+          "x": 116,
+          "y": 128,
+          "w": 490,
+          "h": 1088
+        },
+        "hole_radius": 54,
+        "window": {
+          "x": 116,
+          "y": 65,
+          "w": 490,
+          "h": 1151
+        },
+        "strip": 63,
+        "bezel": {
+          "x": 97,
+          "y": 46,
+          "w": 528,
+          "h": 1189
+        },
+        "bezel_radius": 73,
+        "border": 3,
+        "cutout": {
+          "left": 351.5,
+          "top": 87,
+          "w": 19,
+          "h": 19,
+          "radius": 9.5
+        },
+        "shadow": true,
+        "shadow_y": [
+          32.611464968152866,
+          2.7176220806794054
+        ],
+        "shadow_blur": [
+          81.52866242038216,
+          10.870488322717621
+        ]
+      }
+    },
+    {
+      "name": "frame-iphone-portrait",
+      "layout": {
+        "size": {
+          "width": 720,
+          "height": 1280
+        },
+        "scale": 1.4285714285714286,
+        "content_w": 514.2857142857143,
+        "content_h": 1142.857142857143,
+        "hole": {
+          "x": 102,
+          "y": 68,
+          "w": 514,
+          "h": 1142
+        },
+        "hole_radius": 57,
+        "window": {
+          "x": 102,
+          "y": 68,
+          "w": 514,
+          "h": 1142
+        },
+        "strip": 0,
+        "bezel": {
+          "x": 82,
+          "y": 48,
+          "w": 554,
+          "h": 1182
+        },
+        "bezel_radius": 77,
+        "border": 3,
+        "cutout": {
+          "left": 280.5,
+          "top": 85,
+          "w": 157,
+          "h": 46,
+          "radius": 23
+        },
+        "shadow": true,
+        "shadow_y": [
+          34.285714285714285,
+          2.857142857142857
+        ],
+        "shadow_blur": [
+          85.71428571428572,
+          11.428571428571429
+        ]
+      }
+    },
+    {
+      "name": "frame-iphone-safe-portrait",
+      "layout": {
+        "size": {
+          "width": 720,
+          "height": 1280
+        },
+        "scale": 1.3588110403397027,
+        "content_w": 489.17197452229294,
+        "content_h": 1087.0488322717622,
+        "hole": {
+          "x": 116,
+          "y": 128,
+          "w": 490,
+          "h": 1088
+        },
+        "hole_radius": 54,
+        "window": {
+          "x": 116,
+          "y": 65,
+          "w": 490,
+          "h": 1151
+        },
+        "strip": 63,
+        "bezel": {
+          "x": 97,
+          "y": 46,
+          "w": 528,
+          "h": 1189
+        },
+        "bezel_radius": 73,
+        "border": 3,
+        "cutout": {
+          "left": 286.5,
+          "top": 75,
+          "w": 149,
+          "h": 43,
+          "radius": 21.5
+        },
+        "shadow": true,
+        "shadow_y": [
+          32.611464968152866,
+          2.7176220806794054
+        ],
+        "shadow_blur": [
+          81.52866242038216,
+          10.870488322717621
+        ]
+      }
+    },
+    {
+      "name": "frame-none-portrait",
+      "layout": {
+        "size": {
+          "width": 720,
+          "height": 1280
+        },
+        "scale": 1.4285714285714286,
+        "content_w": 514.2857142857143,
+        "content_h": 1142.857142857143,
+        "hole": {
+          "x": 102,
+          "y": 68,
+          "w": 514,
+          "h": 1142
+        },
+        "hole_radius": 20,
+        "window": {
+          "x": 102,
+          "y": 68,
+          "w": 514,
+          "h": 1142
+        },
+        "strip": 0,
+        "bezel": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "bezel_radius": 0,
+        "border": 0,
+        "shadow": true,
+        "shadow_y": [
+          34.285714285714285,
+          2.857142857142857
+        ],
+        "shadow_blur": [
+          85.71428571428572,
+          11.428571428571429
+        ]
+      }
+    },
+    {
+      "name": "frame-android-landscape",
+      "layout": {
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "scale": 0.8035714285714287,
+        "content_w": 289.28571428571433,
+        "content_h": 642.857142857143,
+        "hole": {
+          "x": 496,
+          "y": 38,
+          "w": 290,
+          "h": 642
+        },
+        "hole_radius": 32,
+        "window": {
+          "x": 496,
+          "y": 38,
+          "w": 290,
+          "h": 642
+        },
+        "strip": 0,
+        "bezel": {
+          "x": 485,
+          "y": 27,
+          "w": 312,
+          "h": 664
+        },
+        "bezel_radius": 43,
+        "border": 2,
+        "cutout": {
+          "left": 635.5,
+          "top": 49,
+          "w": 11,
+          "h": 11,
+          "radius": 5.5
+        },
+        "shadow": true,
+        "shadow_y": [
+          19.28571428571429,
+          1.6071428571428574
+        ],
+        "shadow_blur": [
+          48.21428571428572,
+          6.42857142857143
+        ]
+      }
+    },
+    {
+      "name": "frame-android-safe-landscape",
+      "layout": {
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "scale": 0.7643312101910829,
+        "content_w": 275.15923566878985,
+        "content_h": 611.4649681528663,
+        "hole": {
+          "x": 502,
+          "y": 72,
+          "w": 276,
+          "h": 612
+        },
+        "hole_radius": 31,
+        "window": {
+          "x": 502,
+          "y": 37,
+          "w": 276,
+          "h": 647
+        },
+        "strip": 35,
+        "bezel": {
+          "x": 491,
+          "y": 26,
+          "w": 298,
+          "h": 669
+        },
+        "bezel_radius": 41,
+        "border": 2,
+        "cutout": {
+          "left": 634.5,
+          "top": 49,
+          "w": 11,
+          "h": 11,
+          "radius": 5.5
+        },
+        "shadow": true,
+        "shadow_y": [
+          18.34394904458599,
+          1.5286624203821657
+        ],
+        "shadow_blur": [
+          45.85987261146497,
+          6.114649681528663
+        ]
+      }
+    },
+    {
+      "name": "frame-iphone-landscape",
+      "layout": {
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "scale": 0.8035714285714287,
+        "content_w": 289.28571428571433,
+        "content_h": 642.857142857143,
+        "hole": {
+          "x": 496,
+          "y": 38,
+          "w": 290,
+          "h": 642
+        },
+        "hole_radius": 32,
+        "window": {
+          "x": 496,
+          "y": 38,
+          "w": 290,
+          "h": 642
+        },
+        "strip": 0,
+        "bezel": {
+          "x": 485,
+          "y": 27,
+          "w": 312,
+          "h": 664
+        },
+        "bezel_radius": 43,
+        "border": 2,
+        "cutout": {
+          "left": 597,
+          "top": 48,
+          "w": 88,
+          "h": 26,
+          "radius": 13
+        },
+        "shadow": true,
+        "shadow_y": [
+          19.28571428571429,
+          1.6071428571428574
+        ],
+        "shadow_blur": [
+          48.21428571428572,
+          6.42857142857143
+        ]
+      }
+    },
+    {
+      "name": "frame-iphone-safe-landscape",
+      "layout": {
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "scale": 0.7643312101910829,
+        "content_w": 275.15923566878985,
+        "content_h": 611.4649681528663,
+        "hole": {
+          "x": 502,
+          "y": 72,
+          "w": 276,
+          "h": 612
+        },
+        "hole_radius": 31,
+        "window": {
+          "x": 502,
+          "y": 37,
+          "w": 276,
+          "h": 647
+        },
+        "strip": 35,
+        "bezel": {
+          "x": 491,
+          "y": 26,
+          "w": 298,
+          "h": 669
+        },
+        "bezel_radius": 41,
+        "border": 2,
+        "cutout": {
+          "left": 598,
+          "top": 42,
+          "w": 84,
+          "h": 24,
+          "radius": 12
+        },
+        "shadow": true,
+        "shadow_y": [
+          18.34394904458599,
+          1.5286624203821657
+        ],
+        "shadow_blur": [
+          45.85987261146497,
+          6.114649681528663
+        ]
+      }
+    },
+    {
+      "name": "frame-none-landscape",
+      "layout": {
+        "size": {
+          "width": 1280,
+          "height": 720
+        },
+        "scale": 0.8035714285714287,
+        "content_w": 289.28571428571433,
+        "content_h": 642.857142857143,
+        "hole": {
+          "x": 496,
+          "y": 38,
+          "w": 290,
+          "h": 642
+        },
+        "hole_radius": 11,
+        "window": {
+          "x": 496,
+          "y": 38,
+          "w": 290,
+          "h": 642
+        },
+        "strip": 0,
+        "bezel": {
+          "x": 0,
+          "y": 0,
+          "w": 0,
+          "h": 0
+        },
+        "bezel_radius": 0,
+        "border": 0,
+        "shadow": true,
+        "shadow_y": [
+          19.28571428571429,
+          1.6071428571428574
+        ],
+        "shadow_blur": [
+          48.21428571428572,
+          6.42857142857143
+        ]
+      }
+    }
+  ],
+  "backgrounds": [
+    {
+      "name": "background-macos-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "macos"
+      }
+    },
+    {
+      "name": "background-macos-light-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "macos-light"
+      }
+    },
+    {
+      "name": "background-midnight-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "midnight"
+      }
+    },
+    {
+      "name": "background-sunset-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "sunset"
+      }
+    },
+    {
+      "name": "background-ocean-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "ocean"
+      }
+    },
+    {
+      "name": "background-forest-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "forest"
+      }
+    },
+    {
+      "name": "background-peach-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "peach"
+      }
+    },
+    {
+      "name": "background-aurora-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "aurora"
+      }
+    },
+    {
+      "name": "background-grid-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "grid"
+      }
+    },
+    {
+      "name": "background-mono-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "mono"
+      }
+    },
+    {
+      "name": "background-light-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "preset": "light"
+      }
+    },
+    {
+      "name": "background-colors-portrait",
+      "width": 180,
+      "height": 320,
+      "background": {
+        "colors": [
+          "#ff0066",
+          "#00ccaa"
+        ]
+      }
+    },
+    {
+      "name": "background-macos-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "macos"
+      }
+    },
+    {
+      "name": "background-macos-light-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "macos-light"
+      }
+    },
+    {
+      "name": "background-midnight-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "midnight"
+      }
+    },
+    {
+      "name": "background-sunset-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "sunset"
+      }
+    },
+    {
+      "name": "background-ocean-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "ocean"
+      }
+    },
+    {
+      "name": "background-forest-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "forest"
+      }
+    },
+    {
+      "name": "background-peach-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "peach"
+      }
+    },
+    {
+      "name": "background-aurora-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "aurora"
+      }
+    },
+    {
+      "name": "background-grid-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "grid"
+      }
+    },
+    {
+      "name": "background-mono-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "mono"
+      }
+    },
+    {
+      "name": "background-light-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "preset": "light"
+      }
+    },
+    {
+      "name": "background-colors-landscape",
+      "width": 320,
+      "height": 180,
+      "background": {
+        "colors": [
+          "#ff0066",
+          "#00ccaa"
+        ]
+      }
+    }
+  ]
+}

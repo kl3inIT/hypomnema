@@ -129,6 +129,9 @@ type Opened struct {
 	// Version is the version the payload is; a caller that finds it stale
 	// names it to Refresh.
 	Version int
+	// VersionID is the id of that version: unlike its number, it is never
+	// given to another version, even of a secret deleted and made again.
+	VersionID string
 	// AccessTokenExpiresAt is when a token set's access token ends, if known.
 	AccessTokenExpiresAt *time.Time
 	// LoginRequired says the saved credential cannot be used.
@@ -471,7 +474,7 @@ func (s *Service) openVersion(row store.Secret, current store.SecretVersion) (Op
 	}
 
 	return Opened{
-		Payload: p, Version: int(current.VersionNumber),
+		Payload: p, Version: int(current.VersionNumber), VersionID: current.ID,
 		AccessTokenExpiresAt: optionalTime(current.AccessTokenExpiresAt), LoginRequired: row.LoginRequiredAt.Valid,
 	}, nil
 }

@@ -98,6 +98,10 @@ type Input struct {
 	Out string
 	// Progress, when set, is told how many scenes are cut and fitted to their voice, after each.
 	Progress func(done int)
+	// Frame is drawn around the picture, on Background (issue #908, rows 10-13); the zero Frame, like full, draws
+	// none, and the picture fills the video as before.
+	Frame      Frame
+	Background Background
 }
 
 // SceneResult is how a scene was made, in the take's time (Keeps) and in the video's (OutStartMs, OutLengthMs,
@@ -189,6 +193,9 @@ func Compose(ctx context.Context, tools ffmpeg.Tools, in Input) (Result, error) 
 	}
 
 	c := &composer{run: runner{tools: tools, dir: in.Work}, in: in, size: size, segs: segs, lengthMs: TakeLengthMs(take)}
+	if c.frame, err = frameOf(in.Frame, in.Background, segs, size); err != nil {
+		return Result{}, err
+	}
 
 	for _, sc := range scenes {
 		c.noScreen = c.noScreen || sc.Tap != nil && (in.Screen.Width <= 0 || in.Screen.Height <= 0)
@@ -206,6 +213,33 @@ type composer struct {
 	result   Result
 	// noScreen: the screen's size is not known, and the taps were left out.
 	noScreen bool
+	// frame is where the frame puts the picture; nil for none.
+	frame *Layout
+}
+
+// frameOf lays out a frame for a take's segments, all of which must fill its hole; nil for none.
+func frameOf(f Frame, bg Background, segs []segment, size Size) (*Layout, error) {
+	if !f.Framed() {
+		return nil, nil //nolint:nilnil // No frame is no layout, and no error.
+	}
+
+	if err := bg.Check(); err != nil {
+		return nil, err
+	}
+
+	l, err := FrameLayout(f, Size{segs[0].Width, segs[0].Height}, size)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, seg := range segs {
+		if !l.Fits(seg.Width, seg.Height) {
+			return nil, fmt.Errorf("%w: segment %s is %dx%d, and the first %dx%d", ErrTurnedTake, seg.File,
+				seg.Width, seg.Height, segs[0].Width, segs[0].Height)
+		}
+	}
+
+	return &l, nil
 }
 
 func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) {
@@ -257,6 +291,10 @@ func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) 
 
 	video, err = c.drawRings(ctx, video, rings)
 	if err != nil {
+		return Result{}, err
+	}
+
+	if video, err = c.framePicture(ctx, video); err != nil {
 		return Result{}, err
 	}
 
@@ -449,8 +487,14 @@ func (c *composer) extractAndConcat(ctx context.Context, keeps []Span, out strin
 	return err
 }
 
-// contain scales a picture to fit the video and pads the rest in black (aidemo's resizeOutput, "contain").
+// contain scales a picture to fit the video and pads the rest in black (aidemo's resizeOutput, "contain"). In a
+// frame, it scales the picture to exactly the hole's size, which its shape fills but for the hole's rounding
+// (issue #908, row 11, from agent-demo-video's scaledSize and MAX_WINDOW_PAD_PX).
 func (c *composer) contain() string {
+	if c.frame != nil {
+		return fmt.Sprintf("scale=%d:%d:flags=lanczos,setsar=1", c.frame.Hole.W, c.frame.Hole.H)
+	}
+
 	w, h := c.size.Width, c.size.Height
 
 	return fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos,"+
@@ -463,20 +507,36 @@ func (c *composer) place(sc Scene) (int, int) {
 	seg := c.segAt(sc.TapAtMs)
 	sx := float64(sc.Tap.X) * float64(seg.Width) / float64(c.in.Screen.Width)
 	sy := float64(sc.Tap.Y) * float64(seg.Height) / float64(c.in.Screen.Height)
-	s, ox, oy := c.fit(seg)
+	kx, ky, ox, oy := c.fit(seg)
 
-	return int(math.Round(ox + sx*s)), int(math.Round(oy + sy*s))
+	return int(math.Round(ox + sx*kx)), int(math.Round(oy + sy*ky))
 }
 
-// fit is the contain scale of a segment and where its picture starts on the video.
-func (c *composer) fit(seg segment) (float64, float64, float64) {
+// fit is the scale of a segment's picture across and down, and where it starts on the video: contain's, or in a
+// frame the hole's.
+func (c *composer) fit(seg segment) (float64, float64, float64, float64) {
 	if seg.Width <= 0 || seg.Height <= 0 {
-		return 1, 0, 0
+		return 1, 1, 0, 0
+	}
+
+	if l := c.frame; l != nil {
+		return float64(l.Hole.W) / float64(seg.Width), float64(l.Hole.H) / float64(seg.Height),
+			float64(l.Hole.X), float64(l.Hole.Y)
 	}
 
 	s := math.Min(float64(c.size.Width)/float64(seg.Width), float64(c.size.Height)/float64(seg.Height))
 
-	return s, (float64(c.size.Width) - float64(seg.Width)*s) / 2, (float64(c.size.Height) - float64(seg.Height)*s) / 2
+	return s, s, (float64(c.size.Width) - float64(seg.Width)*s) / 2,
+		(float64(c.size.Height) - float64(seg.Height)*s) / 2
+}
+
+// origin is where the picture the scenes are cut at starts on the video: the hole's corner in a frame.
+func (c *composer) origin() (int, int) {
+	if c.frame != nil {
+		return c.frame.Hole.X, c.frame.Hole.Y
+	}
+
+	return 0, 0
 }
 
 // segAt is the segment a time of the take is in, or the last one before it.
@@ -529,6 +589,8 @@ func (c *composer) drawRings(ctx context.Context, video string, rings []Ring) (s
 	}
 
 	half := ringSize(scale) / 2
+	// The rings are drawn on the picture before it is framed, and placed on the video.
+	ox, oy := c.origin()
 
 	for b := 0; b*overlayBatch < len(rings); b++ {
 		batch := rings[b*overlayBatch : min(len(rings), (b+1)*overlayBatch)]
@@ -547,7 +609,7 @@ func (c *composer) drawRings(ctx context.Context, video string, rings []Ring) (s
 			chain = append(chain,
 				fmt.Sprintf("[%d:v]setpts=PTS-STARTPTS+%.3f/TB[r%d]", k+1, float64(r.AtMs)/1000, k),
 				fmt.Sprintf("[%s][r%d]overlay=x=%d:y=%d:eof_action=pass:repeatlast=0[%s]",
-					prev, k, r.X-half, r.Y-half, label))
+					prev, k, r.X-ox-half, r.Y-oy-half, label))
 			prev = label
 		}
 
@@ -566,9 +628,44 @@ func (c *composer) drawRings(ctx context.Context, video string, rings []Ring) (s
 
 // ringScale is the scale a ring is drawn at: sized for a phone's screen as wide as the video shows it.
 func (c *composer) ringScale() float64 {
-	s, _, _ := c.fit(c.segs[0])
+	s, _, _, _ := c.fit(c.segs[0])
 
 	return float64(c.segs[0].Width) * s / dpWidth
+}
+
+// framePicture pads the picture onto the video at the hole and overlays the frame's PNG (aidemo's frame pass,
+// src/compose.ts:939-972); the video as it is without a frame.
+func (c *composer) framePicture(ctx context.Context, video string) (string, error) {
+	if c.frame == nil {
+		return video, nil
+	}
+
+	plate, err := c.writePlate()
+	if err != nil {
+		return "", err
+	}
+
+	out := filepath.Join(c.in.Work, "framed.mp4")
+	args := []string{"-i", video, "-i", plate, "-filter_complex", "[0:v]" + c.frameGraph(1) + "[vout]",
+		"-map", "[vout]", "-an"}
+
+	return out, c.run.ffmpeg(ctx, append(append(args, encodeArgs...), out)...)
+}
+
+// writePlate writes the frame's PNG into the work folder.
+func (c *composer) writePlate() (string, error) {
+	path := filepath.Join(c.in.Work, "frame.png")
+
+	return path, writePNG(path, Plate(*c.frame, c.in.Background))
+}
+
+// frameGraph pads a picture of the hole's size onto the video at the hole, in aidemo's padColor, and overlays
+// the frame's PNG, input number plate.
+func (c *composer) frameGraph(plate int) string {
+	l := c.frame
+
+	return fmt.Sprintf("pad=%d:%d:%d:%d:color=0x0e1322[framed];[framed][%d:v]overlay=0:0:format=auto",
+		l.Size.Width, l.Size.Height, l.Hole.X, l.Hole.Y, plate)
 }
 
 // mux burns the captions, when there are any, and adds the voice: each
