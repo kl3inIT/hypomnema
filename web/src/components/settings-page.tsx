@@ -19,7 +19,9 @@ import {
   Link2,
   MessagesSquare,
   Plug,
+  Server,
   Sparkles,
+  SquareTerminal,
   UserRound,
   type LucideIcon,
 } from "lucide-react"
@@ -53,6 +55,8 @@ type Section = {
     | "/settings/vault"
     | "/settings/skills"
     | "/settings/about-you"
+    | "/settings/agents"
+    | "/settings/machines"
   label: string
   icon: LucideIcon
 }
@@ -61,14 +65,18 @@ type Section = {
 // model that writes the notes, as Hyprnote's Settings has Dictionary and AI (apps/desktop/src/settings/). The group "Gateway" holds the model gateway's models and keys (issue #199), as LiteLLM's sidebar heading "AI
 // Gateway" and Coder's "AI Gateway keys": called "Models" until the owner renamed it, so that no item reads like its
 // group (issue #293, 2026-11-13), and its web search (issue #354), images (issue #431) and audio (issue #694), as
-// OmniRoute and 9router keep their search and media providers beside their models; not "Agents", which the app's sidebar already has (2026-11-12). "Connections" holds
+// OmniRoute and 9router keep their search and media providers beside their models; not "Agents", a group of its own (2026-11-12). "Connections" holds
 // what reaches outside, as OpenClaw's group of that name holds its Channels and t3code's its Secrets, and the
 // view-only links to artifacts (issue #765), as LibreChat, Open WebUI and Metabase keep theirs in settings. The group "Agents" holds what is given to the agents' CLIs:
 // their skills (issue #21; prototype the owner accepted, 2026-11-12), and the memory about the owner every agent
 // gets, as OpenClaw keeps Memory beside Skills in its group of agents; and the repositories agents work in, as
 // t3code's Settings lists its Projects (apps/web/src/components/settings/settingsSearch.ts) and Orca's its
 // repositories (src/renderer/src/components/settings/navigation/SettingsSidebar.tsx), in this group by the owner's
-// choice (issue #647, 2026-11-16).
+// choice (issue #647, 2026-11-16). "Workers", last, holds what the workers are and run on: the agents (worker Profiles)
+// and the machines (Nodes), out of the app's sidebar since issue #857 (owner, 2026-11-18), as OpenClaw's Settings
+// holds its agents, devices and cloud workers (ui/src/app-navigation.ts SETTINGS_NAVIGATION_GROUPS), ordered by
+// attention with the system's plumbing last, and Coder's deployment settings hold its infrastructure
+// (site/src/modules/management/DeploymentSidebarView.tsx). Their pages keep their own heads.
 const groups: { heading: string; sections: Section[] }[] = [
   {
     heading: "Gateway",
@@ -106,6 +114,13 @@ const groups: { heading: string; sections: Section[] }[] = [
       { to: "/settings/channels", label: "Channels", icon: MessagesSquare },
       { to: "/settings/shared-links", label: "Shared links", icon: Link2 },
       { to: "/settings/vault", label: "Vault", icon: KeyRound },
+    ],
+  },
+  {
+    heading: "Workers",
+    sections: [
+      { to: "/settings/agents", label: "Agents", icon: SquareTerminal },
+      { to: "/settings/machines", label: "Machines", icon: Server },
     ],
   },
 ]
@@ -218,17 +233,7 @@ export function SettingsPage({
 }) {
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader
-        back={
-          <Link
-            to="/settings"
-            className="flex h-8 items-center gap-0.5 rounded-lg pe-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <ChevronLeft className="size-4" aria-hidden />
-            Settings
-          </Link>
-        }
-      />
+      <PageHeader back={<SettingsBack />} />
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 sm:px-5">
         <div
           className={cn(
@@ -243,6 +248,20 @@ export function SettingsPage({
         </div>
       </div>
     </main>
+  )
+}
+
+// SettingsBack is a phone's way back from a section to the list of sections, "‹ Settings", for a page with a head of its
+// own, such as Agents and Machines (issue #857), as SettingsPage's.
+export function SettingsBack() {
+  return (
+    <Link
+      to="/settings"
+      className="flex h-8 items-center gap-0.5 rounded-lg pe-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+    >
+      <ChevronLeft className="size-4" aria-hidden />
+      Settings
+    </Link>
   )
 }
 

@@ -171,6 +171,16 @@ test("the sidebar lists the Bots, each opening its main chat", async ({ page }) 
   await page.goto("/")
   await openMenu(page)
 
+  // The places are the daily ones; the agents and the machines are in Settings (issue #857).
+  await expect(page.getByRole("navigation", { name: "Places" }).getByRole("link")).toHaveText([
+    "New chat",
+    "Team",
+    "Routines",
+    "Meetings",
+    "Studio",
+    "Bots",
+  ])
+
   await expect(botRow(page, "coordinator")).toContainText("Moved the menu under the logo")
   await expect(botRow(page, "coordinator")).toContainText("Working")
   await expect(botRow(page, "researcher")).toContainText("Compare the gateways")
