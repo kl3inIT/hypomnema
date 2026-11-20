@@ -84,12 +84,13 @@ func TestMigrationNamesTaskModelsAsTheyWereResolved(t *testing.T) {
 	var unresolved []string
 	rows, err := db.QueryContext(ctx, `SELECT id FROM tasks WHERE model_unresolved = 1 ORDER BY id`)
 	require.NoError(t, err)
+	defer rows.Close() //nolint:errcheck // read only
 	for rows.Next() {
 		var id string
 		require.NoError(t, rows.Scan(&id))
 		unresolved = append(unresolved, id)
 	}
-	require.NoError(t, rows.Close())
+	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{"broad", "slash-twice", "slash-unknown", "twice", "unknown"}, unresolved)
 
 	q := store.New(db)
@@ -111,7 +112,7 @@ func TestMigrationNamesTaskModelsAsTheyWereResolved(t *testing.T) {
 
 		_, err = resolve(ctx, q, task)
 		require.ErrorIs(t, err, ErrInvalid, id)
-		assert.ErrorContains(t, err, "named without its provider", id)
+		require.ErrorContains(t, err, "named without its provider", id)
 	}
 
 	// A Task made after the upgrade names its provider.
