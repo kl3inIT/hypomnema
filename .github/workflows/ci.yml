@@ -62,7 +62,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
-          key: go-static-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
+          key: go-static-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum', 'tools/goose/go.sum') }}
           restore-keys: go-static-${{ runner.os }}-
       # A pull request is checked against main as it is now; a push to main against the commit before it (issue
       # #334). The refspec is forced: a shallow fetch cannot tell a fast-forward, and main's runs were refused.
@@ -75,8 +75,13 @@ jobs:
           else
             git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/migration-base
           fi
+      # A migration named by its time stays green on a pull request; main refuses it, so `make migration-fix` numbers
+      # it before the merge (issue #954), and release.yml releases only a green commit.
       - name: make verify-static
-        run: make verify-static MIGRATION_BASE=origin/migration-base
+        run: |
+          timestamps=allow
+          if [ "$GITHUB_EVENT_NAME" = push ]; then timestamps=refuse; fi
+          make verify-static MIGRATION_BASE=origin/migration-base MIGRATION_TIMESTAMPS="$timestamps"
       - name: govulncheck
         run: make govulncheck
       - name: Save Go cache
