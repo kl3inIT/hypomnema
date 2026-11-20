@@ -12,6 +12,7 @@ import {
 } from "@/features/machines/column-visibility"
 import { ViewMenu } from "@/features/machines/columns-menu"
 import { PageHeader, PageHeading } from "@/components/page-header"
+import { SettingsBack } from "@/components/settings-page"
 import { modelIsId } from "@/lib/model-name"
 import { cn } from "@/lib/utils"
 
@@ -78,7 +79,7 @@ export function AgentsScreen() {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader />
+      <PageHeader back={<SettingsBack />} />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
         <PageHeading
@@ -132,7 +133,7 @@ export function AgentsScreen() {
               onShow={show}
             />
           )}
-          <Link to="/agents/new" className={buttonVariants()}>
+          <Link to="/settings/agents/new" className={buttonVariants()}>
             New agent
           </Link>
         </PageHeading>
@@ -166,7 +167,7 @@ export function AgentsScreen() {
               No agents yet. An agent is a saved profile a worker runs with: its CLI, its model and
               its instructions.
             </p>
-            <Link to="/agents/new" className={buttonVariants()}>
+            <Link to="/settings/agents/new" className={buttonVariants()}>
               New agent
             </Link>
           </div>
@@ -320,7 +321,7 @@ function AgentCard({ profile }: { profile: Profile }) {
         <h2 className="flex min-w-0 flex-1 items-center gap-2.5 text-sm font-semibold">
           <Face profile={profile} />
           <Link
-            to="/agents/$name"
+            to="/settings/agents/$name"
             params={{ name: profile.name }}
             className="truncate outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
           >
@@ -379,7 +380,7 @@ const tableColumns: TableColumn[] = [
         <Face profile={profile} />
         <span className="min-w-0">
           <Link
-            to="/agents/$name"
+            to="/settings/agents/$name"
             params={{ name: profile.name }}
             className="font-medium hover:underline"
           >

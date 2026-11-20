@@ -4107,6 +4107,7 @@ gateway chat model writes its summary, decisions and actions.
   repository), and Notes model, picked with the single-model picker the Bots use
   (`features/agents/model-picker.tsx`). Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
+  Old Agents and Machines list URLs redirect into Settings and are skipped as return destinations.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
@@ -5101,10 +5102,11 @@ Node (`internal/node`):
   the chat's own state), the screen streams and take-over sockets, chunked uploads, and what is read from bytes
   already read (an artifact page's text, an SVG's text, a file's preview), keyed by the bytes' generated key with
   a word after it. An image's bytes keep their own read, typed by the file's name, under the generated key.
-- Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
-  main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
+- Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in
+  Settings under Workers since issue #857, out of the main sidebar; the old `/agents`, `/agents/$name` and
+  `/agents/new` redirect to the same page there): `/settings/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
-  again every 10 s. `/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
+  again every 10 s. `/settings/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
   the runtime, a model from `GET /models` in a picker with a search (issue #200, after Omnara's model combobox
   and t3code's model search: grouped by provider, every word typed found in the name or the provider; the Bots
   page uses the same field; a row leads with the mark of the model's maker, issue #205, and says the model by
@@ -5113,9 +5115,9 @@ Node (`internal/node`):
   the fallbacks) and the YAML in Monaco with `monaco-yaml` (issue #177, as Omnara's editor): completion, hover and
   marks against a schema of the profile document written in the client, fetched when the YAML tab first opens.
   Both are saved with `PUT /profiles/{name}` as a new version, a refusal shown in the server's words; and its
-  versions, each opening to its source, an earlier one restored by applying its source again. `/agents/new` makes
+  versions, each opening to its source, an earlier one restored by applying its source again. `/settings/agents/new` makes
   a profile with the same builder; "Duplicate" on an agent's page opens it filled in from that agent
-  (`/agents/new?from=<name>`, issue #200, after OpenMausBot's duplicate and Hermes's clone) under the first free
+  (`/settings/agents/new?from=<name>`, issue #200, after OpenMausBot's duplicate and Hermes's clone) under the first free
   name of `<name>-copy`, `<name>-copy-2`, and nothing is stored until it is created. The builder writes the YAML and does not read it back, so YAML edits are
   discarded, after a question, on the way back to the builder; leaving with unsaved changes asks first. The list
   is searched by name and description. An agent has an avatar (issue #177): one of OpenMausBot's ten mascot bodies
@@ -5345,8 +5347,8 @@ Node (`internal/node`):
     table shows 1,000 rows; a file cut so says so beside the download of the whole. A pptx, an old .doc and any
     other file is its name and a download (Onyx's `unsupportedVariant`).
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
-    Team with the count that needs the owner, Routines, then Bots, Agents (a terminal mark, apart from the Bots'
-    robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row every Bot, with chats or
+    Team with the count that needs the owner, Routines, Meetings, Studio, then Bots; the Agents and the Machines
+    are in Settings (issue #857). The places sit above the Bots (issue #361, after OpenMausBot's sidebar): a row every Bot, with chats or
     not ("No chats yet"), in the one order the owner sets (issue #470): the main Bot (`Bot.main`) first, then a
     "Pinned" section of the pinned Bots, then the others, each section by `Bot.position`. The owner drags a Bot by
     its avatar, which turns into a grabber on hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with
@@ -5365,7 +5367,8 @@ Node (`internal/node`):
     its main chat and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
     their links (`/chats/<id>`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
-- The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
+- The machines (issue #69): `/settings/machines` (in Settings under Workers since issue #857; the old `/machines`
+  redirects there) lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
   state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
   from 65 % and red from 90 % and are grey while it is not connected, its load average, each of its GPUs when it has any (use with
@@ -5391,7 +5394,9 @@ Node (`internal/node`):
 - Settings (issue #44): one "Settings" entry at the sidebar's foot leads to `/settings`, where the sidebar's body
   gives way to the settings sections under headings, with a way back (the headings are t3code's, the swap is
   Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
-  on a phone the sections are a row of links under the header.
+  on a phone `/settings` lists the sections and each page leads back to it ("‹ Settings", issue #604). The groups
+  are Gateway, Meetings, Agents, Connections and, last, Workers: the Agents and the Machines, moved out of the main
+  sidebar (issue #857, as OpenClaw's Settings holds its agents and devices with the system's plumbing last).
   - `/settings/integrations` (under Connections) lists the git hosts as one card a product, GitHub and GitLab,
     after Orca's integration card (MIT), with each host of that product a row, as Coder lists each configured
     instance (issue #379): its address ("server" beside a company's own), a "Connected" or "No token" badge, and

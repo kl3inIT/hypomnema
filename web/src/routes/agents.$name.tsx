@@ -1,19 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
-import { ProfileScreen } from "@/features/agents/profile-screen"
-import { AppSidebar } from "@/features/shell/app-shell"
-
+// The old address of an agent leads to its place in Settings (issue #857).
 export const Route = createFileRoute("/agents/$name")({
-  component: AgentRoute,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/settings/agents/$name", params, replace: true })
+  },
 })
-
-function AgentRoute() {
-  const { name } = Route.useParams()
-
-  return (
-    <>
-      <AppSidebar />
-      <ProfileScreen key={name} name={name} />
-    </>
-  )
-}
