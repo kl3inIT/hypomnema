@@ -387,6 +387,20 @@ func (s *server) ask(ctx context.Context, raw json.RawMessage, report func(n int
 }
 
 func (s *server) finish(raw json.RawMessage) (map[string]any, error) {
+	final, err := ParseFinish(raw)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := bridge.Finish(s.dir, final); err != nil {
+		return nil, fmt.Errorf("recording the final report: %w", err)
+	}
+
+	return toolsmcp.Text("Recorded. End your turn now, without calling more tools.", false), nil
+}
+
+// ParseFinish validates the finish tool arguments for delivery or recovery.
+func ParseFinish(raw json.RawMessage) (bridge.Final, error) {
 	var f struct {
 		Summary  string               `json:"summary"`
 		Evidence []nodeproto.Evidence `json:"evidence"`
@@ -397,22 +411,18 @@ func (s *server) finish(raw json.RawMessage) (map[string]any, error) {
 	}
 
 	if err := json.Unmarshal(raw, &f); err != nil || strings.TrimSpace(f.Summary) == "" {
-		return nil, errors.New("finish needs a summary")
+		return bridge.Final{}, errors.New("finish needs a summary")
 	}
 
 	final := bridge.Final{Summary: f.Summary, Evidence: f.Evidence}
 	if f.Gate != nil && strings.TrimSpace(f.Gate.Question) != "" {
 		opts, err := options(f.Gate.Options)
 		if err != nil {
-			return nil, err
+			return bridge.Final{}, err
 		}
 
 		final.Gate = &nodeproto.Ask{Text: f.Gate.Question, Options: opts, To: "owner"}
 	}
 
-	if err := bridge.Finish(s.dir, final); err != nil {
-		return nil, fmt.Errorf("recording the final report: %w", err)
-	}
-
-	return toolsmcp.Text("Recorded. End your turn now, without calling more tools.", false), nil
+	return final, nil
 }
