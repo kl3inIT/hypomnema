@@ -1288,3 +1288,136 @@ func TestAZaloSourceNamesItsAccount(t *testing.T) {
 		require.ErrorIs(t, err, storeerr.ErrInvalid, name)
 	}
 }
+
+// Scenario: the owner's triage of 2026-11-20 (issue #966): a Bot in a Routine's run, or reading his Lark or Zalo
+// chats, opens an item only when it was asked directly or promised, with the quote and the reference to the
+// message; without one of them it may only propose. why_open is kept in the item and its created event, and is
+// refused where it means nothing.
+func TestARoutineOpensOnlyWhatIsClear(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	ref := &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_456"}
+	lark := inboxstore.Source{Kind: inboxstore.FromLark, ID: "oc_123", Quote: "Anh check giúp em nhé", Ref: ref}
+	routine := inboxstore.Source{Kind: inboxstore.FromRoutine, ID: "rrn_1", Quote: "để em check",
+		Ref: &inboxstore.Link{Kind: inboxstore.LinkURL, Ref: "https://example.com/m/1"}}
+
+	create := func(actor inboxstore.Actor, state, why string, src inboxstore.Source) (inboxstore.Todo, error) {
+		return w.inbox.Create(ctx, actor, inboxstore.NewTodo{Title: "Check the invoice", State: state, WhyOpen: why,
+			Source: src, Assignee: me})
+	}
+
+	noQuote := routine
+	noQuote.Quote = "  "
+	noRef := routine
+	noRef.Ref = nil
+
+	for _, c := range []struct {
+		name  string
+		why   string
+		src   inboxstore.Source
+		state string
+		want  error
+	}{
+		{"open without why_open", "", routine, inboxstore.Open, storeerr.ErrForbidden},
+		{"open without a quote", inboxstore.AskedDirectly, noQuote, inboxstore.Open, storeerr.ErrForbidden},
+		{"open without a reference", inboxstore.Promised, noRef, inboxstore.Open, storeerr.ErrForbidden},
+		{"an unknown reason", "urgent", routine, inboxstore.Open, storeerr.ErrInvalid},
+		{"why_open on a proposal", inboxstore.Promised, routine, inboxstore.Proposed, storeerr.ErrInvalid},
+		{"why_open from a chat", inboxstore.Promised, inboxstore.Source{Kind: inboxstore.FromChat, ID: w.chat},
+			inboxstore.Open, storeerr.ErrInvalid},
+		{"proposed without why_open", "", noRef, inboxstore.Proposed, nil},
+		{"asked directly at Lark", inboxstore.AskedDirectly, lark, inboxstore.Open, nil},
+		{"promised in a run", inboxstore.Promised, routine, inboxstore.Open, nil},
+	} {
+		td, err := create(bot(w.kai), c.state, c.why, c.src)
+		if c.want != nil {
+			require.ErrorIs(t, err, c.want, c.name)
+
+			continue
+		}
+
+		require.NoError(t, err, c.name)
+		assert.Equal(t, c.state, td.State, c.name)
+		assert.Equal(t, c.why, td.WhyOpen, c.name)
+
+		var after map[string]any
+		require.NoError(t, json.Unmarshal(td.Events[0].After, &after))
+
+		if c.why == "" {
+			assert.Nil(t, after["why_open"], c.name)
+		} else {
+			assert.Equal(t, c.why, after["why_open"], "%s: the created event records why", c.name)
+		}
+	}
+
+	_, err := w.inbox.Create(ctx, owner, inboxstore.NewTodo{Title: "Pay", State: inboxstore.Open,
+		WhyOpen: inboxstore.Promised, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me})
+	require.ErrorIs(t, err, storeerr.ErrInvalid, "the owner's own item says no why")
+}
+
+// Scenario: a proposal nobody touched for StaleAfter is stale (issue #966): it leaves List unless asked for and is
+// not counted by NeedsYou, nor listed by its filter; it stays proposed with its history. One touched since it was
+// made, one younger than StaleAfter, and an open item as old are not stale.
+func TestAnUntouchedProposalGoesStale(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+
+	untouched := w.proposed(t)
+	touched := w.proposed(t)
+	open := w.fromChat(t)
+
+	w.clock.now = t0.Add(time.Hour)
+	note := "Linh asked again."
+	touched, err := w.inbox.Edit(ctx, by(owner, touched), inboxstore.Edit{Notes: &note})
+	require.NoError(t, err)
+
+	listed := func(f inboxstore.Filter) []string {
+		t.Helper()
+
+		page, err := w.inbox.List(ctx, f, "", 0)
+		require.NoError(t, err)
+		assert.Equal(t, len(page.Items), page.Total, "the total counts what the filter lists")
+
+		return idsOf(page.Items)
+	}
+
+	w.clock.now = t0.Add(inboxstore.StaleAfter - time.Millisecond)
+	assert.ElementsMatch(t, []string{untouched.ID, touched.ID, open.ID}, listed(inboxstore.Filter{}),
+		"just younger than StaleAfter")
+	n, err := w.inbox.NeedsYou(ctx, w.clock.now)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	w.clock.now = t0.Add(inboxstore.StaleAfter)
+	assert.ElementsMatch(t, []string{touched.ID, open.ID}, listed(inboxstore.Filter{}))
+	assert.ElementsMatch(t, []string{untouched.ID, touched.ID, open.ID}, listed(inboxstore.Filter{WithStale: true}))
+	assert.Equal(t, []string{touched.ID}, listed(inboxstore.Filter{NeedsYou: true}))
+	assert.Equal(t, []string{touched.ID}, listed(inboxstore.Filter{NeedsYou: true, WithStale: true}),
+		"a stale proposal never needs the owner")
+
+	n, err = w.inbox.NeedsYou(ctx, w.clock.now)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	got, err := w.inbox.Get(ctx, untouched.ID)
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Proposed, got.State, "neither accepted nor dropped")
+	assert.Len(t, got.Events, 1)
+	assert.True(t, got.Stale)
+
+	page, err := w.inbox.List(ctx, inboxstore.Filter{WithStale: true}, "", 0)
+	require.NoError(t, err)
+
+	for _, td := range page.Items {
+		assert.Equal(t, td.ID == untouched.ID, td.Stale, "only the untouched proposal is stale")
+	}
+
+	// Accepted, it is open and in sight again.
+	_, err = w.inbox.Accept(ctx, by(owner, got))
+	require.NoError(t, err)
+	assert.Contains(t, listed(inboxstore.Filter{}), untouched.ID)
+}

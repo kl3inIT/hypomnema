@@ -1140,6 +1140,78 @@ var commands = []command{
 		run: meetingsFix,
 	},
 	{
+		name: "inbox list", summary: "the inbox's to-dos, by due then added; closed, snoozed and stale ones are left out",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("state", "", "only these states, separated by commas: proposed, open, doing, review, done, "+
+				"dropped, duplicate")
+			fs.String("who", "", "only those of me, unknown, bot:<bot id> or a person's name")
+			fs.String("source", "", "only those from owner, chat, routine, lark or zalo")
+			fs.String("due-from", "", "only those due from this time (YYYY-MM-DD[ HH:MM], this machine's zone)")
+			fs.String("due-to", "", "only those due before this time")
+			fs.Bool("needs-you", false, "only those that need you now")
+			fs.Bool("snoozed", false, "snoozed ones too")
+			fs.Bool("closed", false, "closed ones too")
+			fs.Bool("stale", false, "stale proposals too: proposed and untouched for three days")
+			fs.String("cursor", "", "the next page, as the previous one printed")
+			fs.Int("limit", 0, "how many (default 200)")
+			jsonFlag(fs)
+		},
+		run: inboxList,
+	},
+	{
+		name: "inbox show", args: "<todo_id>", min: 1, max: 1, summary: "a to-do with its history",
+		flags: jsonFlag, run: inboxShow,
+	},
+	{
+		name: "inbox add", args: "<title>", min: 1, max: 1,
+		summary: "add a to-do: by hand for the owner, from its chat for a bot",
+		flags: func(fs *flag.FlagSet) {
+			inboxFlags(fs)
+			fs.String("key", "", "idempotency key; repeat an add whose result was lost with the same key")
+			jsonFlag(fs)
+		},
+		run: inboxAdd,
+	},
+	{
+		name: "inbox edit", args: "<todo_id>", min: 1, max: 1, summary: "change a to-do's title, notes, due or who",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("title", "", "the title")
+			inboxFlags(fs)
+			jsonFlag(fs)
+		},
+		run: inboxEdit,
+	},
+	{
+		name: "inbox accept", args: "<todo_id>", min: 1, max: 1, summary: "open a proposed to-do (owner)",
+		flags: jsonFlag, run: inboxAccept,
+	},
+	{
+		name: "inbox done", args: "<todo_id>", min: 1, max: 1, summary: "close a to-do as done",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("evidence", "", "a URL that shows it is done")
+			fs.String("reason", "", "a word on how")
+			jsonFlag(fs)
+		},
+		run: inboxDone,
+	},
+	{
+		name: "inbox drop", args: "<todo_id> <reason>", min: 2, max: 2, summary: "close a to-do as dropped, with why",
+		flags: jsonFlag, run: inboxDrop,
+	},
+	{
+		name: "inbox duplicate", args: "<todo_id> <of_todo_id>", min: 2, max: 2,
+		summary: "close a to-do as a duplicate of another (owner)", flags: jsonFlag, run: inboxDuplicate,
+	},
+	{
+		name: "inbox snooze", args: "<todo_id> <until>", min: 2, max: 2,
+		summary: "hide a to-do until YYYY-MM-DD[ HH:MM] in this machine's zone, or off to show it again (owner)",
+		flags:   jsonFlag, run: inboxSnooze,
+	},
+	{
+		name: "inbox reopen", args: "<todo_id>", min: 1, max: 1, summary: "open a closed to-do again (owner)",
+		flags: jsonFlag, run: inboxReopen,
+	},
+	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",
 		flags: jsonFlag, run: skillsList,
 	},
