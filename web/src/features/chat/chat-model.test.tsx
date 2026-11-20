@@ -118,7 +118,6 @@ const vmap = {
   tools: [],
   tools_off: [],
   position: 1,
-  pinned: false,
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
   scopes: {},

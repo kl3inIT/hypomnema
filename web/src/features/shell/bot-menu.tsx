@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { MoreHorizontal, Pin, PinOff, Star } from "lucide-react"
+import { FolderMinus, FolderPlus, MoreHorizontal, Star } from "lucide-react"
 import type { ReactNode } from "react"
 
 import "@/api/client"
@@ -9,21 +9,60 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { usePinBot, useSetMainChat } from "@/features/bots/use-bots"
+import { useMoveBot, useSetMainChat } from "@/features/bots/use-bots"
+import { useDepartments } from "@/features/bots/use-departments"
 import { everyCall } from "@/lib/query-keys"
 import { cn } from "@/lib/utils"
 
-// PinItem pins or unpins a Bot from its row's menu (issue #470), as OpenMausBot's Bot menu has Pin or Unpin with
-// its icon (src/components/SidebarBotMenu.tsx, sidebar.bot.pin and sidebar.bot.unpin; Apache License 2.0).
-export function PinItem({ bot, pinned }: { bot: string; pinned: boolean }) {
-  const pin = usePinBot()
+// MoveItem moves a Bot between departments from its row's menu (issue #471), as OpenMausBot's Bot menu has "Move to
+// department" with a flyout: every department, the Bot's own one turned off, then "New department…" and, for a Bot
+// in one, "Remove from department" (src/components/SidebarBotMenu.tsx, sidebar.bot.moveToSection,
+// sidebar.section.newContext and sidebar.section.removeFromDepartment; Apache License 2.0).
+export function MoveItem({
+  bot,
+  department,
+  onNewDepartment,
+}: {
+  bot: string
+  department?: string
+  onNewDepartment: (bot: string) => void
+}) {
+  const departments = useDepartments()
+  const move = useMoveBot()
+  const list = departments.data ?? []
 
   return (
-    <DropdownMenuItem onClick={() => pin.mutate({ id: bot, pinned: !pinned })}>
-      {pinned ? <PinOff /> : <Pin />} {pinned ? "Unpin" : "Pin"}
-    </DropdownMenuItem>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <FolderPlus /> Move to department
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        {list.map((d) => (
+          <DropdownMenuItem
+            key={d.id}
+            disabled={d.id === department}
+            onClick={() => move.mutate({ id: bot, department: d.id })}
+          >
+            {d.name}
+          </DropdownMenuItem>
+        ))}
+        {list.length > 0 && <DropdownMenuSeparator />}
+        <DropdownMenuItem onClick={() => onNewDepartment(bot)}>
+          <FolderPlus /> New department…
+        </DropdownMenuItem>
+        {department && (
+          <DropdownMenuItem onClick={() => move.mutate({ id: bot, department: "" })}>
+            <FolderMinus /> Remove from department
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }
 

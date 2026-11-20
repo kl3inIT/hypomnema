@@ -26,7 +26,6 @@ const coordinator: Record<string, unknown> = {
   main: true,
   name: "coordinator",
   position: 0,
-  pinned: false,
   persona: "",
   memory: "",
   memory_limit: 2200,
