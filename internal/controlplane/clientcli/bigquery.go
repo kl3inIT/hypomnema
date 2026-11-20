@@ -1,6 +1,7 @@
 package clientcli
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -303,7 +304,12 @@ func bigqueryQuery(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		body.DryRun = &dry
 	}
 
-	if n, _ := strconv.Atoi(str(fs, "max-rows")); n != 0 {
+	if given := str(fs, "max-rows"); given != "" {
+		n, err := strconv.Atoi(given)
+		if err != nil || n < 1 || n > 10000 {
+			return fmt.Errorf("%w: --max-rows is 1 to 10000", ErrUsage)
+		}
+
 		body.MaxRows = &n
 	}
 
@@ -323,7 +329,7 @@ func bigqueryQuery(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	if format == "csv" {
-		return writeCSV(e, resp.JSON200)
+		return writeCSV(e, resp.Body)
 	}
 
 	_, err = e.out.Write(resp.Body)
@@ -357,7 +363,21 @@ func queryClientTimeoutOf(fs *flag.FlagSet) time.Duration {
 	return QueryClientTimeout(d)
 }
 
-func writeCSV(e *env, r *openapi.BigQueryResult) error {
+// writeCSV prints the answer's rows as CSV. The answer is read again with its numbers as they were written: an
+// integer past 2^53 read as a float64 would lose its last digits.
+func writeCSV(e *env, body []byte) error {
+	var r struct {
+		Columns []string `json:"columns"`
+		Rows    [][]any  `json:"rows"`
+	}
+
+	d := json.NewDecoder(bytes.NewReader(body))
+	d.UseNumber()
+
+	if err := d.Decode(&r); err != nil {
+		return fmt.Errorf("reading the answer: %w", err)
+	}
+
 	w := csv.NewWriter(e.out)
 
 	if err := w.Write(r.Columns); err != nil {
@@ -372,6 +392,8 @@ func writeCSV(e *env, r *openapi.BigQueryResult) error {
 			case nil:
 			case string:
 				cells[i] = x
+			case json.Number:
+				cells[i] = x.String()
 			default:
 				raw, err := json.Marshal(x)
 				if err != nil {

@@ -311,6 +311,10 @@ func (s *Server) PatchIntegrationConnection(ctx context.Context, req openapi.Pat
 	// A git host's Connection may be used in chats too: a Bot reads GitHub with it through the service proxy
 	// (issue #685). Its token lives with the git hosts, so the switch is set on the Connection itself.
 	if _, err := s.svc.GitHostOf(ctx, req.Integration); err == nil {
+		if req.Body.MaxBytesBilled != nil {
+			return nil, fmt.Errorf("%w: a git host's Connection has no bytes cap", orchestration.ErrInvalid)
+		}
+
 		conn, err := s.svc.ConnectionOf(ctx, req.Integration, req.Label)
 		if err == nil && req.Body.Chats != nil {
 			conn, err = s.svc.SetConnectionChats(ctx, req.Integration, req.Label, *req.Body.Chats)

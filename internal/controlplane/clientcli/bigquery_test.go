@@ -398,13 +398,31 @@ func TestNoAgentTokenReachesTheKeyOrTheQueryRouteOfAReadRun(t *testing.T) {
 	readRun, err := w.svc.AddBotToken(ctx, "pi", run.Run.ChatID, orchestration.DefaultBotID)
 	require.NoError(t, err)
 
-	for name, token := range map[string]string{"coordinator": coordinator, "read run": readRun} {
+	chat, err := w.svc.CreateChat(ctx, orchestration.DefaultBotID, "Weekly installs")
+	require.NoError(t, err)
+
+	bot, err := w.svc.AddBotToken(ctx, "pi", chat.ID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	worker, err := w.svc.AddAgentSession(ctx, "dsp_1", []string{"bigquery:ga4"})
+	require.NoError(t, err)
+
+	for name, token := range map[string]string{
+		"coordinator": coordinator, "read run": readRun, "bot": bot, "worker": worker,
+	} {
 		api, err := newClient(Config{URL: w.url, Token: token}, time.Minute)
 		require.NoError(t, err)
 
 		secret, err := api.GetSecretValueWithResponse(ctx, "integration-bigquery-ga4")
 		require.NoError(t, err)
-		assert.Equal(t, http.StatusForbidden, secret.StatusCode(), name)
+
+		// A worker's session is no token of this API at all; every other agent's is refused the owner's read.
+		want := http.StatusForbidden
+		if name == "worker" {
+			want = http.StatusUnauthorized
+		}
+
+		assert.Equal(t, want, secret.StatusCode(), name)
 		assert.NotContains(t, string(secret.Body), "PRIVATE", name)
 
 		if name == "read run" {
@@ -417,4 +435,62 @@ func TestNoAgentTokenReachesTheKeyOrTheQueryRouteOfAReadRun(t *testing.T) {
 	}
 
 	assert.Empty(t, w.fake.Jobs(), "nothing was queried")
+}
+
+// Scenario (review round 1, CodeRabbit): a coordinator's dry run approved once does not let the billed query of
+// the same SQL run.
+func TestTheCLIsApprovedDryRunDoesNotRunTheQuery(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryCLIWorld(t, 50*time.Millisecond)
+	w.connect(t)
+	ctx := t.Context()
+
+	_, err := w.svc.SetConnectionChats(ctx, integration.BigQueryID, "ga4", true)
+	require.NoError(t, err)
+
+	_, err = w.cmd(t, "integrations", "actions", "set", "bigquery:ga4", "bigquery.query", "ask")
+	require.NoError(t, err)
+
+	pi := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}
+	pi.login(t, bearertoken.Coordinator)
+
+	_, err = pi.cmd(t, "bigquery", "query", "--connection", "ga4", "--dry-run", "SELECT 1")
+	require.ErrorContains(t, err, "Waiting for the owner's approval")
+
+	pending, err := w.svc.ListApprovals(ctx, orchestration.ApprovalFilter{Status: orchestration.ApprovalPending})
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+
+	_, err = w.svc.DecideApproval(ctx, pending[0].ID, true, orchestration.ScopeOnce)
+	require.NoError(t, err)
+
+	_, err = pi.cmd(t, "bigquery", "query", "--connection", "ga4", "SELECT 1")
+	require.ErrorContains(t, err, "Waiting for the owner's approval", "the billed query asks for itself")
+	assert.Empty(t, w.fake.Jobs())
+
+	out, err := pi.cmd(t, "bigquery", "query", "--connection", "ga4", "--dry-run", "SELECT 1")
+	require.NoError(t, err)
+	assert.Contains(t, out, `"dry_run":true`)
+}
+
+// Scenario (review round 1, CodeRabbit): an INTEGER past 2^53, alone and in a list, keeps every digit in CSV.
+func TestCSVKeepsBigIntegers(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryCLIWorld(t, time.Second)
+	w.connect(t)
+
+	w.fake.Schema = []map[string]any{
+		{"name": "id", "type": "INTEGER"},
+		{"name": "ids", "type": "INTEGER", "mode": "REPEATED"},
+	}
+	w.fake.RawRows = [][]any{{"9007199254740993", []any{map[string]any{"v": "9007199254740995"}}}}
+
+	out, err := w.cmd(t, "bigquery", "query", "SELECT id, ids", "--format", "csv")
+	require.NoError(t, err)
+	assert.Equal(t, "id,ids\n9007199254740993,[9007199254740995]\n", out)
+
+	_, err = w.cmd(t, "bigquery", "query", "SELECT 1", "--max-rows", "0")
+	require.ErrorContains(t, err, "--max-rows is 1 to 10000")
 }

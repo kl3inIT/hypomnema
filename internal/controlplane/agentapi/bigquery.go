@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bigquery"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -174,6 +175,9 @@ func (s *Server) bigqueryCall(w http.ResponseWriter, r *http.Request, a agent, l
 		return
 	}
 
+	// An approval's wait, a dry run and a query outlast the server's write timeout, as the other long tools do.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
 	ctx := r.Context()
 	action, fields := "bigquery.read", []orchestration.Field(nil)
 
@@ -208,7 +212,13 @@ func (s *Server) bigqueryCall(w http.ResponseWriter, r *http.Request, a agent, l
 		}
 	}
 
-	digest := sha256.Sum256([]byte(strings.Join([]string{label, call.Tool, in.Dataset, in.Table, in.SQL}, "\x00")))
+	// The mode is part of what is approved: an approval of a free dry run never lets the billed query run.
+	mode := "run"
+	if in.DryRun {
+		mode = "dry-run"
+	}
+
+	digest := sha256.Sum256([]byte(strings.Join([]string{label, call.Tool, in.Dataset, in.Table, in.SQL, mode}, "\x00")))
 
 	err := s.judge.Judge(ctx, serviceproxy.Act{
 		Caller: a.proxyCaller(), Integration: serviceproxy.BigQueryID, Label: label, ChatID: a.chatID,

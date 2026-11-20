@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,15 +56,23 @@ type bigqueryWorld struct {
 func newBigQueryWorld(t *testing.T, connected bool) *bigqueryWorld {
 	t.Helper()
 
+	return newBigQueryWorldWith(t, connected, 0, 0)
+}
+
+// newBigQueryWorldWith is newBigQueryWorld whose proxy holds an ask for hold (zero: its default) and whose server
+// ends an answer not written within writeTimeout (zero: none).
+func newBigQueryWorldWith(t *testing.T, connected bool, hold, writeTimeout time.Duration) *bigqueryWorld {
+	t.Helper()
+
 	var agents *agentapi.Server
 
-	w := &bigqueryWorld{world: newWorldWith(t, 0, func(api *agentapi.Server) { agents = api }), fake: bigquerytest.New(t)}
+	w := &bigqueryWorld{world: newWorldWith(t, writeTimeout, func(api *agentapi.Server) { agents = api }), fake: bigquerytest.New(t)}
 	w.fake.Tables["data-project.analytics_1"] = []bigquerytest.Table{{ID: "events_20261119", Type: "TABLE"}}
 	w.fake.Columns, w.fake.Rows = []string{"d", "users"}, [][]string{{"2026-11-19", "131"}}
 
 	proxy, err := serviceproxy.New(serviceproxy.Config{
 		Agents: agents, Store: w.svc, Logger: slog.New(slog.DiscardHandler),
-		Token: func(context.Context, string, string) (string, error) { return "", nil },
+		Token: func(context.Context, string, string) (string, error) { return "", nil }, Hold: hold,
 	})
 	require.NoError(t, err)
 	agents.WithJudge(proxy).WithBigQuery(fakeBigQuery{fake: w.fake})
@@ -190,4 +199,73 @@ func TestARefusedQueryReachesNobody(t *testing.T) {
 	require.True(t, failed)
 	assert.Contains(t, text, "never")
 	assert.Empty(t, w.fake.Requests())
+}
+
+// chatPi is the pi's token of a Bot of the preset in a chat of its own, the owner's turn not taken.
+func (w *bigqueryWorld) chatPi() string {
+	w.t.Helper()
+
+	ctx := w.t.Context()
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "ga4-chat", Preset: agenttool.PresetReport})
+	require.NoError(w.t, err)
+
+	chat, err := w.svc.CreateChat(ctx, bot.ID, "Weekly installs")
+	require.NoError(w.t, err)
+
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
+	require.NoError(w.t, err)
+
+	return pi
+}
+
+// Scenario (review round 1, CodeRabbit): the owner set queries to ask. He approves a dry run, which bills
+// nothing; the same SQL run for real is a new question, and the dry run approved runs once.
+func TestAnApprovedDryRunDoesNotRunTheQuery(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorldWith(t, true, 50*time.Millisecond, 0)
+	pi := w.chatPi()
+	ctx := t.Context()
+
+	require.NoError(t, w.svc.SetActionPolicy(ctx, serviceproxy.BigQueryID, "ga4", "bigquery.query",
+		orchestration.PolicyAsk))
+
+	dry := `{"sql":"SELECT 1","dry_run":true}`
+
+	_, text, failed := w.use(pi, agenttool.ToolBigQueryQuery, dry)
+	require.True(t, failed)
+	assert.Contains(t, text, "Waiting for the owner's approval")
+
+	pending, err := w.svc.ListApprovals(ctx, orchestration.ApprovalFilter{Status: orchestration.ApprovalPending})
+	require.NoError(t, err)
+	require.Len(t, pending, 1)
+
+	_, err = w.svc.DecideApproval(ctx, pending[0].ID, true, orchestration.ScopeOnce)
+	require.NoError(t, err)
+
+	_, text, failed = w.use(pi, agenttool.ToolBigQueryQuery, `{"sql":"SELECT 1"}`)
+	require.True(t, failed, "the billed query asks for itself")
+	assert.Contains(t, text, "Waiting for the owner's approval")
+	assert.Empty(t, w.fake.Jobs(), "no job ran")
+
+	_, text, failed = w.use(pi, agenttool.ToolBigQueryQuery, dry)
+	require.False(t, failed, text)
+	assert.Contains(t, text, `"dry_run":true`)
+	assert.Empty(t, w.fake.Jobs())
+}
+
+// Scenario (review round 1, CodeRabbit): a query takes longer than the server's write timeout. The tool's answer
+// still arrives, as the other long tools' do.
+func TestALongQueryStillAnswersTheTool(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorldWith(t, true, 0, 300*time.Millisecond)
+	w.fake.ResultsDelay = 200 * time.Millisecond
+	pi := w.readRunPi(agenttool.PresetReport)
+
+	status, text, failed := w.use(pi, agenttool.ToolBigQueryQuery, `{"sql":"SELECT 1"}`)
+	require.Equal(t, http.StatusOK, status, text)
+	require.False(t, failed, text)
+	assert.Contains(t, text, `"rows":[["2026-11-19","131"]]`)
 }

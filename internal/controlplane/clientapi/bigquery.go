@@ -279,7 +279,13 @@ func (s *Server) RunBigQueryQuery(ctx context.Context, req openapi.RunBigQueryQu
 		subject = subject[:120] + "…"
 	}
 
-	if err := s.judgeBigQuery(ctx, act, "bigquery.query", subject, fields, req.Body.Sql); err != nil {
+	// The mode is part of what is approved: an approval of a free dry run never lets the billed query run.
+	mode := "run"
+	if dryRun {
+		mode = "dry-run"
+	}
+
+	if err := s.judgeBigQuery(ctx, act, "bigquery.query", subject, fields, req.Body.Sql, mode); err != nil {
 		return nil, err
 	}
 
