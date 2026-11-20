@@ -4267,7 +4267,7 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143, 00144 and `inbox_bot_tools`; issues #838, #845, #966 and
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148 and 00151; issues #838, #845, #966 and
 #1004, parts 1 to 3 of the Inbox): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
@@ -4292,7 +4292,7 @@ its client API, its CLI and the Bots' tools.
   `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
   `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`;
   `closed_at`); `duplicate_of`; `why_open`
-  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00144); a create's idempotency key,
+  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); a create's idempotency key,
   unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed` or `linked_approval`, the revision it made, JSON of the fields before and after, and the
