@@ -13,6 +13,7 @@ package shim
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,6 +45,11 @@ const (
 // CloseLine is the line that closes the worker's stdin.
 const CloseLine = `{"type":"shim_close"}`
 
+type stopRequest struct {
+	Type   string `json:"type"`
+	Reason string `json:"reason"`
+}
+
 // maxLine bounds one journal line (a stream-JSON event).
 const maxLine = 16 << 20
 
@@ -62,9 +68,10 @@ type Spec struct {
 
 // Exit is how the worker ended.
 type Exit struct {
-	Code   int    `json:"code"`
-	Signal string `json:"signal,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Code        int    `json:"code"`
+	Signal      string `json:"signal,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Unconfirmed bool   `json:"unconfirmed,omitempty"`
 }
 
 // WriteSpec writes the spec a shim will run into dir, private to the owner.
@@ -155,23 +162,54 @@ func Main(ctx context.Context, socketDir string) error {
 		return err
 	}
 
-	if err := cmd.Start(); err != nil {
+	if _, err := root.Stat(ExitFile); err == nil {
+		return nil
+	}
+	stop, err := startWorker(cmd)
+	if err != nil {
 		return writeExit(root, Exit{Code: -1, Error: err.Error()})
 	}
+	defer stop.close()
 	if err := recordWorker(root, cmd.Process.Pid); err != nil {
-		_ = cmd.Process.Kill()
+		_, _ = stop.kill()
 		_ = cmd.Wait()
 		return writeExit(root, Exit{Code: -1, Error: err.Error()})
 	}
+	stopReaping := reapOrphans(cmd.Process.Pid)
+	defer stopReaping()
 
 	in := &input{w: stdin}
+	stopping := make(chan string, 1)
+	go accept(ln, in, stopping)
+	finished := make(chan Exit, 1)
+	go func() {
+		copyErr := copyLines(stdout, journal)
+		waitErr := cmd.Wait()
+		finished <- exitOf(cmd, spec.Bwrap, errors.Join(copyErr, waitErr))
+	}()
 
-	go accept(ln, in)
-
-	copyErr := copyLines(stdout, journal)
-	waitErr := cmd.Wait()
-
-	return writeExit(root, exitOf(cmd, spec.Bwrap, errors.Join(copyErr, waitErr)))
+	select {
+	case exit := <-finished:
+		return writeExit(root, exit)
+	case reason := <-stopping:
+		signaled, err := stop.kill()
+		exit := Exit{Code: -1, Error: reason}
+		if signaled {
+			exit.Signal = killSignal()
+		}
+		if err != nil {
+			exit.Error = errors.Join(errors.New(reason), err).Error()
+		}
+		select {
+		case actual := <-finished:
+			exit.Code = actual.Code
+			if actual.Signal != "" {
+				exit.Signal = actual.Signal
+			}
+		case <-time.After(250 * time.Millisecond):
+		}
+		return writeExit(root, exit)
+	}
 }
 
 // input serializes writes to the worker's stdin from every client.
@@ -199,7 +237,7 @@ func (in *input) line(b []byte) {
 	_, _ = in.w.Write(append(b, '\n'))
 }
 
-func accept(ln net.Listener, in *input) {
+func accept(ln net.Listener, in *input, stopping chan<- string) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -213,6 +251,14 @@ func accept(ln net.Listener, in *input) {
 			sc.Buffer(make([]byte, 64<<10), maxLine)
 
 			for sc.Scan() {
+				var request stopRequest
+				if json.Unmarshal(sc.Bytes(), &request) == nil && request.Type == "shim_stop" {
+					select {
+					case stopping <- request.Reason:
+					default:
+					}
+					return
+				}
 				in.line(append([]byte(nil), sc.Bytes()...))
 			}
 		}()
@@ -305,8 +351,90 @@ func ReadExit(dir string) (Exit, bool, error) {
 	return e, true, nil
 }
 
+// Stop asks the shim at this Dispatch's socket to kill its own worker and waits for its exit record.
+// socketDir is the path the shim was started with; its files are in the real directory it names.
+func Stop(ctx context.Context, socketDir, reason string) error {
+	dir, err := realShimDir(socketDir)
+	if err != nil {
+		return err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	identity, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Second)
+	defer cancel()
+	// A shim that has not claimed its launch never starts the worker once the claim is gone.
+	revoked := true
+	if err := root.Remove(LaunchingFile); errors.Is(err, os.ErrNotExist) {
+		revoked = false
+	} else if err != nil {
+		return err
+	}
+	if _, err := root.Stat(ExitFile); err == nil {
+		return nil
+	}
+	if revoked {
+		return linkExit(root, Exit{Code: -1, Error: reason + ": the launch was revoked before the worker started"})
+	}
+	line, err := json.Marshal(stopRequest{Type: "shim_stop", Reason: reason})
+	if err != nil {
+		return err
+	}
+	sendErr := send(ctx, socketDir, identity, line)
+	for sendErr == nil {
+		if _, err := root.Stat(ExitFile); err == nil {
+			return nil
+		}
+		select {
+		case <-time.After(25 * time.Millisecond):
+			continue
+		case <-ctx.Done():
+			sendErr = ctx.Err()
+		}
+	}
+	if _, err := root.Stat(ExitFile); err == nil {
+		return nil
+	}
+	// A shim that cannot be reached is killed with its group only if its recorded identity still matches; what
+	// it started in another session may survive, so the exit stays unconfirmed.
+	if err := KillRecorded(dir); err != nil {
+		sendErr = errors.Join(sendErr, err)
+	}
+	if _, err := root.Stat(ExitFile); err == nil {
+		return nil
+	}
+	return linkExit(root, Exit{Code: -1, Error: errors.Join(errors.New(reason), sendErr).Error(), Unconfirmed: true})
+}
+
+// linkExit records an exit the shim did not write, without replacing one it did.
+func linkExit(root *os.Root, exit Exit) error {
+	raw, err := json.Marshal(exit)
+	if err != nil {
+		return err
+	}
+	temp := ExitFile + "." + rand.Text()
+	if err := root.WriteFile(temp, raw, 0o600); err != nil {
+		return err
+	}
+	defer func() { _ = root.Remove(temp) }()
+	if err := root.Link(temp, ExitFile); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	return nil
+}
+
 // Send writes lines to a running shim's worker.
 func Send(ctx context.Context, dir string, lines ...[]byte) error {
+	return send(ctx, dir, nil, lines...)
+}
+
+func send(ctx context.Context, dir string, identity os.FileInfo, lines ...[]byte) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -315,6 +443,12 @@ func Send(ctx context.Context, dir string, lines ...[]byte) error {
 		return fmt.Errorf("connecting to the shim: %w", err)
 	}
 	defer conn.Close() //nolint:errcheck // written lines are already sent
+	if identity != nil {
+		current, err := os.Stat(dir)
+		if err != nil || !os.SameFile(identity, current) {
+			return errors.New("the shim's directory changed while connecting")
+		}
+	}
 
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetWriteDeadline(deadline)

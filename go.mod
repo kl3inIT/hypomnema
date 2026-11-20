@@ -16,6 +16,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/getkin/kin-openapi v0.153.0
 	github.com/go-chi/chi/v5 v5.5.0
+	github.com/gofrs/flock v0.13.1
 	github.com/larksuite/oapi-sdk-go/v3 v3.12.2
 	github.com/oapi-codegen/nethttp-middleware v1.3.1
 	github.com/oapi-codegen/runtime v1.9.0

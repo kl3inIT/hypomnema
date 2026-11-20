@@ -1,7 +1,6 @@
 package worktree
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -74,7 +73,7 @@ func setupScript(path string) (string, error) {
 // the worktree stands, as in Orca (runtime-local-worktree-setup.ts): the
 // worker starts, and can still install what is missing itself. A script that
 // commits commits as identity, as the worker does (issue #991).
-func (m Maker) setup(ctx context.Context, path string, identity githost.Identity) {
+func (m Maker) setup(ctx context.Context, path string, lock *mirrorLock, identity githost.Identity) {
 	script, err := setupScript(path)
 	if err != nil {
 		m.warn(ctx, path, err.Error(), "")
@@ -101,29 +100,21 @@ func (m Maker) setup(ctx context.Context, path string, identity githost.Identity
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	var output bytes.Buffer
-
-	argv := m.Isolation.Wrap([]string{shell, "-c", script}, m.TempDir)
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the repository's own declared script
-	cmd.Dir = path
-	cmd.Stdout, cmd.Stderr = &output, &output
 	// Git must not wait for a person (Orca: promptGuardShellEnv).
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", worktreePathEnv+"="+path)
-	cmd.Env = append(cmd.Env, identity.Env()...)
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", worktreePathEnv+"="+path)
+	env = append(env, identity.Env()...)
 	if m.TempDir != "" {
-		cmd.Env = append(cmd.Env, "TMPDIR="+m.TempDir, "TEMP="+m.TempDir, "TMP="+m.TempDir, "GOTMPDIR="+m.TempDir)
+		env = append(env, "TMPDIR="+m.TempDir, "TEMP="+m.TempDir, "TMP="+m.TempDir, "GOTMPDIR="+m.TempDir)
 	}
 	// The script's children end with it when its time is up (Orca: signalProcessTree).
-	ownGroup(cmd)
-	cmd.WaitDelay = 5 * time.Second
-
-	err = cmd.Run()
+	argv := m.Isolation.Wrap([]string{shell, "-c", script}, m.TempDir)
+	output, err := (mirrorGit{lock: lock, grace: m.GitGrace}).runProcess(ctx, path, env, argv[0], argv[1:]...)
 
 	switch {
 	case ctx.Err() != nil:
-		m.warn(ctx, path, fmt.Sprintf("the setup script did not end within %s", timeout), tail(output.Bytes()))
+		m.warn(ctx, path, fmt.Sprintf("the setup script did not end within %s", timeout), output.String())
 	case err != nil:
-		m.warn(ctx, path, "the setup script failed: "+err.Error(), tail(output.Bytes()))
+		m.warn(ctx, path, "the setup script failed: "+err.Error(), output.String())
 	}
 }
 
@@ -147,13 +138,4 @@ func (m Maker) warn(ctx context.Context, path, message, output string) {
 	m.Logger.WarnContext(context.WithoutCancel(ctx), message,
 		slog.String("event", "node.worktree.setup_failed"), slog.String("worktree", path),
 		slog.String("output", output))
-}
-
-// tail is the end of a script's output.
-func tail(output []byte) string {
-	if len(output) > setupOutputKept {
-		output = output[len(output)-setupOutputKept:]
-	}
-
-	return strings.TrimSpace(string(output))
 }

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -20,17 +21,24 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
+	"github.com/kl3inIT/hypomnema/internal/node/workertools"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
-// The test binary plays three parts: the tests, the shim (`shim --dir D`),
-// and a fake claude (FAKE_CLAUDE set) that speaks stream-JSON.
+// The test binary also runs the shim, the MCP server, and a fake Claude (FAKE_CLAUDE set).
 func TestMain(m *testing.M) {
 	if len(os.Args) == 4 && os.Args[1] == "shim" && os.Args[2] == "--dir" {
 		if err := shim.Main(context.Background(), os.Args[3]); err != nil {
 			os.Exit(2)
 		}
 
+		os.Exit(0)
+	}
+
+	if len(os.Args) == 4 && os.Args[1] == "mcp" && os.Args[2] == "--dir" {
+		if err := workertools.Serve(context.Background(), os.Stdin, os.Stdout, os.Args[3]); err != nil {
+			os.Exit(2)
+		}
 		os.Exit(0)
 	}
 
@@ -113,6 +121,42 @@ func fakeClaude(mode string) int {
 				"request": map[string]any{"subtype": "can_use_tool", "tool_name": "Write", "input": map[string]any{"x": 1}},
 			})
 		case msg.Type == "control_response" && msg.Response.RequestID == "perm_1":
+			if mode == "stale-queue" || mode == "stale-tool" {
+				if mode == "stale-queue" {
+					emit(out, map[string]any{"type": "result", "subtype": "success", "result": "waiting", "queued_turn_count": 1})
+					emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "running"})
+				} else {
+					emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed",
+						"tasks": []map[string]string{{"task_type": "local_bash"}}})
+					emit(out, map[string]any{"type": "result", "subtype": "success", "result": "waiting"})
+					emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+						{"type": "tool_use", "id": "stale", "name": "Bash"},
+					}}})
+					emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": []any{}})
+				}
+				emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
+				continue
+			}
+			if mode == "idle-after-background" || mode == "stuck-after-eof" {
+				emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed",
+					"tasks": []map[string]string{{"task_id": "bg", "task_type": "local_bash"}}})
+				emit(out, map[string]any{"type": "result", "subtype": "success", "result": "waiting"})
+				emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": []any{}})
+				emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
+				continue
+			}
+
+			if mode == "background" || mode == "agent" || mode == "workflow" || mode == "queued" || mode == "running" ||
+				mode == "tool-in-flight" {
+				emitInterimResult(out, mode)
+				continue
+			}
+
+			if strings.HasPrefix(mode, "recover") {
+				emitFailedFinish(out, mode)
+				continue
+			}
+
 			emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
 				{"type": "text", "text": "Adding the button."},
 				{"type": "tool_use", "id": "call_1", "name": "Write", "input": map[string]any{"file_path": "login.tsx"}},
@@ -146,10 +190,80 @@ func fakeClaude(mode string) int {
 			emit(out, map[string]any{"type": "result", "subtype": "success", "is_error": false,
 				"result": "did it; https://github.com/kl3inIT/second-bite/pull/7",
 				"usage":  map[string]any{"input_tokens": 1200, "output_tokens": 300, "cache_read_input_tokens": 9000}})
+		case msg.Type == "control_response" && msg.Response.RequestID == "perm_after":
+			emit(out, map[string]any{"type": "control_request", "request_id": "perm_finish",
+				"request": map[string]any{"subtype": "can_use_tool", "tool_name": "mcp__hypomnema__finish"}})
+		case msg.Type == "control_response" && msg.Response.RequestID == "perm_finish":
+			_ = bridge.Finish(bridgeDir(), bridge.Final{Summary: "finished after Bash"})
+			emit(out, map[string]any{"type": "result", "subtype": "success", "result": "done"})
 		}
 	}
 
+	if mode == "stuck-after-eof" {
+		_ = os.WriteFile("input-closed.txt", []byte("yes"), 0o600)
+		time.Sleep(time.Minute)
+	}
 	return exit
+}
+
+func emitInterimResult(out *json.Encoder, mode string) {
+	queued := mode == "queued"
+	result := map[string]any{"type": "result", "subtype": "success", "result": "waiting"}
+	// A planner's Agent and a workflow run in the background as Bash does, with no queued turn.
+	taskType := map[string]string{"agent": "local_agent", "workflow": "local_workflow"}[mode]
+	if taskType == "" {
+		taskType = "local_bash"
+	}
+	if queued {
+		result["queued_turn_count"] = 1
+	} else {
+		emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed",
+			"tasks": []map[string]string{{"task_id": "bg", "task_type": taskType}}})
+	}
+	emit(out, result)
+	if mode == "tool-in-flight" {
+		emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+			{"type": "tool_use", "id": "pending", "name": "Bash", "input": map[string]any{"command": "true"}},
+		}}})
+	}
+	emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "idle"})
+	time.Sleep(500 * time.Millisecond)
+	if !queued {
+		emit(out, map[string]any{"type": "system", "subtype": "task_notification", "task_id": "bg", "status": "stopped"})
+		emit(out, map[string]any{"type": "system", "subtype": "background_tasks_changed", "tasks": []any{}})
+	}
+	if mode == "running" {
+		emit(out, map[string]any{"type": "system", "subtype": "session_state_changed", "state": "running"})
+	}
+	if mode == "running" || mode == "tool-in-flight" || queued {
+		time.Sleep(settleWait + 500*time.Millisecond)
+	}
+	emit(out, map[string]any{"type": "control_request", "request_id": "perm_after",
+		"request": map[string]any{"subtype": "can_use_tool", "tool_name": "Bash"}})
+}
+
+func emitFailedFinish(out *json.Encoder, mode string) {
+	input := map[string]any{
+		"summary": "recovered finish", "evidence": []nodeproto.Evidence{{Kind: "pull_request", Ref: "https://example.test/pull/7"}},
+	}
+	callID, result := "final", "Tool permission request failed: AbortError: Stream closed"
+	switch mode {
+	case "recover-denied":
+		result = "Tool permission request failed: denied"
+	case "recover-wrong-id":
+		callID = "different-tool"
+	case "recover-invalid":
+		input["summary"] = " "
+	case "recover-recorded":
+		_ = bridge.Finish(bridgeDir(), bridge.Final{Summary: "already recorded"})
+	}
+	emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_use", "id": "final", "name": "mcp__hypomnema__finish", "input": input},
+	}}})
+	emit(out, map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_result", "tool_use_id": callID, "is_error": true, "content": result},
+	}}})
+	emit(out, map[string]any{"type": "result", "subtype": "success", "result": "could not call finish"})
 }
 
 // bridgeDir is the bridge directory named in the worker's --mcp-config, as
@@ -434,6 +548,127 @@ func TestTurnWithoutFinishFails(t *testing.T) {
 	require.Len(t, r.finished, 1)
 	assert.Equal(t, "worker_error", r.finished[0].Class)
 	assert.True(t, strings.HasPrefix(r.finished[0].Summary, "stopped without finish"))
+}
+
+func TestInterimResultKeepsPermissionStreamOpen(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []string{"background", "agent", "workflow", "queued", "running", "tool-in-flight"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			g := newRig(t, mode)
+			if mode == "tool-in-flight" {
+				g.rt.closeGrace = time.Second
+			}
+			r := newReporter("dsp_1")
+			require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+			t.Cleanup(func() { g.sup.Release(r.ID()) })
+			r.wait(t)
+
+			require.Len(t, r.finished, 1)
+			assert.Empty(t, r.finished[0].Class)
+			assert.Equal(t, "finished after Bash", r.finished[0].Summary)
+		})
+	}
+}
+
+func TestBackgroundSettlesWithoutAnotherResult(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "idle-after-background")
+	r := newReporter("dsp_1")
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+	t.Cleanup(func() { g.sup.Release(r.ID()) })
+	select {
+	case <-r.done:
+	case <-time.After(6 * time.Second):
+		t.Fatal("the worker stayed open after background Bash and the final result")
+	}
+	require.Len(t, r.finished, 1)
+	assert.Equal(t, "worker_error", r.finished[0].Class)
+	assert.Equal(t, "stopped without finish: waiting", r.finished[0].Summary)
+}
+
+func TestIdleSupersedesStaleWork(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []string{"stale-queue", "stale-tool"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			g := newRig(t, mode)
+			r := newReporter("dsp_1")
+			require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+			t.Cleanup(func() { g.sup.Release(r.ID()) })
+			select {
+			case <-r.done:
+			case <-time.After(8 * time.Second):
+				t.Fatal("stale work kept stdin open after idle")
+			}
+			require.Len(t, r.finished, 1)
+			assert.Equal(t, "stopped without finish: waiting", r.finished[0].Summary)
+		})
+	}
+}
+
+func TestBackgroundContinuationThatIgnoresEOFIsKilled(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "stuck-after-eof")
+	g.rt.closeGrace = 500 * time.Millisecond
+	r := newReporter("dsp_1")
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+	t.Cleanup(func() { g.sup.Release(r.ID()) })
+	r.wait(t)
+
+	require.Len(t, r.finished, 1)
+	assert.Zero(t, r.stopped)
+	assert.Equal(t, "worker_error", r.finished[0].Class)
+	assert.Equal(t, "Claude Code did not exit after its input was closed", r.finished[0].Summary)
+	assert.Equal(t, "yes", g.file("input-closed.txt"))
+	dir := filepath.Join(g.sup.Home, "run", r.ID())
+	exit, done, err := shim.ReadExit(dir)
+	require.NoError(t, err)
+	require.True(t, done, "the transcript can deliver the journal's final lines")
+	if runtime.GOOS == "windows" {
+		assert.Equal(t, "exited", r.finished[0].Exit.Kind)
+		assert.Empty(t, exit.Signal)
+	} else {
+		assert.Equal(t, -1, exit.Code)
+		assert.Equal(t, "signaled", r.finished[0].Exit.Kind)
+		assert.NotEmpty(t, r.finished[0].Exit.Signal)
+		assert.Nil(t, r.finished[0].Exit.Code)
+	}
+	pid, err := shim.PID(dir)
+	require.NoError(t, err)
+	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 3*time.Second, 20*time.Millisecond)
+}
+
+func TestRecoversOnlyAnExplicitFinishWithAClosedPermissionStream(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		mode, class, summary string
+		evidence             []nodeproto.Evidence
+	}{
+		{mode: "recover", summary: "recovered finish",
+			evidence: []nodeproto.Evidence{{Kind: "pull_request", Ref: "https://example.test/pull/7"}}},
+		{mode: "recover-recorded", summary: "already recorded"},
+		{mode: "recover-denied", class: "worker_error", summary: "stopped without finish: could not call finish"},
+		{mode: "recover-wrong-id", class: "worker_error", summary: "stopped without finish: could not call finish"},
+		{mode: "recover-invalid", class: "worker_error", summary: "stopped without finish: could not call finish"},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			t.Parallel()
+			g := newRig(t, test.mode)
+			r := newReporter("dsp_1")
+			require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(r.ID()), r))
+			r.wait(t)
+
+			require.Len(t, r.finished, 1)
+			assert.Equal(t, test.class, r.finished[0].Class)
+			assert.Equal(t, test.summary, r.finished[0].Summary)
+			assert.Equal(t, test.evidence, r.finished[0].Evidence)
+		})
+	}
 }
 
 // Scenario: the process dies after it started, with no result. The outcome
