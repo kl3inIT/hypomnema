@@ -1,14 +1,11 @@
 package orchestration
 
 import (
-	"database/sql"
 	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
 // The scenarios of capacity by requests and of sharing room between Bots
@@ -384,28 +381,31 @@ func TestPlacementScoresFreeRoomByRequests(t *testing.T) {
 }
 
 // Scenario (the review of PR #752, P2): a node whose hello did not say its
-// memory, with fresh stats at 0 % CPU, counts 0 for its measured CPU too, so
-// it does not outrank a node with 16 GiB, 12 GiB used and 80 % CPU.
-func TestUnknownMemoryCountsNothingMeasured(t *testing.T) {
+// memory counts 0 for its measured CPU too. Two such nodes, one at 0 % CPU and
+// one at 50, both score 0 on their requests as well (a node that did not say
+// its size has no free share by them), so the tie goes to the smaller id, the
+// busier node; scoring that counted the idle node's CPU would place it.
+func TestPlacementCountsNothingMeasuredOfANodeThatDidNotSayItsMemory(t *testing.T) {
 	t.Parallel()
 
-	now := int64(1_000_000)
-	fresh := sql.NullInt64{Int64: now, Valid: true}
-	p := &placement{now: now}
+	w := newScoreWorld(t)
 
-	unknown := &nodeLoad{row: store.Node{
-		ID: "nod_a", StatsAt: fresh, CpuPercent: sql.NullFloat64{Float64: 0, Valid: true},
-		MemoryUsedBytes: sql.NullInt64{Int64: gib, Valid: true},
-	}}
-	known := &nodeLoad{row: store.Node{
-		ID: "nod_b", StatsAt: fresh, CpuPercent: sql.NullFloat64{Float64: 80, Valid: true},
-		MemoryBytes:     sql.NullInt64{Int64: 16 * gib, Valid: true},
-		MemoryUsedBytes: sql.NullInt64{Int64: 12 * gib, Valid: true},
-	}}
+	unsized := func(name string, cpu float64) Node {
+		t.Helper()
 
-	assert.Zero(t, p.measured(unknown), "neither its CPU nor its memory counts")
-	assert.InDelta(t, 0.2+0.25, p.measured(known), 1e-9)
-	assert.True(t, p.better(known, unknown, request{}, nil), "nod_b wins although nod_a has the smaller id")
+		n := w.addNode(name, 4, "claude")
+		require.NoError(t, w.s.NodeStats(t.Context(), n.ID, SystemStats{CPUPercent: cpu, MemoryUsedBytes: gib}))
+
+		return n
+	}
+
+	busy := unsized("node_busy", 50)
+	idle := unsized("node_idle", 0)
+	require.Less(t, busy.ID, idle.ID, "the tie goes to the smaller id")
+
+	w.tasks(specs(1)...)
+	assert.Equal(t, map[string]string{"a": busy.ID}, w.placed(w.schedule().Created),
+		"the idle node's 0 % CPU counts nothing without its memory")
 }
 
 // Scenario: the default request of each profile. A profile that asks for

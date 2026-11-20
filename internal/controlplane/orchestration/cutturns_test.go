@@ -128,9 +128,29 @@ func TestARestartChainKeepsTheNewestStarts(t *testing.T) {
 func TestABootAfterNowIsInTheChain(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, []int64{50, 200}, chainEndingAt([]int64{200, 50, -10}, 100, 50),
-		"a start after now (the clock went back) is adjacent; one 60 before the next is not")
-	assert.Equal(t, []int64{200}, chainEndingAt([]int64{200, 10}, 100, 50))
+	s, _, clock := newTestService(t)
+	ctx := t.Context()
+	gap := 5 * time.Minute
+
+	boot := func(after time.Duration) int {
+		t.Helper()
+
+		clock.now = clock.now.Add(after)
+
+		n, err := s.RecordRestartBoot(ctx, gap)
+		require.NoError(t, err)
+
+		return n
+	}
+
+	assert.Equal(t, 1, boot(10*time.Minute), "a first start")
+
+	// The clock went back six minutes: the start recorded then is after now,
+	// which is adjacent to the next start rather than a gap of its own.
+	assert.Equal(t, 2, boot(-6*time.Minute), "the clock went back")
+
+	assert.Equal(t, 3, boot(3*time.Minute),
+		"back before now: the start 6 minutes ahead of it is no break, so the one before stays in the chain")
 }
 
 // Review of #725, finding 1: a line that woke pi to continue a turn, left undelivered by a start that stopped, goes
