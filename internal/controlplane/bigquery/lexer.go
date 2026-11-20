@@ -3,6 +3,7 @@ package bigquery
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -83,12 +84,22 @@ func tokenize(sql string) ([]token, error) {
 				state = stateBlockComment
 				i += 2
 			case c == '`':
-				end := indexRune(runes, i+1, '`')
-				if end < 0 {
+				// A backslash escapes the next character, a backquote too, as in a string (Lexical structure,
+				// "Quoted identifiers"); the name is compared once its escapes are decoded.
+				end := i + 1
+				for end < len(runes) && runes[end] != '`' {
+					if runes[end] == '\\' {
+						end++
+					}
+
+					end++
+				}
+
+				if end >= len(runes) {
 					return nil, refusedf("a backquoted name is not closed")
 				}
 
-				out = append(out, token{kind: tokenQuoted, text: string(runes[i+1 : end])})
+				out = append(out, token{kind: tokenQuoted, text: unescape(string(runes[i+1 : end]))})
 				i = end + 1
 			case c == '\'' || c == '"':
 				state, start = stringState(runes, i, false), i
@@ -303,7 +314,7 @@ func Gate(sql string) error {
 		return refusedf("a query is one SELECT: it starts with SELECT, WITH or (")
 	}
 
-	for i, t := range tokens {
+	for _, t := range tokens {
 		switch {
 		case t.kind == tokenPunct && t.text == ";":
 			return refusedf("a query is one statement; a ; is allowed only at its end")
@@ -311,61 +322,154 @@ func Gate(sql string) error {
 			return refusedf("%s is not allowed: a query is one SELECT, with no script, function or export",
 				strings.ToUpper(t.text))
 		}
+	}
 
-		if path, next := pathAt(tokens, i); len(path) > 0 && (i == 0 || !isPathPart(tokens, i-1)) {
-			if next < len(tokens) && tokens[next].kind == tokenPunct && tokens[next].text == "(" &&
-				containsFold(refusedFunctions, path[0]) {
-				return refusedf("%s is not allowed: it calls a model or a service the bytes cap does not cover",
-					strings.Join(path, "."))
+	return refusedCalls(splitQuoted(tokens))
+}
+
+// splitQuoted spells a backquoted path as its parts: `AI.GENERATE` is AI . GENERATE, as BigQuery reads a
+// backquoted name that holds dots as a path.
+func splitQuoted(tokens []token) []token {
+	out := make([]token, 0, len(tokens))
+
+	for _, t := range tokens {
+		if t.kind != tokenQuoted || !strings.Contains(t.text, ".") {
+			out = append(out, t)
+
+			continue
+		}
+
+		for i, part := range strings.Split(t.text, ".") {
+			if i > 0 {
+				out = append(out, token{kind: tokenPunct, text: "."})
 			}
 
-			for _, part := range path {
-				if strings.EqualFold(part, "EXTERNAL_QUERY") {
-					return refusedf("EXTERNAL_QUERY is not allowed")
-				}
+			out = append(out, token{kind: tokenQuoted, text: part})
+		}
+	}
+
+	return out
+}
+
+func isName(t token) bool { return t.kind == tokenWord || t.kind == tokenQuoted }
+
+func isPunct(t token, p string) bool { return t.kind == tokenPunct && t.text == p }
+
+// refusedCalls refuses a call of a model or a remote service, wherever its name stands: AI.GENERATE(…),
+// SAFE.AI.GENERATE(…), a chained call x.(AI.GENERATE)(…) whose multi-part name is in parentheses (GoogleSQL,
+// "Chained function calls"), and VECTOR_SEARCH(…); and EXTERNAL_QUERY as any part of a name. A name is ML or AI
+// used as the first part of a path whose end is followed, past closing parentheses, by an opening one.
+func refusedCalls(tokens []token) error {
+	for i, t := range tokens {
+		if !isName(t) {
+			continue
+		}
+
+		if strings.EqualFold(t.text, "EXTERNAL_QUERY") {
+			return refusedf("EXTERNAL_QUERY is not allowed")
+		}
+
+		namespace := containsFold([]string{"ML", "AI"}, t.text) && i+2 < len(tokens) && isPunct(tokens[i+1], ".") &&
+			isName(tokens[i+2])
+		search := strings.EqualFold(t.text, "VECTOR_SEARCH")
+
+		if !namespace && !search {
+			continue
+		}
+
+		// The end of the path, then any closing parentheses of a chained call's name.
+		next := i + 1
+		for next+1 < len(tokens) && isPunct(tokens[next], ".") && isName(tokens[next+1]) {
+			next += 2
+		}
+
+		for next < len(tokens) && isPunct(tokens[next], ")") {
+			next++
+		}
+
+		if next < len(tokens) && isPunct(tokens[next], "(") {
+			name := t.text
+			if namespace {
+				name += "." + tokens[i+2].text
 			}
+
+			return refusedf("%s is not allowed: it calls a model or a service the bytes cap does not cover",
+				strings.ToUpper(name))
 		}
 	}
 
 	return nil
 }
 
-// pathAt reads the dotted path that starts at tokens[i]: its names, a backquoted name split at its dots, and the
-// index of the token after it. Comments between its parts are already gone.
-func pathAt(tokens []token, i int) ([]string, int) {
-	var path []string
+var simpleEscapes = map[rune]rune{
+	'a': '\a', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', '?': '?', '"': '"',
+	'\'': '\'', '`': '`',
+}
 
-	for i < len(tokens) {
-		t := tokens[i]
-		if t.kind != tokenWord && t.kind != tokenQuoted {
-			break
+// unescape decodes the escape sequences of a quoted name as GoogleSQL does (Lexical structure, "Escape sequences
+// for string and bytes literals"): \a \b \f \n \r \t \v, a backslash before \ ? " ' or `, \ooo, \xhh,
+// \uhhhh and \Uhhhhhhhh. A sequence it cannot read is kept as it is: BigQuery refuses it.
+func unescape(s string) string {
+	if !strings.Contains(s, "\\") {
+		return s
+	}
+
+	in := []rune(s)
+
+	var b strings.Builder
+
+	for i := 0; i < len(in); i++ {
+		if in[i] != '\\' || i+1 >= len(in) {
+			b.WriteRune(in[i])
+
+			continue
 		}
 
-		if t.kind == tokenQuoted {
-			path = append(path, strings.Split(t.text, ".")...)
-		} else {
-			path = append(path, t.text)
-		}
+		c := in[i+1]
 
-		i++
-
-		if i+1 < len(tokens) && tokens[i].kind == tokenPunct && tokens[i].text == "." &&
-			(tokens[i+1].kind == tokenWord || tokens[i+1].kind == tokenQuoted) {
+		if r, ok := simpleEscapes[c]; ok {
+			b.WriteRune(r)
 			i++
 
 			continue
 		}
 
-		break
+		width, base := 0, 16
+
+		switch {
+		case c >= '0' && c <= '7':
+			width, base = 3, 8
+		case c == 'x' || c == 'X':
+			width = 2
+		case c == 'u':
+			width = 4
+		case c == 'U':
+			width = 8
+		}
+
+		digits := i + 2
+		if base == 8 {
+			digits = i + 1
+		}
+
+		if width == 0 || digits+width > len(in) {
+			b.WriteRune(in[i])
+
+			continue
+		}
+
+		n, err := strconv.ParseUint(string(in[digits:digits+width]), base, 32)
+		if err != nil {
+			b.WriteRune(in[i])
+
+			continue
+		}
+
+		b.WriteRune(rune(n))
+		i = digits + width - 1
 	}
 
-	return path, i
-}
-
-// isPathPart says whether tokens[i] ends a part of a path that goes on: a name followed by a dot.
-func isPathPart(tokens []token, i int) bool {
-	return tokens[i].kind == tokenPunct && tokens[i].text == "." && i > 0 &&
-		(tokens[i-1].kind == tokenWord || tokens[i-1].kind == tokenQuoted)
+	return b.String()
 }
 
 func containsFold(list []string, s string) bool {

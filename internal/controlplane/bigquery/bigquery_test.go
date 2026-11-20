@@ -83,6 +83,9 @@ func TestTheGateLetsOneSelectThrough(t *testing.T) {
 		"an alias named ai":    "SELECT ai.x FROM t AS ai",
 		"a hash comment":       "SELECT 1 # ; DECLARE\n",
 		"a block comment last": "SELECT 1 /* ; */",
+		"a column named ml":    "SELECT ml, t.ai FROM t",
+		"an escaped backquote": "SELECT `a\\`b`.c FROM t",
+		"a chained call":       "SELECT 'x'.(NET.HOST)()",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -107,25 +110,38 @@ func TestTheGateRefusesBeforeAnyRequest(t *testing.T) {
 	t.Parallel()
 
 	for name, sql := range map[string]string{
-		"a temp function":            "CREATE TEMP FUNCTION f() AS (1); SELECT f()",
-		"two statements":             "SELECT 1; SELECT 2",
-		"a script":                   "DECLARE x INT64; SELECT x",
-		"an export":                  "EXPORT DATA OPTIONS(uri='gs://b/*') AS SELECT 1",
-		"an external query":          "SELECT * FROM EXTERNAL_QUERY('c', 'SELECT 1')",
-		"a comment in a path":        "SELECT AI /*x*/ .GENERATE('hi')",
-		"a newline in a path":        "SELECT ml\n.generate_text(MODEL m, TABLE t)",
-		"a backquoted first name":    "SELECT `ai`.generate('hi')",
-		"a backquoted whole path":    "SELECT `AI.GENERATE`('hi')",
-		"vector search":              "SELECT * FROM VECTOR_SEARCH(TABLE t, 'c', TABLE q)",
-		"legacy SQL":                 "#legacySQL\nSELECT 1",
-		"legacy SQL after a comment": "/* c */ #legacysql SELECT 1",
-		"a call":                     "SELECT 1 FROM t WHERE x IN (SELECT 1) AND CALL",
-		"a set":                      "SET @@dataset_id = 'x'",
-		"a dash hides no comment":    "SELECT a--'\n; DROP TABLE t; SELECT '",
-		"an open string":             "SELECT 'a",
-		"an open comment":            "SELECT 1 /* ;",
-		"an insert":                  "INSERT INTO t VALUES (1)",
-		"empty":                      " -- nothing\n",
+		"a temp function":         "CREATE TEMP FUNCTION f() AS (1); SELECT f()",
+		"two statements":          "SELECT 1; SELECT 2",
+		"a script":                "DECLARE x INT64; SELECT x",
+		"an export":               "EXPORT DATA OPTIONS(uri='gs://b/*') AS SELECT 1",
+		"an external query":       "SELECT * FROM EXTERNAL_QUERY('c', 'SELECT 1')",
+		"a comment in a path":     "SELECT AI /*x*/ .GENERATE('hi')",
+		"a newline in a path":     "SELECT ml\n.generate_text(MODEL m, TABLE t)",
+		"a backquoted first name": "SELECT `ai`.generate('hi')",
+		"a backquoted whole path": "SELECT `AI.GENERATE`('hi')",
+		"vector search":           "SELECT * FROM VECTOR_SEARCH(TABLE t, 'c', TABLE q)",
+		"legacy SQL":              "#legacySQL\nSELECT 1",
+		// Review round 1 of the code: a chained call names a multi-part function in parentheses, SAFE. comes
+		// before a name, and a backquoted name is compared once its escapes are decoded.
+		"a chained AI call":           "SELECT 'hi'.(AI.GENERATE)(connection_id => 'c')",
+		"a chained ML call":           "SELECT t.x.(ml.generate_text)(MODEL m) FROM t",
+		"a chained quoted call":       "SELECT ('x').(`ai`.generate)()",
+		"a chained whole-quoted":      "SELECT 'x'.(`AI.GENERATE`)()",
+		"a chained vector search":     "SELECT * FROM t.(VECTOR_SEARCH)(TABLE q, 'c')",
+		"SAFE before AI":              "SELECT SAFE.AI.GENERATE('hi')",
+		"a hex escape":                "SELECT `\\x41I`.GENERATE('hi')",
+		"a unicode escape":            "SELECT `A\\u0049.GENERATE`('hi')",
+		"an octal escape":             "SELECT `\\101i`.generate('hi')",
+		"an escaped external query":   "SELECT * FROM `EXTERNAL\\x5fQUERY`('c', 'SELECT 1')",
+		"a comment in a chained call": "SELECT 'x'.( AI /* c */ . GENERATE ) ('hi')",
+		"legacy SQL after a comment":  "/* c */ #legacysql SELECT 1",
+		"a call":                      "SELECT 1 FROM t WHERE x IN (SELECT 1) AND CALL",
+		"a set":                       "SET @@dataset_id = 'x'",
+		"a dash hides no comment":     "SELECT a--'\n; DROP TABLE t; SELECT '",
+		"an open string":              "SELECT 'a",
+		"an open comment":             "SELECT 1 /* ;",
+		"an insert":                   "INSERT INTO t VALUES (1)",
+		"empty":                       " -- nothing\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
