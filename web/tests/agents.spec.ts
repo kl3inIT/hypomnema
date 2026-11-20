@@ -238,7 +238,7 @@ test("the agents show as cards and as a table, each saying whether it can run", 
   page,
 }) => {
   await fakeServer(page)
-  await page.goto("/agents")
+  await page.goto("/settings/agents")
 
   await expect(page.getByRole("heading", { name: "Agents", level: 1 })).toBeVisible()
   await expect(page.getByText("The coordinator gives each Task to one of these")).toBeVisible()
@@ -305,7 +305,7 @@ test("a role profile shows routing by Task kind instead of a fixed model", async
       source: "name: planner\ndescription: Proposes a plan without changing files.\n",
     }),
   ])
-  await page.goto("/agents")
+  await page.goto("/settings/agents")
   await expect(page.getByRole("article", { name: "planner" })).toContainText("Role routing")
   await page.getByRole("link", { name: "planner" }).click()
   await expect(page.getByLabel("Runs on")).toContainText("By Task kind")
@@ -315,7 +315,7 @@ test("a role profile shows routing by Task kind instead of a fixed model", async
 
 test("an agent opens to its builder, its YAML and its versions", async ({ page }) => {
   await fakeServer(page)
-  await page.goto("/agents")
+  await page.goto("/settings/agents")
   await page.getByRole("link", { name: "reviewer" }).click()
 
   await expect(page.getByRole("heading", { name: "reviewer", level: 2 })).toBeVisible()
@@ -386,7 +386,7 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
 // the next version.
 test("a refused save says why, and a saved one becomes the next version", async ({ page }) => {
   const applied = await fakeServer(page)
-  await page.goto("/agents/reviewer")
+  await page.goto("/settings/agents/reviewer")
 
   // The model's picker: every provider's models under the provider's name, and a search that narrows them.
   await page.getByLabel("Model", { exact: true }).click()
@@ -419,7 +419,7 @@ test("a refused save says why, and a saved one becomes the next version", async 
 // Scenario: the owner makes a new agent on Codex.
 test("a new agent is made from the builder", async ({ page }) => {
   const applied = await fakeServer(page)
-  await page.goto("/agents")
+  await page.goto("/settings/agents")
   await page.getByRole("link", { name: "New agent" }).click()
 
   await page.getByLabel("Name").fill("codex-reviewer")
@@ -441,7 +441,7 @@ test("a new agent is made from the builder", async ({ page }) => {
 // Scenario: the owner makes a second agent like one that exists.
 test("an agent is duplicated", async ({ page }) => {
   const applied = await fakeServer(page)
-  await page.goto("/agents/reviewer")
+  await page.goto("/settings/agents/reviewer")
 
   await page.getByRole("link", { name: "Duplicate" }).click()
   await expect(page.getByLabel("Name")).toHaveValue("reviewer-copy")
@@ -457,7 +457,7 @@ test("an agent is duplicated", async ({ page }) => {
 // agent names as its fallback is refused and the dialog says why; a deleted one leaves the list.
 test("an agent is deleted after a question, unless another names it", async ({ page }) => {
   await fakeServer(page)
-  await page.goto("/agents/codex-implementer")
+  await page.goto("/settings/agents/codex-implementer")
 
   const removal = page.getByRole("region", { name: "Delete" })
   await removal.scrollIntoViewIfNeeded()
@@ -472,15 +472,32 @@ test("an agent is deleted after a question, unless another names it", async ({ p
   await shot(page, "agent-delete-refused")
   await refused.getByRole("button", { name: "Cancel" }).click()
 
-  await page.goto("/agents/explorer")
+  await page.goto("/settings/agents/explorer")
   await page.getByRole("button", { name: "Delete agent" }).click()
   const confirm = page.getByRole("alertdialog")
   await expect(confirm).toContainText("New tasks can no longer go to it")
   await shot(page, "agent-delete-confirm")
   await confirm.getByRole("button", { name: "Delete", exact: true }).click()
 
-  await expect(page).toHaveURL(/\/agents$/)
+  await expect(page).toHaveURL(/\/settings\/agents$/)
   await expect(page.getByText("explorer deleted")).toBeVisible()
   await expect(page.getByRole("article", { name: "explorer" })).toHaveCount(0)
   await expect(page.getByRole("article", { name: "reviewer" })).toBeVisible()
+})
+
+// Scenario: the Agents moved into Settings (issue #857); old links to the list, an agent and a copy of one lead to
+// the same pages there.
+test("the old addresses of the Agents open them in Settings", async ({ page }) => {
+  await fakeServer(page)
+
+  await page.goto("/agents")
+  await expect(page).toHaveURL(/\/settings\/agents$/)
+  await expect(page.getByRole("heading", { name: "Agents", level: 1 })).toBeVisible()
+
+  await page.goto("/agents/reviewer")
+  await expect(page).toHaveURL(/\/settings\/agents\/reviewer$/)
+  await expect(page.getByRole("heading", { name: "reviewer", level: 2 })).toBeVisible()
+
+  await page.goto("/agents/new?from=reviewer")
+  await expect(page).toHaveURL(/\/settings\/agents\/new\?from=reviewer$/)
 })

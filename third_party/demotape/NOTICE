@@ -22,3 +22,7 @@ SOFTWARE.
 
 Source: https://github.com/gabosarmiento/demotape at commit b268f1b. Ported: Sources/DemoTape/CaptionBurner.swift
 (normalize, the word highlight of makeLine and wordColor) into internal/controlplane/videos/captions (issue #818).
+Issue #908, part 1, ports Sources/DemoTape/CaptionStyle.swift (the eleven caption styles as data, displayWord,
+maxWordsPerLine, byID) into internal/controlplane/videos/captions/presets.go, Sources/DemoTape/CaptionBurner.swift
+(captionOverlay, window, the word floors, widthFitScale, drawBlock) into styled.go, and their tests
+(Tests/DemoTapeTests/CaptionStyleTests.swift, CaptionBurnerTests.swift) into presets_test.go.

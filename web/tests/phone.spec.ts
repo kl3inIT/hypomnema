@@ -511,7 +511,7 @@ test("a control plane without a phone offers none", async ({ page }) => {
 test("the sidebar says that the owner holds the phone", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "a phone has no sidebar")
   await fakeServer(page, { held: true })
-  await page.goto("/machines")
+  await page.goto("/routines")
 
   await expect(page.getByText("You hold the phone.")).toBeVisible()
   await shot(page, "sidebar-phone-held")

@@ -221,7 +221,17 @@ func (github) CloneURL(r Repo) string { return "https://" + r.Host + "/" + r.Pat
 // gh does not find the branch's remote in a worktree of the node's mirror, so
 // --head names it (found with the first real Task, issue #79).
 func (github) OpenCommand(base, branch string) string {
-	return "gh pr create --base " + base + " --head " + branch
+	return "gh pr create --base " + shellWord(base) + " --head " + shellWord(branch)
+}
+
+var plainShellWord = regexp.MustCompile(`^[a-zA-Z0-9_./-]+$`)
+
+func shellWord(value string) string {
+	if plainShellWord.MatchString(value) {
+		return value
+	}
+
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func (github) RequestURL(r Repo, n int) string {
@@ -252,8 +262,8 @@ func (github) AutoMerge(r Repo, base string) AutoMerge {
 			},
 			{
 				Commands: []string{
-					api + "/rules/branches/" + base,
-					api + "/branches/" + base + "/protection/required_status_checks",
+					api + shellWord("/rules/branches/"+base),
+					api + shellWord("/branches/"+base+"/protection/required_status_checks"),
 				},
 				Shows: "the first lists a rule of type required_status_checks, or the second lists a check " +
 					"(a 404 means none)",
@@ -295,7 +305,7 @@ type gitlab struct{}
 func (gitlab) CloneURL(r Repo) string { return "https://" + r.Host + "/" + r.Path + ".git" }
 
 func (gitlab) OpenCommand(base, branch string) string {
-	return "glab mr create --target-branch " + base + " --source-branch " + branch + " --yes"
+	return "glab mr create --target-branch " + shellWord(base) + " --source-branch " + shellWord(branch) + " --yes"
 }
 
 func (gitlab) RequestURL(r Repo, n int) string {

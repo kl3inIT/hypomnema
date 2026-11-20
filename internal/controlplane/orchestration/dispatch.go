@@ -187,7 +187,7 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 		return "", "", false, notFound(err, "task", taskID)
 	}
 
-	host, err := runHost(ctx, q, task.RunID)
+	host, err := taskHost(ctx, q, task)
 	if err != nil {
 		return "", "", false, err
 	}

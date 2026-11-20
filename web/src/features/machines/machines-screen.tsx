@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PageHeader, PageHeading } from "@/components/page-header"
+import { SettingsBack } from "@/components/settings-page"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
@@ -67,7 +68,7 @@ export function MachinesScreen() {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader />
+      <PageHeader back={<SettingsBack />} />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
         <PageHeading

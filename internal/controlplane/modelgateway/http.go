@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -133,10 +134,12 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", s.listModels)
 	// Codex's catalog of the key's models, at its provider's model_catalog_url (codex_catalog.go, issue #907).
 	mux.HandleFunc("GET "+agentconfig.CodexCatalogPath, s.codexModels)
-	mux.HandleFunc("POST /v1/chat/completions", longAnswer(s.chatCompletions))
-	mux.HandleFunc("POST /v1/responses", longAnswer(s.responses))
-	mux.HandleFunc("POST /v1/messages", longAnswer(s.messages))
-	mux.HandleFunc("POST /v1/messages/count_tokens", s.countTokens)
+	// A conversation is sent whole with each request, megabytes for a long one: it may take longer to arrive than
+	// the server's read timeout (issue #977), as a file does.
+	mux.HandleFunc("POST /v1/chat/completions", longBody(s.chatCompletions))
+	mux.HandleFunc("POST /v1/responses", longBody(s.responses))
+	mux.HandleFunc("POST /v1/messages", longBody(s.messages))
+	mux.HandleFunc("POST /v1/messages/count_tokens", longBody(s.countTokens))
 	// A search tries each provider in turn, and a page may be read twice (directly, then by Jina): longer than
 	// the server's write timeout at worst, within their own bounds.
 	mux.HandleFunc("POST /v1/search", longAnswer(s.webSearch))
@@ -145,9 +148,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/alpha/search", longAnswer(s.alphaSearch))
 	// Images (issue #431): one is made in a minute or more, longer than the write timeout.
 	mux.HandleFunc("POST /v1/images/generations", longAnswer(s.imageGenerations))
-	mux.HandleFunc("POST /v1/images/edits", fileBody(s.imageEdits))
+	mux.HandleFunc("POST /v1/images/edits", longBody(s.imageEdits))
 	// Audio (issue #694): a Soniox transcription is one request that polls its job up to 30 minutes.
-	mux.HandleFunc("POST /v1/audio/transcriptions", fileBody(s.audioTranscriptions))
+	mux.HandleFunc("POST /v1/audio/transcriptions", longBody(s.audioTranscriptions))
 	mux.HandleFunc("POST /v1/audio/speech", longAnswer(s.audioSpeech))
 	mux.HandleFunc("GET /v1/audio/voices", s.audioVoices)
 }
@@ -158,19 +161,47 @@ func (s *Server) Register(mux *http.ServeMux) {
 func longAnswer(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
-		h(w, r)
+		h(w, withAccountWait(r))
 	}
 }
 
-// fileBody is longAnswer for a request whose body is a file (an image to edit, a recording to transcribe): the
-// body may take longer to arrive than the server's read timeout, counted from the request's start, so the read
-// deadline is moved too, by an hour (issue #779, as clientapi's uploads).
-func fileBody(h http.HandlerFunc) http.HandlerFunc {
+// accountWait is how long a request may wait, in all, for the accounts' lists of models being read before it is told
+// to try again (issue #814): one bound for the whole request, through every pick and fallback.
+const accountWait = 30 * time.Second
+
+type accountWaitKey struct{}
+
+// withAccountWait gives a request the moment its wait for the accounts' lists ends.
+func withAccountWait(r *http.Request) *http.Request {
+	return r.WithContext(WithAccountWait(r.Context(), time.Now().Add(accountWait)))
+}
+
+// WithAccountWait gives ctx the moment its request stops waiting for the accounts' lists of models (AccountWaitEnds).
+func WithAccountWait(ctx context.Context, ends time.Time) context.Context {
+	return context.WithValue(ctx, accountWaitKey{}, ends)
+}
+
+// AccountWaitEnds is when the request of ctx stops waiting for the accounts' lists of models; ok is false outside
+// one.
+func AccountWaitEnds(ctx context.Context) (time.Time, bool) {
+	t, ok := ctx.Value(accountWaitKey{}).(time.Time)
+
+	return t, ok
+}
+
+// longBody is longAnswer for a request whose body may take longer to arrive than the server's read timeout (15 s,
+// counted from the request's start), so the read deadline is moved too, by an hour (issue #779, as clientapi's
+// uploads): a file (an image to edit, a recording to transcribe), or a model's conversation sent through a proxy
+// that passes the body on as it comes (nginx's proxy_request_buffering off), which was cut at 15 s and answered 400
+// (issue #977). None of 9router-go, CLIProxyAPI and LiteLLM's uvicorn bounds the time a body takes, only its
+// headers (9router-go internal/app/server.go, CLIProxyAPI internal/api/server.go: ReadHeaderTimeout alone). The
+// deadline bounds the body's reading only: net/http clears it once the body is read (connReader.startBackgroundRead).
+func longBody(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rc := http.NewResponseController(w)
 		_ = rc.SetReadDeadline(time.Now().Add(time.Hour))
 		_ = rc.SetWriteDeadline(time.Time{})
-		h(w, r)
+		h(w, withAccountWait(r))
 	}
 }
 
@@ -266,6 +297,32 @@ func (s *Server) authenticateAs(w http.ResponseWriter, r *http.Request, fail err
 	}
 
 	return k, true
+}
+
+// readRequest reads the body of a request for a model, bounded by maxRequestBytes. A body that cannot be read whole
+// for another reason than its size is logged with what is known of it (issue #977): the key, the headers that say
+// how the body is framed, how much of it came and how long it took, so a failure names its cause. io.ReadAll gives
+// back what it read before the error.
+func (s *Server) readRequest(w http.ResponseWriter, r *http.Request, key Key, started time.Time) ([]byte, error) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytes))
+
+	var tooLarge *http.MaxBytesError
+	if err != nil && !errors.As(err, &tooLarge) {
+		s.logger.WarnContext(r.Context(), "a request's body could not be read",
+			slog.String("event", "modelgateway.body_unread"),
+			slog.String("path", r.URL.Path),
+			slog.String("key_id", key.ID),
+			slog.String("key_name", key.Name),
+			slog.String("proto", r.Proto),
+			slog.String("content_length", r.Header.Get("Content-Length")),
+			slog.String("transfer_encoding", strings.Join(r.TransferEncoding, ",")),
+			slog.String("content_encoding", r.Header.Get("Content-Encoding")),
+			slog.Int("bytes_read", len(raw)),
+			slog.Int64("elapsed_ms", s.svc.clock.Now().Sub(started).Milliseconds()),
+			slog.String("error", err.Error()))
+	}
+
+	return raw, err
 }
 
 func (s *Server) internal(w http.ResponseWriter, r *http.Request, event string, err error) {

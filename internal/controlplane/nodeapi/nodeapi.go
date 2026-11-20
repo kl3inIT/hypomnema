@@ -285,13 +285,16 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hello := orchestration.Hello{
-		DiskPolicy:   req.DiskPolicy,
+		DiskPolicy: req.DiskPolicy, TaskBranches: req.TaskBranches,
 		WorktreeRoot: req.WorktreeRoot, Terminal: req.Terminal, Device: req.Device, KVM: req.KVM,
 		Held: req.Held, ListsHeld: req.ListsHeld,
 		System: orchestration.SystemInfo{
 			DaemonVersion: req.DaemonVersion, OS: req.System.OS, Arch: req.System.Arch, CPUs: req.System.CPUs,
 			MemoryBytes: req.System.MemoryBytes, DiskBytes: req.System.DiskBytes,
 		},
+	}
+	if t := req.TempIsolation; t != nil {
+		hello.TempIsolation = &orchestration.TempIsolation{On: t.On, Reason: t.Reason}
 	}
 	for _, rt := range req.Runtimes {
 		hello.Runtimes = append(hello.Runtimes, orchestration.RuntimeInfo{

@@ -131,10 +131,10 @@ function server(
 function open(path: string) {
   const root = createRootRoute({ component: Outlet })
   const routes = [
-    createRoute({ getParentRoute: () => root, path: "/agents", component: AgentsScreen }),
+    createRoute({ getParentRoute: () => root, path: "/settings/agents", component: AgentsScreen }),
     createRoute({
       getParentRoute: () => root,
-      path: "/agents/new",
+      path: "/settings/agents/new",
       component: function New() {
         const { from } = routes[1]!.useSearch() as { from?: string }
 
@@ -143,7 +143,7 @@ function open(path: string) {
     }),
     createRoute({
       getParentRoute: () => root,
-      path: "/agents/$name",
+      path: "/settings/agents/$name",
       component: function One() {
         const { name } = routes[2]!.useParams() as { name: string }
 
@@ -187,7 +187,7 @@ test("a card says what the agent runs on and whether it can run now", async () =
     }),
     profile("reviewer", { available: false, unavailable_reason: "needs_gateway" }),
   ])
-  open("/agents")
+  open("/settings/agents")
 
   const implementer = await agent("implementer")
   expect(implementer).toHaveTextContent("What implementer is for.")
@@ -218,7 +218,7 @@ test("a card says what the agent runs on and whether it can run now", async () =
 // Scenario: the owner prefers the table; the choice is kept in this browser, and the table says the same things.
 test("the table shows the same agents and the layout is remembered", async () => {
   server([profile("implementer"), profile("explorer", { effort: "low" })])
-  open("/agents")
+  open("/settings/agents")
   await agent("implementer")
 
   await userEvent.click(screen.getByRole("button", { name: "table" }))
@@ -236,7 +236,7 @@ test("the table shows the same agents and the layout is remembered", async () =>
 test("the table hides the version until the owner shows it", async () => {
   const user = userEvent.setup()
   server([profile("implementer")])
-  open("/agents")
+  open("/settings/agents")
   await agent("implementer")
 
   await user.click(screen.getByRole("button", { name: "table" }))
@@ -259,7 +259,7 @@ test("a list that cannot be read offers to try again, and an empty one says what
   const fetch = vi
     .spyOn(globalThis, "fetch")
     .mockImplementation(async () => json({ code: "internal", message: "boom" }, 500))
-  open("/agents")
+  open("/settings/agents")
 
   expect(await screen.findByText("Couldn't load this list.")).toBeInTheDocument()
 
@@ -273,7 +273,7 @@ test("a list that cannot be read offers to try again, and an empty one says what
 // the name typed, and the page opens the new agent.
 test("a new agent is sent as YAML built from the fields", async () => {
   const applied = server([profile("codex-implementer", { runtime: "codex", version: 2 })])
-  const router = open("/agents/new")
+  const router = open("/settings/agents/new")
   const user = userEvent.setup()
 
   const create = await screen.findByRole("button", { name: "Create profile" })
@@ -308,7 +308,7 @@ test("a new agent is sent as YAML built from the fields", async () => {
   await user.click(create)
 
   await screen.findByRole("heading", { name: "codex-implementer" })
-  expect(router.state.location.pathname).toBe("/agents/codex-implementer")
+  expect(router.state.location.pathname).toBe("/settings/agents/codex-implementer")
   expect(applied).toEqual([
     {
       name: "codex-implementer",
@@ -324,7 +324,7 @@ test("a new agent is sent as YAML built from the fields", async () => {
 
 test("a name with other characters is not sent, and the form says why", async () => {
   const applied = server([])
-  open("/agents/new")
+  open("/settings/agents/new")
   const user = userEvent.setup()
 
   await user.type(await screen.findByLabelText("Name"), "my agent")
@@ -347,7 +347,7 @@ test("saving an agent makes a revision, and a refusal is shown in the server's w
         422,
       ),
   })
-  open("/agents/reviewer")
+  open("/settings/agents/reviewer")
   const user = userEvent.setup()
 
   const save = await screen.findByRole("button", { name: "Save revision" })
@@ -380,7 +380,7 @@ test("fallbacks are chosen in order from the other workers and saved with the ag
     profile("codex-worker", { runtime: "codex" }),
     profile("omp-worker", { runtime: "omp" }),
   ])
-  open("/agents/writer")
+  open("/settings/agents/writer")
   const user = userEvent.setup()
 
   const add = await screen.findByLabelText("Fallbacks")
@@ -429,7 +429,7 @@ test("an agent's skills are chosen in the builder and saved in its YAML", async 
   const applied = server([profile("writer", { skills: ["gone"] })], {
     skills: [skill("pdf", true), skill("review-go"), skill("forms")],
   })
-  open("/agents/writer")
+  open("/settings/agents/writer")
   const user = userEvent.setup()
 
   const everyone = await screen.findByRole("list", { name: "Skills for everyone" })
@@ -452,7 +452,7 @@ test("an agent's skills are chosen in the builder and saved in its YAML", async 
 // configuration: editing it offers its own save, which replaces it and makes no new version.
 test("an agent's memory is read and edited beside its configuration", async () => {
   const applied = server([profile("writer")])
-  open("/agents/writer")
+  open("/settings/agents/writer")
   const user = userEvent.setup()
 
   await user.click(await screen.findByRole("button", { name: "memory" }))
@@ -480,7 +480,7 @@ test("the search narrows the agents by name and description", async () => {
     profile("implementer"),
     profile("reviewer", { description: "Reads a pull request against its spec." }),
   ])
-  open("/agents")
+  open("/settings/agents")
   const user = userEvent.setup()
 
   await agent("implementer")
@@ -507,7 +507,7 @@ test("the search narrows the agents by name and description", async () => {
 // and no age, where it used to count the days since 1970.
 test("a version with no time shows no age", async () => {
   server([profile("implementer", { created_at: new Date(0).toISOString() })])
-  open("/agents")
+  open("/settings/agents")
 
   const card = await agent("implementer")
   expect(card).toHaveTextContent("Version:1")
@@ -518,7 +518,7 @@ test("a version with no time shows no age", async () => {
 // so it asks first; keeping the edits stays on YAML, discarding them returns to the fields as they were.
 test("going back to the builder asks before YAML edits are discarded", async () => {
   const applied = server([profile("reviewer")])
-  open("/agents/reviewer")
+  open("/settings/agents/reviewer")
   const user = userEvent.setup()
 
   await user.click(await screen.findByRole("button", { name: "YAML" }))
@@ -551,7 +551,7 @@ test("restoring a version applies its source again", async () => {
     source: "name: reviewer\n# two\n",
   })
   const applied = server([second], { versions: { reviewer: [second, first] } })
-  open("/agents/reviewer")
+  open("/settings/agents/reviewer")
   const user = userEvent.setup()
 
   await user.click(await screen.findByRole("button", { name: "versions" }))
@@ -645,7 +645,7 @@ test("an agent is duplicated into the new agent's form", async () => {
     instruction: "Be strict.",
   })
   const applied = server([reviewer, profile("reviewer-copy"), profile("reviewer-copy-2")])
-  const router = open("/agents/reviewer")
+  const router = open("/settings/agents/reviewer")
   const user = userEvent.setup()
 
   await user.click(await screen.findByRole("link", { name: "Duplicate" }))
@@ -653,7 +653,7 @@ test("an agent is duplicated into the new agent's form", async () => {
   expect(
     await screen.findByText("A copy of reviewer. Change what differs, then create it."),
   ).toBeInTheDocument()
-  expect(router.state.location.pathname).toBe("/agents/new")
+  expect(router.state.location.pathname).toBe("/settings/agents/new")
   expect(screen.getByLabelText("Name")).toHaveValue("reviewer-copy-3")
   expect(screen.getByLabelText("Description")).toHaveValue("Reviews a change.")
   expect(screen.getByLabelText("Model")).toHaveTextContent("Claude Opus 5.5")

@@ -1,6 +1,9 @@
 package subscription
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // PollWithoutWaiting makes a device login poll again at once, so a test does
 // not wait the seconds the authorization server asks for.
@@ -39,3 +42,23 @@ func (a *Antigravity) PollWithoutWaiting() {
 // ReadLimitsFrom makes the limits of a Codex account be read from a test's
 // server in ChatGPT's place.
 func (c *Codex) ReadLimitsFrom(base string) { c.usageBase = base }
+
+// WaitForListsAtMost bounds the wait for an account's first list of models in flight.
+func (s *Service) WaitForListsAtMost(d time.Duration) {
+	s.servedWait = d
+}
+
+// BetweenAccountsAndLists runs f in TokenFor between reading the accounts and what is known of their lists.
+func (s *Service) BetweenAccountsAndLists(f func()) {
+	s.afterAccounts = f
+}
+
+// ForgetModel takes a model off an account's last list of models, as a newer reading without it would.
+func (s *Service) ForgetModel(accountID, model string) {
+	s.servedMu.Lock()
+	defer s.servedMu.Unlock()
+
+	r := s.served[accountID]
+	r.models = slices.DeleteFunc(slices.Clone(r.models), func(m ServedModel) bool { return m.Name == model })
+	s.served[accountID] = r
+}

@@ -7,10 +7,8 @@ import {
   LogOut,
   Mic,
   Repeat2,
-  Server,
   Settings,
   SquarePen,
-  SquareTerminal,
   UsersRound,
 } from "lucide-react"
 
@@ -32,8 +30,9 @@ import { BotList } from "./bot-list"
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
 // Team with what waits for the owner, the Routines, the Meetings (issue #721), the Studio of takes and videos (issue
-// #818, after Cap's My Caps in its navbar, Navbar/Items.tsx; layout only), then what is set up: the Bots, the agents, the machines; in the
-// order they are used, as OpenClaw's navigation, issue #371) and the Bots with
+// #818, after Cap's My Caps in its navbar, Navbar/Items.tsx; layout only), then the Bots; in the order they are used,
+// as OpenClaw's navigation, issue #371; the agents and the machines are in Settings since issue #857, as OpenClaw's
+// agents and devices, ui/src/app-navigation.ts) and the Bots with
 // their chats (bot-list.tsx), and a quiet 52px header over each page. On a phone the sidebar hides and the header's
 // ≡ opens the same content as a drawer from the left (AppDrawer, issue #604).
 
@@ -100,20 +99,6 @@ function Places() {
       >
         <BotMessageSquare className="size-4" />
         Bots
-      </Link>
-      <Link
-        to="/agents"
-        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
-      >
-        <SquareTerminal className="size-4" />
-        Agents
-      </Link>
-      <Link
-        to="/machines"
-        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
-      >
-        <Server className="size-4" />
-        Machines
       </Link>
     </nav>
   )

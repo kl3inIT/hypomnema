@@ -4,6 +4,7 @@ import { ChevronDown, Upload } from "lucide-react"
 import { useState } from "react"
 import { z } from "zod"
 
+import { DropFile } from "@/components/drop-file"
 import { ErrorAlert } from "@/components/error-alert"
 import { Button } from "@/components/ui/button"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -19,7 +20,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -128,18 +128,29 @@ function Body({ onDone }: { onDone: () => void }) {
                 return (
                   <Field data-invalid={invalid || undefined}>
                     <FieldLabel htmlFor="meeting-file">Recording</FieldLabel>
-                    <Input
+                    <DropFile
                       id="meeting-file"
-                      type="file"
                       accept="audio/*,video/*,.m4a,.mp3,.wav,.webm,.ogg,.mp4"
-                      aria-invalid={invalid || undefined}
-                      onChange={(e) => field.handleChange(e.target.files?.[0] ?? null)}
+                      file={f}
+                      onFile={(picked) => field.handleChange(picked)}
+                      invalid={invalid}
+                      chosen={
+                        f && (
+                          <>
+                            <span>{f.name}</span>{" "}
+                            <span className="text-muted-foreground">
+                              · {Math.max(1, Math.round(f.size / 1024 / 1024))} MB
+                            </span>
+                          </>
+                        )
+                      }
+                      empty={
+                        <>
+                          <p>Drop a recording here</p>
+                          <p className="text-xs">mp3, m4a, wav, webm, ogg or mp4, up to 128 MB</p>
+                        </>
+                      }
                     />
-                    <FieldDescription>
-                      {f
-                        ? `${f.name} · ${Math.max(1, Math.round(f.size / 1024 / 1024))} MB`
-                        : "mp3, m4a, wav, webm, ogg or mp4, up to 128 MB."}
-                    </FieldDescription>
                     {invalid && <FieldError errors={field.state.meta.errors} />}
                   </Field>
                 )

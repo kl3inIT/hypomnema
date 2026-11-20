@@ -399,6 +399,38 @@ func TestAProviderIsSetToItsVendorsRoster(t *testing.T) {
 	assert.Contains(t, p.Models, "gemini-3-flash")
 }
 
+// Scenario (issue #814): one model a Codex provider lists is taken off, and nothing else on the list changes, even a
+// model below the provider's floor listed by hand. A model a profile uses is not taken off.
+func TestOneModelIsTakenOffAProvider(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: cx\nkind: codex_subscription\nmin_versions: {gpt: \"6\"}\n"+
+		"models: [gpt-6.1-sol, gpt-5.6-luna, gpt-6.1-gone]\n")
+	require.NoError(t, err)
+
+	removed, err := w.s.RemoveProviderModel(ctx, "cx", "gpt-6.1-gone")
+	require.NoError(t, err)
+	assert.True(t, removed)
+
+	p, err := w.s.GetProvider(ctx, "cx")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"gpt-6.1-sol", "gpt-5.6-luna"}, p.Models)
+
+	removed, err = w.s.RemoveProviderModel(ctx, "cx", "gpt-6.1-gone")
+	require.NoError(t, err)
+	assert.False(t, removed, "no longer listed")
+
+	_, _, err = w.s.ApplyProfile(ctx, "",
+		"name: z\ndescription: d\nruntime: codex\nmodel: {provider: cx, name: gpt-6.1-sol}\n")
+	require.NoError(t, err)
+
+	_, err = w.s.RemoveProviderModel(ctx, "cx", "gpt-6.1-sol")
+	require.ErrorIs(t, err, ErrConflict, "a model a profile uses stays")
+}
+
 // Scenario (issue #642): the owner keeps only the current lines, Codex 6 and up and Gemini 3.8 and up. Codex's list
 // adds gpt-6.2-sol and not gpt-5.6-mini; Antigravity's roster brings gemini-4-pro and gemini-3.8-flash-low, not
 // gemini-2.5-flash or gemini-3-flash, and the gemini-2.5-pro listed before goes; gpt-oss-120b, with no version to

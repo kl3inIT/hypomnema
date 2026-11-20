@@ -97,3 +97,7 @@ Source: https://github.com/google/fonts at c133902, ofl/bevietnampro.
 What is used from it (issue #818, part 1): BeVietnamPro-SemiBold.ttf, embedded
 in the control plane (internal/controlplane/videos/ffmpeg/fonts) with this
 license, and written beside its ffmpeg for the captions burned into videos.
+
+Issue #908, part 1, adds BeVietnamPro-ExtraBold.ttf, BeVietnamPro-Bold.ttf and
+BeVietnamPro-Medium.ttf from the same commit, embedded and written the same
+way, for the caption presets.

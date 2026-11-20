@@ -27,6 +27,7 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktree starts from (default main)")
+			fs.String("chat", "", "the chat to wake (default: this Bot's chat or the main Bot's main chat)")
 			fs.String("profile", "", "profile of the Task (default implementer)")
 			fs.String("runtime", "", "runtime, instead of the profile's")
 			fs.String("model", "", "model, instead of the profile's")
@@ -36,16 +37,26 @@ var commands = []command{
 		run: ownerRun,
 	},
 	{
-		name: "runs create", args: "[objective]", max: -1, summary: "create a Run; a coordinator token coordinates it",
+		name: "runs create", args: "[objective]", max: -1, summary: "create a Run with a chat to continue it",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktrees start from (default main)")
+			fs.String("chat", "", "the chat to wake (default: this Bot's chat or the main Bot's main chat)")
 			fs.String("objective-file", "", "read the objective from this file, or - for standard input")
 			fs.String("key", "", "idempotency key; repeat a create whose result was lost with the same key")
 			fs.String("use", "", "accounts the workers may use, as integration:label separated by commas, such as google:work")
 			jsonFlag(fs)
 		},
 		run: runsCreate,
+	},
+	{
+		name: "runs adopt", args: "<run_id>", min: 1, max: 1,
+		summary: "assign an open Run without a chat to a coordinator (owner only)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("chat", "", "the chat to wake (default: the main Bot's main chat)")
+			jsonFlag(fs)
+		},
+		run: runsAdopt,
 	},
 	{
 		name: "runs list", summary: "Runs, newest first",
@@ -91,6 +102,9 @@ var commands = []command{
 			fs.String("depends-on", "", "comma-separated refs or Task ids it depends on")
 			fs.String("kind", "", "broad (default), narrow or quick")
 			fs.String("review-of", "", "id of the succeeded Task whose work this reviewer checks")
+			fs.String("continues", "", "id of a Task whose branch and pull request this Task continues")
+			fs.String("start-from", "", "branch the worktree starts from instead of the Run's base")
+			fs.String("pr-base", "", "with --start-from: start_from (default, stacked) or run_base")
 			fs.String("runtime", "", "runtime, instead of the profile's")
 			fs.String("model", "", "model, instead of the profile's")
 			fs.String("effort", "", "effort, instead of the profile's")

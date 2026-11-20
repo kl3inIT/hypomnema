@@ -17,8 +17,8 @@ import (
 // Scenario (issue #723, decisions 3.2 to 3.4; the owner's decision 2 of
 // 2026-11-18): what is not counted in tokens is counted in its own unit and
 // priced at LiteLLM's price of that unit. A Tavily search is one search at
-// $0.008; an Exa search one search LiteLLM has no price for, so unpriced; a
-// page read and a search that failed count nothing and cost nothing, the
+// $0.008; Exa and Codex searches get their comparable API prices (#972);
+// a page read and a search that failed count nothing and cost nothing, the
 // failure keeping its error. Ninety seconds heard by Soniox cost its price a
 // second, 1,200 characters spoken by ElevenLabs its price a character, and
 // an image request counts the images it made. The report's totals add the
@@ -37,6 +37,8 @@ func TestEachKindIsCountedInItsOwnUnitAndPriced(t *testing.T) {
 	for _, c := range []modelgateway.WebCall{
 		{Model: modelgateway.ModelWebSearch, Provider: websearch.ProviderTavily, Attempts: 1},
 		{Model: modelgateway.ModelWebSearch, Provider: websearch.ProviderExa, Attempts: 2},
+		{Model: modelgateway.ModelWebSearch, Provider: websearch.ProviderCodex, Attempts: 1},
+		{Model: modelgateway.ModelWebSearch, Provider: websearch.ProviderFirecrawl, Attempts: 1},
 		{Model: modelgateway.ModelWebSearch, Provider: websearch.ProviderTavily, Attempts: 1, Err: failed},
 		{Model: modelgateway.ModelWebFetch, Attempts: 1},
 	} {
@@ -61,7 +63,7 @@ func TestEachKindIsCountedInItsOwnUnitAndPriced(t *testing.T) {
 
 	rows, _, err := g.svc.UsageRequests(ctx, "24h", false, 50, 0)
 	require.NoError(t, err)
-	require.Len(t, rows, 7)
+	require.Len(t, rows, 9)
 
 	row := func(model, provider, errText string) modelgateway.Usage {
 		t.Helper()
@@ -89,7 +91,17 @@ func TestEachKindIsCountedInItsOwnUnitAndPriced(t *testing.T) {
 
 	exa := row(modelgateway.ModelWebSearch, "exa", "")
 	assert.Equal(t, int64(1), exa.WebSearches)
-	assert.Nil(t, cost(exa), "LiteLLM has no price for Exa's search")
+	assert.Equal(t, int64(7000), cost(exa))
+	assert.Equal(t, "exa/search", exa.PricedModel)
+
+	codex := row(modelgateway.ModelWebSearch, "codex", "")
+	assert.Equal(t, int64(1), codex.WebSearches)
+	assert.Equal(t, int64(10_000), cost(codex))
+	assert.Equal(t, "openai/gpt-6-luna", codex.PricedModel)
+
+	unknown := row(modelgateway.ModelWebSearch, websearch.ProviderFirecrawl, "")
+	assert.Equal(t, int64(1), unknown.WebSearches)
+	assert.Nil(t, cost(unknown))
 
 	refused := row(modelgateway.ModelWebSearch, "tavily", "tavily (rate limited)")
 	assert.Zero(t, refused.WebSearches)
@@ -112,19 +124,21 @@ func TestEachKindIsCountedInItsOwnUnitAndPriced(t *testing.T) {
 
 	report, err := g.svc.Usage(ctx, "24h", 0)
 	require.NoError(t, err)
-	assert.Equal(t, int64(2), report.Totals.WebSearches)
+	assert.Equal(t, int64(4), report.Totals.WebSearches)
 	assert.Equal(t, 90*time.Second, report.Totals.Audio)
 	assert.Equal(t, int64(1200), report.Totals.Characters)
 	assert.Equal(t, int64(2), report.Totals.Images)
-	assert.Equal(t, int64(8000+2500+96000), report.Totals.CostMicros)
-	assert.Equal(t, int64(1), report.Totals.Unpriced, "Exa's search")
+	assert.Equal(t, int64(8000+7000+10_000+2500+96000), report.Totals.CostMicros)
+	assert.Equal(t, int64(1), report.Totals.Unpriced)
 	assert.Equal(t, int64(2), report.Buckets[23].Images, "the images are in the last hour's bar")
 
 	i := slices.IndexFunc(report.ByModel, func(m modelgateway.UsageGroup) bool {
 		return m.Name == modelgateway.ModelWebSearch
 	})
 	require.GreaterOrEqual(t, i, 0)
-	assert.Equal(t, int64(2), report.ByModel[i].WebSearches)
+	assert.Equal(t, int64(4), report.ByModel[i].WebSearches)
+	assert.Equal(t, int64(25_000), report.ByModel[i].CostMicros)
+	assert.Equal(t, int64(1), report.ByModel[i].Unpriced)
 }
 
 // Scenario (incoming voice): a chat's newest key is found whether it works

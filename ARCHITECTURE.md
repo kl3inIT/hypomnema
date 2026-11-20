@@ -283,9 +283,31 @@ sequenceDiagram
   every Dispatch of the Task carries the newest note (`dispatches.follow_up_id`) until one that carries it
   succeeds, so a retry in a new Conversation or a handoff gets it too; the node puts it in the worker's first turn
   as it puts a resolved Gate. Without an open Conversation the follow-up is refused (409), and the error says to
-  create a new Task from the branch `hyp/<task_id>`. Learned from Orca, whose finished worker gets a message "as a
+  create a new Task that `continues` it (below). A follow-up, and the reopening of a failed Task, are also refused
+  while another unfinished Task pushes to the Task's branch. Learned from Orca, whose finished worker gets a message "as a
   follow-up Task" (`skill-guides/orchestration.md`), Polly, which sends fixes "to the SAME implementer
   conversation", and omp's "Prefer messaging an existing agent" for follow-up work (`docs/tools/task.md`).
+- A Task's branches (issue #690, `orchestration/branches.go`, migration `task_branches`). A new Task may name
+  `continues: <task id>`: a Task of the same repository, of any Run, even a finished one, and whatever its status.
+  It then works on that Task's branch and pushes into it (`tasks.push_branch`, that Task's own push branch, so a
+  chain of them shares one branch), so that branch's pull request takes the commits and keeps its number and
+  reviews; a pull request it has to open targets what the earlier Task's did. Or it may name `start_from: <branch>`
+  (another Task's `hyp/<id>`, which resolves to the branch that Task pushes to, or a named branch git accepts) and
+  `pr_base`: `start_from`, the default, for stacked work, or `run_base`. Both are refused together, and a branch
+  git would refuse or that reads as an option never reaches a node. Creation is refused (409) while an unfinished
+  Task, the continued one included, pushes to the same branch: one pusher per branch. The Task's
+  `push_branch`, `start_from` and `pr_base` go to the node with the offer (empty for the defaults: `hyp/<id>`, the
+  Run's base), and `published_head` accepts only the Task's configured push branch, or its own if unset, so the
+  push is this Run's evidence for the pull request it updated. Tasks with non-default branches wait for a node
+  that advertises `task_branches` at hello; older nodes still take Tasks with default branches. From the approved
+  design for issue #690 (owner, 2026-11-20). Learned from Orca, whose worktree for a pull request starts at its head and pushes to it
+  (`src/main/github/pull-requests/start-points/pr-start-point.ts:226-245`, at `38aa9119`), and t3code, whose
+  worktree for a pull request sets its upstream to the head branch (`apps/server/src/git/GitManager.ts:1013-1069,
+  3361-3390`, at `4d5bf2d5`), and whose stacked work takes the parent branch as `baseRef`
+  (`docs/orchestration-v2/orchestrator-mcp-server.md:354-355`) and refuses a second worktree on an existing branch
+  (`ThreadLaunchService.ts:443-448`). The one-pusher rule held by the control plane, and allowing only a Task's
+  branch as a push target, are inferred; Hermes, by contrast, salvages a contributor's work into a new pull
+  request (`AGENTS.md:41`), which is what this replaces.
 - Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
@@ -887,8 +909,10 @@ sequenceDiagram
     and the license taken out into `<version>.tmp`, run there (`-filters` has `freezedetect`, `subtitles` and `ass`,
     `-encoders` `libx264` and `aac`), then renamed into `<version>/` and named by `current`; the build `current`
     named before stays in use until the new one passes, and is removed then. A failed install is logged and tried
-    again at the next use. The programs are called by these absolute paths, never through PATH, and Be Vietnam Pro
-    SemiBold (OFL, embedded; `third_party/be-vietnam-pro`) is written to `ffmpeg/fonts/` for the captions.
+    again at the next use. The programs are called by these absolute paths, never through PATH, and the captions'
+    fonts (OFL, embedded, each family's license beside it) are written to `ffmpeg/fonts/`: Be Vietnam Pro SemiBold,
+    ExtraBold, Bold and Medium (`third_party/be-vietnam-pro`) and JetBrains Mono SemiBold
+    (`third_party/jetbrains-mono`).
     `internal/controlplane/videos/compose` is aidemo's compose ported to Go (MIT, `third_party/aidemo`): a take's
     scenes are its steps, steps at the same time one scene, each from its step to the next (the last to the take's
     end), the first from the take's start with the span before its step a lead-in cut as an idle span; a take with
@@ -899,8 +923,9 @@ sequenceDiagram
     300 ms within 0.5x-1.6x, its last frame held when still short and its tail trimmed when still long; a scene
     over a segment `freezedetect` fails on is kept whole, with a warning. A tap's ring, autodemo's ripple (MIT,
     `third_party/autodemo`), is drawn for 0.5 s from the tap's step, its point scaled from the screen's pixels
-    to the video's; each scene's voice is padded to its scene's length, captions (an ASS file) burned in when
-    given, and the MP4 (H.264, AAC, 30 fps) written in a work folder and renamed into place whole. Its tests make
+    to the video's, and each scene returns it (`SceneResult.Ring`: start, center and size in the video's pixels)
+    for the captions to keep clear of; each scene's voice is padded to its scene's length, captions (an ASS file)
+    burned in when given, and the MP4 (H.264, AAC, 30 fps) written in a work folder and renamed into place whole. Its tests make
     a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
     scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build. A take with taps
     and no `screen` (filmed before the node recorded it) is made without rings, with a warning.
@@ -927,7 +952,22 @@ sequenceDiagram
     punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
     word in #FFD400 (demotape's highlight and word timing normalize, ported), and burns it in with the font of
-    part 1 (`compose.Burn`). A scene with no word times fails the revision at `captioning`; with captions off the
+    part 1 (`compose.Burn`). Every revision is captioned so, as the preset `legacy` ("Classic"), until a revision
+    stores its look (#908, part 3). The other caption presets are built (`captions.Render`, #908 part 1): demotape's
+    eleven (`presets.go`, its macOS fonts mapped to the bundled ones) and aidemo's `bar`, Clean the default;
+    position `preset`, `bottom`, `lower_third`, `center` or `top`. Each is laid out as demotape's drawBlock (`styled.go`):
+    an em of 5 % of the height (6.2 % animated) times the preset's scale, at least 20 px, given to libass through
+    the font's OS/2 win metrics (a small OS/2 and head reader; text estimated with `x/image/font/sfnt`, then every
+    block drawn once by the pinned ffmpeg's libass at its place on a frame the video's size, its drawn width read
+    back, and shrunk and drawn again until it fits and no block has moved since it was drawn, so `captions.Render` takes the ffmpeg tools; a word folded by NFKC and uppercased in full (ß to SS), and a
+    character the font lacks left out, so libass never falls back to a font of the machine), at most 2
+    words a line on a tall video, stepped through windows of the cue, each word at least 0.42 s (one or two words
+    at a time) or 0.14 s; the block, as drawn, at most 0.94 of the width (shrunk, then squeezed with `\fscx` at the
+    floor); a box as a `\p1` rounded rectangle, each line an `\an8\pos` event; a cue at the bottom moves to the top,
+    whole, if its ASS-rounded events and a tap's ring share a drawn 30 fps frame and the ring reaches it. As demotape,
+    only the first cue that covers an instant is shown, so cues whose words overlap in time are never drawn over
+    each other. Tests burn each preset on a grey frame with the pinned ffmpeg and measure
+    the box, the width, the colors, the placement and the font libass picks. A scene with no word times fails the revision at `captioning`; with captions off the
     stage is skipped. While a revision is voiced, composed or captioned, it says how many of its scenes that
     stage has done (`progress {scenes_done, scenes_total}`, kept in memory as aidemo's job keeps its count, reset at
     each stage). The first frame is the revision's thumbnail. Everything is made in
@@ -969,26 +1009,27 @@ sequenceDiagram
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
-  t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
+  t3code's typed timeline items): `wake` (a Run event or an adoption notice), `failed` (pi's model call failed), `stopped` (the
   owner stopped the turn), `approval` (the owner answered an Approval asked in the chat), or `continued` and `cut`
   (a restart cut the turn and it continues, or not; issue #716, migration 112); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
-  Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
+  Run records the chat that coordinates it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
   `GET /runs?chat_id=` lists only the Runs made from a chat and `GET /questions?chat_id=` only the questions of those
   Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). The owner
   deletes a chat for good (`DELETE /chats/{id}`, `hypomnema chats rm`, the sidebar row's menu; issue #484, after
-  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its Runs, Routines, Routines' runs
+  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its ended Runs, Routines, Routines' runs
   and approvals, revokes and keeps its gateway keys (they lose the chat; the gateway's own
   `RevokeDeletedChatKeysTx` writes them in that transaction, issue #405), and deletes its setup changes, its Lark chat, its artifacts
   (with their revisions, and the bytes no other artifact keeps), its messages and the chat. A chat pi works in is
-  refused (409, "stop it first"), as are a chat a Routine tells its runs in and the chat of a Routine's live run.
+  refused (409, "stop it first"), as are a chat with an open Run, a chat a Routine tells its runs in and the chat
+  of a Routine's live run. Removing a Bot with its chats also refuses to detach open Runs.
   After the commit (t3code's thread deletion) its pi is stopped and its files go: `attachments/<chat>` in its Bot's
   folder through the folders' helper, then `run/<chat>` and `sessions/<chat>` through `HYPOMNEMA_CHAT_RM_COMMAND`; a
   file that stays is logged and named in the answer's `files_left`, and the chat stays deleted. Each
   event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
   escalation, the Run ended) adds one wake-up to the chat, unique per event. A `task.status` event's `reason` is why
-  the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each `wake` row
+  the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each event-backed `wake` row
   with its event in the same query (issue #303) and sends it as `ChatMessage.wake`: the event, its Run, Task and
   question, the status, the reason and an escalation's kind; the event never changes, so nothing is kept in step.
   pi reads the row's text. The web draws a wake row as a card across the lane (after t3code's
@@ -996,6 +1037,25 @@ sequenceDiagram
   the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
   page's `?task=`, as the Team page's) or shows the Run docked above the composer (below); a Run the chat does not
   dock opens its own chat, or, with no chat, its first Task's panel (issue #327).
+- **Run custody** (issue #969, `orchestration/run_custody.go`): the client API assigns a new interactive Run to the
+  named chat or the main Bot's main chat (creating it if needed), and keeps the creator and the supervisor's
+  registered coordinator token ID. A Bot uses its own chat, a script Routine stays chatless, and other external
+  coordinator tokens cannot create an interactive Run. A read-only Routine chat cannot be a destination. Retry of
+  the same create does not resolve the default again.
+  Only the owner can adopt a specific open, unbound Run; another live coordinator's Run or an ambiguous chatless
+  Bot-created Run is left alone. A chatless Run stays as it was until selected. A Bot can follow up, answer
+  coordinator gates, and create reviews only with both the assigned chat and its coordinator token ID. The usual
+  Bot permissions, Connection checks, owner-only gates, and `review_of` rules still apply.
+  - From: Hermes `9f476774`, `hermes_cli/kanban_db_graph.py:113` (persist the receiving coordinator with the
+    work); Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:63`, and OpenHands SDK `fb565cfe`,
+    `conversation_lease.py:167` (respect an existing principal). The main-chat default and owner-only legacy
+    adoption are Hypomnema decisions approved by the owner on 2026-11-20.
+  - Adoption saves the binding, the Run's existing event cutoff and one undelivered notice in the same write.
+    The notice tells pi to read the current work; it has no event sequence and does not move the chat's shared
+    cursor. `ChatsWithRuns` and `WakeChats` route subsequent events normally, even after a restart.
+    From: Orca `a5c191cc0`, `send-point-to-point.ts:194` (commit before waking), and t3code `d2606600`,
+    `Orchestrator.ts:16532` (reoffer persisted completion messages). The per-Run cutoff is specific to Hypomnema's
+    shared chat cursor. See the [reference comparison](https://github.com/kl3inIT/hypomnema/issues/969#issuecomment-7029495213).
 - Artifacts (issue #402, `orchestration/artifacts.go`, `internal/shared/artifactpack`, after OpenMausBot's chat
   pages `server/chat-apps.ts`, `app-docs.ts`, `page-files.ts` and `server/pages/bundle.ts`): what a Bot hands the
   owner to look at in its chat, an HTML page or folder, a PDF, an image or any other file.
@@ -1829,7 +1889,15 @@ flowchart LR
   Migration 00115 (issue #718) makes the next version from that one (`pfv_seed8_reviewer`, where
   `pfv_seed7_reviewer` is still current) and keeps its text: the reviewer also checks out the pull request, runs the
   repository's checks for what it touched and says which it could not run and why; `reviewer-codex.yaml` carries
-  this text.
+  this text. The role sample `deploy/profiles/reviewer.yaml` (issue #952, after Cursor's pstack and orchestrate)
+  holds a review to its spec alone, with no check or round above it; makes a finding P0 or P1, and so the verdict
+  `incorrect`, only with proof at the head commit (a command run and its output, or a spec, contract or doc line
+  the change makes wrong), a problem the base already has blocking only when the change copies or newly reaches
+  it and the rest listed as follow-ups; names the head commit the verdict covers, an evidence level (`ran-live`,
+  `test-verified`, `typecheck-only`, `blocked`, never a pass, or `failed`) and an `Execution` list of what it ran;
+  checks a plan only for its cited code and whether it can be carried out; and returns `blocked` in place of
+  `correct` or `incorrect` when it could not run what the verdict needs, saying what stopped it (`review_stall`
+  shows it as `unknown`). No migration seeds it: a reviewer gets it when the owner applies the file.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
   requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
@@ -1877,7 +1945,8 @@ flowchart LR
   and may still outrank a node with fresh stats whose requests leave less room. A node whose fresh stats show less than
   1 GiB available (`NodeMemoryFloor`) takes no new Conversation (kubelet's `MemoryPressure`); one already on it
   continues. A new one goes with the first active account of the runtime that is not cooling down (none for a model the
-  gateway serves), in
+  gateway serves: the gateway picks one for each request, among the accounts whose list has the model for
+  Antigravity and Codex, issue [#814](https://github.com/kl3inIT/hypomnema/issues/814)), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
   Before scoring, the scheduler also applies the [node's disk policy](#node-disk-policy-issue-859), including on
@@ -3061,14 +3130,27 @@ capabilities do not exist yet.
   `claude-subscription/claude-opus-5-5`, with no row in its table (issue #549, as 9router-go lists the models of
   every active connection, `internal/handlers/chat/models_list.go`, and CLIProxyAPI's registry fills from its
   logged-in accounts). A subscription provider's models are what its migration listed plus what its vendor serves:
-  soon after the start and then every hour the control plane asks, with the first active account of each runtime,
+  soon after the start and then every hour the control plane asks, with every active account of Codex and
+  Antigravity, each read and kept for an hour on its own (a failed reading is tried again after 5 minutes and keeps
+  the last one; a read runs on its own, and the caller that starts it, or any caller while it is an account's first,
+  waits for it; a gateway request waits at most 30 s in all, from when it entered the gateway, through every pick and
+  fallback, however many accounts' lists it waits for), and takes the union
+  of their lists in the accounts' order (issue [#814](https://github.com/kl3inIT/hypomnema/issues/814), as omp's
+  `unionAccountCatalogs` and CLIProxyAPI's per-auth registry do for both; an account whose list cannot be read hides
+  no other's; when a read of an account with no list yet ends, answered or not, the providers are updated then, not at
+  the next hour), and for Claude the last list an account answered, kept for an hour and then replaced only by a
+  newer answer from its first active account that answers, whatever accounts are disabled or fail meanwhile, as before
+  (neither reads Anthropic's list per account; OpenCode Go's wires are read the same way),
   Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
   (`GET api.anthropic.com/v1/models` with the OAuth token), Antigravity (`fetchAvailableModels`, without internal
   or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`) and OpenCode Go
   (`GET opencode.ai/inference/go/v1/models`, its chat models on a wire the gateway calls, each with its wire, window
   and largest output; issue #854). OpenCode Go's provider is set to that list as Antigravity's is (OpenClaw, Hermes
-  and pi read Go's live list). Codex's and Claude's providers
-  gain the names they lack and lose none (issue [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex,
+  and pi read Go's live list). Codex's provider also drops a model it lists that two readings in a row left out
+  (each counted once, by when it was read), since its requests go only to accounts whose list has the model (issue
+  [#814](https://github.com/kl3inIT/hypomnema/issues/814)); each model is dropped on its own, so a model a profile
+  uses keeps only itself. Claude's provider
+  gains the names it lacks and loses none (issue [#623](https://github.com/kl3inIT/hypomnema/issues/623), as Codex,
   OpenClaw and Hermes read them); Antigravity's is set to the roster, as omp takes it as authoritative, except a
   model a profile's current version uses (issue [#639](https://github.com/kl3inIT/hypomnema/issues/639)). A
   provider's `min_versions` (`{gpt: "6", gemini: "3.8"}`, by the name's first word) keeps older versions out of
@@ -3096,7 +3178,7 @@ capabilities do not exist yet.
   (500,000 for `gpt-6.2-sol`, `gpt-6.1-sol` and `gpt-6.1-terra`, 372,000 for `gpt-daybreak-red-latest`, 272,000 for
   every other model and one it does not list), an Antigravity one's window and largest
   output as Google serves them, `maxTokens` and `maxOutputTokens` of `fetchAvailableModels` under the first active
-  account, read once an hour (issue #587, as omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
+  account whose list has the model and gives them, read once an hour (issue #587, as omp reads them), else from CLIProxyAPI's registry (issue #399). Effort
   levels are only those the gateway gives the first target's provider as levels of their own: Codex none to
   xhigh (max is sent as xhigh), Claude none, low to max (minimal's budget is low's), Antigravity's Gemini low,
   medium and high and its other models none; an OpenAI-compatible provider gets any. A level set that the provider
@@ -3349,7 +3431,11 @@ capabilities do not exist yet.
   through, each value as the bytes the client sent. The client's headers are not forwarded; the provider's key comes
   from the vault, so a provider served by the gateway names it as `vault:<name>`. Bodies are limited to 32 MiB
   (`/v1/messages` and `/v1/responses` too; 413 `request_too_large` above it), the request limit pi's catalog and
-  Hermes state for Anthropic (issue #675; it was 10 MiB, 9router-go's).
+  Hermes state for Anthropic (issue #675; it was 10 MiB, 9router-go's). A body has an hour to arrive, not the
+  server's 15 s read timeout, as a file uploaded to the client API (issue #977: a Codex conversation of megabytes,
+  passed on by a proxy as it came, was cut at 15 s and answered 400); none of 9router-go, CLIProxyAPI and LiteLLM
+  bounds the time a body takes. A body that cannot be read is answered 400 and logged (`modelgateway.body_unread`)
+  with the key, its `Content-Length`, `Transfer-Encoding` and `Content-Encoding`, the bytes that came and the time.
 - A stream is asked for its usage (`stream_options.include_usage`) whether or not the client asked, and the
   usage-only frame is kept from a client that did not. Data lines are passed on as the provider sent them;
   comments are not. A stream whose provider sends nothing for 5 min, or that ends without a finish reason or its end
@@ -3381,6 +3467,8 @@ capabilities do not exist yet.
     tokens are sent unchanged, without refresh or a sign-in mark from this path. From: 9router-go `fallback.go`
     and `oauth_lock.go`, CLIProxyAPI `conductor_execution.go` and `conductor_refresh.go`, and omp `auth/select.ts`
     and `auth/refresh.ts` (#849).
+    Reading an account's list of models marks such a credential the same way, since a Codex or Antigravity account
+    whose list cannot be read is never picked for a model (issue #814).
     When none serves, the client gets the last refusal; when none could even be tried, a 429 with `Retry-After` to
     the time the first is free (CLIProxyAPI). For Codex accounts, when the first is free in more than a minute
     (OpenClaw's `maxRetryDelayMs`, past which a 429 fails over), that 429 has the backend's own shape for a used-up
@@ -3393,6 +3481,35 @@ capabilities do not exist yet.
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
     401, 402 or 403; 30 seconds after another 5xx.
+  - A request for an Antigravity or Codex model (chat on `/chat/completions`, `/responses` and `/messages`, and
+    Antigravity's images) goes only to the accounts whose own list (read as the gateway's models are) has it, as
+    CLIProxyAPI routes a model only to the auths that registered it (`sdk/cliproxy/auth/conductor_selection.go`
+    `authSupportsRouteModel`, :1419-1431, applied at :1687; issue
+    [#814](https://github.com/kl3inIT/hypomnema/issues/814), owner's design of 2026-11-18). Every rule here then
+    orders those. An account whose first list is being read is waited for, at most 30 s; while no account is known to
+    have the model and one's list is not known (still being read, or never read), the request gets a 429 to try
+    again in 30 s, never another account in its place; once every list is known and none has the model, it gets a
+    404 `model_not_served` (an Antigravity image asked for by name too). The accounts and what is known of their
+    lists are taken at one moment, after the lists were read, and the account picked is read again before its token is
+    refreshed and again after, the last thing before its token is given: one disabled, logged out or cooling since,
+    or whose list no longer has the model, is passed over. A token the vendor refuses (401) is refreshed only while
+    the account's list still has the model, checked again after the refresh; otherwise the request goes on to the
+    next account. An account held for last (near its quota) is checked again right before it is sent to, and sent the
+    token it was given. When the only account whose list had the model loses it meanwhile (a refresh in between,
+    or after a 401), the request is answered as at the start: the 404 `model_not_served` when every list is known,
+    the 429 to try again in 30 s while one is not; the 401 of an account that lost the model is not passed on. The
+    gateway's 404 for one target of a model does not answer for the others: the next target is tried, and the 404
+    is the answer only when no target answered or cools. A `<provider>/<model>` name of Codex or Antigravity that
+    the provider's list does not have, such as one dropped by the hourly reading or not read yet, is routed by the
+    accounts' lists as a listed one is, on chat, `/responses` and `/messages`: served by an account whose list has
+    it, the 429 while a list is not known, the 404 `model_not_served` once every list is known, never 400
+    `model_not_found`. A name below the provider's `min_versions` is the 404 `model_not_served` at once, whatever an
+    account's list says, so the floor holds on this path too. Reading OpenCode Go's wire
+    and a model's window during a request waits no later than the request's one 30 s wait. Every request for a Codex
+    or Antigravity account names its model (`underAccounts` refuses one that does not). Codex's images (`gpt-image-2`) and searches (`gpt-6-luna`)
+    and Antigravity's searches (`gemini-2.5-flash`) call models those lists do not name, so they go to any account,
+    as before (owner, 2026-11-18). Claude's requests are not narrowed: its list does not name every model it serves,
+    and it is the first account's.
   - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
     reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
     every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.
@@ -3491,8 +3608,11 @@ capabilities do not exist yet.
   and reroutes a request that does not look like Claude Code's; the owner chose to build it knowing that, so the
   provider dresses each request as Claude Code's, which is what makes it work at all.
   - `modelgateway/claude` holds the translation. A chat body becomes an Anthropic Messages body: system messages
-    lifted out, a tool call and its result tied by a sanitized id, turns of one role merged, `reasoning_effort` a
-    thinking budget, `max_tokens` filled when absent.
+    lifted out, a tool call and its result tied by a sanitized id, turns of one role merged, `reasoning_effort`
+    thinking in the form the model takes (issue #986, 9router's `capabilities.js` table): adaptive with
+    `output_config.effort` for Haiku 5.5, Sonnet 4.6+ and 5.x, Opus 4.6+ and 5.x and Fable 5.x (minimal is low,
+    xhigh is high on a 4.6 model, a client's own effort kept), a thinking budget for older models, `max_tokens`
+    filled when absent.
   - The disguise (9router-go `claude_cloaking.go`; CLIProxyAPI `checkSystemInstructions` for a client that is not
     Claude Code): the request carries the `oauth-2025-04-20` beta on a Bearer token and Claude Code's identity
     headers; the top-level system is made exactly Claude Code's — a billing block then the line "You are Claude Code,
@@ -3547,9 +3667,8 @@ capabilities do not exist yet.
     refusal naming `GoUsageLimitError`, rests that key until the reset Go named, with no cap (an hour when it named
     none), and the request moves to the next key at once (omniroute `opencode-monthly-quota-resets-in`, opencode
     `QUOTA_CODES`). Any other refusal rests the key as every built-in provider's account rests (above).
-  - Not built: OpenCode Zen, the "Extra Usage" balance, Go's prices in the price book (a Go model is unpriced unless
-    its name is Anthropic's, Google's or OpenAI's), a per-model wire for pi's `models.json` (pi speaks chat to a Go
-    model), moving the `ocg/*` models off 9Router on zm (#670).
+  - Not built: OpenCode Zen, the "Extra Usage" balance, a per-model wire for pi's `models.json` (pi speaks chat to a
+    Go model), moving the `ocg/*` models off 9Router on zm (#670).
 - When all usable accounts for a model on a text route are cooling (issue #803), the gateway answers 429
   `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
   `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
@@ -3569,9 +3688,10 @@ capabilities do not exist yet.
   Since migration 00060 it also holds the tokens written to the provider's cache (`cache_write_tokens`, Anthropic's
   `cache_creation_input_tokens`, carried in a chat answer's usage as LiteLLM and 9router-go carry it) and its cost
   at the vendor's API price (`cost_micros`, NULL when unpriced, and `priced_model`; issue #304, after Coder). The
-  price is looked up when the row is written, in the price book of `modelgateway/prices` (anthropic, openai and
-  google models from a models.dev snapshot, generated by `prices/gen` and embedded): the model asked for, then the
-  provider's, under the provider's vendor (Claude anthropic, Codex openai) or the maker named in the model. The cost
+  price is looked up when the row is written, in the price book of `modelgateway/prices` (anthropic, openai,
+  google and opencode-go models from a models.dev snapshot, generated by `prices/gen` and embedded): the model
+  asked for, then the provider's, under the provider's vendor or the maker named in the model. Antigravity's
+  Gemini 3.8 Flash effort IDs fall back to the base model's price when no exact price is found (#972). The cost
   is the uncached input, the cache read, the cache write and the output, each at its price (a missing cache price is
   the input's). For a subscription it is what the tokens would cost at the API, not the plan.
   Since migration 00078 a row also holds the part of the cache write that lasts an hour (`cache_write_1h_tokens`,
@@ -3589,8 +3709,9 @@ capabilities do not exist yet.
   `prices/unitsgen` and embedded, in nano-dollars): a `web/search` by the query of the provider that answered
   (`input_cost_per_query`), an `audio/*` row by the second heard or the character spoken at the provider's model
   (`input_cost_per_second`, Soniox's `output_cost_per_second`, `input_cost_per_character`), and a model's searches by
-  its `search_context_cost_per_query` (medium), added to its tokens'. A unit LiteLLM gives no price (Exa's and
-  Firecrawl's search, Soniox's speech) leaves the row unpriced; a keyless search is priced as the API would charge
+  its `search_context_cost_per_query` (medium), added to its tokens'. Exa's `auto` query price falls back to the
+  base API rate in OmniRoute, and standalone Codex uses its search model's API search-tool rate once per answered
+  query (#972). A unit without a price leaves its row unpriced. A keyless search is priced as the API would charge
   it, as a subscription's tokens are. `unpriced` counts rows with tokens or units and no cost. The report's counts
   (`GatewayUsageCounts`) add `web_searches`, `audio_seconds`, `characters` and `images`. No row holds a query, a
   URL, a prompt, a transcript or the spoken text.
@@ -4049,6 +4170,7 @@ gateway chat model writes its summary, decisions and actions.
   repository), and Notes model, picked with the single-model picker the Bots use
   (`features/agents/model-picker.tsx`). Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
+  Old Agents and Machines list URLs redirect into Settings and are skipped as return destinations.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
@@ -4554,7 +4676,9 @@ The owner's commands:
     over SSH with (owner). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
-  - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
+  - `runs create --chat <id>` and `run --chat <id>` choose the receiving chat (otherwise the API uses the default
+    described in Run custody); `runs adopt <run> [--chat <id>]` is the owner's command to assign existing work.
+  - `runs wait <run>` is optional observation. It returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
     escalation came or the Run ended, with the cursor for the next wait and the next commands (`questions show`,
     `tasks show`, `runs finish` once every Task ended); it sends one request per 50 s while nothing happens.
   - `tasks list` prints the Tasks in flight (`GET /tasks`), a line a Task with what its worker does now or its
@@ -4566,8 +4690,8 @@ The owner's commands:
   new chat, which becomes the Bot's main chat; `--bot` and `--new` are refused with `--chat` (issue #616); without
   a message it shows the chat, and a Bot with no main chat shows none and makes none; the message `/new` is
   `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`. `runs create` sends
-  `HYPOMNEMA_CHAT_ID` when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends
-  (issue #260).
+  `HYPOMNEMA_CHAT_ID` when pi's environment has it and `--chat` is absent; the API refuses another chat with
+  pi's own token (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
   the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).
@@ -4580,7 +4704,19 @@ The owner's commands:
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
   follow-up to its worker, not a new Task. The `planner` researches in one session; the `reviewer` checks plans
   before owner approval and `broad` or `narrow` changes from another vendor. A `quick` change needs green CI only.
-  A first PR review receives the pull request and spec, not the report or transcript. Findings that make a change
+  A first PR review receives the pull request and spec, not the report or transcript, and is told to block only on
+  a P0 or P1 proved at the head and to give its `Head:` and evidence level in the summary (issue #952, after
+  pstack's `autopilot-full.md:16` and orchestrate's `verifier.md:23,41-61`); a P0 or P1 without proof is a
+  follow-up, and an `incorrect` verdict with none proved is handled as `blocked`: never a pass nor a fix round,
+  one new review once its cause is gone, then the owner told (orchestrate's `handoffs.md:137`). From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
+  effort `medium`, and the whole change again only for new behavior, a redesign or a large new diff; a clean merge
+  of the base or a wording-only change needs green CI only (pstack's `autopilot-full.md:5,14`). Before a review,
+  a red check gets one rerun of its failed jobs, noted in the report; one green on the rerun, or failing outside
+  the diff and also red on the base, is a flake: the review goes on, and the author opens an issue, with no fix
+  in the pull request (pstack's `babysit.md:8`). A bug fix's spec asks for the failing test committed before the fix
+  (pstack's `bug-fix.md:11`), and a failed Task's offered retry fits its cause: a smaller scope for time or memory,
+  another runtime the owner names for a tool or model error, never a third identical attempt (orchestrate's
+  `handoffs.md:61-67`). Findings that make a change
   incorrect are sent to the change's worker as a
   follow-up without asking the owner (issue #871; owner, 2026-11-18), and the next round's review is given the earlier review's findings, the
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
@@ -4601,7 +4737,9 @@ The owner's commands:
   current GitHub state before acting on the snapshot. A superseded GitHub PR is reconciled by the coordinator
   with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
   Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
-  assigned ref, queues an authenticated `published_head` report only for a Git-accepted update, and the control
+  Task's branch to its push branch (its own, or the one it continues, issue #690), never forced; a push the host
+  refuses because the branch moved tells the worker to fetch that branch, merge `FETCH_HEAD`, and publish again.
+  It queues an authenticated `published_head` report only for a Git-accepted update, and the control
   plane records it in the Dispatch's effects. A no-op push, local ref or Task result is not evidence. Both PRs
   must share a closing issue. Visible closing keywords in Markdown also
   work when GitHub supplies no closing links. It comments and closes through the existing GitHub tool
@@ -4692,8 +4830,8 @@ Node (`internal/node`):
   given 10 s for the shim to write one, as a start is, and then ends as `start_failed` ("the shim did not start";
   Omnara fails a process whose execution was never committed).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
-  no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
-  process under a shim, as a Claude Code worker's: `codex exec --json --skip-git-repo-check --ignore-user-config
+  no login on the node: its model comes from the control plane's gateway under the offer's key. A Codex turn is one
+  process under a shim: `codex exec --json --skip-git-repo-check --ignore-user-config
   --dangerously-bypass-approvals-and-sandbox`, with `-c` overrides that name the gateway (`<control plane>/v1`,
   `wire_api = "responses"`, `supports_standalone_web_search = true` so that Codex offers its `web.run` search, which
   the gateway answers on `/v1/alpha/search` (codex-rs `ext/web-search/src/extension.rs`; OpenClaw sets it the same
@@ -4746,11 +4884,32 @@ Node (`internal/node`):
     worktree per Task, and the agent's memory is the control plane's (issue #21).
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The Supervisor reads the journal from a
-    saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt and closes stdin; a worker still
-    alive after 30 s is killed with its whole session group.
+    saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt
+    and closes stdin. If the worker is still alive after 30 s, the Supervisor asks the shim to kill it over the
+    Dispatch's private socket, not by a recorded PID. A stop first revokes a launch the shim has not claimed; a
+    shim that does not answer is killed with its process group only if its recorded identity still matches (the
+    temp-directory item below), and its exit stays unconfirmed.
+    Linux and macOS check ancestry and process start time before signaling descendants, including Claude Bash
+    jobs in separate sessions. After a bounded freeze attempt the shim sends SIGKILL even if a child cannot
+    freeze. Linux adopts and reaps orphans without consuming the CLI's exit status. Windows runs the worker in
+    a Job Object. If the shim cannot confirm the stop, the node records an error without inventing a signal.
   - Reported:
     - the session id from `system/init`, as started;
-    - one turn per Dispatch: stdin is closed after the turn's `result`.
+    - a Dispatch can include a follow-up turn from background work. A successful `result` while Claude reports
+      a background Bash, Agent (`local_agent`, as a planner runs) or workflow (`local_workflow`), or queued turns,
+      does not close stdin; permission replies still go over the same pipe.
+      If the background work settles without another result, the node closes stdin after 2 s with no pending
+      background work, queued turn, tool call, or active turn, and uses the most recent result. An explicit
+      `idle` with no such background task gives stale queue counts or missing tool results 5 s to settle, then closes
+      stdin unless new turn activity arrives. A `running`
+      state keeps stdin open even when Claude does not emit partial messages. The hold survives adoption.
+      A result with no outstanding work, a terminal error, or a result after `finish` also closes stdin.
+      Within a held continuation, the shim stops the worker and records its exit if Claude stays
+      alive for 30 s after stdin closes. There is no elapsed-time cutoff while work remains pending; the control
+      plane's 4-hour mark only warns (issue #867).
+    - if Claude's journal matches an explicit `finish` call to a closed-stdio permission error, the node validates
+      the same tool arguments and records a fallback in the bridge. A normal finish takes precedence. The node
+      sends the chosen report through the same durable outbox; prose or a PR alone is not a final report.
   - The worker's transcript goes to the control plane apart from its reports
     ([research](docs/research/2026-11-10-worker-sessions.md); one forwarder, `internal/node/transcript`, for every
     runtime since issue #157):
@@ -4839,11 +4998,24 @@ Node (`internal/node`):
         oh-my-opencode); CI waited for with one blocking command, never a polling loop (Orca, Coder, Hermes,
         oh-my-opencode, t3code), and not at all when the spec says a review comes first, since the coordinator's
         review step waits for CI itself (owner, 2026-11-19);
+      - for a worker that writes, that only its diff's failures get a commit: a red check outside the diff that is
+        also red on the base, or green on one rerun, is a flake, rerun once and given an issue, which the worker
+        opens or comments on without asking; and that a bug fix commits a test failing without the fix before the
+        fix, unless the test would be expensive or unclear, as pstack's playbook itself allows (issue #952, after pstack's `babysit.md:8`,
+        `autonomous-run.md:9`, `bug-fix.md:11` and `tdd/SKILL.md`);
+      - for a routed `planner`, `explorer` or `reviewer`, which changes no project file, that it may run code to
+        check a claim (the tests, a repro script) in a scratch copy of its worktree under its `$TMPDIR`, leaving
+        tracked files unchanged, and its "only here" lines name that copy too (issue #952, after orchestrate's
+        `verifier.md:23` and pstack's `interrogate/SKILL.md:19`);
     - the profile's instruction, the accounts and phone of the Run, then the agent's memory and the one about the
       owner (issue #21);
     - the repository and branch, and the instruction to open a pull request with the host's command:
       `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
-      of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
+      of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`, where base is the
+      offer's `pr_base` when it names one (stacked work, issue #690). A Task that continues another is told the
+      branch it started from is that Task's and its pull request's, that `publish_branch` pushes into it and so
+      updates that pull request, not to open a new one, and to open one with that branch as head only when
+      `gh pr list --head <branch> --state open` finds none;
     - how the host merges it by itself (issue #714, [research](docs/research/2026-11-17-auto-merge.md);
       `githost.AutoMerge`), skipped when the spec says a review comes first, that the owner merges, or to ask
       before merging:
@@ -4860,15 +5032,38 @@ Node (`internal/node`):
       3. `gh pr merge <url> --auto --merge --match-head-commit <sha>` or
          `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
       4. waiting for the required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`),
-         fixing red ones, then `finish`, saying whether it merged or that auto-merge is on;
+         fixing the red ones its diff causes and rerunning a flake once, then `finish`, saying whether it merged or
+         that auto-merge is on;
     - `Task (<profile>):` and the Task's spec;
     - the recovery note, a follow-up ("You called `finish` on this task before, and more is asked of it now (this
       replaces the answer to any question you asked at `finish`): …", then to
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
-  `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
-  branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
+  `origin/*` before each new worktree. A file lock in the node home's `mirror-locks/`, keyed by the mirror's
+  relative path hash, serializes clone, fetch, worktree add and cleanup across node processes. On Linux and
+  macOS a supervisor holds the lock while Git runs for clone, fetch, worktree add and setup; neither Git nor its
+  children inherit it. The disk cleanup's confined `git worktree remove` is not supervised: it inherits the
+  worktree and mirror lock descriptors itself, so the locks stay held until it exits even if the daemon dies
+  first. On cancellation
+  or daemon exit the supervisor signals the Git process group with TERM, then KILL after the grace period,
+  before releasing its copy of the lock. The lock wait follows the Dispatch context, with no separate
+  deadline. Git has no additional timeout by default; the node config can set `mirror_git_timeout` (a total limit
+  per command) and `mirror_git_grace` (default `1s`) as Go durations. A clone is published by rename only after
+  success. On Linux, before stopping its mirror Git process, the supervisor checks that process's writable file
+  descriptors for Git lockfiles. It removes only a captured lock whose inode is still in place after Git exits;
+  unproven locks are left alone. Worker Git does not take the node's mirror lock. Mirror fetches disable hooks and
+  automatic maintenance and retry `cannot lock ref` once (issue #868). Git's error is recognized while its output
+  streams, before the error message keeps only the output's last 4 KiB. Worktree commands honor configured hooks.
+  `git worktree add -b hyp/<task>` from `origin/<base>`, where base is the
+  offer's `start_from` when it names one (issue #690: the continued or parent branch; one the host lacks fails with
+  its name), or from the existing branch on a retry; reused while it exists. The local branch is always the
+  Task's own, so an old worktree of the continued Task on the node, which holds that Task's branch, does not stop
+  it. A separate lock for the worktree path serializes checkout, setup and removal for that path.
+  A pending marker written before checkout and cleared before setup distinguishes incomplete checkouts from
+  completed or pre-upgrade ones. The node recreates a pending checkout on retry without forcing a branch already
+  in use elsewhere. A retry does not rerun interrupted setup or discard commits it made. Other mirrors and worktrees
+  do not wait for that setup. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
   the mirror's `origin` is set to the address it is fetched from, so the worker pushes the same way. A GitHub
@@ -4932,14 +5127,20 @@ Node (`internal/node`):
   crosses mounts, and removes the Run directory only if empty. Git cleanup keeps checkouts with tracked changes,
   untracked files, or hidden index entries; ignored files do not prevent removal.
   `git worktree remove` runs without force in a filesystem sandbox (Linux Landlock or macOS
-  `sandbox-exec`); if confinement is unavailable, the checkout is kept.
+  `sandbox-exec`); if confinement is unavailable, the checkout is kept. Cleanup holds the worktree path's lock, and
+  the mirror's lock around `git worktree remove`, the same locks Dispatch setup takes; that Git process holds them
+  too, until it exits (issue #868).
   Open Runs keep their worktrees for follow-ups.
 - Setup and the worker get private `TMPDIR`, `TEMP`, `TMP` and `GOTMPDIR` under `run/<dispatch>/tmp`. The worker prompt
   says to put all temporary files and directories there, including database data, sockets and clones, not in
   `/tmp` or another hard-coded path (issue #895). The node removes that directory after the Dispatch; it uses temp
   environment variables as in Hermes (`hermes_bootstrap.py:455-465`) and a directory per run with cleanup as in Orca
-  (`src/main/acp/launch/acp-private-temp.ts:36-40,73-85`). This is not a mount namespace or a security boundary like
-  Codex's bubblewrap sandbox (`codex-rs/linux-sandbox/src/linux_run_main.rs:59-61`). Workers inherit the node's
+  (`src/main/acp/launch/acp-private-temp.ts:36-40,73-85`). On Linux, the node probes bubblewrap once at startup,
+  trying the binary on `PATH` first and then the one bundled with Codex. When it works, setup and the shim's
+  worker each bind that same Dispatch directory over `/tmp` and `/var/tmp`, leaving the rest of the host visible
+  and keeping the shim's process group and session. This is not a security boundary. When it is unavailable,
+  including on macOS, the node uses the temp environment variables alone, logs the reason once, and reports
+  the reason at hello for the Machines page. Workers inherit the node's
   `XDG_RUNTIME_DIR` when set; pnpm uses it for its shared store locks instead of falling back to `/tmp`. The node
   also reclaims that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
   shim from claiming permission to launch. Stop also revokes that permission before a spawned shim can write
@@ -4990,10 +5191,11 @@ Node (`internal/node`):
   the chat's own state), the screen streams and take-over sockets, chunked uploads, and what is read from bytes
   already read (an artifact page's text, an SVG's text, a file's preview), keyed by the bytes' generated key with
   a word after it. An image's bytes keep their own read, typed by the file's name, under the generated key.
-- Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
-  main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
+- Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in
+  Settings under Workers since issue #857, out of the main sidebar; the old `/agents`, `/agents/$name` and
+  `/agents/new` redirect to the same page there): `/settings/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
-  again every 10 s. `/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
+  again every 10 s. `/settings/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
   the runtime, a model from `GET /models` in a picker with a search (issue #200, after Omnara's model combobox
   and t3code's model search: grouped by provider, every word typed found in the name or the provider; the Bots
   page uses the same field; a row leads with the mark of the model's maker, issue #205, and says the model by
@@ -5002,9 +5204,9 @@ Node (`internal/node`):
   the fallbacks) and the YAML in Monaco with `monaco-yaml` (issue #177, as Omnara's editor): completion, hover and
   marks against a schema of the profile document written in the client, fetched when the YAML tab first opens.
   Both are saved with `PUT /profiles/{name}` as a new version, a refusal shown in the server's words; and its
-  versions, each opening to its source, an earlier one restored by applying its source again. `/agents/new` makes
+  versions, each opening to its source, an earlier one restored by applying its source again. `/settings/agents/new` makes
   a profile with the same builder; "Duplicate" on an agent's page opens it filled in from that agent
-  (`/agents/new?from=<name>`, issue #200, after OpenMausBot's duplicate and Hermes's clone) under the first free
+  (`/settings/agents/new?from=<name>`, issue #200, after OpenMausBot's duplicate and Hermes's clone) under the first free
   name of `<name>-copy`, `<name>-copy-2`, and nothing is stored until it is created. The builder writes the YAML and does not read it back, so YAML edits are
   discarded, after a question, on the way back to the builder; leaving with unsaved changes asks first. The list
   is searched by name and description. An agent has an avatar (issue #177): one of OpenMausBot's ten mascot bodies
@@ -5234,8 +5436,8 @@ Node (`internal/node`):
     table shows 1,000 rows; a file cut so says so beside the download of the whole. A pptx, an old .doc and any
     other file is its name and a download (Onyx's `unsupportedVariant`).
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
-    Team with the count that needs the owner, Routines, then Bots, Agents (a terminal mark, apart from the Bots'
-    robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row every Bot, with chats or
+    Team with the count that needs the owner, Routines, Meetings, Studio, then Bots; the Agents and the Machines
+    are in Settings (issue #857). The places sit above the Bots (issue #361, after OpenMausBot's sidebar): a row every Bot, with chats or
     not ("No chats yet"), in the one order the owner sets (issue #470): the main Bot (`Bot.main`) first, then a
     "Pinned" section of the pinned Bots, then the others, each section by `Bot.position`. The owner drags a Bot by
     its avatar, which turns into a grabber on hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with
@@ -5254,7 +5456,8 @@ Node (`internal/node`):
     its main chat and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
     their links (`/chats/<id>`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
-- The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
+- The machines (issue #69): `/settings/machines` (in Settings under Workers since issue #857; the old `/machines`
+  redirects there) lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
   state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
   from 65 % and red from 90 % and are grey while it is not connected, its load average, each of its GPUs when it has any (use with
@@ -5280,7 +5483,9 @@ Node (`internal/node`):
 - Settings (issue #44): one "Settings" entry at the sidebar's foot leads to `/settings`, where the sidebar's body
   gives way to the settings sections under headings, with a way back (the headings are t3code's, the swap is
   Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
-  on a phone the sections are a row of links under the header.
+  on a phone `/settings` lists the sections and each page leads back to it ("‹ Settings", issue #604). The groups
+  are Gateway, Meetings, Agents, Connections and, last, Workers: the Agents and the Machines, moved out of the main
+  sidebar (issue #857, as OpenClaw's Settings holds its agents and devices with the system's plumbing last).
   - `/settings/integrations` (under Connections) lists the git hosts as one card a product, GitHub and GitLab,
     after Orca's integration card (MIT), with each host of that product a row, as Coder lists each configured
     instance (issue #379): its address ("server" beside a company's own), a "Connected" or "No token" badge, and
@@ -5468,7 +5673,10 @@ the internet, so that a machine created at a provider can install the node from 
   `hypomnema-update.timer` (v0.9.7 was the first), listening on `0.0.0.0:18990` since 2026-11-16 (`127.0.0.1:18990`
   until then; the owner's choice, issue #581), so that the machine's Nginx Proxy Manager container reaches it at
   `172.17.0.1:18990`. It publishes `https://hypomnema.vadan.app` (Let's Encrypt, HTTPS forced, websockets on,
-  buffering off, 64 MiB bodies, 720 s timeouts; proxy host 33), which is `HYPOMNEMA_PUBLIC_URL` since 2026-11-16:
+  buffering off, 130 MiB bodies, a 4 MiB request body buffer, 720 s timeouts; proxy host 33, its advanced config
+  kept in NPM's Postgres `npm` database on `zeromail-postgres`; without the buffer, an HTTP/2 upload with request
+  buffering off moved in 16 KiB steps, one round trip each: 12 MB from a browser took 16.6 s, and 1.8 s with it,
+  2026-11-20), which is `HYPOMNEMA_PUBLIC_URL` since 2026-11-16:
   through Funnel each request took 1.5–14 s, the Funnel ingress in Tokyo reaching zm only through Tailscale's relay
   (issue #581); through the domain about 0.25 s. Tailscale runs without root (userspace networking, as the systemd unit `hypomnema-tailscale.service` since
   2026-11-13, a tmux session `hyp-ts` until then, state in `~/hypomnema-cp/tailscale`) and Tailscale Funnel publishes it to the internet as

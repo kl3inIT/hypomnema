@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
 // Bot tokens (issue #260): the key of one pi process, made when the
@@ -136,22 +137,18 @@ func (s *Service) authenticateBotToken(ctx context.Context, secret string) (Toke
 // coordinatorTokenNamed returns the coordinator token of that name, which
 // must work.
 func (s *Service) coordinatorTokenNamed(ctx context.Context, name string) (Token, error) {
-	tokens, err := s.ListTokens(ctx)
+	return coordinatorTokenNamed(ctx, s.read(), name)
+}
+
+func coordinatorTokenNamed(ctx context.Context, q *store.Queries, name string) (Token, error) {
+	row, err := q.GetClientTokenByName(ctx, name)
 	if err != nil {
-		return Token{}, err
+		return Token{}, notFound(err, "coordinator token", name)
+	}
+	token := tokenFromRow(row)
+	if token.Kind != bearertoken.Coordinator || token.RevokedAt != nil {
+		return Token{}, fmt.Errorf("%w: token %q is not a working coordinator token", ErrInvalid, name)
 	}
 
-	for _, t := range tokens {
-		if t.Name != name {
-			continue
-		}
-
-		if t.Kind != bearertoken.Coordinator || t.RevokedAt != nil {
-			return Token{}, fmt.Errorf("%w: token %q is not a working coordinator token", ErrInvalid, name)
-		}
-
-		return t, nil
-	}
-
-	return Token{}, fmt.Errorf("%w: no coordinator token is named %q", ErrNotFound, name)
+	return token, nil
 }

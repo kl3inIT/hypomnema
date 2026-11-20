@@ -256,7 +256,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytes))
+	raw, err := s.readRequest(w, r, key, started)
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
@@ -285,7 +285,13 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	model, err := s.svc.GetModel(r.Context(), req.model)
+	model, err := s.modelOf(r.Context(), req.model)
+	if errors.Is(err, ErrModelNotServed) {
+		writeError(w, http.StatusNotFound, typeInvalidRequest, codeModelNotServed, notServedMessage(req.model))
+
+		return
+	}
+
 	if errors.Is(err, ErrNotFound) || (err == nil && model.Capability != CapabilityChat) {
 		writeError(w, http.StatusBadRequest, typeInvalidRequest, "model_not_found",
 			fmt.Sprintf("the gateway does not serve a chat model named %q", req.model))

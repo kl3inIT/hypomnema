@@ -821,7 +821,8 @@ test("the owner opens Repositories from the Settings menu and reads the SSH key"
   const menu = page.getByRole("navigation", { name: "Settings" })
   const agents = isMobile
     ? menu.getByRole("region", { name: "Agents" })
-    : menu.locator("div").filter({ has: page.getByText("Agents", { exact: true }) })
+    : // The group's heading, not the Workers' link of the same name (issue #857).
+      menu.locator("div").filter({ has: page.locator("p").getByText("Agents", { exact: true }) })
   await expect(agents.getByRole("link")).toHaveText(["Skills", "About you", "Repositories"])
   if (isMobile) await shot(page, "settings-list")
   await agents.getByRole("link", { name: "Repositories" }).click()

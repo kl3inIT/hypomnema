@@ -96,7 +96,12 @@ func (s *Service) FollowUpTask(ctx context.Context, id string, by Addressee, not
 				ErrConflict, id, task.Status)
 		case !open:
 			return fmt.Errorf("%w: the worker of task %s has no open conversation to continue; "+
-				"create a new task whose spec starts from the branch hyp/%s", ErrConflict, id, id)
+				"create a new task with \"continues\": %q, which pushes into its branch and pull request",
+				ErrConflict, id, id)
+		}
+
+		if err := branchFree(ctx, q, pushBranchOf(task), id); err != nil {
+			return err
 		}
 
 		if err := q.InsertFollowUp(ctx, store.InsertFollowUpParams{

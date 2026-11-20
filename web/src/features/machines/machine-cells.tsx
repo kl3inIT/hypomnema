@@ -13,6 +13,7 @@ import {
   machineProblem,
   machineState,
   stateNames,
+  tempIsolationOff,
   usedOfTotal,
   type MachineState,
 } from "./machines-state"
@@ -52,6 +53,7 @@ export function DiskCell({ node }: { node: Node }) {
   const blocked = disk !== undefined && free !== undefined && free < disk.floor_bytes
   const trimming = disk !== undefined && free !== undefined && free < disk.trim_bytes
   const age = disk?.age_ms
+  const isolationOff = tempIsolationOff(node)
   const tone = !disk
     ? undefined
     : free === undefined
@@ -85,6 +87,11 @@ export function DiskCell({ node }: { node: Node }) {
         <div className="text-muted-foreground" title={disk.at}>
           Floor {gib(disk.floor_bytes)} · Trim {gib(disk.trim_bytes)}
           {age !== undefined && ` · ${Math.floor(age / 1000)}s ago`}
+        </div>
+      )}
+      {isolationOff !== undefined && (
+        <div className="truncate text-needs-you" title={isolationOff}>
+          Temp isolation off: {isolationOff}
         </div>
       )}
     </div>

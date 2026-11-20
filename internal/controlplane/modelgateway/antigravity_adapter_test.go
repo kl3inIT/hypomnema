@@ -94,6 +94,7 @@ func newAntigravityGateway(
 
 			return modelgateway.ProviderInfo{
 				Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, APIKeyRef: p.APIKeyRef, Models: p.Models,
+				Admits: func(model string) bool { return !p.BelowFloor(model) },
 			}, nil
 		},
 		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil }).WithKeyVault(testKeyVault(t, db))
@@ -113,7 +114,7 @@ func newAntigravityGateway(
 		Subscriptions: subs, AntigravityBaseURL: backend.URL, AntigravityManifestURL: backend.URL + "/manifest",
 	}).Register(mux)
 
-	return chatGateway{svc: svc, mux: mux, key: key}
+	return chatGateway{db: db, svc: svc, mux: mux, key: key}
 }
 
 var geminiEvents = []string{
@@ -177,6 +178,10 @@ func TestAChatIsServedFromTheAntigravitySubscription(t *testing.T) {
 	assert.EqualValues(t, 30, u.Tokens.Prompt)
 	assert.EqualValues(t, 11, u.Tokens.Completion)
 	assert.EqualValues(t, 4, u.Tokens.Reasoning)
+	assert.Equal(t, "gemini-3.8-flash-high", u.UpstreamModel)
+	assert.Equal(t, "gemini-3.8-flash", u.PricedModel)
+	require.NotNil(t, u.CostMicros)
+	assert.EqualValues(t, 64, *u.CostMicros)
 
 	status, headers, body := g.call(t, g.key, askFlash+`}`)
 	require.Equal(t, http.StatusOK, status, body)

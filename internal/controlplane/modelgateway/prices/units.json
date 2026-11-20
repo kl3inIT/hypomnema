@@ -170,6 +170,11 @@
     "nanos": 61100
   },
   {
+    "name": "exa/search",
+    "unit": "query",
+    "nanos": 7000000
+  },
+  {
     "name": "openai/gpt-4.1",
     "unit": "web_search",
     "nanos": 25000000

@@ -281,6 +281,17 @@ type providerSource struct {
 	MinVersions map[string]string `yaml:"min_versions,omitempty"`
 }
 
+// BelowFloor says a model is older than the provider's min_versions keeps for its family, so the vendor's list does
+// not add it (issue #642). A provider whose source cannot be read has no floor.
+func (p Provider) BelowFloor(model string) bool {
+	var in providerSource
+	if err := decodeStrict(p.Source, &in); err != nil {
+		return false
+	}
+
+	return belowFloor(model, in.MinVersions)
+}
+
 // decodeStrict reads one YAML document, refusing unknown fields.
 func decodeStrict(source string, v any) error {
 	dec := yaml.NewDecoder(strings.NewReader(source))
@@ -977,6 +988,38 @@ func (s *Service) SetProviderModels(
 	}
 
 	return added, removed, nil
+}
+
+// RemoveProviderModel takes one model off a provider's list: one its vendor no longer serves (issue #814). Nothing
+// else on the list changes. A model a profile's current version uses is not removed: the change is refused as
+// ApplyProvider refuses it. removed is false when the provider did not list the model.
+func (s *Service) RemoveProviderModel(ctx context.Context, name, model string) (removed bool, err error) {
+	p, err := s.GetProvider(ctx, name)
+	if err != nil {
+		return false, err
+	}
+
+	var in providerSource
+	if err := decodeStrict(p.Source, &in); err != nil {
+		return false, err
+	}
+
+	if !slices.Contains(in.Models, model) {
+		return false, nil
+	}
+
+	in.Models = slices.DeleteFunc(in.Models, func(m string) bool { return m == model })
+
+	source, err := yaml.Marshal(in)
+	if err != nil {
+		return false, fmt.Errorf("writing provider %s: %w", name, err)
+	}
+
+	if _, err := s.ApplyProvider(ctx, name, string(source)); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 // belowFloor says whether a model is of a family whose oldest version is named and is older than it (issue #642).
