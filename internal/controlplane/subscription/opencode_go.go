@@ -47,57 +47,60 @@ const (
 )
 
 // The wires a Go model is served on, as the model list names them; the gateway
-// calls each on its own route (modelgateway opencode_go_adapter.go).
+// calls each on its own route (modelgateway opencode_adapter.go).
 const (
 	WireChat      = "chat-completions"
 	WireResponses = "responses"
 	WireMessages  = "messages"
 )
 
-// OpenCodeGo is the Vendor for OpenCode Go keys.
-type OpenCodeGo struct {
+// openCodeKey is what OpenCode's two providers keyed by a Console API key share (OpenCode Go, issue #854, and OpenCode
+// Zen, issue #965): a key the owner pastes, never a login, nothing to refresh, and the gateway's name on each call.
+type openCodeKey struct {
+	runtime, product string
 	// base is OpenCode's origin; a test names its own.
 	base   string
 	client *http.Client
 	clock  platform.Clock
 }
 
-// NewOpenCodeGo returns the Vendor for OpenCode Go keys; base is OpenCode's
-// origin, empty for opencode.ai.
-func NewOpenCodeGo(base string, clock platform.Clock) *OpenCodeGo {
+func newOpenCodeKey(runtime, product, base string, clock platform.Clock) openCodeKey {
 	if base == "" {
 		base = openCodeGoBase
 	}
 
-	return &OpenCodeGo{base: strings.TrimRight(base, "/"), client: &http.Client{Timeout: limitsTimeout}, clock: clock}
+	return openCodeKey{
+		runtime: runtime, product: product, base: strings.TrimRight(base, "/"),
+		client: &http.Client{Timeout: limitsTimeout}, clock: clock,
+	}
 }
 
 // Runtime implements Vendor.
-func (*OpenCodeGo) Runtime() string { return OpenCodeGoRuntime }
+func (k *openCodeKey) Runtime() string { return k.runtime }
 
 // RefreshLead implements Vendor: a key does not end.
-func (*OpenCodeGo) RefreshLead() time.Duration { return 0 }
+func (*openCodeKey) RefreshLead() time.Duration { return 0 }
 
 // RefreshSpacing implements Vendor.
-func (*OpenCodeGo) RefreshSpacing() time.Duration { return 0 }
+func (*openCodeKey) RefreshSpacing() time.Duration { return 0 }
 
-// Begin implements Vendor: a Go account is a key the owner pastes, never a login.
-func (*OpenCodeGo) Begin(context.Context) (*Attempt, error) {
-	return nil, fmt.Errorf("%w: an OpenCode Go account is a key; add it with `accounts add %s <label> --token -`",
-		ErrUnknownVendor, OpenCodeGoRuntime)
+// Begin implements Vendor: the account is a key the owner pastes, never a login.
+func (k *openCodeKey) Begin(context.Context) (*Attempt, error) {
+	return nil, fmt.Errorf("%w: an %s account is a key; add it with `accounts add %s <label> --token -`",
+		ErrUnknownVendor, k.product, k.runtime)
 }
 
 // Refresh implements Vendor: a key has nothing to refresh.
-func (*OpenCodeGo) Refresh(context.Context, vault.Payload) (vault.Refreshed, error) {
-	return vault.Refreshed{}, errors.New("an OpenCode Go key is not refreshed")
+func (k *openCodeKey) Refresh(context.Context, vault.Payload) (vault.Refreshed, error) {
+	return vault.Refreshed{}, fmt.Errorf("an %s key is not refreshed", k.product)
 }
 
 // Identify implements Vendor: a key names nobody.
-func (*OpenCodeGo) Identify(vault.Payload) (Identity, error) { return Identity{}, nil }
+func (*openCodeKey) Identify(vault.Payload) (Identity, error) { return Identity{}, nil }
 
-// header is what every call to Go carries: the key and the gateway's name, as
-// Go asks of a client (go.mdx "Where can I use it?").
-func (g *OpenCodeGo) header(token Token) http.Header {
+// header is what every call to OpenCode carries: the key and the gateway's name, as Go asks of a client (go.mdx
+// "Where can I use it?"); Zen is called the same way, with no OpenCode identity (owner, 2026-11-20).
+func (*openCodeKey) header(token Token) http.Header {
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+token.AccessToken)
 	header.Set("User-Agent", "hypomnema/"+platform.Version)
@@ -105,8 +108,18 @@ func (g *OpenCodeGo) header(token Token) http.Header {
 	return header
 }
 
-// openCodeGoModel is one row of Go's model list.
-type openCodeGoModel struct {
+// OpenCodeGo is the Vendor for OpenCode Go keys.
+type OpenCodeGo struct{ openCodeKey }
+
+// NewOpenCodeGo returns the Vendor for OpenCode Go keys; base is OpenCode's
+// origin, empty for opencode.ai.
+func NewOpenCodeGo(base string, clock platform.Clock) *OpenCodeGo {
+	return &OpenCodeGo{newOpenCodeKey(OpenCodeGoRuntime, "OpenCode Go", base, clock)}
+}
+
+// openCodeModel is one row of Go's model list, or one model of the Console list (opencode
+// console/api/models.mdx: the same models.dev fields).
+type openCodeModel struct {
 	ID    string                     `json:"id"`
 	Type  string                     `json:"type"`
 	API   map[string]json.RawMessage `json:"api"`
@@ -114,12 +127,22 @@ type openCodeGoModel struct {
 		Context int64 `json:"context"`
 		Output  int64 `json:"output"`
 	} `json:"limit"`
+	Cost struct {
+		Text struct {
+			Input struct {
+				Price *float64 `json:"price"`
+			} `json:"input"`
+			Output struct {
+				Price *float64 `json:"price"`
+			} `json:"output"`
+		} `json:"text"`
+	} `json:"cost"`
 }
 
 // wire is the first of the wires the gateway calls that the model is served
 // on; empty for a model served on none of them (Gemini's generate-content,
-// left out by issue #854).
-func (m openCodeGoModel) wire() string {
+// left out by issues #854 and #965).
+func (m openCodeModel) wire() string {
 	for _, w := range []string{WireChat, WireResponses, WireMessages} {
 		if _, ok := m.API[w]; ok {
 			return w
@@ -133,7 +156,7 @@ func (m openCodeGoModel) wire() string {
 // wire the gateway calls, with its window and largest output.
 func (g *OpenCodeGo) Models(ctx context.Context, token Token) ([]ServedModel, error) {
 	var answer struct {
-		Data []openCodeGoModel `json:"data"`
+		Data []openCodeModel `json:"data"`
 	}
 
 	if err := getModels(ctx, g.client, g.base+"/inference/go/v1/models", g.header(token), &answer); err != nil {
@@ -143,17 +166,23 @@ func (g *OpenCodeGo) Models(ctx context.Context, token Token) ([]ServedModel, er
 	models := []ServedModel{}
 
 	for _, m := range answer.Data {
-		wire := m.wire()
-		if m.ID == "" || wire == "" || (m.Type != "" && m.Type != "chat") {
-			continue
+		if served, ok := m.served(); ok {
+			models = append(models, served)
 		}
-
-		models = append(models, ServedModel{
-			Name: m.ID, Remaining: -1, Window: m.Limit.Context, Output: m.Limit.Output, Wire: wire,
-		})
 	}
 
 	return sortedModels(models), nil
+}
+
+// served is the model as the gateway serves it, or ok false for a model that is not chat or is on no wire the
+// gateway calls.
+func (m openCodeModel) served() (ServedModel, bool) {
+	wire := m.wire()
+	if m.ID == "" || wire == "" || (m.Type != "" && m.Type != "chat") {
+		return ServedModel{}, false
+	}
+
+	return ServedModel{Name: m.ID, Remaining: -1, Window: m.Limit.Context, Output: m.Limit.Output, Wire: wire}, true
 }
 
 // openCodeGoWindow is one window of Go's usage answer.

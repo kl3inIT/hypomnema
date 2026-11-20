@@ -326,7 +326,7 @@ func (s *Service) checkTarget(ctx context.Context, provider, model string) (stri
 // of every active connection (internal/handlers/chat/models_list.go) and CLIProxyAPI's registry fills from its
 // logged-in accounts (internal/registry/model_registry.go). The table is left for a name made on purpose.
 var subscriptionKinds = []string{
-	"claude_subscription", "codex_subscription", "antigravity_subscription", openCodeGoKind,
+	"claude_subscription", "codex_subscription", "antigravity_subscription", openCodeGoKind, openCodeZenKind,
 }
 
 // subscriptionModel is the model a subscription offers under "<provider>/<model>", or ok false when the name is
@@ -487,7 +487,8 @@ func (s *Service) WithServedLimits(
 	return s
 }
 
-// WithServedWire gives the gateway the API a subscription's vendor serves each model on (OpenCode Go, issue #854).
+// WithServedWire gives the gateway the API a subscription's vendor serves each model on (OpenCode Go, issue #854,
+// and OpenCode Zen, issue #965).
 func (s *Service) WithServedWire(wire func(ctx context.Context, kind, upstream string) (string, bool)) *Service {
 	s.wire = wire
 

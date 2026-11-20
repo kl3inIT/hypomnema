@@ -22,8 +22,13 @@ import (
 
 // OpenCode Go (issue #854): OpenCode's subscription for open models, a
 // built-in provider served as opencode-go/<model> under the Go keys the owner
-// pastes, each an account of runtime opencode_go. What it does is learned
-// from the references (docs/research/2026-11-18-opencode-go-provider.md):
+// pastes, each an account of runtime opencode_go. OpenCode Zen (issue #965):
+// OpenCode's models paid from the workspace's balance, served the same way as
+// opencode-zen/<model> under the Zen keys, each an account of runtime
+// opencode_zen, from OpenCode's inference root rather than Go's (opencode
+// console/api/inference.mdx "Endpoints"). What it does is learned from the
+// references (docs/research/2026-11-18-opencode-go-provider.md,
+// docs/research/2026-11-20-opencode-zen-provider.md):
 //
 //   - each model is called on its own wire, not translated: OpenAI's chat at
 //     /openai/v1/chat/completions, OpenAI's Responses at /openai/v1/responses,
@@ -40,7 +45,12 @@ import (
 //     and the next key is tried, the same key never again for that request
 //     (omniroute open-sse/config/providerErrorRules.ts
 //     opencode-monthly-quota-resets-in; opencode packages/ai/src/provider-error.ts
-//     QUOTA_CODES, not retried).
+//     QUOTA_CODES, not retried);
+//   - on Zen, a 402 or one of OpenCode's quota codes is a used-up balance or
+//     budget: the key rests for an hour (quotaCooldown) and the next key is
+//     tried (opencode provider-error.ts QUOTA_CODES and its 402; omniroute
+//     providerErrorRules.ts catchAllReason, 402 is quota_exhausted);
+//   - a 401 marks the key refused, on either provider.
 
 const (
 	// openCodeGoKind is the provider kind (orchestration.ProviderOpenCodeGo).
@@ -50,6 +60,14 @@ const (
 	// openCodeGoBaseURL is Go's inference root (opencode go.mdx; litellm
 	// llms/opencode/common_utils.py).
 	openCodeGoBaseURL = "https://opencode.ai/inference/go"
+	// openCodeZenKind is the provider kind (orchestration.ProviderOpenCodeZen).
+	openCodeZenKind = "opencode_zen"
+	// openCodeZenRuntime is the runtime of a Zen key's account.
+	openCodeZenRuntime = "opencode_zen"
+	// openCodeZenBaseURL is OpenCode's inference root, where Zen's models are
+	// served (opencode console/api/inference.mdx), beside Go's /inference/go
+	// rather than the references' older /zen/v1.
+	openCodeZenBaseURL = "https://opencode.ai/inference"
 	// openCodeGoAnthropicVersion is the Messages API version sent on Go's
 	// Anthropic path, as Anthropic's SDK sends it.
 	openCodeGoAnthropicVersion = "2023-06-01"
@@ -57,7 +75,7 @@ const (
 	openCodeGoSessionHeader = "X-Opencode-Session"
 )
 
-// The wires a Go model is served on, as Go's model list names them
+// The wires an OpenCode model is served on, as its model list names them
 // (subscription.WireChat, WireResponses, WireMessages).
 const (
 	goWireChat      = "chat-completions"
@@ -65,16 +83,54 @@ const (
 	goWireMessages  = "messages"
 )
 
-// openCodeGoUserAgent is how the gateway names itself to Go, which asks a
-// client for its own name rather than a library's (go.mdx).
-func openCodeGoUserAgent() string { return "hypomnema/" + platform.Version }
+// openCodeProvider is one of OpenCode's providers keyed by a Console API key.
+type openCodeProvider struct {
+	kind, runtime string
+	// name is what the provider is called in what the gateway says.
+	name string
+	// zen says the provider is Zen: its own inference root and its refusals.
+	zen bool
+}
 
-// goWire is the wire Go serves a model on: what its model list said, else
-// chat, the provider's own API in models.dev (opencode-go: npm
-// @ai-sdk/openai-compatible, api .../openai/v1).
-func (s *Service) goWire(ctx context.Context, model string) string {
+var (
+	openCodeGoProvider  = openCodeProvider{kind: openCodeGoKind, runtime: openCodeGoRuntime, name: "OpenCode Go"}
+	openCodeZenProvider = openCodeProvider{
+		kind: openCodeZenKind, runtime: openCodeZenRuntime, name: "OpenCode Zen", zen: true,
+	}
+)
+
+// openCodeOf is the OpenCode provider of a kind, or ok false for another kind.
+func openCodeOf(kind string) (openCodeProvider, bool) {
+	switch kind {
+	case openCodeGoKind:
+		return openCodeGoProvider, true
+	case openCodeZenKind:
+		return openCodeZenProvider, true
+	default:
+		return openCodeProvider{}, false
+	}
+}
+
+// openCodeURL is the provider's inference root.
+func (s *Server) openCodeURL(p openCodeProvider) string {
+	if p.zen {
+		return s.zenURL
+	}
+
+	return s.goURL
+}
+
+// openCodeUserAgent is how the gateway names itself to OpenCode, which asks a
+// client for its own name rather than a library's (go.mdx); it never names
+// itself OpenCode (owner, 2026-11-20).
+func openCodeUserAgent() string { return "hypomnema/" + platform.Version }
+
+// openCodeWire is the wire an OpenCode provider serves a model on: what its
+// model list said, else chat, the provider's own API in models.dev
+// (opencode-go: npm @ai-sdk/openai-compatible, api .../openai/v1).
+func (s *Service) openCodeWire(ctx context.Context, kind, model string) string {
 	if s.wire != nil {
-		if wire, ok := s.wire(ctx, openCodeGoKind, model); ok {
+		if wire, ok := s.wire(ctx, kind, model); ok {
 			return wire
 		}
 	}
@@ -84,7 +140,7 @@ func (s *Service) goWire(ctx context.Context, model string) string {
 
 // openCodeGoSession is the x-opencode-session of a conversation: a hash of the
 // gateway's own session, so it is stable for the conversation and names
-// nothing of the client to Go.
+// nothing of the client to OpenCode. Go and Zen are sent the same one.
 func openCodeGoSession(session string) string {
 	sum := sha256.Sum256([]byte("hypomnema:opencode-go:" + session))
 
@@ -102,12 +158,12 @@ func chatSession(call chatCall) string {
 	return "key:" + call.keyID
 }
 
-// openCodeGo serves chat from OpenCode Go.
-type openCodeGo struct{}
+// openCode serves chat from OpenCode Go or OpenCode Zen.
+type openCode struct{ p openCodeProvider }
 
-func (openCodeGo) declared() bool { return false }
+func (openCode) declared() bool { return false }
 
-func (openCodeGo) do(ctx context.Context, s *Server, call chatCall) (*http.Response, error) {
+func (a openCode) do(ctx context.Context, s *Server, call chatCall) (*http.Response, error) {
 	if s.accounts == nil {
 		return nil, fmt.Errorf("%w: provider %q has no accounts to run under", ErrNoAccount, call.upstream.Provider)
 	}
@@ -119,11 +175,11 @@ func (openCodeGo) do(ctx context.Context, s *Server, call chatCall) (*http.Respo
 		err  error
 	)
 
-	switch s.svc.goWire(ctx, call.upstream.Model) {
+	switch s.svc.openCodeWire(ctx, a.p.kind, call.upstream.Model) {
 	case goWireMessages:
-		resp, err = s.goChatAsMessages(ctx, call, session)
+		resp, err = s.openCodeChatAsMessages(ctx, a.p, call, session)
 	case goWireResponses:
-		resp, err = s.goChatAsResponses(ctx, call, session)
+		resp, err = s.openCodeChatAsResponses(ctx, a.p, call, session)
 	default:
 		var body []byte
 		if body, err = call.req.forUpstream(call.upstream.Model); err != nil {
@@ -135,7 +191,7 @@ func (openCodeGo) do(ctx context.Context, s *Server, call chatCall) (*http.Respo
 			accept = "text/event-stream"
 		}
 
-		resp, err = s.underGo(ctx, session, goWireChat, body, accept, nil)
+		resp, err = s.underOpenCode(ctx, a.p, session, goWireChat, body, accept, nil)
 	}
 
 	if err != nil {
@@ -145,10 +201,12 @@ func (openCodeGo) do(ctx context.Context, s *Server, call chatCall) (*http.Respo
 	return resp, nil
 }
 
-// goChatAsMessages asks a Messages model with a chat request, translated as
-// for a Claude subscription but without the disguise, and its answer turned
+// openCodeChatAsMessages asks a Messages model with a chat request, translated
+// as for a Claude subscription but without the disguise, and its answer turned
 // back into chat.
-func (s *Server) goChatAsMessages(ctx context.Context, call chatCall, session string) (*http.Response, error) {
+func (s *Server) openCodeChatAsMessages(
+	ctx context.Context, p openCodeProvider, call chatCall, session string,
+) (*http.Response, error) {
 	built, err := claude.BuildRequest(call.req.raw, claude.Options{Model: call.upstream.Model, Plain: true})
 	if err != nil {
 		//nolint:nilerr // A request that cannot be translated is the client's to fix: a 400, not a failover.
@@ -157,7 +215,7 @@ func (s *Server) goChatAsMessages(ctx context.Context, call chatCall, session st
 		}, s.svc.clock.Now()), nil
 	}
 
-	return s.underGo(ctx, session, goWireMessages, built.Body, "text/event-stream",
+	return s.underOpenCode(ctx, p, session, goWireMessages, built.Body, "text/event-stream",
 		func(token AccountToken, resp *http.Response) *http.Response {
 			now := s.svc.clock.Now()
 			stream := claude.NewStream(s.svc.newID("chatcmpl"), now.Unix(), call.model, built.Names)
@@ -170,11 +228,11 @@ func (s *Server) goChatAsMessages(ctx context.Context, call chatCall, session st
 					if failure == nil {
 						failure = &claude.Failure{
 							Status: http.StatusBadGateway, Type: typeServer, Code: "upstream_truncated",
-							Message: "OpenCode Go ended its answer early",
+							Message: p.name + " ended its answer early",
 						}
 					}
 
-					s.goCool(ctx, token, failure.Status, []byte(failure.Message), failure.ResetsAt)
+					s.openCodeCool(ctx, p, token, failure.Status, []byte(failure.Message), failure.ResetsAt)
 
 					return claudeRefusal(failure, now)
 				},
@@ -182,10 +240,12 @@ func (s *Server) goChatAsMessages(ctx context.Context, call chatCall, session st
 		})
 }
 
-// goChatAsResponses asks a Responses model with a chat request, translated as
-// for a Codex subscription but without the lite shape, and its answer turned
-// back into chat.
-func (s *Server) goChatAsResponses(ctx context.Context, call chatCall, session string) (*http.Response, error) {
+// openCodeChatAsResponses asks a Responses model with a chat request,
+// translated as for a Codex subscription but without the lite shape, and its
+// answer turned back into chat.
+func (s *Server) openCodeChatAsResponses(
+	ctx context.Context, p openCodeProvider, call chatCall, session string,
+) (*http.Response, error) {
 	built, err := codex.BuildRequest(call.req.raw, codex.Options{
 		Model: call.upstream.Model, CacheKey: session, Plain: true,
 	})
@@ -196,7 +256,7 @@ func (s *Server) goChatAsResponses(ctx context.Context, call chatCall, session s
 		}, s.svc.clock.Now()), nil
 	}
 
-	return s.underGo(ctx, session, goWireResponses, built.Body, "text/event-stream",
+	return s.underOpenCode(ctx, p, session, goWireResponses, built.Body, "text/event-stream",
 		func(token AccountToken, resp *http.Response) *http.Response {
 			now := s.svc.clock.Now()
 			stream := codex.NewStream(s.svc.newID("chatcmpl"), now.Unix(), call.model, built.Names)
@@ -209,11 +269,11 @@ func (s *Server) goChatAsResponses(ctx context.Context, call chatCall, session s
 					if failure == nil {
 						failure = &codex.Failure{
 							Status: http.StatusBadGateway, Type: typeServer, Code: "upstream_truncated",
-							Message: "OpenCode Go ended its answer early",
+							Message: p.name + " ended its answer early",
 						}
 					}
 
-					s.goCool(ctx, token, failure.Status, []byte(failure.Message), failure.ResetsAt)
+					s.openCodeCool(ctx, p, token, failure.Status, []byte(failure.Message), failure.ResetsAt)
 
 					return codexRefusal(failure, now)
 				},
@@ -221,28 +281,30 @@ func (s *Server) goChatAsResponses(ctx context.Context, call chatCall, session s
 		})
 }
 
-// goPaths are where each wire is called under Go's inference root.
+// goPaths are where each wire is called under Go's or Zen's inference root
+// (go.mdx; inference.mdx "Endpoints").
 var goPaths = map[string]string{
 	goWireChat:      "/openai/v1/chat/completions",
 	goWireResponses: "/openai/v1/responses",
 	goWireMessages:  "/anthropic/v1/messages",
 }
 
-// underGo sends a body to Go on a wire under its keys in turn: a key Go
-// refuses rests and the next is tried (underAccounts). answer, when given,
-// turns a 200 into the answer; without it the 200 is the answer.
-func (s *Server) underGo(
-	ctx context.Context, session, wire string, body []byte, accept string,
+// underOpenCode sends a body to an OpenCode provider on a wire under its keys
+// in turn: a key it refuses rests and the next is tried (underAccounts).
+// answer, when given, turns a 200 into the answer; without it the 200 is the
+// answer.
+func (s *Server) underOpenCode(
+	ctx context.Context, p openCodeProvider, session, wire string, body []byte, accept string,
 	answer func(AccountToken, *http.Response) *http.Response,
 ) (*http.Response, error) {
 	attempt := func(token AccountToken) (*http.Response, error) {
-		resp, err := s.goPost(ctx, token, session, wire, body, accept)
+		resp, err := s.openCodePost(ctx, p, token, session, wire, body, accept)
 		if err != nil {
 			return nil, err
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			return s.goRefused(ctx, token, resp), nil
+			return s.openCodeRefused(ctx, p, token, resp), nil
 		}
 
 		s.accountState.served(token.AccountID)
@@ -253,16 +315,17 @@ func (s *Server) underGo(
 
 		return answer(token, resp), nil
 	}
-	return s.underModelAccounts(ctx, openCodeGoRuntime, forModel{}, session, nil, nil, attempt)
+	return s.underModelAccounts(ctx, p.runtime, forModel{}, session, nil, nil, attempt)
 }
 
-// goPost sends a body to Go on a wire under a key.
-func (s *Server) goPost(
-	ctx context.Context, token AccountToken, session, wire string, body []byte, accept string,
+// openCodePost sends a body to an OpenCode provider on a wire under a key.
+func (s *Server) openCodePost(
+	ctx context.Context, p openCodeProvider, token AccountToken, session, wire string, body []byte, accept string,
 ) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.goURL+goPaths[wire], bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.openCodeURL(p)+goPaths[wire],
+		bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("building the request to OpenCode Go: %w", err)
+		return nil, fmt.Errorf("building the request to %s: %w", p.name, err)
 	}
 
 	if wire == goWireMessages {
@@ -274,12 +337,12 @@ func (s *Server) goPost(
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", accept)
-	req.Header.Set("User-Agent", openCodeGoUserAgent())
+	req.Header.Set("User-Agent", openCodeUserAgent())
 	req.Header.Set(openCodeGoSessionHeader, session)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("calling OpenCode Go: %w", err)
+		return nil, fmt.Errorf("calling %s: %w", p.name, err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
 		s.markTokenRefused(ctx, token)
@@ -288,9 +351,11 @@ func (s *Server) goPost(
 	return resp, nil
 }
 
-// goRefused passes on a request Go refused, its status and its body, and
-// rests the key for as long as the refusal calls for (goCool).
-func (s *Server) goRefused(ctx context.Context, token AccountToken, resp *http.Response) *http.Response {
+// openCodeRefused passes on a request OpenCode refused, its status and its
+// body, and rests the key for as long as the refusal calls for (openCodeCool).
+func (s *Server) openCodeRefused(
+	ctx context.Context, p openCodeProvider, token AccountToken, resp *http.Response,
+) *http.Response {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
 	_ = resp.Body.Close()
 
@@ -301,7 +366,7 @@ func (s *Server) goRefused(ctx context.Context, token AccountToken, resp *http.R
 		reset = now.Add(time.Duration(secs) * time.Second)
 	}
 
-	until := s.goCool(ctx, token, resp.StatusCode, body, reset)
+	until := s.openCodeCool(ctx, p, token, resp.StatusCode, body, reset)
 
 	out := &http.Response{
 		StatusCode: resp.StatusCode, Header: http.Header{"Content-Type": {resp.Header.Get("Content-Type")}},
@@ -319,23 +384,117 @@ func (s *Server) goRefused(ctx context.Context, token AccountToken, resp *http.R
 	return out
 }
 
-// goCool rests a key after a refusal and says until when, when it knows: a
-// used-up allowance until the reset Go names, uncapped as omniroute keeps its
-// cooldown, else an hour (quotaCooldown); anything else as every built-in
+// openCodeCool rests a key after a refusal and says until when, when it
+// knows: a used-up Go allowance until the reset Go names, uncapped as
+// omniroute keeps its cooldown, else an hour (quotaCooldown); a used-up Zen
+// balance or budget an hour (zenQuotaUsedUp); anything else as every built-in
 // provider's account rests (cool).
-func (s *Server) goCool(ctx context.Context, token AccountToken, status int, body []byte, reset time.Time) time.Time {
+func (s *Server) openCodeCool(
+	ctx context.Context, p openCodeProvider, token AccountToken, status int, body []byte, reset time.Time,
+) time.Time {
 	now := s.svc.clock.Now()
+
+	if p.zen {
+		if zenQuotaUsedUp(status, body) {
+			s.cool(ctx, p.runtime, token, status, true, reset, "OpenCode Zen balance or budget used up")
+
+			return reset
+		}
+
+		s.cool(ctx, p.runtime, token, status, false, reset, "OpenCode Zen refused the key")
+
+		return reset
+	}
 
 	usedUp, quotaReset := goUsageLimit(status, body, now)
 	if usedUp && quotaReset.After(now) {
-		s.park(ctx, openCodeGoRuntime, token, quotaReset, "OpenCode Go usage limit")
+		s.park(ctx, p.runtime, token, quotaReset, "OpenCode Go usage limit")
 
 		return quotaReset
 	}
 
-	s.cool(ctx, openCodeGoRuntime, token, status, usedUp, reset, "OpenCode Go refused the key")
+	s.cool(ctx, p.runtime, token, status, usedUp, reset, "OpenCode Go refused the key")
 
 	return reset
+}
+
+// zenQuotaCodes are the codes of OpenCode's account caps that a Zen key can
+// meet: a balance, a plan or a budget used up, not a throttle (opencode
+// packages/ai/src/provider-error.ts QUOTA_CODES, less Go's and the free
+// tier's, which a Zen key's paid models do not answer).
+var zenQuotaCodes = map[string]bool{
+	"insufficient_quota": true, "usage_not_included": true, "billing_error": true,
+	"budgetlimiterror": true, "creditlimitexceeded": true,
+}
+
+// zenCodeLabel is the `[code]` OpenCode keeps at the start of a message whose
+// upstream code it rewrote (provider-error.ts GATEWAY_CODE_LABEL).
+var zenCodeLabel = regexp.MustCompile(`^[^:\n]+: \[([A-Za-z0-9_.-]+)\]`)
+
+// zenQuotaUsedUp reads whether a Zen refusal says the key's balance or budget
+// is used up: a 402, or a quota code where opencode reads one
+// (provider-error.ts classifyProviderFailure; utils/provider-codes.ts).
+func zenQuotaUsedUp(status int, body []byte) bool {
+	if status == http.StatusPaymentRequired {
+		return true
+	}
+
+	for _, code := range openCodeErrorCodes(body) {
+		if zenQuotaCodes[strings.ToLower(code)] {
+			return true
+		}
+	}
+
+	return false
+}
+
+// openCodeErrorCodes are the codes an error body carries where opencode reads
+// them (utils/provider-codes.ts providerCodes: code, error_type, error.code,
+// error.type, error.error_type), and the `[code]` label of its message.
+func openCodeErrorCodes(body []byte) []string {
+	var codes []string
+
+	var answer struct {
+		Code      any `json:"code"`
+		ErrorType any `json:"error_type"`
+		Error     any `json:"error"`
+		Message   any `json:"message"`
+	}
+
+	if json.Unmarshal(body, &answer) != nil {
+		if m := zenCodeLabel.FindStringSubmatch(string(body)); m != nil {
+			codes = append(codes, m[1])
+		}
+
+		return codes
+	}
+
+	str := func(v any) {
+		if text, ok := v.(string); ok {
+			codes = append(codes, text)
+		}
+	}
+
+	label := func(v any) {
+		if text, ok := v.(string); ok {
+			if m := zenCodeLabel.FindStringSubmatch(text); m != nil {
+				codes = append(codes, m[1])
+			}
+		}
+	}
+
+	str(answer.Code)
+	str(answer.ErrorType)
+	label(answer.Message)
+
+	if inner, ok := answer.Error.(map[string]any); ok {
+		str(inner["code"])
+		str(inner["type"])
+		str(inner["error_type"])
+		label(inner["message"])
+	}
+
+	return codes
 }
 
 // goResetIn is Go's "Resets in N days" (omniroute parseResetCountdownMs).

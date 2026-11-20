@@ -130,6 +130,7 @@ const ownLists: Partial<Record<GatewayModelSource, string>> = {
   codex: "Codex's own list",
   antigravity: "CLIProxyAPI's list of Antigravity's models",
   opencode_go: "OpenCode Go's model list",
+  opencode_zen: "OpenCode's Console list",
 }
 
 // tokensHint is what an empty number-of-tokens field shows it takes: the subscription's own value, with

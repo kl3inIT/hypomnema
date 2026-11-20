@@ -157,7 +157,7 @@ func (s *Server) serveResponses(
 
 	for _, target := range model.Targets {
 		u, _, err := s.svc.upstreamFor(ctx, target)
-		// An OpenCode Go model served on Responses is passed the request too (issue #854).
+		// An OpenCode Go or Zen model served on Responses is passed the request too (issues #854, #965).
 		if err == nil && s.svc.servedOnResponses(ctx, u.Kind, u.Model) {
 			targets = append(targets, u)
 		}
@@ -165,7 +165,7 @@ func (s *Server) serveResponses(
 
 	if len(targets) == 0 || s.accounts == nil {
 		writeError(w, http.StatusBadRequest, typeInvalidRequest, "model_not_served_here",
-			fmt.Sprintf("model %q is not served from a Codex subscription or an OpenCode Go model on Responses, "+
+			fmt.Sprintf("model %q is not served from a Codex subscription or an OpenCode model on Responses, "+
 				"the ones /v1/responses passes on to", model.Name))
 
 		return
@@ -258,8 +258,8 @@ func (s *Server) recordResponsesCooling(
 	kept := context.WithoutCancel(ctx)
 	for _, target := range targets {
 		runtime := codexRuntime
-		if target.Kind == openCodeGoKind {
-			runtime = openCodeGoRuntime
+		if p, ok := openCodeOf(target.Kind); ok {
+			runtime = p.runtime
 		}
 		until, err := s.accounts.FirstFree(kept, runtime, nil)
 		if err != nil || until.IsZero() {
@@ -271,19 +271,20 @@ func (s *Server) recordResponsesCooling(
 }
 
 // passResponses sends a Responses request to one target: a Codex subscription
-// under its accounts, or an OpenCode Go model under the Go keys, the client's
-// body with the model's name at Go and as a stream (issue #854). A body that
+// under its accounts, or an OpenCode Go or Zen model under the provider's keys,
+// the client's body with the model's name at OpenCode and as a stream (issues
+// #854, #965). A body that
 // cannot be sent, the client's to fix, is a *badMessagesError.
 func (s *Server) passResponses(
 	ctx context.Context, raw []byte, session string, target upstream,
 ) (*http.Response, error) {
-	if target.Kind == openCodeGoKind {
+	if p, ok := openCodeOf(target.Kind); ok {
 		body, err := withModel(raw, target.Model, map[string]json.RawMessage{"stream": json.RawMessage("true")})
 		if err != nil {
 			return nil, &badMessagesError{err: err}
 		}
 
-		return s.underGo(ctx, openCodeGoSession(session), goWireResponses, body, "text/event-stream", nil)
+		return s.underOpenCode(ctx, p, openCodeGoSession(session), goWireResponses, body, "text/event-stream", nil)
 	}
 
 	built, err := codex.PassThrough(raw, codex.PassOptions{Model: target.Model, Session: session})

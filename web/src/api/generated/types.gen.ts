@@ -2695,7 +2695,7 @@ export type GatewayUsageGroup = {
    */
   name: string;
   /**
-   * An account's runtime (claude, codex, antigravity, opencode_go).
+   * An account's runtime (claude, codex, antigravity, opencode_go, opencode_zen).
    */
   runtime?: string;
   counts: GatewayUsageCounts;
@@ -2859,9 +2859,9 @@ export type GatewayRequestList = {
 
 export type NewTokenAccount = {
   /**
-   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go (issue #854) or OpenCode Zen (issue #965), whose Console API key is the account.
    */
-  runtime: 'claude' | 'opencode_go';
+  runtime: 'claude' | 'opencode_go' | 'opencode_zen';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
@@ -3035,9 +3035,9 @@ export type GatewayModelAttributes = {
 };
 
 /**
- * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+ * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
  */
-export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'opencode_go' | 'unknown';
+export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'opencode_go' | 'opencode_zen' | 'unknown';
 
 export type GatewayModelInputKind = 'text' | 'image';
 
@@ -3788,7 +3788,7 @@ export type ProfileList = {
 
 export type Provider = {
   name: string;
-  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'opencode_go' | 'model_gateway';
+  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'opencode_go' | 'opencode_zen' | 'model_gateway';
   base_url?: string;
   /**
    * Where the API key is kept, by name; never the key.
@@ -4927,15 +4927,15 @@ export type NewIntegrationClientWritable = {
 
 export type NewTokenAccountWritable = {
   /**
-   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go (issue #854) or OpenCode Zen (issue #965), whose Console API key is the account.
    */
-  runtime: 'claude' | 'opencode_go';
+  runtime: 'claude' | 'opencode_go' | 'opencode_zen';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
   label: string;
   /**
-   * The token `claude setup-token` prints, or the OpenCode Go key, one line.
+   * The token `claude setup-token` prints, or the OpenCode Console key, one line.
    */
   token: string;
 };

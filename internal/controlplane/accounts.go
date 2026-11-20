@@ -38,7 +38,8 @@ func newSubscriptions(
 
 	return subscription.New(svc, secrets, clock, logger,
 		subscription.NewCodex(cfg.CodexIssuer, clock), subscription.NewAntigravity(cfg.Antigravity, clock),
-		subscription.NewClaude(cfg.Claude, clock), subscription.NewOpenCodeGo("", clock))
+		subscription.NewClaude(cfg.Claude, clock), subscription.NewOpenCodeGo("", clock),
+		subscription.NewOpenCodeZen("", clock))
 }
 
 func (o *owner) accounts(ctx context.Context, args []string) error {

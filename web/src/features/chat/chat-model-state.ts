@@ -17,6 +17,7 @@ const piKinds = [
   "codex_subscription",
   "antigravity_subscription",
   "opencode_go",
+  "opencode_zen",
   "model_gateway",
   "openai_compatible",
   "anthropic",

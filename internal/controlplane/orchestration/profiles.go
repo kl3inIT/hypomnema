@@ -51,6 +51,9 @@ const (
 	// ProviderOpenCodeGo is OpenCode Go (issue #854), served by the model gateway only under the Go keys the
 	// owner pastes (OpenCodeGoRuntime).
 	ProviderOpenCodeGo = "opencode_go"
+	// ProviderOpenCodeZen is OpenCode Zen (issue #965), OpenCode's models paid from the workspace's balance, served
+	// by the model gateway only under the Console keys the owner pastes (OpenCodeZenRuntime).
+	ProviderOpenCodeZen = "opencode_zen"
 	// ProviderModelGateway is the control plane's own model gateway: a worker
 	// under it calls the gateway with a key made for its Dispatch, and which
 	// account or API serves the model is the gateway's business (issue #107).
@@ -68,6 +71,7 @@ const GatewayAccountRef = "gateway"
 // subscription runs through the gateway: no subscription token leaves the control plane (issue #381).
 var subscriptionKinds = []string{
 	ProviderClaudeSubscription, ProviderCodexSubscription, ProviderAntigravitySubscription, ProviderOpenCodeGo,
+	ProviderOpenCodeZen,
 }
 
 // throughGateway reports whether a provider of the kind is reached through the model gateway: the gateway itself,
@@ -83,6 +87,7 @@ var subscriptionAccounts = map[string]string{
 	ProviderCodexSubscription:       "codex",
 	ProviderAntigravitySubscription: "antigravity",
 	ProviderOpenCodeGo:              OpenCodeGoRuntime,
+	ProviderOpenCodeZen:             OpenCodeZenRuntime,
 }
 
 // GatewayModelName is the name the gateway serves a provider's model under: "<provider>/<model>" for a
@@ -1096,7 +1101,7 @@ func padded(v []int, n int) []int {
 func validProvider(in providerSource) error {
 	kinds := []string{
 		ProviderAnthropic, ProviderOpenAICompatible, ProviderClaudeSubscription, ProviderCodexSubscription,
-		ProviderAntigravitySubscription, ProviderOpenCodeGo, ProviderModelGateway,
+		ProviderAntigravitySubscription, ProviderOpenCodeGo, ProviderOpenCodeZen, ProviderModelGateway,
 	}
 
 	switch {
