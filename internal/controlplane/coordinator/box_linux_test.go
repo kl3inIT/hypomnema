@@ -300,6 +300,7 @@ func TestReadRunLauncherMountsPrivateNotesAndNoShell(t *testing.T) {
 	seen, stderr, err := w.start(t, "hyp_bot_v1_mine\n{}\n", "--read-run")
 	require.NoError(t, err, stderr)
 	assert.Contains(t, seen["args"], "--no-approve --no-extensions")
+	assert.Contains(t, seen["args"], "--extension builtin:mcp ")
 	assert.Contains(t, seen["args"], "--tools routine_read,routine_write,routine_edit,mcp__hypomnema__*")
 	assert.NotContains(t, seen["args"], " --skill ")
 	assert.NoFileExists(t, filepath.Join(w.home, "work", "written"))
