@@ -213,6 +213,9 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 
 	worker, err := gateway.Authenticate(ctx, workerKey)
 	require.NoError(t, err)
+	chatFor(t, db, "cht_1", "")
+	chatFor(t, db, "cht_2", "bot_1")
+
 	chat, _, err := gateway.AddChatKey(ctx, "cht_1", "", "gpt-sol")
 	require.NoError(t, err)
 	bot, _, err := gateway.AddChatKey(ctx, "cht_2", "bot_1", "gpt-sol")
