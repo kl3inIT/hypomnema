@@ -23,3 +23,6 @@ SOFTWARE.
 Source: https://github.com/OrionArchitekton/agent-demo-video at commit f63b61a. Ported (issue #908, part 1): the
 word-pop ASS events of src/captions.ts (toWordAss, one event a state of the growing words) into
 internal/controlplane/videos/captions/styled.go.
+
+Ported (issue #908, part 2): even, MAX_WINDOW_PAD_PX and fitPaddingPx of src/framing.ts, and the fail-closed refusal
+of assertFramedContentAspect, into internal/controlplane/videos/compose/frame.go.

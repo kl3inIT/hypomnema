@@ -1,10 +1,10 @@
 -- name: InsertTodo :exec
 INSERT INTO todos (id, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
                    assignee, state, source_kind, source_id, source_account, source_quote, source_ref,
-                   created_by_kind, created_by, idempotency_key, idempotency_hash, created_at, updated_at)
+                   created_by_kind, created_by, why_open, idempotency_key, idempotency_hash, created_at, updated_at)
 VALUES (@id, @title, @notes, @done_when, @due_kind, @due_date, @due_zone, @due_at, @overdue_at, @assignee_kind,
         @assignee, @state, @source_kind, @source_id, @source_account, @source_quote, @source_ref, @created_by_kind,
-        @created_by, @idempotency_key, @idempotency_hash, @now, @now);
+        @created_by, @why_open, @idempotency_key, @idempotency_hash, @now, @now);
 
 -- name: GetTodo :one
 SELECT * FROM todos WHERE id = @id;
@@ -45,7 +45,9 @@ SELECT * FROM todo_events WHERE todo_id = @todo_id ORDER BY id DESC LIMIT @lim;
 
 -- name: ListTodos :many
 -- One page of the items that match, by due (those without one last), then created, then id, after the cursor of
--- the previous page when one is given. The filter is the same as CountTodos's.
+-- the previous page when one is given. The filter is the same as CountTodos's. A proposal nobody touched since
+-- stale_before is stale (issue #966): left out unless with_stale, and never one that needs the owner. Touched is
+-- any event after created, and every event moves the revision on, so an untouched item is at revision 1.
 SELECT t.* FROM todos t
 WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(@states AS TEXT))))
   AND (CAST(@assignee_kind AS TEXT) = '' OR (t.assignee_kind = @assignee_kind AND t.assignee = @assignee))
@@ -53,8 +55,11 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
   AND (CAST(@has_due_from AS INTEGER) = 0 OR t.due_at >= CAST(@due_from AS INTEGER))
   AND (CAST(@has_due_to AS INTEGER) = 0 OR t.due_at < CAST(@due_to AS INTEGER))
   AND (CAST(@with_snoozed AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
+  AND (CAST(@with_stale AS INTEGER) = 1
+    OR NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(@stale_before AS INTEGER)))
   AND (CAST(@needs_you AS INTEGER) = 0 OR (
         t.state NOT IN ('done', 'dropped', 'duplicate')
+    AND NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(@stale_before AS INTEGER))
     AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
@@ -75,8 +80,11 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
   AND (CAST(@has_due_from AS INTEGER) = 0 OR t.due_at >= CAST(@due_from AS INTEGER))
   AND (CAST(@has_due_to AS INTEGER) = 0 OR t.due_at < CAST(@due_to AS INTEGER))
   AND (CAST(@with_snoozed AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
+  AND (CAST(@with_stale AS INTEGER) = 1
+    OR NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(@stale_before AS INTEGER)))
   AND (CAST(@needs_you AS INTEGER) = 0 OR (
         t.state NOT IN ('done', 'dropped', 'duplicate')
+    AND NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(@stale_before AS INTEGER))
     AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
