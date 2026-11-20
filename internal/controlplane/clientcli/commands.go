@@ -250,7 +250,8 @@ var commands = []command{
 		summary: "connect an account under a label: a git host with a token read from a file, a service such as " +
 			"google by signing in, an app of lark with its app_id and app_secret read from a file, yourself at lark " +
 			"through one of its apps (--as-user --app work), superset with its address, a user name and a password " +
-			"read from a file, a role of an aws account with its ARN and the key that assumes it (owner)",
+			"read from a file, a role of an aws account with its ARN and the key that assumes it, bigquery with a " +
+			"service account's JSON key read from a file and the GA4 dataset (owner)",
 		// A sign-in as yourself waits until the code was entered.
 		long: true,
 		flags: func(fs *flag.FlagSet) {
@@ -273,7 +274,15 @@ var commands = []command{
 			fs.String("role", "", "for aws: the role's ARN, such as arn:aws:iam::123456789012:role/hypomnema/read")
 			fs.String("key", "main", "for aws: the name of the key that assumes the role")
 			fs.String("key-file", "", "for aws, when the key is new or replaced: the access key file the AWS "+
-				"console gives (.csv), or a file with ACCESS_KEY_ID:SECRET_ACCESS_KEY, or - for standard input")
+				"console gives (.csv), or a file with ACCESS_KEY_ID:SECRET_ACCESS_KEY; for bigquery: the service "+
+				"account's JSON key, a new key of an account made for this alone; or - for standard input")
+			fs.Var(&listFlag{}, "dataset", "for bigquery: the GA4 export dataset, project.dataset; give it once a "+
+				"dataset")
+			fs.String("billing-project", "", "for bigquery: the project jobs run and are billed in (default: the "+
+				"key's project_id)")
+			fs.String("location", "", "for bigquery: where jobs run, such as US (default: the dataset's)")
+			fs.String("max-bytes", "", "for bigquery: the most one query may bill on demand, such as 10GiB "+
+				"(default 10GiB)")
 			jsonFlag(fs)
 		},
 		run: integrationsConnect,
@@ -331,6 +340,56 @@ var commands = []command{
 			jsonFlag(fs)
 		},
 		run: supersetAPI,
+	},
+	{
+		name: "bigquery datasets", summary: "the datasets of the GA4 export's project, on a BigQuery account",
+		long: true,
+		flags: func(fs *flag.FlagSet) {
+			bigqueryFlags(fs)
+			jsonFlag(fs)
+		},
+		run: bigqueryDatasets,
+	},
+	{
+		name: "bigquery tables", args: "<project.dataset>", min: 1, max: 1, long: true,
+		summary: "a dataset's tables with their types: a GA4 export has one events_YYYYMMDD a day",
+		flags: func(fs *flag.FlagSet) {
+			bigqueryFlags(fs)
+			jsonFlag(fs)
+		},
+		run: bigqueryTables,
+	},
+	{
+		name: "bigquery table", args: "<project.dataset.table>", min: 1, max: 1, long: true,
+		summary: "a table's columns, nested ones too, its rows and bytes",
+		flags: func(fs *flag.FlagSet) {
+			bigqueryFlags(fs)
+			jsonFlag(fs)
+		},
+		run: bigqueryTable,
+	},
+	{
+		name: "bigquery query", args: "[sql]", min: 0, max: -1,
+		summary: "run one GoogleSQL SELECT over the GA4 export, dry-run first, billed up to the account's cap; " +
+			"in a Routine's script, give the Routine a timeout_seconds of at least 1920 plus --timeout in seconds " +
+			"(2520 for --timeout 10m): an approval may wait 30 minutes before the query runs",
+		// The client waits for an approval of a Routine's run (30 minutes), the job's --timeout and 2 minutes.
+		timeout: queryClientTimeoutOf,
+		flags: func(fs *flag.FlagSet) {
+			fs.String("sql-file", "", "the file holding the query, or - for standard input")
+			fs.Bool("dry-run", false, "only check the query and print the bytes it would process; nothing is billed")
+			fs.String("max-rows", "", "the rows to print, 1 to 10000 (default 50)")
+			fs.String("timeout", "", "how long the job may run, up to 10m (default 30s); at the limit its cancel is "+
+				"requested")
+			fs.String("format", "json", "json, or csv for the rows alone with a header line")
+			bigqueryFlags(fs)
+		},
+		run: bigqueryQuery,
+	},
+	{
+		name: "integrations max-bytes", args: "<integration>:<label> <size>", min: 2, max: 2,
+		summary: "the most one query of a BigQuery account may bill on demand, such as 10GiB (owner)",
+		flags:   jsonFlag, run: integrationsMaxBytes,
 	},
 	{
 		name: "integrations chats", args: "<integration>:<label> on|off", min: 2, max: 2,

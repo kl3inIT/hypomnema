@@ -307,7 +307,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	sshKey := &gitSSHKey{vault: secrets}
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
 		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp(),
-		integration.Zalo())
+		integration.Zalo(), integration.BigQuery())
+	integrations.WithLogger(logger)
 
 	// The owner's WhatsApp, linked as a device of his (issue #615): its sessions are whatsmeow's, in a database
 	// of their own beside this one, and are opened again as the control plane starts.
@@ -505,7 +506,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// Superset's tools of a worker and a Bot's pi (issue #536) are relayed through the same decision as the
 	// client API's Superset routes; the proxy is made after the agent API it asks who an agent is.
 	agents.WithRelay(proxy)
-	agents.WithMessaging(integrations).WithJudge(proxy)
+	agents.WithMessaging(integrations).WithJudge(proxy).WithBigQuery(integrations)
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		ChatFallbacks: svc.ChatFallbacks,
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
@@ -588,7 +589,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithWorkspaces(nodes.Files, bots).WithChatFiles(newChatFiles(cfg.ChatRmCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithMessaging(integrations).
-		WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
+		WithApprovals(proxy).WithRelay(proxy).WithBigQuery(integrations, proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
 		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).
 		WithBuiltinSkills(builtinSkills).

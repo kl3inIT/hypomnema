@@ -316,6 +316,35 @@ func TestARoutinesScriptIsStoppedWithItsBox(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(work(stopped), "late"), "the box ended with its run")
 }
 
+// Scenario (issue #976, review round 3): a script that may wait 30 minutes for the owner's approval of a BigQuery
+// query, then run it for 10, has a Routine limit of 2520 seconds. The launcher stops the script with timeout at the
+// limit `hypomnema routines script` printed, the Routine's own (clientcli's TestARoutinesBigQueryQueryWaitsWithinItsLimit
+// checks that it prints timeout_seconds), not a default of its own.
+func TestALauncherStopsAScriptAtItsRoutinesLimit(t *testing.T) {
+	t.Parallel()
+	needBox(t)
+
+	timeoutPath, err := exec.LookPath("timeout")
+	require.NoError(t, err)
+
+	w := newBoxWorld(t, bwrapPath, "#!/bin/sh\necho ran=yes\n")
+	record := filepath.Join(w.root, "timeout-args")
+	bin := filepath.Join(w.root, "fake-bin")
+	boxWrite(t, filepath.Join(bin, "timeout"), "#!/bin/sh\nprintf '%s %s %s\\n' \"$1\" \"$2\" \"$3\" > '"+record+
+		"'\nexec '"+real+"' \"$@\"\n", 0o700)
+
+	cmd := w.command(t, "ROUTINE_LIMIT=2520", "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	require.NoError(t, held(t, cmd, "hyp_bot_v1_run\n"), out.String())
+	assert.Contains(t, out.String(), "ran=yes")
+
+	args, err := os.ReadFile(record) //nolint:gosec // A path of the test's own.
+	require.NoError(t, err)
+	assert.Equal(t, "-k 10 2520\n", string(args), "the Routine's limit, 30 minutes of approval and 12 of query")
+}
+
 // Scenario: no script runs without the run's token, nor without a box.
 func TestARoutinesScriptDoesNotRunWithoutItsTokenOrItsBox(t *testing.T) {
 	t.Parallel()

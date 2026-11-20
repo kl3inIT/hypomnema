@@ -985,11 +985,12 @@ func (e ImageProviderLinkState) Valid() bool {
 
 // Defines values for IntegrationKind.
 const (
-	IntegrationKindAccount IntegrationKind = "account"
-	IntegrationKindApp     IntegrationKind = "app"
-	IntegrationKindDevice  IntegrationKind = "device"
-	IntegrationKindOauth   IntegrationKind = "oauth"
-	IntegrationKindRole    IntegrationKind = "role"
+	IntegrationKindAccount        IntegrationKind = "account"
+	IntegrationKindApp            IntegrationKind = "app"
+	IntegrationKindDevice         IntegrationKind = "device"
+	IntegrationKindOauth          IntegrationKind = "oauth"
+	IntegrationKindRole           IntegrationKind = "role"
+	IntegrationKindServiceaccount IntegrationKind = "serviceaccount"
 )
 
 // Valid indicates whether the value is a known member of the IntegrationKind enum.
@@ -1004,6 +1005,8 @@ func (e IntegrationKind) Valid() bool {
 	case IntegrationKindOauth:
 		return true
 	case IntegrationKindRole:
+		return true
+	case IntegrationKindServiceaccount:
 		return true
 	default:
 		return false
@@ -3008,6 +3011,120 @@ type AudioVoice struct {
 	Voice string `json:"voice"`
 }
 
+// BigQueryDataset defines model for BigQueryDataset.
+type BigQueryDataset struct {
+	Dataset string `json:"dataset"`
+	Project string `json:"project"`
+}
+
+// BigQueryDatasetList defines model for BigQueryDatasetList.
+type BigQueryDatasetList struct {
+	Data []BigQueryDataset `json:"data"`
+}
+
+// BigQueryField defines model for BigQueryField.
+type BigQueryField struct {
+	Description *string          `json:"description,omitempty"`
+	Fields      *[]BigQueryField `json:"fields,omitempty"`
+
+	// Mode REPEATED or REQUIRED; absent is nullable.
+	Mode *string `json:"mode,omitempty"`
+	Name string  `json:"name"`
+	Type string  `json:"type"`
+}
+
+// BigQueryQuery defines model for BigQueryQuery.
+type BigQueryQuery struct {
+	// ChatId The chat a coordinator asks from.
+	ChatId *string `json:"chat_id,omitempty"`
+
+	// DryRun Only check the query and say the bytes it would process.
+	DryRun *bool `json:"dry_run,omitempty"`
+
+	// MaxRows The rows to answer with; default 50.
+	MaxRows *int `json:"max_rows,omitempty"`
+
+	// Sql One GoogleSQL SELECT over the native GA4 tables: no script, no statements but one, no CREATE, DECLARE, SET, EXPORT or CALL, no user functions, no ML., AI. or VECTOR_SEARCH, no EXTERNAL_QUERY, no legacy SQL.
+	Sql string `json:"sql"`
+
+	// TimeoutSeconds How long the job may run; default 30. At the limit its cancel is requested.
+	TimeoutSeconds *int `json:"timeout_seconds,omitempty"`
+}
+
+// BigQueryResult defines model for BigQueryResult.
+type BigQueryResult struct {
+	BytesBilled int64 `json:"bytes_billed"`
+
+	// BytesProcessed What the dry run estimated, or what the job processed.
+	BytesProcessed int64    `json:"bytes_processed"`
+	CacheHit       *bool    `json:"cache_hit,omitempty"`
+	Columns        []string `json:"columns"`
+
+	// ComputedAt When the job ended; the figures are as of then.
+	ComputedAt *time.Time `json:"computed_at,omitempty"`
+	DryRun     bool       `json:"dry_run"`
+
+	// JobId The job's id, hyp-<uuid>; absent for a dry run.
+	JobId              *string `json:"job_id,omitempty"`
+	Location           *string `json:"location,omitempty"`
+	MaximumBytesBilled int64   `json:"maximum_bytes_billed"`
+
+	// Project The job's project; absent for a dry run.
+	Project       *string         `json:"project,omitempty"`
+	Rows          [][]interface{} `json:"rows"`
+	StatementType string          `json:"statement_type"`
+	TotalRows     int64           `json:"total_rows"`
+
+	// Truncated The job gave more rows than are answered.
+	Truncated bool `json:"truncated"`
+}
+
+// BigQuerySettings What the owner set for a BigQuery Connection beside its key (issue #976). The key itself is never in an answer; account is the service account's client_email.
+type BigQuerySettings struct {
+	// BillingProject Where jobs run and are billed.
+	BillingProject string `json:"billing_project"`
+
+	// Datasets The GA4 export datasets, project.dataset. Not a filter; the account's IAM roles are.
+	Datasets []string `json:"datasets"`
+
+	// Location Where jobs run; absent takes the dry run's.
+	Location *string `json:"location,omitempty"`
+
+	// MaxBytesBilled The cap on the bytes one query job may bill on demand.
+	MaxBytesBilled int64 `json:"max_bytes_billed"`
+}
+
+// BigQueryTable defines model for BigQueryTable.
+type BigQueryTable struct {
+	Bytes        int64           `json:"bytes"`
+	Created      time.Time       `json:"created"`
+	Dataset      string          `json:"dataset"`
+	Description  *string         `json:"description,omitempty"`
+	Modified     time.Time       `json:"modified"`
+	Partitioning *string         `json:"partitioning,omitempty"`
+	Project      string          `json:"project"`
+	Rows         int64           `json:"rows"`
+	Schema       []BigQueryField `json:"schema"`
+	Table        string          `json:"table"`
+	Type         string          `json:"type"`
+}
+
+// BigQueryTableList defines model for BigQueryTableList.
+type BigQueryTableList struct {
+	Data []BigQueryTableSummary `json:"data"`
+
+	// Truncated More tables than are listed.
+	Truncated bool `json:"truncated"`
+}
+
+// BigQueryTableSummary defines model for BigQueryTableSummary.
+type BigQueryTableSummary struct {
+	Table string `json:"table"`
+
+	// Type TABLE, VIEW, MATERIALIZED_VIEW, EXTERNAL or SNAPSHOT.
+	Type string `json:"type"`
+}
+
 // BlockedReason defines model for BlockedReason.
 type BlockedReason string
 
@@ -3505,6 +3622,9 @@ type ConnectionUse struct {
 
 	// DialAddress Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port or not; the certificate is still checked against the host. Temporary. Empty clears it.
 	DialAddress *string `json:"dial_address,omitempty"`
+
+	// MaxBytesBilled For a BigQuery Connection (issue #976): the cap on the bytes one query job may bill on demand, for its dry run and its job.
+	MaxBytesBilled *int64 `json:"max_bytes_billed,omitempty"`
 
 	// Proxy The proxy its requests go through: socks5://, socks5h://, http:// or https:// with a host and a port, no user or path. Empty clears it, and they go direct.
 	Proxy *string `json:"proxy,omitempty"`
@@ -4226,7 +4346,7 @@ type Integration struct {
 	Connections []IntegrationConnection `json:"connections"`
 	Id          string                  `json:"id"`
 
-	// Kind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password; device is the owner's own messaging account (WhatsApp), linked by a QR code his phone scans.
+	// Kind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password; device is the owner's own messaging account (WhatsApp), linked by a QR code his phone scans; serviceaccount is a Google service account's JSON key (BigQuery).
 	Kind IntegrationKind `json:"kind"`
 	Name string          `json:"name"`
 
@@ -4234,7 +4354,7 @@ type Integration struct {
 	Services []string `json:"services"`
 }
 
-// IntegrationKind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password; device is the owner's own messaging account (WhatsApp), linked by a QR code his phone scans.
+// IntegrationKind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password; device is the owner's own messaging account (WhatsApp), linked by a QR code his phone scans; serviceaccount is a Google service account's JSON key (BigQuery).
 type IntegrationKind string
 
 // IntegrationConnection One account of an Integration the owner signed in, under a label.
@@ -4253,6 +4373,9 @@ type IntegrationConnection struct {
 
 	// AppId The id of the app the Connection is, for an Integration of kind app, or of the app a user Connection signed in through. Not secret.
 	AppId *string `json:"app_id,omitempty"`
+
+	// Bigquery What the owner set for a BigQuery Connection beside its key (issue #976). The key itself is never in an answer; account is the service account's client_email.
+	Bigquery *BigQuerySettings `json:"bigquery,omitempty"`
 
 	// Cannot The actions the account cannot do at the service, as last read, in the order they are listed. A request for one is refused before it is sent. Empty when it can do all, or nothing was read.
 	Cannot []ConnectionCannot `json:"cannot"`
@@ -4911,12 +5034,24 @@ type NewAccountConnection struct {
 	AppId     *string `json:"app_id,omitempty"`
 	AppSecret *string `json:"app_secret,omitempty"`
 
+	// BillingProject For BigQuery, where jobs run and are billed; default the key's project_id.
+	BillingProject *string `json:"billing_project,omitempty"`
+
+	// Datasets For BigQuery, the GA4 export datasets as project.dataset; checked when connecting.
+	Datasets *[]string `json:"datasets,omitempty"`
+
 	// DialAddress Where the address is dialed instead of its host's, as curl's --resolve (issue #850). Absent keeps the one the label has.
 	DialAddress *string `json:"dial_address,omitempty"`
 
 	// Key The name the key that assumes the role is kept under, such as main.
-	Key      *string `json:"key,omitempty"`
-	Password *string `json:"password,omitempty"`
+	Key *string `json:"key,omitempty"`
+
+	// Location For BigQuery, where jobs run, such as US; default the dry run's.
+	Location *string `json:"location,omitempty"`
+
+	// MaxBytesBilled For BigQuery, the cap on the bytes one query job may bill on demand; default 10 GiB.
+	MaxBytesBilled *int64  `json:"max_bytes_billed,omitempty"`
+	Password       *string `json:"password,omitempty"`
 
 	// Proxy The proxy the address is reached through, signing in included (issue #850). Absent keeps the one the label has.
 	Proxy *string `json:"proxy,omitempty"`
@@ -4924,7 +5059,10 @@ type NewAccountConnection struct {
 	// RoleArn The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
 	RoleArn         *string `json:"role_arn,omitempty"`
 	SecretAccessKey *string `json:"secret_access_key,omitempty"`
-	Username        *string `json:"username,omitempty"`
+
+	// ServiceAccountKey For BigQuery (issue #976): the service account's JSON key file whole, a new key of an account made for this alone. Never answered back. Absent keeps the key of the label.
+	ServiceAccountKey *string `json:"service_account_key,omitempty"`
+	Username          *string `json:"username,omitempty"`
 }
 
 // NewAccountImport defines model for NewAccountImport.
@@ -7434,6 +7572,39 @@ type ListGatewayRequestsParams struct {
 // ListGatewayRequestsParamsPeriod defines parameters for ListGatewayRequests.
 type ListGatewayRequestsParamsPeriod string
 
+// ListBigQueryDatasetsParams defines parameters for ListBigQueryDatasets.
+type ListBigQueryDatasetsParams struct {
+	// ChatId The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+	ChatId *AskingChat `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+
+	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+	HypomnemaRoutineRun *AskingRoutineRun `json:"Hypomnema-Routine-Run,omitempty"`
+}
+
+// ListBigQueryTablesParams defines parameters for ListBigQueryTables.
+type ListBigQueryTablesParams struct {
+	// ChatId The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+	ChatId *AskingChat `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+
+	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+	HypomnemaRoutineRun *AskingRoutineRun `json:"Hypomnema-Routine-Run,omitempty"`
+}
+
+// RunBigQueryQueryParams defines parameters for RunBigQueryQuery.
+type RunBigQueryQueryParams struct {
+	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+	HypomnemaRoutineRun *AskingRoutineRun `json:"Hypomnema-Routine-Run,omitempty"`
+}
+
+// GetBigQueryTableParams defines parameters for GetBigQueryTable.
+type GetBigQueryTableParams struct {
+	// ChatId The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+	ChatId *AskingChat `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+
+	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+	HypomnemaRoutineRun *AskingRoutineRun `json:"Hypomnema-Routine-Run,omitempty"`
+}
+
 // RelaySupersetRequestParams defines parameters for RelaySupersetRequest.
 type RelaySupersetRequestParams struct {
 	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
@@ -7886,6 +8057,9 @@ type PutGitHostTokenJSONRequestBody = NewGitHostToken
 
 // GenerateImagesJSONRequestBody defines body for GenerateImages for application/json ContentType.
 type GenerateImagesJSONRequestBody = ImageRequest
+
+// RunBigQueryQueryJSONRequestBody defines body for RunBigQueryQuery for application/json ContentType.
+type RunBigQueryQueryJSONRequestBody = BigQueryQuery
 
 // RelaySupersetRequestJSONRequestBody defines body for RelaySupersetRequest for application/json ContentType.
 type RelaySupersetRequestJSONRequestBody = SupersetRequest
@@ -9591,6 +9765,45 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
 	ListIntegrations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListBigQueryDatasets The datasets of a BigQuery Connection's data projects
+	//
+	// The datasets of the projects of the Connection's GA4 datasets (issue #976). The owner may ask, and a coordinator token when the owner switched the Connection on for chats, a Bot's when it is on its list. The read is the Connection's bigquery.read action and has the owner's answer for it.
+	//
+	// Corresponds with GET /integrations/bigquery/connections/{label}/datasets (the `ListBigQueryDatasets` operationId).
+	ListBigQueryDatasets(ctx context.Context, label ConnectionLabel, params *ListBigQueryDatasetsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListBigQueryTables The tables of a dataset with their types
+	//
+	// Who may ask is as for the datasets.
+	//
+	// Corresponds with GET /integrations/bigquery/connections/{label}/datasets/{dataset}/tables (the `ListBigQueryTables` operationId).
+	ListBigQueryTables(ctx context.Context, label ConnectionLabel, dataset string, params *ListBigQueryTablesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RunBigQueryQueryWithBody Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+	//
+	// The query is checked by a lexer before any request, then by a dry run (one SELECT, no routine, under the cap); only then does a job run, with the same SQL and cap. A refusal sends nothing further and is answered 403. The request is the Connection's bigquery.query action and has the owner's answer for it: from a Routine's run it may wait 30 minutes for his Approval, then run up to timeout_seconds. At the limit the job's cancel is requested; it may still finish and be billed up to the cap. Who may ask is as for the datasets.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /integrations/bigquery/connections/{label}/query (the `RunBigQueryQuery` operationId).
+	RunBigQueryQueryWithBody(ctx context.Context, label ConnectionLabel, params *RunBigQueryQueryParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RunBigQueryQuery Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+	//
+	// The query is checked by a lexer before any request, then by a dry run (one SELECT, no routine, under the cap); only then does a job run, with the same SQL and cap. A refusal sends nothing further and is answered 403. The request is the Connection's bigquery.query action and has the owner's answer for it: from a Routine's run it may wait 30 minutes for his Approval, then run up to timeout_seconds. At the limit the job's cancel is requested; it may still finish and be billed up to the cap. Who may ask is as for the datasets.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /integrations/bigquery/connections/{label}/query (the `RunBigQueryQuery` operationId).
+	RunBigQueryQuery(ctx context.Context, label ConnectionLabel, params *RunBigQueryQueryParams, body RunBigQueryQueryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetBigQueryTable A table's metadata and schema
+	//
+	// Who may ask is as for the datasets.
+	//
+	// Corresponds with GET /integrations/bigquery/connections/{label}/tables/{table} (the `GetBigQueryTable` operationId).
+	GetBigQueryTable(ctx context.Context, label ConnectionLabel, table string, params *GetBigQueryTableParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RelaySupersetRequestWithBody Send one request to a Superset Connection's API and return its answer unchanged
 	//
@@ -13943,6 +14156,95 @@ func (c *Client) GenerateImages(ctx context.Context, body GenerateImagesJSONRequ
 // Corresponds with GET /integrations (the `ListIntegrations` operationId).
 func (c *Client) ListIntegrations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListIntegrationsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListBigQueryDatasets The datasets of a BigQuery Connection's data projects
+//
+// The datasets of the projects of the Connection's GA4 datasets (issue #976). The owner may ask, and a coordinator token when the owner switched the Connection on for chats, a Bot's when it is on its list. The read is the Connection's bigquery.read action and has the owner's answer for it.
+//
+// Corresponds with GET /integrations/bigquery/connections/{label}/datasets (the `ListBigQueryDatasets` operationId).
+func (c *Client) ListBigQueryDatasets(ctx context.Context, label ConnectionLabel, params *ListBigQueryDatasetsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListBigQueryDatasetsRequest(c.Server, label, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListBigQueryTables The tables of a dataset with their types
+//
+// Who may ask is as for the datasets.
+//
+// Corresponds with GET /integrations/bigquery/connections/{label}/datasets/{dataset}/tables (the `ListBigQueryTables` operationId).
+func (c *Client) ListBigQueryTables(ctx context.Context, label ConnectionLabel, dataset string, params *ListBigQueryTablesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListBigQueryTablesRequest(c.Server, label, dataset, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RunBigQueryQueryWithBody Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+//
+// The query is checked by a lexer before any request, then by a dry run (one SELECT, no routine, under the cap); only then does a job run, with the same SQL and cap. A refusal sends nothing further and is answered 403. The request is the Connection's bigquery.query action and has the owner's answer for it: from a Routine's run it may wait 30 minutes for his Approval, then run up to timeout_seconds. At the limit the job's cancel is requested; it may still finish and be billed up to the cap. Who may ask is as for the datasets.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /integrations/bigquery/connections/{label}/query (the `RunBigQueryQuery` operationId).
+func (c *Client) RunBigQueryQueryWithBody(ctx context.Context, label ConnectionLabel, params *RunBigQueryQueryParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRunBigQueryQueryRequestWithBody(c.Server, label, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RunBigQueryQuery Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+//
+// The query is checked by a lexer before any request, then by a dry run (one SELECT, no routine, under the cap); only then does a job run, with the same SQL and cap. A refusal sends nothing further and is answered 403. The request is the Connection's bigquery.query action and has the owner's answer for it: from a Routine's run it may wait 30 minutes for his Approval, then run up to timeout_seconds. At the limit the job's cancel is requested; it may still finish and be billed up to the cap. Who may ask is as for the datasets.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /integrations/bigquery/connections/{label}/query (the `RunBigQueryQuery` operationId).
+func (c *Client) RunBigQueryQuery(ctx context.Context, label ConnectionLabel, params *RunBigQueryQueryParams, body RunBigQueryQueryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRunBigQueryQueryRequest(c.Server, label, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetBigQueryTable A table's metadata and schema
+//
+// Who may ask is as for the datasets.
+//
+// Corresponds with GET /integrations/bigquery/connections/{label}/tables/{table} (the `GetBigQueryTable` operationId).
+func (c *Client) GetBigQueryTable(ctx context.Context, label ConnectionLabel, table string, params *GetBigQueryTableParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetBigQueryTableRequest(c.Server, label, table, params)
 	if err != nil {
 		return nil, err
 	}
@@ -22983,6 +23285,310 @@ func NewListIntegrationsRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListBigQueryDatasetsRequest constructs an http.Request for the ListBigQueryDatasets method
+func NewListBigQueryDatasetsRequest(server string, label ConnectionLabel, params *ListBigQueryDatasetsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/bigquery/connections/%s/datasets", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.HypomnemaRoutineRun != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Hypomnema-Routine-Run", *params.HypomnemaRoutineRun, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Hypomnema-Routine-Run", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewListBigQueryTablesRequest constructs an http.Request for the ListBigQueryTables method
+func NewListBigQueryTablesRequest(server string, label ConnectionLabel, dataset string, params *ListBigQueryTablesParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "dataset", dataset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/bigquery/connections/%s/datasets/%s/tables", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.HypomnemaRoutineRun != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Hypomnema-Routine-Run", *params.HypomnemaRoutineRun, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Hypomnema-Routine-Run", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewRunBigQueryQueryRequest calls the generic RunBigQueryQuery builder with application/json body
+func NewRunBigQueryQueryRequest(server string, label ConnectionLabel, params *RunBigQueryQueryParams, body RunBigQueryQueryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRunBigQueryQueryRequestWithBody(server, label, params, "application/json", bodyReader)
+}
+
+// NewRunBigQueryQueryRequestWithBody constructs an http.Request for the RunBigQueryQuery method, with any body, and a specified content type
+func NewRunBigQueryQueryRequestWithBody(server string, label ConnectionLabel, params *RunBigQueryQueryParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/bigquery/connections/%s/query", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.HypomnemaRoutineRun != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Hypomnema-Routine-Run", *params.HypomnemaRoutineRun, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Hypomnema-Routine-Run", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewGetBigQueryTableRequest constructs an http.Request for the GetBigQueryTable method
+func NewGetBigQueryTableRequest(server string, label ConnectionLabel, table string, params *GetBigQueryTableParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "table", table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/bigquery/connections/%s/tables/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.HypomnemaRoutineRun != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Hypomnema-Routine-Run", *params.HypomnemaRoutineRun, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Hypomnema-Routine-Run", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewRelaySupersetRequestRequest calls the generic RelaySupersetRequest builder with application/json body
 func NewRelaySupersetRequestRequest(server string, label ConnectionLabel, params *RelaySupersetRequestParams, body RelaySupersetRequestJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -30954,6 +31560,51 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
 	ListIntegrationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListIntegrationsResponse, error)
 
+	// ListBigQueryDatasetsWithResponse The datasets of a BigQuery Connection's data projects
+	//
+	// The datasets of the projects of the Connection's GA4 datasets (issue #976). The owner may ask, and a coordinator token when the owner switched the Connection on for chats, a Bot's when it is on its list. The read is the Connection's bigquery.read action and has the owner's answer for it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/bigquery/connections/{label}/datasets (the `ListBigQueryDatasets` operationId).
+	ListBigQueryDatasetsWithResponse(ctx context.Context, label ConnectionLabel, params *ListBigQueryDatasetsParams, reqEditors ...RequestEditorFn) (*ListBigQueryDatasetsResponse, error)
+
+	// ListBigQueryTablesWithResponse The tables of a dataset with their types
+	//
+	// Who may ask is as for the datasets.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/bigquery/connections/{label}/datasets/{dataset}/tables (the `ListBigQueryTables` operationId).
+	ListBigQueryTablesWithResponse(ctx context.Context, label ConnectionLabel, dataset string, params *ListBigQueryTablesParams, reqEditors ...RequestEditorFn) (*ListBigQueryTablesResponse, error)
+
+	// RunBigQueryQueryWithBodyWithResponse Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+	//
+	// The query is checked by a lexer before any request, then by a dry run (one SELECT, no routine, under the cap); only then does a job run, with the same SQL and cap. A refusal sends nothing further and is answered 403. The request is the Connection's bigquery.query action and has the owner's answer for it: from a Routine's run it may wait 30 minutes for his Approval, then run up to timeout_seconds. At the limit the job's cancel is requested; it may still finish and be billed up to the cap. Who may ask is as for the datasets.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/bigquery/connections/{label}/query (the `RunBigQueryQuery` operationId).
+	RunBigQueryQueryWithBodyWithResponse(ctx context.Context, label ConnectionLabel, params *RunBigQueryQueryParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RunBigQueryQueryResponse, error)
+
+	// RunBigQueryQueryWithResponse Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+	//
+	// The query is checked by a lexer before any request, then by a dry run (one SELECT, no routine, under the cap); only then does a job run, with the same SQL and cap. A refusal sends nothing further and is answered 403. The request is the Connection's bigquery.query action and has the owner's answer for it: from a Routine's run it may wait 30 minutes for his Approval, then run up to timeout_seconds. At the limit the job's cancel is requested; it may still finish and be billed up to the cap. Who may ask is as for the datasets.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/bigquery/connections/{label}/query (the `RunBigQueryQuery` operationId).
+	RunBigQueryQueryWithResponse(ctx context.Context, label ConnectionLabel, params *RunBigQueryQueryParams, body RunBigQueryQueryJSONRequestBody, reqEditors ...RequestEditorFn) (*RunBigQueryQueryResponse, error)
+
+	// GetBigQueryTableWithResponse A table's metadata and schema
+	//
+	// Who may ask is as for the datasets.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/bigquery/connections/{label}/tables/{table} (the `GetBigQueryTable` operationId).
+	GetBigQueryTableWithResponse(ctx context.Context, label ConnectionLabel, table string, params *GetBigQueryTableParams, reqEditors ...RequestEditorFn) (*GetBigQueryTableResponse, error)
+
 	// RelaySupersetRequestWithBodyWithResponse Send one request to a Superset Connection's API and return its answer unchanged
 	//
 	// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
@@ -38333,6 +38984,198 @@ func (r ListIntegrationsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListIntegrationsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListBigQueryDatasetsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BigQueryDatasetList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListBigQueryDatasetsResponse) GetJSON200() *BigQueryDatasetList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListBigQueryDatasetsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListBigQueryDatasetsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListBigQueryDatasetsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListBigQueryDatasetsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListBigQueryDatasetsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListBigQueryTablesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BigQueryTableList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListBigQueryTablesResponse) GetJSON200() *BigQueryTableList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListBigQueryTablesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListBigQueryTablesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListBigQueryTablesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListBigQueryTablesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListBigQueryTablesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RunBigQueryQueryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BigQueryResult
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RunBigQueryQueryResponse) GetJSON200() *BigQueryResult {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RunBigQueryQueryResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RunBigQueryQueryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RunBigQueryQueryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RunBigQueryQueryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RunBigQueryQueryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetBigQueryTableResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BigQueryTable
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetBigQueryTableResponse) GetJSON200() *BigQueryTable {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetBigQueryTableResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetBigQueryTableResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetBigQueryTableResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetBigQueryTableResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetBigQueryTableResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -47472,6 +48315,81 @@ func (c *ClientWithResponses) ListIntegrationsWithResponse(ctx context.Context, 
 	return ParseListIntegrationsResponse(rsp)
 }
 
+// ListBigQueryDatasetsWithResponse The datasets of a BigQuery Connection's data projects
+//
+// The datasets of the projects of the Connection's GA4 datasets (issue #976). The owner may ask, and a coordinator token when the owner switched the Connection on for chats, a Bot's when it is on its list. The read is the Connection's bigquery.read action and has the owner's answer for it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/bigquery/connections/{label}/datasets (the `ListBigQueryDatasets` operationId).
+func (c *ClientWithResponses) ListBigQueryDatasetsWithResponse(ctx context.Context, label ConnectionLabel, params *ListBigQueryDatasetsParams, reqEditors ...RequestEditorFn) (*ListBigQueryDatasetsResponse, error) {
+	rsp, err := c.ListBigQueryDatasets(ctx, label, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListBigQueryDatasetsResponse(rsp)
+}
+
+// ListBigQueryTablesWithResponse The tables of a dataset with their types
+//
+// Who may ask is as for the datasets.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/bigquery/connections/{label}/datasets/{dataset}/tables (the `ListBigQueryTables` operationId).
+func (c *ClientWithResponses) ListBigQueryTablesWithResponse(ctx context.Context, label ConnectionLabel, dataset string, params *ListBigQueryTablesParams, reqEditors ...RequestEditorFn) (*ListBigQueryTablesResponse, error) {
+	rsp, err := c.ListBigQueryTables(ctx, label, dataset, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListBigQueryTablesResponse(rsp)
+}
+
+// RunBigQueryQueryWithBodyWithResponse Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+//
+// The query is checked by a lexer before any request, then by a dry run (one SELECT, no routine, under the cap); only then does a job run, with the same SQL and cap. A refusal sends nothing further and is answered 403. The request is the Connection's bigquery.query action and has the owner's answer for it: from a Routine's run it may wait 30 minutes for his Approval, then run up to timeout_seconds. At the limit the job's cancel is requested; it may still finish and be billed up to the cap. Who may ask is as for the datasets.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/bigquery/connections/{label}/query (the `RunBigQueryQuery` operationId).
+func (c *ClientWithResponses) RunBigQueryQueryWithBodyWithResponse(ctx context.Context, label ConnectionLabel, params *RunBigQueryQueryParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RunBigQueryQueryResponse, error) {
+	rsp, err := c.RunBigQueryQueryWithBody(ctx, label, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRunBigQueryQueryResponse(rsp)
+}
+
+// RunBigQueryQueryWithResponse Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+//
+// The query is checked by a lexer before any request, then by a dry run (one SELECT, no routine, under the cap); only then does a job run, with the same SQL and cap. A refusal sends nothing further and is answered 403. The request is the Connection's bigquery.query action and has the owner's answer for it: from a Routine's run it may wait 30 minutes for his Approval, then run up to timeout_seconds. At the limit the job's cancel is requested; it may still finish and be billed up to the cap. Who may ask is as for the datasets.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/bigquery/connections/{label}/query (the `RunBigQueryQuery` operationId).
+func (c *ClientWithResponses) RunBigQueryQueryWithResponse(ctx context.Context, label ConnectionLabel, params *RunBigQueryQueryParams, body RunBigQueryQueryJSONRequestBody, reqEditors ...RequestEditorFn) (*RunBigQueryQueryResponse, error) {
+	rsp, err := c.RunBigQueryQuery(ctx, label, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRunBigQueryQueryResponse(rsp)
+}
+
+// GetBigQueryTableWithResponse A table's metadata and schema
+//
+// Who may ask is as for the datasets.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/bigquery/connections/{label}/tables/{table} (the `GetBigQueryTable` operationId).
+func (c *ClientWithResponses) GetBigQueryTableWithResponse(ctx context.Context, label ConnectionLabel, table string, params *GetBigQueryTableParams, reqEditors ...RequestEditorFn) (*GetBigQueryTableResponse, error) {
+	rsp, err := c.GetBigQueryTable(ctx, label, table, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetBigQueryTableResponse(rsp)
+}
+
 // RelaySupersetRequestWithBodyWithResponse Send one request to a Superset Connection's API and return its answer unchanged
 //
 // The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
@@ -54163,6 +55081,138 @@ func ParseListIntegrationsResponse(rsp *http.Response) (*ListIntegrationsRespons
 	return response, nil
 }
 
+// ParseListBigQueryDatasetsResponse parses an HTTP response from a ListBigQueryDatasetsWithResponse call
+func ParseListBigQueryDatasetsResponse(rsp *http.Response) (*ListBigQueryDatasetsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListBigQueryDatasetsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BigQueryDatasetList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListBigQueryTablesResponse parses an HTTP response from a ListBigQueryTablesWithResponse call
+func ParseListBigQueryTablesResponse(rsp *http.Response) (*ListBigQueryTablesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListBigQueryTablesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BigQueryTableList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRunBigQueryQueryResponse parses an HTTP response from a RunBigQueryQueryWithResponse call
+func ParseRunBigQueryQueryResponse(rsp *http.Response) (*RunBigQueryQueryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RunBigQueryQueryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BigQueryResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetBigQueryTableResponse parses an HTTP response from a GetBigQueryTableWithResponse call
+func ParseGetBigQueryTableResponse(rsp *http.Response) (*GetBigQueryTableResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetBigQueryTableResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BigQueryTable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseRelaySupersetRequestResponse parses an HTTP response from a RelaySupersetRequestWithResponse call
 func ParseRelaySupersetRequestResponse(rsp *http.Response) (*RelaySupersetRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -59136,6 +60186,18 @@ type ServerInterface interface {
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(w http.ResponseWriter, r *http.Request)
+	// ListBigQueryDatasets The datasets of a BigQuery Connection's data projects
+	// (GET /integrations/bigquery/connections/{label}/datasets)
+	ListBigQueryDatasets(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params ListBigQueryDatasetsParams)
+	// ListBigQueryTables The tables of a dataset with their types
+	// (GET /integrations/bigquery/connections/{label}/datasets/{dataset}/tables)
+	ListBigQueryTables(w http.ResponseWriter, r *http.Request, label ConnectionLabel, dataset string, params ListBigQueryTablesParams)
+	// RunBigQueryQuery Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+	// (POST /integrations/bigquery/connections/{label}/query)
+	RunBigQueryQuery(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params RunBigQueryQueryParams)
+	// GetBigQueryTable A table's metadata and schema
+	// (GET /integrations/bigquery/connections/{label}/tables/{table})
+	GetBigQueryTable(w http.ResponseWriter, r *http.Request, label ConnectionLabel, table string, params GetBigQueryTableParams)
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
 	// (POST /integrations/superset/connections/{label}/api)
 	RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params RelaySupersetRequestParams)
@@ -63394,6 +64456,263 @@ func (siw *ServerInterfaceWrapper) ListIntegrations(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListIntegrations(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBigQueryDatasets operation middleware
+func (siw *ServerInterfaceWrapper) ListBigQueryDatasets(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListBigQueryDatasetsParams
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Hypomnema-Routine-Run" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Hypomnema-Routine-Run")]; found {
+		var HypomnemaRoutineRun AskingRoutineRun
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Hypomnema-Routine-Run", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Hypomnema-Routine-Run", valueList[0], &HypomnemaRoutineRun, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Hypomnema-Routine-Run", Err: err})
+			return
+		}
+
+		params.HypomnemaRoutineRun = &HypomnemaRoutineRun
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBigQueryDatasets(w, r, label, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBigQueryTables operation middleware
+func (siw *ServerInterfaceWrapper) ListBigQueryTables(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "dataset" -------------
+	var dataset string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dataset", r.PathValue("dataset"), &dataset, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dataset", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListBigQueryTablesParams
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Hypomnema-Routine-Run" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Hypomnema-Routine-Run")]; found {
+		var HypomnemaRoutineRun AskingRoutineRun
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Hypomnema-Routine-Run", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Hypomnema-Routine-Run", valueList[0], &HypomnemaRoutineRun, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Hypomnema-Routine-Run", Err: err})
+			return
+		}
+
+		params.HypomnemaRoutineRun = &HypomnemaRoutineRun
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBigQueryTables(w, r, label, dataset, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RunBigQueryQuery operation middleware
+func (siw *ServerInterfaceWrapper) RunBigQueryQuery(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RunBigQueryQueryParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Hypomnema-Routine-Run" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Hypomnema-Routine-Run")]; found {
+		var HypomnemaRoutineRun AskingRoutineRun
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Hypomnema-Routine-Run", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Hypomnema-Routine-Run", valueList[0], &HypomnemaRoutineRun, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Hypomnema-Routine-Run", Err: err})
+			return
+		}
+
+		params.HypomnemaRoutineRun = &HypomnemaRoutineRun
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunBigQueryQuery(w, r, label, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBigQueryTable operation middleware
+func (siw *ServerInterfaceWrapper) GetBigQueryTable(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "table" -------------
+	var table string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "table", r.PathValue("table"), &table, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "table", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetBigQueryTableParams
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Hypomnema-Routine-Run" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Hypomnema-Routine-Run")]; found {
+		var HypomnemaRoutineRun AskingRoutineRun
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Hypomnema-Routine-Run", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Hypomnema-Routine-Run", valueList[0], &HypomnemaRoutineRun, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Hypomnema-Routine-Run", Err: err})
+			return
+		}
+
+		params.HypomnemaRoutineRun = &HypomnemaRoutineRun
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBigQueryTable(w, r, label, table, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -68172,6 +69491,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data", wrapper.GetSupersetChartData)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/superset/connections/{label}/dashboards/{dashboard}/filters/{filter}/values", wrapper.ListSupersetFilterValues)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/superset/connections/{label}/api", wrapper.RelaySupersetRequest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/bigquery/connections/{label}/datasets", wrapper.ListBigQueryDatasets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/bigquery/connections/{label}/datasets/{dataset}/tables", wrapper.ListBigQueryTables)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/bigquery/connections/{label}/tables/{table}", wrapper.GetBigQueryTable)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/bigquery/connections/{label}/query", wrapper.RunBigQueryQuery)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/approvals", wrapper.ListApprovals)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/approvals/{approval_id}/decision", wrapper.DecideApproval)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets", wrapper.ListSecrets)
@@ -73332,6 +74655,169 @@ type ListIntegrationsdefaultJSONResponse struct {
 }
 
 func (response ListIntegrationsdefaultJSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBigQueryDatasetsRequestObject struct {
+	Label  ConnectionLabel `json:"label"`
+	Params ListBigQueryDatasetsParams
+}
+
+type ListBigQueryDatasetsResponseObject interface {
+	VisitListBigQueryDatasetsResponse(w http.ResponseWriter) error
+}
+
+type ListBigQueryDatasets200JSONResponse BigQueryDatasetList
+
+func (response ListBigQueryDatasets200JSONResponse) VisitListBigQueryDatasetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBigQueryDatasetsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListBigQueryDatasetsdefaultJSONResponse) VisitListBigQueryDatasetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBigQueryTablesRequestObject struct {
+	Label   ConnectionLabel `json:"label"`
+	Dataset string          `json:"dataset"`
+	Params  ListBigQueryTablesParams
+}
+
+type ListBigQueryTablesResponseObject interface {
+	VisitListBigQueryTablesResponse(w http.ResponseWriter) error
+}
+
+type ListBigQueryTables200JSONResponse BigQueryTableList
+
+func (response ListBigQueryTables200JSONResponse) VisitListBigQueryTablesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBigQueryTablesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListBigQueryTablesdefaultJSONResponse) VisitListBigQueryTablesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunBigQueryQueryRequestObject struct {
+	Label  ConnectionLabel `json:"label"`
+	Params RunBigQueryQueryParams
+	Body   *RunBigQueryQueryJSONRequestBody
+}
+
+type RunBigQueryQueryResponseObject interface {
+	VisitRunBigQueryQueryResponse(w http.ResponseWriter) error
+}
+
+type RunBigQueryQuery200JSONResponse BigQueryResult
+
+func (response RunBigQueryQuery200JSONResponse) VisitRunBigQueryQueryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunBigQueryQuerydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RunBigQueryQuerydefaultJSONResponse) VisitRunBigQueryQueryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBigQueryTableRequestObject struct {
+	Label  ConnectionLabel `json:"label"`
+	Table  string          `json:"table"`
+	Params GetBigQueryTableParams
+}
+
+type GetBigQueryTableResponseObject interface {
+	VisitGetBigQueryTableResponse(w http.ResponseWriter) error
+}
+
+type GetBigQueryTable200JSONResponse BigQueryTable
+
+func (response GetBigQueryTable200JSONResponse) VisitGetBigQueryTableResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBigQueryTabledefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetBigQueryTabledefaultJSONResponse) VisitGetBigQueryTableResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -79363,6 +80849,18 @@ type StrictServerInterface interface {
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(ctx context.Context, request ListIntegrationsRequestObject) (ListIntegrationsResponseObject, error)
+	// ListBigQueryDatasets The datasets of a BigQuery Connection's data projects
+	// (GET /integrations/bigquery/connections/{label}/datasets)
+	ListBigQueryDatasets(ctx context.Context, request ListBigQueryDatasetsRequestObject) (ListBigQueryDatasetsResponseObject, error)
+	// ListBigQueryTables The tables of a dataset with their types
+	// (GET /integrations/bigquery/connections/{label}/datasets/{dataset}/tables)
+	ListBigQueryTables(ctx context.Context, request ListBigQueryTablesRequestObject) (ListBigQueryTablesResponseObject, error)
+	// RunBigQueryQuery Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+	// (POST /integrations/bigquery/connections/{label}/query)
+	RunBigQueryQuery(ctx context.Context, request RunBigQueryQueryRequestObject) (RunBigQueryQueryResponseObject, error)
+	// GetBigQueryTable A table's metadata and schema
+	// (GET /integrations/bigquery/connections/{label}/tables/{table})
+	GetBigQueryTable(ctx context.Context, request GetBigQueryTableRequestObject) (GetBigQueryTableResponseObject, error)
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
 	// (POST /integrations/superset/connections/{label}/api)
 	RelaySupersetRequest(ctx context.Context, request RelaySupersetRequestRequestObject) (RelaySupersetRequestResponseObject, error)
@@ -83384,6 +84882,123 @@ func (sh *strictHandler) ListIntegrations(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListIntegrationsResponseObject); ok {
 		if err := validResponse.VisitListIntegrationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBigQueryDatasets operation middleware
+func (sh *strictHandler) ListBigQueryDatasets(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params ListBigQueryDatasetsParams) {
+	var request ListBigQueryDatasetsRequestObject
+
+	request.Label = label
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBigQueryDatasets(ctx, request.(ListBigQueryDatasetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBigQueryDatasets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBigQueryDatasetsResponseObject); ok {
+		if err := validResponse.VisitListBigQueryDatasetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBigQueryTables operation middleware
+func (sh *strictHandler) ListBigQueryTables(w http.ResponseWriter, r *http.Request, label ConnectionLabel, dataset string, params ListBigQueryTablesParams) {
+	var request ListBigQueryTablesRequestObject
+
+	request.Label = label
+	request.Dataset = dataset
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBigQueryTables(ctx, request.(ListBigQueryTablesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBigQueryTables")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBigQueryTablesResponseObject); ok {
+		if err := validResponse.VisitListBigQueryTablesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RunBigQueryQuery operation middleware
+func (sh *strictHandler) RunBigQueryQuery(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params RunBigQueryQueryParams) {
+	var request RunBigQueryQueryRequestObject
+
+	request.Label = label
+	request.Params = params
+
+	var body RunBigQueryQueryJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RunBigQueryQuery(ctx, request.(RunBigQueryQueryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RunBigQueryQuery")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RunBigQueryQueryResponseObject); ok {
+		if err := validResponse.VisitRunBigQueryQueryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetBigQueryTable operation middleware
+func (sh *strictHandler) GetBigQueryTable(w http.ResponseWriter, r *http.Request, label ConnectionLabel, table string, params GetBigQueryTableParams) {
+	var request GetBigQueryTableRequestObject
+
+	request.Label = label
+	request.Table = table
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBigQueryTable(ctx, request.(GetBigQueryTableRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBigQueryTable")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBigQueryTableResponseObject); ok {
+		if err := validResponse.VisitGetBigQueryTableResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
