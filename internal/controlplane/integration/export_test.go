@@ -16,3 +16,10 @@ func (s *Service) WithoutPollPauses(paused *[]time.Duration) *Service {
 
 	return s
 }
+
+// BetweenReads runs do between the reads of a BigQuery Connection's settings and of its key.
+func (s *Service) BetweenReads(do func()) *Service {
+	s.betweenReads = do
+
+	return s
+}

@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"google.golang.org/api/option"
@@ -146,15 +145,21 @@ type saToken struct {
 	client   *http.Client
 	now      func() time.Time
 
-	mu      sync.Mutex
+	// turn is held by the call that reads or exchanges the token: a call waiting for it gives up at its own
+	// deadline, not when another call's exchange ends (review round 2).
+	turn    chan struct{}
 	access  string
 	expires time.Time
 }
 
 // Token is the key's access token, exchanged first when there is none or it is about to end.
 func (t *saToken) Token(ctx context.Context) (string, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	select {
+	case t.turn <- struct{}{}:
+	case <-ctx.Done():
+		return "", fmt.Errorf("waiting for the service account's token: %w", ctx.Err())
+	}
+	defer func() { <-t.turn }()
 
 	if t.access != "" && t.expires.Sub(t.now()) > tokenRenewBefore {
 		return t.access, nil
@@ -209,7 +214,7 @@ func (t *saToken) exchange(ctx context.Context) (string, time.Time, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		code := errorCode(body.Bytes())
+		code := knownOAuthCode(errorCode(body.Bytes()))
 		refused := resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnauthorized
 
 		if refused {
@@ -234,6 +239,24 @@ func (t *saToken) exchange(ctx context.Context) (string, time.Time, error) {
 	}
 
 	return answer.AccessToken, expires, nil
+}
+
+// oauthCodes are the error codes of RFC 6749 §5.2 and Google's token endpoint. Only these are repeated; any other
+// text of the answer is not, since it is the provider's free text and may echo what was sent (review round 2).
+var oauthCodes = []string{
+	"invalid_request", "invalid_client", "invalid_grant", "unauthorized_client", "unsupported_grant_type",
+	"invalid_scope", "access_denied", "server_error", "temporarily_unavailable",
+}
+
+// knownOAuthCode is the code when it is one of oauthCodes, and "error" otherwise.
+func knownOAuthCode(code string) string {
+	for _, known := range oauthCodes {
+		if code == known {
+			return code
+		}
+	}
+
+	return "error"
 }
 
 // sign makes the JWT of the grant: RS256, the key's id, the account as issuer, the bigquery scope, the token
@@ -293,16 +316,21 @@ func (s *Service) newToken(key serviceAccountKey) *saToken {
 		tokenURL = s.googleTokenURL
 	}
 
-	return &saToken{key: key, tokenURL: tokenURL, client: s.client, now: s.clock.Now}
+	return &saToken{key: key, tokenURL: tokenURL, client: s.client, now: s.clock.Now, turn: make(chan struct{}, 1)}
 }
 
 // serviceAccountTokens is the token of a Connection kept in memory, with the secret and its version it was made
 // from.
 type serviceAccountTokens struct {
-	secret  string
-	version int
+	secret string
+	// version is the key's vault identity: the secret's id and its version number, so a secret made again under
+	// the same name (whose version starts at 1 again) is never taken for the one before (review round 2).
+	version string
 	token   *saToken
 }
+
+// keyVersion is a vault secret's identity as a token is kept under it.
+func keyVersion(sec vault.Secret) string { return fmt.Sprintf("%s:%d", sec.ID, sec.Version) }
 
 // bigqueryClient is a client of BigQuery that sends each request with the key's token.
 func (s *Service) bigqueryClient(ctx context.Context, connection string, settings bigquery.Settings, token *saToken,
@@ -351,9 +379,20 @@ func (s *Service) ConnectServiceAccount(ctx context.Context, integration, label 
 	}
 
 	secret := serviceAccountSecretName(d.ID, label)
-	raw, keptVersion := sa.Key, 0
+	raw, keptVersion := sa.Key, ""
 
 	if len(raw) == 0 {
+		described, err := s.vault.Get(ctx, secret)
+		if errors.Is(err, vault.ErrNotFound) {
+			return Connection{}, fmt.Errorf("%w: give the service account's JSON key (--key-file)", ErrInvalid)
+		}
+
+		if err != nil {
+			return Connection{}, vaultError(err)
+		}
+
+		keptVersion = keyVersion(described)
+
 		opened, err := s.vault.Open(ctx, secret)
 		if errors.Is(err, vault.ErrNotFound) {
 			return Connection{}, fmt.Errorf("%w: give the service account's JSON key (--key-file)", ErrInvalid)
@@ -363,7 +402,7 @@ func (s *Service) ConnectServiceAccount(ctx context.Context, integration, label 
 			return Connection{}, vaultError(err)
 		}
 
-		raw, keptVersion = []byte(opened.Payload[vault.KeyValue]), opened.Version
+		raw = []byte(opened.Payload[vault.KeyValue])
 	}
 
 	key, err := parseServiceAccountKey(raw)
@@ -385,6 +424,11 @@ func (s *Service) ConnectServiceAccount(ctx context.Context, integration, label 
 
 	s.saMu.Lock()
 	defer s.saMu.Unlock()
+
+	// From here the writes go to their end, or are undone, whatever becomes of the request: a request canceled
+	// after the key was written must not leave the key without its Connection (review round 2).
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeTimeout)
+	defer cancel()
 
 	previous, hadSettings := s.previousSettings(ctx, d.ID, label)
 	if keepCap && hadSettings {
@@ -418,6 +462,9 @@ func (s *Service) ConnectServiceAccount(ctx context.Context, integration, label 
 	return s.checked(ctx, d, saved), nil
 }
 
+// writeTimeout bounds the writes of a Connection, which no longer follow the request's own context.
+const writeTimeout = 30 * time.Second
+
 // previousSettings are the settings a label has, when it has a Connection.
 func (s *Service) previousSettings(ctx context.Context, integration, label string) (bigquery.Settings, bool) {
 	conn, err := s.store.ConnectionOf(ctx, integration, label)
@@ -434,20 +481,20 @@ func (s *Service) previousSettings(ctx context.Context, integration, label strin
 // Connection uses and what undoes the write: the secret removed when it was made here, the old key put back when it
 // was replaced. With no key given, the kept one must be the version that was checked. Under saMu.
 func (s *Service) writeKey(ctx context.Context, d Definition, label, secret string, key serviceAccountKey,
-	given []byte, keptVersion int,
-) (int, func(), error) {
+	given []byte, keptVersion string,
+) (string, func(), error) {
 	if len(given) == 0 {
 		kept, err := s.vault.Get(ctx, secret)
 		if err != nil {
-			return 0, nil, vaultError(err)
+			return "", nil, vaultError(err)
 		}
 
-		if kept.Version != keptVersion {
-			return 0, nil, fmt.Errorf("%w: the key of %s changed while it was checked; connect again", ErrConflict,
+		if keyVersion(kept) != keptVersion {
+			return "", nil, fmt.Errorf("%w: the key of %s changed while it was checked; connect again", ErrConflict,
 				orchestration.Use(d.ID, label))
 		}
 
-		return kept.Version, func() {}, nil
+		return keptVersion, func() {}, nil
 	}
 
 	payload := vault.Payload{vault.KeyValue: string(given)}
@@ -464,20 +511,20 @@ func (s *Service) writeKey(ctx context.Context, d Definition, label, secret stri
 			},
 		})
 		if err != nil {
-			return 0, nil, vaultError(err)
+			return "", nil, vaultError(err)
 		}
 
-		return made.Version, func() { s.logged(ctx, "removing a key no Connection uses", s.vault.Delete(ctx, secret)) }, nil
+		return keyVersion(made), func() { s.logged(ctx, "removing a key no Connection uses", s.vault.Delete(ctx, secret)) }, nil
 	case err != nil:
-		return 0, nil, vaultError(err)
+		return "", nil, vaultError(err)
 	}
 
 	rotated, err := s.vault.Rotate(ctx, secret, payload)
 	if err != nil {
-		return 0, nil, vaultError(err)
+		return "", nil, vaultError(err)
 	}
 
-	return rotated.Version, func() {
+	return keyVersion(rotated), func() {
 		_, err := s.vault.Rotate(ctx, secret, old.Payload)
 		s.logged(ctx, "putting the replaced key back", err)
 	}, nil
@@ -534,40 +581,47 @@ func settingsOf(conn orchestration.Connection) (bigquery.Settings, error) {
 }
 
 // serviceAccount is the token of a Connection, kept or made anew from its key, with the version of that key.
-func (s *Service) serviceAccount(ctx context.Context, conn orchestration.Connection) (*saToken, int, error) {
+func (s *Service) serviceAccount(ctx context.Context, conn orchestration.Connection) (*saToken, string, error) {
 	k := accountKey(conn.Integration, conn.Label)
 
 	described, err := s.vault.Get(ctx, conn.Secret)
 	if err != nil {
-		return nil, 0, vaultError(err)
+		return nil, "", vaultError(err)
 	}
+
+	version := keyVersion(described)
 
 	s.mu.Lock()
 	kept, ok := s.serviceAccounts[k]
 	s.mu.Unlock()
 
-	if ok && kept.secret == conn.Secret && kept.version == described.Version {
+	if ok && kept.secret == conn.Secret && kept.version == version {
 		return kept.token, kept.version, nil
 	}
 
 	opened, err := s.vault.Open(ctx, conn.Secret)
 	if err != nil {
-		return nil, 0, vaultError(err)
+		return nil, "", vaultError(err)
+	}
+
+	// The key opened is the version described: both are read under saMu, which every write of it takes.
+	if opened.Version != described.Version {
+		return nil, "", fmt.Errorf("%w: the key of %s changed while it was read; try again", ErrConflict,
+			orchestration.Use(conn.Integration, conn.Label))
 	}
 
 	key, err := parseServiceAccountKey([]byte(opened.Payload[vault.KeyValue]))
 	if err != nil {
-		return nil, 0, err
+		return nil, "", err
 	}
 
 	token := s.newToken(key)
 
-	// The version is the one the key was opened at, never a later read's.
 	s.mu.Lock()
-	s.serviceAccounts[k] = serviceAccountTokens{secret: conn.Secret, version: opened.Version, token: token}
+	s.serviceAccounts[k] = serviceAccountTokens{secret: conn.Secret, version: version, token: token}
 	s.mu.Unlock()
 
-	return token, opened.Version, nil
+	return token, version, nil
 }
 
 func (s *Service) dropServiceAccount(integration, label string) {
@@ -576,9 +630,36 @@ func (s *Service) dropServiceAccount(integration, label string) {
 	s.mu.Unlock()
 }
 
+// connectionState reads a Connection, its settings and its key's token from one state: under saMu, which every
+// write of either takes, so a reconnect between the reads can never pair a new key with old settings (review
+// round 2).
+func (s *Service) connectionState(ctx context.Context, d Definition, label string,
+) (orchestration.Connection, bigquery.Settings, *saToken, string, error) {
+	s.saMu.Lock()
+	defer s.saMu.Unlock()
+
+	conn, err := s.store.ConnectionOf(ctx, d.ID, label)
+	if err != nil {
+		return conn, bigquery.Settings{}, nil, "", err
+	}
+
+	settings, err := settingsOf(conn)
+	if err != nil {
+		return conn, settings, nil, "", err
+	}
+
+	if s.betweenReads != nil {
+		s.betweenReads()
+	}
+
+	token, version, err := s.serviceAccount(ctx, conn)
+
+	return conn, settings, token, version, err
+}
+
 // markRefused records that Google refused a key, when it is still the Connection's: a key replaced meanwhile says
 // nothing of the one that replaced it.
-func (s *Service) markRefused(ctx context.Context, d Definition, label string, version int) {
+func (s *Service) markRefused(ctx context.Context, d Definition, label, version string) {
 	s.saMu.Lock()
 	defer s.saMu.Unlock()
 
@@ -588,7 +669,7 @@ func (s *Service) markRefused(ctx context.Context, d Definition, label string, v
 	}
 
 	current, err := s.vault.Get(ctx, conn.Secret)
-	if err != nil || current.Version != version {
+	if err != nil || keyVersion(current) != version {
 		return
 	}
 
@@ -616,17 +697,7 @@ func (s *Service) WithBigQuery(ctx context.Context, integration, label string, d
 		return fmt.Errorf("%w: %s is not read with a service account", ErrInvalid, d.ID)
 	}
 
-	conn, err := s.store.ConnectionOf(ctx, d.ID, label)
-	if err != nil {
-		return err
-	}
-
-	settings, err := settingsOf(conn)
-	if err != nil {
-		return err
-	}
-
-	token, version, err := s.serviceAccount(ctx, conn)
+	conn, settings, token, version, err := s.connectionState(ctx, d, label)
 	if err != nil {
 		return err
 	}
@@ -702,17 +773,7 @@ func (s *Service) SetMaxBytes(ctx context.Context, integration, label string, ma
 // checkServiceAccountAgain is the owner's "Check again" of a BigQuery Connection: the connect check with the key
 // kept. Only a key Google refuses marks it as needing to be connected again.
 func (s *Service) checkServiceAccountAgain(ctx context.Context, d Definition, label string) error {
-	conn, err := s.store.ConnectionOf(ctx, d.ID, label)
-	if err != nil {
-		return err
-	}
-
-	settings, err := settingsOf(conn)
-	if err != nil {
-		return err
-	}
-
-	token, version, err := s.serviceAccount(ctx, conn)
+	conn, settings, token, version, err := s.connectionState(ctx, d, label)
 	if err != nil {
 		return err
 	}

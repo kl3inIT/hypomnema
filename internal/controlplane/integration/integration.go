@@ -114,7 +114,9 @@ type Service struct {
 	// (serviceaccount.go); googleTokenURL and bigqueryEndpoint replace Google's addresses, for a test.
 	serviceAccounts map[string]serviceAccountTokens
 	// saMu orders the writes of a service account's Connection: connect, disconnect, the cap, the refused mark.
-	saMu             sync.Mutex
+	saMu sync.Mutex
+	// betweenReads runs between the reads of a Connection's settings and of its key, for a test.
+	betweenReads     func()
 	googleTokenURL   string
 	bigqueryEndpoint string
 	// logger is where a BigQuery job's lines are written; nil writes none.
