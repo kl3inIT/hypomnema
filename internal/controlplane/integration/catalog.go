@@ -44,6 +44,9 @@ const (
 	// as a device of his by a QR code his phone scans; the control plane holds
 	// its session (issue #615).
 	KindDevice Kind = "device"
+	// KindServiceAccount: a Connection is a Google service account's JSON key the owner gave once; the control
+	// plane signs its JWT and keeps the access token (issue #976).
+	KindServiceAccount Kind = "serviceaccount"
 )
 
 // Definition is what an Integration declares. It is code, not something the

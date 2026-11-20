@@ -289,6 +289,7 @@ type Connection struct {
 	Access       sql.NullString
 	Proxy        sql.NullString
 	DialAddress  sql.NullString
+	Settings     sql.NullString
 }
 
 type Conversation struct {

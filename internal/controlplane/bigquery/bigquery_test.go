@@ -467,4 +467,3 @@ func TestSettings(t *testing.T) {
 		require.Error(t, err, "%+v", bad)
 	}
 }
-

@@ -35,12 +35,17 @@ DELETE FROM repos WHERE name = @name;
 
 -- name: UpsertConnection :exec
 INSERT INTO connections (integration, label, account, secret, services, address, version, app_id, app_label,
-    created_at, updated_at)
-VALUES (@integration, @label, @account, @secret, @services, @address, @version, @app_id, @app_label, @now, @now)
+    settings, created_at, updated_at)
+VALUES (@integration, @label, @account, @secret, @services, @address, @version, @app_id, @app_label, @settings, @now,
+    @now)
 ON CONFLICT (integration, label) DO UPDATE
 SET account = excluded.account, secret = excluded.secret, services = excluded.services,
     address = excluded.address, version = excluded.version, app_id = excluded.app_id, app_label = excluded.app_label,
-    sign_in_failed = 0, updated_at = excluded.updated_at;
+    settings = excluded.settings, sign_in_failed = 0, updated_at = excluded.updated_at;
+
+-- name: SetConnectionSettings :execrows
+-- What the owner set beside the credential (issue #976): a BigQuery Connection's cap.
+UPDATE connections SET settings = @settings, updated_at = @now WHERE integration = @integration AND label = @label;
 
 -- name: SetConnectionSignInFailed :execrows
 -- Whether the service refused the account the last time the control plane signed in. Only a change is written.

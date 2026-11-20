@@ -789,6 +789,9 @@ func clip(s string) string {
 	return s
 }
 
+// Cause is what Google said of a failed call or token exchange, with no request, header, key or token in it.
+func Cause(err error) string { return googleCause(err) }
+
 // googleCause is what Google said, without the request, a header or a token: its status, its reason and its
 // message, or the token exchange's error code.
 func googleCause(err error) string {
