@@ -3722,11 +3722,6 @@ capabilities do not exist yet.
     or budget: the key rests an hour (or until a `Retry-After` up to two hours) and the request moves to the next key
     on a status that moves on (opencode `provider-error.ts` `QUOTA_CODES`; omniroute's 402 `quota_exhausted`). A 401
     marks the key refused. Any other refusal rests the key as every built-in provider's account rests (above).
-  - A bare model name in a profile, a Task or a role chain never picks Zen (`orchestration` `checkModel`): Zen lists
-    the Claude, GPT and open models the subscriptions and Go already serve, and a name two providers offer is
-    refused, so a bare name keeps the provider it had and Zen is reached by naming `opencode-zen`, as 9router and
-    omniroute address a model by its provider's alias. A departure from the approved design, put to the owner in the
-    pull request.
   - Not built: the free models (`Bearer public` and OpenCode's identity, which the owner refused), Zen's balance or
     usage, recording the `usage.cost` Zen answers, a Zen price in the price book (a Claude or GPT model is priced by
     its maker's row; another Zen model is unpriced), Gemini, `interactions`, image models.
