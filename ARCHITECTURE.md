@@ -228,7 +228,11 @@ The database ([decision](docs/decisions/2026-11-07-sqlite.md)) is one SQLite fil
 one connection, WAL, `synchronous=FULL`, pragmas read back after opening; its directory is made 0700 and a new file
 0600, and an existing file that group or others can access, or that another user owns, is refused (Linux).
 
-Migrations are goose SQL files embedded in the binary (`internal/controlplane/orchestration/migrations`); the schema
+Migrations are goose SQL files embedded in the binary (`internal/controlplane/orchestration/migrations`). One on
+main is numbered (`00143_inbox.sql`); a new one is made with `make migration-create`, named by its time
+(`YYYYMMDDHHMMSS_name.sql`, which sorts after every number), and `make migration-fix` (goose `fix`) numbers it after
+main's last right before its pull request is merged; a push to main refuses one named by its time (issue #954). The
+schema
 holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, account
 cooldowns, questions, the event log, nodes, accounts and client tokens, and the vault's secrets, which only the vault touches. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
@@ -1629,8 +1633,9 @@ flowchart LR
     the Routine panel or with `hypomnema routines set <name> --access read`. A Bot's later change to the work or
     schedule clears that grant. The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
-    the allowed messaging, Superset and memory reads; pi has no Bash or project extensions and can read and write
-    its private notes, not other files. Nothing asks for approval. Results stay in the run's chat, not in its run
+    the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
+    `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
+    write its private notes, not other files. Nothing asks for approval. Results stay in the run's chat, not in its run
     record, the chat it was made in, or an alert. See the [morning brief](docs/morning-brief.md).
   - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
     expression with an IANA time zone, which is required (`github.com/robfig/cron/v3` parses it; the zones are
@@ -5631,10 +5636,12 @@ and the node in the control plane binary.
 
 - `make verify`: gofmt, `go mod tidy -diff` for both modules, golangci-lint (`.golangci.yml`, tools pinned in
   `tools/ci/go.mod`), the dependency check, `sqlc-check` (generated queries match `sqlc generate`),
-  `openapi-check` (generated client API code matches `api/openapi.yaml`), `migration-check` (migrations already on
-  `origin/main` are unchanged, no two share a number, and a new one is numbered after main's last; CI checks a pull
-  request against main as it is when the check runs, and a push to main against the commit before it, issue #334),
-  unit tests and race tests.
+  `openapi-check` (generated client API code matches `api/openapi.yaml`), `migration-check` (numbered migrations
+  already on `origin/main` are unchanged, no two share a number, and a new numbered one comes after main's last; CI
+  checks a pull request against main as it is when the check runs, and a push to main against the commit before it,
+  issue #334; on a push to main it also refuses a migration named by its time, issue #954), `goose-version-check`
+  (goose's CLI, a `tool` of its own module `tools/goose/go.mod` built with no database driver as Omnara's, is the
+  goose of `go.mod`), unit tests and race tests.
 - Tests that need a database open a real file in a temporary directory; no containers.
 - `make web-doctor`: React Doctor's report on the web client (pinned, local checks only: no score API, crash
   reports or dependency lookups; `web/doctor.config.json`). It is read, not a gate. Its config turns off the

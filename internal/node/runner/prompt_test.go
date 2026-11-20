@@ -263,7 +263,9 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	for _, want := range []string{
 		"`glab api projects/team%2Fplatform%2Fapi`: has only_allow_merge_if_pipeline_succeeds: true",
 		"\"\"Pipelines must succeed\" is off in the project's settings\"",
-		"Before step 3, check that its pipeline is not null",
+		"Before step 3, check that its pipeline is not null; if it is null, wait once with `sleep 60` and " +
+			"read it one more time, never in a loop; if it is still null, do not enable auto-merge: finish and " +
+			"say the merge request has no pipeline.",
 		"`glab mr merge <iid> --auto-merge --yes --sha <sha>`",
 		"`glab ci status --live --branch hyp/tsk_1`",
 	} {
