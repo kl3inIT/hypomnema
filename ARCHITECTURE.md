@@ -4950,11 +4950,30 @@ Node (`internal/node`):
       continue on the same branch, update the same pull request and call `finish` again), and a resolved Gate
       ("The owner answered the question you asked at `finish`.", a plain sentence since issue #672).
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
-  `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, where base is the
+  `origin/*` before each new worktree. A file lock in the node home's `mirror-locks/`, keyed by the mirror's
+  relative path hash, serializes clone, fetch, worktree add and cleanup across node processes. On Linux and
+  macOS a supervisor holds the lock while Git runs for clone, fetch, worktree add and setup; neither Git nor its
+  children inherit it. The disk cleanup's confined `git worktree remove` is not supervised: it inherits the
+  worktree and mirror lock descriptors itself, so the locks stay held until it exits even if the daemon dies
+  first. On cancellation
+  or daemon exit the supervisor signals the Git process group with TERM, then KILL after the grace period,
+  before releasing its copy of the lock. The lock wait follows the Dispatch context, with no separate
+  deadline. Git has no additional timeout by default; the node config can set `mirror_git_timeout` (a total limit
+  per command) and `mirror_git_grace` (default `1s`) as Go durations. A clone is published by rename only after
+  success. On Linux, before stopping its mirror Git process, the supervisor checks that process's writable file
+  descriptors for Git lockfiles. It removes only a captured lock whose inode is still in place after Git exits;
+  unproven locks are left alone. Worker Git does not take the node's mirror lock. Mirror fetches disable hooks and
+  automatic maintenance and retry `cannot lock ref` once (issue #868). Git's error is recognized while its output
+  streams, before the error message keeps only the output's last 4 KiB. Worktree commands honor configured hooks.
+  `git worktree add -b hyp/<task>` from `origin/<base>`, where base is the
   offer's `start_from` when it names one (issue #690: the continued or parent branch; one the host lacks fails with
   its name), or from the existing branch on a retry; reused while it exists. The local branch is always the
   Task's own, so an old worktree of the continued Task on the node, which holds that Task's branch, does not stop
-  it. Git uses the node user's own credentials. The offer names the
+  it. A separate lock for the worktree path serializes checkout, setup and removal for that path.
+  A pending marker written before checkout and cleared before setup distinguishes incomplete checkouts from
+  completed or pre-upgrade ones. The node recreates a pending checkout on retry without forcing a branch already
+  in use elsewhere. A retry does not rerun interrupted setup or discard commits it made. Other mirrors and worktrees
+  do not wait for that setup. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
   the mirror's `origin` is set to the address it is fetched from, so the worker pushes the same way. A GitHub
@@ -5018,7 +5037,9 @@ Node (`internal/node`):
   crosses mounts, and removes the Run directory only if empty. Git cleanup keeps checkouts with tracked changes,
   untracked files, or hidden index entries; ignored files do not prevent removal.
   `git worktree remove` runs without force in a filesystem sandbox (Linux Landlock or macOS
-  `sandbox-exec`); if confinement is unavailable, the checkout is kept.
+  `sandbox-exec`); if confinement is unavailable, the checkout is kept. Cleanup holds the worktree path's lock, and
+  the mirror's lock around `git worktree remove`, the same locks Dispatch setup takes; that Git process holds them
+  too, until it exits (issue #868).
   Open Runs keep their worktrees for follow-ups.
 - Setup and the worker get private `TMPDIR`, `TEMP`, `TMP` and `GOTMPDIR` under `run/<dispatch>/tmp`. The worker prompt
   says to put all temporary files and directories there, including database data, sockets and clones, not in
