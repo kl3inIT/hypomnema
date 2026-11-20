@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
 
 const deleteExpiredWebSessions = `-- name: DeleteExpiredWebSessions :exec
@@ -18,35 +19,19 @@ func (q *Queries) DeleteExpiredWebSessions(ctx context.Context, now int64) error
 	return err
 }
 
-const deleteWebSession = `-- name: DeleteWebSession :exec
-DELETE FROM web_sessions WHERE id = ?1
-`
-
-func (q *Queries) DeleteWebSession(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteWebSession, id)
-	return err
-}
-
-const deleteWebSessionsOfUser = `-- name: DeleteWebSessionsOfUser :exec
-DELETE FROM web_sessions WHERE user_id = ?1
-`
-
-func (q *Queries) DeleteWebSessionsOfUser(ctx context.Context, userID string) error {
-	_, err := q.db.ExecContext(ctx, deleteWebSessionsOfUser, userID)
-	return err
-}
-
 const extendWebSession = `-- name: ExtendWebSession :exec
-UPDATE web_sessions SET expires_at = ?1 WHERE id = ?2
+UPDATE web_sessions SET expires_at = ?1, last_used_at = ?2 WHERE id = ?3
 `
 
 type ExtendWebSessionParams struct {
 	ExpiresAt int64
+	Now       sql.NullInt64
 	ID        string
 }
 
+// A session in use: its end moves and its last use is written, at most once an hour.
 func (q *Queries) ExtendWebSession(ctx context.Context, arg ExtendWebSessionParams) error {
-	_, err := q.db.ExecContext(ctx, extendWebSession, arg.ExpiresAt, arg.ID)
+	_, err := q.db.ExecContext(ctx, extendWebSession, arg.ExpiresAt, arg.Now, arg.ID)
 	return err
 }
 
@@ -70,7 +55,7 @@ func (q *Queries) GetUserByName(ctx context.Context, name string) (User, error) 
 const getWebSessionByHash = `-- name: GetWebSessionByHash :one
 SELECT s.id, s.user_id, s.expires_at, u.name AS user_name
 FROM web_sessions s JOIN users u ON u.id = s.user_id
-WHERE s.secret_hash = ?1
+WHERE s.secret_hash = ?1 AND s.revoked_at IS NULL
 `
 
 type GetWebSessionByHashRow struct {
@@ -168,6 +153,37 @@ func (q *Queries) ListUsers(ctx context.Context) ([]User, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const revokeWebSession = `-- name: RevokeWebSession :exec
+UPDATE web_sessions SET revoked_at = ?1, revoke_reason = ?2 WHERE id = ?3 AND revoked_at IS NULL
+`
+
+type RevokeWebSessionParams struct {
+	Now    sql.NullInt64
+	Reason sql.NullString
+	ID     string
+}
+
+// A revoked session is kept until its end passes, as an expired one is (issue #996).
+func (q *Queries) RevokeWebSession(ctx context.Context, arg RevokeWebSessionParams) error {
+	_, err := q.db.ExecContext(ctx, revokeWebSession, arg.Now, arg.Reason, arg.ID)
+	return err
+}
+
+const revokeWebSessionsOfUser = `-- name: RevokeWebSessionsOfUser :exec
+UPDATE web_sessions SET revoked_at = ?1, revoke_reason = ?2 WHERE user_id = ?3 AND revoked_at IS NULL
+`
+
+type RevokeWebSessionsOfUserParams struct {
+	Now    sql.NullInt64
+	Reason sql.NullString
+	UserID string
+}
+
+func (q *Queries) RevokeWebSessionsOfUser(ctx context.Context, arg RevokeWebSessionsOfUserParams) error {
+	_, err := q.db.ExecContext(ctx, revokeWebSessionsOfUser, arg.Now, arg.Reason, arg.UserID)
+	return err
 }
 
 const setUserPassword = `-- name: SetUserPassword :execrows

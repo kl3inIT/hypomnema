@@ -166,18 +166,6 @@ func (q *Queries) DeleteArtifactRevisionsBefore(ctx context.Context, arg DeleteA
 	return err
 }
 
-const deleteArtifactShare = `-- name: DeleteArtifactShare :execrows
-DELETE FROM artifact_shares WHERE id = ?1
-`
-
-func (q *Queries) DeleteArtifactShare(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteArtifactShare, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const deleteUnusedArtifactBlobs = `-- name: DeleteUnusedArtifactBlobs :exec
 DELETE FROM artifact_blobs
 WHERE sha256 IN (SELECT value FROM json_each(?1))
@@ -205,6 +193,29 @@ func (q *Queries) GetArtifact(ctx context.Context, id string) (Artifact, error) 
 		&i.Revision,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getLiveArtifactShare = `-- name: GetLiveArtifactShare :one
+SELECT id, artifact_id, token_hash, token, secret_version_id, label, created_at, views, last_viewed_at, revoked_at, revoke_reason FROM artifact_shares WHERE id = ?1 AND revoked_at IS NULL
+`
+
+func (q *Queries) GetLiveArtifactShare(ctx context.Context, id string) (ArtifactShare, error) {
+	row := q.db.QueryRowContext(ctx, getLiveArtifactShare, id)
+	var i ArtifactShare
+	err := row.Scan(
+		&i.ID,
+		&i.ArtifactID,
+		&i.TokenHash,
+		&i.Token,
+		&i.SecretVersionID,
+		&i.Label,
+		&i.CreatedAt,
+		&i.Views,
+		&i.LastViewedAt,
+		&i.RevokedAt,
+		&i.RevokeReason,
 	)
 	return i, err
 }
@@ -310,24 +321,27 @@ func (q *Queries) InsertArtifactRevision(ctx context.Context, arg InsertArtifact
 
 const insertArtifactShare = `-- name: InsertArtifactShare :exec
 
-INSERT INTO artifact_shares (id, artifact_id, token, label, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5)
+INSERT INTO artifact_shares (id, artifact_id, token_hash, secret_version_id, label, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
 `
 
 type InsertArtifactShareParams struct {
-	ID         string
-	ArtifactID string
-	Token      string
-	Label      string
-	Now        int64
+	ID              string
+	ArtifactID      string
+	TokenHash       sql.NullString
+	SecretVersionID sql.NullString
+	Label           string
+	Now             int64
 }
 
 // View-only links to an artifact (issue #745).
+// Only the token's hash and its sealed copy are kept (issue #996).
 func (q *Queries) InsertArtifactShare(ctx context.Context, arg InsertArtifactShareParams) error {
 	_, err := q.db.ExecContext(ctx, insertArtifactShare,
 		arg.ID,
 		arg.ArtifactID,
-		arg.Token,
+		arg.TokenHash,
+		arg.SecretVersionID,
 		arg.Label,
 		arg.Now,
 	)
@@ -335,31 +349,33 @@ func (q *Queries) InsertArtifactShare(ctx context.Context, arg InsertArtifactSha
 }
 
 const listAllArtifactShares = `-- name: ListAllArtifactShares :many
-SELECT s.id, s.artifact_id, s.token, s.label, s.created_at, s.views, s.last_viewed_at,
+SELECT s.id, s.artifact_id, s.token_hash, s.secret_version_id, s.label, s.created_at, s.views, s.last_viewed_at,
        a.chat_id, a.bot_id, coalesce(b.name, '') AS bot_name, r.title, r.type
 FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id
 JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 LEFT JOIN bots b ON b.id = a.bot_id
+WHERE s.revoked_at IS NULL
 ORDER BY s.created_at DESC, s.id
 `
 
 type ListAllArtifactSharesRow struct {
-	ID           string
-	ArtifactID   string
-	Token        string
-	Label        string
-	CreatedAt    int64
-	Views        int64
-	LastViewedAt sql.NullInt64
-	ChatID       string
-	BotID        string
-	BotName      string
-	Title        string
-	Type         string
+	ID              string
+	ArtifactID      string
+	TokenHash       sql.NullString
+	SecretVersionID sql.NullString
+	Label           string
+	CreatedAt       int64
+	Views           int64
+	LastViewedAt    sql.NullInt64
+	ChatID          string
+	BotID           string
+	BotName         string
+	Title           string
+	Type            string
 }
 
-// Every link, newest first, with its artifact's newest title and type, its Bot and its chat (issue #765).
+// Every link that works, newest first, with its artifact's newest title and type, its Bot and its chat (issue #765).
 func (q *Queries) ListAllArtifactShares(ctx context.Context) ([]ListAllArtifactSharesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listAllArtifactShares)
 	if err != nil {
@@ -372,7 +388,8 @@ func (q *Queries) ListAllArtifactShares(ctx context.Context) ([]ListAllArtifactS
 		if err := rows.Scan(
 			&i.ID,
 			&i.ArtifactID,
-			&i.Token,
+			&i.TokenHash,
+			&i.SecretVersionID,
 			&i.Label,
 			&i.CreatedAt,
 			&i.Views,
@@ -505,10 +522,10 @@ func (q *Queries) ListArtifactRevisions(ctx context.Context, artifactID string) 
 }
 
 const listArtifactShares = `-- name: ListArtifactShares :many
-SELECT id, artifact_id, token, label, created_at, views, last_viewed_at FROM artifact_shares WHERE artifact_id = ?1 ORDER BY created_at DESC, id
+SELECT id, artifact_id, token_hash, token, secret_version_id, label, created_at, views, last_viewed_at, revoked_at, revoke_reason FROM artifact_shares WHERE artifact_id = ?1 AND revoked_at IS NULL ORDER BY created_at DESC, id
 `
 
-// Newest first.
+// The links that work, newest first.
 func (q *Queries) ListArtifactShares(ctx context.Context, artifactID string) ([]ArtifactShare, error) {
 	rows, err := q.db.QueryContext(ctx, listArtifactShares, artifactID)
 	if err != nil {
@@ -521,11 +538,15 @@ func (q *Queries) ListArtifactShares(ctx context.Context, artifactID string) ([]
 		if err := rows.Scan(
 			&i.ID,
 			&i.ArtifactID,
+			&i.TokenHash,
 			&i.Token,
+			&i.SecretVersionID,
 			&i.Label,
 			&i.CreatedAt,
 			&i.Views,
 			&i.LastViewedAt,
+			&i.RevokedAt,
+			&i.RevokeReason,
 		); err != nil {
 			return nil, err
 		}
@@ -606,6 +627,121 @@ func (q *Queries) ListArtifacts(ctx context.Context, arg ListArtifactsParams) ([
 	return items, nil
 }
 
+const listShareLabelsBySecret = `-- name: ListShareLabelsBySecret :many
+SELECT s.id, s.label FROM artifact_shares s
+JOIN secret_versions v ON v.id = s.secret_version_id
+JOIN secrets ON secrets.id = v.secret_id
+WHERE secrets.name = ?1
+ORDER BY s.id
+`
+
+type ListShareLabelsBySecretRow struct {
+	ID    string
+	Label string
+}
+
+// The links whose sealed token is the secret, so the vault refuses to delete it (issue #996), as a gateway key's.
+func (q *Queries) ListShareLabelsBySecret(ctx context.Context, secretName string) ([]ListShareLabelsBySecretRow, error) {
+	rows, err := q.db.QueryContext(ctx, listShareLabelsBySecret, secretName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListShareLabelsBySecretRow{}
+	for rows.Next() {
+		var i ListShareLabelsBySecretRow
+		if err := rows.Scan(&i.ID, &i.Label); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listShareSecretsOfChat = `-- name: ListShareSecretsOfChat :many
+SELECT s.secret_version_id FROM artifact_shares s JOIN artifacts a ON a.id = s.artifact_id
+WHERE a.chat_id = ?1 AND s.secret_version_id IS NOT NULL
+`
+
+// The sealed copies of a chat's links, deleted with the chat as its artifacts and their links are.
+func (q *Queries) ListShareSecretsOfChat(ctx context.Context, chatID string) ([]sql.NullString, error) {
+	rows, err := q.db.QueryContext(ctx, listShareSecretsOfChat, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []sql.NullString{}
+	for rows.Next() {
+		var secret_version_id sql.NullString
+		if err := rows.Scan(&secret_version_id); err != nil {
+			return nil, err
+		}
+		items = append(items, secret_version_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnmovedArtifactShares = `-- name: ListUnmovedArtifactShares :many
+SELECT id, token FROM artifact_shares WHERE token IS NOT NULL ORDER BY id
+`
+
+type ListUnmovedArtifactSharesRow struct {
+	ID    string
+	Token sql.NullString
+}
+
+// Links made before their tokens were hashed (issue #996), whose plaintext the control plane moves as it starts.
+func (q *Queries) ListUnmovedArtifactShares(ctx context.Context) ([]ListUnmovedArtifactSharesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUnmovedArtifactShares)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUnmovedArtifactSharesRow{}
+	for rows.Next() {
+		var i ListUnmovedArtifactSharesRow
+		if err := rows.Scan(&i.ID, &i.Token); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const moveArtifactShareToken = `-- name: MoveArtifactShareToken :exec
+UPDATE artifact_shares SET token_hash = ?1, secret_version_id = ?2, token = NULL
+WHERE id = ?3
+`
+
+type MoveArtifactShareTokenParams struct {
+	TokenHash       sql.NullString
+	SecretVersionID sql.NullString
+	ID              string
+}
+
+func (q *Queries) MoveArtifactShareToken(ctx context.Context, arg MoveArtifactShareTokenParams) error {
+	_, err := q.db.ExecContext(ctx, moveArtifactShareToken, arg.TokenHash, arg.SecretVersionID, arg.ID)
+	return err
+}
+
 const reviseArtifact = `-- name: ReviseArtifact :exec
 UPDATE artifacts SET revision = ?1, updated_at = ?2 WHERE id = ?3
 `
@@ -619,6 +755,26 @@ type ReviseArtifactParams struct {
 func (q *Queries) ReviseArtifact(ctx context.Context, arg ReviseArtifactParams) error {
 	_, err := q.db.ExecContext(ctx, reviseArtifact, arg.Revision, arg.Now, arg.ID)
 	return err
+}
+
+const revokeArtifactShare = `-- name: RevokeArtifactShare :execrows
+UPDATE artifact_shares SET revoked_at = ?1, revoke_reason = ?2, secret_version_id = NULL
+WHERE id = ?3 AND revoked_at IS NULL
+`
+
+type RevokeArtifactShareParams struct {
+	Now    sql.NullInt64
+	Reason sql.NullString
+	ID     string
+}
+
+// A revoked link is kept, without its sealed copy, which the caller deletes.
+func (q *Queries) RevokeArtifactShare(ctx context.Context, arg RevokeArtifactShareParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeArtifactShare, arg.Now, arg.Reason, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setArtifactMessage = `-- name: SetArtifactMessage :exec
@@ -642,7 +798,7 @@ FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id
 JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 JOIN artifact_files f ON f.artifact_id = a.id AND f.revision = a.revision AND f.path = r.entry
-WHERE s.token = ?1
+WHERE s.token_hash = ?1 AND s.revoked_at IS NULL
 `
 
 type SharedArtifactRow struct {
@@ -656,9 +812,9 @@ type SharedArtifactRow struct {
 	MediaType  string
 }
 
-// What a link shows: its artifact at the newest revision, with the type of the file shown.
-func (q *Queries) SharedArtifact(ctx context.Context, token string) (SharedArtifactRow, error) {
-	row := q.db.QueryRowContext(ctx, sharedArtifact, token)
+// What a working link shows: its artifact at the newest revision, with the type of the file shown.
+func (q *Queries) SharedArtifact(ctx context.Context, tokenHash sql.NullString) (SharedArtifactRow, error) {
+	row := q.db.QueryRowContext(ctx, sharedArtifact, tokenHash)
 	var i SharedArtifactRow
 	err := row.Scan(
 		&i.ID,

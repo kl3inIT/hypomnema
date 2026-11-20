@@ -180,7 +180,7 @@ func (s *Service) agentUsageKey(ctx context.Context, owner keyOwner, name string
 		}
 
 		if _, err := q.RevokeGatewayKey(ctx, store.RevokeGatewayKeyParams{
-			ID: id, Now: sql.NullInt64{Int64: now, Valid: true},
+			ID: id, Now: at(now), Reason: reasonOf(bearertoken.RevokedUsageOnly),
 		}); err != nil {
 			return fmt.Errorf("revoking the %s usage key: %w", name, err)
 		}

@@ -39,8 +39,9 @@ import (
 const (
 	// SessionLifetime is how long a web session lasts after its last use.
 	SessionLifetime = 30 * 24 * time.Hour
-	// sessionExtendEvery bounds how often a session in use is written.
-	sessionExtendEvery = time.Hour
+	// sessionExtendEvery bounds how often a session in use is written, its end and its last use, as every
+	// credential's last use is (issue #996).
+	sessionExtendEvery = bearertoken.TouchEvery
 	// MinPasswordLength is Omnigent's; bcrypt reads no more than 72 bytes.
 	MinPasswordLength = 8
 	maxPasswordBytes  = 72
@@ -160,7 +161,9 @@ func (s *Store) SetUserPassword(ctx context.Context, name, password string) erro
 			return fmt.Errorf("storing the password of %s: %w", name, err)
 		}
 
-		if err := q.DeleteWebSessionsOfUser(ctx, u.ID); err != nil {
+		if err := q.RevokeWebSessionsOfUser(ctx, store.RevokeWebSessionsOfUserParams{
+			Now: validInt(now), Reason: reason(bearertoken.RevokedPasswordChanged), UserID: u.ID,
+		}); err != nil {
 			return fmt.Errorf("ending the sessions of %s: %w", name, err)
 		}
 
@@ -256,7 +259,9 @@ func (s *Store) AuthenticateSession(ctx context.Context, secret string) (User, S
 
 	if fresh := now + SessionLifetime.Milliseconds(); fresh-expires >= sessionExtendEvery.Milliseconds() {
 		err := s.write(ctx, func(q *store.Queries, _ int64) error {
-			return q.ExtendWebSession(ctx, store.ExtendWebSessionParams{ExpiresAt: fresh, ID: row.ID})
+			return q.ExtendWebSession(ctx, store.ExtendWebSessionParams{
+				ExpiresAt: fresh, Now: validInt(now), ID: row.ID,
+			})
 		})
 		if err != nil {
 			return User{}, Session{}, fmt.Errorf("extending session %s: %w", row.ID, err)
@@ -268,13 +273,22 @@ func (s *Store) AuthenticateSession(ctx context.Context, secret string) (User, S
 	return User{ID: row.UserID, Name: row.UserName}, Session{ID: row.ID, ExpiresAt: storeutil.Millis(expires)}, nil
 }
 
-// SignOut ends a session; one that is gone already is no error.
+// SignOut ends a session: it is kept, revoked, until its end passes (issue #996). One that is gone or ended already
+// is no error.
 func (s *Store) SignOut(ctx context.Context, sessionID string) error {
-	return s.write(ctx, func(q *store.Queries, _ int64) error {
-		if err := q.DeleteWebSession(ctx, sessionID); err != nil {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		if err := q.RevokeWebSession(ctx, store.RevokeWebSessionParams{
+			Now: validInt(now), Reason: reason(bearertoken.RevokedSignedOut), ID: sessionID,
+		}); err != nil {
 			return fmt.Errorf("ending session %s: %w", sessionID, err)
 		}
 
 		return nil
 	})
+}
+
+func validInt(v int64) sql.NullInt64 { return sql.NullInt64{Int64: v, Valid: true} }
+
+func reason(r bearertoken.RevokeReason) sql.NullString {
+	return sql.NullString{String: string(r), Valid: true}
 }

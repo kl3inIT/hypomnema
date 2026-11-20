@@ -100,6 +100,19 @@ func (s *Service) addBotToken(b botToken) (string, error) {
 	return secret, nil
 }
 
+// endBotTokens ends every Bot token that ends says should, as what it was made for ends (issue #996): its chat or
+// its Bot deleted, its coordinator token revoked. It is called after the commit that ends that.
+func (s *Service) endBotTokens(ends func(botToken) bool) {
+	s.botTokens.mu.Lock()
+	defer s.botTokens.mu.Unlock()
+
+	for hash, b := range s.botTokens.byHash {
+		if ends(b) {
+			delete(s.botTokens.byHash, hash)
+		}
+	}
+}
+
 // RevokeBotToken ends a Bot token. Ending one that was ended is no error.
 func (s *Service) RevokeBotToken(secret string) {
 	s.botTokens.mu.Lock()

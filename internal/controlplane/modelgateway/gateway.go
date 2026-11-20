@@ -111,8 +111,11 @@ type Key struct {
 	MaskedValue string
 	CreatedAt   time.Time
 	RevokedAt   *time.Time
-	// LastUsedAt is when the gateway last served a request with the key; nil
-	// for one never used. ListKeys sets it.
+	// RevokeReason says why a revoked key stopped (issue #996); empty for a live one or one revoked before reasons
+	// were kept.
+	RevokeReason bearertoken.RevokeReason
+	// LastUsedAt is when the key last authenticated, written at most once an hour, or when the gateway last served
+	// a request with it, whichever is later; nil for one never used. ListKeys reads the requests.
 	LastUsedAt *time.Time
 }
 
@@ -636,6 +639,13 @@ func (s *Service) AddDispatchKey(ctx context.Context, dispatchID, model string) 
 // key made earlier for the chat stops working: a pi started again gets a
 // new one.
 func (s *Service) AddChatKey(ctx context.Context, chatID, botID, model string) (Key, string, error) {
+	return s.AddChatKeyUnder(ctx, "", chatID, botID, model)
+}
+
+// AddChatKeyUnder is AddChatKey for a pi that runs under the coordinator token coordinatorTokenID: revoking that
+// token ends the key (issue #996), as it ends the pi's Bot token.
+func (s *Service) AddChatKeyUnder(ctx context.Context, coordinatorTokenID, chatID, botID, model string,
+) (Key, string, error) {
 	if chatID == "" || (model != "" && !modelNamePattern.MatchString(model)) {
 		return Key{}, "", fmt.Errorf("%w: a chat's key needs the chat, and a model name when it names one", ErrInvalid)
 	}
@@ -648,14 +658,16 @@ func (s *Service) AddChatKey(ctx context.Context, chatID, botID, model string) (
 	// The name is only for the owner's list; the chat is what finds the key.
 	name := strings.ToLower(strings.ReplaceAll(s.newID("chat"), "_", "-"))
 
-	return s.addKey(ctx, name, models, keyOwner{chatID: chatID, botID: botID})
+	return s.addKey(ctx, name, models, keyOwner{chatID: chatID, botID: botID, coordinatorTokenID: coordinatorTokenID})
 }
 
 // RevokeAllChatKeys stops the key of every chat from working. The control
 // plane calls it as it starts: no pi outlives it, so none is left to use one.
 func (s *Service) RevokeAllChatKeys(ctx context.Context) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		if _, err := q.RevokeGatewayChatKeys(ctx, sql.NullInt64{Int64: now, Valid: true}); err != nil {
+		if _, err := q.RevokeGatewayChatKeys(ctx, store.RevokeGatewayChatKeysParams{
+			Now: at(now), Reason: reasonOf(bearertoken.RevokedRestarted),
+		}); err != nil {
 			return fmt.Errorf("revoking the keys of chats: %w", err)
 		}
 
@@ -673,7 +685,7 @@ func (s *Service) RevokeAllChatKeys(ctx context.Context) error {
 // begins no transaction: the caller's holds the write lock.
 func RevokeDeletedChatKeysTx(ctx context.Context, tx *sql.Tx, chatID string, now int64) error {
 	if err := store.New(tx).RevokeGatewayKeysOfDeletedChat(ctx, store.RevokeGatewayKeysOfDeletedChatParams{
-		Now: sql.NullInt64{Int64: now, Valid: true}, ChatID: chatID,
+		Now: at(now), Reason: reasonOf(bearertoken.RevokedChatDeleted), ChatID: chatID,
 	}); err != nil {
 		return fmt.Errorf("revoking the keys of chat %s: %w", chatID, err)
 	}
@@ -681,11 +693,59 @@ func RevokeDeletedChatKeysTx(ctx context.Context, tx *sql.Tx, chatID string, now
 	return nil
 }
 
-// RevokeDispatchKeys stops every key of a Dispatch from working; none is no error.
+// Revocations revoke the gateway's keys in the transaction of what ends them, for orchestration, which owns that
+// transaction (issue #996): a revoked coordinator token, a removed node, a deleted chat or Bot ends its keys in the
+// commit that ends it, as RevokeDeletedChatKeysTx does for a chat (issue #405). The gateway's table is still written
+// only by its own queries. Each begins no transaction: the caller's holds the write lock.
+type Revocations struct{}
+
+// RevokeDeletedChatKeysTx is RevokeDeletedChatKeysTx.
+func (Revocations) RevokeDeletedChatKeysTx(ctx context.Context, tx *sql.Tx, chatID string, now int64) error {
+	return RevokeDeletedChatKeysTx(ctx, tx, chatID, now)
+}
+
+// RevokeCoordinatorKeysTx ends the keys of a coordinator token being revoked: those of the chats whose pi runs under
+// it, and those of the Dispatches of the Runs it created, as Orca revokes a device's children with it
+// (runtime-rpc-mobile-devices.ts).
+func (Revocations) RevokeCoordinatorKeysTx(ctx context.Context, tx *sql.Tx, tokenID string, now int64) error {
+	if err := store.New(tx).RevokeGatewayKeysOfCoordinatorToken(ctx, store.RevokeGatewayKeysOfCoordinatorTokenParams{
+		Now: at(now), Reason: reasonOf(bearertoken.RevokedParentRevoked), TokenID: tokenID,
+	}); err != nil {
+		return fmt.Errorf("revoking the keys under token %s: %w", tokenID, err)
+	}
+
+	return nil
+}
+
+// RevokeNodeKeysTx ends the keys of the Dispatches of a node being removed, as Omnara revokes a machine's daemon
+// tokens with it (executionstore/machine_lifecycle_store.go).
+func (Revocations) RevokeNodeKeysTx(ctx context.Context, tx *sql.Tx, nodeID string, now int64) error {
+	if err := store.New(tx).RevokeGatewayKeysOfNode(ctx, store.RevokeGatewayKeysOfNodeParams{
+		Now: at(now), Reason: reasonOf(bearertoken.RevokedNodeRemoved), NodeID: nodeID,
+	}); err != nil {
+		return fmt.Errorf("revoking the keys of node %s: %w", nodeID, err)
+	}
+
+	return nil
+}
+
+// RevokeBotKeysTx ends the keys of a Bot being deleted; they are kept for the usage they name (issue #626).
+func (Revocations) RevokeBotKeysTx(ctx context.Context, tx *sql.Tx, botID string, now int64) error {
+	if err := store.New(tx).RevokeGatewayKeysOfBot(ctx, store.RevokeGatewayKeysOfBotParams{
+		Now: at(now), Reason: reasonOf(bearertoken.RevokedBotDeleted), BotID: botID,
+	}); err != nil {
+		return fmt.Errorf("revoking the keys of bot %s: %w", botID, err)
+	}
+
+	return nil
+}
+
+// RevokeDispatchKeys stops every key of a Dispatch that settled from working; none is no error.
 func (s *Service) RevokeDispatchKeys(ctx context.Context, dispatchID string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		_, err := q.RevokeGatewayKeysOfDispatch(ctx, store.RevokeGatewayKeysOfDispatchParams{
-			Now: sql.NullInt64{Int64: now, Valid: true}, DispatchID: sql.NullString{String: dispatchID, Valid: true},
+			Now: at(now), Reason: reasonOf(bearertoken.RevokedDispatchEnded),
+			DispatchID: sql.NullString{String: dispatchID, Valid: true},
 		})
 		if err != nil {
 			return fmt.Errorf("revoking the keys of dispatch %s: %w", dispatchID, err)
@@ -720,6 +780,8 @@ type keyOwner struct {
 	// endpoints are the kinds an owner's key may use besides chat; nil is every kind.
 	endpoints []Endpoint
 	keepValue bool
+	// coordinatorTokenID is the coordinator token a chat's pi runs under: revoking it ends the key (issue #996).
+	coordinatorTokenID string
 }
 
 func (s *Service) addKey(ctx context.Context, name string, models []string, owner keyOwner) (Key, string, error) {
@@ -762,7 +824,7 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 
 		if owner.dispatchID != "" {
 			if _, err := q.RevokeGatewayKeysOfDispatch(ctx, store.RevokeGatewayKeysOfDispatchParams{
-				Now:        sql.NullInt64{Int64: now, Valid: true},
+				Now: at(now), Reason: reasonOf(bearertoken.RevokedReplaced),
 				DispatchID: sql.NullString{String: owner.dispatchID, Valid: true},
 			}); err != nil {
 				return fmt.Errorf("revoking the earlier keys of dispatch %s: %w", owner.dispatchID, err)
@@ -771,7 +833,8 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 
 		if owner.chatID != "" {
 			if _, err := q.RevokeGatewayKeysOfChat(ctx, store.RevokeGatewayKeysOfChatParams{
-				Now: sql.NullInt64{Int64: now, Valid: true}, ChatID: sql.NullString{String: owner.chatID, Valid: true},
+				Now: at(now), Reason: reasonOf(bearertoken.RevokedReplaced),
+				ChatID: sql.NullString{String: owner.chatID, Valid: true},
 			}); err != nil {
 				return fmt.Errorf("revoking the earlier keys of chat %s: %w", owner.chatID, err)
 			}
@@ -784,6 +847,7 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 			ChatID:     sql.NullString{String: owner.chatID, Valid: owner.chatID != ""},
 			BotID:      sql.NullString{String: owner.botID, Valid: owner.botID != ""}, Now: now,
 			SecretVersionID: secretVersionID, MaskedValue: maskedValue,
+			CoordinatorTokenID: sql.NullString{String: owner.coordinatorTokenID, Valid: owner.coordinatorTokenID != ""},
 		}); err != nil {
 			return fmt.Errorf("%w: storing key %q: %w", ErrConflict, name, err)
 		}
@@ -840,7 +904,7 @@ func (s *Service) ListKeys(ctx context.Context) ([]Key, error) {
 		}
 
 		if t, ok := lastUsed[k.ID]; ok {
-			k.LastUsedAt = &t
+			k.usedLater(t)
 		}
 
 		out = append(out, k)
@@ -849,8 +913,13 @@ func (s *Service) ListKeys(ctx context.Context) ([]Key, error) {
 	return out, nil
 }
 
-// RevokeKey stops a key from working. Revoking twice is a conflict.
+// RevokeKey stops a key from working, as the owner revokes it. Revoking twice is a conflict.
 func (s *Service) RevokeKey(ctx context.Context, id string) error {
+	return s.RevokeKeyFor(ctx, id, bearertoken.RevokedByOwner)
+}
+
+// RevokeKeyFor is RevokeKey with the reason the key stops (issue #996), such as its pi's end.
+func (s *Service) RevokeKeyFor(ctx context.Context, id string, reason bearertoken.RevokeReason) error {
 	return s.writeTx(ctx, func(tx *sql.Tx, now int64) error {
 		q := store.New(tx)
 		row, err := q.GetGatewayKey(ctx, id)
@@ -867,7 +936,7 @@ func (s *Service) RevokeKey(ctx context.Context, id string) error {
 		}
 
 		if _, err := q.RevokeGatewayKey(ctx, store.RevokeGatewayKeyParams{
-			Now: sql.NullInt64{Int64: now, Valid: true}, ID: id,
+			Now: at(now), Reason: reasonOf(reason), ID: id,
 		}); err != nil {
 			return fmt.Errorf("revoking key %s: %w", id, err)
 		}
@@ -899,6 +968,16 @@ func (s *Service) Authenticate(ctx context.Context, secret string) (Key, error) 
 
 	if row.RevokedAt.Valid {
 		return Key{}, fmt.Errorf("%w: key %s is revoked", ErrUnauthorized, row.ID)
+	}
+
+	before := s.clock.Now().Add(-bearertoken.TouchEvery).UnixMilli()
+	if !row.LastUsedAt.Valid || row.LastUsedAt.Int64 <= before {
+		err := s.write(ctx, func(q *store.Queries, now int64) error {
+			return q.TouchGatewayKey(ctx, store.TouchGatewayKeyParams{Now: now, ID: row.ID, Before: before})
+		})
+		if err != nil {
+			return Key{}, fmt.Errorf("recording the use of key %s: %w", row.ID, err)
+		}
 	}
 
 	return keyFromRow(row)
@@ -937,7 +1016,26 @@ func keyFromRow(r store.GatewayKey) (Key, error) {
 	if r.RevokedAt.Valid {
 		t := time.UnixMilli(r.RevokedAt.Int64).UTC()
 		k.RevokedAt = &t
+		k.RevokeReason = bearertoken.RevokeReason(r.RevokeReason.String)
+	}
+
+	if r.LastUsedAt.Valid {
+		t := time.UnixMilli(r.LastUsedAt.Int64).UTC()
+		k.LastUsedAt = &t
 	}
 
 	return k, nil
+}
+
+// usedLater sets a key's last use to the later of its touch and its newest request.
+func (k *Key) usedLater(t time.Time) {
+	if k.LastUsedAt == nil || t.After(*k.LastUsedAt) {
+		k.LastUsedAt = &t
+	}
+}
+
+func at(now int64) sql.NullInt64 { return sql.NullInt64{Int64: now, Valid: true} }
+
+func reasonOf(r bearertoken.RevokeReason) sql.NullString {
+	return sql.NullString{String: string(r), Valid: true}
 }

@@ -382,8 +382,8 @@ sequenceDiagram
   worktree volume's use, the one-minute load average and, on a machine with NVIDIA GPUs, each GPU's use, memory,
   temperature and power (read with `nvidia-smi` once a heartbeat, after Beszel's agent); only the latest measurement is kept, with its time
   (`GET /nodes` shows it as `stats`). A node can be drained and resumed; once the reaper marks it unavailable, it
-  stays so until its next hello or a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no
-  longer listed or placed on, and its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
+  stays so until its next hello or a resume. A removed node is kept as `deleted`: its tokens, and the keys of the Dispatches
+  it ran, are revoked ([Credentials](#credentials)), it is no longer listed or placed on, and its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
   disabled) are kept here with no secret value. One the owner logged in on the control plane (below) also has the
   vendor's id of the account, its email and plan, the name of the vault secret holding its tokens, and how its
   refreshes went; placement leaves these alone, since no node holds their tokens.
@@ -1123,14 +1123,18 @@ sequenceDiagram
   - View-only links (issue #745, `clientapi/artifactshares.go`, `orchestration/artifactshares.go`): the owner
     sends an artifact to someone with no account; the link always shows the newest revision (it names the
     artifact, not a revision, as OpenMausBot's published pages and Claude's do) until he revokes it. A link is a row
-    of `artifact_shares` (migration 106: artifact, token, label, created, views, last viewed), as open-webui's
-    `shared_chat`, LibreChat's `SharedLink` and Grafana's public dashboards are; several to one artifact, each
-    labelled for whom it was sent to and revoked alone (Grafana's per-viewer revoke). The token is 32 random bytes
-    in base64url, kept as it is so the link can be copied again (open-webui, LibreChat, Grafana; it shows one
-    artifact whose bytes are in the same database unencrypted). Only the owner makes, lists and revokes links
-    (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has no tool for it). Revoking
-    deletes the row, and deleting the artifact with its chat deletes its links (`ON DELETE CASCADE`); no expiry,
-    password or pause. `GET /api/v1/shares/{token}` is public, as `CreateSession` is: the title, type, file
+    of `artifact_shares` (artifact, token's hash, sealed copy, label, created, views, last viewed, revoked and why),
+    as open-webui's `shared_chat`, LibreChat's `SharedLink` and Grafana's public dashboards are; several to one
+    artifact, each labelled for whom it was sent to and revoked alone (Grafana's per-viewer revoke). The token is 32
+    random bytes in base64url, kept as a credential is (issue #996, [Credentials](#credentials)): its SHA-256 finds
+    the link, and a copy sealed in the vault (a generic secret named after the link, as an owner-made gateway key's
+    value is) lets the owner copy it again; the lists open it. Without a vault a link has no copy and cannot be
+    read again. A link made before (its token in plaintext until migration `credential_state`) is moved as the
+    control plane starts, before anything is served (`MoveShareTokens`), so its URL keeps working. Only the owner
+    makes, lists and revokes links (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has
+    no tool for it). Revoking marks the row with the reason and deletes its sealed copy; the Vault names a link as
+    its copy's user and refuses to delete it. Deleting the artifact with its chat deletes its links
+    (`ON DELETE CASCADE`) and their copies; no expiry, password or pause. `GET /api/v1/shares/{token}` is public, as `CreateSession` is: the title, type, file
     shown and its media type, newest revision, when it was updated and where its files load from,
     `/api/v1/shares/<token>/files/<rev>/<path>` (outside the contract, no sign-in). That route checks the link and
     that `rev` is the newest on every request (OpenMausBot's `server/page-files.ts`), so a revoke takes effect at
@@ -2953,16 +2957,58 @@ flowchart LR
 - Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
   CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
   SHA-256 is stored; a revoked token no longer authenticates. A token of kind `bot` is a pi process's own (issue
-  #260, see Bots): made by the supervisor, kept in memory only, never by `tokens add`.
+  #260, see Bots): made by the supervisor, kept in memory only, never by `tokens add`. Revoking a coordinator token
+  ends its children ([Credentials](#credentials)).
 - Users and web sessions (issue #114; [research](docs/research/2026-11-10-web-login.md), each rule from a
   reference): a user is a name and a password kept as bcrypt at cost 10, made on the server; none is shipped. Signing
-  in opens a web session: a row with the SHA-256 of a random secret, good for 30 days after its last use (extended
-  at most once an hour). A session acts as the owner. A new password ends every session of the user. They are kept
+  in opens a web session: a row with the SHA-256 of a random secret, good for 30 days after its last use (extended,
+  with its last use, at most once an hour). A session acts as the owner. Signing out and a new password revoke the
+  session with the reason (`signed_out`, `password_changed`); it is kept until its end passes and is cleared with
+  the expired ones at the next sign-in. They are kept
   by the domain store `orchestration/userstore` (issue #404), reached through `Service.Users()`; it imports the
   generated queries, the one write helper (`orchestration/internal/storeutil`, which signals event readers after
   a commit that changed a row) and the errors (`orchestration/storeerr`, re-exported by the root), never the root package.
 - Creating a Run or Tasks can carry an idempotency key: the same caller and key with the same request return the first
   result, with another request it is a conflict. The key is kept as a receipt, as node calls are.
+
+<a id="credentials"></a>**Credentials.** Who holds which credential, how it is kept and how it ends (design #995, part A
+issue #996). One lifecycle for every
+kind: issued and shown once, used (its last use written at most once an hour, `bearertoken.TouchEvery`, as Omnara's
+`identitystore/auth_usage_touch.go` and Coder's `httpmw/apikey.go`), then expired or revoked with a reason, never
+back. Every stored kind keeps `revoked_at`, `revoke_reason` and `last_used_at`, and `expires_at` where it has an end
+(migration `credential_state`); a revoked or expired one is refused on every path that looks it up.
+
+| Actor | Credential | Kept as | May | Ends |
+|---|---|---|---|---|
+| Owner | owner Client token (laptop CLI, `hypomnema mcp`); Web session | `client_tokens`, `web_sessions`: SHA-256 | everything | the token when revoked; the session 30 days after its last use, at sign-out or a new password |
+| Coordinator | coordinator Client token | `client_tokens`: SHA-256 | create and change its own Runs, read the rest; never decide an Approval or change a setting | when revoked |
+| Bot (the main Bot too) | Bot token, one a pi process, bound to one chat | memory: SHA-256 | work in that chat with the Connections it was given; never decide an Approval (`clientapi/policy.go`), mint or widen a credential, change a setting | when its pi ends, its coordinator token is revoked, or its chat or Bot is deleted |
+| Routine | the run's Bot token and Run key (`hrk_`) | memory; `routine_runs.key_hash` | as a Bot, without a chat | when the run ends |
+| Worker | its Dispatch's Session key, Gateway key and repository token | `agent_sessions`, `gateway_keys`: SHA-256; the token from the vault, in the offer | the Connections its Run was given | when the Dispatch settles, the coordinator token that created its Run is revoked, or its node is removed |
+| Owner's tools | owner-made Gateway key | `gateway_keys`: SHA-256 and a copy sealed in the vault | the models and endpoints it names | when revoked |
+| Node | Node token (`hyn_`) | `node_tokens`: SHA-256 | take offers and report; not the client API | when revoked or its node is removed |
+| Share viewer | Share link | `artifact_shares`: SHA-256 and a copy sealed in the vault | view one artifact | when the owner revokes it or its chat is deleted |
+| WebSocket | single-use Ticket | memory | open one terminal, browser view, phone view or meeting track | 30–60 s after it is given |
+
+The reasons (`bearertoken.RevokeReason`, short snake_case as Omnara's `machine_deleting`): `owner`,
+`parent_revoked`, `node_removed`, `chat_deleted`, `bot_deleted`, `dispatch_ended`, `process_ended`, `replaced`,
+`control_plane_started`, `usage_only`, `signed_out`, `password_changed`.
+
+Revocation cascades, each in the commit that ends the parent; the gateway's table is written only by its own queries,
+which orchestration calls in its transaction (`orchestration.GatewayKeys`, `modelgateway.Revocations`):
+
+- Revoking a coordinator token ends, with `parent_revoked`, the Gateway keys of the chats whose pi runs under it (a
+  chat's key names it, `gateway_keys.coordinator_token_id`), and the Sessions and Gateway keys of the Dispatches of
+  the Runs it created; then the Bot tokens made under it, which their parent's revocation already refused. As Orca
+  revokes a device's children (`runtime-rpc-mobile-devices.ts`).
+- Removing a node, or starting to remove a provider's machine, ends its Node tokens and the Sessions and Gateway keys
+  of the Dispatches it ran, with `node_removed`, as Omnara revokes a machine's daemon tokens with it
+  (`executionstore/machine_lifecycle_store.go`).
+- Deleting a chat ends its Gateway keys with `chat_deleted` (issue #405), its links' sealed copies, and its pi's Bot
+  token; deleting a Bot ends its Gateway keys with `bot_deleted` and its pi's Bot tokens.
+- Without a cascade, a Dispatch's keys end when it settles (`dispatch_ended`), a chat's key when its pi ends
+  (`process_ended`) or a new one is made (`replaced`), and every chat key as the control plane starts
+  (`control_plane_started`).
 
 The vault (`internal/controlplane/vault`, issue #66, after Omnara's `internal/secrets`) is the secret store: API keys
 and subscription token sets, encrypted at rest. A worker's Claude and git host tokens reach its Dispatch as
@@ -3346,7 +3392,8 @@ capabilities do not exist yet.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
   with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
-  creation and last use (the latest usage row); the keys of a Dispatch or a chat are only counted
+  creation and last use (the later of its last authentication, written at most hourly, and its latest usage row);
+  the keys of a Dispatch or a chat are only counted
   (`live_worker_keys`), and each key's `endpoints` (every kind for a key not limited). `POST /gateway/keys`
   `{name, models?, endpoints?}` answers the value once, `endpoints` left out for every kind and empty for none (the
   page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`

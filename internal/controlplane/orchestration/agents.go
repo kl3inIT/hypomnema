@@ -270,6 +270,16 @@ func (s *Service) AgentSessionOf(ctx context.Context, secret string) (AgentSessi
 		return AgentSession{}, fmt.Errorf("reading an agent session: %w", err)
 	}
 
+	before := s.clock.Now().Add(-bearertoken.TouchEvery).UnixMilli()
+	if !row.LastUsedAt.Valid || row.LastUsedAt.Int64 <= before {
+		err := s.write(ctx, func(q *store.Queries, now int64) error {
+			return q.TouchAgentSession(ctx, store.TouchAgentSessionParams{Now: now, ID: row.ID, Before: before})
+		})
+		if err != nil {
+			return AgentSession{}, fmt.Errorf("recording the use of agent session %s: %w", row.ID, err)
+		}
+	}
+
 	byCoordinator, bot, err := s.runOrigin(ctx, row.DispatchID)
 	if err != nil {
 		return AgentSession{}, err
@@ -347,12 +357,12 @@ func (s *Service) runOrigin(ctx context.Context, dispatchID string) (byCoordinat
 	return run.CoordinatorTokenID.Valid, run.BotID.String, nil
 }
 
-// RevokeAgentSessions stops every key of a Dispatch from working; none is no
-// error.
+// RevokeAgentSessions stops every key of a Dispatch that settled from working;
+// none is no error.
 func (s *Service) RevokeAgentSessions(ctx context.Context, dispatchID string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		_, err := q.RevokeAgentSessionsOfDispatch(ctx, store.RevokeAgentSessionsOfDispatchParams{
-			Now: sql.NullInt64{Int64: now, Valid: true}, DispatchID: dispatchID,
+			Now: validInt(now), Reason: revokeReason(bearertoken.RevokedDispatchEnded), DispatchID: dispatchID,
 		})
 		if err != nil {
 			return fmt.Errorf("revoking the agent sessions of dispatch %s: %w", dispatchID, err)

@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
@@ -18,8 +19,11 @@ import (
 // View-only links to an artifact (issue #745): anyone who has one sees the artifact's newest revision without
 // signing in, until the owner revokes it. A link is a row with a random token, as open-webui's shared_chat,
 // LibreChat's SharedLink and Grafana's public dashboard are; it names the artifact, not a revision, so it follows
-// the newest as OpenMausBot's published pages and Claude's do. Revoking deletes the row (open-webui, LibreChat), and
-// deleting the artifact with its chat deletes its links (ON DELETE CASCADE, migration 00106).
+// the newest as OpenMausBot's published pages and Claude's do. Its token is kept as a credential is (issue #996):
+// its SHA-256 finds it, and a copy sealed in the vault lets the owner read the link again, as an owner-made gateway
+// key's value is kept (modelgateway key_values.go); nothing keeps it in plaintext. Revoking marks the row with the
+// reason and drops the sealed copy, and deleting the artifact with its chat deletes its links (ON DELETE CASCADE)
+// and their copies.
 
 // ArtifactShareIDPrefix starts every link's id.
 const ArtifactShareIDPrefix = "shr"
@@ -31,7 +35,8 @@ const maxShareLabel = 80
 type ArtifactShare struct {
 	ID         string
 	ArtifactID string
-	// Token is the link's secret, 32 random bytes in base64url (the frame token's size).
+	// Token is the link's secret, 32 random bytes in base64url (the frame token's size), opened from its sealed
+	// copy; empty when it has none (made without a vault) or the vault cannot open it here.
 	Token        string
 	Label        string
 	CreatedAt    time.Time
@@ -70,15 +75,21 @@ func (s *Service) CreateArtifactShare(ctx context.Context, artifactID, label str
 		Label: label,
 	}
 
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
+	err := s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
 		if _, err := q.GetArtifact(ctx, artifactID); err != nil {
 			return notFound(err, "artifact", artifactID)
 		}
 
 		out.CreatedAt = millis(now)
 
+		versionID, err := s.sealShareToken(ctx, tx, out.ID, out.Token, now)
+		if err != nil {
+			return err
+		}
+
 		return q.InsertArtifactShare(ctx, store.InsertArtifactShareParams{
-			ID: out.ID, ArtifactID: artifactID, Token: out.Token, Label: label, Now: now,
+			ID: out.ID, ArtifactID: artifactID, TokenHash: nullString(bearertoken.Hash(out.Token)),
+			SecretVersionID: nullString(versionID), Label: label, Now: now,
 		})
 	})
 	if err != nil {
@@ -103,8 +114,13 @@ func (s *Service) ListArtifactShares(ctx context.Context, artifactID string) ([]
 
 	out := make([]ArtifactShare, 0, len(rows))
 	for _, r := range rows {
+		token, err := s.openShareToken(ctx, r.ID, r.TokenHash, r.SecretVersionID)
+		if err != nil {
+			return nil, err
+		}
+
 		out = append(out, ArtifactShare{
-			ID: r.ID, ArtifactID: r.ArtifactID, Token: r.Token, Label: r.Label, CreatedAt: millis(r.CreatedAt),
+			ID: r.ID, ArtifactID: r.ArtifactID, Token: token, Label: r.Label, CreatedAt: millis(r.CreatedAt),
 			Views: r.Views, LastViewedAt: optionalTime(r.LastViewedAt),
 		})
 	}
@@ -134,9 +150,14 @@ func (s *Service) ListSharedLinks(ctx context.Context) ([]SharedLink, error) {
 
 	out := make([]SharedLink, 0, len(rows))
 	for _, r := range rows {
+		token, err := s.openShareToken(ctx, r.ID, r.TokenHash, r.SecretVersionID)
+		if err != nil {
+			return nil, err
+		}
+
 		out = append(out, SharedLink{
 			ArtifactShare: ArtifactShare{
-				ID: r.ID, ArtifactID: r.ArtifactID, Token: r.Token, Label: r.Label, CreatedAt: millis(r.CreatedAt),
+				ID: r.ID, ArtifactID: r.ArtifactID, Token: token, Label: r.Label, CreatedAt: millis(r.CreatedAt),
 				Views: r.Views, LastViewedAt: optionalTime(r.LastViewedAt),
 			},
 			Title: r.Title, Type: artifactpack.Type(r.Type), Bot: r.BotID, BotName: r.BotName,
@@ -147,25 +168,133 @@ func (s *Service) ListSharedLinks(ctx context.Context) ([]SharedLink, error) {
 	return out, nil
 }
 
-// DeleteArtifactShare revokes a link: the next request by its token finds nothing.
+// DeleteArtifactShare revokes a link: the next request by its token finds nothing. The link is kept, revoked by the
+// owner (issue #996), and its sealed copy is deleted; one revoked already is not found.
 func (s *Service) DeleteArtifactShare(ctx context.Context, id string) error {
-	return s.write(ctx, func(q *store.Queries, _ int64) error {
-		n, err := q.DeleteArtifactShare(ctx, id)
+	return s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
+		row, err := q.GetLiveArtifactShare(ctx, id)
 		if err != nil {
+			return notFound(err, "link", id)
+		}
+
+		if _, err := q.RevokeArtifactShare(ctx, store.RevokeArtifactShareParams{
+			Now: validInt(now), Reason: revokeReason(bearertoken.RevokedByOwner), ID: id,
+		}); err != nil {
 			return fmt.Errorf("revoking link %s: %w", id, err)
 		}
 
-		if n == 0 {
-			return fmt.Errorf("%w: link %s", ErrNotFound, id)
-		}
-
-		return nil
+		return s.deleteShareSecrets(ctx, tx, []sql.NullString{row.SecretVersionID})
 	})
 }
 
-// SharedArtifact returns what a link's token shows; ErrNotFound for a token no link has.
+// MoveShareTokens moves the tokens of links made before they were hashed (issue #996) out of plaintext: each gets
+// its hash and, with a vault, a sealed copy, and loses its plaintext, in one commit, so its URL keeps working. The
+// control plane calls it as it starts, before anything is served; it returns how many it moved, 0 once none is left.
+func (s *Service) MoveShareTokens(ctx context.Context) (int, error) {
+	moved := 0
+
+	err := s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
+		rows, err := q.ListUnmovedArtifactShares(ctx)
+		if err != nil {
+			return fmt.Errorf("listing the links to move: %w", err)
+		}
+
+		for _, r := range rows {
+			versionID, err := s.sealShareToken(ctx, tx, r.ID, r.Token.String, now)
+			if err != nil {
+				return err
+			}
+
+			if err := q.MoveArtifactShareToken(ctx, store.MoveArtifactShareTokenParams{
+				TokenHash: nullString(bearertoken.Hash(r.Token.String)), SecretVersionID: nullString(versionID),
+				ID: r.ID,
+			}); err != nil {
+				return fmt.Errorf("moving the token of link %s: %w", r.ID, err)
+			}
+		}
+
+		moved = len(rows)
+
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("moving the links' tokens: %w", err)
+	}
+
+	return moved, nil
+}
+
+// sealShareToken keeps a link's token in the vault in tx and returns the version's id; "" without a vault.
+func (s *Service) sealShareToken(ctx context.Context, tx *sql.Tx, id, token string, now int64) (string, error) {
+	if s.shareVault == nil {
+		return "", nil
+	}
+
+	versionID, err := s.shareVault.SealTx(ctx, tx, strings.ReplaceAll(id, "_", "-"), token, now)
+	if err != nil {
+		return "", fmt.Errorf("sealing the token of link %s: %w", id, err)
+	}
+
+	return versionID, nil
+}
+
+// openShareToken opens a link's sealed token, checked against its hash, as KeyValue checks a gateway key's; "" for
+// a link with no copy or one the vault cannot open here.
+func (s *Service) openShareToken(ctx context.Context, id string, hash, versionID sql.NullString) (string, error) {
+	if !versionID.Valid || s.shareVault == nil {
+		return "", nil
+	}
+
+	token, err := s.shareVault.Open(ctx, versionID.String)
+	if err != nil {
+		return "", fmt.Errorf("opening the token of link %s: %w", id, err)
+	}
+
+	if token != "" && bearertoken.Hash(token) != hash.String {
+		return "", fmt.Errorf("the sealed token of link %s does not match its hash", id)
+	}
+
+	return token, nil
+}
+
+// deleteShareSecrets deletes the sealed copies of links that end, in tx.
+func (s *Service) deleteShareSecrets(ctx context.Context, tx *sql.Tx, versionIDs []sql.NullString) error {
+	for _, v := range versionIDs {
+		if !v.Valid {
+			continue
+		}
+
+		if s.shareVault == nil {
+			return fmt.Errorf("%w: a link's sealed token cannot be deleted without the vault", ErrUnavailable)
+		}
+
+		if err := s.shareVault.DeleteTx(ctx, tx, v.String); err != nil {
+			return fmt.Errorf("deleting a link's sealed token: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// SharesUsingSecret names the links whose sealed token is the secret: the vault lists them as its users and refuses
+// to delete it while they work, as it does for a gateway key's (issue #893).
+func (s *Service) SharesUsingSecret(ctx context.Context, name string) ([]string, error) {
+	rows, err := s.read().ListShareLabelsBySecret(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("listing the links that use %q: %w", name, err)
+	}
+
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, fmt.Sprintf("link %s (%s)", r.ID, r.Label))
+	}
+
+	return out, nil
+}
+
+// SharedArtifact returns what a link's token shows; ErrNotFound for a token no working link has.
 func (s *Service) SharedArtifact(ctx context.Context, token string) (SharedArtifact, error) {
-	r, err := s.read().SharedArtifact(ctx, token)
+	r, err := s.read().SharedArtifact(ctx, nullString(bearertoken.Hash(token)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return SharedArtifact{}, fmt.Errorf("%w: no such link", ErrNotFound)
 	}

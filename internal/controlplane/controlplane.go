@@ -290,9 +290,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return err
 	}
 
-	// A deleted chat's gateway keys end in its transaction, written by the gateway (issue #405).
+	// The gateway keys of a deleted chat or Bot, a revoked coordinator token and a removed node end in its
+	// transaction, written by the gateway (issues #405, #996).
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
-		orchestration.WithChatKeys(modelgateway.RevokeDeletedChatKeysTx))
+		orchestration.WithGatewayKeys(modelgateway.Revocations{}))
 	publishBuiltinSkills(ctx, svc, logger)
 
 	// The scheduler runs while the server does; if it fails, the server stops.
@@ -303,6 +304,17 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 	referrers := secretReferrers(svc)
 	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, referrers)
+	svc.WithShareVault(secrets.Copies())
+
+	// A share link made before its token was hashed (issue #996) is moved out of plaintext before anything is
+	// served, so its URL keeps working.
+	if moved, err := svc.MoveShareTokens(ctx); err != nil {
+		return fmt.Errorf("moving the tokens of share links: %w", err)
+	} else if moved > 0 {
+		logger.InfoContext(ctx, "moved the tokens of share links out of plaintext",
+			slog.String("event", "controlplane.share_tokens_moved"), slog.Int("links", moved))
+	}
+
 	tokens := connections{svc: svc, vault: secrets}
 	sshKey := &gitSSHKey{vault: secrets}
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
@@ -525,7 +537,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	sup := coordinator.New(svc, coordinator.Config{
-		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway, chats: svc},
+		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway, chats: svc, coordinator: cfg.CoordinatorToken},
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
 		Updating: func() bool { return selfupdate.Updating(filepath.Dir(cfg.Database.Path)) },
 	})

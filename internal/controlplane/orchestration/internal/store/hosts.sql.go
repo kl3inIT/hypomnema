@@ -108,7 +108,7 @@ func (q *Queries) DeleteRepo(ctx context.Context, name string) (int64, error) {
 }
 
 const getAgentSessionByHash = `-- name: GetAgentSessionByHash :one
-SELECT id, key_hash, dispatch_id, uses, created_at, revoked_at FROM agent_sessions WHERE key_hash = ?1 AND revoked_at IS NULL
+SELECT id, key_hash, dispatch_id, uses, created_at, revoked_at, revoke_reason, last_used_at FROM agent_sessions WHERE key_hash = ?1 AND revoked_at IS NULL
 `
 
 func (q *Queries) GetAgentSessionByHash(ctx context.Context, keyHash string) (AgentSession, error) {
@@ -121,6 +121,8 @@ func (q *Queries) GetAgentSessionByHash(ctx context.Context, keyHash string) (Ag
 		&i.Uses,
 		&i.CreatedAt,
 		&i.RevokedAt,
+		&i.RevokeReason,
+		&i.LastUsedAt,
 	)
 	return i, err
 }
@@ -571,20 +573,39 @@ func (q *Queries) ListUserConnectionsOfApp(ctx context.Context, arg ListUserConn
 }
 
 const revokeAgentSessionsOfDispatch = `-- name: RevokeAgentSessionsOfDispatch :execrows
-UPDATE agent_sessions SET revoked_at = ?1 WHERE dispatch_id = ?2 AND revoked_at IS NULL
+UPDATE agent_sessions SET revoked_at = ?1, revoke_reason = ?2
+WHERE dispatch_id = ?3 AND revoked_at IS NULL
 `
 
 type RevokeAgentSessionsOfDispatchParams struct {
 	Now        sql.NullInt64
+	Reason     sql.NullString
 	DispatchID string
 }
 
 func (q *Queries) RevokeAgentSessionsOfDispatch(ctx context.Context, arg RevokeAgentSessionsOfDispatchParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeAgentSessionsOfDispatch, arg.Now, arg.DispatchID)
+	result, err := q.db.ExecContext(ctx, revokeAgentSessionsOfDispatch, arg.Now, arg.Reason, arg.DispatchID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const revokeAgentSessionsOfNode = `-- name: RevokeAgentSessionsOfNode :exec
+UPDATE agent_sessions SET revoked_at = ?1, revoke_reason = ?2
+WHERE revoked_at IS NULL AND dispatch_id IN (SELECT id FROM dispatches WHERE node_id = CAST(?3 AS TEXT))
+`
+
+type RevokeAgentSessionsOfNodeParams struct {
+	Now    sql.NullInt64
+	Reason sql.NullString
+	NodeID string
+}
+
+// The agent sessions of a removed node's Dispatches (issue #996).
+func (q *Queries) RevokeAgentSessionsOfNode(ctx context.Context, arg RevokeAgentSessionsOfNodeParams) error {
+	_, err := q.db.ExecContext(ctx, revokeAgentSessionsOfNode, arg.Now, arg.Reason, arg.NodeID)
+	return err
 }
 
 const sSHOfDispatch = `-- name: SSHOfDispatch :one
@@ -744,6 +765,23 @@ func (q *Queries) SetConnectionSignInFailed(ctx context.Context, arg SetConnecti
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const touchAgentSession = `-- name: TouchAgentSession :exec
+UPDATE agent_sessions SET last_used_at = CAST(?1 AS INTEGER)
+WHERE id = ?2 AND (last_used_at IS NULL OR last_used_at <= CAST(?3 AS INTEGER))
+`
+
+type TouchAgentSessionParams struct {
+	Now    int64
+	ID     string
+	Before int64
+}
+
+// A session's last use, written at most once an hour (issue #996).
+func (q *Queries) TouchAgentSession(ctx context.Context, arg TouchAgentSessionParams) error {
+	_, err := q.db.ExecContext(ctx, touchAgentSession, arg.Now, arg.ID, arg.Before)
+	return err
 }
 
 const upsertConnection = `-- name: UpsertConnection :exec

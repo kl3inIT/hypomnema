@@ -56,8 +56,9 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 	}
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
-		orchestration.WithChatKeys(modelgateway.RevokeDeletedChatKeysTx))
+		orchestration.WithGatewayKeys(modelgateway.Revocations{}))
 	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
+	svc.WithShareVault(secrets.Copies())
 	o := &owner{
 		publicURL: cfg.PublicURL,
 

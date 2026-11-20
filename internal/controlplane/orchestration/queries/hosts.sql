@@ -69,7 +69,18 @@ VALUES (@id, @key_hash, @dispatch_id, @uses, @now);
 SELECT * FROM agent_sessions WHERE key_hash = @key_hash AND revoked_at IS NULL;
 
 -- name: RevokeAgentSessionsOfDispatch :execrows
-UPDATE agent_sessions SET revoked_at = @now WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL;
+UPDATE agent_sessions SET revoked_at = @now, revoke_reason = @reason
+WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL;
+
+-- name: RevokeAgentSessionsOfNode :exec
+-- The agent sessions of a removed node's Dispatches (issue #996).
+UPDATE agent_sessions SET revoked_at = @now, revoke_reason = @reason
+WHERE revoked_at IS NULL AND dispatch_id IN (SELECT id FROM dispatches WHERE node_id = CAST(@node_id AS TEXT));
+
+-- name: TouchAgentSession :exec
+-- A session's last use, written at most once an hour (issue #996).
+UPDATE agent_sessions SET last_used_at = CAST(@now AS INTEGER)
+WHERE id = @id AND (last_used_at IS NULL OR last_used_at <= CAST(@before AS INTEGER));
 
 -- name: ListDispatchesWithAgentSessions :many
 SELECT DISTINCT dispatch_id FROM agent_sessions WHERE revoked_at IS NULL ORDER BY dispatch_id;

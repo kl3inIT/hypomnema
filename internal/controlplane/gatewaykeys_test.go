@@ -113,7 +113,7 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
 	require.Len(t, listed.JSON200.Data, 1, "a worker's key is not listed")
 	assert.Equal(t, "opencode-laptop", listed.JSON200.Data[0].Name)
-	assert.Nil(t, listed.JSON200.Data[0].LastUsedAt)
+	require.NotNil(t, listed.JSON200.Data[0].LastUsedAt, "authenticating is a use, written at most hourly (issue #996)")
 	assert.Equal(t, 1, listed.JSON200.LiveWorkerKeys)
 	assert.NotContains(t, string(listed.Body), secret)
 

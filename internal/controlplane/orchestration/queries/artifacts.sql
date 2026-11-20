@@ -83,34 +83,62 @@ ORDER BY f.path;
 -- View-only links to an artifact (issue #745).
 
 -- name: InsertArtifactShare :exec
-INSERT INTO artifact_shares (id, artifact_id, token, label, created_at)
-VALUES (@id, @artifact_id, @token, @label, @now);
+-- Only the token's hash and its sealed copy are kept (issue #996).
+INSERT INTO artifact_shares (id, artifact_id, token_hash, secret_version_id, label, created_at)
+VALUES (@id, @artifact_id, @token_hash, @secret_version_id, @label, @now);
 
 -- name: ListArtifactShares :many
--- Newest first.
-SELECT * FROM artifact_shares WHERE artifact_id = @artifact_id ORDER BY created_at DESC, id;
+-- The links that work, newest first.
+SELECT * FROM artifact_shares WHERE artifact_id = @artifact_id AND revoked_at IS NULL ORDER BY created_at DESC, id;
 
--- name: DeleteArtifactShare :execrows
-DELETE FROM artifact_shares WHERE id = @id;
+-- name: GetLiveArtifactShare :one
+SELECT * FROM artifact_shares WHERE id = @id AND revoked_at IS NULL;
+
+-- name: RevokeArtifactShare :execrows
+-- A revoked link is kept, without its sealed copy, which the caller deletes.
+UPDATE artifact_shares SET revoked_at = @now, revoke_reason = @reason, secret_version_id = NULL
+WHERE id = @id AND revoked_at IS NULL;
 
 -- name: SharedArtifact :one
--- What a link shows: its artifact at the newest revision, with the type of the file shown.
+-- What a working link shows: its artifact at the newest revision, with the type of the file shown.
 SELECT s.id, s.artifact_id, a.revision, a.updated_at, r.title, r.type, r.entry, f.media_type
 FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id
 JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 JOIN artifact_files f ON f.artifact_id = a.id AND f.revision = a.revision AND f.path = r.entry
-WHERE s.token = @token;
+WHERE s.token_hash = @token_hash AND s.revoked_at IS NULL;
 
 -- name: CountArtifactShareView :exec
 UPDATE artifact_shares SET views = views + 1, last_viewed_at = @now WHERE id = @id;
 
 -- name: ListAllArtifactShares :many
--- Every link, newest first, with its artifact's newest title and type, its Bot and its chat (issue #765).
-SELECT s.id, s.artifact_id, s.token, s.label, s.created_at, s.views, s.last_viewed_at,
+-- Every link that works, newest first, with its artifact's newest title and type, its Bot and its chat (issue #765).
+SELECT s.id, s.artifact_id, s.token_hash, s.secret_version_id, s.label, s.created_at, s.views, s.last_viewed_at,
        a.chat_id, a.bot_id, coalesce(b.name, '') AS bot_name, r.title, r.type
 FROM artifact_shares s
 JOIN artifacts a ON a.id = s.artifact_id
 JOIN artifact_revisions r ON r.artifact_id = a.id AND r.revision = a.revision
 LEFT JOIN bots b ON b.id = a.bot_id
+WHERE s.revoked_at IS NULL
 ORDER BY s.created_at DESC, s.id;
+
+-- name: ListUnmovedArtifactShares :many
+-- Links made before their tokens were hashed (issue #996), whose plaintext the control plane moves as it starts.
+SELECT id, token FROM artifact_shares WHERE token IS NOT NULL ORDER BY id;
+
+-- name: MoveArtifactShareToken :exec
+UPDATE artifact_shares SET token_hash = @token_hash, secret_version_id = @secret_version_id, token = NULL
+WHERE id = @id;
+
+-- name: ListShareSecretsOfChat :many
+-- The sealed copies of a chat's links, deleted with the chat as its artifacts and their links are.
+SELECT s.secret_version_id FROM artifact_shares s JOIN artifacts a ON a.id = s.artifact_id
+WHERE a.chat_id = @chat_id AND s.secret_version_id IS NOT NULL;
+
+-- name: ListShareLabelsBySecret :many
+-- The links whose sealed token is the secret, so the vault refuses to delete it (issue #996), as a gateway key's.
+SELECT s.id, s.label FROM artifact_shares s
+JOIN secret_versions v ON v.id = s.secret_version_id
+JOIN secrets ON secrets.id = v.secret_id
+WHERE secrets.name = @secret_name
+ORDER BY s.id;

@@ -46,22 +46,56 @@ type Service struct {
 	meetings *meetingstore.Store
 	// inbox is the domain store of the Inbox's to-dos (issue #845).
 	inbox *inboxstore.Store
-	// chatKeys revokes a deleted chat's gateway keys (issue #405).
-	chatKeys ChatKeys
+	// gatewayKeys revokes the gateway keys of what ends here (issues #405, #996).
+	gatewayKeys GatewayKeys
+	// shareVault keeps the sealed copies of share links' tokens (issue #996); nil keeps none.
+	shareVault ShareVault
 }
 
-// ChatKeys revokes the gateway keys of a chat being deleted, in the
-// transaction tx that deletes it, without beginning one: the model gateway
-// owns that table and writes it with its own queries
-// (modelgateway.RevokeDeletedChatKeysTx), as vault.Referrers lets the vault
-// ask orchestration without importing it.
-type ChatKeys func(ctx context.Context, tx *sql.Tx, chatID string, now int64) error
+// GatewayKeys revokes the model gateway's keys of what orchestration ends, in the transaction tx that ends it,
+// without beginning one: the model gateway owns that table and writes it with its own queries
+// (modelgateway.Revocations), as vault.Referrers lets the vault ask orchestration without importing it. Each ends
+// the children of a credential or a record with it (issue #996), as Orca revokes a device's children recursively
+// (runtime-rpc-mobile-devices.ts) and Omnara a machine's daemon tokens with the machine
+// (executionstore/machine_lifecycle_store.go).
+type GatewayKeys interface {
+	// RevokeDeletedChatKeysTx ends a deleted chat's keys, which lose the chat (issues #405, #484).
+	RevokeDeletedChatKeysTx(ctx context.Context, tx *sql.Tx, chatID string, now int64) error
+	// RevokeBotKeysTx ends a deleted Bot's keys.
+	RevokeBotKeysTx(ctx context.Context, tx *sql.Tx, botID string, now int64) error
+	// RevokeCoordinatorKeysTx ends the keys of the chats whose pi runs under a revoked coordinator token and of
+	// the Dispatches of the Runs it created.
+	RevokeCoordinatorKeysTx(ctx context.Context, tx *sql.Tx, tokenID string, now int64) error
+	// RevokeNodeKeysTx ends the keys of a removed node's Dispatches.
+	RevokeNodeKeysTx(ctx context.Context, tx *sql.Tx, nodeID string, now int64) error
+}
 
-// WithChatKeys gives the Service the gateway's revocation of a deleted chat's
-// keys. Without it, deleting a chat touches no key: a Service made without
-// the gateway has made none.
-func WithChatKeys(k ChatKeys) ServiceOption {
-	return func(s *Service) { s.chatKeys = k }
+// WithGatewayKeys gives the Service the gateway's revocations. Without them, ending a chat, a Bot, a coordinator
+// token or a node touches no gateway key: a Service made without the gateway has made none.
+func WithGatewayKeys(k GatewayKeys) ServiceOption {
+	return func(s *Service) { s.gatewayKeys = k }
+}
+
+// ShareVault keeps a sealed copy of each share link's token, so the owner can read a link again while only its
+// SHA-256 finds it (issue #996), as an owner-made gateway key's value is kept (modelgateway key_values.go). The
+// control plane's wiring gives the vault's (vault.Copies): orchestration never imports the vault.
+type ShareVault interface {
+	// SealTx keeps value under name in tx and returns the version's id; "" when no vault is configured.
+	SealTx(ctx context.Context, tx *sql.Tx, name, value string, now int64) (string, error)
+	// Open returns the value kept under a version; "" when the vault cannot open it here (not configured, or its
+	// root key is gone).
+	Open(ctx context.Context, versionID string) (string, error)
+	// DeleteTx removes the secret of a version in tx.
+	DeleteTx(ctx context.Context, tx *sql.Tx, versionID string) error
+}
+
+// WithShareVault gives the Service the vault that keeps share links' tokens, once the vault is made: the vault is
+// made after the Service, which it asks what refers to a secret. Without one, a link's token is kept only hashed and
+// cannot be read again.
+func (s *Service) WithShareVault(v ShareVault) *Service {
+	s.shareVault = v
+
+	return s
 }
 
 // New returns a Service over an opened, migrated database. The clock and id

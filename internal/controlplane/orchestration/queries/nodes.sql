@@ -84,10 +84,10 @@ SELECT * FROM node_tokens WHERE id = @id;
 SELECT * FROM node_tokens WHERE node_id = @node_id ORDER BY created_at, id;
 
 -- name: RevokeNodeToken :execrows
-UPDATE node_tokens SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
+UPDATE node_tokens SET revoked_at = @now, revoke_reason = @reason WHERE id = @id AND revoked_at IS NULL;
 
 -- name: RevokeNodeTokens :exec
-UPDATE node_tokens SET revoked_at = @now WHERE node_id = @node_id AND revoked_at IS NULL;
+UPDATE node_tokens SET revoked_at = @now, revoke_reason = @reason WHERE node_id = @node_id AND revoked_at IS NULL;
 
 -- name: TouchNodeToken :exec
 UPDATE node_tokens SET last_used_at = CAST(@now AS INTEGER)
