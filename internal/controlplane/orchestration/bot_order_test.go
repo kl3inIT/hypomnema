@@ -7,11 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Scenario: the owner orders his Bots and pins some (issue #470). A new Bot goes last; a reorder names only the
-// Bots it moves, which take the places they held together, as OpenMausBot's does; the others keep theirs. The main
-// Bot stays first and is neither moved nor pinned. A removed Bot leaves no gap, and a change of a Bot's settings
-// keeps its place and pin.
-func TestTheOwnerOrdersAndPinsHisBots(t *testing.T) {
+// Scenario: the owner orders his Bots (issue #470). A new Bot goes last; a reorder names only the Bots it moves,
+// which take the places they held together, as OpenMausBot's does; the others keep theirs. The main Bot stays
+// first and is not moved. A removed Bot leaves no gap, and a change of a Bot's settings keeps its place.
+func TestTheOwnerOrdersHisBots(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -49,20 +48,9 @@ func TestTheOwnerOrdersAndPinsHisBots(t *testing.T) {
 
 	assert.Equal(t, []string{main, c, d, a, b}, botOrder(t, w), "a refused reorder changes nothing")
 
-	pinned, err := w.s.PinBot(ctx, d, true)
-	require.NoError(t, err)
-	assert.True(t, pinned.Pinned)
-
-	_, err = w.s.PinBot(ctx, DefaultBotID, true)
-	require.ErrorIs(t, err, ErrInvalid, "the main Bot is always first, not pinned")
-
-	_, err = w.s.PinBot(ctx, "bot_nobodyaaaaaaaaaaaaaaaaaaaa", true)
-	require.ErrorIs(t, err, ErrNotFound)
-
 	changed, err := w.s.PutBot(ctx, Bot{ID: d, Persona: "You keep the maps."})
 	require.NoError(t, err)
-	assert.True(t, changed.Pinned, "a change of its settings keeps its pin")
-	assert.Equal(t, 2, changed.Position, "and its place")
+	assert.Equal(t, 2, changed.Position, "a change of its settings keeps its place")
 
 	require.NoError(t, w.s.DeleteBot(ctx, c))
 	assert.Equal(t, []string{main, d, a, b}, botOrder(t, w), "the Bots after a removed one move up")
@@ -70,10 +58,6 @@ func TestTheOwnerOrdersAndPinsHisBots(t *testing.T) {
 	e, err := w.s.PutBot(ctx, Bot{Name: "e"})
 	require.NoError(t, err)
 	assert.Equal(t, 4, e.Position, "a new Bot takes the place after the last")
-
-	unpinned, err := w.s.PinBot(ctx, d, false)
-	require.NoError(t, err)
-	assert.False(t, unpinned.Pinned)
 }
 
 // botOrder is every Bot's id by its position, checked to be 0 to n-1.

@@ -18,7 +18,6 @@ const main: Bot = {
   name: "Coordinator",
   main: true,
   position: 0,
-  pinned: false,
   persona: "",
   memory: "",
   memory_limit: 2200,

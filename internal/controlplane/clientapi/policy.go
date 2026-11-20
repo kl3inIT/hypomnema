@@ -223,7 +223,13 @@ var policies = map[string]policy{
 	"RenameBot": {},
 	"DeleteBot": {},
 	// The order the sidebar lists the Bots in (issue #470) is the owner's.
-	"ReorderBots":         {scope: scopeOwner},
+	"ReorderBots": {scope: scopeOwner},
+	// Departments, the sidebar's sections of Bots (issue #471), are the owner's too.
+	"ListDepartments":     {},
+	"CreateDepartment":    {scope: scopeOwner},
+	"ReorderDepartments":  {scope: scopeOwner},
+	"RenameDepartment":    {scope: scopeOwner},
+	"DeleteDepartment":    {scope: scopeOwner},
 	"ChangeBotMemory":     {},
 	"SetBotMemory":        {scope: scopeOwner},
 	"ListProfiles":        {},

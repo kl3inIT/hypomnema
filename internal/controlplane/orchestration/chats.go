@@ -87,7 +87,14 @@ type Chat struct {
 	// Usage is how full its context window is, nil before pi first reported it (issue #384).
 	Usage *ContextUsage
 	// LastLine is the first line of its latest message of the owner or its Bot, read in a list only (issue #471).
-	LastLine  string
+	LastLine string
+	// Routine says the chat was opened for a Routine's run, and Channel that it is a Lark chat: a person's or a
+	// group's at a Channel, one someone other than the owner wrote in, or another person's from before sender ids,
+	// titled "Lark: <name>" with Lark's "[Lark message from <name>, who is not the owner. …]" label in its lines
+	// (issue #923). Neither is ever a Bot's main chat, as OpenMausBot's main thread is never a routine's run nor a
+	// channel's thread (server/main-thread.ts, server/index.ts mainThreadTasks).
+	Routine   bool
+	Channel   bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -501,17 +508,71 @@ func (s *Service) createChatTx(ctx context.Context, q *store.Queries, now int64,
 
 // GetChat returns one chat.
 func (s *Service) GetChat(ctx context.Context, id string) (Chat, error) {
-	row, err := s.read().GetChat(ctx, id)
+	q := s.read()
+
+	row, err := q.GetChat(ctx, id)
 	if err != nil {
 		return Chat{}, notFound(err, "chat", id)
 	}
 
-	return chatFromRow(row), nil
+	marks, err := q.GetChatMarks(ctx, id)
+	if err != nil {
+		return Chat{}, notFound(err, "chat", id)
+	}
+
+	c := chatFromRow(row)
+	c.Routine, c.Channel = marks.Routine != 0, marks.Channel != 0
+
+	return c, nil
+}
+
+// SetMainChat makes one of a Bot's chats its main chat, the one a click on the Bot opens and the web and the CLI
+// write to (issue #923): the owner's Set as main chat, as OpenMausBot's "Set as main thread" stores the bot's
+// mainThreadChoice (server/routes/bot-patch.ts). A chat that is not the Bot's, a Routine's chat and a Lark chat are
+// refused, as OpenMausBot refuses a routine's run, another bot's thread and one its resolver cannot pick, alike
+// (server/routes/bot-patch.test.ts). The Bot's former main chat stays as it was.
+func (s *Service) SetMainChat(ctx context.Context, bot, chatID string) (Bot, error) {
+	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		if _, err := q.GetBot(ctx, bot); err != nil {
+			return notFound(err, "bot", bot)
+		}
+
+		row, err := q.GetChat(ctx, chatID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+
+		// A chat that is not there is refused as another Bot's is, as OpenMausBot answers both with one 400.
+		if err != nil || row.BotID != bot {
+			return fmt.Errorf("%w: chat %s is not one of bot %s's chats", ErrInvalid, chatID, bot)
+		}
+
+		marks, err := q.GetChatMarks(ctx, chatID)
+		if err != nil {
+			return err
+		}
+
+		switch {
+		case marks.Routine != 0:
+			return fmt.Errorf("%w: chat %s is a Routine's run; a Routine's chat is never a main chat", ErrInvalid,
+				chatID)
+		case marks.Channel != 0:
+			return fmt.Errorf("%w: chat %s is a Lark chat, which is never a main chat", ErrInvalid, chatID)
+		}
+
+		return q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(chatID), Bot: bot})
+	}); err != nil {
+		return Bot{}, fmt.Errorf("setting the main chat of bot %s: %w", bot, err)
+	}
+
+	return s.GetBot(ctx, bot)
 }
 
 // ListChats returns a page of the chats, of one Bot when bot names one, the most recently active first, after
-// skipping offset of them, each with its last line. The first page also carries every Bot's main chat and every chat
-// an Approval waits in, whatever their age (queries/chats.sql ListChats).
+// skipping offset of them, each with its last line and its marks. The first page also carries every Bot's main chat,
+// every chat an Approval waits in and the chat a Bot with no main chat opens, its latest that is not a Routine's run
+// (issue #923), whatever their age
+// (queries/chats.sql ListChats).
 func (s *Service) ListChats(ctx context.Context, bot string, limit, offset int) ([]Chat, error) {
 	rows, err := s.read().ListChats(ctx, store.ListChatsParams{
 		Bot: bot, Lim: int64(pageLimit(limit)), Skip: int64(max(offset, 0)),
@@ -524,6 +585,7 @@ func (s *Service) ListChats(ctx context.Context, bot string, limit, offset int) 
 	for _, r := range rows {
 		c := chatFromRow(r.Chat)
 		c.LastLine = lastLine(r.LastText)
+		c.Routine, c.Channel = r.Routine != 0, r.Channel != 0
 		out = append(out, c)
 	}
 

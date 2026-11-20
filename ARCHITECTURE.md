@@ -177,15 +177,25 @@ at once end in one. The web's first message to a Bot with no main chat goes thro
 never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (Runs and
 their wake-ups, approvals, Routines and their report cards, the queue, a cut turn, files, artifacts, pi's
 sessions), and only leaves the sidebar's row. Deleting the main chat clears the pointer, and the next message
-from the web or the CLI makes another. The migration chose each Bot's main chat among its chats that are not a
+from the web or the CLI makes another. The owner also points a Bot at one of its own chats (issue #923, after
+OpenMausBot's "Set as main thread", `mainThreadChoice` in its `PATCH /api/bots/:id`): `main_chat` in `PATCH
+/bots/{id}` (`BotChange`), only the owner (403 for the main Bot's pi), refused (400) for a chat of another Bot or not
+there, a Routine's chat and a Lark chat; the web's Bot row menu and `hypomnema chats main <chat>` send it. Opening
+another chat to read it (a card, a question, an approval, a link) does not move the main chat. A chat carries
+`routine` (opened for a Routine's run: named by a run, or opened with a Routine's prompt) and `channel` (a Lark chat:
+mapped in `channel_chats`, a group's, one someone other than the owner wrote in, or another person's chat from
+before sender ids: titled "Lark: <name>", as migration 138 tells them, with a line Lark labelled "[Lark message from <name>, who is not the owner. …]", so
+that a web chat the owner began with "Lark: " is not one), read in `GetChat` and in a list
+by the same rules (`queries/chats.sql` `GetChatMarks`); neither is ever a main chat. The migration chose each Bot's main chat among its chats that are not a
 Lark chat (no `channel_chats` row), a Lark group's (`channel_group`), another person's (a person message with a
 sender, or a title "Lark: <name>"), a Lark chat a `/new` moved away from (an owner message with a file Lark sent,
 kept under its `om_` message id, or a heard voice message) or a Routine's (named by a run, or opened with a
 Routine's prompt): the one with the owner's latest message, then the one active latest; a Bot with none has no main
 chat. An owner's Lark direct chat that a `/new` left with text alone keeps no mark of Lark, so a Bot a Channel talks
 to got no main chat from the migration (owner, 2026-11-19): its first message from the web or the CLI makes one. `GET /chats?bot=` lists one Bot's chats, a page at a time
-(`offset`); the first page also carries every Bot's main chat and every chat an Approval waits in, whatever their
-age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
+(`offset`); the first page also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with
+no main chat, its latest chat that is not a Routine's run (the chat it opens, issue #923), whatever
+their age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
 has its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
 `chats.provider`, `model`, `effort`, migration 66, each NULL for its Bot's): `POST /chats` takes them and `PATCH
 /chats/{id}` changes them, a field given replacing the chat's and an empty one giving it back to the Bot; the model is
@@ -1075,6 +1085,34 @@ sequenceDiagram
     From: Orca `a5c191cc0`, `send-point-to-point.ts:194` (commit before waking), and t3code `d2606600`,
     `Orchestrator.ts:16532` (reoffer persisted completion messages). The per-Run cutoff is specific to Hypomnema's
     shared chat cursor. See the [reference comparison](https://github.com/kl3inIT/hypomnema/issues/969#issuecomment-7029495213).
+  - One controller per Run: once a Run has a chat, that chat's Bot alone follows up, answers coordinator
+    questions and creates reviews; another coordinator token, or the same parent token from another chat, is
+    refused (`clientapi/policy.go`, `checkPolicy`). The owner's principal is not fenced: the web's session and the
+    CLI's owner token are both `owner` (`clientapi/server.go`), and a question to the owner only the owner answers
+    (`orchestration/questions.go`, `AnswerQuestion`). The coordinator guide, not the server, splits the two paths:
+    an owner CLI session hands a Run off (creates it and its first Tasks, then stops) and afterwards only observes,
+    passing a change to the Run's chat (`hypomnema chat --chat`); the chat's Bot handles every event, sends fix
+    rounds and finishes the Run.
+    From: Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:39-91` (the stored binding writes,
+    another known coordinator is read-only, the binding's owner is admitted); OpenMausBot `71ada2b5`,
+    `server/coordinator.ts:63-64` (the requester is woken). Applying it to the owner's CLI session is inference the
+    owner accepted on 2026-11-20.
+  - A review's wake carries the verdict, the pull request, the merge state and checks, and the command that reads
+    the findings (`reviewWakeText`); the control plane sends no follow-up to the author by itself, the Run's
+    chat decides the fix (issue #967 folded in). That enriched wake comes only when the review leaves its open Run
+    with no unfinished Task; while another Task of the Run is still unfinished, the review's end sends only the
+    plain Task wake, and the coordinator reads the verdict from `tasks show` (`reviewAfterTask` in
+    `orchestration/review.go`). From: OpenMausBot `71ada2b5`, `server/runtime/envelope.ts:184,255`
+    (the requester checks the report and sends rework); Orca `a5c191cc0`, `src/main/bots/bot-pr-events.ts:1-13`
+    (nothing wakes on a worker's pull request).
+  - A worker's question reaches the chat its Run is bound to, adopted or not: one to the coordinator is a wake-up
+    (`ChatRunEvents`), one to the owner waits docked above that chat's composer (`GET /questions?chat_id=`). From:
+    Orca `a5c191cc0`, `mobile/src/session/native-chat/input/prompts/use-mobile-worker-approvals.ts:60` (a
+    coordinator chat shows its workers' open prompts).
+  - Deleting a chat, by itself or with its Bot (`ForceDeleteBot`), is refused (409) while one of its Runs is open
+    (`ChatHasOpenRuns` in `deleteChatTx`), beside the live-Routine guard; an ended Run is detached as before. From:
+    Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:63-91` (the stored binding holds); OpenHands
+    SDK `fb565cfe`, `conversation_lease.py:167-209` (a live owner is not displaced).
 - Artifacts (issue #402, `orchestration/artifacts.go`, `internal/shared/artifactpack`, after OpenMausBot's chat
   pages `server/chat-apps.ts`, `app-docs.ts`, `page-files.ts` and `server/pages/bundle.ts`): what a Bot hands the
   owner to look at in its chat, an HTML page or folder, a PDF, an image or any other file.
@@ -1216,15 +1254,24 @@ sequenceDiagram
   (Chats, above; issue #484), its messages, setup changes and artifacts with it, the Runs, Routines and approvals
   made in them stay without the chat, and the chats' gateway keys are revoked and kept, in that one transaction as for
   one chat. Their files on the coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then.
-  - **Order and pins** (issue #470, migration 00089; after OpenMausBot's one fleet order with a `pinned` flag and
-    onyx's dense `display_order`). Every Bot has `bots.position`, dense from 0 (numbered by creation when the
+  - **Order and departments** (issue #470, migration 00089; after OpenMausBot's one fleet order and onyx's dense
+    `display_order`). Every Bot has `bots.position`, dense from 0 (numbered by creation when the
     column came, so the main Bot is 0); a new Bot goes last and a removed one leaves no gap. `PUT /bots/order`
     `{bot_ids}` (`ReorderBots`) names the Bots it moves: they take, in the order given, the places they already
     hold together, and every other Bot keeps its place (OpenMausBot's `reorderStable`); it answers every Bot's id
-    in the new order. An empty list, a repeated or unknown id and the main Bot are refused (400). `bots.pinned` is
-    set with `PATCH /bots/{bot_id}` `{pinned}`; the main Bot is not pinned. Both are the owner's alone, not a Bot
-    setting: the main Bot's pi is refused (403), and `PUT /bots/{bot_id}` keeps them. `GET /bots` still lists the
-    Bots oldest first, each with its `position` and `pinned`. A provider change that would
+    in the new order. An empty list, a repeated or unknown id and the main Bot are refused (400). A Bot may be in
+    one **department** (issue #471, after OpenMausBot's departments, `server/routes/sidebar-sections.ts`), a named
+    section of the sidebar kept in `departments` (id, name unique, dense `position`) and named by
+    `bots.department` (NULL for none, `ON DELETE SET NULL`); the departments replace the Pinned section of issue
+    #470, whose pinned Bots the migration put in a department named Pinned. `GET /departments` lists them in
+    order; `POST /departments` `{name, bot_ids}` makes one last with those Bots in it; `PATCH
+    /departments/{id}` `{name}` renames it; `DELETE /departments/{id}` removes it and its Bots go back to none;
+    `PUT /departments/order` `{department_ids}` moves them as `ReorderBots` moves Bots. A name is 1 to 60
+    characters without control characters (OpenMausBot's rule) and one department's (409). `PATCH /bots/{bot_id}`
+    `{department}` moves a Bot, `""` to none; the main Bot is in none (400). A department shares nothing between
+    its Bots. The order and the departments are the owner's alone, not a Bot setting: the main Bot's pi is refused
+    (403), and `PUT /bots/{bot_id}` keeps them. `GET /bots` still lists the Bots oldest first, each with its
+    `position` and `department`. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
@@ -4766,7 +4813,8 @@ The owner's commands:
   without it (`POST /chats/main`, which makes the main chat when the Bot has none; issue #471); `--new` starts a
   new chat, which becomes the Bot's main chat; `--bot` and `--new` are refused with `--chat` (issue #616); without
   a message it shows the chat, and a Bot with no main chat shows none and makes none; the message `/new` is
-  `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`. `runs create` sends
+  `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`; `chats main <chat>` makes a
+  chat its Bot's main chat (owner; issue #923). `runs create` sends
   `HYPOMNEMA_CHAT_ID` when pi's environment has it and `--chat` is absent; the API refuses another chat with
   pi's own token (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
@@ -5384,8 +5432,9 @@ Node (`internal/node`):
   - A Bot's card: its avatar, name and model with its maker's mark, and its status in words, chosen in
     OpenMausBot's order: Waiting for you (a pending Approval in one of its chats, or a Task of one of its Runs in
     Needs you), No signal (its newest chat has no pi to answer), Working (a chat working, or a Dispatch of its
-    Runs live); idle says nothing. A line under the status says why. The card opens the Bot's main chat (issue
-    #471), else a new chat with that Bot (`/?bot=`).
+    Runs live); idle says nothing. A line under the status says why. The card opens the chat the Bot opens to:
+    its main chat (issue #471), else its latest chat that is not a Routine's run (issue #923), else
+    a new chat with that Bot (`/?bot=`).
   - A machine's card: its state, "n of max" Dispatches, and a line a live Dispatch (starting, running or
     stopping) with the runtime's mark, the Task's first line and what its worker does now, or how long it has
     waited for an answer; an idle machine shows "–". A line opens the Task's panel over the map (`?task=`), and
@@ -5527,22 +5576,41 @@ Node (`internal/node`):
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
     Team with the count that needs the owner, Routines, Meetings, Studio, then Bots; the Agents and the Machines
     are in Settings (issue #857). The places sit above the Bots (issue #361, after OpenMausBot's sidebar): a row every Bot, with chats or
-    not ("No chats yet"), in the one order the owner sets (issue #470): the main Bot (`Bot.main`) first, then a
-    "Pinned" section of the pinned Bots, then the others, each section by `Bot.position`. The owner drags a Bot by
-    its avatar, which turns into a grabber on hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with
-    the mouse or the keyboard, within its section; the page shows the new order at once and sends
-    `PUT /bots/order`. Pin and Unpin are in the Bot row's menu. A phone shows the order without dragging. A row
+    not ("No chats yet"), in the one order the owner sets (issue #470): the main Bot (`Bot.main`) first, then each
+    department (issue #471) under its header, an empty one too, then the Bots in none, the departments by their
+    position and the Bots by `Bot.position`. The owner drags a Bot by its avatar, which turns into a grabber on
+    hover or focus (dnd-kit, adapted from Hermes's desktop sidebar), with the mouse or the keyboard, within its
+    section; the page shows the new order at once and sends `PUT /bots/order`. A department's header
+    (`department-header.tsx`, adapted from OpenMausBot's `SidebarSectionHeader.tsx`) folds it, kept in the
+    browser's storage only, and then counts its Bots that need the owner, or marks one working; its grabber moves
+    it among the departments (`PUT /departments/order`); its menu renames it and deletes it after asking. A Bot
+    row's menu has "Move to department": every department, "New department…" (a name dialog) and "Remove from
+    department", as OpenMausBot's Bot menu. A Bot is not dragged into another department, and a department is not
+    paused. A phone shows the order without dragging. A row
     is one Bot, with no list of its chats under it (issue #471, as OpenMausBot's sidebar with threads hidden): the
-    Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its main chat's last line
-    (`Chat.last_line`, else its title; "No chat yet" for a Bot with none; read again when a chat's stream brings a
-    line), and "Needs you", "Working" or the time.
-    Clicking it opens the Bot's main chat, or New chat with that Bot picked (`/?bot=`) when it has none; when
-    another chat of the Bot waits on the owner and the main chat does not, the row opens the newest such chat.
-    Dragging the row carries the main chat to the grid. The Bot row's menu (issue #484, after t3code's thread menu),
-    shown on hover or focus and always on a phone, carries the main chat's Delete ("Delete chat"), which asks first
-    and, for the open chat, then opens New chat with its Bot. The Bot's page lists its other chats ("Other chats",
+    Bot's avatar with a dot when one of its chats is working or needs the owner, its name, the last line of the chat
+    it opens to (`Chat.last_line`, else its title; "No chat yet" for a Bot with none; read again when a chat's stream
+    brings a line), and "Needs you", "Working" or the time.
+    Clicking it opens the chat the Bot opens to (`opensTo` in `web/src/features/shell/bot-rows.ts`, issue #923, after
+    OpenMausBot's `botOpensTo`): its main chat; with none, its most recently active chat that is not a Routine's run
+    (a Lark chat included); New chat with that Bot picked (`/?bot=`) only when it has no chat but Routines' runs, or
+    none. When another chat of the
+    Bot waits on the owner and that chat does not, the row opens the newest such chat. Dragging the row carries the
+    chat it opens to the grid. The Bot row's menu (issue #484, after t3code's thread menu), shown on hover or focus
+    and always on a phone, carries Set as main chat for the chat being viewed when it is the Bot's (issue #923, a
+    star, disabled with "This is already the main chat" on the main one, absent on a Routine's or a Lark chat), and
+    the Delete ("Delete chat") of the chat the row opens to, which asks first and, for the open chat, then opens New
+    chat with its Bot. The chat being viewed is the chat in front of a pane, not the address: on a chat's page, the
+    tab in front of its pane (a chat dragged into its middle comes in front while the address stays; `useSoloChat`
+    in `web/src/features/workbench/solo-chat.ts`, read by the sidebar and the phone's drawer); in the grid, the tab in
+    front of the pane last pointed at or focused, the first pane until then. While a tab that is not a chat is in
+    front (a new chat's draft, a file, the browser, the phone), no chat is being viewed and nothing acts on the chat
+    behind it. Each pane has "Back to main chat" at the end of its tab strip while the chat in front is another chat
+    of a Bot that has a main chat (OpenMausBot's "Back to your chat"): it brings the main chat in front in that pane,
+    and on a chat's page whose pane does not have it, opens its page with the main chat in front of the pane that page
+    kept. The Bot's page lists its other chats ("Other chats",
     `GET /chats?bot=`, 100 at a time with Show more), each with the same menu; on the Bots page a Bot's name opens
-    its main chat and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
+    the chat it opens to and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
     their links (`/chats/<id>`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/settings/machines` (in Settings under Workers since issue #857; the old `/machines`

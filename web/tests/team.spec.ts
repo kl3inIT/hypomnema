@@ -466,7 +466,7 @@ test("a running worker's transcript is read in its Task's panel", async ({ page 
 })
 
 // Scenario: a Bot opens its main chat, though another of its chats waits for the owner (issue #471); a Bot with no
-// main chat opens a new chat with it.
+// main chat opens its latest chat (issue #923).
 test("a Bot opens its main chat", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/team")
@@ -476,7 +476,7 @@ test("a Bot opens its main chat", async ({ page }) => {
 
   await page.goto("/team")
   await page.getByTestId("team-bot").filter({ hasText: "reporter" }).click()
-  await expect(page).toHaveURL(/\/\?bot=reporter$/)
+  await expect(page).toHaveURL(/\/chats\/cht_4$/)
 })
 
 // Scenario: with no Bots, the page says so.

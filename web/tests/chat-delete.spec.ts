@@ -26,7 +26,6 @@ const coordinator: Record<string, unknown> = {
   main: true,
   name: "coordinator",
   position: 0,
-  pinned: false,
   persona: "",
   memory: "",
   memory_limit: 2200,
@@ -164,7 +163,7 @@ test("a chat's menu deletes it after asking", async ({ page }) => {
 })
 
 // Scenario: the owner deletes the Bot's main chat, open, from its row's menu in the sidebar (issue #503); the page
-// goes to a new chat with its Bot, and the row, with no main chat left, says so (issue #471).
+// goes to a new chat with its Bot, and the row, with no main chat left, stands for its latest chat (issue #923).
 test("deleting the open main chat goes to its Bot's new chat", async ({ page }) => {
   const deleted = await fakeServer(page)
   await page.goto("/chats/cht_1")
@@ -185,5 +184,7 @@ test("deleting the open main chat goes to its Bot's new chat", async ({ page }) 
   expect(deleted).toEqual(["cht_1"])
   // A phone's drawer stays open over the new chat.
   if (!(await page.getByRole("dialog", { name: "Sidebar" }).isVisible())) await openMenu(page)
-  await expect(bots(page).getByRole("link", { name: /coordinator/ })).toContainText("No chat yet")
+  await expect(bots(page).getByRole("link", { name: /coordinator/ })).toContainText(
+    "Fix the header layout",
+  )
 })

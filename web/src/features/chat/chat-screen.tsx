@@ -13,6 +13,7 @@ import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import { AppSidebar } from "@/features/shell/app-shell"
 import { MenuButton, PageHeader } from "@/components/page-header"
+import { useSoloChat } from "@/features/workbench/solo-chat"
 import { SoloPane } from "@/features/workbench/solo-pane"
 
 import { AttachDrop } from "./attach-drop"
@@ -32,9 +33,12 @@ import { useStartChat } from "./start-chat"
 // screen offers the Bots when there are several, and an open chat's header names its Bot. The start screen chooses
 // its chat's id when it opens (issue #357), so that files are attached there before the chat is made.
 export function ChatScreen({ chatId, bot }: { chatId?: string; bot?: string }) {
+  const viewed = useSoloChat(chatId)
+
   return (
     <>
-      <AppSidebar currentChat={chatId} />
+      {/* The sidebar knows the chat in front of the page's pane as the one being viewed (issue #923). */}
+      <AppSidebar currentChat={viewed} />
       {chatId ? <OpenChat key={chatId} chatId={chatId} /> : <NewChat initialBot={bot} />}
     </>
   )
