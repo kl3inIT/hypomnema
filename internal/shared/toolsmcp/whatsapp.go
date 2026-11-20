@@ -15,7 +15,7 @@ import (
 func (a *Agent) SendCall(ctx context.Context, path, tool string, arguments json.RawMessage, dir string) (any, error) {
 	var in agenttool.WhatsAppSendCall
 	if len(arguments) > 0 && json.Unmarshal(arguments, &in) != nil {
-		return nil, errors.New(tool + " takes {chat, text, path, reply_to}")
+		return nil, errors.New(tool + " takes {chat, text, path, reply_to, mentions}")
 	}
 
 	// The file is this server's to give, never the agent's.

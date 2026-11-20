@@ -57,6 +57,11 @@ const (
 	RoutineScript RoutineKind = "script"
 )
 
+const (
+	AccessFull = "full"
+	AccessRead = "read"
+)
+
 // RoutineState says whether a Routine runs.
 type RoutineState string
 
@@ -143,10 +148,11 @@ var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month 
 
 // Routine is work a Bot does on a schedule.
 type Routine struct {
-	ID   string
-	Bot  string
-	Name string
-	Kind RoutineKind
+	ID     string
+	Bot    string
+	Name   string
+	Kind   RoutineKind
+	Access string
 	// Prompt is what a prompt Routine gives its Bot.
 	Prompt string
 	// Script is the name of the file a script Routine runs, never a path;
@@ -209,6 +215,7 @@ type RoutineSpec struct {
 	Bot            string      `json:"-"`
 	Name           string      `json:"-"`
 	Kind           RoutineKind `json:"kind"`
+	Access         string      `json:"access,omitempty"`
 	Prompt         string      `json:"prompt,omitempty"`
 	Script         string      `json:"script,omitempty"`
 	ScriptText     string      `json:"script_text,omitempty"`
@@ -273,6 +280,7 @@ type RunResult struct {
 type Settled struct {
 	Routine Routine
 	Run     RoutineRun
+	ReadRun bool
 	// Alert says the owner is to be told now of the failures in a row.
 	Alert bool
 	// Paused says the Routine was paused for its failures.
@@ -335,7 +343,7 @@ func boolInt(b bool) int64 {
 
 func routineFromRow(r store.Routine) Routine {
 	return Routine{
-		ID: r.ID, Bot: r.BotID, Name: r.Name, Kind: RoutineKind(r.Kind), Prompt: r.Prompt, Script: r.Script,
+		ID: r.ID, Bot: r.BotID, Name: r.Name, Kind: RoutineKind(r.Kind), Access: r.Access, Prompt: r.Prompt, Script: r.Script,
 		ScriptText: r.ScriptText, EveryMinutes: int(r.EveryMinutes.Int64), Cron: r.Cron.String,
 		Timezone: r.Timezone.String, Timeout: time.Duration(r.TimeoutSeconds) * time.Second,
 		Revision: int(r.Revision), State: RoutineState(r.State), PausedReason: r.PausedReason, Summary: r.Summary,
@@ -363,7 +371,7 @@ func undoOf(r store.Routine) *routineUndo {
 
 func specOfRow(r store.Routine) RoutineSpec {
 	return RoutineSpec{
-		Bot: r.BotID, Name: r.Name, Kind: RoutineKind(r.Kind), Prompt: r.Prompt, Script: r.Script,
+		Bot: r.BotID, Name: r.Name, Kind: RoutineKind(r.Kind), Access: r.Access, Prompt: r.Prompt, Script: r.Script,
 		ScriptText: r.ScriptText, EveryMinutes: int(r.EveryMinutes.Int64), Cron: r.Cron.String,
 		Timezone: r.Timezone.String, TimeoutSeconds: int(r.TimeoutSeconds), Summary: r.Summary,
 		ChatID: r.ChatID.String, Announce: r.Announce == 1,
@@ -518,6 +526,10 @@ func checkRoutine(n RoutineSpec) (RoutineSpec, schedule, error) {
 	sched, err := scheduleOf(n.EveryMinutes, n.Cron, n.Timezone)
 
 	switch {
+	case n.Access != "" && n.Access != AccessFull && n.Access != AccessRead:
+		return n, sched, fmt.Errorf("%w: routine access is full or read", storeerr.ErrInvalid)
+	case n.Access == AccessRead && (n.Kind != RoutinePrompt || n.Script != "" || n.ScriptText != ""):
+		return n, sched, fmt.Errorf("%w: a read-only routine runs a prompt without a script", storeerr.ErrInvalid)
 	case !storeutil.NamePattern.MatchString(n.Name):
 		return n, sched, fmt.Errorf("%w: a routine's name is lowercase letters, digits and dashes, starting with a "+
 			"letter", storeerr.ErrInvalid)
@@ -619,6 +631,8 @@ func (s *Store) PutRoutine(ctx context.Context, n RoutineSpec, by RoutineAuthor)
 	switch {
 	case by.FromRun:
 		return Routine{}, fmt.Errorf("%w: a routine's run cannot make or change routines", storeerr.ErrConflict)
+	case by.Bot && n.Access != "":
+		return Routine{}, fmt.Errorf("%w: only the owner sets routine access", storeerr.ErrInvalid)
 	case by.Bot && n.ChatID == "":
 		return Routine{}, fmt.Errorf("%w: a bot makes a routine from the chat it works in", storeerr.ErrInvalid)
 	}
@@ -633,6 +647,9 @@ func (s *Store) PutRoutine(ctx context.Context, n RoutineSpec, by RoutineAuthor)
 		row, err := q.GetRoutineByName(ctx, store.GetRoutineByNameParams{Bot: n.Bot, Name: n.Name})
 		if errors.Is(err, sql.ErrNoRows) {
 			id = s.newID("rtn")
+			if n.Access == "" {
+				n.Access = AccessFull
+			}
 
 			return insertRoutine(ctx, q, now, id, n, sched, by)
 		}
@@ -642,11 +659,45 @@ func (s *Store) PutRoutine(ctx context.Context, n RoutineSpec, by RoutineAuthor)
 		}
 
 		id = row.ID
+		if n.Access == "" {
+			n.Access = row.Access
+			if by.Bot && !sameWork(specOfRow(row), n) {
+				n.Access = AccessFull
+			}
+			if n.Access == AccessRead && (n.Kind != RoutinePrompt || n.Script != "" || n.ScriptText != "") {
+				return fmt.Errorf("%w: set access to full before adding a script", storeerr.ErrInvalid)
+			}
+		}
 
 		return updateRoutine(ctx, q, now, row, n, sched, by.Bot)
 	})
 	if err != nil {
 		return Routine{}, fmt.Errorf("saving routine %s of bot %s: %w", n.Name, n.Bot, err)
+	}
+
+	return s.GetRoutine(ctx, id)
+}
+
+func (s *Store) SetRoutineAccess(ctx context.Context, id, access string) (Routine, error) {
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		row, err := q.GetRoutine(ctx, id)
+		if err != nil {
+			return storeutil.NotFound(err, "routine", id)
+		}
+
+		switch {
+		case access != AccessRead && access != AccessFull:
+			return fmt.Errorf("%w: routine access is full or read", storeerr.ErrInvalid)
+		case access == AccessRead && (row.Kind != string(RoutinePrompt) || row.Script != "" || row.ScriptText != ""):
+			return fmt.Errorf("%w: a read-only routine runs a prompt without a script", storeerr.ErrInvalid)
+		case access == row.Access:
+			return nil
+		}
+
+		return q.SetRoutineAccess(ctx, store.SetRoutineAccessParams{ID: id, Access: access, Now: now})
+	})
+	if err != nil {
+		return Routine{}, err
 	}
 
 	return s.GetRoutine(ctx, id)
@@ -724,7 +775,7 @@ func insertRoutine(ctx context.Context, q *store.Queries, now int64, id string, 
 		ScriptText: n.ScriptText, EveryMinutes: nullInt(n.EveryMinutes), AnchorAt: anchor, Cron: nullString(n.Cron),
 		Timezone: nullString(n.Timezone), TimeoutSeconds: int64(n.TimeoutSeconds), Summary: n.Summary,
 		ChatID: nullString(n.ChatID), Announce: boolInt(n.Announce), NextRunAt: nullTime(sched.next(storeutil.Millis(now))),
-		CreatedBy: author, Undo: undo, Now: now,
+		CreatedBy: author, Undo: undo, Now: now, Access: n.Access,
 	})
 }
 
@@ -738,7 +789,7 @@ func updateRoutine(ctx context.Context, q *store.Queries, now int64, row store.R
 		EveryMinutes: nullInt(n.EveryMinutes), AnchorAt: row.AnchorAt, Cron: nullString(n.Cron),
 		Timezone: nullString(n.Timezone), TimeoutSeconds: int64(n.TimeoutSeconds), Revision: row.Revision,
 		Summary: n.Summary, ChatID: nullString(n.ChatID), Announce: boolInt(n.Announce), NextRunAt: row.NextRunAt,
-		Now: now,
+		Now: now, Access: n.Access,
 	}
 
 	if !sameSchedule(before, n) {
@@ -803,6 +854,9 @@ func (s *Store) UndoRoutine(ctx context.Context, id string) (r Routine, removed 
 
 		before := *undo.Before
 		before.Bot, before.Name = row.BotID, row.Name
+		if before.Access == "" {
+			before.Access = row.Access
+		}
 
 		sched, err := scheduleOf(before.EveryMinutes, before.Cron, before.Timezone)
 		if err != nil {

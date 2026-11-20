@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"runtime"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -11,6 +10,7 @@ import (
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
 
+	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -24,7 +24,7 @@ func DetectSystem(ctx context.Context, worktreeRoot string) nodeproto.SystemInfo
 		out.MemoryBytes = clampInt64(m.Total)
 	}
 
-	if d, err := disk.UsageWithContext(ctx, existingDir(worktreeRoot)); err == nil {
+	if d, err := disk.UsageWithContext(ctx, diskguard.ExistingDir(worktreeRoot)); err == nil {
 		out.DiskBytes = clampInt64(d.Total)
 	}
 
@@ -49,7 +49,7 @@ func MeasureSystem(ctx context.Context, worktreeRoot string) *nodeproto.SystemSt
 		read = true
 	}
 
-	if d, err := disk.UsageWithContext(ctx, existingDir(worktreeRoot)); err == nil {
+	if d, err := disk.UsageWithContext(ctx, diskguard.ExistingDir(worktreeRoot)); err == nil {
 		out.DiskUsedBytes = clampInt64(d.Used)
 		read = true
 	}
@@ -65,24 +65,6 @@ func MeasureSystem(ctx context.Context, worktreeRoot string) *nodeproto.SystemSt
 	}
 
 	return &out
-}
-
-// existingDir is path, or its nearest parent that exists: on a new machine
-// the worktree root is not made until the first Task, and its volume is the
-// one its parent is on.
-func existingDir(path string) string {
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-
-		parent := filepath.Dir(path)
-		if parent == path {
-			return path
-		}
-
-		path = parent
-	}
 }
 
 func clampInt64(v uint64) int64 {

@@ -74,7 +74,9 @@ func memoryTool(a agent) (agenttool.BrowserTool, bool) {
 
 	text := map[string]any{"type": "string"}
 	commands := memorystore.Commands
-	if a.owner {
+	if a.readRun {
+		commands = []string{memorystore.View}
+	} else if a.owner {
 		commands = []string{memorystore.View, memorystore.Insert, memorystore.StrReplace}
 	}
 
@@ -96,6 +98,13 @@ func memoryTool(a agent) (agenttool.BrowserTool, bool) {
 	})
 	if err != nil {
 		return agenttool.BrowserTool{}, false
+	}
+
+	if a.readRun {
+		return agenttool.BrowserTool{
+			Name: agenttool.ToolMemory, Description: "Read memory with view; it cannot be changed in this run.",
+			InputSchema: raw,
+		}, true
 	}
 
 	if a.owner {
@@ -138,6 +147,11 @@ func (s *Server) memoryCall(w http.ResponseWriter, r *http.Request, a agent, cal
 	var c memorystore.Command
 	if json.Unmarshal(orEmpty(call.Arguments), &c) != nil {
 		answerTool(w, "memory takes {command, path, ...} as its description says", true)
+
+		return
+	}
+	if a.readRun && c.Command != memorystore.View {
+		answerTool(w, agenttool.ReadRunRefusal, true)
 
 		return
 	}

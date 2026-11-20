@@ -131,8 +131,19 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 
 	before := snapshot(ctx, t, db)
 
-	require.NoError(t, Migrate(ctx, db))
-	require.NoError(t, CheckSchema(ctx, db))
+	// This migration and the ones before it only: a later one may add a column to a table the snapshot reads whole
+	// (the Inbox's adds approvals.attempt_id).
+	var version int64
+
+	for _, src := range p.ListSources() {
+		if strings.HasSuffix(src.Path, "_bot_main_chat.sql") {
+			version = src.Version
+		}
+	}
+
+	require.NotZero(t, version)
+	_, err = p.UpTo(ctx, version)
+	require.NoError(t, err)
 
 	for bot, want := range map[string]string{
 		main: "cht_cli", "bot_tie": "cht_tie_new", "bot_none": "", "bot_side": "", "bot_quiet": "cht_quiet",
@@ -145,19 +156,13 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 
 	assert.Equal(t, before, snapshot(ctx, t, db), "no chat, message, Run, Approval, Routine or Channel changed")
 
-	// This migration alone is taken back, whatever came after it.
-	var version int64
-
-	for _, src := range p.ListSources() {
-		if strings.HasSuffix(src.Path, "_bot_main_chat.sql") {
-			version = src.Version
-		}
-	}
-
-	require.NotZero(t, version)
+	// This migration alone is taken back.
 	_, err = p.ApplyVersion(ctx, version, false)
 	require.NoError(t, err)
 	assert.Equal(t, before, snapshot(ctx, t, db), "taken back, nothing else changed either")
+
+	require.NoError(t, Migrate(ctx, db))
+	require.NoError(t, CheckSchema(ctx, db))
 }
 
 // chatRow is an INSERT of a chat.

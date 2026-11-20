@@ -35,7 +35,7 @@ func TestInstallingOverANodeKeepsItsOwnSettings(t *testing.T) {
 	assert.Equal(t, Config{
 		URL: "https://new.example", Token: "hyn_new", WorktreeRoot: root,
 		DisableTerminal: true, DisableAutoUpdate: true, UpdateEveryMinutes: 90, Device: "android",
-		DeviceGPU: "lavapipe",
+		DeviceGPU: "lavapipe", Disk: cfg.Disk,
 	}, got)
 
 	fresh := filepath.Join(t.TempDir(), "fresh")

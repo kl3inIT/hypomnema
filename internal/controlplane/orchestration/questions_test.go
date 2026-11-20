@@ -187,6 +187,11 @@ func TestGateEndsTheDispatchAndResumesWithTheAnswer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, d.ConversationID, next.ConversationID)
 	assert.Equal(t, open[0].ID, next.GateQuestionID)
+	require.NoError(t, w.s.DeclineLowDisk(t.Context(), w.call(next, 0), w.diskSample(0)))
+	require.NoError(t, w.s.NodeDisk(t.Context(), w.node.ID, w.diskSample(testDiskFloor)))
+	next, err = w.create(tasks[0].ID, DispatchSpec{Continue: true})
+	require.NoError(t, err)
+	assert.Equal(t, open[0].ID, next.GateQuestionID, "the declined offer did not consume the Gate answer")
 
 	acc, err := w.s.AcceptDispatch(t.Context(), w.call(next, 0))
 	require.NoError(t, err)

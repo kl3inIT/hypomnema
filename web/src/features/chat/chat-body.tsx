@@ -199,6 +199,7 @@ export function ChatBody({
                 )}
                 <Conversation
                   view={view}
+                  readOnly={chat.data?.read_run ?? !chat.data}
                   local={{ sending }}
                   botName={botName}
                   setups={setups}

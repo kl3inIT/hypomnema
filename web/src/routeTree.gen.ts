@@ -30,6 +30,7 @@ import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAboutYouRouteImport } from './routes/settings.about-you'
 import { Route as SettingsAudioRouteImport } from './routes/settings.audio'
 import { Route as SettingsChannelsRouteImport } from './routes/settings.channels'
+import { Route as SettingsConnectRouteImport } from './routes/settings.connect'
 import { Route as SettingsDictionaryRouteImport } from './routes/settings.dictionary'
 import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gateway-keys'
 import { Route as SettingsImagesRouteImport } from './routes/settings.images'
@@ -153,6 +154,11 @@ const SettingsChannelsRoute = SettingsChannelsRouteImport.update({
   path: '/settings/channels',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsConnectRoute = SettingsConnectRouteImport.update({
+  id: '/settings/connect',
+  path: '/settings/connect',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsDictionaryRoute = SettingsDictionaryRouteImport.update({
   id: '/settings/dictionary',
   path: '/settings/dictionary',
@@ -258,6 +264,7 @@ export interface FileRoutesByFullPath {
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
+  '/settings/connect': typeof SettingsConnectRoute
   '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
@@ -298,6 +305,7 @@ export interface FileRoutesByTo {
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
+  '/settings/connect': typeof SettingsConnectRoute
   '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
@@ -339,6 +347,7 @@ export interface FileRoutesById {
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
   '/settings/channels': typeof SettingsChannelsRoute
+  '/settings/connect': typeof SettingsConnectRoute
   '/settings/dictionary': typeof SettingsDictionaryRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/images': typeof SettingsImagesRoute
@@ -381,6 +390,7 @@ export interface FileRouteTypes {
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
+    | '/settings/connect'
     | '/settings/dictionary'
     | '/settings/gateway-keys'
     | '/settings/images'
@@ -421,6 +431,7 @@ export interface FileRouteTypes {
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
+    | '/settings/connect'
     | '/settings/dictionary'
     | '/settings/gateway-keys'
     | '/settings/images'
@@ -461,6 +472,7 @@ export interface FileRouteTypes {
     | '/settings/about-you'
     | '/settings/audio'
     | '/settings/channels'
+    | '/settings/connect'
     | '/settings/dictionary'
     | '/settings/gateway-keys'
     | '/settings/images'
@@ -502,6 +514,7 @@ export interface RootRouteChildren {
   SettingsAboutYouRoute: typeof SettingsAboutYouRoute
   SettingsAudioRoute: typeof SettingsAudioRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
+  SettingsConnectRoute: typeof SettingsConnectRoute
   SettingsDictionaryRoute: typeof SettingsDictionaryRoute
   SettingsGatewayKeysRoute: typeof SettingsGatewayKeysRoute
   SettingsImagesRoute: typeof SettingsImagesRoute
@@ -673,6 +686,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsChannelsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/connect': {
+      id: '/settings/connect'
+      path: '/settings/connect'
+      fullPath: '/settings/connect'
+      preLoaderRoute: typeof SettingsConnectRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/dictionary': {
       id: '/settings/dictionary'
       path: '/settings/dictionary'
@@ -814,6 +834,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsAboutYouRoute: SettingsAboutYouRoute,
   SettingsAudioRoute: SettingsAudioRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
+  SettingsConnectRoute: SettingsConnectRoute,
   SettingsDictionaryRoute: SettingsDictionaryRoute,
   SettingsGatewayKeysRoute: SettingsGatewayKeysRoute,
   SettingsImagesRoute: SettingsImagesRoute,

@@ -20,6 +20,7 @@ import {
 } from "@/api/generated/@tanstack/react-query.gen"
 import {
   deleteRoutine,
+  patchRoutine,
   pauseRoutine,
   putRoutine,
   resumeRoutine,
@@ -29,6 +30,7 @@ import {
 } from "@/api/generated/sdk.gen"
 import type {
   Routine,
+  RoutineAccess,
   RoutineGrant,
   RoutineSchedule,
   RoutineSettings,
@@ -135,6 +137,13 @@ export function useSwitch() {
     r.state === "on"
       ? (await pauseRoutine({ path: { routine_id: r.id } })).data
       : (await resumeRoutine({ path: { routine_id: r.id } })).data,
+  )
+}
+
+export function useRoutineAccess() {
+  return useChange(
+    async ({ id, access }: { id: string; access: RoutineAccess }) =>
+      (await patchRoutine({ path: { routine_id: id }, body: { access } })).data,
   )
 }
 

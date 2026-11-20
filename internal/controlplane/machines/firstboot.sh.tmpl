@@ -32,7 +32,7 @@ usermod -aG kvm "$user" || log "adding the user to kvm failed"
 # Node.js for the agent CLIs comes from nodejs.org as one archive, checked against the checksum published beside
 # it. Ubuntu's nodejs and npm packages bring 565 others, which once took over ten minutes to download, and are a
 # version older than Claude Code asks for.
-install_node() {
+install_node() (
   case "$(uname -m)" in
     x86_64) node_arch=x64 ;;
     aarch64) node_arch=arm64 ;;
@@ -44,11 +44,12 @@ install_node() {
   node_sum=${node_line%% *}
   node_file=${node_line##* }
   [ -n "$node_sum" ] && [ -n "$node_file" ] || return 1
-  curl --fail --silent --show-error --location --proto "=https" --output "/tmp/$node_file" "$node_base/$node_file" || return 1
-  printf '%s  %s\n' "$node_sum" "/tmp/$node_file" | sha256sum --check --status || return 1
-  tar -xzf "/tmp/$node_file" -C /usr/local --strip-components=1 || return 1
-  rm -f "/tmp/$node_file"
-}
+  node_tmp=$(mktemp -d) || return 1
+  trap 'rm -rf "$node_tmp"' EXIT
+  curl --fail --silent --show-error --location --proto "=https" --output "$node_tmp/$node_file" "$node_base/$node_file" || return 1
+  printf '%s  %s\n' "$node_sum" "$node_tmp/$node_file" | sha256sum --check --status || return 1
+  tar -xzf "$node_tmp/$node_file" -C /usr/local --strip-components=1
+)
 
 if install_node; then
   npm install --global @anthropic-ai/claude-code @openai/codex || log "installing the agent CLIs failed"

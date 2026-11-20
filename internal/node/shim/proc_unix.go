@@ -21,6 +21,10 @@ func Alive(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
+func GroupGone(pid int) bool {
+	return pid > 1 && !Alive(pid) && errors.Is(syscall.Kill(-pid, 0), syscall.ESRCH)
+}
+
 // Kill kills the shim's whole session group: the shim, the worker and what
 // the worker started (durable-harness host.ts kills -pgid).
 func Kill(pid int) error {

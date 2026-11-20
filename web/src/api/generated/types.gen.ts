@@ -175,7 +175,7 @@ export type Task = {
   not_before?: string;
   cancel_requested_at?: string;
   /**
-   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
+   * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_disk (fitting nodes do not have a fresh disk sample at or above their floor), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
    */
   waiting_reason?: string;
 };
@@ -449,6 +449,7 @@ export type Node = {
   runtimes: Array<Runtime>;
   system?: NodeSystem;
   stats?: NodeStats;
+  disk?: NodeDisk;
   /**
    * The git hosts the node reached when it last tried. Absent for a node that has not said, which is taken to reach every host. A Task on a host goes only to a node that reaches it.
    */
@@ -1251,6 +1252,23 @@ export type MachineProvider = {
 
 export type MachineProviderList = {
   data: Array<MachineProvider>;
+};
+
+export type NodeDisk = {
+  /**
+   * Bytes available to the node user, absent when not measured or stale.
+   */
+  free_bytes?: number;
+  floor_bytes: number;
+  trim_bytes: number;
+  /**
+   * When the node measured the sample.
+   */
+  at?: string;
+  /**
+   * Age of the disk sample when this response was produced.
+   */
+  age_ms?: number;
 };
 
 /**
@@ -2479,6 +2497,84 @@ export type CreatedGatewayKey = {
   secret: string;
 };
 
+/**
+ * A tool Settings → Connect a tool writes a file for.
+ */
+export type GatewayTool = 'claude_code' | 'codex' | 'omp' | 'opencode';
+
+export type GatewayToolFile = {
+  /**
+   * Where the tool reads the file
+   */
+  path: string;
+  content: string;
+  /**
+   * The file's format: json, toml or yaml.
+   */
+  format: string;
+};
+
+export type GatewayToolConfig = {
+  tool: GatewayTool;
+  /**
+   * The models the key may use from the tool, by name.
+   */
+  models: Array<string>;
+  /**
+   * The model the files name; empty when the key may use none from the tool.
+   */
+  model: string;
+  /**
+   * The files hold the key's value; false, a placeholder in its place.
+   */
+  key_stored: boolean;
+  files: Array<GatewayToolFile>;
+};
+
+/**
+ * Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
+ */
+export type CodexModelCatalog = {
+  models: Array<CodexModelInfo>;
+};
+
+/**
+ * One of Codex's ModelInfo; the fields below are the ones the gateway sets, every other field is Codex's bundled entry's as written. Codex's `description` and `default_reasoning_level` (the level it starts at, one of supported_reasoning_levels) are a string or null.
+ */
+export type CodexModelInfo = {
+  /**
+   * The gateway's name for the model.
+   */
+  slug: string;
+  display_name: string;
+  context_window?: number;
+  max_context_window?: number;
+  supported_reasoning_levels: Array<{
+    effort: string;
+    description: string;
+  }>;
+  input_modalities?: Array<string>;
+  visibility: string;
+  supported_in_api: boolean;
+  priority: number;
+  base_instructions?: string;
+  model_messages?: {
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
+/**
+ * The model gateway's errors, in OpenAI's shape.
+ */
+export type GatewayError = {
+  error: {
+    message: string;
+    type: string;
+    code: string;
+  };
+};
+
 export type GatewayKeyValue = {
   secret: string;
 };
@@ -3243,6 +3339,7 @@ export type Routine = {
   bot: string;
   name: string;
   kind: RoutineKind;
+  access: RoutineAccess;
   /**
    * What a prompt Routine gives its Bot.
    */
@@ -3315,8 +3412,14 @@ export type RoutineList = {
   data: Array<Routine>;
 };
 
+/**
+ * Full is the default. Read lets a prompt-only Routine read the owner's accounts without acting.
+ */
+export type RoutineAccess = 'full' | 'read';
+
 export type RoutineSettings = {
   kind: RoutineKind;
+  access?: RoutineAccess;
   prompt?: string;
   /**
    * A file name, never a path or a command line. With a prompt, the script runs first: when it prints nothing, or its last line is {"wakeAgent": false}, the run ends succeeded with no chat; otherwise the Bot is woken with what it printed before the prompt.
@@ -3959,6 +4062,10 @@ export type Chat = {
    * The id of the Bot the chat talks with.
    */
   bot: string;
+  /**
+   * This chat belongs to a read-only Routine run.
+   */
+  read_run?: boolean;
   /**
    * Where the chat's own model is found; absent with the model.
    */
@@ -8189,6 +8296,43 @@ export type GetGatewayKeyValueResponses = {
 
 export type GetGatewayKeyValueResponse = GetGatewayKeyValueResponses[keyof GetGatewayKeyValueResponses];
 
+export type GetGatewayToolConfigData = {
+  body?: never;
+  path: {
+    key_id: string;
+    tool: GatewayTool;
+  };
+  query: {
+    /**
+     * The gateway's origin as the tool will reach it, such as the web page's own.
+     */
+    base_url: string;
+    /**
+     * The model the file names; one the key may not use from the tool is the first it may.
+     */
+    model?: string;
+  };
+  url: '/gateway/keys/{key_id}/connect/{tool}';
+};
+
+export type GetGatewayToolConfigErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGatewayToolConfigError = GetGatewayToolConfigErrors[keyof GetGatewayToolConfigErrors];
+
+export type GetGatewayToolConfigResponses = {
+  /**
+   * The tool's configuration.
+   */
+  200: GatewayToolConfig;
+};
+
+export type GetGatewayToolConfigResponse = GetGatewayToolConfigResponses[keyof GetGatewayToolConfigResponses];
+
 export type GetGatewayUsageData = {
   body?: never;
   path?: never;
@@ -9994,6 +10138,35 @@ export type GetRoutineResponses = {
 };
 
 export type GetRoutineResponse = GetRoutineResponses[keyof GetRoutineResponses];
+
+export type PatchRoutineData = {
+  body: {
+    access: RoutineAccess;
+  };
+  path: {
+    routine_id: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}';
+};
+
+export type PatchRoutineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PatchRoutineError = PatchRoutineErrors[keyof PatchRoutineErrors];
+
+export type PatchRoutineResponses = {
+  /**
+   * The updated Routine.
+   */
+  200: Routine;
+};
+
+export type PatchRoutineResponse = PatchRoutineResponses[keyof PatchRoutineResponses];
 
 export type UndoRoutineData = {
   body?: never;

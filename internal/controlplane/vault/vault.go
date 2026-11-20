@@ -47,8 +47,8 @@ var (
 	// ErrTampered: the stored version does not authenticate: it was changed,
 	// moved to another secret, or a root key has the right id and the wrong bytes.
 	ErrTampered = errors.New("the stored secret does not authenticate")
-	// ErrLoginRequired: the provider refused the token set's refresh token for
-	// good; the owner logs in again and rotates the secret.
+	// ErrLoginRequired: the saved credential cannot be used; the owner logs
+	// in again and rotates the secret.
 	ErrLoginRequired = errors.New("the login is no longer accepted; log in again")
 	// ErrLoginRejected is what a RefreshFunc wraps when the provider refused
 	// the refresh token for good (reused, expired, revoked), as opposed to a
@@ -117,7 +117,7 @@ type Secret struct {
 	KeyMissing bool
 	// AccessTokenExpiresAt is when a token set's access token ends, if known.
 	AccessTokenExpiresAt *time.Time
-	// LoginRequired says the provider refused the refresh token for good.
+	// LoginRequired says the saved credential cannot be used.
 	LoginRequired bool
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
@@ -131,8 +131,7 @@ type Opened struct {
 	Version int
 	// AccessTokenExpiresAt is when a token set's access token ends, if known.
 	AccessTokenExpiresAt *time.Time
-	// LoginRequired says the refresh token is dead; the access token may
-	// still work until it ends.
+	// LoginRequired says the saved credential cannot be used.
 	LoginRequired bool
 }
 

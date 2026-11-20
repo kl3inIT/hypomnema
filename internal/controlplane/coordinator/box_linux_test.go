@@ -64,7 +64,7 @@ type boxWorld struct {
 	root, userHome, home, script string
 	// bot is the id of the Bot pi starts for: the main one unless a test names another.
 	bot string
-	// outside is a file in the machine's /tmp, which the box must not see.
+	// outside is a host temp file which the box must not see.
 	outside string
 }
 
@@ -97,6 +97,7 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 
 	// pi's image extension, which the launcher gives pi (issue #675).
 	write(t, filepath.Join(root, "lib", "pi-image-eviction.mts"), "export default function () {}\n", 0o600)
+	write(t, filepath.Join(root, "lib", "pi-read-run.mts"), "export default function () {}\n", 0o600)
 
 	// The control plane's CLI, as the launcher calls it before pi starts. `bots show` names the main Bot as
 	// coordinator and the Bot of the id `+otherBot+` as other, the names their directories had before ids.
@@ -115,11 +116,8 @@ case "$1" in
 esac
 `, 0o700)
 
-	outside, err := os.CreateTemp("/tmp", "hypomnema-box-outside-")
-	require.NoError(t, err)
-	require.NoError(t, outside.Close())
-	t.Cleanup(func() { _ = os.Remove(outside.Name()) })
-	w.outside = outside.Name()
+	w.outside = filepath.Join(t.TempDir(), "outside")
+	require.NoError(t, os.WriteFile(w.outside, nil, 0o600))
 
 	// pi reports what it sees, a line each.
 	write(t, filepath.Join(w.home, "pi", "node_modules", ".bin", "pi"), `#!/bin/sh
@@ -167,6 +165,7 @@ if touch "$H/tools/envs/documents/x" 2> /dev/null; then echo documents=writable;
 		"bwrap=/usr/bin/bwrap":               "bwrap=" + bwrap,
 		"images=/usr/local/lib/hypomnema/pi-image-eviction.mts": "images=" + filepath.Join(root, "lib",
 			"pi-image-eviction.mts"),
+		"read_files=/usr/local/lib/hypomnema/pi-read-run.mts": "read_files=" + filepath.Join(root, "lib", "pi-read-run.mts"),
 	} {
 		require.Equal(t, 1, strings.Count(text, "\n"+from+"\n"), "the launcher says %s once", from)
 		text = strings.Replace(text, "\n"+from+"\n", "\n"+to+"\n", 1)
@@ -232,7 +231,7 @@ func (w *boxWorld) start(t *testing.T, stdin string, flags ...string) (map[strin
 // first line of stdin. pi runs in a box: it is alone in its PID namespace,
 // works in its Bot's directory, sees only its chat's sessions, reads its
 // token in its client configuration and not the coordinator's, and sees no
-// other Bot's directory and nothing of the machine's /tmp. It writes its
+// other Bot's directory and no host temp files. It writes its
 // Bot's directory and its sessions; the shared instructions it only reads.
 func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	t.Parallel()
@@ -292,6 +291,19 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	shared, err := os.ReadFile(filepath.Join(w.userHome, ".hypomnema", "client.json"))
 	require.NoError(t, err)
 	assert.Contains(t, string(shared), "hyp_coordinator_v1_shared", "the coordinator's login is left as it was")
+}
+
+func TestReadRunLauncherMountsPrivateNotesAndNoShell(t *testing.T) {
+	t.Parallel()
+	needBox(t)
+	w := newBoxWorld(t, bwrapPath)
+	seen, stderr, err := w.start(t, "hyp_bot_v1_mine\n{}\n", "--read-run")
+	require.NoError(t, err, stderr)
+	assert.Contains(t, seen["args"], "--no-approve --no-extensions")
+	assert.Contains(t, seen["args"], "--tools routine_read,routine_write,routine_edit,mcp__hypomnema__*")
+	assert.NotContains(t, seen["args"], " --skill ")
+	assert.NoFileExists(t, filepath.Join(w.home, "work", "written"))
+	assert.FileExists(t, filepath.Join(w.home, "run", "cht_mine", "notes", "written"))
 }
 
 // Scenario: a Lark group's chat (issue #246) is started with --group. Its

@@ -76,6 +76,13 @@ func (s *Server) call(ctx context.Context, call orchestration.NodeCall, r nodepr
 	switch r.Kind {
 	case nodeproto.ReportAccept:
 		return svc.AcceptDispatch(ctx, call)
+	case nodeproto.ReportLowDisk:
+		disk, err := decode[nodeproto.DiskSpace](r.Payload)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, svc.DeclineLowDisk(ctx, call, disk)
 	case nodeproto.ReportHeartbeat:
 		return svc.Heartbeat(ctx, call)
 	case nodeproto.ReportExited:

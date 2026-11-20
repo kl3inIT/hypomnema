@@ -1029,6 +1029,15 @@ func (s *Service) OwnerTurn(ctx context.Context, chatID string) (bool, error) {
 	return ChatRole(last.Role) == ChatOwner && !last.SenderID.Valid, nil
 }
 
+func (s *Service) ReadRun(ctx context.Context, chatID string) (bool, error) {
+	read, err := s.read().IsReadRun(ctx, chatID)
+	if err != nil {
+		return false, fmt.Errorf("reading routine access of chat %s: %w", chatID, err)
+	}
+
+	return read, nil
+}
+
 // attachmentsOf reads the attachments kept on a row. Their JSON was checked as it was written; a row that cannot be
 // read has none.
 func attachmentsOf(p sql.NullString) []ChatAttachment {
