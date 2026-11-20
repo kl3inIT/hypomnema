@@ -209,7 +209,7 @@ func TestReviewOfAHeadWithAVerdictIsRefusedInAnyRun(t *testing.T) {
 	_, err = world.s.CreateTasks(ctx, other.ID, []NewTask{{Ref: "again", Profile: "reviewer",
 		Spec: "Review pull request: " + reviewPR + "\nHead: " + head + "\n\nReview the change."}})
 	require.ErrorIs(t, err, ErrConflict)
-	assert.ErrorContains(t, err, "already has the verdict correct from Task "+first.ID)
+	require.ErrorContains(t, err, "already has the verdict correct from Task "+first.ID)
 
 	_, err = world.s.CreateTasks(ctx, other.ID, []NewTask{{Ref: "work", Profile: "implementer",
 		Spec: reviewSpec + "\nHead: " + head}})
