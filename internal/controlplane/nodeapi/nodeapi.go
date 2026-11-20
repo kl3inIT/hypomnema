@@ -293,6 +293,9 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 			MemoryBytes: req.System.MemoryBytes, DiskBytes: req.System.DiskBytes,
 		},
 	}
+	if t := req.TempIsolation; t != nil {
+		hello.TempIsolation = &orchestration.TempIsolation{On: t.On, Reason: t.Reason}
+	}
 	for _, rt := range req.Runtimes {
 		hello.Runtimes = append(hello.Runtimes, orchestration.RuntimeInfo{
 			Runtime: rt.Runtime, Path: rt.Path, Version: rt.Version,

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
+	"github.com/kl3inIT/hypomnema/internal/node/tempns"
 )
 
 func TestMain(tests *testing.M) {
@@ -151,6 +152,25 @@ func TestRepositorySetupUsesDispatchGoTemp(t *testing.T) {
 	value, err := os.ReadFile(filepath.Join(path, "go-temp")) //nolint:gosec // test worktree
 	require.NoError(t, err)
 	assert.Equal(t, m.TempDir, string(value))
+}
+
+func TestSetupUsesIsolatedTemp(t *testing.T) {
+	t.Parallel()
+	isolation := tempns.Probe(t.Context(), "")
+	if !isolation.On() {
+		t.Skip(isolation.Reason)
+	}
+	maker, repo, path, logged := declaring(t, `scripts:
+  setup: |
+    test /tmp -ef "$TMPDIR" && test /var/tmp -ef "$GOTMPDIR" && printf x > /var/tmp/setup
+`)
+	if strings.HasPrefix(path, "/tmp/") || strings.HasPrefix(path, "/var/tmp/") {
+		t.Skip("set TMPDIR outside the directories bubblewrap covers")
+	}
+	maker.TempDir, maker.Isolation = realTempDir(t), isolation
+	require.NoError(t, maker.Ensure(t.Context(), repo, "main", "tsk_1", path))
+	assert.Empty(t, logged.String())
+	assert.FileExists(t, filepath.Join(maker.TempDir, "setup"))
 }
 
 func TestLinkedWorktreeCanBeCleanedThroughCanonicalNodeHome(t *testing.T) {

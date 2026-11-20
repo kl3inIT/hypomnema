@@ -132,6 +132,7 @@ func TestGoMarksTheFirst401AndTriesTheNextKeyWithoutRefresh(t *testing.T) {
 			return
 		}
 		stream("data: "+`{"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}`+"\n\n",
+			"data: "+`{"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`+"\n\n",
 			"data: [DONE]\n\n")(w, r)
 	})
 	subs := &goRefusalAccounts{accounts: accounts{ids: []string{"acc_1", "acc_2"}}}
@@ -145,6 +146,12 @@ func TestGoMarksTheFirst401AndTriesTheNextKeyWithoutRefresh(t *testing.T) {
 	assert.Zero(t, subs.refreshes)
 	headers, _ := backend.got.last(t)
 	assert.Equal(t, "Bearer acc_2-access-0", headers.Get("Authorization"))
+
+	u := g.lastUsage(t)
+	assert.Equal(t, "opencode-go/glm-5.3", u.Model)
+	assert.Equal(t, "glm-5.3", u.PricedModel)
+	require.NotNil(t, u.CostMicros)
+	assert.EqualValues(t, 9, *u.CostMicros)
 }
 
 // Scenario: pi chats with three Go models. Each is called on the wire Go's

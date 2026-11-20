@@ -5,6 +5,11 @@ GOLANGCI_LINT = $(CI_TOOL) github.com/golangci/golangci-lint/v2/cmd/golangci-lin
 GOVULNCHECK = $(CI_TOOL) golang.org/x/vuln/cmd/govulncheck
 SQLC = CGO_ENABLED=0 $(CI_TOOL) github.com/sqlc-dev/sqlc/cmd/sqlc
 OAPI_CODEGEN = $(CI_TOOL) github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
+# goose's CLI has a tools module of its own, built with no database driver, as Omnara's: its drivers would move the
+# linters' dependencies in tools/ci (issue #954).
+GOOSE_TOOL_MOD := tools/goose/go.mod
+GOOSE_OFFLINE_BUILD_TAGS := no_clickhouse,no_libsql,no_mssql,no_mysql,no_postgres,no_sqlite3,no_vertica,no_ydb
+GOOSE = GOFLAGS='-tags=$(GOOSE_OFFLINE_BUILD_TAGS)' $(GO) tool -modfile=$(GOOSE_TOOL_MOD) github.com/pressly/goose/v3/cmd/goose
 OPENAPI_GEN := internal/controlplane/clientapi/openapi
 MIGRATIONS := internal/controlplane/orchestration/migrations
 SQLC_OUT := internal/controlplane/orchestration/internal/store internal/controlplane/vault/internal/store \
@@ -15,6 +20,7 @@ LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
 BINARIES := hypomnema hypomnema-node
 
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
+	migration-create migration-fix goose-version-check \
 	openapi-generate openapi-check unit race govulncheck build web-install web-check web-api-generate \
 	web-api-check web-build web-e2e release-node release-controlplane web-doctor \
 	zalo-bridge-install zalo-bridge-check zalo-bridge-build pi-extension-check catalogs-generate
@@ -24,7 +30,7 @@ help: ## List the targets
 
 verify: verify-static unit race ## The Go checks: static, unit, race; before a push, run only those of what changed
 
-verify-static: fmt-check tidy-check lint deps-check sqlc-check openapi-check migration-check
+verify-static: fmt-check tidy-check lint deps-check sqlc-check openapi-check migration-check goose-version-check
 
 fmt-check: ## Fail when a Go file is not gofmt-formatted
 	@files="$$(gofmt -l cmd internal web)"; \
@@ -33,6 +39,7 @@ fmt-check: ## Fail when a Go file is not gofmt-formatted
 tidy-check: ## Fail when go.mod or go.sum of a module is not tidy
 	$(GO) mod tidy -diff
 	cd tools/ci && $(GO) mod tidy -diff
+	cd tools/goose && $(GO) mod tidy -diff
 
 lint: ## golangci-lint, including integration-tagged files
 	$(GOLANGCI_LINT) run ./...
@@ -74,21 +81,49 @@ openapi-check: ## Fail when the generated client API code is not what the contra
 	@test -z "$$(git status --porcelain -- $(OPENAPI_GEN))" || \
 		{ echo 'oapi-codegen generated files that are not committed'; exit 1; }
 
-# As Omnara's migration-check: a migration that is on main is released and never edited or removed.
+# A new migration is named by the time it was made (goose's default, as Omnara's migration-create), so two open
+# branches never take the same version; `make migration-fix` gives it the next number right before it is merged
+# (issue #954). Numbers on main never change.
+migration-create: ## Make a migration named by its time: make migration-create NAME=what_it_does
+	@test -n "$(NAME)" || { echo 'NAME is required: make migration-create NAME=what_it_does'; exit 1; }
+	$(GOOSE) -env=none -dir $(MIGRATIONS) create "$(NAME)" sql
+
+migration-fix: ## Number the migrations named by their time after the last numbered one (after merging main)
+	$(GOOSE) -env=none -dir $(MIGRATIONS) fix
+
+# As Omnara's goose-version-check: the CLI that makes the files is the goose the binary migrates with.
+goose-version-check: ## Fail when tools/goose and go.mod name different goose versions
+	@root="$$(GOFLAGS= $(GO) list -m -f '{{.Version}}' github.com/pressly/goose/v3)" || exit $$?; \
+	tool="$$(GOFLAGS= $(GO) list -m -modfile=$(GOOSE_TOOL_MOD) -f '{{.Version}}' github.com/pressly/goose/v3)" || exit $$?; \
+	test -n "$$root" && test -n "$$tool" || { echo 'cannot resolve goose versions'; exit 1; }; \
+	test "$$root" = "$$tool" || { printf 'goose version mismatch: go.mod=%s tools/goose=%s; in tools/goose run go get -tool %s@%s\n' \
+		"$$root" "$$tool" github.com/pressly/goose/v3/cmd/goose "$$root"; exit 1; }
+
+# As Omnara's migration-check: a numbered migration that is on main is released and never edited or removed.
 # MIGRATION_BASE is what the migrations are checked against: origin/main for a branch; CI passes its own (issue #334).
+# A migration named by its time (14 digits) is never released: main refuses it with MIGRATION_TIMESTAMPS=refuse,
+# which CI sets on a push to main, so one that reached main may be renamed there (issue #954).
 MIGRATION_BASE ?= origin/main
+MIGRATION_TIMESTAMPS ?= allow
+TIMESTAMPED := [0-9]\{14\}_[^/]*\.sql$$
 
 migration-check: ## Fail when a migration on main changed, two share a number, or a new one is not after main's
 	@git rev-parse --verify -q $(MIGRATION_BASE) >/dev/null || { echo 'migration-check needs $(MIGRATION_BASE)'; exit 1; }
-	@changed="$$(git diff --name-status $(MIGRATION_BASE) -- $(MIGRATIONS) | grep -v '^A' || true)"; \
+	@changed="$$(git diff --no-renames --name-status $(MIGRATION_BASE) -- $(MIGRATIONS) | grep -v '^A' | \
+		grep -v '/$(TIMESTAMPED)' || true)"; \
 	test -z "$$changed" || { printf 'migrations on main must not change (behind main? merge it):\n%s\n' "$$changed"; exit 1; }
 	@dup="$$(ls $(MIGRATIONS) | sed -n 's/^\([0-9]*\)_.*\.sql$$/\1/p' | sort | uniq -d)"; \
 	test -z "$$dup" || { printf 'two migrations share the number %s\n' "$$dup"; exit 1; }
-	@last="$$(git ls-tree --name-only $(MIGRATION_BASE) $(MIGRATIONS)/ | sed -n 's|.*/\([0-9]*\)_.*\.sql$$|\1|p' | sort | tail -1)"; \
-	for f in $$(git diff --name-only --diff-filter=A $(MIGRATION_BASE) -- $(MIGRATIONS)); do \
+	@last="$$(git ls-tree --name-only $(MIGRATION_BASE) $(MIGRATIONS)/ | grep -v '/$(TIMESTAMPED)' | \
+		sed -n 's|.*/\([0-9]*\)_.*\.sql$$|\1|p' | sort | tail -1)"; \
+	for f in $$(git diff --name-only --diff-filter=A $(MIGRATION_BASE) -- $(MIGRATIONS) | grep -v '/$(TIMESTAMPED)'); do \
 	  n="$$(basename $$f | sed -n 's/^\([0-9]*\)_.*/\1/p')"; \
 	  test "$$n" \> "$$last" || { printf '%s must be numbered after %s, the last on main\n' "$$f" "$$last"; exit 1; }; \
 	done
+	@test "$(MIGRATION_TIMESTAMPS)" != refuse || { \
+	  stamped="$$(ls $(MIGRATIONS) | grep '^$(TIMESTAMPED)' || true)"; \
+	  test -z "$$stamped" || { printf 'migrations named by their time; run make migration-fix:\n%s\n' "$$stamped"; exit 1; }; \
+	}
 
 unit: ## Unit tests
 	$(GO) test -count=1 ./...

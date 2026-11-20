@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/node/tempns"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
@@ -39,7 +40,11 @@ type Maker struct {
 	Logger *slog.Logger
 	// SetupTimeout replaces how long a setup script may run, in tests.
 	SetupTimeout time.Duration
-	TempDir      string
+	// TempDir is the Dispatch's temp directory, the setup script's TMPDIR;
+	// with Isolation on, the script runs with it as /tmp and /var/tmp, as
+	// the worker does (issue #895).
+	TempDir   string
+	Isolation tempns.Isolation
 	// GitTimeout is an optional total limit for each Git command. Zero means no limit.
 	GitTimeout time.Duration
 	// GitGrace overrides the termination grace period.

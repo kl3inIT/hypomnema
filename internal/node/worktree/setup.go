@@ -103,7 +103,8 @@ func (m Maker) setup(ctx context.Context, path string, lock *mirrorLock) {
 		env = append(env, "TMPDIR="+m.TempDir, "TEMP="+m.TempDir, "TMP="+m.TempDir, "GOTMPDIR="+m.TempDir)
 	}
 	// The script's children end with it when its time is up (Orca: signalProcessTree).
-	output, err := (mirrorGit{lock: lock, grace: m.GitGrace}).runProcess(ctx, path, env, shell, "-c", script)
+	argv := m.Isolation.Wrap([]string{shell, "-c", script}, m.TempDir)
+	output, err := (mirrorGit{lock: lock, grace: m.GitGrace}).runProcess(ctx, path, env, argv[0], argv[1:]...)
 
 	switch {
 	case ctx.Err() != nil:
