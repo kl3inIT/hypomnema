@@ -101,14 +101,22 @@ func canonicalReviewRequest(ref string, kindOf func(string) (githost.Kind, bool)
 	return adapter.RequestURL(request.Repo, request.Number)
 }
 
-func reviewReport(ctx context.Context, q *store.Queries, task store.Task, result string) (ReviewStall, error) {
-	if task.Profile != "reviewer" && !strings.HasPrefix(task.Profile, "reviewer-") {
-		return ReviewStall{}, nil
-	}
-	kindOf := func(host string) (githost.Kind, bool) {
+func reviewerProfile(profile string) bool {
+	return profile == "reviewer" || strings.HasPrefix(profile, "reviewer-")
+}
+
+func registeredKind(ctx context.Context, q *store.Queries) func(string) (githost.Kind, bool) {
+	return func(host string) (githost.Kind, bool) {
 		registered, err := gitHostOf(ctx, q, host)
 		return registered.Kind, err == nil
 	}
+}
+
+func reviewReport(ctx context.Context, q *store.Queries, task store.Task, result string) (ReviewStall, error) {
+	if !reviewerProfile(task.Profile) {
+		return ReviewStall{}, nil
+	}
+	kindOf := registeredKind(ctx, q)
 	pr := statedReviewTarget(result, kindOf)
 	if pr == "" {
 		var err error
@@ -181,9 +189,13 @@ func reviewValue(result, field string, allowed ...string) string {
 	return "UNKNOWN"
 }
 
-func reviewAfterTask(ctx context.Context, q *store.Queries, task store.Task, result string) (ReviewStall, error) {
+func reviewAfterTask(ctx context.Context, q *store.Queries, now int64, task store.Task, result string,
+) (ReviewStall, error) {
 	review, err := reviewReport(ctx, q, task, result)
 	if err != nil || review.PullRequest == "" {
+		return ReviewStall{}, err
+	}
+	if err := recordReviewVerdict(ctx, q, now, task.ID, review.PullRequest, result); err != nil {
 		return ReviewStall{}, err
 	}
 
@@ -241,4 +253,90 @@ func activeReviewStall(ctx context.Context, q *store.Queries, runID string) (*Re
 	}
 
 	return event.Review, nil
+}
+
+// A full or abbreviated commit SHA, as git accepts one (git rev-parse resolves at least 4 hex digits; 7 is its
+// default abbreviation, core.abbrev).
+var reviewSHA = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+// reviewWord is the first word of a summary's field, lowercase: "Verdict: `incorrect` — do not merge" is incorrect.
+func reviewWord(text, name string) string {
+	fields := strings.Fields(reviewField(text, name))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.ToLower(strings.Trim(fields[0], "`*.,;"))
+}
+
+// reviewHead is the commit a review summary or spec names on its "Head:" line, or "" (issue #953).
+func reviewHead(text string) string {
+	head := reviewWord(text, "Head")
+	if !reviewSHA.MatchString(head) {
+		return ""
+	}
+	return head
+}
+
+// sameCommit reports whether two SHAs, either of them abbreviated, name one commit, as git resolves a prefix.
+func sameCommit(a, b string) bool {
+	return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+}
+
+// recordReviewVerdict keeps the verdict of a succeeded review Task with the head it names. pstack keeps a verdict
+// per patch (skills/poteto-mode/playbooks/shipping.md:7) and drops a result that does not record its SHAs
+// (skills/swarm/SKILL.md:37), so a summary without a readable verdict or "Head:" records nothing (issue #953).
+func recordReviewVerdict(ctx context.Context, q *store.Queries, now int64, taskID, pr, result string) error {
+	verdict := reviewWord(result, "Verdict")
+	head := reviewHead(result)
+	if head == "" || (verdict != "correct" && verdict != "incorrect" && verdict != "blocked") {
+		return nil
+	}
+	if err := q.RecordReviewVerdict(ctx, store.RecordReviewVerdictParams{
+		TaskID: taskID, PullRequest: pr, HeadSha: head, Verdict: verdict, Now: now,
+	}); err != nil {
+		return fmt.Errorf("recording the review verdict: %w", err)
+	}
+	return nil
+}
+
+// reviewedHead checks a new review Task against the verdicts its pull request already has, in any Run. A head gets
+// one verdict: a review of a head with a correct or incorrect verdict is refused, naming that Task and verdict; a
+// blocked review may be run again. A later review is given the head the last verdict covers, so it reviews
+// git diff <reviewed_sha>..<head> (pstack skills/poteto-mode/playbooks/shipping.md:7; issue #953). It returns the
+// spec to store.
+func reviewedHead(ctx context.Context, q *store.Queries, nt NewTask) (string, error) {
+	if !reviewerProfile(nt.Profile) {
+		return nt.Spec, nil
+	}
+	pr := specReviewTarget(nt.Spec, registeredKind(ctx, q))
+	if pr == "" {
+		return nt.Spec, nil
+	}
+	verdicts, err := q.ListReviewVerdicts(ctx, pr)
+	if err != nil {
+		return "", fmt.Errorf("reading the review verdicts of %s: %w", pr, err)
+	}
+
+	head := reviewHead(nt.Spec)
+	var last *store.ReviewVerdict
+	for i, verdict := range verdicts {
+		if verdict.Verdict == "blocked" {
+			continue
+		}
+		if head != "" && sameCommit(verdict.HeadSha, head) {
+			return "", fmt.Errorf("%w: %s at head %s already has the verdict %s from Task %s; a head gets one "+
+				"verdict: review a newer head, covering git diff %s..<head>", ErrConflict, pr, head,
+				verdict.Verdict, verdict.TaskID, verdict.HeadSha)
+		}
+		if last == nil {
+			last = &verdicts[i]
+		}
+	}
+	if last == nil {
+		return nt.Spec, nil
+	}
+
+	return strings.TrimRight(nt.Spec, "\n") + fmt.Sprintf("\n\n## Reviewed head\nTask %s gave the verdict %s "+
+		"at head %s. Check its findings and review `git diff %s..<head>`, where <head> is the pull request's head "+
+		"now.", last.TaskID, last.Verdict, last.HeadSha, last.HeadSha), nil
 }

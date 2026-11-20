@@ -1,4 +1,5 @@
 import type { Approval, Bot, Chat, Dispatch, Node } from "@/api/generated/types.gen"
+import { opensTo } from "@/features/shell/bot-rows"
 import type { Card } from "@/features/work/work-state"
 import { firstLine } from "@/lib/text"
 
@@ -85,8 +86,9 @@ export function teamBots({
     const live = work.filter((c) => liveDispatch(c))
     const working = own.filter((c) => c.working)
     const base = { id: bot.id, name: bot.name, model: bot.model, provider: bot.provider }
-    // A click on a Bot opens its main chat (issue #471), whichever chat moved last.
-    const home = bot.main_chat
+    // A click on a Bot opens its main chat (issue #471), whichever chat moved last; with none, its latest chat that
+    // is not a Routine's run (issue #923, shell/bot-rows.ts opensTo).
+    const home = opensTo(bot.main_chat, own)
 
     if (asking.length > 0 || needs.length > 0) {
       return {

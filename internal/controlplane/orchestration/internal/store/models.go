@@ -820,6 +820,14 @@ type RestartBoot struct {
 	At int64
 }
 
+type ReviewVerdict struct {
+	TaskID      string
+	PullRequest string
+	HeadSha     string
+	Verdict     string
+	CreatedAt   int64
+}
+
 type RoleRouting struct {
 	ID     int64
 	Source string
@@ -1053,6 +1061,7 @@ type Todo struct {
 	IdempotencyHash sql.NullString
 	CreatedAt       int64
 	UpdatedAt       int64
+	WhyOpen         sql.NullString
 }
 
 type TodoEvent struct {

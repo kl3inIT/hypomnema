@@ -177,15 +177,25 @@ at once end in one. The web's first message to a Bot with no main chat goes thro
 never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (Runs and
 their wake-ups, approvals, Routines and their report cards, the queue, a cut turn, files, artifacts, pi's
 sessions), and only leaves the sidebar's row. Deleting the main chat clears the pointer, and the next message
-from the web or the CLI makes another. The migration chose each Bot's main chat among its chats that are not a
+from the web or the CLI makes another. The owner also points a Bot at one of its own chats (issue #923, after
+OpenMausBot's "Set as main thread", `mainThreadChoice` in its `PATCH /api/bots/:id`): `main_chat` in `PATCH
+/bots/{id}` (`BotChange`), only the owner (403 for the main Bot's pi), refused (400) for a chat of another Bot or not
+there, a Routine's chat and a Lark chat; the web's Bot row menu and `hypomnema chats main <chat>` send it. Opening
+another chat to read it (a card, a question, an approval, a link) does not move the main chat. A chat carries
+`routine` (opened for a Routine's run: named by a run, or opened with a Routine's prompt) and `channel` (a Lark chat:
+mapped in `channel_chats`, a group's, one someone other than the owner wrote in, or another person's chat from
+before sender ids: titled "Lark: <name>", as migration 138 tells them, with a line Lark labelled "[Lark message from <name>, who is not the owner. …]", so
+that a web chat the owner began with "Lark: " is not one), read in `GetChat` and in a list
+by the same rules (`queries/chats.sql` `GetChatMarks`); neither is ever a main chat. The migration chose each Bot's main chat among its chats that are not a
 Lark chat (no `channel_chats` row), a Lark group's (`channel_group`), another person's (a person message with a
 sender, or a title "Lark: <name>"), a Lark chat a `/new` moved away from (an owner message with a file Lark sent,
 kept under its `om_` message id, or a heard voice message) or a Routine's (named by a run, or opened with a
 Routine's prompt): the one with the owner's latest message, then the one active latest; a Bot with none has no main
 chat. An owner's Lark direct chat that a `/new` left with text alone keeps no mark of Lark, so a Bot a Channel talks
 to got no main chat from the migration (owner, 2026-11-19): its first message from the web or the CLI makes one. `GET /chats?bot=` lists one Bot's chats, a page at a time
-(`offset`); the first page also carries every Bot's main chat and every chat an Approval waits in, whatever their
-age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
+(`offset`); the first page also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with
+no main chat, its latest chat that is not a Routine's run (the chat it opens, issue #923), whatever
+their age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
 has its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
 `chats.provider`, `model`, `effort`, migration 66, each NULL for its Bot's): `POST /chats` takes them and `PATCH
 /chats/{id}` changes them, a field given replacing the chat's and an empty one giving it back to the Bot; the model is
@@ -929,6 +939,25 @@ sequenceDiagram
     a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
     scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build. A take with taps
     and no `screen` (filmed before the node recorded it) is made without rings, with a warning.
+    Compose also draws a frame around the picture when `Input.Frame` asks for one (#908 part 2; no revision asks
+    yet, so every video is still `full`, the picture filling the video as above, stream for stream). The chromes
+    are `full`, `none`, `android` and `iphone`, with padding (0-400, default 48), radius (0-80, default 40 for a
+    device and 14 for none), shadow and safe_top (`frame.go`, aidemo's frameLayout, MIT). The layout is in a phone's
+    dp, 360 wide, and the canvas grows to the video's aspect. The hole is the anchor, each of its values rounded to
+    even pixels (agent-demo-video's even, MIT). The window (with a 46 dp status strip when safe_top), the bezel
+    (14 dp), the radii and the camera cut-out (a punch-hole dot or an island) are derived from it. The frame's PNG
+    is drawn in Go with the standard library (`plate.go`): autodemo's background (one of its 11 templates, default
+    midnight, or two colors; `background.go`), aidemo's two shadows blurred by three box passes, the bezel, the
+    window, the hole left transparent and the camera on top. Each scene's footage is scaled to exactly the hole's
+    size, rings are drawn on it, and then it is padded onto the video at the hole and the PNG overlaid. A segment
+    of another shape than the first (the phone turned) is refused with `ErrTurnedTake`, not padded with bars; the
+    hole's own rounding is not counted as another shape (a contain fit into the unrounded hole leaving ≤ 2 px).
+    A ring's place and size follow the hole. `compose.Still` writes a JPEG of the take's frame at its first step
+    (or one frame before the take's end) drawn the same way, with an ASS file's captions as they are at a given
+    instant. Its frame is the one that covers that instant: the last frame to start at or before it, even a single
+    frame at 0 ms. Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
+    `background()` (`compose/testdata/frames`), and check in the made video that the hole shows the picture and
+    only the hole does, where a ring lands, and that a turned take is refused.
   - Videos and revisions (`internal/controlplane/videos`, migration 00126). A **video** belongs to one take (one
     row of `videos`, its take unique); each make or change request adds an immutable **revision** (`video_revisions`:
     rev 1, 2, …, its parent, the lines, voice, captions and aspect it is made with, the provider, model and voice
@@ -1056,6 +1085,34 @@ sequenceDiagram
     From: Orca `a5c191cc0`, `send-point-to-point.ts:194` (commit before waking), and t3code `d2606600`,
     `Orchestrator.ts:16532` (reoffer persisted completion messages). The per-Run cutoff is specific to Hypomnema's
     shared chat cursor. See the [reference comparison](https://github.com/kl3inIT/hypomnema/issues/969#issuecomment-7029495213).
+  - One controller per Run: once a Run has a chat, that chat's Bot alone follows up, answers coordinator
+    questions and creates reviews; another coordinator token, or the same parent token from another chat, is
+    refused (`clientapi/policy.go`, `checkPolicy`). The owner's principal is not fenced: the web's session and the
+    CLI's owner token are both `owner` (`clientapi/server.go`), and a question to the owner only the owner answers
+    (`orchestration/questions.go`, `AnswerQuestion`). The coordinator guide, not the server, splits the two paths:
+    an owner CLI session hands a Run off (creates it and its first Tasks, then stops) and afterwards only observes,
+    passing a change to the Run's chat (`hypomnema chat --chat`); the chat's Bot handles every event, sends fix
+    rounds and finishes the Run.
+    From: Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:39-91` (the stored binding writes,
+    another known coordinator is read-only, the binding's owner is admitted); OpenMausBot `71ada2b5`,
+    `server/coordinator.ts:63-64` (the requester is woken). Applying it to the owner's CLI session is inference the
+    owner accepted on 2026-11-20.
+  - A review's wake carries the verdict, the pull request, the merge state and checks, and the command that reads
+    the findings (`reviewWakeText`); the control plane sends no follow-up to the author by itself, the Run's
+    chat decides the fix (issue #967 folded in). That enriched wake comes only when the review leaves its open Run
+    with no unfinished Task; while another Task of the Run is still unfinished, the review's end sends only the
+    plain Task wake, and the coordinator reads the verdict from `tasks show` (`reviewAfterTask` in
+    `orchestration/review.go`). From: OpenMausBot `71ada2b5`, `server/runtime/envelope.ts:184,255`
+    (the requester checks the report and sends rework); Orca `a5c191cc0`, `src/main/bots/bot-pr-events.ts:1-13`
+    (nothing wakes on a worker's pull request).
+  - A worker's question reaches the chat its Run is bound to, adopted or not: one to the coordinator is a wake-up
+    (`ChatRunEvents`), one to the owner waits docked above that chat's composer (`GET /questions?chat_id=`). From:
+    Orca `a5c191cc0`, `mobile/src/session/native-chat/input/prompts/use-mobile-worker-approvals.ts:60` (a
+    coordinator chat shows its workers' open prompts).
+  - Deleting a chat, by itself or with its Bot (`ForceDeleteBot`), is refused (409) while one of its Runs is open
+    (`ChatHasOpenRuns` in `deleteChatTx`), beside the live-Routine guard; an ended Run is detached as before. From:
+    Orca `a5c191cc0`, `orchestration-legacy-coordinator-authority.ts:63-91` (the stored binding holds); OpenHands
+    SDK `fb565cfe`, `conversation_lease.py:167-209` (a live owner is not displaced).
 - Artifacts (issue #402, `orchestration/artifacts.go`, `internal/shared/artifactpack`, after OpenMausBot's chat
   pages `server/chat-apps.ts`, `app-docs.ts`, `page-files.ts` and `server/pages/bundle.ts`): what a Bot hands the
   owner to look at in its chat, an HTML page or folder, a PDF, an image or any other file.
@@ -4240,8 +4297,9 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migration 00143; issues #838 and #845, part 1 of the Inbox): the store of the
-to-dos that have to happen, whoever does them, and its state machine. Built is the store only.
+Inbox (`orchestration/inboxstore`, migrations 00143 and 00144; issues #838, #845 and #966, parts 1 and 2 of the
+Inbox): the store of the to-dos that have to happen, whoever does them, its state machine, its client API and its
+CLI.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
   `due_zone`) or `instant` (`due_at` and its zone), with `due_at` and `overdue_at` derived for order and the overdue
@@ -4259,13 +4317,18 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
   `ApprovalApproved` or `ApprovalEnded`; the close
   (`done_by_kind`/`done_by` apart from `recorded_by_kind`/`recorded_by`, `closed_how`, `close_reason`, `evidence`
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
-  `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `closed_at`); `duplicate_of`; a create's idempotency key, unique, with its request's hash. Checks
+  `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `closed_at`); `duplicate_of`; `why_open`
+  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00144); a create's idempotency key,
+  unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed` or `linked_approval`, the revision it made, JSON of the fields before and after, and the
   reason when one is given), written in the change's transaction.
 - Transitions (`inboxstore/transitions.go`, the `transitions` table lists every move and who may make it): the
   owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from the owner's
   Lark or Zalo chats adds proposed ones, which stay proposed until the owner accepts, drops or marks them duplicate;
+  by the owner's triage of 2026-11-20 (issue #966) that Bot adds an open item instead only when it gives `why_open`
+  (`asked_directly`: someone tagged or messaged the owner and he has not answered; `promised`: the owner promised
+  it), a quote and a reference to the message, and `why_open` is kept in the item and its created event;
   the Bot assigned starts an open item, and only an open one, in a chat or Run, in a new attempt with its own id,
   as Hermes binds a worker's session to its task, run and claim (`gateway/session_kanban.py`), so several items
   may be worked on in one chat or Run (`Start`); the system puts a doing item in review with one pending Approval
@@ -4289,8 +4352,28 @@ to-dos that have to happen, whoever does them, and its state machine. Built is t
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
   created, pages of at most 200 with a cursor and the filter's total, read in one transaction with the page; `NeedsYou(now)`, the distinct items not closed nor snoozed that are proposed, in
   review with a pending Approval, or the owner's own and overdue, the same predicate as `List`'s needs-you filter.
-- Not built: the API and CLI, the Bot tools and the wiring of Approvals to `LinkApproval`/`ApprovalApproved`/
-  `ApprovalEnded`, the web page and the morning brief (later parts of #838).
+  A stale proposal, proposed and untouched (at revision 1, no event after `created`) for `StaleAfter` (3 days, a
+  constant), is left out of `List` unless asked for (`WithStale`), never counted by `NeedsYou` nor listed by the
+  needs-you filter, and shown with `Stale`; it is neither accepted nor deleted, and any change makes it fresh.
+- Client API (`clientapi/inbox.go`, issue #966): `GET /inbox` (`ListTodos`, the filters of `List` with
+  `include_snoozed`, `include_closed`, `include_stale`, `cursor`, `limit` ≤ 200 and `total`), `GET /inbox/needs-you`
+  (`GetInboxNeedsYou`), `POST /inbox` (`CreateTodo`, with an optional `Idempotency-Key`), `GET /inbox/{todo_id}`
+  (`GetTodo`, with its events), `PATCH /inbox/{todo_id}` (`EditTodo`), and `POST /inbox/{todo_id}/accept`, `done`,
+  `drop`, `duplicate`, `reopen`, `snooze`, `start`, `release`, each carrying the `revision` read and a Bot's
+  `attempt`. Who acts comes from the token, never the body: the owner (token or web session) acts as `owner` and
+  writes by hand; a Bot token bound to a chat acts as its Bot, from that chat, which is also the chat its owner's
+  message is looked up in; a Bot token of a Routine's run (a script's token, or the pi of a prompt run's chat while
+  that run is live, `orchestration.RoutineRunOf`) acts as the Routine's Bot, from the run, or from a Lark or Zalo
+  chat the body names; such a Bot proposes by default and opens with `why_open`. A Bot starts an item in its chat,
+  or in the Routine's run. A coordinator token only reads: the writes have the policy `scopeActor`
+  (`clientapi/policy.go`). The store's errors map as elsewhere: invalid 400, forbidden 403, not found 404, a stale
+  revision or another attempt 409. The system transitions are not served.
+- CLI (`clientcli/inbox.go`): `hypomnema inbox list` (the API's filters; one line an item), `show`, `add "<title>"
+  [--due <date|date time|none|unknown> --tz <zone>] [--who me|unknown|bot:<id>|<name>] [--notes …] [--done-when …]`,
+  `edit`, `accept`, `done [--evidence url] [--reason …]`, `drop <id> "<reason>"`, `duplicate <id> <of>`,
+  `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision.
+- Not built: the Bot tools and the wiring of Approvals to `LinkApproval`/`ApprovalApproved`/`ApprovalEnded`, the
+  web page and the morning brief (later parts of #838).
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
@@ -4729,7 +4812,8 @@ The owner's commands:
   without it (`POST /chats/main`, which makes the main chat when the Bot has none; issue #471); `--new` starts a
   new chat, which becomes the Bot's main chat; `--bot` and `--new` are refused with `--chat` (issue #616); without
   a message it shows the chat, and a Bot with no main chat shows none and makes none; the message `/new` is
-  `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`. `runs create` sends
+  `--new`. `chats` lists them, one Bot's with `--bot`, the next page with `--offset`; `chats main <chat>` makes a
+  chat its Bot's main chat (owner; issue #923). `runs create` sends
   `HYPOMNEMA_CHAT_ID` when pi's environment has it and `--chat` is absent; the API refuses another chat with
   pi's own token (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
@@ -4770,6 +4854,18 @@ The owner's commands:
   reported, not replaced.
   A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
   in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
+  A head gets one verdict (issue #953, after pstack's "a verdict covers a patch",
+  `skills/poteto-mode/playbooks/shipping.md:7`, and its dropping of a result that does not record its SHAs,
+  `skills/swarm/SKILL.md:37`): when a reviewer-profile Task succeeds with a `Verdict:` of `correct`, `incorrect`
+  or `blocked` and a `Head:` naming a commit (7 to 40 hex digits), the control plane keeps the pull request, head
+  and verdict in `review_verdicts` (a later follow-up on that Task at the same head replaces it); a summary without
+  both records nothing. Creating a reviewer-profile Task whose spec names a pull request and a `Head:` that already
+  has a `correct` or `incorrect` verdict, from a Task of any Run, is refused (409) with that Task and verdict; two
+  SHAs name one commit when one is a prefix of the other, as git resolves an abbreviation. A `blocked` verdict
+  does not count, so a blocked review may run again. A new review of a pull request that has a verdict gets a
+  `## Reviewed head` section appended to its spec, naming the Task, verdict and head of the latest one and asking
+  for that verdict's findings and `git diff <reviewed_sha>..<head>`. A spec without `Head:` is not refused.
+  Verdicts given before the migration that adds `review_verdicts` are not recorded.
   A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
   `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
   the same PR ending incorrect shows as waiting for the owner on the
@@ -5335,8 +5431,9 @@ Node (`internal/node`):
   - A Bot's card: its avatar, name and model with its maker's mark, and its status in words, chosen in
     OpenMausBot's order: Waiting for you (a pending Approval in one of its chats, or a Task of one of its Runs in
     Needs you), No signal (its newest chat has no pi to answer), Working (a chat working, or a Dispatch of its
-    Runs live); idle says nothing. A line under the status says why. The card opens the Bot's main chat (issue
-    #471), else a new chat with that Bot (`/?bot=`).
+    Runs live); idle says nothing. A line under the status says why. The card opens the chat the Bot opens to:
+    its main chat (issue #471), else its latest chat that is not a Routine's run (issue #923), else
+    a new chat with that Bot (`/?bot=`).
   - A machine's card: its state, "n of max" Dispatches, and a line a live Dispatch (starting, running or
     stopping) with the runtime's mark, the Task's first line and what its worker does now, or how long it has
     waited for an answer; an idle machine shows "–". A line opens the Task's panel over the map (`?task=`), and
@@ -5484,16 +5581,29 @@ Node (`internal/node`):
     the mouse or the keyboard, within its section; the page shows the new order at once and sends
     `PUT /bots/order`. Pin and Unpin are in the Bot row's menu. A phone shows the order without dragging. A row
     is one Bot, with no list of its chats under it (issue #471, as OpenMausBot's sidebar with threads hidden): the
-    Bot's avatar with a dot when one of its chats is working or needs the owner, its name, its main chat's last line
-    (`Chat.last_line`, else its title; "No chat yet" for a Bot with none; read again when a chat's stream brings a
-    line), and "Needs you", "Working" or the time.
-    Clicking it opens the Bot's main chat, or New chat with that Bot picked (`/?bot=`) when it has none; when
-    another chat of the Bot waits on the owner and the main chat does not, the row opens the newest such chat.
-    Dragging the row carries the main chat to the grid. The Bot row's menu (issue #484, after t3code's thread menu),
-    shown on hover or focus and always on a phone, carries the main chat's Delete ("Delete chat"), which asks first
-    and, for the open chat, then opens New chat with its Bot. The Bot's page lists its other chats ("Other chats",
+    Bot's avatar with a dot when one of its chats is working or needs the owner, its name, the last line of the chat
+    it opens to (`Chat.last_line`, else its title; "No chat yet" for a Bot with none; read again when a chat's stream
+    brings a line), and "Needs you", "Working" or the time.
+    Clicking it opens the chat the Bot opens to (`opensTo` in `web/src/features/shell/bot-rows.ts`, issue #923, after
+    OpenMausBot's `botOpensTo`): its main chat; with none, its most recently active chat that is not a Routine's run
+    (a Lark chat included); New chat with that Bot picked (`/?bot=`) only when it has no chat but Routines' runs, or
+    none. When another chat of the
+    Bot waits on the owner and that chat does not, the row opens the newest such chat. Dragging the row carries the
+    chat it opens to the grid. The Bot row's menu (issue #484, after t3code's thread menu), shown on hover or focus
+    and always on a phone, carries Set as main chat for the chat being viewed when it is the Bot's (issue #923, a
+    star, disabled with "This is already the main chat" on the main one, absent on a Routine's or a Lark chat), and
+    the Delete ("Delete chat") of the chat the row opens to, which asks first and, for the open chat, then opens New
+    chat with its Bot. The chat being viewed is the chat in front of a pane, not the address: on a chat's page, the
+    tab in front of its pane (a chat dragged into its middle comes in front while the address stays; `useSoloChat`
+    in `web/src/features/workbench/solo-chat.ts`, read by the sidebar and the phone's drawer); in the grid, the tab in
+    front of the pane last pointed at or focused, the first pane until then. While a tab that is not a chat is in
+    front (a new chat's draft, a file, the browser, the phone), no chat is being viewed and nothing acts on the chat
+    behind it. Each pane has "Back to main chat" at the end of its tab strip while the chat in front is another chat
+    of a Bot that has a main chat (OpenMausBot's "Back to your chat"): it brings the main chat in front in that pane,
+    and on a chat's page whose pane does not have it, opens its page with the main chat in front of the pane that page
+    kept. The Bot's page lists its other chats ("Other chats",
     `GET /chats?bot=`, 100 at a time with Show more), each with the same menu; on the Bots page a Bot's name opens
-    its main chat and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
+    the chat it opens to and Settings beside it opens its page; they open there, from their cards, questions and approvals, and by
     their links (`/chats/<id>`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/settings/machines` (in Settings under Workers since issue #857; the old `/machines`

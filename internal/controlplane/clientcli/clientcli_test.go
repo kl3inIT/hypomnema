@@ -1395,6 +1395,49 @@ func TestChatWritesToTheBotsMainChat(t *testing.T) {
 	assert.NotEqual(t, freshID, startedID)
 }
 
+// Scenario: the owner makes an older chat of a Bot its main chat from the terminal (issue #923). chats main moves the
+// main chat to it, and the next message with no chat named goes there; a Lark chat is refused and leaves it.
+func TestChatsMainSetsTheBotsMainChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorldWith(t, nil)
+	w.login(t, bearertoken.Owner)
+	ctx := t.Context()
+
+	var vmap openapi.Bot
+	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap")
+
+	first, err := w.cmd(t, "chat", "--bot", vmap.Id, "the first topic")
+	require.NoError(t, err)
+	olderID := regexp.MustCompile(`chat (cht_\w+)`).FindStringSubmatch(first)[1]
+
+	_, err = w.cmd(t, "chat", "--bot", vmap.Id, "/new")
+	require.NoError(t, err)
+
+	out, err := w.cmd(t, "chats", "main", olderID)
+	require.NoError(t, err)
+	assert.Contains(t, out, "chat "+olderID+" is the main chat of bot "+vmap.Id)
+
+	again, err := w.cmd(t, "chat", "--bot", vmap.Id, "back to it")
+	require.NoError(t, err)
+	assert.Contains(t, again, "chat "+olderID, "the next message goes to the chat chosen")
+
+	// A chat someone other than the owner wrote in, as at Lark.
+	lark, err := w.svc.CreateChatWithID(ctx, "", vmap.Id, "a Lark DM", orchestration.ChatModel{})
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessages(ctx, lark.ID, orchestration.NewChatMessage{
+		Role: orchestration.ChatOwner, Text: "hi", Sender: &orchestration.ChatSender{ID: "ou_x", Name: "X"},
+	})
+	require.NoError(t, err)
+
+	_, err = w.cmd(t, "chats", "main", lark.ID)
+	require.ErrorContains(t, err, "a Lark chat, which is never a main chat")
+
+	var bot openapi.Bot
+	w.jsonCmd(t, &bot, "", "bots", "show", vmap.Id)
+	assert.Equal(t, olderID, val(bot.MainChat))
+}
+
 // Scenario: the owner sets a Bot's guaranteed share of the room (issue
 // #731; its limit before). bots show prints it, a later change of another
 // setting keeps it, and a number out of range is refused.

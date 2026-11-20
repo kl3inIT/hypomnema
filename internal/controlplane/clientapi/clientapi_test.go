@@ -50,11 +50,18 @@ const testRunCoordinator = "test-run-coordinator"
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
+	return newWorldAt(t, platform.SystemClock{})
+}
+
+// newWorldAt is newWorld whose control plane reads clock, for a test that moves time.
+func newWorldAt(t *testing.T, clock platform.Clock) *world {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	svc := orchestration.New(db, clock, platform.NewID)
 	_, _, err = svc.AddToken(t.Context(), testRunCoordinator, bearertoken.Coordinator)
 	require.NoError(t, err)
 
