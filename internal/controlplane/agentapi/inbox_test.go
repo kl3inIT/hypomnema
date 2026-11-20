@@ -90,7 +90,11 @@ func TestABotKeepsTheOwnersInbox(t *testing.T) {
 
 	assert.NotContains(t, toolNames(w.tools(coordinator)), agenttool.ToolInboxAdd, "the CLI's token has no MCP")
 
-	today := time.Now().Format(time.DateOnly)
+	// Today where the owner is: the due date is a day in his zone, whatever the zone of the machine.
+	hanoi, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	require.NoError(t, err)
+
+	today := time.Now().In(hanoi).Format(time.DateOnly)
 	reply := w.inbox(pi, agenttool.ToolInboxAdd, map[string]any{
 		"title": "Reply to Lan", "due_date": today, "timezone": "Asia/Ho_Chi_Minh",
 		"quote": "Anh gửi em hợp đồng nhé?",
