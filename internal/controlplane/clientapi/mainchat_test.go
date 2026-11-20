@@ -12,6 +12,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // Scenario: a Bot's main chat through the API (issue #471). The first call for a Bot with none makes it (201) and
@@ -141,4 +142,67 @@ func mainChat(t *testing.T, c *openapi.ClientWithResponses, bot string) string {
 	require.NotNil(t, r.JSON200, "%s", r.Body)
 
 	return val(r.JSON200.MainChat)
+}
+
+// Scenario: the owner makes an older chat of a Bot its main chat through the API (issue #923). The Bot names it at
+// once, and the former main chat stays; a chat of another Bot and a Routine's chat are refused (400) and say why;
+// the main Bot's pi, which changes Bots from its chat, may not choose it (403).
+func TestTheOwnerAloneSetsABotsMainChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	_, _ = w.token("pi-coordinator", bearertoken.Coordinator)
+	ctx := t.Context()
+
+	older, err := w.svc.CreateChatWithID(ctx, "", "", "an older topic", orchestration.ChatModel{})
+	require.NoError(t, err)
+
+	home, _, err := w.svc.OpenMainChat(ctx, "", "", "", orchestration.ChatModel{})
+	require.NoError(t, err)
+
+	side, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "side"})
+	require.NoError(t, err)
+
+	other, err := w.svc.CreateChatWithID(ctx, "", side.ID, "", orchestration.ChatModel{})
+	require.NoError(t, err)
+
+	r, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBotID, Name: "digest", Kind: routinestore.RoutinePrompt, Prompt: "sum up",
+		EveryMinutes: 60,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+
+	started, err := w.svc.RunRoutineNow(ctx, r.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, started.Run.ChatID, "a prompt run has its own chat")
+
+	run := orchestration.Chat{ID: started.Run.ChatID}
+
+	set, err := owner.RenameBotWithResponse(ctx, orchestration.DefaultBotID, openapi.BotChange{MainChat: &older.ID})
+	require.NoError(t, err)
+	require.NotNil(t, set.JSON200, "%s", set.Body)
+	assert.Equal(t, older.ID, val(set.JSON200.MainChat))
+
+	kept, err := owner.GetChatWithResponse(ctx, home.ID)
+	require.NoError(t, err)
+	require.NotNil(t, kept.JSON200, "the former main chat stays: %s", kept.Body)
+
+	read, err := owner.GetChatWithResponse(ctx, run.ID)
+	require.NoError(t, err)
+	require.NotNil(t, read.JSON200, "%s", read.Body)
+	assert.True(t, read.JSON200.Routine, "a Routine's chat says so")
+
+	for name, refused := range map[string]string{"another Bot's chat": other.ID, "a Routine's chat": run.ID} {
+		r, err := owner.RenameBotWithResponse(ctx, orchestration.DefaultBotID, openapi.BotChange{MainChat: &refused})
+		require.NoError(t, err)
+		errorCode(t, r.Body, r.StatusCode(), http.StatusBadRequest)
+		assert.Equal(t, older.ID, mainChat(t, owner, orchestration.DefaultBotID), name)
+	}
+
+	pi := w.piToken("pi-coordinator", home.ID, orchestration.DefaultBotID)
+	byPi, err := pi.RenameBotWithResponse(ctx, orchestration.DefaultBotID, openapi.BotChange{MainChat: &home.ID})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, byPi.StatusCode(), "the main chat is the owner's to choose")
+	assert.Equal(t, older.ID, mainChat(t, owner, orchestration.DefaultBotID))
 }

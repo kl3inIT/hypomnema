@@ -51,6 +51,8 @@ const chat = (id: string, botName: string, m: Partial<Chat> = {}): Chat => ({
   bot: botName,
   working: false,
   coordinator: true,
+  routine: false,
+  channel: false,
   created_at: "2026-11-13T09:00:00Z",
   updated_at: "2026-11-13T09:00:00Z",
   ...m,
@@ -164,21 +166,25 @@ describe("a Bot's status", () => {
     })
   })
 
-  it("opens its main chat when idle, whichever chat moved last, and none when it has no main chat", () => {
+  it("opens its main chat when idle, whichever chat moved last; with none, its latest not a Routine's (#923)", () => {
     const chats = [
       chat("home", "reporter", { updated_at: "2026-11-12T09:00:00Z" }),
-      chat("lark", "reporter", { updated_at: "2026-11-13T09:00:00Z" }),
-      chat("draft", "coordinator", { updated_at: "2026-11-13T09:00:00Z" }),
+      chat("lark", "reporter", { updated_at: "2026-11-13T09:00:00Z", channel: true }),
+      chat("draft", "coordinator", { updated_at: "2026-11-11T09:00:00Z" }),
+      chat("dm", "coordinator", { updated_at: "2026-11-12T09:00:00Z", channel: true }),
+      chat("run", "coordinator", { updated_at: "2026-11-13T09:00:00Z", routine: true }),
+      chat("run2", "researcher", { updated_at: "2026-11-13T09:00:00Z", routine: true }),
     ]
     const team = teamBots({
-      bots: [bot("coordinator"), bot("reporter", { main_chat: "home" })],
+      bots: [bot("coordinator"), bot("reporter", { main_chat: "home" }), bot("researcher")],
       chats,
       approvals: [],
       cards: [],
     })
 
     expect(team.find((b) => b.name === "reporter")?.chat).toBe("home")
-    expect(team.find((b) => b.name === "coordinator")?.chat).toBeUndefined()
+    expect(team.find((b) => b.name === "coordinator")?.chat).toBe("dm")
+    expect(team.find((b) => b.name === "researcher")?.chat).toBeUndefined()
   })
 })
 

@@ -3606,6 +3606,10 @@ export type BotChange = {
    * Listed in the sidebar's Pinned section, under the main Bot; only the owner.
    */
   pinned?: boolean;
+  /**
+   * The id of one of the Bot's chats, which becomes its main chat (issue #923): the web's Set as main chat and `hypomnema chats main`; only the owner. A chat of another Bot, a Routine's chat and a Lark chat are refused (400). The former main chat stays as it was.
+   */
+  main_chat?: string;
 };
 
 export type BotOrder = {
@@ -4134,6 +4138,14 @@ export type Chat = {
    * The first line of its latest message of the owner or its Bot, at most 120 characters (issue #471); in a list only, absent before either wrote.
    */
   last_line?: string;
+  /**
+   * The chat was opened for a Routine's run (issue #923); it is never its Bot's main chat.
+   */
+  routine: boolean;
+  /**
+   * A Lark chat (issue #923): a person's or a group's at a Channel, one someone other than the owner wrote in, or another person's from before sender ids (titled "Lark: <name>", with Lark's "[Lark message from <name>, who is not the owner. …]" label in its lines); it is never its Bot's main chat.
+   */
+  channel: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -12056,7 +12068,7 @@ export type ListChatsData = {
      */
     bot?: string;
     /**
-     * How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat and every chat an Approval waits in, whatever their age, so that a client showing Bots has them all.
+     * How many chats to skip, for the next page. The first page (no offset) also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with no main chat, its latest chat that is not a Routine's run (issue #923), whatever their age, so that a client showing Bots has them all.
      */
     offset?: number;
   };

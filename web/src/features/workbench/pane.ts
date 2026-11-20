@@ -88,6 +88,13 @@ export function frontOf(pane: Pane): PaneTab | undefined {
   return pane.tabs.find((tab) => tabKey(tab) === pane.active) ?? pane.tabs[0]
 }
 
+// frontChat is the chat of the tab in front of a pane, or null when that tab is not a chat (issue #923).
+export function frontChat(pane: Pane): string | null {
+  const front = frontOf(pane)
+
+  return front?.kind === "chat" ? front.chat : null
+}
+
 // parsePane reads a pane kept in the browser, or null when it is not one.
 export function parsePane(value: unknown): Pane | null {
   if (!value || typeof value !== "object") return null

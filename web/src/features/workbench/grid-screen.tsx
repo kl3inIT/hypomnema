@@ -13,7 +13,8 @@ import { cn } from "@/lib/utils"
 import { GridDrop } from "./grid-drop"
 import { gridAreas, gridPanes } from "./grid-layout"
 import { alone, dropTab, openAllBeside, withoutPane, type Bench } from "./moves"
-import { frontOf, hasTab, tabKey, type Pane } from "./pane"
+import { BackToMainChat } from "./back-to-main"
+import { frontChat, frontOf, hasTab, openTab, tabKey, type Pane } from "./pane"
 import { PaneView, type Beside } from "./pane-view"
 import {
   latestBench,
@@ -36,6 +37,9 @@ export function GridScreen() {
   const offered = useGridOffered()
   const navigate = useNavigate()
   const [full, setFull] = useState<string | null>(null)
+  // The pane the owner last pointed at or moved the focus into (issue #923): the chat in front of it is the one
+  // being viewed, which the sidebar's Set as main chat acts on; the first pane until then.
+  const [used, setUsed] = useState<string | null>(null)
 
   if (!offered || bench === null) {
     return (
@@ -85,6 +89,7 @@ export function GridScreen() {
       area={area}
       pane={bench.panes[node] ?? { tabs: [], active: "" }}
       full={full === node}
+      onUse={() => setUsed(node)}
       onFull={() => setFull(full === node ? null : node)}
       onRemove={() => commit(withoutPane(bench, node))}
       beside={{
@@ -125,9 +130,13 @@ export function GridScreen() {
     />
   )
 
+  const placed = gridPanes(bench.layout)
+  const usedPane = bench.panes[used !== null && placed.includes(used) ? used : (placed[0] ?? "")]
+  const viewed = usedPane ? frontChat(usedPane) : null
+
   return (
     <>
-      <AppSidebar />
+      <AppSidebar currentChat={viewed ?? undefined} />
       <main
         aria-label="Grid of chats"
         className="relative grid min-w-0 flex-1 grid-cols-2 grid-rows-2 gap-1.5 p-1.5"
@@ -143,6 +152,7 @@ function GridPane({
   area,
   pane,
   full,
+  onUse,
   onFull,
   onRemove,
   onChange,
@@ -153,6 +163,7 @@ function GridPane({
   area: string
   pane: Pane
   full: boolean
+  onUse: () => void
   onFull: () => void
   onRemove: () => void
   onChange: (next: Pane | null) => void
@@ -182,6 +193,8 @@ function GridPane({
       )}
       // A pane filling the screen is placed by the grid's padding, not its area.
       style={full ? undefined : { gridArea: area }}
+      onPointerDownCapture={onUse}
+      onFocusCapture={onUse}
     >
       <PaneView
         id={id}
@@ -190,6 +203,11 @@ function GridPane({
         beside={beside}
         end={
           <>
+            {/* Back to main chat opens the main chat of the Bot of the chat in front in this pane (issue #923). */}
+            <BackToMainChat
+              chatId={chat}
+              onBack={(main) => onChange(openTab(pane, { kind: "chat", chat: main }))}
+            />
             <PaneButton label={full ? "Back to the grid" : "Full screen"} onClick={onFull}>
               {full ? <Minimize2 /> : <Maximize2 />}
             </PaneButton>

@@ -12,10 +12,10 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
-import { BotMenu, PinItem } from "./bot-menu"
-import { type BotRow, botSections, rowChat } from "./bot-rows"
+import { BotMenu, PinItem, SetMainItem } from "./bot-menu"
+import { type BotRow, botSections, opensTo, rowChat } from "./bot-rows"
 import { ChatMenu } from "./chat-menu"
-import { useChats } from "./chats"
+import { useChat, useChats } from "./chats"
 import { ReorderableList, RowGrab } from "./reorderable-list"
 import { type SortableBindings, useSortableBindings } from "./use-sortable-bindings"
 
@@ -26,10 +26,14 @@ import { type SortableBindings, useSortableBindings } from "./use-sortable-bindi
 // the Bot's page. Every Bot is listed, in the one order the owner sets by dragging its avatar, with the main Bot
 // first and the pinned Bots in a Pinned section under it (issue #470; OpenMausBot's src/lib/sidebar-layout.ts, the
 // "Pinned" header of t3code's Sidebar.tsx). A drag stays in its section; a phone shows the order without dragging.
-// Left out of OpenMausBot's: departments, unread marks and a queued state, none of which a chat here has.
+// Left out of OpenMausBot's: departments, unread marks and a queued state, none of which a chat here has. A Bot opens
+// its main chat, or with none its latest chat (issue #923, bot-rows.ts opensTo); the row's menu makes the chat being
+// viewed, when it is the Bot's, its main chat (SetMainItem).
 export function BotList({ current }: { current?: string }) {
   const chats = useChats()
   const bots = useBots()
+  // The chat being viewed, which may be older than the chats read: the row of its Bot offers to make it the main one.
+  const viewed = useChat(current ?? null).data
   // A chat in which pi asked for an approval says so here: the owner may not have it open.
   const pending = usePending()
   const waiting = new Set(pending.data?.flatMap((a) => (a.chat_id ? [a.chat_id] : [])))
@@ -47,6 +51,7 @@ export function BotList({ current }: { current?: string }) {
       pinned={pinned.has(row.bot)}
       sortable={sortable}
       current={current}
+      viewed={viewed?.bot === row.bot ? viewed : undefined}
       waiting={waiting}
     />
   )
@@ -102,6 +107,7 @@ function BotItem({
   pinned,
   sortable,
   current,
+  viewed,
   waiting,
 }: {
   row: BotRow
@@ -109,21 +115,32 @@ function BotItem({
   pinned: boolean
   sortable?: SortableBindings
   current?: string
+  // The chat being viewed, when it is this Bot's.
+  viewed?: Chat
   waiting: Set<string>
 }) {
   const { bot, chats } = row
   // The row is the Bot's id; it is shown by its name, which may change (issue #466).
   const name = useBotName(bot)
-  const mainChat = chats.find((c) => c.id === row.mainChat)
-  // The main chat, or the chat that waits on the owner when the main chat does not (bot-rows.ts rowChat).
+  // The chat the Bot opens to: its main chat, or with none its latest (bot-rows.ts opensTo).
+  const home = opensTo(row.mainChat, chats)
+  const homeChat = chats.find((c) => c.id === home)
+  // That chat, or the chat that waits on the owner when it does not (bot-rows.ts rowChat).
   const target = rowChat(row, waiting)
   const needsYou = chats.some((c) => waiting.has(c.id))
   const working = chats.some((c) => c.working)
   // The Bot's row stands for every chat of the Bot that is open, as OpenMausBot's aria-current.
   const here =
-    current !== undefined && (current === row.mainChat || chats.some((c) => c.id === current))
-  // Every Bot but the main one has a menu, to pin it; a Bot with a main chat has that chat's too.
-  const hasMenu = Boolean(mainChat) || !main
+    current !== undefined &&
+    (current === row.mainChat || current === viewed?.id || chats.some((c) => c.id === current))
+  // Set as main chat, on the chat being viewed (issue #923), as OpenMausBot's Bot menu offers it on the thread open
+  // (src/components/SidebarBotMenu.tsx setMain): none on a Routine's chat or a Lark chat, which are never a main chat.
+  const setMain = viewed && !viewed.routine && !viewed.channel && (
+    <SetMainItem bot={bot} chat={viewed.id} isMain={viewed.id === row.mainChat} />
+  )
+  // Every Bot but the main one has a menu, to pin it; a Bot with a chat it opens to has that chat's too, and a Bot
+  // whose chat is viewed has Set as main chat.
+  const hasMenu = Boolean(homeChat) || !main || Boolean(setMain)
   const menuPlace =
     "absolute end-1 top-1.5 transition-opacity md:pointer-events-none md:opacity-0 md:group-focus-within/bot:pointer-events-auto md:group-focus-within/bot:opacity-100 md:group-hover/bot:pointer-events-auto md:group-hover/bot:opacity-100 md:has-[[data-popup-open]]:pointer-events-auto"
 
@@ -160,8 +177,8 @@ function BotItem({
           {...(target
             ? { to: "/chats/$chatId", params: { chatId: target } }
             : { to: "/", search: { bot } })}
-          // The row carries its main chat to the grid (issue #235).
-          {...(row.mainChat ? chatDrag(row.mainChat) : { draggable: false })}
+          // The row carries the chat it opens to the grid (issue #235).
+          {...(home ? chatDrag(home) : { draggable: false })}
           aria-current={here ? "page" : undefined}
           className={cn(
             "flex min-h-11 w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -182,11 +199,11 @@ function BotItem({
                 {name}
               </span>
               <span className="shrink-0 text-xs text-secondary-label tabular-nums transition-opacity md:group-focus-within/bot:opacity-0 md:group-hover/bot:opacity-0">
-                <ChatState chat={mainChat} needsYou={needsYou} working={working} />
+                <ChatState chat={homeChat} needsYou={needsYou} working={working} />
               </span>
             </span>
             <span className="truncate text-xs leading-4 text-muted-foreground">
-              {mainChat ? mainChat.last_line || mainChat.title : row.mainChat ? "" : "No chat yet"}
+              {homeChat ? homeChat.last_line || homeChat.title : home ? "" : "No chat yet"}
             </span>
           </span>
         </Link>
@@ -206,19 +223,30 @@ function BotItem({
             {face}
           </span>
         )}
-        {/* The row's menu, as OpenMausBot's Bot row has an actions button: Pin or Unpin (issue #470), and, on a Bot
-            with a main chat, that chat's Delete (issue #503). Shown on hover or focus, always on a phone. */}
-        {mainChat ? (
+        {/* The row's menu, as OpenMausBot's Bot row has an actions button: Set as main chat (issue #923), Pin or
+            Unpin (issue #470), and, on a Bot with a chat it opens to, that chat's Delete (issue #503). Shown on hover
+            or focus, always on a phone. */}
+        {homeChat ? (
           <ChatMenu
-            chat={mainChat}
-            current={mainChat.id === current}
+            chat={homeChat}
+            current={homeChat.id === current}
             label={`Actions for ${name}`}
             className={menuPlace}
           >
-            {!main && <PinItem bot={bot} pinned={pinned} />}
+            {(setMain || !main) && (
+              <>
+                {setMain}
+                {!main && <PinItem bot={bot} pinned={pinned} />}
+              </>
+            )}
           </ChatMenu>
         ) : (
-          !main && <BotMenu bot={bot} name={name} pinned={pinned} className={menuPlace} />
+          hasMenu && (
+            <BotMenu name={name} className={menuPlace}>
+              {setMain}
+              {!main && <PinItem bot={bot} pinned={pinned} />}
+            </BotMenu>
+          )
         )}
       </div>
     </div>
