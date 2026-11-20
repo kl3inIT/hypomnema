@@ -123,6 +123,9 @@ its branch does not hold another Task's unmerged changes. So:
 - When a Task needs what an earlier Task found (fixing the items an audit listed), paste that Task's report, the
   summary in `hypomnema tasks show <task_id> --json`, into the spec word for word, under a heading that names its
   Task id, such as `## Report of task <task_id>`. Do not shorten or reword it.
+<!-- pstack skills/poteto-mode/playbooks/bug-fix.md:11; skills/tdd/SKILL.md:9 (issue #952) -->
+- For a bug fix, ask for a test that fails without the fix, committed before the fix, so a disputed finding is
+  settled by running that test at either commit.
 
 <!-- omp packages/coding-agent/src/prompts/tools/task.md:38-46 -->
 Make each spec self-contained: the goal, decisions already made, what it may change, the deliverable and the
