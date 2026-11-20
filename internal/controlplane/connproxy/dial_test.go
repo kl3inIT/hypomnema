@@ -170,14 +170,17 @@ func connectProxy(t *testing.T) (string, func() []string) {
 
 		w.WriteHeader(http.StatusOK)
 
-		client, _, err := http.NewResponseController(w).Hijack()
+		// The client may send its first bytes (the ClientHello) as soon as the 200 is flushed, before Hijack stops
+		// the server's background read; that byte then sits in the returned reader, not on the connection
+		// (issue #971). So the tunnel reads the client through rw, never the bare connection.
+		client, rw, err := http.NewResponseController(w).Hijack()
 		if err != nil {
 			_ = upstream.Close()
 
 			return
 		}
 
-		go func() { _, _ = io.Copy(upstream, client); _ = upstream.Close() }()
+		go func() { _, _ = io.Copy(upstream, rw); _ = upstream.Close() }()
 		go func() { _, _ = io.Copy(client, upstream); _ = client.Close() }()
 	}))
 	t.Cleanup(srv.Close)
