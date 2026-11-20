@@ -274,7 +274,8 @@ func TestATaskIsCheckedAgainstItsProfile(t *testing.T) {
 			"claude-subscription/claude-haiku-5-5",
 		{Ref: "j", Spec: "j", Model: "nobody/claude-haiku-5-5"}: "not found: provider nobody",
 		// A name with an empty part is refused, not taken for no model (review of PR #1000).
-		{Ref: "k", Spec: "k", Model: "opencode-go/"}:      `model "opencode-go/" has an empty part; name it <provider>/<model>`,
+		{Ref: "k", Spec: "k", Model: "opencode-go/"}: `model "opencode-go/" has an empty part; ` +
+			"name it <provider>/<model>",
 		{Ref: "l", Spec: "l", Model: "/"}:                 `model "/" has an empty part`,
 		{Ref: "m", Spec: "m", Model: "/claude-haiku-5-5"}: "has an empty part",
 	} {
@@ -524,6 +525,7 @@ func TestARestoredVersionKeepsTheProviderItRecorded(t *testing.T) {
 	assert.True(t, created)
 	assert.Equal(t, [2]string{"claude-subscription", "claude-haiku-5-5"}, [2]string{restored.Provider, restored.Model})
 
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: x\ndescription: other\nruntime: claude\nmodel: {name: claude-haiku-5-5}\n")
+	_, _, err = w.s.ApplyProfile(ctx, "",
+		"name: x\ndescription: other\nruntime: claude\nmodel: {name: claude-haiku-5-5}\n")
 	require.ErrorContains(t, err, "named without its provider")
 }

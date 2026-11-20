@@ -174,7 +174,7 @@ func legacyTaskProvider(ctx context.Context, tx *sql.Tx, routing roleRouting, t 
 		return "", false, err
 	}
 
-	runtime := ""
+	var runtime string
 
 	switch {
 	case hasLast && versionID.Valid && current == roleRuntime:
