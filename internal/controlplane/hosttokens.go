@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -100,9 +99,14 @@ func (c connections) Connect(ctx context.Context, integration, label, token stri
 		return vaultError(err)
 	}
 
-	_, err = c.svc.SetConnection(ctx, integration, label, "", name)
+	if _, err = c.svc.SetConnection(ctx, integration, label, "", name); err != nil {
+		return err
+	}
 
-	return err
+	// The token's account is read now, beside, so the first offer that uses the token has it (issue #991).
+	c.readIdentity(ctx, integration, label)
+
+	return nil
 }
 
 // Disconnect forgets a Connection and its credential. One that does not
@@ -145,10 +149,14 @@ func (c connections) RemoveHost(ctx context.Context, host string) error {
 // Credential returns the token for a Dispatch on a repository, with the
 // account it belongs to when that is known (issue #991), and false when there
 // is no token to use or it cannot be opened; the worker then falls back to the
-// node user's own logins, as before tokens existed.
+// node user's own logins, as before tokens existed. It never waits for a host:
+// the account is read beside, and an offer made before it is known goes
+// without one.
 func (c connections) Credential(ctx context.Context, host, path string) (nodeapi.HostCredential, bool) {
 	conn, ok, err := c.svc.ConnectionFor(ctx, host, path)
 	if err != nil || !ok {
+		c.identities.without(ctx, "host "+host, "it has no token for this repository")
+
 		return nodeapi.HostCredential{}, false
 	}
 
@@ -162,77 +170,148 @@ func (c connections) Credential(ctx context.Context, host, path string) (nodeapi
 		return nodeapi.HostCredential{}, false
 	}
 
-	return nodeapi.HostCredential{Token: token, Identity: c.identities.of(ctx, c.svc, conn, token, opened.Version)}, true
+	id := c.identities.of(ctx, c.svc, conn, token, opened.VersionID)
+	if !id.Known() {
+		c.identities.without(ctx, "connection "+conn.Integration+":"+conn.Label+" "+opened.VersionID,
+			"its token's account is not known yet, or its host would not say it")
+	}
+
+	return nodeapi.HostCredential{Token: token, Identity: id}, true
 }
 
-// identityTimeout bounds the one read of a token's account; an offer waits for it once.
+// readIdentity starts reading the account of a git host Connection's token, beside, unless it is known.
+func (c connections) readIdentity(ctx context.Context, integration, label string) {
+	if c.identities == nil {
+		return
+	}
+
+	conn, err := c.svc.ConnectionOf(ctx, integration, label)
+	if err != nil {
+		return
+	}
+
+	opened, err := c.vault.Open(ctx, conn.Secret)
+	if err != nil || opened.Payload[vault.KeyValue] == "" {
+		return
+	}
+
+	c.identities.of(ctx, c.svc, conn, opened.Payload[vault.KeyValue], opened.VersionID)
+}
+
+// readIdentities starts reading the account of every git host Connection's token that is not known yet, as the
+// control plane starts, so the first offers after an upgrade or a restart have it.
+func (c connections) readIdentities(ctx context.Context) {
+	hosts, err := c.svc.ListGitHosts(ctx)
+	if err != nil {
+		return
+	}
+
+	for _, h := range hosts {
+		for _, label := range h.Connections {
+			c.readIdentity(ctx, h.Host, label)
+		}
+	}
+}
+
+// identityTimeout bounds a read of a token's account.
 const identityTimeout = 10 * time.Second
 
 // gitIdentities reads the account a git host Connection's token belongs to, as a worker's commits name it (issue
 // #991), once a token, and keeps it with the Connection, as Paperclip keeps a GitHub grant's login and id with the
 // grant (server/src/services/git-credentials.ts:53, 116-153). A token is a version of the Connection's vault
-// secret: a token replaced, by connecting again or on the secret itself, is read again, as it may be another
-// account's. The read goes the Connection's route, as the service
-// proxy's requests do. An account that cannot be read is said once and the offers go without one: the worker then
+// secret, named by the version's id, which is never given again: a token replaced, by connecting again, on the
+// secret itself or after a disconnect, is read again, as it may be another account's. The read goes the
+// Connection's route, as the service proxy's requests do, beside the offers: the node API's loop, which also
+// answers heartbeats, never waits for a host. What is offered without an account is said once: the worker then
 // commits as the node user's git configuration says, as before.
 type gitIdentities struct {
 	ways   *connproxy.Transports
 	logger *slog.Logger
-	// reads holds an *identityRead a token, keyed by the Connection, its secret and the secret's version.
+	// reads holds an *identityRead a token, keyed by its vault secret version's id.
 	reads sync.Map
+	// said holds what was already logged as going without an account.
+	said sync.Map
 }
 
-// identityRead is the one read of a token's account; offers that ask meanwhile wait for it.
+// identityRead is the one read of a token's account; id is set before done is closed.
 type identityRead struct {
-	once sync.Once
+	done chan struct{}
 	id   githost.Identity
 }
 
-// of is the account conn's token, of version version of its secret, belongs to; empty when it is not known. g may
-// be nil: then it reads none.
+// of is the account conn's token, of the vault secret version versionID, belongs to; empty while it is not known,
+// and then it is read beside, once. g may be nil: then it reads none.
 func (g *gitIdentities) of(ctx context.Context, svc *orchestration.Service, conn orchestration.Connection,
-	token string, version int,
+	token, versionID string,
 ) githost.Identity {
 	kept := githost.Identity{Name: conn.GitName, Email: conn.GitEmail}
-	if kept.Known() && conn.GitSecretVersion == version {
+	if kept.Known() && versionID != "" && conn.GitSecretVersionID == versionID {
 		return kept
 	}
 
-	if g == nil {
+	if g == nil || versionID == "" {
 		return githost.Identity{}
 	}
 
-	key := conn.Integration + "\x00" + conn.Label + "\x00" + conn.Secret + "\x00" + strconv.Itoa(version)
-	entry, _ := g.reads.LoadOrStore(key, &identityRead{})
-	read, _ := entry.(*identityRead)
+	read := &identityRead{done: make(chan struct{})}
+	if entry, loaded := g.reads.LoadOrStore(versionID, read); loaded {
+		read, _ = entry.(*identityRead)
+	} else {
+		go g.read(context.WithoutCancel(ctx), svc, conn, token, versionID, read)
+	}
 
-	read.once.Do(func() {
-		// One session ending does not spoil the read for the others.
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), identityTimeout)
-		defer cancel()
-
-		id, err := g.read(ctx, svc, conn, token)
-		if err != nil {
-			g.logger.WarnContext(ctx, "the account of a git host's token is not known; its workers commit as their "+
-				"node's git configuration says", slog.String("connection", conn.Integration+":"+conn.Label),
-				slog.String("error", err.Error()))
-
-			return
-		}
-
-		read.id = id
-
-		err = svc.SetConnectionGitIdentity(ctx, conn.Integration, conn.Label, conn.Secret, version, id.Name, id.Email)
-		if err != nil {
-			g.logger.WarnContext(ctx, "keeping the account of a git host's token",
-				slog.String("connection", conn.Integration+":"+conn.Label), slog.String("error", err.Error()))
-		}
-	})
-
-	return read.id
+	select {
+	case <-read.done:
+		return read.id
+	default:
+		return githost.Identity{}
+	}
 }
 
+// without says once that what key names is offered without an account, and why.
+func (g *gitIdentities) without(ctx context.Context, key, why string) {
+	if g == nil {
+		return
+	}
+
+	if _, said := g.said.LoadOrStore(key, true); said {
+		return
+	}
+
+	g.logger.InfoContext(ctx, "a Dispatch goes without a git identity; its worker commits as its node's git "+
+		"configuration says", slog.String("on", key), slog.String("because", why))
+}
+
+// read reads the account of token, keeps it with the Connection and closes read.done.
 func (g *gitIdentities) read(ctx context.Context, svc *orchestration.Service, conn orchestration.Connection,
+	token, versionID string, read *identityRead,
+) {
+	defer close(read.done)
+
+	ctx, cancel := context.WithTimeout(ctx, identityTimeout)
+	defer cancel()
+
+	name := conn.Integration + ":" + conn.Label
+
+	id, err := g.lookup(ctx, svc, conn, token)
+	if err != nil {
+		// What a host or a proxy answers may repeat the token: it never reaches the log.
+		g.logger.WarnContext(ctx, "the account of a git host's token could not be read; its workers commit as "+
+			"their node's git configuration says", slog.String("connection", name),
+			slog.String("error", strings.ReplaceAll(err.Error(), token, "[token]")))
+
+		return
+	}
+
+	read.id = id
+
+	if err := svc.SetConnectionGitIdentity(ctx, conn.Integration, conn.Label, versionID, id.Name, id.Email); err != nil {
+		g.logger.WarnContext(ctx, "keeping the account of a git host's token", slog.String("connection", name),
+			slog.String("error", err.Error()))
+	}
+}
+
+func (g *gitIdentities) lookup(ctx context.Context, svc *orchestration.Service, conn orchestration.Connection,
 	token string,
 ) (githost.Identity, error) {
 	kind, ok := svc.KindOfHost(ctx, conn.Integration)

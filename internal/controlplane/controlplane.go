@@ -312,6 +312,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		},
 		logger: logger,
 	}}
+	go tokens.readIdentities(ctx)
 	sshKey := &gitSSHKey{vault: secrets}
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
 		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp(),

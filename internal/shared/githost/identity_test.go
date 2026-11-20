@@ -1,8 +1,10 @@
 package githost
 
 import (
+	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,24 +15,34 @@ import (
 // answering is a host that answers every request with body, and keeps the
 // last request it was asked.
 type answering struct {
-	body  string
-	asked *http.Request
+	body   string
+	status int
+	err    error
+	asked  *http.Request
 }
 
 func (a *answering) RoundTrip(r *http.Request) (*http.Response, error) {
 	a.asked = r
+	if a.err != nil {
+		return nil, a.err
+	}
+
+	status := a.status
+	if status == 0 {
+		status = http.StatusOK
+	}
 
 	return &http.Response{
-		StatusCode: http.StatusOK, Status: "200 OK", Header: http.Header{},
+		StatusCode: status, Status: strconv.Itoa(status) + " " + a.body, Header: http.Header{},
 		Body: io.NopCloser(strings.NewReader(a.body)), Request: r,
 	}, nil
 }
 
 // Scenario (issue #991): the account a token belongs to is read at the host's
 // /user. GitHub's gives its login and noreply address; GitLab's its username
-// and commit address, else its public one. What git cannot take, an account
-// that shows no address, and a GitHub Enterprise host, whose noreply address
-// is not known, give none.
+// and commit address, else its public one; a GitHub Enterprise host its
+// login and its own noreply address. What git cannot take, an account that
+// shows no address, and one named with the token give none.
 func TestReadIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -60,7 +72,14 @@ func TestReadIdentity(t *testing.T) {
 			body: `{"username":"dat\nGIT_AUTHOR_NAME=x","commit_email":"dat@example.com"}`},
 		{name: "an address in brackets", kind: GitLab, host: GitLabHost,
 			body: `{"username":"dat","commit_email":"<dat@example.com>"}`},
-		{name: "github enterprise", kind: GitHub, host: "github.company.example", body: `{"login":"octo","id":1}`},
+		{
+			name: "github enterprise", kind: GitHub, host: "github.company.example:8443", body: `{"login":"octo","id":1}`,
+			url:  "https://github.company.example:8443/api/v3/user",
+			want: Identity{"octo", "1+octo@users.noreply.github.company.example"},
+		},
+		{name: "named with the token", kind: GitLab, host: GitLabHost,
+			body: `{"username":"the-token","commit_email":"dat@example.com"}`},
+		{name: "the token in the address", kind: GitHub, host: GitHubHost, body: `{"login":"x-the-token-x","id":7}`},
 	} {
 		host := &answering{body: c.body}
 		got, err := ReadIdentity(t.Context(), &http.Client{Transport: host}, c.kind, c.host, "the-token")
@@ -76,5 +95,22 @@ func TestReadIdentity(t *testing.T) {
 		assert.Equal(t, c.want, got, c.name)
 		assert.Equal(t, c.url, host.asked.URL.String(), c.name)
 		assert.Equal(t, "Bearer the-token", host.asked.Header.Get("Authorization"), c.name)
+	}
+}
+
+// Scenario (issue #991): a host or a proxy that repeats the token, in its
+// status line, its body or a failed connection's error, does not get it into
+// the error that is logged.
+func TestReadIdentityNeverRepeatsTheToken(t *testing.T) {
+	t.Parallel()
+
+	for _, host := range []*answering{
+		{status: http.StatusUnauthorized, body: "bad credentials the-token"},
+		{err: errors.New("proxyconnect: 407 the-token refused")},
+		{body: `{"login": the-token`},
+	} {
+		_, err := ReadIdentity(t.Context(), &http.Client{Transport: host}, GitHub, GitHubHost, "the-token")
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "the-token")
 	}
 }

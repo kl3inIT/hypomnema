@@ -40,7 +40,7 @@ VALUES (@integration, @label, @account, @secret, @services, @address, @version, 
 ON CONFLICT (integration, label) DO UPDATE
 SET account = excluded.account, secret = excluded.secret, services = excluded.services,
     address = excluded.address, version = excluded.version, app_id = excluded.app_id, app_label = excluded.app_label,
-    sign_in_failed = 0, git_name = NULL, git_email = NULL, git_secret_version = NULL,
+    sign_in_failed = 0, git_name = NULL, git_email = NULL, git_secret_version_id = NULL,
     updated_at = excluded.updated_at;
 
 -- name: SetConnectionSignInFailed :execrows
@@ -53,10 +53,10 @@ WHERE integration = @integration AND label = @label AND sign_in_failed <> @faile
 UPDATE connections SET access = @access WHERE integration = @integration AND label = @label;
 
 -- name: SetConnectionGitIdentity :execrows
--- The account a git host Connection's token belongs to (issue #991), read with the token of version
--- @git_secret_version of the Connection's secret. It is not a change of the Connection: updated_at stays.
-UPDATE connections SET git_name = @git_name, git_email = @git_email, git_secret_version = @git_secret_version
-WHERE integration = @integration AND label = @label AND secret = @secret;
+-- The account a git host Connection's token belongs to (issue #991), read with the token of the vault secret
+-- version @git_secret_version_id. It is not a change of the Connection: updated_at stays.
+UPDATE connections SET git_name = @git_name, git_email = @git_email, git_secret_version_id = @git_secret_version_id
+WHERE integration = @integration AND label = @label;
 
 -- name: SetConnectionProxy :execrows
 UPDATE connections SET proxy = @proxy, updated_at = @now WHERE integration = @integration AND label = @label;

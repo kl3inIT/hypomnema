@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -54,7 +55,14 @@ const maxUserBytes = 1 << 20
 // ReadIdentity asks host, of kind, which account token belongs to (GET /user)
 // and returns it as git names it in a commit. It is read once a Connection,
 // and kept with it, by the control plane.
+//
+// No error it returns holds what the host answered beyond its status code, so
+// a host or a proxy that repeats the token cannot put it in a log.
 func ReadIdentity(ctx context.Context, client *http.Client, kind Kind, host, token string) (Identity, error) {
+	if token == "" {
+		return Identity{}, fmt.Errorf("%w: there is no token", ErrNoIdentity)
+	}
+
 	adapter, ok := For(kind)
 	if !ok {
 		return Identity{}, fmt.Errorf("%w: unknown kind of host %q", ErrNoIdentity, kind)
@@ -75,20 +83,20 @@ func ReadIdentity(ctx context.Context, client *http.Client, kind Kind, host, tok
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return Identity{}, fmt.Errorf("asking %s for the token's user: %w", host, err)
+		return Identity{}, fmt.Errorf("asking %s for the token's user: %w", host, transportError(err))
 	}
 	defer resp.Body.Close() //nolint:errcheck // a read-only answer; nothing is left to report
 
+	if resp.StatusCode != http.StatusOK {
+		return Identity{}, fmt.Errorf("%s answered HTTP %d about the token's user", host, resp.StatusCode)
+	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxUserBytes))
 	if err != nil {
-		return Identity{}, fmt.Errorf("reading %s's answer about the token's user: %w", host, err)
+		return Identity{}, fmt.Errorf("reading %s's answer about the token's user: %w", host, transportError(err))
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return Identity{}, fmt.Errorf("%s answered %s about the token's user", host, resp.Status)
-	}
-
-	id, err := adapter.identity(body)
+	id, err := adapter.identity(host, body)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -97,7 +105,26 @@ func ReadIdentity(ctx context.Context, client *http.Client, kind Kind, host, tok
 		return Identity{}, fmt.Errorf("%w: %s named the token's user in a form git cannot take", ErrNoIdentity, host)
 	}
 
+	// An identity is written in every commit and kept in the clear: one that holds the token is refused.
+	if strings.Contains(id.Name, token) || strings.Contains(id.Email, token) {
+		return Identity{}, fmt.Errorf("%w: %s named the token's user with the token", ErrNoIdentity, host)
+	}
+
 	return id, nil
+}
+
+// transportError is what is said of a request that failed before an answer:
+// a timeout, a cancel or the kind of network error, never its text, which may
+// hold a proxy's answer.
+func transportError(err error) error {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	case errors.Is(err, context.Canceled):
+		return context.Canceled
+	default:
+		return errors.New("the request failed")
+	}
 }
 
 // plainIdentityValue reports whether s can be an environment variable's value
@@ -108,19 +135,23 @@ func plainIdentityValue(s string) bool {
 		!strings.ContainsFunc(s, unicode.IsControl)
 }
 
-// userURL on GitHub is github.com's API; only there is the noreply address
-// known, <id>+<login>@users.noreply.github.com, as Paperclip makes it
-// (git-credentials.ts:118). A GitHub Enterprise host gives none: no reference
-// read makes its address.
+// userURL on GitHub is api.github.com for github.com, and the REST API under
+// /api/v3 of a GitHub Enterprise host, as claude-code-action reads it
+// (src/github/api/config.ts:1-14) and gh does.
 func (github) userURL(host string) (string, error) {
-	if host != GitHubHost {
-		return "", fmt.Errorf("%w: the noreply address of a GitHub Enterprise host is not known", ErrNoIdentity)
+	if host == GitHubHost {
+		return "https://api.github.com/user", nil
 	}
 
-	return "https://api.github.com/user", nil
+	return (&url.URL{Scheme: "https", Host: host, Path: "/api/v3/user"}).String(), nil
 }
 
-func (github) identity(body []byte) (Identity, error) {
+// identity on GitHub is the login and the noreply address
+// <id>+<login>@users.noreply.<host>: users.noreply.github.com, as Paperclip
+// makes it (git-credentials.ts:118), and users.noreply.<hostname> on a GitHub
+// Enterprise host, as claude-code-action does (src/github/operations/
+// git-config.ts:29-42), without the host's port.
+func (github) identity(host string, body []byte) (Identity, error) {
 	var user struct {
 		ID    int64  `json:"id"`
 		Login string `json:"login"`
@@ -134,9 +165,14 @@ func (github) identity(body []byte) (Identity, error) {
 		return Identity{}, fmt.Errorf("%w: GitHub's user has no id or login", ErrNoIdentity)
 	}
 
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+
 	return Identity{
 		Name:  user.Login,
-		Email: strconv.FormatInt(user.ID, 10) + "+" + user.Login + "@users.noreply.github.com",
+		Email: strconv.FormatInt(user.ID, 10) + "+" + user.Login + "@users.noreply." + hostname,
 	}, nil
 }
 
@@ -149,7 +185,7 @@ func (gitlab) userURL(host string) (string, error) {
 // identity on GitLab is the user's username and the address GitLab itself
 // writes in the commits made on its web pages, commit_email, else the public
 // one. An account that shows neither gives none.
-func (gitlab) identity(body []byte) (Identity, error) {
+func (gitlab) identity(_ string, body []byte) (Identity, error) {
 	var user struct {
 		Username    string `json:"username"`
 		CommitEmail string `json:"commit_email"`
