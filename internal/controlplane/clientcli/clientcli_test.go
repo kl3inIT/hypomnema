@@ -1263,7 +1263,7 @@ func TestChatWithoutACoordinator(t *testing.T) {
 func TestChatWithAChosenBot(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	w := newWorldWith(t, nil)
 	w.login(t, bearertoken.Owner)
 
 	var vmap openapi.Bot
@@ -1291,7 +1291,7 @@ func TestChatWithAChosenBot(t *testing.T) {
 func TestChatWritesToTheBotsMainChat(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	w := newWorldWith(t, nil)
 	w.login(t, bearertoken.Owner)
 	ctx := t.Context()
 
