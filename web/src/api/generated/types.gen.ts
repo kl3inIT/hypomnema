@@ -178,6 +178,22 @@ export type Task = {
    * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_disk (fitting nodes do not have a fresh disk sample at or above their floor), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
    */
   waiting_reason?: string;
+  /**
+   * The Task whose branch and pull request this Task continues (issue
+   */
+  continues?: string;
+  /**
+   * The branch this Task's commits are pushed to when it is not its own hyp/<id>: the branch of the Task it continues.
+   */
+  push_branch?: string;
+  /**
+   * The branch its worktree starts from when it is not the Run's base.
+   */
+  start_from?: string;
+  /**
+   * The base of the pull request it opens when it is not the Run's base.
+   */
+  pr_base?: string;
 };
 
 export type TaskDetail = Task & {
@@ -260,6 +276,18 @@ export type NewTask = {
    * Refs of earlier Tasks in this request, or ids of Tasks already in the Run.
    */
   depends_on?: Array<string>;
+  /**
+   * The id of a Task of the same repository, of any Run, whose branch this Task works on and pushes into, so that branch's pull request takes its commits and keeps its number and reviews. Refused while a Task that pushes to that branch is not finished. Not with start_from or pr_base.
+   */
+  continues?: string;
+  /**
+   * A branch of the repository the worktree starts from instead of the Run's base: another Task's hyp/<id> for stacked work, or a named branch.
+   */
+  start_from?: string;
+  /**
+   * With start_from, the base of the pull request the Task opens: start_from (the default, stacked) or the Run's base.
+   */
+  pr_base?: 'start_from' | 'run_base';
 };
 
 export type DispatchStatus = 'queued' | 'starting' | 'running' | 'stopping' | 'unknown' | 'stop_unknown' | 'succeeded' | 'failed' | 'gated' | 'canceled' | 'expired' | 'abandoned';

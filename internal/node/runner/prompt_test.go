@@ -303,3 +303,56 @@ func TestPromptCarriesTheToolsBlockBeforeTheTask(t *testing.T) {
 	d.Offer.Tools = nil
 	assert.NotContains(t, Prompt(d), "## Tools")
 }
+
+// Scenario (issue #690, case a): the Task continues the earlier Task tsk_old, whose pull request is on hyp/tsk_old.
+// Its worker is told it works from that branch, that publish_branch pushes into it and so updates that pull request,
+// and not to open another; the auto-merge steps watch that branch. On a host without publish_branch it pushes there
+// itself, never forced.
+func TestPromptOfATaskThatContinuesAnotherBranch(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Offer.PushBranch, d.Offer.StartFrom = "hyp/tsk_old", "hyp/tsk_old"
+	p := Prompt(d)
+
+	for _, want := range []string{
+		"a git worktree of kl3inIT/second-bite on branch hyp/tsk_1, started from hyp/tsk_old.",
+		"hyp/tsk_old is the branch of an earlier Task whose work this Task continues, and of its pull request",
+		"push it with `publish_branch` (not `git push`, so the Run can prove its PR heads), which pushes it to " +
+			"hyp/tsk_old, which updates that pull request. Do not open a new one.",
+		"Find it with `gh pr list --head hyp/tsk_old --state open`",
+		"if none is open, open one with `gh pr create --base main --head hyp/tsk_old`",
+	} {
+		assert.Contains(t, p, want)
+	}
+	assert.NotContains(t, p, "--head hyp/tsk_1", "its own branch is never a pull request's head")
+
+	d.Offer.RepoHost, d.Offer.RepoKind = "gitlab.company.example", "gitlab"
+	p = Prompt(d)
+	assert.Contains(t, p, "push it with `git push origin hyp/tsk_1:hyp/tsk_old` (never forced)")
+	assert.Contains(t, p, "`glab mr list --source-branch hyp/tsk_old`")
+	assert.Contains(t, p, "`glab ci status --live --branch hyp/tsk_old`")
+}
+
+// Scenario (issue #690, case b): stacked work. The Task starts from its parent's branch and opens its pull request
+// against it, or against the Run's base when the coordinator chose that.
+func TestPromptOfAStackedTask(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Offer.StartFrom, d.Offer.PRBase = "hyp/tsk_parent", "hyp/tsk_parent"
+	p := Prompt(d)
+
+	assert.Contains(t, p, "on branch hyp/tsk_1, started from hyp/tsk_parent.")
+	assert.Contains(t, p, "push the branch with `publish_branch`")
+	assert.Contains(t, p, "open a pull request with `gh pr create --base hyp/tsk_parent --head hyp/tsk_1`")
+	assert.Contains(t, p, "repos/kl3inIT/second-bite/rules/branches/hyp/tsk_parent",
+		"auto-merge is checked against the branch it merges into")
+
+	d.Offer.PRBase = ""
+	assert.Contains(t, Prompt(d), "`gh pr create --base main --head hyp/tsk_1`", "or the Run's base")
+}

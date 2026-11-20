@@ -117,7 +117,7 @@ func (q *Queries) GetRunWithBot(ctx context.Context, id string) (GetRunWithBotRo
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor FROM tasks WHERE id = ?1
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base FROM tasks WHERE id = ?1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
@@ -144,6 +144,10 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.WaitingReason,
 		&i.Kind,
 		&i.AuthorVendor,
+		&i.Continues,
+		&i.PushBranch,
+		&i.StartFrom,
+		&i.PrBase,
 	)
 	return i, err
 }
@@ -212,9 +216,9 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) error {
 
 const insertTask = `-- name: InsertTask :exec
 INSERT INTO tasks (id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason,
-                   created_at, updated_at, kind, author_vendor)
+                   created_at, updated_at, kind, author_vendor, continues, push_branch, start_from, pr_base)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-        ?11, ?11, ?12, ?13)
+        ?11, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
 `
 
 type InsertTaskParams struct {
@@ -231,6 +235,10 @@ type InsertTaskParams struct {
 	Now           int64
 	Kind          string
 	AuthorVendor  string
+	Continues     sql.NullString
+	PushBranch    sql.NullString
+	StartFrom     sql.NullString
+	PrBase        sql.NullString
 }
 
 func (q *Queries) InsertTask(ctx context.Context, arg InsertTaskParams) error {
@@ -248,6 +256,10 @@ func (q *Queries) InsertTask(ctx context.Context, arg InsertTaskParams) error {
 		arg.Now,
 		arg.Kind,
 		arg.AuthorVendor,
+		arg.Continues,
+		arg.PushBranch,
+		arg.StartFrom,
+		arg.PrBase,
 	)
 	return err
 }
@@ -267,7 +279,7 @@ func (q *Queries) InsertTaskDep(ctx context.Context, arg InsertTaskDepParams) er
 }
 
 const listBoardTasks = `-- name: ListBoardTasks :many
-SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor FROM tasks
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base FROM tasks
 WHERE tasks.run_id IN (SELECT r.id FROM runs r WHERE r.status = 'open') OR tasks.updated_at >= ?1
 ORDER BY tasks.updated_at DESC, tasks.id DESC
 LIMIT ?2
@@ -309,6 +321,10 @@ func (q *Queries) ListBoardTasks(ctx context.Context, arg ListBoardTasksParams) 
 			&i.WaitingReason,
 			&i.Kind,
 			&i.AuthorVendor,
+			&i.Continues,
+			&i.PushBranch,
+			&i.StartFrom,
+			&i.PrBase,
 		); err != nil {
 			return nil, err
 		}
@@ -502,7 +518,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsR
 }
 
 const listTasksByRun = `-- name: ListTasksByRun :many
-SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor FROM tasks WHERE run_id = ?1 ORDER BY position
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base FROM tasks WHERE run_id = ?1 ORDER BY position
 `
 
 func (q *Queries) ListTasksByRun(ctx context.Context, runID string) ([]Task, error) {
@@ -535,6 +551,10 @@ func (q *Queries) ListTasksByRun(ctx context.Context, runID string) ([]Task, err
 			&i.WaitingReason,
 			&i.Kind,
 			&i.AuthorVendor,
+			&i.Continues,
+			&i.PushBranch,
+			&i.StartFrom,
+			&i.PrBase,
 		); err != nil {
 			return nil, err
 		}
@@ -805,4 +825,27 @@ func (q *Queries) TransitionTask(ctx context.Context, arg TransitionTaskParams) 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const unfinishedTaskPushingTo = `-- name: UnfinishedTaskPushingTo :one
+SELECT id FROM tasks
+WHERE id <> ?1
+  AND status NOT IN ('succeeded', 'failed', 'canceled')
+  AND (push_branch = CAST(?2 AS TEXT) OR (push_branch IS NULL AND 'hyp/' || id = CAST(?2 AS TEXT)))
+ORDER BY created_at, id
+LIMIT 1
+`
+
+type UnfinishedTaskPushingToParams struct {
+	Except string
+	Branch string
+}
+
+// An unfinished Task, other than the one named, whose publish_branch pushes to branch: its own hyp/<id>, or the
+// branch it continues (issue #690).
+func (q *Queries) UnfinishedTaskPushingTo(ctx context.Context, arg UnfinishedTaskPushingToParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, unfinishedTaskPushingTo, arg.Except, arg.Branch)
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }

@@ -1331,6 +1331,24 @@ func (e NewNodeDevice) Valid() bool {
 	}
 }
 
+// Defines values for NewTaskPrBase.
+const (
+	RunBase   NewTaskPrBase = "run_base"
+	StartFrom NewTaskPrBase = "start_from"
+)
+
+// Valid indicates whether the value is a known member of the NewTaskPrBase enum.
+func (e NewTaskPrBase) Valid() bool {
+	switch e {
+	case RunBase:
+		return true
+	case StartFrom:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NewTokenAccountRuntime.
 const (
 	NewTokenAccountRuntimeClaude     NewTokenAccountRuntime = "claude"
@@ -5101,11 +5119,17 @@ type NewSignIn struct {
 
 // NewTask defines model for NewTask.
 type NewTask struct {
+	// Continues The id of a Task of the same repository, of any Run, whose branch this Task works on and pushes into, so that branch's pull request takes its commits and keeps its number and reviews. Refused while a Task that pushes to that branch is not finished. Not with start_from or pr_base.
+	Continues *string `json:"continues,omitempty"`
+
 	// DependsOn Refs of earlier Tasks in this request, or ids of Tasks already in the Run.
 	DependsOn *[]string `json:"depends_on,omitempty"`
 	Effort    *string   `json:"effort,omitempty"`
 	Kind      *TaskKind `json:"kind,omitempty"`
 	Model     *string   `json:"model,omitempty"`
+
+	// PrBase With start_from, the base of the pull request the Task opens: start_from (the default, stacked) or the Run's base.
+	PrBase *NewTaskPrBase `json:"pr_base,omitempty"`
 
 	// Profile The profile it runs with; implementer when left out.
 	Profile *string `json:"profile,omitempty"`
@@ -5117,7 +5141,13 @@ type NewTask struct {
 	ReviewOf *string `json:"review_of,omitempty"`
 	Runtime  *string `json:"runtime,omitempty"`
 	Spec     string  `json:"spec"`
+
+	// StartFrom A branch of the repository the worktree starts from instead of the Run's base: another Task's hyp/<id> for stacked work, or a named branch.
+	StartFrom *string `json:"start_from,omitempty"`
 }
+
+// NewTaskPrBase With start_from, the base of the pull request the Task opens: start_from (the default, stacked) or the Run's base.
+type NewTaskPrBase string
 
 // NewTasks defines model for NewTasks.
 type NewTasks struct {
@@ -6395,22 +6425,34 @@ type TakeStep struct {
 type Task struct {
 	BlockedReason     *BlockedReason `json:"blocked_reason,omitempty"`
 	CancelRequestedAt *time.Time     `json:"cancel_requested_at,omitempty"`
-	CreatedAt         time.Time      `json:"created_at"`
-	Effort            *string        `json:"effort,omitempty"`
-	FailureCount      int            `json:"failure_count"`
-	FinishedAt        *time.Time     `json:"finished_at,omitempty"`
-	Id                string         `json:"id"`
-	Kind              TaskKind       `json:"kind"`
-	Model             *string        `json:"model,omitempty"`
+
+	// Continues The Task whose branch and pull request this Task continues (issue
+	Continues    *string    `json:"continues,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	Effort       *string    `json:"effort,omitempty"`
+	FailureCount int        `json:"failure_count"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+	Id           string     `json:"id"`
+	Kind         TaskKind   `json:"kind"`
+	Model        *string    `json:"model,omitempty"`
 
 	// NotBefore No new Dispatch starts before it (a back-off or a rate limit).
 	NotBefore *time.Time `json:"not_before,omitempty"`
 	Position  int        `json:"position"`
-	Profile   string     `json:"profile"`
-	Result    *string    `json:"result,omitempty"`
-	RunId     string     `json:"run_id"`
-	Runtime   *string    `json:"runtime,omitempty"`
-	Spec      string     `json:"spec"`
+
+	// PrBase The base of the pull request it opens when it is not the Run's base.
+	PrBase  *string `json:"pr_base,omitempty"`
+	Profile string  `json:"profile"`
+
+	// PushBranch The branch this Task's commits are pushed to when it is not its own hyp/<id>: the branch of the Task it continues.
+	PushBranch *string `json:"push_branch,omitempty"`
+	Result     *string `json:"result,omitempty"`
+	RunId      string  `json:"run_id"`
+	Runtime    *string `json:"runtime,omitempty"`
+	Spec       string  `json:"spec"`
+
+	// StartFrom The branch its worktree starts from when it is not the Run's base.
+	StartFrom *string    `json:"start_from,omitempty"`
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 
@@ -6432,10 +6474,13 @@ type TaskBoard struct {
 type TaskDetail struct {
 	BlockedReason     *BlockedReason `json:"blocked_reason,omitempty"`
 	CancelRequestedAt *time.Time     `json:"cancel_requested_at,omitempty"`
-	CreatedAt         time.Time      `json:"created_at"`
-	Effort            *string        `json:"effort,omitempty"`
-	FailureCount      int            `json:"failure_count"`
-	FinishedAt        *time.Time     `json:"finished_at,omitempty"`
+
+	// Continues The Task whose branch and pull request this Task continues (issue
+	Continues    *string    `json:"continues,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	Effort       *string    `json:"effort,omitempty"`
+	FailureCount int        `json:"failure_count"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
 
 	// FollowUps More work asked of the Task's worker after it succeeded, oldest first.
 	FollowUps      *[]FollowUp `json:"follow_ups,omitempty"`
@@ -6447,11 +6492,20 @@ type TaskDetail struct {
 	// NotBefore No new Dispatch starts before it (a back-off or a rate limit).
 	NotBefore *time.Time `json:"not_before,omitempty"`
 	Position  int        `json:"position"`
-	Profile   string     `json:"profile"`
-	Result    *string    `json:"result,omitempty"`
-	RunId     string     `json:"run_id"`
-	Runtime   *string    `json:"runtime,omitempty"`
-	Spec      string     `json:"spec"`
+
+	// PrBase The base of the pull request it opens when it is not the Run's base.
+	PrBase  *string `json:"pr_base,omitempty"`
+	Profile string  `json:"profile"`
+
+	// PushBranch The branch this Task's commits are pushed to when it is not its own hyp/<id>: the branch of the Task it continues.
+	PushBranch *string `json:"push_branch,omitempty"`
+	Result     *string `json:"result,omitempty"`
+	RunId      string  `json:"run_id"`
+	Runtime    *string `json:"runtime,omitempty"`
+	Spec       string  `json:"spec"`
+
+	// StartFrom The branch its worktree starts from when it is not the Run's base.
+	StartFrom *string    `json:"start_from,omitempty"`
 	Status    TaskStatus `json:"status"`
 	UpdatedAt time.Time  `json:"updated_at"`
 

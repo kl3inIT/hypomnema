@@ -299,7 +299,7 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		maker := s.Worktrees
 		maker.TempDir, maker.Isolation = temp, s.Isolation
 
-		if err := maker.Ensure(ctx, src, o.Base, o.TaskID, o.Worktree); err != nil {
+		if err := maker.Ensure(ctx, src, startBranch(o), o.TaskID, o.Worktree); err != nil {
 			return err
 		}
 	} else if err := os.MkdirAll(o.Worktree, 0o700); err != nil {

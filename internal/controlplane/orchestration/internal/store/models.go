@@ -719,6 +719,7 @@ type Node struct {
 	DiskSampleAt        sql.NullInt64
 	TempIsolation       sql.NullInt64
 	TempIsolationReason string
+	TaskBranches        int64
 }
 
 type NodeToken struct {
@@ -988,6 +989,10 @@ type Task struct {
 	WaitingReason     sql.NullString
 	Kind              string
 	AuthorVendor      string
+	Continues         sql.NullString
+	PushBranch        sql.NullString
+	StartFrom         sql.NullString
+	PrBase            sql.NullString
 }
 
 type TaskDep struct {
