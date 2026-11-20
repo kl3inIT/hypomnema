@@ -166,7 +166,7 @@ if [ -n "$read_run" ]; then
   mkdir -p "$run/notes"
   work="$run/notes"
   set -- "$@" --no-approve --no-extensions --no-skills --no-context-files --no-prompt-templates \
-    --extension "$read_files" --tools 'routine_read,routine_write,routine_edit,mcp__hypomnema__*'
+    --extension builtin:mcp --extension "$read_files" --tools 'routine_read,routine_write,routine_edit,mcp__hypomnema__*'
 else
   if ! HOME="$user_home" "$hypomnema" skills sync --bot "$bot" --dir "$skills" > /dev/null < /dev/null; then
     fail "putting bot $bot's skills in place failed"

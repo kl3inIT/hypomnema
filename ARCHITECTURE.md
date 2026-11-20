@@ -1608,8 +1608,9 @@ flowchart LR
     the Routine panel or with `hypomnema routines set <name> --access read`. A Bot's later change to the work or
     schedule clears that grant. The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
-    the allowed messaging, Superset and memory reads; pi has no Bash or project extensions and can read and write
-    its private notes, not other files. Nothing asks for approval. Results stay in the run's chat, not in its run
+    the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
+    `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
+    write its private notes, not other files. Nothing asks for approval. Results stay in the run's chat, not in its run
     record, the chat it was made in, or an alert. See the [morning brief](docs/morning-brief.md).
   - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
     expression with an IANA time zone, which is required (`github.com/robfig/cron/v3` parses it; the zones are
