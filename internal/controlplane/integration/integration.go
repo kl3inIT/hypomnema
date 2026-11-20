@@ -112,7 +112,9 @@ type Service struct {
 	deviceMu sync.Mutex
 	// serviceAccounts is the token of each Connection that is a service account, by "integration:label"
 	// (serviceaccount.go); googleTokenURL and bigqueryEndpoint replace Google's addresses, for a test.
-	serviceAccounts  map[string]serviceAccountTokens
+	serviceAccounts map[string]serviceAccountTokens
+	// saMu orders the writes of a service account's Connection: connect, disconnect, the cap, the refused mark.
+	saMu             sync.Mutex
 	googleTokenURL   string
 	bigqueryEndpoint string
 	// logger is where a BigQuery job's lines are written; nil writes none.
@@ -653,6 +655,11 @@ func (s *Service) Token(ctx context.Context, integration, label string) (Token, 
 		return Token{}, fmt.Errorf("%w: a %s account is linked as a device and has no token", ErrInvalid, d.Name)
 	}
 
+	// A service account's token never leaves the control plane (issue #976): no tool is given one.
+	if d.IsServiceAccount() {
+		return Token{}, fmt.Errorf("%w: %s is read by the control plane alone; no token is handed out", ErrInvalid, d.Name)
+	}
+
 	opened, err := s.vault.Open(ctx, conn.Secret)
 	if err != nil {
 		return Token{}, vaultError(err)
@@ -735,6 +742,13 @@ func (s *Service) Disconnect(ctx context.Context, integration, label string) (re
 	}
 
 	conn, err := s.store.ConnectionOf(ctx, d.ID, label)
+	if err != nil && d.IsServiceAccount() && errors.Is(err, ErrNotFound) {
+		// A disconnect whose key's removal failed is finished now (review round 1).
+		if cleaned, cerr := s.cleanupServiceAccount(ctx, d, label); cerr != nil || cleaned {
+			return false, cerr
+		}
+	}
+
 	if err != nil {
 		return false, err
 	}

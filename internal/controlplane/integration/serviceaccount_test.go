@@ -9,12 +9,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,6 +24,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bigquery"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bigquery/bigquerytest"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -39,11 +42,14 @@ const (
 type googleTokens struct {
 	*httptest.Server
 
-	mu      sync.Mutex
-	refuse  bool
-	issued  int
-	scopes  []string
-	pemSeen bool
+	mu     sync.Mutex
+	refuse bool
+	// unavailable answers 503; delay holds each answer, or until the caller gives up.
+	unavailable bool
+	delay       time.Duration
+	issued      int
+	scopes      []string
+	pemSeen     bool
 }
 
 func newGoogleTokens(t *testing.T) *googleTokens {
@@ -54,9 +60,26 @@ func newGoogleTokens(t *testing.T) *googleTokens {
 		_ = r.ParseForm()
 
 		g.mu.Lock()
+		delay := g.delay
+		g.mu.Unlock()
+
+		select {
+		case <-time.After(delay):
+		case <-r.Context().Done():
+			return
+		}
+
+		g.mu.Lock()
 		defer g.mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
+
+		if g.unavailable {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":"temporarily_unavailable"}`))
+
+			return
+		}
 
 		if g.refuse || r.Form.Get("grant_type") != "urn:ietf:params:oauth:grant-type:jwt-bearer" {
 			w.WriteHeader(http.StatusBadRequest)
@@ -353,4 +376,268 @@ func TestARefusedTokenAsksToConnectAgain(t *testing.T) {
 	all, err := w.svc.List(t.Context())
 	require.NoError(t, err)
 	assert.True(t, all[0].Connections[0].SignInRequired)
+}
+
+func (g *googleTokens) set(change func(g *googleTokens)) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	change(g)
+}
+
+func (g *googleTokens) count() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	return g.issued
+}
+
+// query runs one query through the Connection.
+func (w *bigqueryWorld) query(label string) error {
+	return w.svc.WithBigQuery(w.t.Context(), integration.BigQueryID, label, func(c *bigquery.Client) error {
+		_, err := c.Query(w.t.Context(), bigquery.Request{SQL: "SELECT 1"})
+
+		return err
+	})
+}
+
+// restart is a new control plane on the same database: nothing in memory.
+func (w *bigqueryWorld) restart() {
+	w.svc = integration.New(w.orch, w.vault, w.clock, platform.NewID, integration.BigQuery()).
+		WithGoogle(w.tokens.URL, w.fake.URL)
+}
+
+func (w *bigqueryWorld) needsSignIn(label string) bool {
+	w.t.Helper()
+
+	all, err := w.svc.List(w.t.Context())
+	require.NoError(w.t, err)
+
+	for _, c := range all[0].Connections {
+		if c.Label == label {
+			return c.SignInRequired
+		}
+	}
+
+	w.t.Fatalf("no connection %s", label)
+
+	return false
+}
+
+// Scenario (review round 1): Google's token endpoint is slow. The exchange runs on the call's own context, so a
+// call with a short deadline ends at its deadline, not at the HTTP client's 30 seconds.
+func TestTheTokenExchangeEndsWithItsCall(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorld(t)
+	key, _ := serviceAccountKey(t, nil)
+	w.tokens.set(func(g *googleTokens) { g.delay = 5 * time.Second })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := w.svc.ConnectServiceAccount(ctx, integration.BigQueryID, "ga4", integration.ServiceAccount{
+		Key: key, Settings: bigquery.Settings{BillingProject: "billing-project", Datasets: []string{ga4Dataset}},
+	})
+	require.ErrorContains(t, err, "the token's exchange")
+	assert.Less(t, time.Since(start), 2*time.Second, "the exchange ended with the call's deadline")
+}
+
+// Scenario (review round 1): Google's token endpoint answers 503 for a while. A query fails and says to try
+// again, the Connection is not marked as needing to be connected again, and once Google is back it works.
+func TestAPassingTokenOutageMarksNothing(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorld(t)
+	key, _ := serviceAccountKey(t, nil)
+
+	_, err := w.connect("ga4", key)
+	require.NoError(t, err)
+
+	w.restart()
+	w.tokens.set(func(g *googleTokens) { g.unavailable = true })
+
+	err = w.query("ga4")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, integration.ErrSignInRequired)
+	assert.Contains(t, err.Error(), "503")
+	assert.False(t, w.needsSignIn("ga4"))
+
+	_, err = w.svc.Check(t.Context(), integration.BigQueryID, "ga4")
+	require.Error(t, err, "no checker here, and the exchange failed")
+	assert.False(t, w.needsSignIn("ga4"), "a check that met a 503 marks nothing either")
+
+	w.tokens.set(func(g *googleTokens) { g.unavailable = false })
+	w.fake.Columns = []string{"n"}
+	require.NoError(t, w.query("ga4"))
+}
+
+// Scenario (review round 1): a call made with key A ends in Google refusing A after the owner replaced it with
+// key B. The refusal says nothing of B: the Connection is not marked and B's token stays.
+func TestARefusalOfAReplacedKeyMarksNothing(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorld(t)
+	first, _ := serviceAccountKey(t, nil)
+	second, _ := serviceAccountKey(t, nil)
+
+	_, err := w.connect("ga4", first)
+	require.NoError(t, err)
+
+	err = w.svc.WithBigQuery(t.Context(), integration.BigQueryID, "ga4", func(*bigquery.Client) error {
+		_, err := w.connect("ga4", second)
+		require.NoError(t, err)
+
+		return &bigquery.TokenError{Refused: true, Message: "Google refused the service account's key: 400 invalid_grant"}
+	})
+	require.ErrorIs(t, err, integration.ErrSignInRequired, "the call itself failed")
+	assert.False(t, w.needsSignIn("ga4"), "the key that replaced it is not marked")
+
+	issued := w.tokens.count()
+	w.fake.Columns = []string{"n"}
+	require.NoError(t, w.query("ga4"))
+	assert.Equal(t, issued, w.tokens.count(), "B's token is kept: no new exchange")
+
+	// A refusal of the key in use marks it.
+	err = w.svc.WithBigQuery(t.Context(), integration.BigQueryID, "ga4", func(*bigquery.Client) error {
+		return &bigquery.TokenError{Refused: true, Message: "refused"}
+	})
+	require.ErrorIs(t, err, integration.ErrSignInRequired)
+	assert.True(t, w.needsSignIn("ga4"))
+}
+
+// failingStore refuses to save a Connection, as a database that fails at the last write.
+type failingStore struct {
+	*orchestration.Service
+}
+
+func (failingStore) SaveServiceConnection(context.Context, orchestration.Connection) (orchestration.Connection, error) {
+	return orchestration.Connection{}, errors.New("the database is gone")
+}
+
+// Scenario (review round 1): the Connection cannot be saved after its key was written. A new label leaves no
+// key behind; a replaced key is put back, and the Connection keeps working with it.
+func TestAConnectionThatCannotBeSavedLeavesTheVaultAsItWas(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorld(t)
+	first, _ := serviceAccountKey(t, nil)
+	second, _ := serviceAccountKey(t, nil)
+	good := w.svc
+
+	w.svc = integration.New(failingStore{w.orch}, w.vault, w.clock, platform.NewID, integration.BigQuery()).
+		WithGoogle(w.tokens.URL, w.fake.URL)
+
+	_, err := w.connect("ga4", first)
+	require.ErrorContains(t, err, "the database is gone")
+
+	secrets, err := w.vault.List(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, secrets, "a new label leaves no key")
+
+	w.svc = good
+	_, err = w.connect("ga4", first)
+	require.NoError(t, err)
+
+	w.svc = integration.New(failingStore{w.orch}, w.vault, w.clock, platform.NewID, integration.BigQuery()).
+		WithGoogle(w.tokens.URL, w.fake.URL)
+	_, err = w.connect("ga4", second)
+	require.ErrorContains(t, err, "the database is gone")
+
+	opened, err := w.vault.Open(t.Context(), "integration-bigquery-ga4")
+	require.NoError(t, err)
+	assert.JSONEq(t, string(first), opened.Payload["value"], "the replaced key is put back")
+
+	w.svc = good
+	w.restart()
+	w.fake.Columns = []string{"n"}
+	require.NoError(t, w.query("ga4"), "the Connection works with its key")
+}
+
+// Scenario (review round 1): a disconnect removed the Connection but not its key. Disconnecting again finishes
+// it; then there is nothing left to disconnect.
+func TestADisconnectThatLeftItsKeyCanBeFinished(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorld(t)
+	key, _ := serviceAccountKey(t, nil)
+
+	_, err := w.connect("ga4", key)
+	require.NoError(t, err)
+
+	_, err = w.orch.RemoveConnection(t.Context(), integration.BigQueryID, "ga4")
+	require.NoError(t, err)
+
+	revoked, err := w.svc.Disconnect(t.Context(), integration.BigQueryID, "ga4")
+	require.NoError(t, err)
+	assert.False(t, revoked)
+
+	secrets, err := w.vault.List(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, secrets)
+
+	_, err = w.svc.Disconnect(t.Context(), integration.BigQueryID, "ga4")
+	require.ErrorIs(t, err, integration.ErrNotFound)
+}
+
+// Scenario (review round 1): reconnects, disconnects and cap changes of one label run at the same time. Whatever
+// their order, a Connection and its key exist together or not at all; a cap change never undoes a reconnect's
+// datasets; and a reconnect that names no cap keeps the label's.
+func TestALabelsWritesDoNotInterleave(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorld(t)
+	w.fake.Tables["data-project.analytics_2"] = w.fake.Tables[ga4Dataset]
+	key, _ := serviceAccountKey(t, nil)
+	ctx := t.Context()
+
+	_, err := w.connect("ga4", key)
+	require.NoError(t, err)
+
+	for range 5 {
+		var wg sync.WaitGroup
+
+		wg.Go(func() { _, _ = w.connect("ga4", key, "data-project.analytics_2") })
+		wg.Go(func() { _, _ = w.svc.SetMaxBytes(ctx, integration.BigQueryID, "ga4", 2<<30) })
+		wg.Wait()
+
+		conn, err := w.orch.ConnectionOf(ctx, integration.BigQueryID, "ga4")
+		require.NoError(t, err)
+
+		var settings bigquery.Settings
+		require.NoError(t, json.Unmarshal([]byte(conn.Settings), &settings))
+		assert.Equal(t, []string{"data-project.analytics_2"}, settings.Datasets, "the reconnect's datasets stay")
+		assert.Equal(t, int64(2<<30), settings.MaxBytesBilled, "the cap set stays")
+
+		wg.Go(func() { _, _ = w.connect("ga4", key) })
+		wg.Go(func() { _, _ = w.svc.Disconnect(ctx, integration.BigQueryID, "ga4") })
+		wg.Wait()
+
+		_, connErr := w.orch.ConnectionOf(ctx, integration.BigQueryID, "ga4")
+		_, keyErr := w.vault.Get(ctx, "integration-bigquery-ga4")
+		assert.Equal(t, connErr == nil, keyErr == nil, "a Connection and its key go together")
+
+		if connErr != nil {
+			_, err = w.connect("ga4", key)
+			require.NoError(t, err)
+			_, err = w.svc.SetMaxBytes(ctx, integration.BigQueryID, "ga4", 2<<30)
+			require.NoError(t, err)
+		}
+	}
+}
+
+// Scenario: no agent is handed a service account's token through the token route's source.
+func TestAServiceAccountHandsOutNoToken(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryWorld(t)
+	key, _ := serviceAccountKey(t, nil)
+
+	_, err := w.connect("ga4", key)
+	require.NoError(t, err)
+
+	got, err := w.svc.Token(t.Context(), integration.BigQueryID, "ga4")
+	require.ErrorIs(t, err, integration.ErrInvalid)
+	assert.Empty(t, got.AccessToken)
 }
