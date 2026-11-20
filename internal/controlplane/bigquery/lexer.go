@@ -268,23 +268,15 @@ func hasPrefix(r []rune, at int, prefix string) bool {
 	return true
 }
 
-func indexRune(r []rune, from int, c rune) int {
-	for i := from; i < len(r); i++ {
-		if r[i] == c {
-			return i
-		}
-	}
-
-	return -1
-}
-
 // refusedKeywords are the keywords that make a query more than one read: a script, a function or procedure made or
 // called, a variable, an export, a query sent to another database.
 var refusedKeywords = []string{"CREATE", "DECLARE", "SET", "BEGIN", "CALL", "EXECUTE", "EXPORT", "EXTERNAL_QUERY"}
 
-// refusedFunctions are the first names of the function paths that call a model or a remote service, which the
-// bytes cap does not cover.
-var refusedFunctions = []string{"ML", "AI", "VECTOR_SEARCH"}
+// namespaces are the first names of the function paths that call a model, and searchCall the table function that
+// searches with one, which the bytes cap does not cover.
+var namespaces = []string{"ML", "AI"}
+
+const searchCall = "VECTOR_SEARCH"
 
 // Gate checks a query before any request is sent: one GoogleSQL SELECT, with no script, no function made or
 // called by name of a model, no export and no legacy SQL. A refusal wraps ErrRefused.
@@ -369,9 +361,9 @@ func refusedCalls(tokens []token) error {
 			return refusedf("EXTERNAL_QUERY is not allowed")
 		}
 
-		namespace := containsFold([]string{"ML", "AI"}, t.text) && i+2 < len(tokens) && isPunct(tokens[i+1], ".") &&
+		namespace := containsFold(namespaces, t.text) && i+2 < len(tokens) && isPunct(tokens[i+1], ".") &&
 			isName(tokens[i+2])
-		search := strings.EqualFold(t.text, "VECTOR_SEARCH")
+		search := strings.EqualFold(t.text, searchCall)
 
 		if !namespace && !search {
 			continue
@@ -458,7 +450,7 @@ func unescape(s string) string {
 			continue
 		}
 
-		n, err := strconv.ParseUint(string(in[digits:digits+width]), base, 32)
+		n, err := strconv.ParseInt(string(in[digits:digits+width]), base, 32)
 		if err != nil {
 			b.WriteRune(in[i])
 

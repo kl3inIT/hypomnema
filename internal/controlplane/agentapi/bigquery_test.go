@@ -66,7 +66,9 @@ func newBigQueryWorldWith(t *testing.T, connected bool, hold, writeTimeout time.
 
 	var agents *agentapi.Server
 
-	w := &bigqueryWorld{world: newWorldWith(t, writeTimeout, func(api *agentapi.Server) { agents = api }), fake: bigquerytest.New(t)}
+	w := &bigqueryWorld{
+		world: newWorldWith(t, writeTimeout, func(api *agentapi.Server) { agents = api }), fake: bigquerytest.New(t),
+	}
 	w.fake.Tables["data-project.analytics_1"] = []bigquerytest.Table{{ID: "events_20261119", Type: "TABLE"}}
 	w.fake.Columns, w.fake.Rows = []string{"d", "users"}, [][]string{{"2026-11-19", "131"}}
 
