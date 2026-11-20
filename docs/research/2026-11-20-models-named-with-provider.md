@@ -35,7 +35,7 @@ cannot place with the form to write it in.
 | A model is named with its provider wherever work names one; a Task's own model is `<provider>/<model>`, read at its first slash (`modelRef`) | the references' canonical form; 9router `parseModel` |
 | A bare name is refused, never guessed from which provider offers it, with the names it could be written as | omniroute's and LiteLLM's refusals; departs from their guessing because a provider added later would change what a stored name means (owner, 2026-11-20) |
 | The gateway's own table names stay: a client may call one by its name, which names its targets' providers | LiteLLM's proxy `model_name`, 9router's and omniroute's aliases |
-| A migration gives a Task's bare model the provider its latest Dispatch ran under (the Dispatch's gateway name), else the one provider offering it; a profile version, Bot or chat without a provider the one offering it; any other is left and listed, not guessed | issue #1002's plan |
+| A migration gives each Task's bare model the provider the code before dispatched it under, read as that code read it (the role-chain entry of its last Dispatch, else the one provider offering the whole name to the Task's runtime, among the kinds before Zen), in Go right after its SQL migration; any other is left, not guessed, and its Task waits with the reason without holding the others; a profile version, Bot or chat without a provider is left as the code before ran it, and a restored profile version gets the provider it recorded | issue #1002's plan; review of PR #1000 |
 | `bots set --model provider/model` names both, beside `--provider` | the same form as `tasks create --model` |
 
 ## Gateway clients

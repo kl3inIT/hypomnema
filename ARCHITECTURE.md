@@ -1897,10 +1897,17 @@ flowchart LR
   when the Task is made and when it is dispatched, with the names it could be written as ("name it
   <provider>/<model>, such as …", as omniroute's "Use provider/model prefix" and LiteLLM's "Pass model as E.g.
   huggingface/starcoder"); it is never resolved by which provider offers it, so a provider added later (OpenCode
-  Zen, #965) changes no meaning. A migration gave what was stored without a provider the one it resolved to: a
-  Task the provider of its latest Dispatch's gateway name, else the one provider that offers the name; a profile
-  version, a Bot and a chat the one provider that offers the name; a name two providers offered, or none, is left
-  and refused when next used. The gateway itself already takes only `<provider>/<model>` or a name of its own
+  Zen, #965) changes no meaning. A migration gave each Task's stored bare model the provider the code before
+  dispatched it under, read the way that code read it (`orchestration/model_names.go`, run by `Migrate` right
+  after `*_models_named_with_provider.sql` and before any later migration): the role-chain entry its last Dispatch
+  recorded, else the one provider that offers the whole name, slash and all, to the Task's runtime (its own, its
+  last Dispatch's version's, its role chain's first entry's, or its profile's), among the kinds before OpenCode
+  Zen; each change is kept in `model_name_changes`, which the way back restores. A name it would not have placed is
+  left; such a Task waits with the reason (the form to write the model in) and the owner is told, and the other
+  Tasks of the scheduler's pass go on. A profile version, a Bot or a chat with a model and no provider is left as
+  it is, as the code before ran it; applying it again needs the provider, except a profile version restored from
+  its own source, which gets the provider that version recorded. A name with an empty part (`opencode-go/`, `/`) is
+  refused. The gateway itself already takes only `<provider>/<model>` or a name of its own
   table, and every worker and Bot is given those names. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
@@ -3786,8 +3793,10 @@ capabilities do not exist yet.
   - A 402, or a refusal carrying one of OpenCode's quota codes (`insufficient_quota`, `usage_not_included`,
     `billing_error`, `budgetlimiterror`, `creditlimitexceeded`, read where opencode reads codes: `code`,
     `error_type`, `error.code`, `error.type`, `error.error_type`, or a message's `[code]` label), is a used-up balance
-    or budget: the key rests an hour (or until a `Retry-After` up to two hours) and the request moves to the next key
-    on a status that moves on (opencode `provider-error.ts` `QUOTA_CODES`; omniroute's 402 `quota_exhausted`). A 401
+    or budget: the key rests an hour whatever `Retry-After` says (a balance comes back only when the owner adds
+    credit) and the request moves to the next key; a quota code on a status that would not move on (a 400) is
+    answered as 402, the class opencode reads both as (`provider-error.ts` `QUOTA_CODES` and its 402; omniroute's
+    402 `quota_exhausted`). A 401
     marks the key refused. Any other refusal rests the key as every built-in provider's account rests (above).
   - Not built: the free models (`Bearer public` and OpenCode's identity, which the owner refused), Zen's balance or
     usage, recording the `usage.cost` Zen answers, a Zen price in the price book (a Claude or GPT model is priced by
