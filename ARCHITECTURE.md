@@ -2444,7 +2444,7 @@ flowchart LR
       `token_uri` Google's own, or it is refused), uploaded by the owner on the web or with `integrations connect
       bigquery --label ga4 --key-file FILE --dataset P.D [--billing-project B] [--location L] [--max-bytes 10GiB]`,
       kept whole as the vault secret `integration-bigquery-<label>` (`KindGeneric`, replaced by `Rotate`). The
-      Connection's `account` is the `client_email`, and its `settings` (migration `connection_settings`) the billing
+      Connection's `account` is the `client_email`, and its `settings` (migration 00147) the billing
       project, the datasets, the location and the cap. No answer, tool result or log line holds the key, the JWT or
       a token; only the owner's recorded vault read returns the key.
     - Connecting, and `integrations check`, checks step by step and keeps nothing when a step fails, naming it:
