@@ -711,6 +711,39 @@ test("the owner uploads a recording with its details", async ({ page }) => {
   await shot(page, "meetings-transcribing")
 })
 
+// Scenario: the owner drags a recording from his computer onto the dialog (issue #985): it is taken, its name and size
+// shown, and uploaded as one chosen with the button.
+test("the owner drops a recording onto the upload dialog", async ({ page }) => {
+  const { calls } = await fakeServer(page)
+  await page.goto("/meetings")
+
+  await page.getByRole("button", { name: "Upload recording" }).first().click()
+  const dialog = page.getByRole("dialog", { name: "Upload a recording" })
+  const area = dialog.getByTestId("drop-file")
+  await expect(area).toContainText("Drop a recording here")
+
+  const bytes = [...silence()]
+  // The tests are typed without the DOM's types; the page has DataTransfer.
+  const dropped = await page.evaluateHandle((data) => {
+    const page = globalThis as unknown as {
+      DataTransfer: new () => { items: { add: (file: File) => void } }
+    }
+    const transfer = new page.DataTransfer()
+    transfer.items.add(new File([new Uint8Array(data)], "dropped.m4a", { type: "audio/mp4" }))
+    return transfer
+  }, bytes)
+  await area.dispatchEvent("dragover", { dataTransfer: dropped })
+  await area.dispatchEvent("drop", { dataTransfer: dropped })
+  await expect(area).toContainText("dropped.m4a")
+  await expect(area.getByRole("button", { name: "Choose another" })).toBeVisible()
+  await shot(page, "meetings-upload-dropped")
+
+  await dialog.getByRole("button", { name: "Upload" }).click()
+  await expect(page.getByTestId("meeting-progress")).toContainText("Transcribing…")
+  const sent = calls.find((c) => c.startsWith("POST /meetings"))!
+  expect(new URLSearchParams(sent.split("?")[1]).get("file_name")).toBe("dropped.m4a")
+})
+
 // Scenario: the owner opens a meeting: the player on top with its length, the summary, the decision with the time
 // it was said, the actions with who and when, a section per topic. Marking an action done is sent; Write again
 // asks for the notes again, with nothing to pick. A failed meeting says why and where to fix it.
