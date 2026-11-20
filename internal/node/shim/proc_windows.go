@@ -45,3 +45,5 @@ func Kill(pid int) error {
 }
 
 func signalOf(*os.ProcessState) string { return "" }
+
+func codeSignal(int) string { return "" }

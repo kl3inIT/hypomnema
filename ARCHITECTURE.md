@@ -4912,8 +4912,12 @@ Node (`internal/node`):
   says to put all temporary files and directories there, including database data, sockets and clones, not in
   `/tmp` or another hard-coded path (issue #895). The node removes that directory after the Dispatch; it uses temp
   environment variables as in Hermes (`hermes_bootstrap.py:455-465`) and a directory per run with cleanup as in Orca
-  (`src/main/acp/launch/acp-private-temp.ts:36-40,73-85`). This is not a mount namespace or a security boundary like
-  Codex's bubblewrap sandbox (`codex-rs/linux-sandbox/src/linux_run_main.rs:59-61`). Workers inherit the node's
+  (`src/main/acp/launch/acp-private-temp.ts:36-40,73-85`). On Linux, the node probes bubblewrap once at startup,
+  trying the binary on `PATH` first and then the one bundled with Codex. When it works, setup and the shim's
+  worker each bind that same Dispatch directory over `/tmp` and `/var/tmp`, leaving the rest of the host visible
+  and keeping the shim's process group and session. This is not a security boundary. When it is unavailable,
+  including on macOS, the node uses the temp environment variables alone, logs the reason once, and reports
+  the reason at hello for the Machines page. Workers inherit the node's
   `XDG_RUNTIME_DIR` when set; pnpm uses it for its shared store locks instead of falling back to `/tmp`. The node
   also reclaims that temp directory after restart, but only when it can confirm the worker stopped or prevent a not-yet-started
   shim from claiming permission to launch. Stop also revokes that permission before a spawned shim can write

@@ -47,3 +47,14 @@ func signalOf(ps *os.ProcessState) string {
 
 	return ws.Signal().String()
 }
+
+// codeSignal is the signal an exit code of 128+n stands for, as bubblewrap
+// and bash report a child killed by signal n; empty for any other code.
+func codeSignal(code int) string {
+	const firstSignal, lastSignal = 1, 64 // SIGRTMAX on Linux
+	if n := code - 128; n >= firstSignal && n <= lastSignal {
+		return syscall.Signal(n).String()
+	}
+
+	return ""
+}

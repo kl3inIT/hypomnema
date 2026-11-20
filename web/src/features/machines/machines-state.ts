@@ -83,6 +83,15 @@ export function noTerminal(node: Node) {
   return undefined
 }
 
+// tempIsolationOff is why a node's workers do not get their temp directory as /tmp (issue #895): what they write
+// there stays after their Task. Undefined when they do, or when the node's version does not say.
+export function tempIsolationOff(node: Node) {
+  const isolation = node.temp_isolation
+  if (!isolation || isolation.on) return undefined
+
+  return isolation.reason || "No reason given."
+}
+
 // machineProblem is why a provider's machine was not created, destroyed, stopped or started, in the provider's
 // words.
 export function machineProblem(node: Node) {
