@@ -47,6 +47,7 @@ type RuntimeInfo struct {
 
 // Hello is what a node reports when it connects.
 type Hello struct {
+	TaskBranches bool
 	DiskPolicy   bool
 	WorktreeRoot string
 	Runtimes     []RuntimeInfo
@@ -594,8 +595,8 @@ func (s *Service) NodeHello(ctx context.Context, nodeID string, h Hello) error {
 		}
 
 		n, err := q.NodeHello(ctx, store.NodeHelloParams{
-			DiskPolicy: boolInt(h.DiskPolicy),
-			Now:        now, WorktreeRoot: nullString(h.WorktreeRoot), Runtimes: string(runtimes),
+			DiskPolicy: boolInt(h.DiskPolicy), TaskBranches: boolInt(h.TaskBranches),
+			Now: now, WorktreeRoot: nullString(h.WorktreeRoot), Runtimes: string(runtimes),
 			DaemonVersion: nullString(h.System.DaemonVersion), Os: nullString(h.System.OS),
 			Arch: nullString(h.System.Arch), Cpus: nullPositive(int64(h.System.CPUs)),
 			MemoryBytes: nullPositive(h.System.MemoryBytes), DiskBytes: nullPositive(h.System.DiskBytes),

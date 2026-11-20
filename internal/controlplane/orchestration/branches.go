@@ -158,7 +158,7 @@ func branchFree(ctx context.Context, q *store.Queries, branch, except string) er
 // ValidBranchName reports whether name is a branch name git takes (git check-ref-format --branch), and one that
 // cannot be read as an option.
 func ValidBranchName(name string) bool {
-	if name == "" || len(name) > 255 || name == "@" || strings.HasPrefix(name, "-") ||
+	if name == "" || len(name) > 255 || name == "@" || name == "HEAD" || strings.HasPrefix(name, "-") ||
 		strings.HasSuffix(name, "/") || strings.HasSuffix(name, ".") || strings.HasSuffix(name, ".lock") ||
 		strings.Contains(name, "..") || strings.Contains(name, "//") || strings.Contains(name, "@{") ||
 		strings.ContainsAny(name, " ~^:?*[\\") {
@@ -172,7 +172,7 @@ func ValidBranchName(name string) bool {
 	}
 
 	for part := range strings.SplitSeq(name, "/") {
-		if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+		if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
 			return false
 		}
 	}

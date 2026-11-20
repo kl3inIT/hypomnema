@@ -38,16 +38,17 @@ func Publish(ctx context.Context, src Source, path, taskID, target string) (stri
 	if _, err := publishGit(ctx, scratch, nil, "init", "--bare", "--template=", "--object-format=sha1"); err != nil {
 		return "", err
 	}
-	env := append(append([]string{}, src.Env...), "GIT_ALTERNATE_OBJECT_DIRECTORIES="+strings.TrimSpace(objects))
+	env := append(append([]string{}, src.Env...),
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES="+strings.TrimSpace(objects), "LC_ALL=C")
 	branch := "refs/heads/" + target
 	output, err := publishGit(ctx, scratch, env, "-c", "http.followRedirects=false",
 		"push", "--porcelain", "--no-verify", "--no-follow-tags",
 		"--recurse-submodules=no", "--", src.URL, sha+":"+branch)
 	if err != nil {
-		if rejected(output, sha+":"+branch) {
+		if nonFastForward(output, sha+":"+branch) {
 			return "", fmt.Errorf("the host refused the push because %s has commits your branch does not have "+
-				"(it moved meanwhile): run `git fetch origin %s`, merge `origin/%s` into your branch, commit, and "+
-				"publish again; the push is never forced", target, target, target)
+				"(it moved meanwhile): run `git fetch origin %s && git merge FETCH_HEAD`, resolve and commit any "+
+				"conflicts, then publish again; the push is never forced", target, branch)
 		}
 		return "", err
 	}
@@ -67,14 +68,12 @@ func Publish(ctx context.Context, src Source, path, taskID, target string) (stri
 	return "", fmt.Errorf("git did not confirm the branch update")
 }
 
-// rejected reports whether git's porcelain output says the host refused refspec ("!" flag), as it does for a push
-// that is not a fast-forward.
-func rejected(output, refspec string) bool {
+func nonFastForward(output, refspec string) bool {
 	for line := range strings.SplitSeq(output, "\n") {
 		flag, rest, _ := strings.Cut(line, "\t")
-		got, _, _ := strings.Cut(rest, "\t")
+		got, reason, _ := strings.Cut(rest, "\t")
 		if flag == "!" && got == refspec {
-			return true
+			return reason == "[rejected] (non-fast-forward)" || reason == "[rejected] (fetch first)"
 		}
 	}
 	return false

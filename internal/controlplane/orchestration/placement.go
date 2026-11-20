@@ -216,6 +216,8 @@ func (p *placement) checkNodeFit(id, runtime string, w where) error {
 		return fmt.Errorf("%w: node %s does not reach %s", ErrUnavailable, id, host)
 	case n.lacks(w.tools) != "":
 		return fmt.Errorf("%w: node %s has no %s", ErrUnavailable, id, n.lacks(w.tools))
+	case !n.supportsBranches(w):
+		return fmt.Errorf("%w: node %s does not support Task branch settings", ErrUnavailable, id)
 	case !n.fits(w.req):
 		return fmt.Errorf("%w: node %s has no room: %s", ErrUnavailable, id, n.room(w.req))
 	}
@@ -420,7 +422,7 @@ func (p *placement) checkAccountKnown(runtime, id string) bool {
 // could reports whether a node runs workers of the runtime and suits the
 // Run's work, whatever room it has.
 func (p *placement) could(n *nodeLoad, runtime string, w where) bool {
-	return p.serves(n, runtime) == nil && n.reaches(w.host) && n.lacks(w.tools) == ""
+	return p.serves(n, runtime) == nil && n.reaches(w.host) && n.lacks(w.tools) == "" && n.supportsBranches(w)
 }
 
 // atLimit reports whether a node could take a Dispatch of the runtime, on the
@@ -466,9 +468,14 @@ func (p *placement) nodeReady(id, runtime string, w where) bool {
 // git host, the tools its Connections are called with, and the request of
 // the Dispatch (issue #731).
 type where struct {
-	host  string
-	tools []string
-	req   request
+	host         string
+	tools        []string
+	req          request
+	taskBranches bool
+}
+
+func (n *nodeLoad) supportsBranches(w where) bool {
+	return !w.taskBranches || n.row.TaskBranches != 0
 }
 
 // asking is where with the request of the resolved profile.

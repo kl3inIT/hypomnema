@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
 func TestPublishOnlyAttestsAnAcceptedBranchUpdate(t *testing.T) {
@@ -68,12 +70,14 @@ func TestPublishPushesIntoTheBranchItContinues(t *testing.T) {
 	run(t, bare, "branch", "hyp/tsk_old", "main")
 
 	worktree := filepath.Join(root, "worker")
-	run(t, root, "clone", "-q", bare, worktree)
-	run(t, worktree, "switch", "-q", "-c", "hyp/tsk_new", "origin/hyp/tsk_old")
+	src := Source{URL: bare, Repo: githost.Repo{Host: githost.GitHubHost, Path: "kl3inIT/second-bite"}}
+	maker := Maker{Root: filepath.Join(root, "node")}
+	require.NoError(t, maker.Ensure(t.Context(), src, "hyp/tsk_old", "tsk_new", worktree))
+	tracking := "refs/remotes/origin/hyp/tsk_old"
+	base := run(t, worktree, "rev-parse", tracking)
 	run(t, worktree, "commit", "-q", "--allow-empty", "-m", "fix the review")
 	fix := run(t, worktree, "rev-parse", "HEAD")
 
-	src := Source{URL: bare}
 	sha, err := Publish(t.Context(), src, worktree, "tsk_new", "hyp/tsk_old")
 	require.NoError(t, err)
 	assert.Equal(t, fix, sha)
@@ -89,12 +93,23 @@ func TestPublishPushesIntoTheBranchItContinues(t *testing.T) {
 
 	run(t, worktree, "commit", "-q", "--allow-empty", "-m", "second round")
 	_, err = Publish(t.Context(), src, worktree, "tsk_new", "hyp/tsk_old")
-	require.ErrorContains(t, err, "merge `origin/hyp/tsk_old` into your branch")
+	require.ErrorContains(t, err, "`git fetch origin refs/heads/hyp/tsk_old && git merge FETCH_HEAD`")
 	assert.Equal(t, theirs, run(t, bare, "rev-parse", "refs/heads/hyp/tsk_old"), "never forced")
 
-	run(t, worktree, "fetch", "-q", "origin", "hyp/tsk_old")
-	run(t, worktree, "merge", "-q", "--no-edit", "origin/hyp/tsk_old")
+	run(t, worktree, "fetch", "-q", "origin", "refs/heads/hyp/tsk_old")
+	assert.Equal(t, base, run(t, worktree, "rev-parse", tracking), "the bare mirror has no fetch mapping")
+	assert.Equal(t, theirs, run(t, worktree, "rev-parse", "FETCH_HEAD"))
+	run(t, worktree, "merge", "-q", "--no-edit", "FETCH_HEAD")
 	sha, err = Publish(t.Context(), src, worktree, "tsk_new", "hyp/tsk_old")
 	require.NoError(t, err)
 	assert.Equal(t, sha, run(t, bare, "rev-parse", "refs/heads/hyp/tsk_old"))
+}
+
+func TestNonFastForwardDoesNotMistakeHostPolicyForDivergence(t *testing.T) {
+	t.Parallel()
+
+	const refspec = "head:refs/heads/hyp/tsk_old"
+	assert.True(t, nonFastForward("!\t"+refspec+"\t[rejected] (fetch first)\n", refspec))
+	assert.True(t, nonFastForward("!\t"+refspec+"\t[rejected] (non-fast-forward)\n", refspec))
+	assert.False(t, nonFastForward("!\t"+refspec+"\t[remote rejected] (pre-receive hook declined)\n", refspec))
 }

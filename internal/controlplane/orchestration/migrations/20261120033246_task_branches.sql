@@ -9,12 +9,14 @@ ALTER TABLE tasks ADD COLUMN continues TEXT;
 ALTER TABLE tasks ADD COLUMN push_branch TEXT;
 ALTER TABLE tasks ADD COLUMN start_from TEXT;
 ALTER TABLE tasks ADD COLUMN pr_base TEXT;
+ALTER TABLE nodes ADD COLUMN task_branches INTEGER NOT NULL DEFAULT 0;
 
 -- One unfinished Task per pushed branch is looked up by it.
 CREATE INDEX tasks_push_branch ON tasks (push_branch) WHERE push_branch IS NOT NULL;
 
 -- +goose Down
 DROP INDEX tasks_push_branch;
+ALTER TABLE nodes DROP COLUMN task_branches;
 ALTER TABLE tasks DROP COLUMN pr_base;
 ALTER TABLE tasks DROP COLUMN start_from;
 ALTER TABLE tasks DROP COLUMN push_branch;

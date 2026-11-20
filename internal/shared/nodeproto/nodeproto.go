@@ -285,6 +285,7 @@ type Claim struct {
 
 // HelloRequest is the node's registration, sent at every connect.
 type HelloRequest struct {
+	TaskBranches  bool          `json:"task_branches,omitempty"`
 	DiskPolicy    bool          `json:"disk_policy,omitempty"`
 	InstanceID    string        `json:"instance_id"`
 	DaemonVersion string        `json:"daemon_version"`

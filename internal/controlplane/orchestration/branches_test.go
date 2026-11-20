@@ -27,6 +27,56 @@ func (w *world) offerOfTask(taskID string) Offer {
 	return Offer{}
 }
 
+func (w *world) branchHello(nodeID string, supports bool) {
+	w.t.Helper()
+
+	require.NoError(w.t, w.s.NodeHello(w.t.Context(), nodeID, Hello{
+		WorktreeRoot: "/srv/wt", TaskBranches: supports,
+		Runtimes: []RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "1.0.0"}},
+	}))
+}
+
+func TestOnlyNodesThatReportTaskBranchesTakeBranchTasks(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	run, err := w.runOn("kl3inIT/hypomnema", "")
+	require.NoError(t, err)
+	w.run = run
+	parent := w.tasks(NewTask{Ref: "parent", Spec: "parent"})[0]
+	require.NoError(t, w.s.CancelTask(ctx, parent.ID))
+	tasks := w.tasks(
+		NewTask{Ref: "plain", Spec: "plain"},
+		NewTask{Ref: "continue", Spec: "continue", Continues: parent.ID},
+		NewTask{Ref: "stacked", Spec: "stacked", StartFrom: "hyp/" + parent.ID, PRBase: PRBaseRunBase},
+	)
+	assert.Equal(t, map[string]string{"plain": w.node.ID}, w.placed(w.schedule().Created))
+	for _, task := range tasks[1:] {
+		assert.Equal(t, ReasonNoNode, w.task(task.ID).WaitingReason)
+		_, err := w.create(task.ID, w.spec())
+		require.ErrorIs(t, err, ErrUnavailable)
+		require.ErrorContains(t, err, "does not support Task branch settings")
+	}
+
+	capable := w.addNode("node_capable", 4, "claude")
+	w.branchHello(capable.ID, true)
+	created := w.schedule().Created
+	require.Len(t, created, 2)
+	assert.Equal(t, map[string]string{"continue": capable.ID, "stacked": capable.ID}, w.placed(created))
+	pending, err := w.s.NodePending(ctx, capable.ID)
+	require.NoError(t, err)
+	assert.Len(t, pending.Offers, 2)
+
+	w.branchHello(capable.ID, false)
+	pending, err = w.s.NodePending(ctx, capable.ID)
+	require.NoError(t, err)
+	assert.Empty(t, pending.Offers, "a node reconnecting without support is not offered already queued branch Tasks")
+	dispatch := w.dispatchOf(created[0])
+	_, err = w.s.AcceptDispatch(ctx, NodeCall{NodeID: capable.ID, DispatchID: dispatch.ID, RequestID: "downgraded"})
+	require.ErrorIs(t, err, ErrConflict, "a stale offer cannot be accepted after the hello without support")
+}
+
 // Scenario (issue #690, case a): pull request #873's author Task was canceled in a Run that has since finished, so it
 // takes no follow-up. A Task of a new Run of the same repository continues it: it starts from and pushes to that
 // Task's branch, so the pull request keeps its number and reviews. While it is unfinished no other Task may push to
@@ -35,6 +85,7 @@ func TestATaskContinuesTheBranchOfATaskOfAFinishedRun(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
+	w.branchHello(w.node.ID, true)
 	ctx := t.Context()
 
 	old, err := w.runOn("kl3inIT/hypomnema", "")
@@ -77,6 +128,8 @@ func TestATaskContinuesTheBranchOfATaskOfAFinishedRun(t *testing.T) {
 	call := w.accept(w.dispatchOf(offer.DispatchID))
 	require.NoError(t, w.s.ReportStarted(ctx, w.again(call), "pid:1", "sess_1"))
 	sha := "0123456789012345678901234567890123456789"
+	require.ErrorIs(t, w.s.RecordPublishedHead(ctx, w.again(call), PublishedHead{Branch: "hyp/" + fix.ID, SHA: sha}),
+		ErrConflict, "a continuing Task cannot claim its own local branch as Run evidence")
 	require.ErrorIs(t, w.s.RecordPublishedHead(ctx, w.again(call), PublishedHead{Branch: "hyp/other", SHA: sha}),
 		ErrConflict)
 	require.NoError(t, w.s.RecordPublishedHead(ctx, w.again(call), PublishedHead{Branch: branch, SHA: sha}))
@@ -104,6 +157,7 @@ func TestAStackedTaskStartsFromItsParentsBranch(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
+	w.branchHello(w.node.ID, true)
 	ctx := t.Context()
 
 	run, err := w.runOn("kl3inIT/hypomnema", "")
@@ -129,6 +183,7 @@ func TestAStackedTaskStartsFromItsParentsBranch(t *testing.T) {
 	for _, bad := range []NewTask{
 		{StartFrom: "-c"}, {StartFrom: "a..b"}, {StartFrom: "a b"}, {StartFrom: "x.lock"}, {StartFrom: "a/"},
 		{StartFrom: "a:b"}, {StartFrom: ".hidden"}, {StartFrom: "a@{1}"},
+		{StartFrom: "/topic"}, {StartFrom: "HEAD"},
 		{PRBase: PRBaseRunBase}, {StartFrom: "main2", PRBase: "elsewhere"},
 	} {
 		bad.Ref, bad.Spec = "bad", "x"

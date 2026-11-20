@@ -173,7 +173,8 @@ A worker's report is a claim; the Task's record and its evidence are what count.
 - For a succeeded implementer, `hypomnema tasks show <task_id> --json` has the latest Dispatch's summary and evidence, such as
   `{"kind": "pull_request", "ref": "<url>"}`. Check them against the spec: the pull request is in the right
   repository, and the checks the spec asked for ran. When the evidence has no pull request, look for one read-only
-  (`gh pr list --repo <owner/name> --head hyp/<task_id>`); when there is none, send the worker a follow-up (below)
+  (`gh pr list --repo <owner/name> --head <branch>`), using the Task's `push_branch` or `hyp/<task_id>` when unset;
+  when there is none, send the worker a follow-up (below)
   that names what is missing. `gh pr checks <url>` shows whether the checks ran.
 - More work on a succeeded Task, such as a fix after a review or a correction the owner gives, goes to the same
   worker as a follow-up, not to a new Task:

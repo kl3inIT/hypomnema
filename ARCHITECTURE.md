@@ -287,7 +287,7 @@ sequenceDiagram
   while another unfinished Task pushes to the Task's branch. Learned from Orca, whose finished worker gets a message "as a
   follow-up Task" (`skill-guides/orchestration.md`), Polly, which sends fixes "to the SAME implementer
   conversation", and omp's "Prefer messaging an existing agent" for follow-up work (`docs/tools/task.md`).
-- A Task's branches (issue #690, `orchestration/branches.go`, migration 00144). A new Task may name
+- A Task's branches (issue #690, `orchestration/branches.go`, migration `task_branches`). A new Task may name
   `continues: <task id>`: a Task of the same repository, of any Run, even a finished one, and whatever its status.
   It then works on that Task's branch and pushes into it (`tasks.push_branch`, that Task's own push branch, so a
   chain of them shares one branch), so that branch's pull request takes the commits and keeps its number and
@@ -297,9 +297,10 @@ sequenceDiagram
   git would refuse or that reads as an option never reaches a node. Creation is refused (409) while an unfinished
   Task, the continued one included, pushes to the same branch: one pusher per branch. The Task's
   `push_branch`, `start_from` and `pr_base` go to the node with the offer (empty for the defaults: `hyp/<id>`, the
-  Run's base), and `published_head` accepts the Task's push branch as well as its own, so the push is this Run's
-  evidence for the pull request it updated. A node of an earlier release ignores the three fields and works as
-  before. Learned from Orca, whose worktree for a pull request starts at its head and pushes to it
+  Run's base), and `published_head` accepts only the Task's configured push branch, or its own if unset, so the
+  push is this Run's evidence for the pull request it updated. Tasks with non-default branches wait for a node
+  that advertises `task_branches` at hello; older nodes still take Tasks with default branches. From the approved
+  design for issue #690 (owner, 2026-11-20). Learned from Orca, whose worktree for a pull request starts at its head and pushes to it
   (`src/main/github/pull-requests/start-points/pr-start-point.ts:226-245`, at `38aa9119`), and t3code, whose
   worktree for a pull request sets its upstream to the head branch (`apps/server/src/git/GitManager.ts:1013-1069,
   3361-3390`, at `4d5bf2d5`), and whose stacked work takes the parent branch as `baseRef`
@@ -4597,7 +4598,8 @@ The owner's commands:
   with `gh reconcile-replacement`: both GitHub heads must match the branch and commit of a push recorded for a
   Dispatch of that Run in its repository, not a fork. The worker requests `publish_branch`; the node pushes the
   Task's branch to its push branch (its own, or the one it continues, issue #690), never forced; a push the host
-  refuses because the branch moved tells the worker to merge `origin/<branch>` and publish again. It queues an authenticated `published_head` report only for a Git-accepted update, and the control
+  refuses because the branch moved tells the worker to fetch that branch, merge `FETCH_HEAD`, and publish again.
+  It queues an authenticated `published_head` report only for a Git-accepted update, and the control
   plane records it in the Dispatch's effects. A no-op push, local ref or Task result is not evidence. Both PRs
   must share a closing issue. Visible closing keywords in Markdown also
   work when GitHub supplies no closing links. It comments and closes through the existing GitHub tool

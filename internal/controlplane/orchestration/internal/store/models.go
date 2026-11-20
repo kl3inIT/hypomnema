@@ -717,6 +717,7 @@ type Node struct {
 	DiskFloorBytes      sql.NullInt64
 	DiskTrimBytes       sql.NullInt64
 	DiskSampleAt        sql.NullInt64
+	TaskBranches        int64
 }
 
 type NodeToken struct {
