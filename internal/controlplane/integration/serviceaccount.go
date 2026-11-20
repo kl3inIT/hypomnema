@@ -8,7 +8,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -450,7 +449,7 @@ func (s *Service) ConnectServiceAccount(ctx context.Context, integration, label 
 
 	saved, err := s.store.SaveServiceConnectionTx(ctx, orchestration.Connection{
 		Integration: d.ID, Label: label, Account: key.ClientEmail, Secret: secret, Settings: string(encoded),
-	}, func(tx *sql.Tx, now int64) error {
+	}, func(tx *orchestration.Tx, now int64) error {
 		var err error
 		version, err = write(tx, now)
 
@@ -499,7 +498,7 @@ func (s *Service) previousSettings(ctx context.Context, integration, label strin
 // saMu, which every write of the key takes.
 func (s *Service) keyWrite(ctx context.Context, d Definition, label, secret string, key serviceAccountKey,
 	given []byte, keptVersion string,
-) (func(tx *sql.Tx, now int64) (string, error), error) {
+) (func(tx *orchestration.Tx, now int64) (string, error), error) {
 	kept, err := s.vault.Get(ctx, secret)
 
 	switch {
@@ -511,7 +510,7 @@ func (s *Service) keyWrite(ctx context.Context, d Definition, label, secret stri
 				orchestration.Use(d.ID, label))
 		}
 
-		return func(*sql.Tx, int64) (string, error) { return keptVersion, nil }, nil
+		return func(*orchestration.Tx, int64) (string, error) { return keptVersion, nil }, nil
 	case err != nil && !errors.Is(err, vault.ErrNotFound):
 		return nil, vaultError(err)
 	}
@@ -519,7 +518,7 @@ func (s *Service) keyWrite(ctx context.Context, d Definition, label, secret stri
 	payload := vault.Payload{vault.KeyValue: string(given)}
 
 	if errors.Is(err, vault.ErrNotFound) {
-		return func(tx *sql.Tx, now int64) (string, error) {
+		return func(tx *orchestration.Tx, now int64) (string, error) {
 			id, err := s.vault.CreateTx(ctx, tx, vault.NewSecret{
 				Name: secret, Kind: vault.KindGeneric, Payload: payload,
 				Metadata: map[string]string{
@@ -535,7 +534,7 @@ func (s *Service) keyWrite(ctx context.Context, d Definition, label, secret stri
 		}, nil
 	}
 
-	return func(tx *sql.Tx, now int64) (string, error) {
+	return func(tx *orchestration.Tx, now int64) (string, error) {
 		id, err := s.vault.RotateTx(ctx, tx, secret, payload, now)
 		if err != nil {
 			return "", vaultError(err)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -76,7 +75,7 @@ type Store interface {
 	SetConnectionSignInFailed(ctx context.Context, integration, label string, failed bool) error
 	SetConnectionSettings(ctx context.Context, integration, label, settings string) (orchestration.Connection, error)
 	SaveServiceConnectionTx(ctx context.Context, c orchestration.Connection,
-		with func(tx *sql.Tx, now int64) error) (orchestration.Connection, error)
+		with func(tx *orchestration.Tx, now int64) error) (orchestration.Connection, error)
 }
 
 // Service signs in and refreshes the Connections of the Integrations it was

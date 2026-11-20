@@ -189,11 +189,15 @@ func (s *Service) SaveServiceConnection(ctx context.Context, c Connection) (Conn
 	return s.ConnectionOf(ctx, c.Integration, c.Label)
 }
 
+// Tx is a write transaction of this package's that another package's own store takes part in (the vault's
+// CreateTx and RotateTx), passed through a package that runs no SQL itself.
+type Tx = sql.Tx
+
 // SaveServiceConnectionTx is SaveServiceConnection with another package's write in the same transaction, run first:
 // the vault's key of a Connection and the Connection that names it are kept together or not at all (issue #976).
 // A Connection that cannot be read back after the commit is still saved: the error says so, and nothing is undone.
 func (s *Service) SaveServiceConnectionTx(ctx context.Context, c Connection,
-	with func(tx *sql.Tx, now int64) error,
+	with func(tx *Tx, now int64) error,
 ) (Connection, error) {
 	if !ValidConnectionLabel(c.Label) {
 		return Connection{}, fmt.Errorf("%w: a label is lower-case letters, digits and dashes, such as work", ErrInvalid)

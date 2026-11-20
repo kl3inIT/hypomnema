@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -535,9 +534,9 @@ type failingStore struct {
 
 // SaveServiceConnectionTx writes the key in the Connection's transaction, then fails the save itself.
 func (f failingStore) SaveServiceConnectionTx(ctx context.Context, c orchestration.Connection,
-	with func(tx *sql.Tx, now int64) error,
+	with func(tx *orchestration.Tx, now int64) error,
 ) (orchestration.Connection, error) {
-	return f.Service.SaveServiceConnectionTx(ctx, c, func(tx *sql.Tx, now int64) error {
+	return f.Service.SaveServiceConnectionTx(ctx, c, func(tx *orchestration.Tx, now int64) error {
 		if err := with(tx, now); err != nil {
 			return err
 		}
@@ -746,9 +745,9 @@ type cancelingStore struct {
 }
 
 func (c cancelingStore) SaveServiceConnectionTx(ctx context.Context, conn orchestration.Connection,
-	with func(tx *sql.Tx, now int64) error,
+	with func(tx *orchestration.Tx, now int64) error,
 ) (orchestration.Connection, error) {
-	return c.Service.SaveServiceConnectionTx(ctx, conn, func(tx *sql.Tx, now int64) error {
+	return c.Service.SaveServiceConnectionTx(ctx, conn, func(tx *orchestration.Tx, now int64) error {
 		if err := with(tx, now); err != nil {
 			return err
 		}
@@ -898,9 +897,9 @@ type expiringStore struct {
 }
 
 func (e expiringStore) SaveServiceConnectionTx(ctx context.Context, c orchestration.Connection,
-	with func(tx *sql.Tx, now int64) error,
+	with func(tx *orchestration.Tx, now int64) error,
 ) (orchestration.Connection, error) {
-	return e.Service.SaveServiceConnectionTx(ctx, c, func(tx *sql.Tx, now int64) error {
+	return e.Service.SaveServiceConnectionTx(ctx, c, func(tx *orchestration.Tx, now int64) error {
 		if err := with(tx, now); err != nil {
 			return err
 		}
@@ -918,7 +917,7 @@ type unreadableStore struct {
 }
 
 func (u unreadableStore) SaveServiceConnectionTx(ctx context.Context, c orchestration.Connection,
-	with func(tx *sql.Tx, now int64) error,
+	with func(tx *orchestration.Tx, now int64) error,
 ) (orchestration.Connection, error) {
 	if _, err := u.Service.SaveServiceConnectionTx(ctx, c, with); err != nil {
 		return orchestration.Connection{}, err
