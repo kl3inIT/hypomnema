@@ -492,7 +492,11 @@ func TestReviewPendingOfferTokenRotation(t *testing.T) {
 		t.Fatal("the offer was not looked at again after the old read ended")
 	}
 
-	heartbeat()
+	// The end of the old read may reach the session after a heartbeat: the offer must stay unsent for a while, with
+	// the new read still pending, not only until the next heartbeat.
+	for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); {
+		heartbeat()
+	}
 
 	state.Store(2)
 	close(newRead)
