@@ -63,7 +63,7 @@ type command struct {
 	long bool
 	// timeout, when set, is the client's timeout from the command's flags, in place of long's (issue #976).
 	timeout func(fs *flag.FlagSet) time.Duration
-	run  func(ctx context.Context, e *env, fs *flag.FlagSet) error
+	run     func(ctx context.Context, e *env, fs *flag.FlagSet) error
 }
 
 // Commands lists the first word of every command this package runs.

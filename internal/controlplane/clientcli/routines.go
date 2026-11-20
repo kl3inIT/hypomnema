@@ -35,7 +35,9 @@ func routineFlags(fs *flag.FlagSet) {
 	fs.String("script-file", "", "a file with the script to run at each run with no model, or - for standard input; "+
 		"with --prompt-file, a check that runs first and wakes the bot only when it finds work")
 	fs.String("script", "", "the script's file name (default: --script-file's name)")
-	fs.Int("timeout", 0, "seconds a script may run (default 600)")
+	fs.Int("timeout", 0, "seconds a script may run (default 600); the time a command waits for the owner's "+
+		"approval counts, up to 1800 a request: a script running `hypomnema bigquery query --timeout 10m` "+
+		"needs 2520")
 	fs.String("summary", "", "what the work is, in one line")
 	fs.String("access", "", "full or read (owner only; read is for prompts without a script)")
 	fs.String("chat", "", "the chat the routine is made in: where its results and a failure are told")

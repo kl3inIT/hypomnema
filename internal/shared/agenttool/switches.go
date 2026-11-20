@@ -153,8 +153,9 @@ var ToolFamilies = []ToolFamily{
 		WhenToUse: "When the owner asks for something on a schedule, make a Routine with routines: say in one " +
 			"sentence when it runs and what it does and have his yes in this chat, look with action list that it " +
 			"is not there already, set it, then run it once and tell him what that run did. A Routine's script has " +
-			"commands, not tools: it reads Superset with `hypomnema superset chart` and refreshes an artifact with " +
-			"`hypomnema artifact show --id <id> --path <folder>`."},
+			"commands, not tools: it reads Superset with `hypomnema superset chart`, BigQuery with `hypomnema " +
+			"bigquery query` (its Routine's timeout_seconds covers a 30-minute approval and the query: 2520 with " +
+			"--timeout 10m) and refreshes an artifact with `hypomnema artifact show --id <id> --path <folder>`."},
 	{Name: "web", Description: "Search the web and read pages", Pattern: "web_*",
 		Tools: []string{ToolWebSearch, ToolWebFetch},
 		WhenToUse: "Search the web with web_search for what may have changed since your training or to find a " +
