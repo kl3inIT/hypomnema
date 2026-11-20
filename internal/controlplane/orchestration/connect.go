@@ -223,8 +223,14 @@ type Offer struct {
 	AgentKey string   `json:"agent_key,omitempty"`
 	// Device is set by the node API as the offer is sent: the device every
 	// worker is given, while a node holds one (issue #417).
-	Device         string `json:"device,omitempty"`
-	Base           string `json:"base,omitempty"`
+	Device string `json:"device,omitempty"`
+	Base   string `json:"base,omitempty"`
+	// PushBranch is the branch publish_branch pushes the Task's commits to, when it is not the Task's own hyp/<id>:
+	// the branch of the Task it continues. StartFrom is the branch its worktree starts from and PRBase the base of
+	// the pull request it opens, when they are not Base (issue #690).
+	PushBranch     string `json:"push_branch,omitempty"`
+	StartFrom      string `json:"start_from,omitempty"`
+	PRBase         string `json:"pr_base,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Worktree       string `json:"worktree"`
 	Runtime        string `json:"runtime"`
@@ -388,6 +394,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		Spec:       spec,
 		Repo:       run.Repo.String, RepoHost: host, RepoKind: kind, RepoSSHURL: sshURL,
 		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
+		PushBranch: task.PushBranch.String, StartFrom: task.StartFrom.String, PRBase: task.PrBase.String,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
 		Model: d.Model.String, Effort: d.Effort.String, Uses: splitUses(run.Uses), Skills: skills,
 		Memory: memory.Text, OwnerMemory: owner.Text, MemoryNotes: notes,

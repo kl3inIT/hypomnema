@@ -92,6 +92,13 @@ type Task struct {
 	// last pass found: a Reason code (dispatch_types.go). Empty for a Task that
 	// is not ready, or that no pass has looked at yet (issue #660).
 	WaitingReason string
+	// Continues is the Task whose branch it works on and PushBranch that branch, which its publish_branch pushes
+	// to, empty for its own hyp/<id>; StartFrom is the branch its worktree starts from and PRBase the base of the
+	// pull request it opens, empty for the Run's base (issue #690).
+	Continues  string
+	PushBranch string
+	StartFrom  string
+	PRBase     string
 }
 
 // NewTask describes a Task to create. Ref names it within one CreateTasks
@@ -108,6 +115,13 @@ type NewTask struct {
 	Model     string
 	Effort    string
 	DependsOn []string
+	// Continues is the id of a Task of the same repository, of any Run, whose branch this one works on and pushes
+	// into, so that Task's pull request takes its commits (issue #690). StartFrom is a branch the worktree starts
+	// from instead of the Run's base; PRBase, PRBaseStartFrom (the default with StartFrom) or PRBaseRunBase, is the
+	// base of the pull request it opens.
+	Continues string `json:",omitempty"`
+	StartFrom string `json:",omitempty"`
+	PRBase    string `json:",omitempty"`
 }
 
 // NewRun is a Run to create. Repo is a registered repository's name,

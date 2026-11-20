@@ -285,6 +285,7 @@ type Claim struct {
 
 // HelloRequest is the node's registration, sent at every connect.
 type HelloRequest struct {
+	TaskBranches  bool          `json:"task_branches,omitempty"`
 	DiskPolicy    bool          `json:"disk_policy,omitempty"`
 	InstanceID    string        `json:"instance_id"`
 	DaemonVersion string        `json:"daemon_version"`
@@ -321,6 +322,19 @@ type HelloRequest struct {
 	// films that holds no lease of the phone any more, and has the node drop one the owner deleted.
 	Takes      []TakeHeld `json:"takes,omitempty"`
 	ListsTakes bool       `json:"lists_takes,omitempty"`
+	// TempIsolation says whether the node's workers get their Dispatch's temp
+	// directory as /tmp and /var/tmp (issue #895); nil: a node of an earlier
+	// release, which does not say.
+	TempIsolation *TempIsolation `json:"temp_isolation,omitempty"`
+}
+
+// TempIsolation is whether a node runs its workers with their Dispatch's
+// temp directory bound over /tmp and /var/tmp (issue #895).
+type TempIsolation struct {
+	On bool `json:"on"`
+	// Reason says why it is off: no bubblewrap could make the namespace, or
+	// the machine is not Linux.
+	Reason string `json:"reason,omitempty"`
 }
 
 // DeviceAndroid is a node that holds an Android emulator (issue #417).
@@ -616,8 +630,14 @@ type Offer struct {
 	// Device is the device the control plane gives every worker, DeviceAndroid
 	// while a node holds a phone (issue #417), as it gives the shared browser;
 	// the worker is then told of the phone's tools and their guide.
-	Device         string `json:"device,omitempty"`
-	Base           string `json:"base,omitempty"`
+	Device string `json:"device,omitempty"`
+	Base   string `json:"base,omitempty"`
+	// PushBranch is the branch publish_branch pushes the Task's commits to, when it is not the Task's own hyp/<id>:
+	// the branch of the Task it continues. StartFrom is the branch its worktree starts from and PRBase the base of
+	// the pull request it opens, when they are not Base (issue #690).
+	PushBranch     string `json:"push_branch,omitempty"`
+	StartFrom      string `json:"start_from,omitempty"`
+	PRBase         string `json:"pr_base,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Worktree       string `json:"worktree"`
 	Runtime        string `json:"runtime"`

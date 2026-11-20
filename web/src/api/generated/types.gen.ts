@@ -139,13 +139,20 @@ export type NewRun = {
   repo?: string;
   base?: string;
   /**
-   * The chat whose coordinator creates it; that chat is woken by the Run's events.
+   * The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat. A Bot request uses its own chat; a script Routine's Run has no chat.
    */
   chat_id?: string;
   /**
    * The Connections the Run's workers may use, each as integration:label, such as google:work. None by default. A coordinator may give only Connections the owner allowed for chats.
    */
   uses?: Array<string>;
+};
+
+export type RunAdoption = {
+  /**
+   * The chat that continues the Run; defaults to the main Bot's main chat.
+   */
+  chat_id?: string;
 };
 
 export type TaskStatus = 'pending' | 'ready' | 'running' | 'blocked' | 'succeeded' | 'failed' | 'canceled';
@@ -178,6 +185,22 @@ export type Task = {
    * Why a ready Task has no Dispatch yet, as the scheduler's last pass found (issue #660); left out for a Task that is not ready. One of nodes_full (every node that could run it is full now, by the requests of what it runs or by its cap; issue #731), no_node_fits (its request is larger than what every node that could run it has to give), nodes_low_disk (fitting nodes do not have a fresh disk sample at or above their floor), nodes_low_memory (every node that could run it has less than 1 GiB of memory available), accounts_cooling, no_node, no_account, needs_gateway, no_node_reaches:<git host> and no_node_has_tool:<tool>.
    */
   waiting_reason?: string;
+  /**
+   * The Task whose branch and pull request this Task continues (issue
+   */
+  continues?: string;
+  /**
+   * The branch this Task's commits are pushed to when it is not its own hyp/<id>: the branch of the Task it continues.
+   */
+  push_branch?: string;
+  /**
+   * The branch its worktree starts from when it is not the Run's base.
+   */
+  start_from?: string;
+  /**
+   * The base of the pull request it opens when it is not the Run's base.
+   */
+  pr_base?: string;
 };
 
 export type TaskDetail = Task & {
@@ -260,6 +283,18 @@ export type NewTask = {
    * Refs of earlier Tasks in this request, or ids of Tasks already in the Run.
    */
   depends_on?: Array<string>;
+  /**
+   * The id of a Task of the same repository, of any Run, whose branch this Task works on and pushes into, so that branch's pull request takes its commits and keeps its number and reviews. Refused while a Task that pushes to that branch is not finished. Not with start_from or pr_base.
+   */
+  continues?: string;
+  /**
+   * A branch of the repository the worktree starts from instead of the Run's base: another Task's hyp/<id> for stacked work, or a named branch.
+   */
+  start_from?: string;
+  /**
+   * With start_from, the base of the pull request the Task opens: start_from (the default, stacked) or the Run's base.
+   */
+  pr_base?: 'start_from' | 'run_base';
 };
 
 export type DispatchStatus = 'queued' | 'starting' | 'running' | 'stopping' | 'unknown' | 'stop_unknown' | 'succeeded' | 'failed' | 'gated' | 'canceled' | 'expired' | 'abandoned';
@@ -474,6 +509,7 @@ export type Node = {
    * The node said at its last connect that its user can use /dev/kvm, which an Android emulator needs.
    */
   kvm?: boolean;
+  temp_isolation?: NodeTempIsolation;
   /**
    * Its Dispatches that have not settled.
    */
@@ -1252,6 +1288,17 @@ export type MachineProvider = {
 
 export type MachineProviderList = {
   data: Array<MachineProvider>;
+};
+
+/**
+ * Whether the node runs its workers with their Dispatch's temp directory as /tmp and /var/tmp, in bubblewrap, as it said at its last connect (issue #895). Off, they run with TMPDIR only, and what they write to /tmp stays after their Task. Left out for a node whose version does not say.
+ */
+export type NodeTempIsolation = {
+  on: boolean;
+  /**
+   * Why it is off, in the node's words.
+   */
+  reason?: string;
 };
 
 export type NodeDisk = {
@@ -5184,6 +5231,33 @@ export type GetRunResponses = {
 };
 
 export type GetRunResponse = GetRunResponses[keyof GetRunResponses];
+
+export type AdoptRunData = {
+  body: RunAdoption;
+  path: {
+    run_id: string;
+  };
+  query?: never;
+  url: '/runs/{run_id}/adopt';
+};
+
+export type AdoptRunErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AdoptRunError = AdoptRunErrors[keyof AdoptRunErrors];
+
+export type AdoptRunResponses = {
+  /**
+   * The Run with its chat and coordinator.
+   */
+  200: Run;
+};
+
+export type AdoptRunResponse = AdoptRunResponses[keyof AdoptRunResponses];
 
 export type FinishRunData = {
   body?: never;

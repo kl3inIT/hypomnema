@@ -256,7 +256,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBytes))
+	raw, err := s.readRequest(w, r, key, started)
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {

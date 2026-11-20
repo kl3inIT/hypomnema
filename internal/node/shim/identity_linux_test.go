@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/node/tempns"
 )
 
 func TestProcStatIdentityUsesStartTicks(t *testing.T) {
@@ -28,12 +30,20 @@ func TestShimIdentityHelper(t *testing.T) {
 
 func startIdentityFixture(t *testing.T, argv ...string) (*os.Root, *exec.Cmd) {
 	t.Helper()
+	return startIdentitySpec(t, Spec{Argv: argv})
+}
+
+func startIdentitySpec(t *testing.T, spec Spec) (*os.Root, *exec.Cmd) {
+	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
 	root, err := os.OpenRoot(dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, root.Close()) })
-	require.NoError(t, WriteSpec(dir, Spec{Argv: argv, Dir: dir}))
+	if spec.Dir == "" {
+		spec.Dir = dir
+	}
+	require.NoError(t, WriteSpec(dir, spec))
 	exe, err := os.Executable()
 	require.NoError(t, err)
 	leader := exec.CommandContext(t.Context(), exe, "-test.run=^TestShimIdentityHelper$") //nolint:gosec // the test binary
@@ -46,6 +56,50 @@ func startIdentityFixture(t *testing.T, argv ...string) (*os.Root, *exec.Cmd) {
 		_ = leader.Wait()
 	})
 	return root, leader
+}
+
+func TestIsolatedWorkerExitAndOrphanedGroup(t *testing.T) {
+	t.Parallel()
+	isolation := tempns.Probe(t.Context(), "")
+	if !isolation.On() {
+		t.Skip(isolation.Reason)
+	}
+	for _, scenario := range []struct {
+		name   string
+		script string
+		want   Exit
+	}{
+		{
+			name: "exit",
+			script: `test -f /tmp/fixture || exit 2
+				/bin/sleep 30 >/dev/null 2>&1 </dev/null & printf '%s' "$!" > /tmp/child; exit 42`,
+			want: Exit{Code: 42},
+		},
+		{name: "signal", script: `kill -TERM "$$"`, want: Exit{Code: -1, Signal: "terminated"}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+			temp := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(temp, "fixture"), nil, 0o600))
+			root, leader := startIdentitySpec(t, Spec{
+				Argv: isolation.Wrap([]string{"/bin/sh", "-c", scenario.script}, temp), Dir: "/", Bwrap: true,
+			})
+			require.NoError(t, leader.Wait())
+			exit, done, err := ReadExit(root.Name())
+			require.NoError(t, err)
+			require.True(t, done)
+			assert.Equal(t, scenario.want, exit)
+			if scenario.name == "exit" {
+				raw, err := os.ReadFile(filepath.Join(temp, "child")) //nolint:gosec // test scratch
+				require.NoError(t, err)
+				child, err := strconv.Atoi(string(raw))
+				require.NoError(t, err)
+				requireProcessKeepsRunning(t, child)
+				require.NoError(t, KillRecorded(root.Name()))
+				requireProcessStopped(t, child)
+			}
+		})
+	}
 }
 
 func TestKillRecordedSignalsVerifiedGroupAfterLeaderExits(t *testing.T) {

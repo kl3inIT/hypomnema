@@ -7,6 +7,9 @@ SELECT * FROM client_tokens WHERE id = @id;
 -- name: GetClientTokenByHash :one
 SELECT * FROM client_tokens WHERE token_hash = @token_hash;
 
+-- name: GetClientTokenByName :one
+SELECT * FROM client_tokens WHERE name = @name;
+
 -- name: ListClientTokens :many
 SELECT * FROM client_tokens ORDER BY name;
 

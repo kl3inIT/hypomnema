@@ -446,48 +446,13 @@ func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatM
 		return Chat{}, false, fmt.Errorf("%w: a chat title is at most 200 characters", ErrInvalid)
 	}
 
-	made := true
+	var made bool
 
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		row, err := q.GetBot(ctx, bot)
-		if err != nil {
-			return notFound(err, "bot", bot)
-		}
+		var err error
+		id, made, err = s.createChatTx(ctx, q, now, id, bot, title, m, mode)
 
-		if mode == mainIfNone && row.MainChat.Valid {
-			id, made = row.MainChat.String, false
-
-			return nil
-		}
-
-		// A new id is made under the write, as every id the Service makes is.
-		if id == "" {
-			id = s.newID(ChatIDPrefix)
-		}
-
-		if _, err := q.GetChat(ctx, id); err == nil {
-			return fmt.Errorf("%w: chat %s exists; open it, or start a new chat", ErrConflict, id)
-		} else if !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("reading chat %s: %w", id, err)
-		}
-
-		m, err := checkChatModel(ctx, q, m)
-		if err != nil {
-			return err
-		}
-
-		if err := q.InsertChat(ctx, store.InsertChatParams{
-			ID: id, Title: title, Bot: bot, Provider: nullString(m.Provider), Model: nullString(m.Model),
-			Effort: nullString(m.Effort), Now: now,
-		}); err != nil {
-			return err
-		}
-
-		if mode == notMain {
-			return nil
-		}
-
-		return q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(id), Bot: bot})
+		return err
 	}); err != nil {
 		return Chat{}, false, fmt.Errorf("creating a chat: %w", err)
 	}
@@ -495,6 +460,49 @@ func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatM
 	chat, err := s.GetChat(ctx, id)
 
 	return chat, made, err
+}
+
+func (s *Service) createChatTx(ctx context.Context, q *store.Queries, now int64, id, bot, title string, m ChatModel,
+	mode mainMode,
+) (string, bool, error) {
+	row, err := q.GetBot(ctx, bot)
+	if err != nil {
+		return "", false, notFound(err, "bot", bot)
+	}
+
+	if mode == mainIfNone && row.MainChat.Valid {
+		return row.MainChat.String, false, nil
+	}
+
+	if id == "" {
+		id = s.newID(ChatIDPrefix)
+	}
+
+	if _, err := q.GetChat(ctx, id); err == nil {
+		return "", false, fmt.Errorf("%w: chat %s exists; open it, or start a new chat", ErrConflict, id)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return "", false, fmt.Errorf("reading chat %s: %w", id, err)
+	}
+
+	m, err = checkChatModel(ctx, q, m)
+	if err != nil {
+		return "", false, err
+	}
+
+	if err := q.InsertChat(ctx, store.InsertChatParams{
+		ID: id, Title: title, Bot: bot, Provider: nullString(m.Provider), Model: nullString(m.Model),
+		Effort: nullString(m.Effort), Now: now,
+	}); err != nil {
+		return "", false, err
+	}
+
+	if mode != notMain {
+		if err := q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(id), Bot: bot}); err != nil {
+			return "", false, err
+		}
+	}
+
+	return id, true, nil
 }
 
 // GetChat returns one chat.
@@ -584,7 +592,7 @@ func (s *Service) ListChats(ctx context.Context, bot string, limit, offset int) 
 }
 
 // DeleteChat deletes a chat for good (issue #484), as OpenMausBot deletes a room, Hermes a session and opencode a
-// session, with no archive: its messages, setup changes, artifacts and Lark chat go; Runs, their Routines' runs and
+// session, with no archive: its messages, setup changes, artifacts and Lark chat go; ended Runs, Routines' runs and
 // approvals made in it stay and lose the chat; its gateway keys are revoked and kept. A Bot's main chat deleted
 // leaves the Bot without one until the next message from the web or the CLI makes another (issue #471). A chat a Routine tells its runs
 // in, or whose Routine's run is live, is refused, as OpenMausBot refuses a working room (409): the Routine is removed
@@ -643,6 +651,14 @@ func chatLive(ctx context.Context, q *store.Queries, id string) error {
 // outlast one another. A chat and a Bot removed with its chats (ForceDeleteBot) take the same steps, as
 // ForceDeleteBot's own did (issue #330).
 func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries, id string, now int64) error {
+	open, err := q.ChatHasOpenRuns(ctx, nullString(id))
+	if err != nil {
+		return fmt.Errorf("checking for open Runs in chat %s: %w", id, err)
+	}
+	if open {
+		return fmt.Errorf("%w: chat %s has open Runs; settle them before deleting the chat", ErrConflict, id)
+	}
+
 	blobs, err := q.ListArtifactBlobsOfChat(ctx, id)
 	if err != nil {
 		return err

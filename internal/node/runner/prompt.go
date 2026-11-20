@@ -8,6 +8,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
 // recoveryNote is the orchestration core's RecoveryNote: the previous
@@ -155,20 +156,7 @@ func Prompt(d statedb.Dispatch) string {
 	b.WriteString(memoryBrief(o.Memory, o.OwnerMemory, o.MemoryNotes, o.AgentKey != ""))
 
 	if o.Repo != "" {
-		fmt.Fprintf(&b, "\nWork only in this directory, a git worktree of %s on branch %s, started from %s. ",
-			o.Repo, worktree.Branch(o.TaskID), o.Base)
-		// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
-		if readOnly {
-			b.WriteString("Read the repository here; leave it unchanged.\n")
-		} else {
-			publish := "push the branch"
-			if canPublish(o) {
-				publish = "push the branch with `publish_branch` (not `git push`, so the Run can prove its PR heads)"
-			}
-			fmt.Fprintf(&b, "Commit your work, %s, and open a pull request with `%s`.\n",
-				publish, openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
-			b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, o.Base, worktree.Branch(o.TaskID)))
-		}
+		b.WriteString(repoBrief(o, readOnly))
 	} else {
 		b.WriteString("\nWork only in this directory.\n")
 	}
@@ -372,4 +360,56 @@ func memoryBrief(agent, owner string, notes []string, hasTool bool) string {
 	b.WriteString("\n" + memoryGuide)
 
 	return b.String()
+}
+
+// repoBrief says where the worker works and where its commits go. A Task that continues another's branch pushes into
+// it, so that branch's pull request takes the commits and keeps its number and reviews, as Orca's worktree for a pull
+// request pushes to its head (pr-start-point.ts:226-245); one that starts from another branch opens its pull request
+// against the base it was given, as t3code's stacked work on a parent branch (orchestrator-mcp-server.md:354-355)
+// (issue #690).
+func repoBrief(o nodeproto.Offer, readOnly bool) string {
+	var b strings.Builder
+
+	own, push, base := worktree.Branch(o.TaskID), pushBranch(o), prBase(o)
+
+	fmt.Fprintf(&b, "\nWork only in this directory, a git worktree of %s on branch %s, started from %s. ",
+		o.Repo, own, startBranch(o))
+
+	// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
+	switch {
+	case readOnly:
+		b.WriteString("Read the repository here; leave it unchanged.\n")
+	case push != own:
+		publish := fmt.Sprintf("push it with `git push origin %s:%s` (never forced)", own, push)
+		if canPublish(o) {
+			publish = fmt.Sprintf("push it with `publish_branch` (not `git push`, so the Run can prove its PR heads), "+
+				"which pushes it to %s", push)
+		}
+
+		fmt.Fprintf(&b, "%s is the branch of an earlier Task whose work this Task continues, and of its pull request: "+
+			"commit your work and %s, which updates that pull request. Do not open a new one. Find it with `%s`; "+
+			"if none is open, open one with `%s`.\n",
+			push, publish, listCommand(o.RepoKind, push), openCommand(o.RepoKind, base, push))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, push))
+	default:
+		publish := "push the branch"
+		if canPublish(o) {
+			publish = "push the branch with `publish_branch` (not `git push`, so the Run can prove its PR heads)"
+		}
+
+		fmt.Fprintf(&b, "Commit your work, %s, and open a pull request with `%s`.\n",
+			publish, openCommand(o.RepoKind, base, own))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, own))
+	}
+
+	return b.String()
+}
+
+// listCommand is the host's command that lists the open pull requests of a branch.
+func listCommand(kind, branch string) string {
+	if githost.Kind(kind) == githost.GitLab {
+		return "glab mr list --source-branch " + branch
+	}
+
+	return "gh pr list --head " + branch + " --state open"
 }

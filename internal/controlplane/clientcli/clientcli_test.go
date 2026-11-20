@@ -37,15 +37,18 @@ import (
 
 // world is a control plane serving the client API, and a home for the CLI.
 type world struct {
-	svc  *orchestration.Service
-	url  string
-	home string
+	svc               *orchestration.Service
+	url               string
+	home              string
+	coordinatorSecret string
 }
+
+const testChatCoordinator = "cli-chat-coordinator"
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
-	return newWorldWith(t, nil)
+	return newWorldWith(t, replier{})
 }
 
 // newWorldWith serves the API with a coordinator, or none when nil.
@@ -62,8 +65,12 @@ func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clien
 
 	mux := http.NewServeMux()
 	srv := clientapi.New(svc, slog.New(slog.DiscardHandler), stop).WithHostTokens(&keptTokens{svc: svc})
+	var coordinatorSecret string
 	if coord != nil {
-		srv.WithCoordinator(coord)
+		_, secret, err := svc.AddToken(t.Context(), testChatCoordinator, bearertoken.Coordinator)
+		require.NoError(t, err)
+		coordinatorSecret = secret
+		srv.WithCoordinator(coord).WithRunCoordinator(testChatCoordinator)
 	}
 
 	for _, option := range with {
@@ -75,12 +82,16 @@ func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clien
 	hs := httptest.NewServer(mux)
 	t.Cleanup(hs.Close)
 
-	return &world{svc: svc, url: hs.URL, home: filepath.Join(t.TempDir(), "home")}
+	return &world{svc: svc, url: hs.URL, home: filepath.Join(t.TempDir(), "home"), coordinatorSecret: coordinatorSecret}
 }
 
 // login makes a token of kind and logs the CLI in with it.
 func (w *world) login(t *testing.T, kind bearertoken.Kind) string {
 	t.Helper()
+
+	if kind == bearertoken.Coordinator && w.coordinatorSecret != "" {
+		return w.loginWith(t, w.coordinatorSecret)
+	}
 
 	_, secret, err := w.svc.AddToken(t.Context(), "cli-"+string(kind), kind)
 	require.NoError(t, err)
@@ -190,7 +201,7 @@ func TestRunFollowsUntilTheTaskEnds(t *testing.T) {
 
 	out, err := w.cmd(t, "run", "--repo", "kl3inIT/second-bite", "--detach", "add", "Google", "login")
 	require.NoError(t, err)
-	assert.Regexp(t, `^run run_\w+, task tsk_\w+\n$`, out)
+	assert.Regexp(t, `^run run_\w+, task tsk_\w+ in chat cht_\w+\n$`, out)
 
 	_, err = w.cmd(t, "run", "--detach", "no repository")
 	require.ErrorIs(t, err, ErrUsage)
@@ -1243,7 +1254,7 @@ func TestChatFromTheTerminal(t *testing.T) {
 func TestChatWithoutACoordinator(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	w := newWorldWith(t, nil)
 	w.login(t, bearertoken.Owner)
 
 	out, err := w.cmd(t, "chat", "hello")
@@ -1256,7 +1267,7 @@ func TestChatWithoutACoordinator(t *testing.T) {
 func TestChatWithAChosenBot(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	w := newWorldWith(t, nil)
 	w.login(t, bearertoken.Owner)
 
 	var vmap openapi.Bot
@@ -1284,7 +1295,7 @@ func TestChatWithAChosenBot(t *testing.T) {
 func TestChatWritesToTheBotsMainChat(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	w := newWorldWith(t, nil)
 	w.login(t, bearertoken.Owner)
 	ctx := t.Context()
 
@@ -1461,6 +1472,27 @@ func TestRunsCreatedByPiRecordItsChat(t *testing.T) { //nolint:paralleltest // s
 	var run openapi.Run
 	w.jsonCmd(t, &run, "", "runs", "create", "--repo", "kl3inIT/demo", "health page")
 	assert.Equal(t, chat.ID, val(run.ChatId))
+}
+
+func TestTheOwnerCanNameTheChatToCreateOrAdoptARunIn(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+	ctx := t.Context()
+	var created openapi.Run
+	w.jsonCmd(t, &created, "", "runs", "create", "create a Run outside a chat")
+	require.NotEmpty(t, val(created.ChatId))
+	chat, err := w.svc.CreateChat(ctx, "", "a different chat")
+	require.NoError(t, err)
+	out, err := w.cmd(t, "runs", "create", "--chat", chat.ID, "take this work")
+	require.NoError(t, err)
+	assert.Contains(t, out, "in chat "+chat.ID)
+	old, err := w.svc.CreateRun(ctx, orchestration.NewRun{CreatedBy: "owner", Objective: "old work"})
+	require.NoError(t, err)
+	var adopted openapi.Run
+	w.jsonCmd(t, &adopted, "", "runs", "adopt", old.ID, "--chat", chat.ID)
+	assert.Equal(t, old.ID, adopted.Id)
+	assert.Equal(t, chat.ID, val(adopted.ChatId))
 }
 
 // signIns stands in for the service that signs accounts in: google, whose

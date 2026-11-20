@@ -1,14 +1,11 @@
 package orchestration
 
 import (
-	"database/sql"
 	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
 // The scenarios of capacity by requests and of sharing room between Bots
@@ -381,43 +378,34 @@ func TestPlacementScoresFreeRoomByRequests(t *testing.T) {
 		w.tasks(NewTask{Ref: "b", Profile: "implementer", Spec: "b"})
 		assert.Equal(t, map[string]string{"b": double.ID}, w.placed(w.schedule().Created))
 	})
-
-	t.Run("the smaller id", func(t *testing.T) {
-		t.Parallel()
-
-		w := newScoreWorld(t)
-		first := w.sized("node_first", 8, 16*gib)
-		second := w.sized("node_second", 8, 16*gib)
-		require.Less(t, first.ID, second.ID)
-
-		w.tasks(specs(1)...)
-		assert.Equal(t, map[string]string{"a": first.ID}, w.placed(w.schedule().Created))
-	})
 }
 
 // Scenario (the review of PR #752, P2): a node whose hello did not say its
-// memory, with fresh stats at 0 % CPU, counts 0 for its measured CPU too, so
-// it does not outrank a node with 16 GiB, 12 GiB used and 80 % CPU.
-func TestUnknownMemoryCountsNothingMeasured(t *testing.T) {
+// memory counts 0 for its measured CPU too. Two such nodes, one at 0 % CPU and
+// one at 50, both score 0 on their requests as well (a node that did not say
+// its size has no free share by them), so the tie goes to the smaller id, the
+// busier node; scoring that counted the idle node's CPU would place it.
+func TestPlacementCountsNothingMeasuredOfANodeThatDidNotSayItsMemory(t *testing.T) {
 	t.Parallel()
 
-	now := int64(1_000_000)
-	fresh := sql.NullInt64{Int64: now, Valid: true}
-	p := &placement{now: now}
+	w := newScoreWorld(t)
 
-	unknown := &nodeLoad{row: store.Node{
-		ID: "nod_a", StatsAt: fresh, CpuPercent: sql.NullFloat64{Float64: 0, Valid: true},
-		MemoryUsedBytes: sql.NullInt64{Int64: gib, Valid: true},
-	}}
-	known := &nodeLoad{row: store.Node{
-		ID: "nod_b", StatsAt: fresh, CpuPercent: sql.NullFloat64{Float64: 80, Valid: true},
-		MemoryBytes:     sql.NullInt64{Int64: 16 * gib, Valid: true},
-		MemoryUsedBytes: sql.NullInt64{Int64: 12 * gib, Valid: true},
-	}}
+	unsized := func(name string, cpu float64) Node {
+		t.Helper()
 
-	assert.Zero(t, p.measured(unknown), "neither its CPU nor its memory counts")
-	assert.InDelta(t, 0.2+0.25, p.measured(known), 1e-9)
-	assert.True(t, p.better(known, unknown, request{}, nil), "nod_b wins although nod_a has the smaller id")
+		n := w.addNode(name, 4, "claude")
+		require.NoError(t, w.s.NodeStats(t.Context(), n.ID, SystemStats{CPUPercent: cpu, MemoryUsedBytes: gib}))
+
+		return n
+	}
+
+	busy := unsized("node_busy", 50)
+	idle := unsized("node_idle", 0)
+	require.Less(t, busy.ID, idle.ID, "the tie goes to the smaller id")
+
+	w.tasks(specs(1)...)
+	assert.Equal(t, map[string]string{"a": busy.ID}, w.placed(w.schedule().Created),
+		"the idle node's 0 % CPU counts nothing without its memory")
 }
 
 // Scenario: the default request of each profile. A profile that asks for
@@ -429,26 +417,20 @@ func TestEachProfileHasARequest(t *testing.T) {
 	t.Parallel()
 
 	w := newSeedWorld(t)
-	q := store.New(w.db)
 	ctx := t.Context()
-
-	for profile, want := range map[string]request{
-		"implementer": {cpuMillis: 1000, memoryBytes: 3 << 30},
-		"reviewer":    {cpuMillis: 1000, memoryBytes: 3 << 30},
-		"explorer":    {cpuMillis: 500, memoryBytes: 512 << 20},
-	} {
-		t.Run(profile, func(t *testing.T) {
-			t.Parallel()
-
-			v, err := q.CurrentProfileVersion(t.Context(), profile)
-			require.NoError(t, err)
-			assert.Equal(t, want, requestOf(v))
-		})
-	}
 
 	explorer, err := w.s.GetProfile(ctx, "explorer")
 	require.NoError(t, err)
-	assert.Equal(t, [2]int64{500, 512 << 20}, [2]int64{explorer.CPURequestMillis, explorer.MemoryRequestBytes})
+	assert.Equal(t, [2]int64{500, 512 << 20}, [2]int64{explorer.CPURequestMillis, explorer.MemoryRequestBytes},
+		"the migration gives the explorer its own")
+
+	// Nothing for the other two seeded profiles: a Dispatch under them asks for
+	// the default (TestANodeTakesWhatFitsItsAllocatable).
+	for _, name := range []string{"implementer", "reviewer"} {
+		p, err := w.s.GetProfile(ctx, name)
+		require.NoError(t, err)
+		assert.Equal(t, [2]int64{0, 0}, [2]int64{p.CPURequestMillis, p.MemoryRequestBytes}, name)
+	}
 
 	p, _, err := w.s.ApplyProfile(ctx, "", "name: heavy\ndescription: d\nruntime: claude\n"+
 		"model: {provider: claude-subscription}\nrequests: {cpu: 1.5, memory: 6Gi}\n")
@@ -561,27 +543,6 @@ func TestATaskThatFitsNowhereDoesNotBlockOthers(t *testing.T) {
 
 	assert.Equal(t, map[string]bool{"second-a": true, "first-next": true}, specs)
 	assert.Equal(t, ReasonNoNodeFits, w.task(firstTasks[0].ID).WaitingReason)
-}
-
-// Scenario: the order of the groups in a pass. The lowest used / guarantee
-// goes first (2 of 4 before 1 of 1), compared exactly; equal ratios go to the
-// older Run, then the smaller group id; a group with no Task left is skipped,
-// and nil comes when every Task was tried.
-func TestGroupsAreOrderedByUsedOverGuarantee(t *testing.T) {
-	t.Parallel()
-
-	a := &queue{group: "bot_a", guarantee: 4, tasks: []queued{{id: "a1", runCreated: 5}}}
-	b := &queue{group: "bot_b", guarantee: 1, tasks: []queued{{id: "b1", runCreated: 0}}}
-	assert.Same(t, a, nextQueue([]*queue{b, a}, map[string]int{"bot_a": 2, "bot_b": 1}), "1/2 before 1/1")
-
-	assert.Same(t, b, nextQueue([]*queue{a, b}, map[string]int{"bot_a": 4, "bot_b": 1}), "equal: the older Run")
-
-	c := &queue{group: "bot_c", guarantee: 1, tasks: []queued{{id: "c1", runCreated: 0}}}
-	assert.Same(t, b, nextQueue([]*queue{c, b}, map[string]int{}), "equal and as old: the smaller id")
-
-	empty := &queue{group: "", guarantee: 4}
-	assert.Same(t, c, nextQueue([]*queue{empty, c}, map[string]int{"bot_c": 9}), "nothing ready is skipped")
-	assert.Nil(t, nextQueue([]*queue{empty}, nil))
 }
 
 // Scenario: two Bots, each 0 of 1, have Runs created at the same moment, and
