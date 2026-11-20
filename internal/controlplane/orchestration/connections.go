@@ -66,9 +66,15 @@ type Connection struct {
 	DialAddress string
 	// Access is what the account can really do, action by action, as it was last read at the service (issue
 	// #567); empty until it was read once.
-	Access    ConnectionAccess
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Access ConnectionAccess
+	// GitName and GitEmail are the account a git host Connection's token belongs to, as a worker's commits name it
+	// (issue #991), read from the host with the token of the vault secret version GitSecretVersionID; empty until
+	// read.
+	GitName            string
+	GitEmail           string
+	GitSecretVersionID string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // The access of an action (issue #567): what the account can do at the service, beside the owner's answer for it.
@@ -226,6 +232,26 @@ func (s *Service) SetConnectionAccess(ctx context.Context, integration, label st
 	})
 	if err != nil {
 		return fmt.Errorf("recording the access of %s:%s: %w", integration, label, err)
+	}
+
+	return nil
+}
+
+// SetConnectionGitIdentity keeps the account a git host Connection's token belongs to (issue #991), read with the
+// token of the vault secret version versionID. Nothing is kept once versionID is no longer the current version of
+// the Connection's secret: a newer token's account is never overwritten.
+func (s *Service) SetConnectionGitIdentity(ctx context.Context, integration, label, versionID, name, email string,
+) error {
+	err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		_, err := q.SetConnectionGitIdentity(ctx, store.SetConnectionGitIdentityParams{
+			GitName: nullString(name), GitEmail: nullString(email), GitSecretVersionID: nullString(versionID),
+			Integration: integration, Label: label,
+		})
+
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("recording the git identity of %s:%s: %w", integration, label, err)
 	}
 
 	return nil
@@ -501,11 +527,14 @@ func connectionFromRow(r store.Connection) Connection {
 	return Connection{
 		Integration: r.Integration, Label: r.Label, Account: r.Account.String, Secret: r.Secret, Services: services,
 		Address: r.Address.String, Version: r.Version.String, AppID: r.AppID.String, AppLabel: r.AppLabel.String,
-		SignInFailed: r.SignInFailed != 0,
-		Chats:        r.Chats != 0,
-		Proxy:        r.Proxy.String,
-		DialAddress:  r.DialAddress.String,
-		Access:       access,
-		CreatedAt:    millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
+		SignInFailed:       r.SignInFailed != 0,
+		Chats:              r.Chats != 0,
+		Proxy:              r.Proxy.String,
+		DialAddress:        r.DialAddress.String,
+		Access:             access,
+		GitName:            r.GitName.String,
+		GitEmail:           r.GitEmail.String,
+		GitSecretVersionID: r.GitSecretVersionID.String,
+		CreatedAt:          millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}
 }

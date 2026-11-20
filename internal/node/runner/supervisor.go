@@ -297,8 +297,9 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 			return err
 		}
 
-		// The worker's git, gh and glab act with the host's token, when the offer carried one.
-		hostEnv = src.Env
+		// The worker's git, gh and glab act with the host's token, when the offer carried one, and commit as the
+		// account it belongs to (issue #991).
+		hostEnv = src.WorkerEnv()
 
 		maker := s.Worktrees
 		maker.TempDir, maker.Isolation = temp, s.Isolation

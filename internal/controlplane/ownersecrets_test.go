@@ -258,7 +258,7 @@ func TestAConnectionsSecretIsShownWithWhatUsesIt(t *testing.T) {
 	status, _, _, _ = a.call(a.owner, http.MethodPut, "/secrets/"+name, map[string]string{"value": "ghp_replaced"})
 	require.Equal(t, http.StatusOK, status)
 
-	got, ok := a.tokens.Token(t.Context(), githost.GitHubHost, "acme/shop")
+	got, ok := tokenOf(t.Context(), a.tokens, githost.GitHubHost, "acme/shop")
 	require.True(t, ok)
 	assert.Equal(t, "ghp_replaced", got, "what uses the secret gets the new value")
 

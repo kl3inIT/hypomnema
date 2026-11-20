@@ -26,3 +26,9 @@ What is ported from it here (issue #818, part 1), in Go, in
 internal/controlplane/videos/compose/ring.go: the click ripple of
 src/render.js (0.5 s from the click) and src/compositor.html (its radius,
 line width and colour), drawn as PNG frames.
+
+Issue #908, part 2, ports the background templates and background() of
+src/compositor.html (its gradient, color fields, grid and glow; not the menu
+bar, the Dock or an image) into
+internal/controlplane/videos/compose/background.go. The goldens' script,
+compose/testdata/frames/render.mjs, copies background() as it is.

@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -48,6 +49,13 @@ func tokensWorld(t *testing.T, withKey bool) (connections, *orchestration.Servic
 	return connections{svc: svc, vault: secrets}, svc, path
 }
 
+// tokenOf is the token a Dispatch on host and path is given.
+func tokenOf(ctx context.Context, c connections, host, path string) (string, bool) {
+	cred, ok := c.Credential(ctx, host, path)
+
+	return cred.Token, ok
+}
+
 // Scenario: the owner connects the company's GitLab server with a token,
 // replaces it, and disconnects. A Dispatch on that host gets the current
 // token; the token is sealed in the database, never in the clear; the host's
@@ -63,12 +71,12 @@ func TestAConnectionsTokenIsKeptInTheVault(t *testing.T) {
 	_, err := svc.AddGitHost(ctx, host, githost.GitLab)
 	require.NoError(t, err)
 
-	_, ok := tokens.Token(ctx, host, "team/app")
+	_, ok := tokenOf(ctx, tokens, host, "team/app")
 	assert.False(t, ok, "a host starts without a connection")
 
 	require.NoError(t, tokens.Connect(ctx, host, orchestration.DefaultConnection, "  "+gitlabToken+"\n"))
 
-	got, ok := tokens.Token(ctx, host, "team/app")
+	got, ok := tokenOf(ctx, tokens, host, "team/app")
 	require.True(t, ok)
 	assert.Equal(t, gitlabToken, got, "the token is kept without the spaces around it")
 
@@ -86,7 +94,7 @@ func TestAConnectionsTokenIsKeptInTheVault(t *testing.T) {
 
 	require.NoError(t, tokens.Connect(ctx, host, "default", "glpat-the-second-one"))
 
-	got, _ = tokens.Token(ctx, host, "")
+	got, _ = tokenOf(ctx, tokens, host, "")
 	assert.Equal(t, "glpat-the-second-one", got, "a new token replaces the old one, in the same secret")
 
 	// github.com is known without a declaration and takes a connection as well.
@@ -100,7 +108,7 @@ func TestAConnectionsTokenIsKeptInTheVault(t *testing.T) {
 	require.NoError(t, tokens.Disconnect(ctx, host, "default"))
 	require.NoError(t, tokens.Disconnect(ctx, host, "default"), "disconnecting twice changes nothing")
 
-	_, ok = tokens.Token(ctx, host, "team/app")
+	_, ok = tokenOf(ctx, tokens, host, "team/app")
 	assert.False(t, ok)
 
 	// A token given again after it was taken away is kept as a new secret.
@@ -110,7 +118,7 @@ func TestAConnectionsTokenIsKeptInTheVault(t *testing.T) {
 	_, err = svc.GitHostOf(ctx, host)
 	require.ErrorIs(t, err, orchestration.ErrInvalid)
 
-	_, ok = tokens.Token(ctx, host, "team/app")
+	_, ok = tokenOf(ctx, tokens, host, "team/app")
 	assert.False(t, ok)
 }
 
@@ -128,7 +136,7 @@ func TestAHostWithSeveralConnections(t *testing.T) {
 
 	require.NoError(t, tokens.Connect(ctx, githost.GitHubHost, "personal", "ghp_personal"))
 
-	got, ok := tokens.Token(ctx, githost.GitHubHost, "acme/shop")
+	got, ok := tokenOf(ctx, tokens, githost.GitHubHost, "acme/shop")
 	require.True(t, ok, "the host's only connection is used for every repository")
 	assert.Equal(t, "ghp_personal", got)
 
@@ -138,7 +146,7 @@ func TestAHostWithSeveralConnections(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"personal", "work"}, known.Connections, "oldest first")
 
-	_, ok = tokens.Token(ctx, githost.GitHubHost, "acme/shop")
+	_, ok = tokenOf(ctx, tokens, githost.GitHubHost, "acme/shop")
 	assert.False(t, ok, "with two connections and none named, none is used")
 
 	_, err = svc.AddRepo(ctx, "shop", "acme/shop", "", "nobody", "", "")
@@ -148,23 +156,23 @@ func TestAHostWithSeveralConnections(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "work", repo.Connection)
 
-	got, ok = tokens.Token(ctx, githost.GitHubHost, "acme/shop")
+	got, ok = tokenOf(ctx, tokens, githost.GitHubHost, "acme/shop")
 	require.True(t, ok)
 	assert.Equal(t, "ghp_work", got, "the repository's connection")
 
-	_, ok = tokens.Token(ctx, githost.GitHubHost, "someone/else")
+	_, ok = tokenOf(ctx, tokens, githost.GitHubHost, "someone/else")
 	assert.False(t, ok, "another repository of the host names none")
 
 	err = tokens.Disconnect(ctx, githost.GitHubHost, "work")
 	require.ErrorIs(t, err, orchestration.ErrConflict, "a repository still uses it")
 
-	got, ok = tokens.Token(ctx, githost.GitHubHost, "acme/shop")
+	got, ok = tokenOf(ctx, tokens, githost.GitHubHost, "acme/shop")
 	require.True(t, ok, "a refused disconnect leaves the token where it was")
 	assert.Equal(t, "ghp_work", got)
 
 	require.NoError(t, tokens.Disconnect(ctx, githost.GitHubHost, "personal"))
 
-	got, ok = tokens.Token(ctx, githost.GitHubHost, "someone/else")
+	got, ok = tokenOf(ctx, tokens, githost.GitHubHost, "someone/else")
 	require.True(t, ok, "one connection left: it is the host's only one")
 	assert.Equal(t, "ghp_work", got)
 }

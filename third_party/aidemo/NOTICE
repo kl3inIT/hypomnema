@@ -43,3 +43,11 @@ Issue #908, part 1, takes the "bar" caption style of src/caption-render.ts
 (its band color, full width and no rounding) as a preset of
 internal/controlplane/videos/captions (presets.go), and its caption flip on a
 collision (src/compose.ts) for a tap's ring (styled.go).
+
+Issue #908, part 2, ports, in Go, into internal/controlplane/videos/compose,
+from src/frame.ts, frameLayout and the geometry and drawing of
+renderFramePng (the device bezel, its border and shadows, the window, the
+rounded hole and the camera cut-outs), with the frame defaults of
+src/types.ts (frame.go, plate.go); and from src/compose.ts the frame pass
+that pads the picture and overlays the frame's PNG (compose.go). The goldens'
+script, compose/testdata/frames/render.mjs, uses renderFramePng's HTML.
