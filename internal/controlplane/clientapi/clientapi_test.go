@@ -1149,7 +1149,8 @@ func TestOnlyTheOwnerChats(t *testing.T) {
 
 	w := newWorld(t)
 	owner, _ := w.token("web", bearertoken.Owner)
-	pi, _ := w.token("pi", bearertoken.Coordinator)
+	pi, piToken := w.token("pi", bearertoken.Coordinator)
+	w.srv.WithRunCoordinator(piToken.Name)
 	ctx := t.Context()
 
 	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{})
