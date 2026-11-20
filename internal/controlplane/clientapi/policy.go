@@ -29,6 +29,9 @@ const (
 	scopeDispatch
 	// scopeOwner: only the owner's tokens.
 	scopeOwner
+	// scopeActor: a token that acts as someone, the owner's or a Bot's; a coordinator's acts as no one (the Inbox's
+	// writes, issue #966).
+	scopeActor
 )
 
 type policy struct {
@@ -344,6 +347,22 @@ var policies = map[string]policy{
 	"FixMeetingWord":   {scope: scopeOwner},
 	"ListMeetingWords": {},
 	"SetMeetingWords":  {scope: scopeOwner},
+
+	// The Inbox (issue #966): every token reads it; the owner and a Bot write, as the actor its token is, and the
+	// store says what each may do (inboxstore's transitions). A coordinator token only reads.
+	"ListTodos":        {},
+	"GetInboxNeedsYou": {},
+	"GetTodo":          {},
+	"CreateTodo":       {scope: scopeActor},
+	"EditTodo":         {scope: scopeActor},
+	"AcceptTodo":       {scope: scopeActor},
+	"DoneTodo":         {scope: scopeActor},
+	"DropTodo":         {scope: scopeActor},
+	"DuplicateTodo":    {scope: scopeActor},
+	"ReopenTodo":       {scope: scopeActor},
+	"SnoozeTodo":       {scope: scopeActor},
+	"StartTodo":        {scope: scopeActor},
+	"ReleaseTodo":      {scope: scopeActor},
 }
 
 var (
@@ -360,6 +379,14 @@ func (s *Server) checkPolicy(ctx context.Context, p policy, tok orchestration.To
 
 	if p.scope == scopeOwner {
 		return fmt.Errorf("%w: only the owner's token may do this", errForbidden)
+	}
+
+	if p.scope == scopeActor {
+		if tok.Kind == bearertoken.Bot {
+			return nil
+		}
+
+		return fmt.Errorf("%w: only the owner's token or a Bot's may do this", errForbidden)
 	}
 
 	runID, err := s.runOf(ctx, p.scope, request)

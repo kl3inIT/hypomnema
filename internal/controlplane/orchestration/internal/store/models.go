@@ -1053,6 +1053,7 @@ type Todo struct {
 	IdempotencyHash sql.NullString
 	CreatedAt       int64
 	UpdatedAt       int64
+	WhyOpen         sql.NullString
 }
 
 type TodoEvent struct {

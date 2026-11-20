@@ -728,7 +728,7 @@ func fields(r store.Todo) map[string]any {
 		"work_bot": r.WorkBot, "work_started_at": r.WorkStartedAt, "approval_id": r.ApprovalID,
 		"done_by_kind": r.DoneByKind, "done_by": r.DoneBy, "recorded_by_kind": r.RecordedByKind,
 		"recorded_by": r.RecordedBy, "closed_how": r.ClosedHow, "closed_at": r.ClosedAt,
-		"duplicate_of": r.DuplicateOf,
+		"duplicate_of": r.DuplicateOf, "why_open": r.WhyOpen,
 	} {
 		m[k] = v
 	}

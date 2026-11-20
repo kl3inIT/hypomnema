@@ -5077,6 +5077,286 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ChatMessage" }
         default: { $ref: "#/components/responses/Error" }
+  /inbox:
+    get:
+      operationId: ListTodos
+      summary: One page of the Inbox's to-dos, by due (those without one last), then created
+      description: >-
+        With no state, every state that is not closed, or every state with include_closed. A snoozed item is left
+        out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless
+        include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same
+        filter.
+      parameters:
+        - name: state
+          in: query
+          description: Only these states.
+          schema: { type: array, maxItems: 7, items: { $ref: "#/components/schemas/TodoState" } }
+        - name: assignee_kind
+          in: query
+          description: Only the items of this kind of assignee; a person's or a Bot's names it with assignee.
+          schema: { $ref: "#/components/schemas/TodoAssigneeKind" }
+        - name: assignee
+          in: query
+          description: The person's name or the Bot's id, with assignee_kind person or bot.
+          schema: { type: string, maxLength: 100 }
+        - name: source_kind
+          in: query
+          description: Only the items from this kind of source.
+          schema: { $ref: "#/components/schemas/TodoSourceKind" }
+        - name: due_from
+          in: query
+          description: Only the items due at or after this moment; a date is due from its first moment.
+          schema: { type: string, format: date-time }
+        - name: due_to
+          in: query
+          description: Only the items due before this moment.
+          schema: { type: string, format: date-time }
+        - name: needs_you
+          in: query
+          schema: { type: boolean }
+        - name: include_snoozed
+          in: query
+          schema: { type: boolean }
+        - name: include_closed
+          in: query
+          schema: { type: boolean }
+        - name: include_stale
+          in: query
+          schema: { type: boolean }
+        - name: cursor
+          in: query
+          description: The next_cursor of the previous page.
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: One page of to-dos.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TodoList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: CreateTodo
+      summary: Add a to-do; the owner or a Bot, never a coordinator
+      description: >-
+        Who adds it, and where from, comes from the token, never from the body: the owner writes it by hand; a
+        Bot in a chat with the owner adds it from that chat; a Bot in a Routine's run adds it from the run, or from
+        a chat of the owner's Lark or Zalo account it names with source. The owner and a Bot in a chat add open
+        items. A Bot in a Routine's run proposes them, or opens one when it gives why_open with the quote and the
+        reference to the message (the owner's triage of 2026-11-20). state defaults to open when why_open is given
+        and to what the token adds without it otherwise.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewTodo" }
+      responses:
+        "201":
+          description: The to-do; a retry with the same key answers the first one.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/needs-you:
+    get:
+      operationId: GetInboxNeedsYou
+      summary: How many to-dos need the owner now, for the sidebar
+      description: >-
+        Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval,
+        or the owner's own and overdue.
+      responses:
+        "200":
+          description: The count.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InboxNeedsYou" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    get:
+      operationId: GetTodo
+      summary: A to-do with its history
+      responses:
+        "200":
+          description: The to-do, with its latest 500 events, the oldest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: EditTodo
+      summary: Change a to-do's fields; the owner any that is not closed, a Bot only the items it added or is given
+      description: A Bot does not change who does an item. A stale revision is a conflict.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoEdit" }
+      responses:
+        "200":
+          description: The to-do.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/accept:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: AcceptTodo
+      summary: Open a proposed to-do; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoChange" }
+      responses:
+        "200":
+          description: The to-do, open.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/done:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: DoneTodo
+      summary: Close an open or doing to-do as done
+      description: >-
+        The owner closes any, done by himself unless done_by says who. A Bot closes the item of its own attempt,
+        done by itself, with evidence; or records for the owner what he did (done_by me), with his message in its
+        chat as evidence.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoDone" }
+      responses:
+        "200":
+          description: The to-do, done.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/drop:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: DropTodo
+      summary: Close a proposed, open or doing to-do as dropped, with its reason
+      description: The owner drops any; a Bot records it for him, with his message in its chat as evidence.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoDrop" }
+      responses:
+        "200":
+          description: The to-do, dropped.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/duplicate:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: DuplicateTodo
+      summary: Close a proposed or open to-do as a duplicate of another; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoDuplicate" }
+      responses:
+        "200":
+          description: The to-do, a duplicate.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/reopen:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: ReopenTodo
+      summary: Open a closed to-do again; only the owner
+      description: Its close, duplicate link, attempt and Approval are cleared; the history keeps them.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoChange" }
+      responses:
+        "200":
+          description: The to-do, open.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/snooze:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: SnoozeTodo
+      summary: Hide a proposed or open to-do until a time to come, or show it again; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoSnooze" }
+      responses:
+        "200":
+          description: The to-do.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/start:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: StartTodo
+      summary: Start an open to-do given to this Bot, in a new attempt; only that Bot
+      description: >-
+        The attempt is the Bot's chat, or the Routine's run it is in. Its id, in work.attempt, is what the Bot's
+        later writes to the item carry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoChange" }
+      responses:
+        "200":
+          description: The to-do, doing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/release:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: ReleaseTodo
+      summary: Give up a doing to-do, with the reason; only the Bot of the attempt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoRelease" }
+      responses:
+        "200":
+          description: The to-do, open again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     bearerAuth:
@@ -5091,6 +5371,11 @@ components:
         sends. Only the gateway's own routes take it; the client API refuses it, and the gateway refuses a client
         token.
   parameters:
+    TodoID:
+      name: todo_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^tdo_[A-Za-z0-9_]{1,60}$" }
     MeetingID:
       name: meeting_id
       in: path
@@ -10564,3 +10849,225 @@ components:
       additionalProperties: false
       properties:
         notes_model: { type: string, maxLength: 100 }
+    TodoState:
+      type: string
+      description: >-
+        proposed waits for the owner; open is to be done; doing, a Bot is on it; review, the Bot's action waits for
+        an Approval; done, dropped and duplicate are closed.
+      enum: [proposed, open, doing, review, done, dropped, duplicate]
+    TodoAssigneeKind:
+      type: string
+      enum: [me, person, bot, unknown]
+    TodoAssignee:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: "#/components/schemas/TodoAssigneeKind" }
+        name: { type: string, maxLength: 100, description: The person's name or the Bot's id. }
+    TodoDueKind:
+      type: string
+      enum: [none, unknown, date, instant]
+    TodoDue:
+      type: object
+      required: [kind]
+      description: >-
+        none; unknown (due, when is not known); a calendar date in zone, with no time made up for it; or a moment
+        with its zone.
+      properties:
+        kind: { $ref: "#/components/schemas/TodoDueKind" }
+        date: { type: string, format: date, description: For a date. }
+        at: { type: string, format: date-time, description: For an instant. }
+        zone: { type: string, maxLength: 64, description: The IANA time zone of a date or an instant. }
+    TodoLinkKind:
+      type: string
+      enum: [url, chat_message, mail, run, pull_request, meeting_line, lark_message, zalo_message]
+    TodoLink:
+      type: object
+      required: [kind, ref]
+      description: A typed reference, to where an item came from or to what shows it is done.
+      properties:
+        kind: { $ref: "#/components/schemas/TodoLinkKind" }
+        ref:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+        label: { type: string, maxLength: 300 }
+    TodoSourceKind:
+      type: string
+      description: >-
+        owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark and
+        zalo, a Bot reading a chat of the owner's own account there.
+      enum: [owner, chat, routine, lark, zalo]
+    TodoSource:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: "#/components/schemas/TodoSourceKind" }
+        id: { type: string, description: "The chat, the Routine's run, or the chat's id at Lark or Zalo." }
+        account: { type: string, description: The owner's Zalo account the chat is in; zalo only. }
+        quote: { type: string, description: The words it came from. }
+        ref: { $ref: "#/components/schemas/TodoLink" }
+    TodoWhyOpen:
+      type: string
+      description: >-
+        Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he
+        has not answered; promised, the owner promised it himself.
+      enum: [asked_directly, promised]
+    TodoActorKind:
+      type: string
+      enum: [owner, bot, system]
+    TodoActor:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: "#/components/schemas/TodoActorKind" }
+        id: { type: string, description: "The Bot's id, or what of the system." }
+    TodoWork:
+      type: object
+      required: [attempt, kind, id, bot, started_at]
+      description: The Bot's current attempt, while doing or review.
+      properties:
+        attempt: { type: string, description: "The attempt's own id, which the Bot's writes carry." }
+        kind: { type: string, enum: [chat, run] }
+        id: { type: string, description: The chat or the Routine's run the attempt works in. }
+        bot: { type: string }
+        started_at: { type: string, format: date-time }
+    TodoEvent:
+      type: object
+      required: [id, at, revision, actor, kind, before, after]
+      properties:
+        id: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        revision: { type: integer, description: The revision the change made. }
+        actor: { $ref: "#/components/schemas/TodoActor" }
+        kind: { type: string, description: "created, edited, state, snoozed or linked_approval." }
+        before: { type: object, additionalProperties: true, description: "The fields that changed, before." }
+        after: { type: object, additionalProperties: true, description: "The fields that changed, after." }
+    Todo:
+      type: object
+      required:
+        [id, revision, title, notes, done_when, due, assignee, state, source, created_by, close_reason, evidence,
+         stale, created_at, updated_at]
+      properties:
+        id: { type: string }
+        revision: { type: integer, description: "Starts at 1 and grows with every change; a change carries it." }
+        title: { type: string }
+        notes: { type: string }
+        done_when: { type: string }
+        due: { $ref: "#/components/schemas/TodoDue" }
+        assignee: { $ref: "#/components/schemas/TodoAssignee" }
+        state: { $ref: "#/components/schemas/TodoState" }
+        snoozed_until: { type: string, format: date-time }
+        source: { $ref: "#/components/schemas/TodoSource" }
+        created_by: { $ref: "#/components/schemas/TodoActor" }
+        why_open: { $ref: "#/components/schemas/TodoWhyOpen" }
+        work: { $ref: "#/components/schemas/TodoWork" }
+        approval_id: { type: string, description: "The pending Approval it waits for, in review." }
+        done_by: { $ref: "#/components/schemas/TodoAssignee" }
+        recorded_by: { $ref: "#/components/schemas/TodoActor" }
+        closed_how: { type: string, enum: [hand, bot, ai, time] }
+        close_reason: { type: string }
+        evidence: { type: array, items: { $ref: "#/components/schemas/TodoLink" } }
+        closed_at: { type: string, format: date-time }
+        duplicate_of: { type: string }
+        stale:
+          type: boolean
+          description: A proposal nobody touched for three days, left out of the list unless asked for.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        events:
+          type: array
+          description: Its history, the oldest first; GET /inbox/{todo_id} only.
+          items: { $ref: "#/components/schemas/TodoEvent" }
+    TodoList:
+      type: object
+      required: [data, total]
+      properties:
+        data: { type: array, items: { $ref: "#/components/schemas/Todo" } }
+        total: { type: integer, description: "How many items the filter matches, every page together." }
+        next_cursor: { type: string, description: Present when more items follow. }
+    InboxNeedsYou:
+      type: object
+      required: [count]
+      properties:
+        count: { type: integer }
+    NewTodoSource:
+      type: object
+      description: >-
+        Where a Bot in a Routine's run found it: kind routine, or lark or zalo with the chat's id there (and the
+        Zalo account). The owner's and a chat's come from the token.
+      properties:
+        kind: { $ref: "#/components/schemas/TodoSourceKind" }
+        id: { type: string, maxLength: 200, description: "The chat's id at Lark or Zalo; lark and zalo only." }
+        account: { type: string, maxLength: 200, description: The owner's Zalo account the chat is in. }
+        quote: { type: string, maxLength: 2000 }
+        ref: { $ref: "#/components/schemas/TodoLink" }
+    NewTodo:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 300 }
+        notes: { type: string, maxLength: 20000 }
+        done_when: { type: string, maxLength: 1000 }
+        due: { $ref: "#/components/schemas/TodoDue" }
+        assignee: { $ref: "#/components/schemas/TodoAssignee" }
+        state: { type: string, enum: [open, proposed] }
+        why_open: { $ref: "#/components/schemas/TodoWhyOpen" }
+        source: { $ref: "#/components/schemas/NewTodoSource" }
+    TodoChange:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1, description: The revision read; another is a conflict. }
+        attempt:
+          type: string
+          maxLength: 200
+          description: "A Bot's attempt (work.attempt), on an item in doing or review."
+    TodoEdit:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        attempt: { type: string, maxLength: 200 }
+        title: { type: string, minLength: 1, maxLength: 300 }
+        notes: { type: string, maxLength: 20000 }
+        done_when: { type: string, maxLength: 1000 }
+        due: { $ref: "#/components/schemas/TodoDue" }
+        assignee: { $ref: "#/components/schemas/TodoAssignee" }
+    TodoDone:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        attempt: { type: string, maxLength: 200 }
+        done_by: { $ref: "#/components/schemas/TodoAssignee" }
+        reason: { type: string, maxLength: 2000 }
+        evidence: { type: array, maxItems: 20, items: { $ref: "#/components/schemas/TodoLink" } }
+    TodoDrop:
+      type: object
+      required: [revision, reason]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        attempt: { type: string, maxLength: 200 }
+        reason: { type: string, minLength: 1, maxLength: 2000 }
+        evidence: { type: array, maxItems: 20, items: { $ref: "#/components/schemas/TodoLink" } }
+    TodoDuplicate:
+      type: object
+      required: [revision, of]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        of: { type: string, pattern: "^tdo_[A-Za-z0-9_]{1,60}$", description: The to-do it duplicates. }
+    TodoSnooze:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        until: { type: string, format: date-time, description: "Hidden until then; absent, shown again." }
+    TodoRelease:
+      type: object
+      required: [revision, reason]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        attempt: { type: string, maxLength: 200 }
+        reason: { type: string, minLength: 1, maxLength: 2000 }
