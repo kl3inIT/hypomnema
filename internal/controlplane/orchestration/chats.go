@@ -89,9 +89,9 @@ type Chat struct {
 	LastLine string
 	// Routine says the chat was opened for a Routine's run, and Channel that it is a Lark chat: a person's or a
 	// group's at a Channel, one someone other than the owner wrote in, or another person's from before sender ids,
-	// titled "Lark: <name>" with Lark's "[<name>]: " label in its lines (issue #923). Neither is ever a Bot's main
-	// chat, as OpenMausBot's main thread is never a routine's run nor a channel's thread (server/main-thread.ts,
-	// server/index.ts mainThreadTasks).
+	// titled "Lark: <name>" with Lark's "[Lark message from <name>, who is not the owner. …]" label in its lines
+	// (issue #923). Neither is ever a Bot's main chat, as OpenMausBot's main thread is never a routine's run nor a
+	// channel's thread (server/main-thread.ts, server/index.ts mainThreadTasks).
 	Routine   bool
 	Channel   bool
 	CreatedAt time.Time

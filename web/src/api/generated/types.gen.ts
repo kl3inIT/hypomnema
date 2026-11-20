@@ -4096,7 +4096,7 @@ export type Chat = {
    */
   routine: boolean;
   /**
-   * A Lark chat (issue #923): a person's or a group's at a Channel, one someone other than the owner wrote in, or another person's from before sender ids (titled "Lark: <name>", with Lark's "[<name>]: " label in its lines); it is never its Bot's main chat.
+   * A Lark chat (issue #923): a person's or a group's at a Channel, one someone other than the owner wrote in, or another person's from before sender ids (titled "Lark: <name>", with Lark's "[Lark message from <name>, who is not the owner. …]" label in its lines); it is never its Bot's main chat.
    */
   channel: boolean;
   created_at: string;

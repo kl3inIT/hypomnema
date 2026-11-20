@@ -184,7 +184,7 @@ there, a Routine's chat and a Lark chat; the web's Bot row menu and `hypomnema c
 another chat to read it (a card, a question, an approval, a link) does not move the main chat. A chat carries
 `routine` (opened for a Routine's run: named by a run, or opened with a Routine's prompt) and `channel` (a Lark chat:
 mapped in `channel_chats`, a group's, one someone other than the owner wrote in, or another person's chat from
-before sender ids: titled "Lark: <name>", as migration 138 tells them, with a line Lark labelled "[<name>]: ", so
+before sender ids: titled "Lark: <name>", as migration 138 tells them, with a line Lark labelled "[Lark message from <name>, who is not the owner. …]", so
 that a web chat the owner began with "Lark: " is not one), read in `GetChat` and in a list
 by the same rules (`queries/chats.sql` `GetChatMarks`); neither is ever a main chat. The migration chose each Bot's main chat among its chats that are not a
 Lark chat (no `channel_chats` row), a Lark group's (`channel_group`), another person's (a person message with a

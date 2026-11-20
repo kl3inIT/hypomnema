@@ -407,7 +407,7 @@ SELECT
         OR (c.title LIKE 'Lark: %' AND EXISTS (
             SELECT 1 FROM chat_messages m
             WHERE m.chat_id = c.id AND m.role = 'owner' AND m.sender_id IS NULL
-              AND m.text LIKE '[' || substr(c.title, 7) || ']: %'
+              AND m.text LIKE '[Lark message from ' || substr(c.title, 7) || ', who is not the owner.%'
         )) AS INTEGER) AS channel
 FROM chats c WHERE c.id = ?1
 `
@@ -424,7 +424,8 @@ type GetChatMarksRow struct {
 // (channel_chats), a group's (channel_group, which a group's later chats keep after a reset), one someone other
 // than the owner wrote in (sender_id, migration 00087), or another person's direct chat from before 00087 whose
 // mapping a /new moved: titled "Lark: <name>", as migration 00138 tells them, with a line of the owner's role that
-// Lark labelled "[<name>]: ", as the Channel wrote another person's lines then (commit 49050bf6). The label is asked
+// opens with the label the Channel put on another person's direct message then, "[Lark message from <name>, who is
+// not the owner. ...]" (channels/channels.go before commit 49050bf6, unchanged since issue #136). The label is asked
 // too, since the web titles a chat by its first line and the owner may begin one with "Lark: ". ListChats reads the same marks by the same rules.
 func (q *Queries) GetChatMarks(ctx context.Context, id string) (GetChatMarksRow, error) {
 	row := q.db.QueryRowContext(ctx, getChatMarks, id)
@@ -952,7 +953,7 @@ SELECT chats.id, chats.title, chats.created_at, chats.updated_at, chats.bot_id, 
            OR (chats.title LIKE 'Lark: %' AND EXISTS (
                SELECT 1 FROM chat_messages m
                WHERE m.chat_id = chats.id AND m.role = 'owner' AND m.sender_id IS NULL
-                 AND m.text LIKE '[' || substr(chats.title, 7) || ']: %'
+                 AND m.text LIKE '[Lark message from ' || substr(chats.title, 7) || ', who is not the owner.%'
            )) AS INTEGER) AS channel,
        CAST(coalesce((
            SELECT substr(m.text, 1, 400) FROM chat_messages m

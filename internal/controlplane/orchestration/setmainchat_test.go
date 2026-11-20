@@ -8,11 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// oldLarkLabel is how the Lark Channel wrote another person's direct message before sender ids (channels/channels.go
+// before commit 49050bf6): a label, then the text.
+const oldLarkLabel = "[Lark message from Someone, who is not the owner. Questions for approval go to the owner.]\nhi"
+
 // Scenario: the owner makes an older chat of a Bot its main chat (issue #923). The chat chosen becomes the main
 // chat and the former one stays as it was; a chat of another Bot, one that is not there, a Routine's chat, a Lark
 // chat mapped to a person, a Lark group's chat, one another person wrote in and another person's from before sender
-// ids, titled "Lark: <name>" with Lark's "[<name>]: " label in its lines (migration 00138), are refused and leave the
-// main chat where it was; a Bot that is not there is not found. A web chat the owner began with "Lark: " is no Lark
+// ids, titled "Lark: <name>" with the label Lark put on that person's lines (migration 00138), are refused and leave
+// the main chat where it was; a Bot that is not there is not found. A web chat the owner began with "Lark: " is no Lark
 // chat and is made the main chat. Each chat says what it is when read alone and in a list.
 func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	t.Parallel()
@@ -57,8 +61,8 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 		`UPDATE chats SET channel_group = 1 WHERE id = '` + group.ID + `'`,
 		`INSERT INTO chat_messages (chat_id, role, kind, text, sender_id, sender_name, created_at)
 			VALUES ('` + wrote.ID + `', 'owner', '', 'hi', 'ou_other', 'Other', 1)`,
-		`INSERT INTO chat_messages (chat_id, role, kind, text, created_at)
-			VALUES ('` + titled.ID + `', 'owner', '', '[Someone]: hi', 1)`,
+		`INSERT INTO chat_messages (chat_id, role, kind, text, created_at) VALUES ('` + titled.ID + `', 'owner', '', '` +
+			oldLarkLabel + `', 1)`,
 	} {
 		_, err := w.db.ExecContext(ctx, stmt)
 		require.NoError(t, err, stmt)
