@@ -530,7 +530,7 @@ func (q *Queries) InsertRoutineRun(ctx context.Context, arg InsertRoutineRunPara
 }
 
 const listDecidedApprovalsOfRoutineRun = `-- name: ListDecidedApprovalsOfRoutineRun :many
-SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired FROM approvals WHERE routine_run_id = ?1 AND status <> 'pending'
+SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired, attempt_id FROM approvals WHERE routine_run_id = ?1 AND status <> 'pending'
 ORDER BY decided_at DESC, id DESC
 `
 
@@ -567,6 +567,7 @@ func (q *Queries) ListDecidedApprovalsOfRoutineRun(ctx context.Context, routineR
 			&i.RoutineRunID,
 			&i.Standing,
 			&i.Expired,
+			&i.AttemptID,
 		); err != nil {
 			return nil, err
 		}

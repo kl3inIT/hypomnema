@@ -131,6 +131,8 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 
 	before := snapshot(ctx, t, db)
 
+	// This migration and the ones before it only: a later one may add a column to a table the snapshot reads whole
+	// (the Inbox's adds approvals.attempt_id).
 	var version int64
 
 	for _, src := range p.ListSources() {
@@ -158,6 +160,9 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 	_, err = p.ApplyVersion(ctx, version, false)
 	require.NoError(t, err)
 	assert.Equal(t, before, snapshot(ctx, t, db), "taken back, nothing else changed either")
+
+	require.NoError(t, Migrate(ctx, db))
+	require.NoError(t, CheckSchema(ctx, db))
 }
 
 // chatRow is an INSERT of a chat.
