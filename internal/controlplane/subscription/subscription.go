@@ -67,7 +67,12 @@ var (
 
 // CoolingError says every usable account of a runtime waits for a usage
 // limit to end; Until is when the first one is free.
-type CoolingError struct{ Until time.Time }
+type CoolingError struct {
+	Until time.Time
+	// ListUnknown says no account is known to have the model asked for while an account's list of models is not
+	// known yet (TokenFor, issue #814): the request is to be tried again then, whatever an account answered before.
+	ListUnknown bool
+}
 
 func (e *CoolingError) Error() string {
 	return "every account waits for its usage limit, until " + e.Until.UTC().Format(time.RFC3339)
@@ -555,7 +560,7 @@ func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, 
 	case len(servers) > 0:
 		return s.tokenAmong(ctx, runtime, model, session, servers, skip)
 	case unknown:
-		return Token{}, &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry)}
+		return Token{}, &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry), ListUnknown: true}
 	case len(ofRuntime) == 0:
 		return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
 	default:
@@ -712,7 +717,7 @@ func (s *Service) notServedNow(ctx context.Context, runtime, model string) error
 	case len(ofRuntime) == 0 || len(servers) > 0:
 		return nil
 	case unknown:
-		return &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry)}
+		return &CoolingError{Until: s.clock.Now().Add(servedUnknownRetry), ListUnknown: true}
 	default:
 		return fmt.Errorf("%w: %s by no %s account", ErrModelNotServed, model, runtime)
 	}

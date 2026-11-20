@@ -164,7 +164,7 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 	case errors.As(err, &verify):
 		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrAccountResting, err)
 	case errors.As(err, &cooling):
-		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: cooling.Until}
+		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: cooling.Until, ListUnknown: cooling.ListUnknown}
 	case errors.Is(err, subscription.ErrNoAccount):
 		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrNoAccount, err)
 	case errors.Is(err, subscription.ErrModelNotServed):

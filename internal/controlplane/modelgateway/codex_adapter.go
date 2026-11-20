@@ -78,7 +78,12 @@ var ErrNoAccount = errors.New("no account can be used")
 var ErrAccountResting = errors.New("the account rests until its next try")
 
 // CoolingError says every account of a kind waits for a usage limit to end.
-type CoolingError struct{ Until time.Time }
+type CoolingError struct {
+	Until time.Time
+	// ListUnknown says no account is known to have the model asked for while an account's list of models is not
+	// known yet (issue #814).
+	ListUnknown bool
+}
 
 func (e *CoolingError) Error() string {
 	return "every account waits for its usage limit, until " + e.Until.UTC().Format(time.RFC3339)

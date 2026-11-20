@@ -3398,8 +3398,10 @@ capabilities do not exist yet.
     the 429 to try again in 30 s while one is not; the 401 of an account that lost the model is not passed on. The
     gateway's 404 for one target of a model does not answer for the others: the next target is tried, and the 404
     is the answer only when no target answered or cools. A `<provider>/<model>` name of Codex or Antigravity that
-    the provider's list no longer has, such as one dropped by the hourly reading, gets the same 404
-    `model_not_served` on chat, `/responses` and `/messages`, not 400 `model_not_found`. Reading OpenCode Go's wire
+    the provider's list does not have, such as one dropped by the hourly reading or not read yet, is routed by the
+    accounts' lists as a listed one is, on chat, `/responses` and `/messages`: served by an account whose list has
+    it, the 429 while a list is not known, the 404 `model_not_served` once every list is known, never 400
+    `model_not_found`. Reading OpenCode Go's wire
     and a model's window during a request waits no later than the request's one 30 s wait. Every request for a Codex
     or Antigravity account names its model (`underAccounts` refuses one that does not). Codex's images (`gpt-image-2`) and searches (`gpt-6-luna`)
     and Antigravity's searches (`gemini-2.5-flash`) call models those lists do not name, so they go to any account,

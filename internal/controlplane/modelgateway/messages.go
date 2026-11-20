@@ -110,13 +110,7 @@ func (s *Server) serveMessages(w http.ResponseWriter, r *http.Request, path stri
 		return
 	}
 
-	model, err := s.svc.GetModel(r.Context(), call.req.Model)
-	if errors.Is(err, ErrNotFound) && s.svc.notListed(r.Context(), call.req.Model) {
-		writeAnthropicError(w, http.StatusNotFound, "not_found_error", "", notServedMessage(call.req.Model))
-
-		return
-	}
-
+	model, err := s.modelOf(r.Context(), call.req.Model)
 	if errors.Is(err, ErrNotFound) || (err == nil && model.Capability != CapabilityChat) {
 		writeAnthropicError(w, http.StatusNotFound, "not_found_error", "",
 			fmt.Sprintf("the gateway does not serve a chat model named %q", call.req.Model))

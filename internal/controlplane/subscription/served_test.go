@@ -261,6 +261,7 @@ func TestAListNotKnownYetNeverLiftsTheFilter(t *testing.T) {
 	require.ErrorAs(t, err, &cooling, "to be tried again")
 	assert.NotEqual(t, pro.ID, token.AccountID)
 	assert.Equal(t, w.clock.Now().Add(30*time.Second), cooling.Until)
+	assert.True(t, cooling.ListUnknown)
 
 	_, ok := w.subs.ServedNames(t.Context(), "antigravity")
 	assert.False(t, ok, "no list while one is being read")
@@ -633,5 +634,6 @@ func TestAModelLostDuringARefreshWhileAListIsUnknownIsTriedAgain(t *testing.T) {
 	var cooling *subscription.CoolingError
 	require.ErrorAs(t, err, &cooling, "to be tried again, not ErrNoAccount")
 	assert.Equal(t, w.clock.Now().Add(30*time.Second), cooling.Until)
+	assert.True(t, cooling.ListUnknown, "whatever an account answered before")
 	assert.Empty(t, token.AccountID)
 }

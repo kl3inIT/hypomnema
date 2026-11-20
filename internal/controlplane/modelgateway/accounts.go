@@ -217,8 +217,11 @@ func (s *Server) tryAccounts(
 	}
 
 	// The last pick found that no account's list has the model now, the accounts already tried included: an answer
-	// one of them gave before it lost the model (a 401 whose refresh found it gone) says nothing more (issue #814).
-	if errors.Is(stopping, ErrModelNotServed) {
+	// one of them gave before it lost the model (a 401 whose refresh found it gone) says nothing more. The request is
+	// answered as at the start: the model is not served when every list is known, and to be tried again while one is
+	// not (issue #814).
+	var cooling *CoolingError
+	if errors.Is(stopping, ErrModelNotServed) || errors.As(stopping, &cooling) && cooling.ListUnknown {
 		if refusal != nil {
 			drain(refusal)
 		}
@@ -226,7 +229,6 @@ func (s *Server) tryAccounts(
 		return nil, stopping
 	}
 
-	var cooling *CoolingError
 	if firstFree != nil && (refusal != nil && refusal.StatusCode == http.StatusTooManyRequests ||
 		refusal == nil && errors.As(stopping, &cooling)) {
 		if until := firstFree(); !until.IsZero() {
@@ -241,6 +243,24 @@ func (s *Server) tryAccounts(
 	}
 
 	return nil, stopping
+}
+
+// modelOf is the model a request names: the gateway's own (Service.GetModel), or, when the accounts' lists route
+// their models (ModelTokens), a Codex or Antigravity model the provider no longer publishes, for those lists to
+// decide (Service.unlistedModel, issue #814).
+func (s *Server) modelOf(ctx context.Context, name string) (Model, error) {
+	model, err := s.svc.GetModel(ctx, name)
+	if !errors.Is(err, ErrNotFound) {
+		return model, err
+	}
+
+	if _, ok := s.accounts.(ModelTokens); ok {
+		if unlisted, ok := s.svc.unlistedModel(ctx, name); ok {
+			return unlisted, nil
+		}
+	}
+
+	return model, err
 }
 
 // modelNotServed is the answer when every account's list is known and none

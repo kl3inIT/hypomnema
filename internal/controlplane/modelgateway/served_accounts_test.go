@@ -21,7 +21,10 @@ type rosterGoogle struct {
 	googleAccount
 
 	served map[string][]string
-	asked  []string
+	// unknown are the accounts whose list is not known yet: while no account has the model, TokenFor says to try
+	// again in 30 s, as subscription.TokenFor does.
+	unknown []string
+	asked   []string
 	// waits are the moments each TokenFor's request stops waiting for the lists (AccountWaitEnds), zero when none.
 	waits []time.Time
 }
@@ -43,10 +46,15 @@ func (a *rosterGoogle) TokenFor(
 		}
 	}
 
-	none := len(others) == len(a.ids)
+	none, unknown := len(others) == len(a.ids), len(a.unknown) > 0
 	a.mu.Unlock()
 
-	if none {
+	switch {
+	case none && unknown:
+		return modelgateway.AccountToken{}, &modelgateway.CoolingError{
+			Until: time.Now().Add(30 * time.Second), ListUnknown: true,
+		}
+	case none:
 		return modelgateway.AccountToken{}, modelgateway.ErrModelNotServed
 	}
 
@@ -528,4 +536,76 @@ func TestAModelNoAccountServesIsAnsweredAlikeOnOrOffTheList(t *testing.T) {
 
 	assert.Zero(t, googleCalls.calls(), "no account was called")
 	assert.Zero(t, codexCalls.calls(), "no account was called")
+}
+
+// Scenario (review of #949): Google refuses the only account whose list has the model, and by then its list no longer
+// has it, while the other account's list is not known yet. The client is told to try again in 30 s, as at the start of
+// a pick, not given the account's 401.
+func TestARefusedAccountThatLostTheModelWhileAListIsUnknownIsTriedAgain(t *testing.T) {
+	t.Parallel()
+
+	account := &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_a", "acc_b"}}},
+		served:        map[string][]string{"acc_a": {"gemini-3.8-flash-high"}},
+		unknown:       []string{"acc_b"},
+	}
+
+	backend, got := cloudCode(t, func(w http.ResponseWriter, _ *http.Request) {
+		account.mu.Lock()
+		account.served["acc_a"] = nil
+		account.mu.Unlock()
+
+		http.Error(w, `{"error":{"code":401,"status":"UNAUTHENTICATED"}}`, http.StatusUnauthorized)
+	})
+	g := newAntigravityGateway(t, backend, account)
+
+	status, header, body := g.call(t, g.key, askFlash+`}`)
+	assert.Equal(t, http.StatusTooManyRequests, status, body)
+	assert.Equal(t, "30", header.Get("Retry-After"))
+	assert.Equal(t, 1, got.calls(), "the account was not asked again")
+}
+
+// Scenario (review of #949): while an Antigravity account's list is not known yet and no known list has the model,
+// a model asked for by its provider's name is told to try again in 30 s, whether the provider still publishes it or
+// not; a name the provider never published is not refused before the lists are known.
+func TestAModelOnOrOffTheListWaitsForAListNotKnownYet(t *testing.T) {
+	t.Parallel()
+
+	google, calls := cloudCode(t, stream(geminiEvents...))
+	chat := newAntigravityGateway(t, google, &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_pro", "acc_ultra"}}},
+		served:        map[string][]string{"acc_pro": {"gemini-3.1-pro-high"}},
+		unknown:       []string{"acc_ultra"},
+	})
+
+	for _, model := range []string{
+		"antigravity-subscription/gemini-3.8-flash-high", // on the provider's list
+		"antigravity-subscription/gemini-4-carbon-high",  // not on it
+	} {
+		status, header, body := chat.call(t, chat.key,
+			`{"model":"`+model+`","messages":[{"role":"user","content":"Hi"}]}`)
+		assert.Equal(t, http.StatusTooManyRequests, status, model+": "+body)
+		assert.Equal(t, "30", header.Get("Retry-After"), model)
+	}
+
+	assert.Zero(t, calls.calls(), "no account was called")
+}
+
+// Scenario (review of #949): a model the provider does not publish yet, but an account's own list has (the hourly
+// reading has not caught up), is served by that account.
+func TestAModelAnAccountHasIsServedBeforeItIsPublished(t *testing.T) {
+	t.Parallel()
+
+	google, got := cloudCode(t, stream(geminiEvents...))
+	chat := newAntigravityGateway(t, google, &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_pro", "acc_ultra"}}},
+		served:        map[string][]string{"acc_ultra": {"gemini-4-carbon-high"}},
+	})
+
+	status, _, body := chat.call(t, chat.key,
+		`{"model":"antigravity-subscription/gemini-4-carbon-high","messages":[{"role":"user","content":"Hi"}]}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	header, _ := got.last(t)
+	assert.Equal(t, "Bearer acc_ultra-access-0", header.Get("Authorization"))
 }
