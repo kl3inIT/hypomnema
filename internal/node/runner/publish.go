@@ -67,6 +67,7 @@ func githubPushRemote(o nodeproto.Offer) bool {
 
 func (s *Supervisor) repoSource(o nodeproto.Offer) (worktree.Source, error) {
 	src, err := worktree.SourceOf(o.RepoHost, o.RepoKind, o.Repo, o.RepoToken)
+	src.Identity = githost.Identity{Name: o.GitName, Email: o.GitEmail}
 	if err != nil || o.RepoSSHURL == "" {
 		return src, err
 	}

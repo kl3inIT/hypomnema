@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
@@ -382,6 +384,129 @@ func TestANodeIsAskedWhichGitHostsItReaches(t *testing.T) {
 	assert.Equal(t, []string{"github.com"}, nodes[0].GitHosts)
 }
 
+// Scenario (issue #991): the first offer after a token is given, while its account is still being read. The offer is
+// held, and the node's heartbeats are answered meanwhile; once the read ends the offer goes out with the account.
+func TestAnOfferWaitsForItsTokensAccount(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+
+	pending := make(chan struct{})
+	var read atomic.Bool
+
+	p.api.WithHostTokens(func(context.Context, string, string) (HostCredential, bool) {
+		if !read.Load() {
+			return HostCredential{Token: "ghp_new", Pending: pending}, true
+		}
+
+		return HostCredential{
+			Token: "ghp_new", Identity: githost.Identity{Name: "octo", Email: "1+octo@users.noreply.github.com"},
+		}, true
+	})
+
+	conn := p.connect()
+	p.task()
+
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	for {
+		var msg nodeproto.Message
+		require.NoError(t, wsjson.Read(ctx, conn, &msg))
+		require.NotEqual(t, nodeproto.TypeOffer, msg.Type, "the offer is held while its account is read")
+
+		if msg.Type == nodeproto.TypeHeartbeatAck {
+			break
+		}
+	}
+
+	read.Store(true)
+	close(pending)
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	assert.Equal(t, [3]string{"ghp_new", "octo", "1+octo@users.noreply.github.com"},
+		[3]string{offer.RepoToken, offer.GitName, offer.GitEmail})
+}
+
+// Scenario (issue #991, review round 3): the token is replaced while its offer waits for the old token's account.
+// The old read ending does not end the offer's wait: the offer goes out with the new token only once the new
+// token's account is read, and carries that account.
+func TestReviewPendingOfferTokenRotation(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+
+	oldRead, newRead, askedNew := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
+
+	var state atomic.Int32 // 0: the old token, being read; 1: the new token, being read; 2: the new token, read
+
+	p.api.WithHostTokens(func(context.Context, string, string) (HostCredential, bool) {
+		switch state.Load() {
+		case 0:
+			return HostCredential{Token: "ghp_old", Pending: oldRead}, true
+		case 1:
+			select {
+			case askedNew <- struct{}{}:
+			default:
+			}
+
+			return HostCredential{Token: "ghp_new", Pending: newRead}, true
+		default:
+			return HostCredential{
+				Token: "ghp_new", Identity: githost.Identity{Name: "hubot", Email: "2+hubot@users.noreply.github.com"},
+			}, true
+		}
+	})
+
+	conn := p.connect()
+	p.task()
+
+	// The offer is held for the old token's account; then the token is replaced and the old read ends.
+	heartbeat := func() {
+		p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{})
+
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+
+		for {
+			var msg nodeproto.Message
+			require.NoError(t, wsjson.Read(ctx, conn, &msg))
+			require.NotEqual(t, nodeproto.TypeOffer, msg.Type, "the offer is held while its account is read")
+
+			if msg.Type == nodeproto.TypeHeartbeatAck {
+				return
+			}
+		}
+	}
+
+	heartbeat()
+	state.Store(1)
+	close(oldRead)
+
+	select {
+	case <-askedNew:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the offer was not looked at again after the old read ended")
+	}
+
+	// The end of the old read may reach the session after a heartbeat: the offer must stay unsent for a while, with
+	// the new read still pending, not only until the next heartbeat.
+	for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); {
+		heartbeat()
+	}
+
+	state.Store(2)
+	close(newRead)
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	assert.Equal(t, [3]string{"ghp_new", "hubot", "2+hubot@users.noreply.github.com"},
+		[3]string{offer.RepoToken, offer.GitName, offer.GitEmail})
+}
+
 // Scenario: the owner gave github.com a token. The offer of a Task on GitHub
 // carries it, read as the offer is sent; a host without a token, or a control
 // plane that keeps none, sends the offer without one.
@@ -391,10 +516,13 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	p := newPlane(t)
 
 	asked := make(chan string, 4)
-	p.api.WithHostTokens(func(_ context.Context, host, path string) (string, bool) {
+	p.api.WithHostTokens(func(_ context.Context, host, path string) (HostCredential, bool) {
 		asked <- host + " " + path
 
-		return "ghp_for_this_dispatch", host == "github.com"
+		return HostCredential{ //nolint:gosec // a test's made-up token
+			Token:    "ghp_for_this_dispatch",
+			Identity: githost.Identity{Name: "octo", Email: "1+octo@users.noreply.github.com"},
+		}, host == "github.com"
 	})
 
 	conn := p.connect()
@@ -405,6 +533,8 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	assert.Equal(t, "github.com kl3inIT/second-bite", <-asked, "asked by host and repository")
 	assert.Equal(t, [3]string{"github.com", "github", "ghp_for_this_dispatch"},
 		[3]string{offer.RepoHost, offer.RepoKind, offer.RepoToken})
+	assert.Equal(t, [2]string{"octo", "1+octo@users.noreply.github.com"}, [2]string{offer.GitName, offer.GitEmail},
+		"with the account the token belongs to (issue #991)")
 
 	stored, err := p.svc.NodePending(t.Context(), p.node.ID)
 	require.NoError(t, err)
@@ -412,7 +542,9 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	assert.Empty(t, stored.Offers[0].RepoToken, "orchestration never holds the token")
 
 	// Another connection of the node is told again; a host that has no token gives an offer without one.
-	p.api.WithHostTokens(func(context.Context, string, string) (string, bool) { return "", false })
+	p.api.WithHostTokens(func(context.Context, string, string) (HostCredential, bool) {
+		return HostCredential{}, false
+	})
 
 	again := p.connect()
 
@@ -420,6 +552,7 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	require.NoError(t, json.Unmarshal(p.next(again, nodeproto.TypeOffer).Payload, &second))
 	assert.Equal(t, offer.DispatchID, second.DispatchID)
 	assert.Empty(t, second.RepoToken)
+	assert.Empty(t, second.GitName+second.GitEmail, "no token, no account")
 }
 
 // Scenario: the node sends a running worker's transcript. Each batch is

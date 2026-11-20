@@ -273,22 +273,25 @@ type ClientToken struct {
 }
 
 type Connection struct {
-	Integration  string
-	Label        string
-	Account      sql.NullString
-	Secret       string
-	CreatedAt    int64
-	UpdatedAt    int64
-	Services     sql.NullString
-	Chats        int64
-	Address      sql.NullString
-	Version      sql.NullString
-	SignInFailed int64
-	AppID        sql.NullString
-	AppLabel     sql.NullString
-	Access       sql.NullString
-	Proxy        sql.NullString
-	DialAddress  sql.NullString
+	Integration        string
+	Label              string
+	Account            sql.NullString
+	Secret             string
+	CreatedAt          int64
+	UpdatedAt          int64
+	Services           sql.NullString
+	Chats              int64
+	Address            sql.NullString
+	Version            sql.NullString
+	SignInFailed       int64
+	AppID              sql.NullString
+	AppLabel           sql.NullString
+	Access             sql.NullString
+	Proxy              sql.NullString
+	DialAddress        sql.NullString
+	GitName            sql.NullString
+	GitEmail           sql.NullString
+	GitSecretVersionID sql.NullString
 }
 
 type Conversation struct {

@@ -2916,6 +2916,33 @@ flowchart LR
     ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
     A Bot given the same Connection reads GitHub through the service proxy instead (issue #685, under
     Integrations).
+  - The worker commits as the account its token belongs to (issue
+    [#991](https://github.com/kl3inIT/hypomnema/issues/991)), not as the node user's `~/.gitconfig` says. The
+    control plane reads that account once a token at the host's `GET /user`, with the token and through the
+    Connection's route, and keeps it with the Connection (`connections.git_name`, `git_email`, and
+    `git_secret_version_id`, the id of the vault secret version it was read with, which is never given again: a
+    token replaced, by connecting again, on the secret, or after a disconnect, is read again; it is kept only while
+    that version is still current, so a read that ends late never overwrites a newer token's account). It reads
+    beside the offers, never in the node API's loop, which also answers heartbeats: when a token is connected, for
+    every Connection when the control plane starts, and at the first offer of a token not read yet. An offer whose
+    account is being read is held, beside the loop, until the read ends or 15 seconds pass, then goes out; a token
+    replaced meanwhile is waited for in the same 15 seconds, so the offer never carries the new token without its
+    account because the old token's read ended.
+    GitHub gives the login and `<id>+<login>@users.noreply.<host>` (`users.noreply.github.com`; on a GitHub
+    Enterprise host its REST API under `/api/v3` and its host name without the port, as claude-code-action does,
+    `src/github/operations/git-config.ts:29-42`); GitLab the username and the account's `commit_email`, else its
+    `public_email`. An identity git cannot take, or that holds the token, is refused; `/user` is followed through
+    a redirect only within the same https origin, so the token never goes to http or another host. The offer carries it
+    (`git_name`, `git_email`), and the node puts `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` and
+    `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` into the worker's environment and the repository's setup script's;
+    git takes them over any configuration file. From Paperclip (`server/src/services/git-credentials.ts:127-153`,
+    the run's GitHub account as author and committer) and Coder (`examples/templates/docker/main.tf:45-53`,
+    `GIT_AUTHOR_*`/`GIT_COMMITTER_*` in the agent's environment). A Dispatch that goes without an account is logged once a case
+    (a host with no token for the repository, a Connection whose secret cannot be opened or holds no token, a read
+    that failed or did not end in time), and nothing is set: git keeps what the machine says. A failed read is logged with the
+    host's status code only, never what it answered, so a host or proxy that repeats the token cannot put it in the
+    log. The `Co-Authored-By` trailer stays, and the node's `~/.gitconfig` is not hidden (no `GIT_CONFIG_GLOBAL`),
+    unlike Paperclip's managed connection (`:344-347`), since the worker relies on its other settings.
   - A host without a token works as before: git and the host's tool use the node user's own logins.
   - A registered repository may carry an SSH address (`repos add|set --ssh-url`, `ssh_url` on `/repos/{name}`,
     `repos.ssh_url`; issue [#625](https://github.com/kl3inIT/hypomnema/issues/625)): its node then clones and
