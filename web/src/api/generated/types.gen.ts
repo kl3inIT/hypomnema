@@ -1448,9 +1448,9 @@ export type Integration = {
   id: string;
   name: string;
   /**
-   * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password; device is the owner's own messaging account (WhatsApp), linked by a QR code his phone scans.
+   * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password; device is the owner's own messaging account (WhatsApp), linked by a QR code his phone scans; serviceaccount is a Google service account's JSON key (BigQuery).
    */
-  kind: 'oauth' | 'app' | 'account' | 'role' | 'device';
+  kind: 'oauth' | 'app' | 'account' | 'role' | 'device' | 'serviceaccount';
   /**
    * The id of the OAuth client it signs in with; absent until one is set, and for an app, whose Connections each have their own. Not secret.
    */
@@ -1645,6 +1645,7 @@ export type IntegrationConnection = {
    */
   dial_address?: string;
   session?: DeviceSession;
+  bigquery?: BigQuerySettings;
   /**
    * The actions the account cannot do at the service, as last read, in the order they are listed. A request for one is refused before it is sent. Empty when it can do all, or nothing was read.
    */
@@ -1754,6 +1755,133 @@ export type ConnectionCannot = {
 };
 
 /**
+ * What the owner set for a BigQuery Connection beside its key (issue #976). The key itself is never in an answer; account is the service account's client_email.
+ */
+export type BigQuerySettings = {
+  /**
+   * Where jobs run and are billed.
+   */
+  billing_project: string;
+  /**
+   * The GA4 export datasets, project.dataset. Not a filter; the account's IAM roles are.
+   */
+  datasets: Array<string>;
+  /**
+   * Where jobs run; absent takes the dry run's.
+   */
+  location?: string;
+  /**
+   * The cap on the bytes one query job may bill on demand.
+   */
+  max_bytes_billed: number;
+};
+
+export type BigQueryDatasetList = {
+  data: Array<BigQueryDataset>;
+};
+
+export type BigQueryDataset = {
+  project: string;
+  dataset: string;
+};
+
+export type BigQueryTableList = {
+  data: Array<BigQueryTableSummary>;
+  /**
+   * More tables than are listed.
+   */
+  truncated: boolean;
+};
+
+export type BigQueryTableSummary = {
+  table: string;
+  /**
+   * TABLE, VIEW, MATERIALIZED_VIEW, EXTERNAL or SNAPSHOT.
+   */
+  type: string;
+};
+
+export type BigQueryField = {
+  name: string;
+  type: string;
+  /**
+   * REPEATED or REQUIRED; absent is nullable.
+   */
+  mode?: string;
+  description?: string;
+  fields?: Array<BigQueryField>;
+};
+
+export type BigQueryTable = {
+  project: string;
+  dataset: string;
+  table: string;
+  type: string;
+  description?: string;
+  rows: number;
+  bytes: number;
+  created: string;
+  modified: string;
+  partitioning?: string;
+  schema: Array<BigQueryField>;
+};
+
+export type BigQueryQuery = {
+  /**
+   * One GoogleSQL SELECT over the native GA4 tables: no script, no statements but one, no CREATE, DECLARE, SET, EXPORT or CALL, no user functions, no ML., AI. or VECTOR_SEARCH, no EXTERNAL_QUERY, no legacy SQL.
+   */
+  sql: string;
+  /**
+   * Only check the query and say the bytes it would process.
+   */
+  dry_run?: boolean;
+  /**
+   * The rows to answer with; default 50.
+   */
+  max_rows?: number;
+  /**
+   * How long the job may run; default 30. At the limit its cancel is requested.
+   */
+  timeout_seconds?: number;
+  /**
+   * The chat a coordinator asks from.
+   */
+  chat_id?: string;
+};
+
+export type BigQueryResult = {
+  /**
+   * The job's project; absent for a dry run.
+   */
+  project?: string;
+  /**
+   * The job's id, hyp-<uuid>; absent for a dry run.
+   */
+  job_id?: string;
+  location?: string;
+  dry_run: boolean;
+  statement_type: string;
+  /**
+   * What the dry run estimated, or what the job processed.
+   */
+  bytes_processed: number;
+  bytes_billed: number;
+  maximum_bytes_billed: number;
+  cache_hit?: boolean;
+  columns: Array<string>;
+  rows: Array<Array<unknown>>;
+  total_rows: number;
+  /**
+   * The job gave more rows than are answered.
+   */
+  truncated: boolean;
+  /**
+   * When the job ended; the figures are as of then.
+   */
+  computed_at?: string;
+};
+
+/**
  * An account of a service at an address of its own (address, username, password), an app of a service (app_id, app_secret), or a role of an AWS account (role_arn, key, and access_key_id with secret_access_key when the key is new or replaced).
  */
 export type NewAccountConnection = {
@@ -1783,6 +1911,22 @@ export type NewAccountConnection = {
    */
   key?: string;
   access_key_id?: string;
+  /**
+   * For BigQuery, the GA4 export datasets as project.dataset; checked when connecting.
+   */
+  datasets?: Array<string>;
+  /**
+   * For BigQuery, where jobs run and are billed; default the key's project_id.
+   */
+  billing_project?: string;
+  /**
+   * For BigQuery, where jobs run, such as US; default the dry run's.
+   */
+  location?: string;
+  /**
+   * For BigQuery, the cap on the bytes one query job may bill on demand; default 10 GiB.
+   */
+  max_bytes_billed?: number;
 };
 
 export type SupersetDashboardSummary = {
@@ -2030,6 +2174,10 @@ export type ConnectionUse = {
    * Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port or not; the certificate is still checked against the host. Temporary. Empty clears it.
    */
   dial_address?: string;
+  /**
+   * For a BigQuery Connection (issue #976): the cap on the bytes one query job may bill on demand, for its dry run and its job.
+   */
+  max_bytes_billed?: number;
 };
 
 export type NewIntegrationClient = {
@@ -4918,6 +5066,26 @@ export type NewAccountConnectionWritable = {
   key?: string;
   access_key_id?: string;
   secret_access_key?: string;
+  /**
+   * For BigQuery (issue #976): the service account's JSON key file whole, a new key of an account made for this alone. Never answered back. Absent keeps the key of the label.
+   */
+  service_account_key?: string;
+  /**
+   * For BigQuery, the GA4 export datasets as project.dataset; checked when connecting.
+   */
+  datasets?: Array<string>;
+  /**
+   * For BigQuery, where jobs run and are billed; default the key's project_id.
+   */
+  billing_project?: string;
+  /**
+   * For BigQuery, where jobs run, such as US; default the dry run's.
+   */
+  location?: string;
+  /**
+   * For BigQuery, the cap on the bytes one query job may bill on demand; default 10 GiB.
+   */
+  max_bytes_billed?: number;
 };
 
 export type NewIntegrationClientWritable = {
@@ -7603,6 +7771,161 @@ export type RelaySupersetRequestResponses = {
 };
 
 export type RelaySupersetRequestResponse = RelaySupersetRequestResponses[keyof RelaySupersetRequestResponses];
+
+export type ListBigQueryDatasetsData = {
+  body?: never;
+  headers?: {
+    /**
+     * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+     */
+    'Hypomnema-Routine-Run'?: string;
+  };
+  path: {
+    label: string;
+  };
+  query?: {
+    /**
+     * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+     */
+    chat_id?: string;
+  };
+  url: '/integrations/bigquery/connections/{label}/datasets';
+};
+
+export type ListBigQueryDatasetsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListBigQueryDatasetsError = ListBigQueryDatasetsErrors[keyof ListBigQueryDatasetsErrors];
+
+export type ListBigQueryDatasetsResponses = {
+  /**
+   * The datasets.
+   */
+  200: BigQueryDatasetList;
+};
+
+export type ListBigQueryDatasetsResponse = ListBigQueryDatasetsResponses[keyof ListBigQueryDatasetsResponses];
+
+export type ListBigQueryTablesData = {
+  body?: never;
+  headers?: {
+    /**
+     * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+     */
+    'Hypomnema-Routine-Run'?: string;
+  };
+  path: {
+    label: string;
+    /**
+     * The dataset, project.dataset.
+     */
+    dataset: string;
+  };
+  query?: {
+    /**
+     * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+     */
+    chat_id?: string;
+  };
+  url: '/integrations/bigquery/connections/{label}/datasets/{dataset}/tables';
+};
+
+export type ListBigQueryTablesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListBigQueryTablesError = ListBigQueryTablesErrors[keyof ListBigQueryTablesErrors];
+
+export type ListBigQueryTablesResponses = {
+  /**
+   * The tables.
+   */
+  200: BigQueryTableList;
+};
+
+export type ListBigQueryTablesResponse = ListBigQueryTablesResponses[keyof ListBigQueryTablesResponses];
+
+export type GetBigQueryTableData = {
+  body?: never;
+  headers?: {
+    /**
+     * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+     */
+    'Hypomnema-Routine-Run'?: string;
+  };
+  path: {
+    label: string;
+    /**
+     * The table, project.dataset.table.
+     */
+    table: string;
+  };
+  query?: {
+    /**
+     * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+     */
+    chat_id?: string;
+  };
+  url: '/integrations/bigquery/connections/{label}/tables/{table}';
+};
+
+export type GetBigQueryTableErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetBigQueryTableError = GetBigQueryTableErrors[keyof GetBigQueryTableErrors];
+
+export type GetBigQueryTableResponses = {
+  /**
+   * The table.
+   */
+  200: BigQueryTable;
+};
+
+export type GetBigQueryTableResponse = GetBigQueryTableResponses[keyof GetBigQueryTableResponses];
+
+export type RunBigQueryQueryData = {
+  body: BigQueryQuery;
+  headers?: {
+    /**
+     * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+     */
+    'Hypomnema-Routine-Run'?: string;
+  };
+  path: {
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/bigquery/connections/{label}/query';
+};
+
+export type RunBigQueryQueryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RunBigQueryQueryError = RunBigQueryQueryErrors[keyof RunBigQueryQueryErrors];
+
+export type RunBigQueryQueryResponses = {
+  /**
+   * What the query gave, or its dry run.
+   */
+  200: BigQueryResult;
+};
+
+export type RunBigQueryQueryResponse = RunBigQueryQueryResponses[keyof RunBigQueryQueryResponses];
 
 export type ListApprovalsData = {
   body?: never;
