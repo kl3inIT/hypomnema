@@ -8,7 +8,8 @@ VALUES (@id, @objective, 'open', @created_by, @repo, @repo_host, @base, @coordin
 SELECT * FROM runs WHERE id = @id;
 
 -- name: BindRunToChat :exec
-UPDATE runs SET chat_id = @chat_id, coordinator_token_id = @coordinator_token_id, bot_id = @bot, updated_at = @now
+UPDATE runs SET chat_id = @chat_id, coordinator_token_id = @coordinator_token_id, bot_id = @bot, updated_at = @now,
+    wake_after = coalesce((SELECT max(seq) FROM events WHERE run_id = runs.id), 0)
 WHERE id = @id;
 
 -- name: ChatHasOpenRuns :one

@@ -177,6 +177,10 @@ func TestAChatIsServedFromTheAntigravitySubscription(t *testing.T) {
 	assert.EqualValues(t, 30, u.Tokens.Prompt)
 	assert.EqualValues(t, 11, u.Tokens.Completion)
 	assert.EqualValues(t, 4, u.Tokens.Reasoning)
+	assert.Equal(t, "gemini-3.8-flash-high", u.UpstreamModel)
+	assert.Equal(t, "gemini-3.8-flash", u.PricedModel)
+	require.NotNil(t, u.CostMicros)
+	assert.EqualValues(t, 64, *u.CostMicros)
 
 	status, headers, body := g.call(t, g.key, askFlash+`}`)
 	require.Equal(t, http.StatusOK, status, body)

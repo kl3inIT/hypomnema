@@ -100,7 +100,8 @@ func (m Maker) setup(ctx context.Context, path string) {
 
 	var output bytes.Buffer
 
-	cmd := exec.CommandContext(ctx, shell, "-c", script) //nolint:gosec // the repository's own declared script
+	argv := m.Isolation.Wrap([]string{shell, "-c", script}, m.TempDir)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the repository's own declared script
 	cmd.Dir = path
 	cmd.Stdout, cmd.Stderr = &output, &output
 	// Git must not wait for a person (Orca: promptGuardShellEnv).

@@ -130,8 +130,9 @@ hypomnema runs wait <run_id> --after <after> --json
 ```
 
 This is optional observation, not how a Run keeps its coordinator. The assigned chat is woken even when the
-session that created the Run has closed. The wait returns when a Task ended or was blocked, a worker asked you a question, an escalation
-arrived, or the Run ended. It prints those events, the `after` for the next wait, and `next`. Start with `--after 0`.
+session that created the Run has closed. The wait returns when a Task ended or was blocked, a worker asked a
+question, an escalation arrived, or the Run ended. It prints those events, the `after` for the next wait, and
+`next`. Start with `--after 0`.
 
 - When the control plane says the owner assigned an existing Run to this chat, start with `runs show <run_id> --json`.
   Read the current Tasks, open questions (`questions --run <run_id> --json`) and PR evidence. Continue only what

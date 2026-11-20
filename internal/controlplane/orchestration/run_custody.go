@@ -32,6 +32,14 @@ func (s *Service) runChat(ctx context.Context, q *store.Queries, now int64, chat
 		return store.Chat{}, notFound(err, "chat", chatID)
 	}
 
+	read, err := q.IsReadRun(ctx, chatID)
+	if err != nil {
+		return store.Chat{}, fmt.Errorf("reading routine access of chat %s: %w", chatID, err)
+	}
+	if read {
+		return store.Chat{}, fmt.Errorf("%w: chat %s is read-only and cannot coordinate a Run", ErrConflict, chatID)
+	}
+
 	return chat, nil
 }
 

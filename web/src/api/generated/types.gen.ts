@@ -481,6 +481,7 @@ export type Node = {
    * The node said at its last connect that its user can use /dev/kvm, which an Android emulator needs.
    */
   kvm?: boolean;
+  temp_isolation?: NodeTempIsolation;
   /**
    * Its Dispatches that have not settled.
    */
@@ -1259,6 +1260,17 @@ export type MachineProvider = {
 
 export type MachineProviderList = {
   data: Array<MachineProvider>;
+};
+
+/**
+ * Whether the node runs its workers with their Dispatch's temp directory as /tmp and /var/tmp, in bubblewrap, as it said at its last connect (issue #895). Off, they run with TMPDIR only, and what they write to /tmp stays after their Task. Left out for a node whose version does not say.
+ */
+export type NodeTempIsolation = {
+  on: boolean;
+  /**
+   * Why it is off, in the node's words.
+   */
+  reason?: string;
 };
 
 export type NodeDisk = {

@@ -154,7 +154,7 @@ SELECT DISTINCT chat_id FROM runs WHERE chat_id IS NOT NULL;
 -- Events of the chat's Runs after a cursor that need a coordinator (wakeText
 -- in chats.go says the same), so events that wake nobody never fill the page.
 SELECT e.* FROM events e JOIN runs r ON r.id = e.run_id
-WHERE r.chat_id = @chat_id AND e.seq > @after
+WHERE r.chat_id = @chat_id AND e.seq > @after AND e.seq > r.wake_after
   AND (
     e.kind IN ('escalation', 'run.finished', 'run.canceled')
     OR (e.kind = 'task.status'

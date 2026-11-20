@@ -2009,5 +2009,793 @@
       "text"
     ],
     "reasoning": false
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "beam-free",
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 131072,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "cat-jam-free",
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 131072,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "claude-haiku-5-5",
+    "input": 100000,
+    "output": 500000,
+    "cache_read": 10000,
+    "cache_write": 125000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "crouton-alpha-free",
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 270000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "deepseek-v4-pro",
+    "input": 660000,
+    "output": 1980000,
+    "cache_read": 22000,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 384000,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "high",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "deepseek-v4.1-flash",
+    "input": 150000,
+    "output": 600000,
+    "cache_read": 3000,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 384000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "high",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "gemini-4-argon",
+    "input": 2000000,
+    "output": 10000000,
+    "cache_read": 100000,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "gemini-4-argon-contributor",
+    "input": 4000000,
+    "output": 20000000,
+    "cache_read": 200000,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "glm-5.2",
+    "input": 1400000,
+    "output": 4400000,
+    "cache_read": 260000,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 131072,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "high",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "glm-5.3",
+    "input": 1400000,
+    "output": 4400000,
+    "cache_read": 260000,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 131072,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "high",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "glm-5.3-flash",
+    "input": 150000,
+    "output": 500000,
+    "cache_read": 30000,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 131072,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "high",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "gpt-5.6-luna",
+    "input": 200000,
+    "output": 1200000,
+    "cache_read": 20000,
+    "cache_write": 250000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "gpt-6-luna",
+    "input": 100000,
+    "output": 500000,
+    "cache_read": 10000,
+    "cache_write": 125000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "grok-4.7",
+    "input": 2000000,
+    "output": 6000000,
+    "cache_read": 500000,
+    "cache_write": null,
+    "context": 500000,
+    "max_output": 500000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "hy3",
+    "input": 140000,
+    "output": 580000,
+    "cache_read": 35000,
+    "cache_write": null,
+    "context": 256000,
+    "max_output": 128000,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "high"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "hy4",
+    "input": 834000,
+    "output": 2501000,
+    "cache_read": 42000,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "high"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "hy4-flash-free",
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "high"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "hy4-preview",
+    "input": 834000,
+    "output": 2501000,
+    "cache_read": 42000,
+    "cache_write": null,
+    "context": 1024000,
+    "max_output": 64000,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "high"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "iceman-contributor-free",
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": null,
+    "context": 262144,
+    "max_output": 131072,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "kimi-k2.7-code",
+    "input": 950000,
+    "output": 4000000,
+    "cache_read": 190000,
+    "cache_write": null,
+    "context": 262144,
+    "max_output": 262144,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "kimi-k3",
+    "input": 3000000,
+    "output": 15000000,
+    "cache_read": 300000,
+    "cache_write": 3000000,
+    "context": 1048576,
+    "max_output": 1048576,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "kimi-k3.1-pro",
+    "input": 2000000,
+    "output": 10000000,
+    "cache_read": 200000,
+    "cache_write": 2000000,
+    "context": 1048576,
+    "max_output": 1048576,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "high",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "longcat-2.0",
+    "input": 300000,
+    "output": 1200000,
+    "cache_read": 6000,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 131072,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "longcat-2.5-free",
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 262144,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "longcat-2.5-preview-free",
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 131072,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "mimo-v2.5",
+    "input": 140000,
+    "output": 280000,
+    "cache_read": 2800,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "mimo-v2.5-pro",
+    "input": 435000,
+    "output": 870000,
+    "cache_read": 3625,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 128000,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "mimo-v2.6-flash",
+    "input": 140000,
+    "output": 280000,
+    "cache_read": 2800,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 131072,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "mimo-v2.6-pro",
+    "input": 435000,
+    "output": 870000,
+    "cache_read": 3625,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 131072,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "minimax-m2.7",
+    "input": 300000,
+    "output": 1200000,
+    "cache_read": 60000,
+    "cache_write": 375000,
+    "context": 204800,
+    "max_output": 131072,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "minimax-m3",
+    "input": 300000,
+    "output": 1200000,
+    "cache_read": 60000,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 131072,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "minimax-m3.1-flash",
+    "input": 150000,
+    "output": 600000,
+    "cache_read": 15000,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 512000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "minimax-m3.1-flash-free",
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 512000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "muse-spark-1.2-contributor",
+    "input": 100000,
+    "output": 200000,
+    "cache_read": 2000,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 131072,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "muse-spark-1.3-contributor",
+    "input": 100000,
+    "output": 200000,
+    "cache_read": 2000,
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 131072,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "qwen3.7-plus",
+    "input": 400000,
+    "output": 1600000,
+    "cache_read": 40000,
+    "cache_write": 500000,
+    "context": 1000000,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "qwen3.8-flash",
+    "input": 150000,
+    "output": 470000,
+    "cache_read": 16000,
+    "cache_write": 200000,
+    "context": 1000000,
+    "max_output": 131072,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "xhigh"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "qwen3.8-max",
+    "input": 2000000,
+    "output": 6000000,
+    "cache_read": 250000,
+    "cache_write": 2500000,
+    "context": 1000000,
+    "max_output": 131072,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "xhigh"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "qwen4-max",
+    "input": 1500000,
+    "output": 4500000,
+    "cache_read": 75000,
+    "cache_write": 1875000,
+    "context": 1000000,
+    "max_output": 262144,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "high",
+      "xhigh"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "space-bunny",
+    "input": 150000,
+    "output": 600000,
+    "cache_read": 30000,
+    "cache_write": 0,
+    "context": 1048576,
+    "max_output": 524288,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "step-5-preview",
+    "input": 1000000,
+    "output": 2700000,
+    "cache_read": 100000,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
+  },
+  {
+    "vendor": "opencode-go",
+    "model": "step-5-preview-free",
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_write": null,
+    "context": 1000000,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   }
 ]

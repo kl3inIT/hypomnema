@@ -111,9 +111,9 @@ func TestAssigningARunDoesNotGrantTheDestinationAnUnallowedConnection(t *testing
 	ctx := t.Context()
 	parent, _, err := w.s.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
-	_, err = w.s.SetConnection(ctx, "github", "work", "lab", "vault:work")
+	_, err = w.s.SaveServiceConnection(ctx, Connection{Integration: "google", Label: "work", Secret: "vault:work"})
 	require.NoError(t, err)
-	request := NewRun{Objective: "use work", CreatedBy: "owner", Uses: []string{"github:work"}}
+	request := NewRun{Objective: "use work", CreatedBy: "owner", Uses: []string{"google:work"}}
 	old, err := w.s.CreateRun(ctx, request)
 	require.NoError(t, err)
 	_, err = w.s.CreateChatRunOnce(ctx, Once{}, request, parent.Name)
@@ -127,4 +127,21 @@ func TestAssigningARunDoesNotGrantTheDestinationAnUnallowedConnection(t *testing
 	main, err := w.s.GetBot(ctx, DefaultBotID)
 	require.NoError(t, err)
 	assert.Empty(t, main.MainChat, "the rejected requests do not create a destination chat")
+}
+
+func TestAReadOnlyRoutineChatCannotTakeInteractiveWork(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := t.Context()
+	parent, _, err := w.s.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	chat, err := w.s.CreateChat(ctx, "", "read-only Routine")
+	require.NoError(t, err)
+	_, err = w.db.ExecContext(ctx, `INSERT INTO chat_messages (chat_id, role, text, read_run, created_at)
+		VALUES (?, 'system', 'read-only Routine', 1, 0)`, chat.ID)
+	require.NoError(t, err)
+	_, err = w.s.CreateChatRunOnce(ctx, Once{}, NewRun{Objective: "work", CreatedBy: "owner", ChatID: chat.ID}, parent.Name)
+	require.ErrorContains(t, err, "read-only")
+	_, err = w.s.AdoptRun(ctx, w.run.ID, chat.ID, parent.Name)
+	require.ErrorContains(t, err, "read-only")
 }

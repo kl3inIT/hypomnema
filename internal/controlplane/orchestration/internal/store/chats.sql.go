@@ -31,7 +31,7 @@ func (q *Queries) ChatPageStart(ctx context.Context, arg ChatPageStartParams) (i
 
 const chatRunEvents = `-- name: ChatRunEvents :many
 SELECT e.seq, e.kind, e.run_id, e.task_id, e.dispatch_id, e.question_id, e.node_id, e.payload, e.created_at FROM events e JOIN runs r ON r.id = e.run_id
-WHERE r.chat_id = ?1 AND e.seq > ?2
+WHERE r.chat_id = ?1 AND e.seq > ?2 AND e.seq > r.wake_after
   AND (
     e.kind IN ('escalation', 'run.finished', 'run.canceled')
     OR (e.kind = 'task.status'

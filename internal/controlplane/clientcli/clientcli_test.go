@@ -197,7 +197,7 @@ func TestRunFollowsUntilTheTaskEnds(t *testing.T) {
 
 	out, err := w.cmd(t, "run", "--repo", "kl3inIT/second-bite", "--detach", "add", "Google", "login")
 	require.NoError(t, err)
-	assert.Regexp(t, `^run run_\w+, task tsk_\w+\n$`, out)
+	assert.Regexp(t, `^run run_\w+, task tsk_\w+ in chat cht_\w+\n$`, out)
 
 	_, err = w.cmd(t, "run", "--detach", "no repository")
 	require.ErrorIs(t, err, ErrUsage)
@@ -1250,7 +1250,7 @@ func TestChatFromTheTerminal(t *testing.T) {
 func TestChatWithoutACoordinator(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	w := newWorldWith(t, nil)
 	w.login(t, bearertoken.Owner)
 
 	out, err := w.cmd(t, "chat", "hello")
