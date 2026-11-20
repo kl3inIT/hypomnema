@@ -294,8 +294,8 @@ func (git mirrorGit) fetch(ctx context.Context, path, url string, env []string) 
 	env = append(append([]string{}, env...), "LC_ALL=C")
 	args := []string{"fetch", "--progress", "--no-auto-gc", "--prune", "--", url, "+refs/heads/*:refs/remotes/origin/*"}
 	err := git.run(ctx, path, env, args...)
-	if err != nil && ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) &&
-		strings.Contains(err.Error(), "error: cannot lock ref '") {
+	// The ref lock error is recognized in all of Git's output, not only in the tail the error keeps.
+	if err != nil && ctx.Err() == nil && !errors.Is(err, context.DeadlineExceeded) && errors.Is(err, errRefLock) {
 		return git.run(ctx, path, env, args...)
 	}
 
@@ -323,7 +323,10 @@ func (git mirrorGit) run(ctx context.Context, dir string, env []string, args ...
 
 	output, err := git.runProcess(ctx, "", append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), env...), "git", args...)
 	if err != nil {
-		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(output))
+		if output != nil && output.refLock {
+			err = errors.Join(errRefLock, err)
+		}
+		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(output.String()))
 	}
 
 	return nil

@@ -23,17 +23,17 @@ const (
 
 func (git mirrorGit) runProcess(
 	ctx context.Context, dir string, env []string, name string, args ...string,
-) (string, error) {
+) (*outputTail, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return nil, err
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	read, write, err := os.Pipe()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer func() { _ = read.Close() }()
 	defer func() { _ = write.Close() }()
@@ -54,7 +54,7 @@ func (git mirrorGit) runProcess(
 	stop := context.AfterFunc(ctx, func() { _ = write.Close() })
 	defer stop()
 	err = cmd.Run()
-	return string(output), errors.Join(err, ctx.Err())
+	return &output, errors.Join(err, ctx.Err())
 }
 
 func init() {

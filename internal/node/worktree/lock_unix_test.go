@@ -17,6 +17,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
+
+	"github.com/kl3inIT/hypomnema/internal/node/diskguard"
 )
 
 func mirrorProcessFixture(t *testing.T) (Maker, Source, *os.Root) {
@@ -448,4 +450,93 @@ func TestMirrorNodeFixture(t *testing.T) {
 	src.Env = []string{"MIRROR_TEST_ACTION=" + mode}
 	err = maker.Ensure(t.Context(), src, "main", "orphan", filepath.Join(dir, "wt", "orphan"))
 	t.Errorf("orphan fixture returned before its node was killed: %v", err)
+}
+
+// Scenario: the node is killed while its cleanup's Git is still removing a worktree. A replacement node
+// that is asked for the same worktree waits for that Git to exit, then makes the worktree anew, instead of
+// reusing a checkout the old Git goes on to delete.
+func TestCleanGitKeepsLocksAfterTheNodeDies(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is not installed")
+	}
+	if !diskguard.ScopeAvailable() {
+		t.Skip("filesystem confinement is unavailable")
+	}
+
+	dir := realTempDir(t)
+	origin(t, dir)
+	maker := Maker{Root: filepath.Join(dir, "node")}
+	src, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
+	require.NoError(t, err)
+	src.URL = filepath.Join(dir, "kl3inIT", "second-bite")
+	path := filepath.Join(maker.Root, "worktrees", "run_1", "tsk_1")
+	require.NoError(t, maker.Ensure(t.Context(), src, "main", "tsk_1", path))
+	_, admin, err := maker.managedMirror(path)
+	require.NoError(t, err)
+
+	bin := filepath.Join(dir, "bin")
+	require.NoError(t, os.Mkdir(bin, 0o700))
+	fake := []byte(`#!/bin/sh
+case " $* " in
+*" worktree remove "*)
+    echo $$ > "$CLEAN_TEST_ADMIN/ready"
+    while [ ! -e "$CLEAN_TEST_RELEASE" ]; do sleep 0.05; done
+    ;;
+esac
+exec "$CLEAN_TEST_REAL_GIT" "$@"
+`)
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "git"), fake, 0o700)) //nolint:gosec // executable fixture
+	release := filepath.Join(dir, "release")
+	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	child := exec.CommandContext(t.Context(), exe, "-test.run=^TestCleanNodeFixture$") //nolint:gosec // this test binary
+	child.Env = append(os.Environ(),
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CLEAN_TEST_NODE=1",
+		"CLEAN_TEST_ADMIN="+admin, "CLEAN_TEST_RELEASE="+release, "CLEAN_TEST_REAL_GIT="+realGit)
+	child.Dir = dir
+	require.NoError(t, child.Start())
+	t.Cleanup(func() {
+		if child.ProcessState == nil {
+			_ = child.Process.Kill()
+			_ = child.Wait()
+		}
+	})
+
+	var pid int
+	require.Eventually(t, func() bool {
+		raw, err := os.ReadFile(filepath.Join(admin, "ready")) //nolint:gosec // the test's own worktree metadata
+		pid, _ = strconv.Atoi(strings.TrimSpace(string(raw)))
+		return err == nil && pid > 0
+	}, 10*time.Second, 20*time.Millisecond, "the cleanup's Git started")
+	t.Cleanup(func() { _ = unix.Kill(pid, unix.SIGKILL) })
+	require.NoError(t, child.Process.Kill())
+	require.Error(t, child.Wait())
+	require.NoError(t, unix.Kill(pid, 0), "the cleanup's Git outlives the node")
+
+	blocked, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	err = maker.Ensure(blocked, src, "main", "tsk_1", path)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "the replacement waits for the old cleanup")
+
+	require.NoError(t, os.WriteFile(release, nil, 0o600))
+	replacement, stop := context.WithTimeout(t.Context(), 10*time.Second)
+	defer stop()
+	require.NoError(t, maker.Ensure(replacement, src, "main", "tsk_1", path))
+	assert.FileExists(t, filepath.Join(path, ".git"), "the old cleanup did not delete the new checkout")
+	assert.Equal(t, Branch("tsk_1"), run(t, path, "branch", "--show-current"))
+}
+
+func TestCleanNodeFixture(t *testing.T) {
+	if os.Getenv("CLEAN_TEST_NODE") == "" {
+		t.Skip("run by TestCleanGitKeepsLocksAfterTheNodeDies")
+	}
+	dir, err := os.Getwd()
+	require.NoError(t, err)
+	root := filepath.Join(dir, "node")
+	err = Maker{Root: root}.Clean(context.Background(), filepath.Join(root, "worktrees", "run_1", "tsk_1"), true,
+		func() bool { return true })
+	t.Fatalf("the node was not killed during cleanup: %v", err)
 }

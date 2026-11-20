@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"os/exec"
 
 	"github.com/gofrs/flock"
 )
@@ -17,3 +18,7 @@ func openMirrorLock(ctx context.Context, path string) (*mirrorLock, error) {
 
 	return &mirrorLock{lock}, nil
 }
+
+// inherit does nothing: Windows has no confined cleanup (diskguard.ScopeAvailable is false), so Clean
+// refuses before it would start Git, and node Git runs without the Unix supervisor.
+func (*mirrorLock) inherit(*exec.Cmd) {}

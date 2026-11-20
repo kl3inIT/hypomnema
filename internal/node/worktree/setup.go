@@ -107,9 +107,9 @@ func (m Maker) setup(ctx context.Context, path string, lock *mirrorLock) {
 
 	switch {
 	case ctx.Err() != nil:
-		m.warn(ctx, path, fmt.Sprintf("the setup script did not end within %s", timeout), output)
+		m.warn(ctx, path, fmt.Sprintf("the setup script did not end within %s", timeout), output.String())
 	case err != nil:
-		m.warn(ctx, path, "the setup script failed: "+err.Error(), output)
+		m.warn(ctx, path, "the setup script failed: "+err.Error(), output.String())
 	}
 }
 

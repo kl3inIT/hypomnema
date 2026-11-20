@@ -233,7 +233,7 @@ func TestFetchRetriesARefLockErrorOnlyOnce(t *testing.T) {
 
 	dir := t.TempDir()
 	fakeGit := []byte(`#!/bin/sh
-if [ "$GIT_TEST_MODE" = transient ] && [ -s "$GIT_TEST_ATTEMPTS" ]; then
+if { [ "$GIT_TEST_MODE" = transient ] || [ "$GIT_TEST_MODE" = buried ]; } && [ -s "$GIT_TEST_ATTEMPTS" ]; then
     echo fetch >> "$GIT_TEST_ATTEMPTS"
     exit 0
 fi
@@ -242,6 +242,14 @@ if [ "$GIT_TEST_MODE" = unrelated ]; then
     echo 'fatal: repository not found' >&2
 else
     echo "error: cannot lock ref 'refs/remotes/origin/main': is at new but expected old" >&2
+fi
+if [ "$GIT_TEST_MODE" = buried ] || [ "$GIT_TEST_MODE" = buried-persistent ]; then
+    # Git goes on to report every other branch it fetched, past what the error keeps.
+    count=0
+    while [ $count -lt 160 ]; do
+        echo " * [new branch]      feature/branch-number-$count -> origin/feature/branch-number-$count" >&2
+        count=$((count + 1))
+    done
 fi
 exit 1
 `)
@@ -256,6 +264,8 @@ exit 1
 		{"transient", 2, ""},
 		{"persistent", 2, "cannot lock ref"},
 		{"unrelated", 1, "repository not found"},
+		{"buried", 2, ""},
+		{"buried-persistent", 2, "cannot lock ref"},
 	} {
 		t.Run(trial.mode, func(t *testing.T) {
 			trialDir := t.TempDir()
@@ -402,4 +412,23 @@ func TestARepositoryWithAnSSHAddressIsClonedOverSSH(t *testing.T) {
 	// Git may ask ssh to pass on its protocol version first (-o SendEnv=GIT_PROTOCOL).
 	assert.True(t, strings.HasSuffix(strings.ReplaceAll(string(raw), "\r\n", "\n"),
 		"-p\n222\ngit@gitlab.company.example\ngit-upload-pack '/mobility/platform.git'\n"), string(raw))
+}
+
+func TestOutputTailNotesARefLockSplitAcrossWritesAndCutAway(t *testing.T) {
+	t.Parallel()
+	var output outputTail
+	for _, part := range []string{"error: cannot lo", "ck ref 'refs/remotes/origin/main'\n"} {
+		_, err := output.Write([]byte(part))
+		require.NoError(t, err)
+	}
+	_, err := output.Write([]byte(strings.Repeat("x", 2*setupOutputKept)))
+	require.NoError(t, err)
+	assert.True(t, output.refLock)
+	assert.Len(t, output.String(), setupOutputKept)
+	assert.NotContains(t, output.String(), "cannot lock ref")
+
+	var other outputTail
+	_, err = other.Write([]byte("fatal: repository not found\n"))
+	require.NoError(t, err)
+	assert.False(t, other.refLock)
 }
