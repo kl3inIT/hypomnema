@@ -1362,7 +1362,7 @@ func TestChatWritesToTheBotsMainChat(t *testing.T) {
 func TestChatsMainSetsTheBotsMainChat(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	w := newWorldWith(t, nil)
 	w.login(t, bearertoken.Owner)
 	ctx := t.Context()
 
