@@ -104,6 +104,12 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	model, err := s.modelOf(r.Context(), req.Model)
+	if errors.Is(err, ErrModelNotServed) {
+		writeError(w, http.StatusNotFound, typeInvalidRequest, codeModelNotServed, notServedMessage(req.Model))
+
+		return
+	}
+
 	if errors.Is(err, ErrNotFound) || (err == nil && model.Capability != CapabilityChat) {
 		writeError(w, http.StatusBadRequest, typeInvalidRequest, "model_not_found",
 			fmt.Sprintf("the gateway does not serve a chat model named %q", req.Model))

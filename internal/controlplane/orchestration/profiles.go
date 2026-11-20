@@ -281,6 +281,17 @@ type providerSource struct {
 	MinVersions map[string]string `yaml:"min_versions,omitempty"`
 }
 
+// BelowFloor says a model is older than the provider's min_versions keeps for its family, so the vendor's list does
+// not add it (issue #642). A provider whose source cannot be read has no floor.
+func (p Provider) BelowFloor(model string) bool {
+	var in providerSource
+	if err := decodeStrict(p.Source, &in); err != nil {
+		return false
+	}
+
+	return belowFloor(model, in.MinVersions)
+}
+
 // decodeStrict reads one YAML document, refusing unknown fields.
 func decodeStrict(source string, v any) error {
 	dec := yaml.NewDecoder(strings.NewReader(source))

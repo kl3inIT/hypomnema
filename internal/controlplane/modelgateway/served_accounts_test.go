@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
 // rosterGoogle are Antigravity accounts that say which models each is served (modelgateway.ModelTokens).
@@ -608,4 +610,29 @@ func TestAModelAnAccountHasIsServedBeforeItIsPublished(t *testing.T) {
 
 	header, _ := got.last(t)
 	assert.Equal(t, "Bearer acc_ultra-access-0", header.Get("Authorization"))
+}
+
+// Scenario (review of #949, round 2): the Antigravity provider keeps Gemini 3.8 and up (min_versions, issue #642) and
+// publishes only gemini-3.8-flash-high. An account's own list still has gemini-3.1-pro-high, but a request for it by
+// its provider's name is told the model is not served, and no account is called: an unpublished name is routed by the
+// accounts' lists only past the provider's version floor.
+func TestAnUnpublishedModelBelowTheVersionFloorIsNotServed(t *testing.T) {
+	t.Parallel()
+
+	google, calls := cloudCode(t, stream(geminiEvents...))
+	chat := newAntigravityGateway(t, google, &rosterGoogle{
+		googleAccount: googleAccount{accounts: accounts{ids: []string{"acc_pro"}}},
+		served:        map[string][]string{"acc_pro": {"gemini-3.8-flash-high", "gemini-3.1-pro-high"}},
+	})
+
+	orch := orchestration.New(chat.db, platform.SystemClock{}, platform.NewID)
+	_, err := orch.ApplyProvider(t.Context(), "antigravity-subscription", "name: antigravity-subscription\n"+
+		"kind: antigravity_subscription\nmin_versions: {gemini: \"3.8\"}\nmodels: [gemini-3.8-flash-high]\n")
+	require.NoError(t, err)
+
+	status, _, body := chat.call(t, chat.key,
+		`{"model":"antigravity-subscription/gemini-3.1-pro-high","messages":[{"role":"user","content":"Hi"}]}`)
+	assert.Equal(t, http.StatusNotFound, status, body)
+	assert.Contains(t, body, `"code":"model_not_served"`)
+	assert.Zero(t, calls.calls(), "no account was called")
 }

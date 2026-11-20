@@ -286,6 +286,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	model, err := s.modelOf(r.Context(), req.model)
+	if errors.Is(err, ErrModelNotServed) {
+		writeError(w, http.StatusNotFound, typeInvalidRequest, codeModelNotServed, notServedMessage(req.model))
+
+		return
+	}
+
 	if errors.Is(err, ErrNotFound) || (err == nil && model.Capability != CapabilityChat) {
 		writeError(w, http.StatusBadRequest, typeInvalidRequest, "model_not_found",
 			fmt.Sprintf("the gateway does not serve a chat model named %q", req.model))

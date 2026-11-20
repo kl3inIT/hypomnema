@@ -262,6 +262,7 @@ func gatewayProviders(svc *orchestration.Service) modelgateway.Providers {
 
 		return modelgateway.ProviderInfo{
 			Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, APIKeyRef: p.APIKeyRef, Models: p.Models,
+			Admits: func(model string) bool { return !p.BelowFloor(model) },
 		}, nil
 	}
 }

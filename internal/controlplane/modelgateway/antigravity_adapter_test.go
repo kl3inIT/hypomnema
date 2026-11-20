@@ -94,6 +94,7 @@ func newAntigravityGateway(
 
 			return modelgateway.ProviderInfo{
 				Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, APIKeyRef: p.APIKeyRef, Models: p.Models,
+				Admits: func(model string) bool { return !p.BelowFloor(model) },
 			}, nil
 		},
 		func(_ context.Context, ref string) (string, error) { return "sk-of-" + ref, nil }).WithKeyVault(testKeyVault(t, db))
@@ -113,7 +114,7 @@ func newAntigravityGateway(
 		Subscriptions: subs, AntigravityBaseURL: backend.URL, AntigravityManifestURL: backend.URL + "/manifest",
 	}).Register(mux)
 
-	return chatGateway{svc: svc, mux: mux, key: key}
+	return chatGateway{db: db, svc: svc, mux: mux, key: key}
 }
 
 var geminiEvents = []string{

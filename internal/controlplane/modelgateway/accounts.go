@@ -262,7 +262,7 @@ func (s *Server) tryAccounts(
 
 // modelOf is the model a request names: the gateway's own (Service.GetModel), or, when the accounts' lists route
 // their models (ModelTokens), a Codex or Antigravity model the provider no longer publishes, for those lists to
-// decide (Service.unlistedModel, issue #814).
+// decide (Service.unlistedModel, issue #814). Such a model below the provider's version floor is ErrModelNotServed.
 func (s *Server) modelOf(ctx context.Context, name string) (Model, error) {
 	model, err := s.svc.GetModel(ctx, name)
 	if !errors.Is(err, ErrNotFound) {
@@ -270,7 +270,12 @@ func (s *Server) modelOf(ctx context.Context, name string) (Model, error) {
 	}
 
 	if _, ok := s.accounts.(ModelTokens); ok {
-		if unlisted, ok := s.svc.unlistedModel(ctx, name); ok {
+		unlisted, ok, notServed := s.svc.unlistedModel(ctx, name)
+		if notServed != nil {
+			return Model{}, notServed
+		}
+
+		if ok {
 			return unlisted, nil
 		}
 	}
