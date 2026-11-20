@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,13 +17,14 @@ import (
 func TestAnInternalErrorOnAShareLinkLogsNoToken(t *testing.T) {
 	t.Parallel()
 
-	const token = "VhTZQ8CLAtyTkW3wXTkvYSumsVJSxKbvBf5SJjHownY"
+	token := strings.Repeat("t", 43)
 
 	for _, path := range []string{sharesPath + token, sharesPath + token + "/files/2/index.html"} {
 		var logged bytes.Buffer
 
 		s := &Server{logger: slog.New(slog.NewTextHandler(&logged, nil))}
-		s.writeError(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil), errors.New("disk failed"))
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		s.writeError(httptest.NewRecorder(), r, errors.New("disk failed"))
 
 		assert.NotContains(t, logged.String(), token, path)
 		assert.Contains(t, logged.String(), sharesPath+"<token>", path)
