@@ -43,6 +43,8 @@ type world struct {
 	coordinatorSecret string
 }
 
+const testChatCoordinator = "cli-chat-coordinator"
+
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
@@ -58,15 +60,17 @@ func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clien
 	t.Cleanup(func() { _ = db.Close() })
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	parent, coordinatorSecret, err := svc.AddToken(t.Context(), "cli-coordinator", bearertoken.Coordinator)
-	require.NoError(t, err)
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 
 	mux := http.NewServeMux()
 	srv := clientapi.New(svc, slog.New(slog.DiscardHandler), stop).WithHostTokens(&keptTokens{svc: svc})
+	var coordinatorSecret string
 	if coord != nil {
-		srv.WithCoordinator(coord).WithRunCoordinator(parent.Name)
+		_, secret, err := svc.AddToken(t.Context(), testChatCoordinator, bearertoken.Coordinator)
+		require.NoError(t, err)
+		coordinatorSecret = secret
+		srv.WithCoordinator(coord).WithRunCoordinator(testChatCoordinator)
 	}
 
 	for _, option := range with {
@@ -85,7 +89,7 @@ func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clien
 func (w *world) login(t *testing.T, kind bearertoken.Kind) string {
 	t.Helper()
 
-	if kind == bearertoken.Coordinator {
+	if kind == bearertoken.Coordinator && w.coordinatorSecret != "" {
 		return w.loginWith(t, w.coordinatorSecret)
 	}
 
