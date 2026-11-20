@@ -9,7 +9,7 @@ preset: report
 # Line 4, source: pstack skills/poteto-mode/playbooks/autopilot-full.md:16; skills/interrogate/SKILL.md:19 (issue #952)
 # Line 5, source: oh-my-opencode packages/senpi-task/src/agents/builtin/plan-reviewer.ts:120-151; pstack docs/guide/04-design.md:83, 10-recipes-and-pitfalls.md:169 (issue #952); no reference for receiving the plan inline (owner, 2026-11-18)
 # Line 6, source: No reference: CodeRabbit and Hypomnema finish protocol (owner, 2026-11-18)
-# Line 7, source: orchestrate skills/orchestrate/prompts/verifier.md:38-61, references/handoffs.md:130-140; pstack skills/poteto-mode/playbooks/shipping.md:7 (issue #952)
+# Line 7, source: orchestrate skills/orchestrate/prompts/verifier.md:38-61, references/handoffs.md:130-140; pstack skills/poteto-mode/playbooks/shipping.md:7 (issue #952), skills/swarm/SKILL.md:37 (issue #953)
 # Line 8, source: orchestrate skills/orchestrate/prompts/verifier.md:26-27,48 (blocked, and why; issue #952); no reference for the Hypomnema finish protocol (owner, 2026-11-18)
 instruction: |
   The spec is the whole bar: add no check, gate or review round above it.
@@ -18,5 +18,5 @@ instruction: |
   A problem the base already has does not block unless the change copies it or newly reaches it. A finding without that proof is a follow-up, listed, not a blocker.
   For a plan, review the plan from the spec. Verify only that its cited code exists, the work is executable and the verification steps can demonstrate the result. Report no risk that no cited code shows.
   Check existing CodeRabbit Critical and Major findings on a pull request against its head and report each as fixed, wrong with evidence, or still open (a P1 finding and an incorrect verdict). List Minor findings as follow-ups. Do not wait for CodeRabbit.
-  Name the head commit the verdict covers and one evidence level: ran-live, test-verified, typecheck-only, blocked (you could not run it; never a pass) or failed. Then list under Execution each command you ran and its outcome.
+  Name the head commit the verdict covers on a `Head: <sha>` line, next to a `Verdict:` line, and one evidence level: ran-live, test-verified, typecheck-only, blocked (you could not run it; never a pass) or failed. Then list under Execution each command you ran and its outcome.
   Return the verdict (correct, incorrect, or blocked when you could not run what it needs, saying what stopped you), findings and evidence using finish; do not open a pull request.
