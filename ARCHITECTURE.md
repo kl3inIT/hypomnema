@@ -929,6 +929,25 @@ sequenceDiagram
     a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
     scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build. A take with taps
     and no `screen` (filmed before the node recorded it) is made without rings, with a warning.
+    Compose also draws a frame around the picture when `Input.Frame` asks for one (#908 part 2; no revision asks
+    yet, so every video is still `full`, the picture filling the video as above, stream for stream). The chromes
+    are `full`, `none`, `android` and `iphone`, with padding (0-400, default 48), radius (0-80, default 40 for a
+    device and 14 for none), shadow and safe_top (`frame.go`, aidemo's frameLayout, MIT). The layout is in a phone's
+    dp, 360 wide, and the canvas grows to the video's aspect. The hole is the anchor, each of its values rounded to
+    even pixels (agent-demo-video's even, MIT). The window (with a 46 dp status strip when safe_top), the bezel
+    (14 dp), the radii and the camera cut-out (a punch-hole dot or an island) are derived from it. The frame's PNG
+    is drawn in Go with the standard library (`plate.go`): autodemo's background (one of its 11 templates, default
+    midnight, or two colors; `background.go`), aidemo's two shadows blurred by three box passes, the bezel, the
+    window, the hole left transparent and the camera on top. Each scene's footage is scaled to exactly the hole's
+    size, rings are drawn on it, and then it is padded onto the video at the hole and the PNG overlaid. A segment
+    of another shape than the first (the phone turned) is refused with `ErrTurnedTake`, not padded with bars; the
+    hole's own rounding is not counted as another shape (a contain fit into the unrounded hole leaving ≤ 2 px).
+    A ring's place and size follow the hole. `compose.Still` writes a JPEG of the take's frame at its first step
+    (or one frame before the take's end) drawn the same way, with an ASS file's captions as they are at a given
+    instant. Its frame is the one that covers that instant: the last frame to start at or before it, even a single
+    frame at 0 ms. Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
+    `background()` (`compose/testdata/frames`), and check in the made video that the hole shows the picture and
+    only the hole does, where a ring lands, and that a turned take is refused.
   - Videos and revisions (`internal/controlplane/videos`, migration 00126). A **video** belongs to one take (one
     row of `videos`, its take unique); each make or change request adds an immutable **revision** (`video_revisions`:
     rev 1, 2, …, its parent, the lines, voice, captions and aspect it is made with, the provider, model and voice
