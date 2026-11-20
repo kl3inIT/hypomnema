@@ -2973,9 +2973,9 @@ export const getBotOptions = (options: Options<GetBotData>) => queryOptions<GetB
 });
 
 /**
- * Give a Bot another name, or move it to a department; the owner, or the main Bot from its chat for a name
+ * Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
  *
- * Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none.
+ * Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
  */
 export const renameBotMutation = (options?: Partial<Options<RenameBotData>>): UseMutationOptions<RenameBotResponse, RenameBotError, Options<RenameBotData>> => {
   const mutationOptions: UseMutationOptions<RenameBotResponse, RenameBotError, Options<RenameBotData>> = {

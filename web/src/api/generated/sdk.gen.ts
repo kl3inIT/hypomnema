@@ -1736,9 +1736,9 @@ export const getBot = <ThrowOnError extends boolean = true>(options: Options<Get
 });
 
 /**
- * Give a Bot another name, or move it to a department; the owner, or the main Bot from its chat for a name
+ * Give a Bot another name, move it to a department, or choose its main chat; the owner, or the main Bot from its chat for a name
  *
- * Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none.
+ * Its id, chats, Routines, Channels and memory stay. A name another Bot has is refused. A rename by the main Bot is recorded in its chat as a setup change the owner can undo. Only the owner moves a Bot into a department or out of one (issue #471); the main Bot, always first, is in none. Only the owner chooses a Bot's main chat (issue #923).
  */
 export const renameBot = <ThrowOnError extends boolean = true>(options: Options<RenameBotData, ThrowOnError>): RequestResult<RenameBotResponses, RenameBotErrors, ThrowOnError> => (options.client ?? client).patch<RenameBotResponses, RenameBotErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
