@@ -14,9 +14,10 @@ import (
 // each Dispatch picked the one provider offering it to the Task's runtime (checkModel then). The migration
 // *_models_named_with_provider.sql asks for the change; Migrate makes it right after that migration and before any
 // later one (OpenCode Zen's seed, #965), with the code below: each Task's model gets the provider the code before
-// would have dispatched it under, read the same way, and a name it would not have placed is left as it is, refused
-// with the form to write it in when it is next used. Each change is kept in model_name_changes, which the way back
-// restores.
+// would have dispatched it under, read the same way, and a name it would not have placed is left as it is and marked
+// (tasks.model_unresolved): it is read whole, never at a slash it may have (taskModelRef), and refused with the form
+// to write it in when the Task is dispatched, as the code before refused it; the scheduler holds that Task alone.
+// Each change is kept in model_name_changes, which the way back restores.
 //
 // A profile version, a Bot or a chat keeps its provider beside its model, and the code before never picked one for
 // a stored one without (resolveVersion checked a Task's model only; PiModel passes an empty provider on), so those
@@ -60,6 +61,11 @@ func nameStoredModels(ctx context.Context, db *sql.DB) error {
 		}
 
 		if !ok {
+			// Left as it was, read whole and refused when dispatched, as the code before refused it.
+			if _, err := tx.ExecContext(ctx, `UPDATE tasks SET model_unresolved = 1 WHERE id = ?`, t.id); err != nil {
+				return fmt.Errorf("marking the model of task %s: %w", t.id, err)
+			}
+
 			continue
 		}
 

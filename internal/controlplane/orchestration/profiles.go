@@ -324,10 +324,31 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 	return s.applyProfile(ctx, "", name, source)
 }
 
+// RestoreProfileVersion applies one of a profile's versions again, as the profile page restores it: its own source,
+// and, for a model that source names without a provider (as versions before issue #1002 were written), the
+// provider that version recorded, not one another version with the same YAML recorded. With a chat, the new version
+// is the Bot coordinator's from that chat, as applyProfile's.
+func (s *Service) RestoreProfileVersion(ctx context.Context, chat, name, versionID string) (Profile, bool, error) {
+	row, err := s.read().GetProfileVersion(ctx, versionID)
+	if err != nil || row.Profile != name {
+		return Profile{}, false, fmt.Errorf("%w: version %s of profile %s", ErrNotFound, versionID, name)
+	}
+
+	return s.applyProfileRecorded(ctx, chat, name, row.Source, row.Provider.String)
+}
+
 // applyProfile is ApplyProfile; with a chat, a new version is the Bot
 // coordinator's from that chat and is recorded with what undoes it
 // (setupchanges.go).
 func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (Profile, bool, error) {
+	return s.applyProfileRecorded(ctx, chat, name, source, "")
+}
+
+// applyProfileRecorded is applyProfile with the provider a restored version recorded, for a model its source names
+// without one; "" for none.
+func (s *Service) applyProfileRecorded(
+	ctx context.Context, chat, name, source, recorded string,
+) (Profile, bool, error) {
 	var in profileSource
 	if err := decodeStrict(source, &in); err != nil {
 		return Profile{}, false, err
@@ -385,12 +406,7 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 			}
 		} else {
 			if p.Provider == "" && p.Model != "" {
-				recorded, err := recordedProvider(ctx, q, p.Name, sourceDigest(source), p.Model)
-				if err != nil {
-					return err
-				}
-
-				p.Provider = recorded
+				p.Provider = recorded // a restored version's own (RestoreProfileVersion)
 			}
 
 			var err error
@@ -423,7 +439,8 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 		case errors.Is(err, sql.ErrNoRows):
 		case err != nil:
 			return fmt.Errorf("reading profile %s: %w", p.Name, err)
-		case current.Digest == digest && !current.deleted:
+		// The same YAML under another provider (a restored version's, issue #1002) is a new version.
+		case current.Digest == digest && !current.deleted && current.Provider.String == p.Provider:
 			out = profileFromRow(current.ProfileVersion)
 			out.Source = editableProfileSource(out)
 
@@ -684,6 +701,38 @@ func checkModel(ctx context.Context, q *store.Queries, runtime, provider, model,
 	}
 }
 
+// keptModel checks a stored model that an edit leaves as it is, and returns its provider. One stored without a
+// provider, before issue #1002, is given the one provider that offers it to the runtime among the kinds before
+// OpenCode Zen, as checkModel picked one then; with none or several it keeps none and runs as it did (PiModel and
+// resolveVersion pass an empty provider on), so an unrelated edit (a Bot's persona, a chat's effort) is not refused
+// for it (review of PR #1000).
+func keptModel(ctx context.Context, q *store.Queries, runtime, provider, model, effort string) (string, error) {
+	if provider != "" || model == "" {
+		return checkModel(ctx, q, runtime, provider, model, effort)
+	}
+
+	kinds := runtimeProviders[runtime]
+
+	offers, err := q.ModelsNamed(ctx, model)
+	if err != nil {
+		return "", fmt.Errorf("reading the providers of model %s: %w", model, err)
+	}
+
+	var fits []string
+
+	for _, m := range offers {
+		if m.Kind != ProviderOpenCodeZen && slices.Contains(kinds, m.Kind) {
+			fits = append(fits, m.Provider)
+		}
+	}
+
+	if len(fits) == 1 {
+		return checkModel(ctx, q, runtime, fits[0], model, effort)
+	}
+
+	return checkModel(ctx, q, runtime, "", "", effort)
+}
+
 // bareModel is the refusal of a model named without its provider: the form to write it in, with the names it
 // could be written as, or why no provider would serve it.
 func bareModel(runtime, model string, fits []string) error {
@@ -706,6 +755,17 @@ func bareModel(runtime, model string, fits []string) error {
 	return fmt.Errorf("%w: model %q is named without its provider; %s", ErrInvalid, model, hint)
 }
 
+// taskModelRef reads a Task's own model: named with its provider, or, for a Task from before issue #1002 whose bare
+// name the migration could not place (model_unresolved), the whole name with no provider, which checkModel refuses as
+// the code before did (review of PR #1000), never split at a slash the name has.
+func taskModelRef(task store.Task) (provider, model string, err error) {
+	if task.ModelUnresolved != 0 {
+		return "", task.Model.String, nil
+	}
+
+	return modelRef(task.Model.String)
+}
+
 // modelRef reads a model named with its provider, "<provider>/<model>" (issue #1002), as 9router and omniroute
 // read one at its first slash (9router open-sse/services/model.js parseModel): a provider's name has no slash, a
 // model's may. A name without a slash has no provider, which checkModel refuses with the form to write it in; a
@@ -722,24 +782,6 @@ func modelRef(ref string) (provider, model string, err error) {
 	}
 
 	return provider, model, nil
-}
-
-// recordedProvider is the provider a profile's version recorded for a model its source names without one: the
-// version whose source this is, as the profile page restores it (issue #1002). The stored provider is what that
-// version ran under; a source no version has is not given one.
-func recordedProvider(ctx context.Context, q *store.Queries, profile, digest, model string) (string, error) {
-	rows, err := q.ListProfileVersions(ctx, profile)
-	if err != nil {
-		return "", fmt.Errorf("reading the versions of profile %s: %w", profile, err)
-	}
-
-	for _, row := range rows {
-		if row.Digest == digest && row.Model.String == model && row.Provider.Valid {
-			return row.Provider.String, nil
-		}
-	}
-
-	return "", nil
 }
 
 func knownRuntimes() string {
@@ -1541,7 +1583,7 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 	// A Task's own model names its own provider, "<provider>/<model>" (issue #1002), as checkTaskProfile checked it.
 	if task.Model.String != "" {
 		var err error
-		if provider, model, err = modelRef(task.Model.String); err != nil {
+		if provider, model, err = taskModelRef(task); err != nil {
 			return resolved{}, err
 		}
 

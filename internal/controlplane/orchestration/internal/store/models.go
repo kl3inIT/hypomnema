@@ -1021,6 +1021,7 @@ type Task struct {
 	PushBranch        sql.NullString
 	StartFrom         sql.NullString
 	PrBase            sql.NullString
+	ModelUnresolved   int64
 }
 
 type TaskDep struct {
