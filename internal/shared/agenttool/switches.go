@@ -41,6 +41,14 @@ const (
 	ToolSupersetAPI          = "superset_api"
 )
 
+// BigQuery's tools (issue #976): the GA4 export read through a service account the control plane holds.
+const (
+	ToolBigQueryDatasets = "bigquery_datasets"
+	ToolBigQueryTables   = "bigquery_tables"
+	ToolBigQueryTable    = "bigquery_table"
+	ToolBigQueryQuery    = "bigquery_query"
+)
+
 // WhatsApp's tools (issue #638): the owner's own WhatsApp, read by a Bot on his turn.
 const (
 	ToolWhatsAppChats    = "whatsapp_chats"
@@ -67,7 +75,8 @@ func ReadRunAllows(tool string) bool {
 	switch tool {
 	case ToolAccountRead, ToolMemory, ToolSupersetDashboards, ToolSupersetDashboard, ToolSupersetChartData,
 		ToolSupersetFilterValues, ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia, ToolWhatsAppHistory,
-		ToolZaloChats, ToolZaloMessages, ToolZaloMedia, ToolZaloHistory:
+		ToolZaloChats, ToolZaloMessages, ToolZaloMedia, ToolZaloHistory, ToolBigQueryDatasets, ToolBigQueryTables,
+		ToolBigQueryTable, ToolBigQueryQuery:
 		return true
 	default:
 		return false
@@ -178,6 +187,15 @@ var ToolFamilies = []ToolFamily{
 			"week\", \"unit X\") by setting the dashboard's filters on that read, with the values " +
 			"superset_filter_values lists; never by filtering, summing or averaging the rows of an unfiltered " +
 			"read. Say when the figures were computed; a list of people is personal data."},
+	{Name: "bigquery", Description: "BigQuery's GA4 export, read with a BigQuery Connection", Pattern: "bigquery_*",
+		Title: "BigQuery",
+		Tools: []string{ToolBigQueryDatasets, ToolBigQueryTables, ToolBigQueryTable, ToolBigQueryQuery},
+		WhenToUse: "For app-usage figures from the GA4 export in BigQuery (installs, active users, time in app, " +
+			"uninstalls), load the `bigquery` skill and read it with the bigquery_* tools: the tables with " +
+			"bigquery_tables, a table's columns with bigquery_table, then one SELECT with bigquery_query, dry-run " +
+			"first, over a constant _TABLE_SUFFIX range and only the columns needed. A query is billed up to the " +
+			"Connection's cap; a refusal is not worked around. Say when the figures were computed; user ids are " +
+			"personal data."},
 	{Name: "whatsapp", Description: "The owner's own WhatsApp, read on his turn, with a WhatsApp Connection",
 		Pattern: "whatsapp_*", Title: "WhatsApp",
 		Tools: []string{ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia, ToolWhatsAppHistory,
@@ -278,7 +296,8 @@ func (s ToolSwitches) Decision(tool string) (allowed bool, source, reason string
 			case PresetFull:
 				allowed = family.Name != "phone"
 			case PresetReport:
-				allowed = slices.Contains([]string{"memory", "artifacts", "routines", "web", "superset"}, family.Name)
+				allowed = slices.Contains([]string{"memory", "artifacts", "routines", "web", "superset", "bigquery"},
+					family.Name)
 			}
 
 			break

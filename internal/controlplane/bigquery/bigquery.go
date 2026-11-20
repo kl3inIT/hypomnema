@@ -14,6 +14,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -290,9 +291,13 @@ type TableSummary struct {
 	Type string `json:"type"`
 }
 
-// Tables lists the tables of a dataset, project.dataset, or a dataset of the first configured one's project. The
-// SDK's list has no table's type, so it is REST's tables.list.
+// Tables lists the tables of a dataset, project.dataset, or a dataset of the first configured one's project, or
+// that first one when none is named. The SDK's list has no table's type, so it is REST's tables.list.
 func (c *Client) Tables(ctx context.Context, dataset string) ([]TableSummary, bool, error) {
+	if strings.TrimSpace(dataset) == "" && len(c.settings.Datasets) > 0 {
+		dataset = c.settings.Datasets[0]
+	}
+
 	ref, err := parseDataset(dataset, c.settings.dataProject())
 	if err != nil {
 		return nil, false, err
@@ -1034,4 +1039,30 @@ func (c *Client) readOneRow(ctx context.Context, ref TableRef) error {
 	}
 
 	return nil
+}
+
+// MaxAnswerBytes bounds a query's answer to an agent, as a relayed answer in a read run is bounded
+// (serviceproxy/relay.go): rows past it are dropped and the answer says it was cut.
+const MaxAnswerBytes = 512 << 10
+
+// Fit drops rows from the end until the result, as JSON, is at most limit bytes, and says so in Truncated.
+func (r *Result) Fit(limit int) {
+	size := func() int {
+		raw, err := json.Marshal(r)
+		if err != nil {
+			return 0
+		}
+
+		return len(raw)
+	}
+
+	if size() <= limit {
+		return
+	}
+
+	// Halving keeps the rows of a large answer cheap to cut; it may drop more than the least needed.
+	for len(r.Rows) > 0 && size() > limit {
+		r.Rows = r.Rows[:len(r.Rows)/2]
+		r.Truncated = true
+	}
 }

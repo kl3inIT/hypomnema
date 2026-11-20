@@ -28,6 +28,8 @@ import (
 //     superset_filter_values,
 //     superset_api (superset.go): a worker given a Superset Connection by its
 //     Run, a Bot's pi one switched on for chats and on its Bot's list;
+//   - bigquery_datasets, bigquery_tables, bigquery_table, bigquery_query
+//     (bigquery.go, issue #976): as Superset's, for a BigQuery Connection;
 //   - whatsapp_* and zalo_* (messaging_tools.go, issues #638, #680): a
 //     Bot's pi given the owner's WhatsApp or Zalo, on
 //     his turn only; a worker never;
@@ -60,6 +62,7 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	}
 	if a.readRun {
 		out = append(out, s.supersetToolList(ctx, a)...)
+		out = append(out, s.bigqueryToolList(ctx, a)...)
 		out = append(out, s.messagingToolList(ctx, a, relayMentions)...)
 		return append(out, s.readAccountTools(ctx, a)...)
 	}
@@ -74,6 +77,7 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
 	out = append(out, s.supersetToolList(ctx, a)...)
+	out = append(out, s.bigqueryToolList(ctx, a)...)
 	out = append(out, s.messagingToolList(ctx, a, relayMentions)...)
 
 	if s.hasNodeTools(a) {
@@ -164,6 +168,26 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.supersetCall(w, r, a, labels, asked)
+
+		return
+	}
+
+	if slices.Contains(bigqueryTools, asked.Tool) {
+		// Read again at each call, as Superset's: one taken back since the list is refused.
+		labels, err := s.bigqueryLabels(r.Context(), a)
+		if err != nil {
+			s.fail(w, r, err)
+
+			return
+		}
+
+		if len(labels) == 0 {
+			refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
+
+			return
+		}
+
+		s.bigqueryCall(w, r, a, labels, asked)
 
 		return
 	}
