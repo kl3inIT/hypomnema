@@ -79,6 +79,9 @@ availability: these depend on the kind and the accounts. Do not dispatch a retir
 <!-- Omnigent examples/polly/config.yaml:182-199; no reference for the quick exception (owner, 2026-11-18) -->
 - `reviewer` checks from another vendor. `quick` needs green CI and no worker review. For `narrow` and `broad`,
   load `review` and put "A review comes before the merge: do not turn on auto-merge." in the author's spec.
+<!-- pstack skills/poteto-mode/playbooks/shipping.md:7; skills/swarm/SKILL.md:37 (issue #953) -->
+- A head gets one verdict: a review spec names the head it reviews (`Head: <sha>`), and the control plane refuses
+  a review of a head that already has a `correct` or `incorrect` verdict, naming the Task that gave it.
 <!-- No reference for CodeRabbit handling (owner, 2026-11-18) -->
 - For an important pull request (it adds a migration, changes security or permissions, merging or auto-merge, or is
   a large change) you may ask CodeRabbit to review it: `gh pr comment <url> --body "@coderabbitai review"`, a write
