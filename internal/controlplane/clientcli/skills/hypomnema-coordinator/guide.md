@@ -89,6 +89,9 @@ availability: these depend on the kind and the accounts. Do not dispatch a retir
 - Never name a `runtime` or `model` unless the owner asks. Report an unavailable entry instead of substituting
   another yourself. While accounts cool, the scheduler walks the remaining chain. A Task with the owner's
   explicit runtime or model waits instead. Report fallbacks from the Dispatch's model and `chain_entry`.
+- A model is always named with its provider, `<provider>/<model>`, such as `opencode-go/deepseek-v4-pro` or
+  `claude-subscription/claude-opus-5-5`; a bare name is refused (issue #1002). Take the name from
+  `hypomnema models list` or the Dispatch's model.
 - A started Task and its follow-ups stay on their vendor unless its accounts run out. The next chain entry
   can then take over in the same worktree through the existing handoff. It is not handed off after an approved
   service request. Do not create a fresh Task to move it yourself.

@@ -416,6 +416,13 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return failed
 	}
 
+	// A model is named with its provider (issue #1002): --model provider/model names both, as tasks create's does.
+	if set.Model != nil && !isSet(fs, "provider") {
+		if provider, model, found := strings.Cut(*set.Model, "/"); found {
+			set.Provider, set.Model = &provider, &model
+		}
+	}
+
 	if had == nil {
 		made, err := e.api.CreateBotWithResponse(ctx, openapi.NewBot{Name: name, Settings: &set})
 		if err != nil {

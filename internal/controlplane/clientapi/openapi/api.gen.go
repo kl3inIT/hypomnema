@@ -3278,7 +3278,7 @@ type ChatChange struct {
 	// Model The model; empty for its Bot's.
 	Model *string `json:"model,omitempty"`
 
-	// Provider Where the model is found, given with the model; the provider that offers it when empty.
+	// Provider Where the model is found, given with the model, which needs it (issue
 	Provider *string `json:"provider,omitempty"`
 }
 
@@ -4989,7 +4989,7 @@ type NewChat struct {
 	// Model The chat's own model, chosen on the New chat page (issue
 	Model *string `json:"model,omitempty"`
 
-	// Provider Where the model is found; the provider that offers it when left out.
+	// Provider Where the model is found; required with a model (issue
 	Provider *string `json:"provider,omitempty"`
 	Title    *string `json:"title,omitempty"`
 }
@@ -5135,7 +5135,9 @@ type NewTask struct {
 	DependsOn *[]string `json:"depends_on,omitempty"`
 	Effort    *string   `json:"effort,omitempty"`
 	Kind      *TaskKind `json:"kind,omitempty"`
-	Model     *string   `json:"model,omitempty"`
+
+	// Model The model instead of the profile's, named with its provider as <provider>/<model>, such as opencode-go/deepseek-v4-pro (issue #1002); a name without its provider is refused.
+	Model *string `json:"model,omitempty"`
 
 	// PrBase With start_from, the base of the pull request the Task opens: start_from (the default, stacked) or the Run's base.
 	PrBase *NewTaskPrBase `json:"pr_base,omitempty"`

@@ -181,11 +181,11 @@ func chosenRoleChain(ctx context.Context, q *store.Queries, task store.Task) ([]
 			return nil, fmt.Errorf("%w: the reviewer needs a model from another vendor", ErrInvalid)
 		}
 	}
-	provider, err := checkModel(ctx, q, runtime, "", task.Model.String, task.Effort.String)
-	if err != nil {
+	provider, model := modelRef(task.Model.String)
+	if _, err := checkModel(ctx, q, runtime, provider, model, task.Effort.String); err != nil {
 		return nil, err
 	}
-	return []roleEntry{{Runtime: runtime, Provider: provider, Model: task.Model.String}}, nil
+	return []roleEntry{{Runtime: runtime, Provider: provider, Model: model}}, nil
 }
 
 func resolveRoleEntry(ctx context.Context, q *store.Queries, version store.ProfileVersion, task store.Task,

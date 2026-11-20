@@ -347,9 +347,9 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 	w.gatewayAccount("codex")
 	w.tasks(
 		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
-		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-haiku-5-5"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-subscription/claude-haiku-5-5"},
 		NewTask{Ref: "c", Profile: "reviewer", Spec: "c"},
-		NewTask{Ref: "d", Profile: "implementer", Spec: "d", Model: "gpt-6.1-sol"},
+		NewTask{Ref: "d", Profile: "implementer", Spec: "d", Model: "codex-subscription/gpt-6.1-sol"},
 	)
 
 	created := w.schedule().Created
@@ -366,6 +366,39 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 		"a": {"claude-subscription/claude-opus-5-5", "high", v}, "b": {"claude-subscription/claude-haiku-5-5", "high", v},
 		"d": {"codex-subscription/gpt-6.1-sol", "high", v},
 	}, got, "the gateway's names of the subscription's models (issue #549); a Task's model under its own provider")
+}
+
+// Scenario: OpenCode Zen comes to offer the models a profile and a Task name (issues #965, #1002). The profile keeps
+// the provider it names and the Task the one its model names, so both dispatch where they did before.
+func TestAProviderAddedLaterChangesNoDispatch(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	implementer, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\n"+
+			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
+	require.NoError(t, err)
+
+	_, err = w.s.ApplyProvider(t.Context(), "",
+		"name: opencode-zen\nkind: opencode_zen\nmodels: [claude-opus-5-5, claude-haiku-5-5]\n")
+	require.NoError(t, err)
+
+	w.gatewayAccount("claude")
+	w.tasks(
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-subscription/claude-haiku-5-5"},
+	)
+
+	got := map[string]string{}
+	for _, id := range w.schedule().Created {
+		d := w.dispatchOf(id)
+		assert.Equal(t, implementer.VersionID, d.ProfileVersionID)
+		got[w.task(d.TaskID).Spec] = d.Model
+	}
+
+	assert.Equal(t, map[string]string{
+		"a": "claude-subscription/claude-opus-5-5", "b": "claude-subscription/claude-haiku-5-5",
+	}, got)
 }
 
 // Scenario: a ready Task no node can run. After UnplaceableAfter the owner is

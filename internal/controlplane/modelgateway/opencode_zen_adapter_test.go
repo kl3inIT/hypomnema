@@ -385,3 +385,28 @@ func TestZenQuotaIsReadFromTheRefusal(t *testing.T) {
 		assert.Equal(t, c.usedUp, modelgateway.ZenQuotaUsedUp(c.status, []byte(c.body)), name)
 	}
 }
+
+// Scenario: a client names a subscription's model without its provider (issue #1002). The gateway serves a
+// subscription's models only as <provider>/<model>, or under a name of its own table, as LiteLLM's proxy serves a
+// model_name and 9router an alias: a bare name reaches no provider on any wire, and the same name with its provider
+// is served on each (TestEachZenModelIsCalledOnItsOwnWireAtTheInferenceRoot, TestZenPassesARouteItsOwnWire).
+func TestABareModelNameReachesNoProvider(t *testing.T) {
+	t.Parallel()
+
+	zen := newGoBackend(t, chatHi)
+	g := newZenGateway(t, zen, newGoBackend(t, chatHi), &accounts{})
+
+	status, _, body := g.call(t, g.key, `{"model":"glm-5.3","messages":[{"role":"user","content":"hi"}]}`)
+	assert.Equal(t, http.StatusBadRequest, status, "chat: %s", body)
+	assert.Contains(t, body, "glm-5.3")
+
+	status, _, body = g.send(t, "/v1/messages",
+		`{"model":"claude-sonnet-5-5","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`,
+		claudeCodeHeaders(g.key)...)
+	assert.Equal(t, http.StatusNotFound, status, "messages: %s", body)
+
+	status, _, body = g.respond(t, g.key, `{"model":"gpt-6.1-sol","input":"hi"}`)
+	assert.Equal(t, http.StatusBadRequest, status, "responses: %s", body)
+
+	assert.Zero(t, zen.got.calls(), "no provider is asked")
+}

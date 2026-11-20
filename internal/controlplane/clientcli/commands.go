@@ -30,7 +30,8 @@ var commands = []command{
 			fs.String("chat", "", "the chat to wake (default: this Bot's chat or the main Bot's main chat)")
 			fs.String("profile", "", "profile of the Task (default implementer)")
 			fs.String("runtime", "", "runtime, instead of the profile's")
-			fs.String("model", "", "model, instead of the profile's")
+			fs.String("model", "", "model as <provider>/<model>, such as opencode-go/deepseek-v4-pro, instead of "+
+				"the profile's")
 			fs.Bool("detach", false, "create the Run and return without following it")
 			fs.String("use", "", "accounts the workers may use, as integration:label separated by commas, such as google:work")
 		},
@@ -106,7 +107,8 @@ var commands = []command{
 			fs.String("start-from", "", "branch the worktree starts from instead of the Run's base")
 			fs.String("pr-base", "", "with --start-from: start_from (default, stacked) or run_base")
 			fs.String("runtime", "", "runtime, instead of the profile's")
-			fs.String("model", "", "model, instead of the profile's")
+			fs.String("model", "", "model as <provider>/<model>, such as opencode-go/deepseek-v4-pro, instead of "+
+				"the profile's")
 			fs.String("effort", "", "effort, instead of the profile's")
 			fs.String("key", "", "idempotency key; repeat a create whose result was lost with the same key")
 			jsonFlag(fs)
@@ -456,8 +458,9 @@ var commands = []command{
 		name: "bots set", args: "<bot>", min: 1, max: 1,
 		summary: "change a bot's settings, or make a bot of that name; what is left out stays (owner, or the main bot)",
 		flags: func(fs *flag.FlagSet) {
-			fs.String("provider", "", "the provider of the model, when more than one offers it")
-			fs.String("model", "", "the model pi runs for the bot; empty for pi's default")
+			fs.String("provider", "", "the provider of the model; or name both in --model as <provider>/<model>")
+			fs.String("model", "", "the model pi runs for the bot, as <provider>/<model> or with --provider; empty "+
+				"for pi's default")
 			fs.String("fallbacks", "", "ordered gateway models as provider/model, separated by commas; empty clears them")
 			fs.String("effort", "", "the reasoning effort: low, medium, high, xhigh or max")
 			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")

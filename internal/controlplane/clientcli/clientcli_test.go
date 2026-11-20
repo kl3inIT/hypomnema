@@ -796,6 +796,26 @@ func TestWorkerTextCannotDriveTheTerminal(t *testing.T) {
 	assert.Equal(t, `done\x1b[31m (3)`+"\n", out.String())
 }
 
+// Scenario: a Task's model is named with its provider (issue #1002). A bare name is refused with the form to
+// write it in; the same model named with its provider is the Task's.
+func TestATasksModelIsNamedWithItsProvider(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	var run openapi.Run
+	w.jsonCmd(t, &run, "", "runs", "create", "--repo", "kl3inIT/demo", "look around")
+
+	_, err := w.cmd(t, "tasks", "create", run.Id, "--spec", "s", "--model", "deepseek-v4-pro")
+	require.ErrorContains(t, err, "name it <provider>/<model>, such as opencode-go/deepseek-v4-pro")
+
+	var tasks openapi.TaskList
+	w.jsonCmd(t, &tasks, "", "tasks", "create", run.Id, "--spec", "s", "--model", "opencode-go/deepseek-v4-pro")
+	require.Len(t, tasks.Data, 1)
+	assert.Equal(t, "opencode-go/deepseek-v4-pro", val(tasks.Data[0].Model))
+}
+
 // Scenario: the owner watches a worker from a terminal, without the web. The
 // list says what the worker does now; the transcript prints what it said and
 // did, a line an item; following it prints each new item and ends once the
@@ -1134,7 +1154,7 @@ func TestProfilesFromTheCLI(t *testing.T) {
 	w.login(t, bearertoken.Owner)
 
 	file := filepath.Join(t.TempDir(), "reviewer.yaml")
-	source := "name: reviewer\ndescription: d\nruntime: claude\nmodel:\n  name: claude-opus-5-5\n"
+	source := "name: reviewer\ndescription: d\nruntime: claude\nmodel:\n  provider: claude-subscription\n  name: claude-opus-5-5\n"
 	require.NoError(t, os.WriteFile(file, []byte(source), 0o600))
 
 	out, err := w.cmd(t, "profiles", "apply", file)

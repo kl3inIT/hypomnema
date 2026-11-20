@@ -147,15 +147,21 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	_, _, err = w.s.ApplyProfile(t.Context(), "other", "name: x\ndescription: d\nruntime: claude\n")
 	require.ErrorIs(t, err, ErrInvalid, "the name in the path must be the source's")
 
-	p, _, err := w.s.ApplyProfile(t.Context(), "",
+	// Every model is named with its provider (issue #1002), even one a single provider offers.
+	_, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: z\ndescription: d\nruntime: codex\nmodel: {name: gpt-5}\n")
+	require.ErrorContains(t, err, `model "gpt-5" is named without its provider; name it <provider>/<model>, `+
+		"such as router/gpt-5")
+
+	p, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: z\ndescription: d\nruntime: codex\nmodel: {provider: router, name: gpt-5}\n")
 	require.NoError(t, err)
-	assert.Equal(t, "router", p.Provider, "only router offers gpt-5 to codex")
+	assert.Equal(t, "router", p.Provider)
 
 	p, _, err = w.s.ApplyProfile(t.Context(), "",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-haiku-5-5}\n")
+		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: claude-subscription, name: claude-haiku-5-5}\n")
 	require.NoError(t, err)
-	assert.Equal(t, "claude-subscription", p.Provider, "only the Claude subscription offers claude-haiku-5-5")
+	assert.Equal(t, "claude-subscription", p.Provider)
 
 	p, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: v\ndescription: d\nruntime: claude\nmodel: {provider: claude-subscription}\n")
@@ -171,8 +177,8 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 
 	_, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: w\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
-	require.ErrorContains(t, err, "name the provider",
-		"claude reaches claude-sonnet-5-5 through the world's gateway and the subscription")
+	require.ErrorContains(t, err, "such as claude-subscription/claude-sonnet-5-5 or model-gateway/claude-sonnet-5-5",
+		"the hint names each provider claude reaches claude-sonnet-5-5 through")
 }
 
 // A provider names where its key is kept, never the key; and it cannot drop
@@ -263,12 +269,17 @@ func TestATaskIsCheckedAgainstItsProfile(t *testing.T) {
 		{Ref: "e", Spec: "e", Runtime: "gemini"}:         "unknown runtime",
 		{Ref: "f", Profile: "reviewer", Spec: "   "}:     "needs a spec",
 		{Ref: "g", Spec: "g", Runtime: "pi", Model: "x"}: "no provider",
+		{Ref: "i", Spec: "i", Model: "claude-haiku-5-5"}: "name it <provider>/<model>, such as " +
+			"claude-subscription/claude-haiku-5-5",
+		{Ref: "j", Spec: "j", Model: "nobody/claude-haiku-5-5"}: "not found: provider nobody",
 	} {
 		_, err := w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{*nt})
 		require.ErrorContains(t, err, want, nt.Ref)
 	}
 
-	ok := w.tasks(NewTask{Ref: "h", Profile: "reviewer", Spec: "h", Model: "claude-haiku-5-5", Effort: "max"})
+	ok := w.tasks(NewTask{
+		Ref: "h", Profile: "reviewer", Spec: "h", Model: "claude-subscription/claude-haiku-5-5", Effort: "max",
+	})
 	assert.Equal(t, "reviewer", ok[0].Profile)
 }
 

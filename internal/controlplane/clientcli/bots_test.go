@@ -162,6 +162,10 @@ func TestBotFallbacksFromTheCLI(t *testing.T) {
 	assert.Contains(t, out, "fallbacks: gateway/first, gateway/second")
 	w.jsonCmd(t, &bot, "", "bots", "set", "vmap", "--fallbacks", "")
 	assert.Empty(t, bot.Fallbacks)
+
+	// --model names the provider too, as <provider>/<model> (issue #1002).
+	w.jsonCmd(t, &bot, "", "bots", "set", "vmap", "--model", "gateway/first")
+	assert.Equal(t, [2]string{"gateway", "first"}, [2]string{val(bot.Provider), val(bot.Model)})
 }
 
 // Scenario: the owner limits what a Bot may use from the terminal (issue

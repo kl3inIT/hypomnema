@@ -5516,7 +5516,13 @@ components:
           description: The succeeded Task in this Run a reviewer checks; its vendor is excluded.
         spec: { type: string, minLength: 1, maxLength: 100000 }
         runtime: { type: string, minLength: 1, maxLength: 100 }
-        model: { type: string, minLength: 1, maxLength: 200 }
+        model:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >-
+            The model instead of the profile's, named with its provider as <provider>/<model>, such as
+            opencode-go/deepseek-v4-pro (issue #1002); a name without its provider is refused.
         effort: { type: string, minLength: 1, maxLength: 50 }
         depends_on:
           type: array
@@ -9457,7 +9463,7 @@ components:
           description: The id of the Bot the chat talks with; the main Bot when left out.
         provider:
           type: string
-          description: Where the model is found; the provider that offers it when left out.
+          description: Where the model is found; required with a model (issue #1002).
         model:
           type: string
           description: The chat's own model, chosen on the New chat page (issue #369); its Bot's when left out.
@@ -9503,7 +9509,7 @@ components:
       properties:
         provider:
           type: string
-          description: Where the model is found, given with the model; the provider that offers it when empty.
+          description: Where the model is found, given with the model, which needs it (issue #1002).
         model:
           type: string
           description: The model; empty for its Bot's.

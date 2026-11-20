@@ -49,9 +49,14 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 		require.ErrorContains(t, err, c.want, c.bot.Name)
 	}
 
-	vmap, err := w.s.PutBot(ctx, Bot{Name: "vmap", Model: "sonnet", Persona: "  You answer about VMAP.\n"})
+	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Model: "sonnet"})
+	require.ErrorContains(t, err, "named without its provider", "a Bot's model names its provider (issue #1002)")
+
+	vmap, err := w.s.PutBot(ctx, Bot{
+		Name: "vmap", Provider: "router", Model: "sonnet", Persona: "  You answer about VMAP.\n",
+	})
 	require.NoError(t, err)
-	assert.Equal(t, "router", vmap.Provider, "only router offers sonnet to pi")
+	assert.Equal(t, "router", vmap.Provider)
 	assert.Equal(t, "You answer about VMAP.", vmap.Persona)
 
 	_, err = w.s.CreateChat(ctx, "nobody", "")

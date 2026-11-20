@@ -277,6 +277,9 @@ export type NewTask = {
   review_of?: string;
   spec: string;
   runtime?: string;
+  /**
+   * The model instead of the profile's, named with its provider as <provider>/<model>, such as opencode-go/deepseek-v4-pro (issue #1002); a name without its provider is refused.
+   */
   model?: string;
   effort?: string;
   /**
@@ -3880,7 +3883,7 @@ export type NewChat = {
    */
   bot?: string;
   /**
-   * Where the model is found; the provider that offers it when left out.
+   * Where the model is found; required with a model (issue
    */
   provider?: string;
   /**
@@ -3935,7 +3938,7 @@ export type ChatDeleted = {
  */
 export type ChatChange = {
   /**
-   * Where the model is found, given with the model; the provider that offers it when empty.
+   * Where the model is found, given with the model, which needs it (issue
    */
   provider?: string;
   /**

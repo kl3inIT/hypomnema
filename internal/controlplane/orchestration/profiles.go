@@ -669,12 +669,32 @@ func checkModel(ctx context.Context, q *store.Queries, runtime, provider, model,
 			model, needsGatewayMessage)
 	case len(fits) == 0:
 		return "", fmt.Errorf("%w: no provider runtime %s can use offers model %q", ErrInvalid, runtime, model)
-	case len(fits) > 1:
-		return "", fmt.Errorf("%w: model %q is offered by %s; name the provider", ErrInvalid, model,
-			strings.Join(fits, ", "))
+	case provider == "":
+		// Every model is named with its provider (owner, 2026-11-20; issue #1002): a bare name is never resolved,
+		// as omniroute refuses a bare name it cannot place ("Use provider/model prefix", open-sse/services/model.ts)
+		// and LiteLLM one it does not know ("Pass model as E.g. huggingface/starcoder",
+		// litellm_core_utils/get_llm_provider_logic.py), so a provider added later never changes what it means.
+		named := make([]string, len(fits))
+		for i, p := range fits {
+			named[i] = p + "/" + model
+		}
+
+		return "", fmt.Errorf("%w: model %q is named without its provider; name it <provider>/<model>, such as %s",
+			ErrInvalid, model, strings.Join(named, " or "))
 	default:
 		return fits[0], nil
 	}
+}
+
+// modelRef reads a model named with its provider, "<provider>/<model>" (issue #1002), as 9router and omniroute
+// read one at its first slash (9router open-sse/services/model.js parseModel): a provider's name has no slash, a
+// model's may. A name without a slash has no provider, which checkModel refuses.
+func modelRef(ref string) (provider, model string) {
+	if provider, model, found := strings.Cut(ref, "/"); found {
+		return provider, model
+	}
+
+	return "", ref
 }
 
 func knownRuntimes() string {
@@ -1354,12 +1374,12 @@ func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask, vendor 
 
 	runtime := or(nt.Runtime, v.Runtime)
 
-	provider := v.Provider.String
+	provider, model := v.Provider.String, nt.Model
 	if nt.Model != "" || nt.Runtime != "" {
-		provider = "" // an override picks the provider again from the model
+		provider, model = modelRef(nt.Model) // a Task's model names its own provider (issue #1002)
 	}
 
-	if _, err := checkModel(ctx, q, runtime, provider, nt.Model, nt.Effort); err != nil {
+	if _, err := checkModel(ctx, q, runtime, provider, model, nt.Effort); err != nil {
 		return fmt.Errorf("task %q: %w", nt.Ref, err)
 	}
 
@@ -1470,17 +1490,13 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 
 	runtime := or(task.Runtime.String, v.Runtime)
 
-	// A Task's own model picks its provider again, as checkTaskProfile checked it: the profile's provider may not
-	// offer it.
+	// A Task's own model names its own provider, "<provider>/<model>" (issue #1002), as checkTaskProfile checked it.
 	if task.Model.String != "" {
-		model = task.Model.String
+		provider, model = modelRef(task.Model.String)
 
-		p, err := checkModel(ctx, q, runtime, "", model, "")
-		if err != nil {
+		if _, err := checkModel(ctx, q, runtime, provider, model, ""); err != nil {
 			return resolved{}, err
 		}
-
-		provider = p
 	}
 
 	gateway, accounts := false, ""
