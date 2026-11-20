@@ -368,3 +368,52 @@ func TestTheQueryCommandOutwaitsAnApprovalAndItsJob(t *testing.T) {
 	}
 
 }
+
+// Scenario: no agent's token reaches the key. A coordinator's and a Bot's are refused the owner's read of the
+// vault secret (403), and a Bot token of a read-only Routine's run is refused the query route as the whole client
+// API (403); its tools are the agent API's.
+func TestNoAgentTokenReachesTheKeyOrTheQueryRouteOfAReadRun(t *testing.T) {
+	t.Parallel()
+
+	w := newBigQueryCLIWorld(t, time.Second)
+	w.connect(t)
+	ctx := t.Context()
+
+	_, err := w.svc.SetConnectionChats(ctx, integration.BigQueryID, "ga4", true)
+	require.NoError(t, err)
+
+	_, coordinator, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBotID, Name: "weekly-ga4", Kind: routinestore.RoutinePrompt,
+		Prompt: "Report the week.", EveryMinutes: 60, Access: routinestore.AccessRead,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+
+	run, err := w.svc.RunRoutineNow(ctx, routine.ID)
+	require.NoError(t, err)
+
+	readRun, err := w.svc.AddBotToken(ctx, "pi", run.Run.ChatID, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	for name, token := range map[string]string{"coordinator": coordinator, "read run": readRun} {
+		api, err := newClient(Config{URL: w.url, Token: token}, time.Minute)
+		require.NoError(t, err)
+
+		secret, err := api.GetSecretValueWithResponse(ctx, "integration-bigquery-ga4")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusForbidden, secret.StatusCode(), name)
+		assert.NotContains(t, string(secret.Body), "PRIVATE", name)
+
+		if name == "read run" {
+			query, err := api.RunBigQueryQueryWithResponse(ctx, "ga4", &openapi.RunBigQueryQueryParams{},
+				openapi.BigQueryQuery{Sql: "SELECT 1"})
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusForbidden, query.StatusCode())
+			assert.Contains(t, string(query.Body), agenttool.ReadRunRefusal)
+		}
+	}
+
+	assert.Empty(t, w.fake.Jobs(), "nothing was queried")
+}
