@@ -66,7 +66,10 @@ type Connection struct {
 	DialAddress string
 	// Access is what the account can really do, action by action, as it was last read at the service (issue
 	// #567); empty until it was read once.
-	Access    ConnectionAccess
+	Access ConnectionAccess
+	// Settings are what the owner set beside the credential, as JSON its Integration reads (issue #976): a
+	// BigQuery Connection's billing project, datasets, location and bytes cap. Not a secret. Empty for most.
+	Settings  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -175,7 +178,45 @@ func (s *Service) SaveServiceConnection(ctx context.Context, c Connection) (Conn
 		return q.UpsertConnection(ctx, store.UpsertConnectionParams{
 			Integration: c.Integration, Label: c.Label, Account: nullString(c.Account), Secret: c.Secret,
 			Services: nullString(strings.Join(c.Services, ",")), Address: nullString(c.Address),
-			Version: nullString(c.Version), AppID: nullString(c.AppID), AppLabel: nullString(c.AppLabel), Now: now,
+			Version: nullString(c.Version), AppID: nullString(c.AppID), AppLabel: nullString(c.AppLabel),
+			Settings: nullString(c.Settings), Now: now,
+		})
+	})
+	if err != nil {
+		return Connection{}, fmt.Errorf("recording connection %s:%s: %w", c.Integration, c.Label, err)
+	}
+
+	return s.ConnectionOf(ctx, c.Integration, c.Label)
+}
+
+// Tx is a write transaction of this package's that another package's own store takes part in (the vault's
+// CreateTx and RotateTx), passed through a package that runs no SQL itself.
+type Tx = sql.Tx
+
+// SaveServiceConnectionTx is SaveServiceConnection with another package's write in the same transaction, run first:
+// the vault's key of a Connection and the Connection that names it are kept together or not at all (issue #976).
+// A Connection that cannot be read back after the commit is still saved: the error says so, and nothing is undone.
+func (s *Service) SaveServiceConnectionTx(ctx context.Context, c Connection,
+	with func(tx *Tx, now int64) error,
+) (Connection, error) {
+	if !ValidConnectionLabel(c.Label) {
+		return Connection{}, fmt.Errorf("%w: a label is lower-case letters, digits and dashes, such as work", ErrInvalid)
+	}
+
+	if c.Integration == "" || c.Secret == "" {
+		return Connection{}, fmt.Errorf("%w: a connection needs its integration and its secret", ErrInvalid)
+	}
+
+	err := s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
+		if err := with(tx, now); err != nil {
+			return err
+		}
+
+		return q.UpsertConnection(ctx, store.UpsertConnectionParams{
+			Integration: c.Integration, Label: c.Label, Account: nullString(c.Account), Secret: c.Secret,
+			Services: nullString(strings.Join(c.Services, ",")), Address: nullString(c.Address),
+			Version: nullString(c.Version), AppID: nullString(c.AppID), AppLabel: nullString(c.AppLabel),
+			Settings: nullString(c.Settings), Now: now,
 		})
 	})
 	if err != nil {
@@ -229,6 +270,25 @@ func (s *Service) SetConnectionAccess(ctx context.Context, integration, label st
 	}
 
 	return nil
+}
+
+// SetConnectionSettings replaces what the owner set beside a Connection's credential (issue #976).
+func (s *Service) SetConnectionSettings(ctx context.Context, integration, label, settings string) (Connection, error) {
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.SetConnectionSettings(ctx, store.SetConnectionSettingsParams{
+			Settings: nullString(settings), Now: now, Integration: integration, Label: label,
+		})
+		if err == nil && n == 0 {
+			return fmt.Errorf("%w: %s has no connection %s", ErrNotFound, integration, label)
+		}
+
+		return err
+	})
+	if err != nil {
+		return Connection{}, fmt.Errorf("changing the settings of %s:%s: %w", integration, label, err)
+	}
+
+	return s.ConnectionOf(ctx, integration, label)
 }
 
 // ConnectionsOf returns an Integration's Connections, oldest first.
@@ -506,6 +566,7 @@ func connectionFromRow(r store.Connection) Connection {
 		Proxy:        r.Proxy.String,
 		DialAddress:  r.DialAddress.String,
 		Access:       access,
+		Settings:     r.Settings.String,
 		CreatedAt:    millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}
 }

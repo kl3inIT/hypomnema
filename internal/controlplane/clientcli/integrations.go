@@ -62,6 +62,10 @@ func connectionNote(c openapi.IntegrationConnection) string {
 		note += ": " + strings.Join(c.Services, ",")
 	}
 
+	if b := c.Bigquery; b != nil {
+		note += ": " + strings.Join(b.Datasets, ",")
+	}
+
 	note += ")"
 
 	if c.SignInRequired {
@@ -293,6 +297,14 @@ func integrationsSignOut(ctx context.Context, e *env, fs *flag.FlagSet, id, labe
 
 	return e.print(fs, resp.JSON200, func() {
 		e.printf("%s:%s is forgotten\n", id, label)
+
+		if id == bigqueryID {
+			// Nothing here can delete a key at Google (issue #976).
+			e.printf("the service account's key still exists at Google: the data owner deletes it in the Cloud " +
+				"console, IAM, Service accounts, Keys\n")
+
+			return
+		}
 
 		if !resp.JSON200.Revoked {
 			e.printf("the service could not be asked to end the access; remove it in the account's own settings\n")

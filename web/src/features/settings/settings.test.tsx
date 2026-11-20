@@ -198,6 +198,15 @@ function server(
         ...(body?.username && { account: body.username, address: body.address, version: "6.1.0" }),
         // An app is the id it was given, never its secret.
         ...(body?.app_id && { app_id: body.app_id }),
+        // A service account is its client_email and the settings, never its key (issue #976).
+        ...(body?.datasets && {
+          account: "hypomnema-ga4@my-app.iam.gserviceaccount.com",
+          bigquery: {
+            billing_project: body.billing_project ?? "my-app",
+            datasets: body.datasets as unknown as string[],
+            max_bytes_billed: 10 * 2 ** 30,
+          },
+        }),
       }
       services = services.map((i) => ({
         ...i,
@@ -1076,4 +1085,167 @@ test("a host and a name are read from what was typed or pasted", () => {
   expect(nameOf("owner/Repo")).toBe("repo")
   expect(nameOf("https://gitlab.com/group/sub/app.git/")).toBe("app")
   expect(nameOf("")).toBe("")
+})
+
+// Scenario (issue #976): the owner adds a BigQuery account with a key file and the GA4 dataset. The key is sent
+// once; only the file's name is shown, never what it holds, before or after connecting. The account shows its
+// dataset, its billing project and its cap; disconnecting says the key still exists at Google.
+test("the owner connects BigQuery with a key file that is never shown back", async () => {
+  const user = userEvent.setup()
+  const requests = server({
+    services: [
+      { id: "bigquery", name: "BigQuery", kind: "serviceaccount", services: [], connections: [] },
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  const card = async () => within(await screen.findByText("BigQuery").then(cardOf))
+  expect((await card()).getByText("Not connected")).toBeInTheDocument()
+  await user.click((await card()).getByRole("button", { name: "Add key" }))
+  const dialog = within(await screen.findByRole("dialog"))
+
+  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  expect(await dialog.findByText("Choose the service account's JSON key file.")).toBeInTheDocument()
+
+  const key = JSON.stringify({
+    type: "service_account",
+    client_email: "hypomnema-ga4@my-app.iam.gserviceaccount.com",
+    private_key:
+      "-----BEGIN PRIVATE KEY-----\\nnot-a-real-key-of-the-test\\n-----END PRIVATE KEY-----\\n",
+  })
+  await user.type(dialog.getByLabelText("Name"), "ga4")
+  await user.upload(
+    dialog.getByLabelText("Choose the service account's JSON key file"),
+    new File([key], "my-app-key.json", { type: "application/json" }),
+  )
+  expect(await dialog.findByText("my-app-key.json chosen")).toBeInTheDocument()
+  expect(document.body).not.toHaveTextContent("not-a-real-key-of-the-test")
+  await user.type(dialog.getByLabelText("GA4 datasets"), "my-app.analytics_123")
+  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+  const account = within(await screen.findByLabelText("BigQuery account ga4"))
+  expect(account.getByText("my-app.analytics_123")).toBeInTheDocument()
+  expect(account.getByText("Billed to my-app")).toBeInTheDocument()
+  expect(account.getByText("At most 10GiB a query")).toBeInTheDocument()
+  expect(document.body).not.toHaveTextContent("not-a-real-key-of-the-test")
+  expect(document.body).not.toHaveTextContent("PRIVATE KEY")
+
+  // Connecting again starts from the settings, without the key: the one kept is used.
+  await user.click(account.getByRole("button", { name: "Connect again" }))
+  const again = within(await screen.findByRole("dialog"))
+  expect(again.getByLabelText("GA4 datasets")).toHaveValue("my-app.analytics_123")
+  expect(again.getByText("The key kept is used")).toBeInTheDocument()
+  await user.click(again.getByRole("button", { name: "Cancel" }))
+
+  await user.click(account.getByRole("button", { name: "Disconnect ga4" }))
+  const confirm = within(await screen.findByRole("alertdialog"))
+  expect(confirm.getByText(/The key still exists at Google/)).toBeInTheDocument()
+  await user.click(confirm.getByRole("button", { name: "Disconnect" }))
+
+  expect(requests[0]).toEqual({
+    call: "PUT /integrations/bigquery/connections/ga4",
+    body: { datasets: ["my-app.analytics_123"], service_account_key: key },
+  })
+})
+
+// Scenario (review round 1, CodeRabbit): a BigQuery account with two datasets is connected again from the web.
+// The dialog shows both and sends both, with no key (the kept one is used) and no cap (the kept one stays).
+test("connecting BigQuery again keeps every dataset and the cap", async () => {
+  const user = userEvent.setup()
+  const now = new Date().toISOString()
+  const requests = server({
+    services: [
+      {
+        id: "bigquery",
+        name: "BigQuery",
+        kind: "serviceaccount",
+        services: [],
+        connections: [
+          {
+            integration: "bigquery",
+            label: "ga4",
+            account: "hypomnema-ga4@my-app.iam.gserviceaccount.com",
+            services: [],
+            sign_in_required: false,
+            chats: false,
+            cannot: [],
+            created_at: now,
+            updated_at: now,
+            bigquery: {
+              billing_project: "my-app",
+              datasets: ["my-app.analytics_1", "my-app.analytics_2"],
+              max_bytes_billed: 1234567890,
+            },
+          },
+        ],
+      },
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  const account = within(await screen.findByLabelText("BigQuery account ga4"))
+  await user.click(account.getByRole("button", { name: "Connect again" }))
+  const dialog = within(await screen.findByRole("dialog"))
+  expect(dialog.getByLabelText("GA4 datasets")).toHaveValue(
+    "my-app.analytics_1, my-app.analytics_2",
+  )
+  expect(dialog.getByLabelText("Bytes cap")).toHaveValue("")
+  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+  expect(requests[0]).toEqual({
+    call: "PUT /integrations/bigquery/connections/ga4",
+    body: { datasets: ["my-app.analytics_1", "my-app.analytics_2"], billing_project: "my-app" },
+  })
+})
+
+// Scenario (review round 2, minor): the cap dialog shows the exact cap and starts empty, so a cap shown rounded
+// is never saved back; what is typed is sent in bytes.
+test("the bytes cap is typed anew and sent exactly", async () => {
+  const user = userEvent.setup()
+  const now = new Date().toISOString()
+  const requests = server({
+    services: [
+      {
+        id: "bigquery",
+        name: "BigQuery",
+        kind: "serviceaccount",
+        services: [],
+        connections: [
+          {
+            integration: "bigquery",
+            label: "ga4",
+            account: "hypomnema-ga4@my-app.iam.gserviceaccount.com",
+            services: [],
+            sign_in_required: false,
+            chats: false,
+            cannot: [],
+            created_at: now,
+            updated_at: now,
+            bigquery: {
+              billing_project: "my-app",
+              datasets: ["my-app.analytics_1"],
+              max_bytes_billed: 1234567890,
+            },
+          },
+        ],
+      },
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  const account = within(await screen.findByLabelText("BigQuery account ga4"))
+  await user.click(account.getByRole("button", { name: "Bytes cap" }))
+  const dialog = within(await screen.findByRole("dialog"))
+  expect(dialog.getByLabelText("Bytes cap")).toHaveValue("")
+  expect(dialog.getByText(/Now 1,234,567,890 bytes/)).toBeInTheDocument()
+  await user.type(dialog.getByLabelText("Bytes cap"), "2GiB")
+  await user.click(dialog.getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+  expect(requests[0]).toEqual({
+    call: "PATCH /integrations/bigquery/connections/ga4",
+    body: { max_bytes_billed: 2 * 2 ** 30 },
+  })
 })

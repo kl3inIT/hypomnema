@@ -1535,6 +1535,15 @@ func (s *signIns) ConnectRole(context.Context, string, string, integration.Role)
 	return integration.Connection{}, integration.ErrInvalid
 }
 
+func (s *signIns) ConnectServiceAccount(context.Context, string, string, integration.ServiceAccount,
+) (integration.Connection, error) {
+	return integration.Connection{}, integration.ErrInvalid
+}
+
+func (s *signIns) SetMaxBytes(context.Context, string, string, int64) (integration.Connection, error) {
+	return integration.Connection{}, integration.ErrInvalid
+}
+
 func (s *signIns) Begin(_ context.Context, _, label string, services []string) (integration.SignIn, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

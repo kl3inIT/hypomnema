@@ -108,6 +108,8 @@ import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 
 import { AgentActions } from "./agent-actions"
+import { BytesCapDialog, ConnectServiceAccountDialog } from "./bigquery-dialogs"
+import { formatSize } from "./bytes"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorAlert } from "@/components/error-alert"
 import { TextField } from "@/components/text-field"
@@ -207,13 +209,23 @@ export function ServiceCard({ service }: { service: Integration }) {
   const role = service.kind === "role"
   // The owner's own messaging account, linked as a device of his by a QR code his phone scans (issue #615).
   const device = service.kind === "device"
-  const ready = account || app || role || device || Boolean(service.client_id)
+  // A Google service account's key, uploaded once (BigQuery, issue #976).
+  const keyed = service.kind === "serviceaccount"
+  const ready = account || app || role || device || keyed || Boolean(service.client_id)
   // The owner may sign in to an app service as himself through one of its apps (issue #468): a user Connection.
   const apps = service.connections.filter((c) => !c.app)
   const add = (
     <Button variant="outline" size="sm">
       <Plus data-icon="inline-start" />
-      {app ? "Add app" : role ? "Add role" : device ? "Link phone" : "Add account"}
+      {app
+        ? "Add app"
+        : role
+          ? "Add role"
+          : device
+            ? "Link phone"
+            : keyed
+              ? "Add key"
+              : "Add account"}
     </Button>
   )
 
@@ -232,9 +244,11 @@ export function ServiceCard({ service }: { service: Integration }) {
                     ? "Roles of your AWS accounts, each with the rights its work needs"
                     : device
                       ? "Your own account, linked as a device of your phone"
-                      : account
-                        ? (accountHolds[service.id] ?? "An account at its own address")
-                        : service.services.map(serviceName).join(" · ")}
+                      : keyed
+                        ? "GA4 data, read with a service account's key"
+                        : account
+                          ? (accountHolds[service.id] ?? "An account at its own address")
+                          : service.services.map(serviceName).join(" · ")}
               </CardDescription>
             </span>
           </span>
@@ -255,15 +269,16 @@ export function ServiceCard({ service }: { service: Integration }) {
               />
             )}
             {role && <ConnectRoleDialog service={service} trigger={add} />}
+            {keyed && <ConnectServiceAccountDialog service={service} trigger={add} />}
             {device && <LinkDeviceDialog service={service} trigger={add} />}
-            {!app && !account && !role && !device && service.client_id && (
+            {!app && !account && !role && !device && !keyed && service.client_id && (
               <SignInDialog service={service} trigger={add} />
             )}
             <Badge variant={accounts > 0 && !needsSignIn ? "success" : "warning"}>
               {!ready
                 ? "Not set up"
                 : accounts === 0
-                  ? app || role
+                  ? app || role || keyed
                     ? "Not connected"
                     : device
                       ? "Not linked"
@@ -334,6 +349,7 @@ function AccountItem({
   const account = service.kind === "account"
   const role = service.kind === "role"
   const device = service.kind === "device"
+  const keyed = service.kind === "serviceaccount"
 
   return (
     <Item variant="muted" size="sm" aria-label={`${service.name} account ${connection.label}`}>
@@ -368,6 +384,18 @@ function AccountItem({
                   {connection.sign_in_required
                     ? "AWS refused this key the last time"
                     : "The last assume worked"}
+                </span>
+              </>
+            )}
+            {keyed && connection.bigquery && (
+              <>
+                <span className="break-all">{connection.bigquery.datasets.join(", ")}</span>
+                <span>{`Billed to ${connection.bigquery.billing_project}`}</span>
+                <span>{`At most ${formatSize(connection.bigquery.max_bytes_billed)} a query`}</span>
+                <span>
+                  {connection.sign_in_required
+                    ? "Google refused this key the last time"
+                    : "The last check worked"}
                 </span>
               </>
             )}
@@ -428,7 +456,22 @@ function AccountItem({
               }
             />
           )}
-          {!device && <ProxyDialog service={service} connection={connection} />}
+          {!device && !keyed && <ProxyDialog service={service} connection={connection} />}
+          {keyed && (
+            <>
+              <BytesCapDialog service={service} connection={connection} />
+              <ConnectServiceAccountDialog
+                service={service}
+                connection={connection}
+                trigger={
+                  <Button variant="ghost" size="sm">
+                    <RefreshCw data-icon="inline-start" />
+                    Connect again
+                  </Button>
+                }
+              />
+            </>
+          )}
           {role && (
             <ConnectRoleDialog
               service={service}
@@ -465,7 +508,7 @@ function AccountItem({
               }
             />
           )}
-          {!app && !account && !role && !device && !user && (
+          {!app && !account && !role && !device && !keyed && !user && (
             <SignInDialog
               service={service}
               connection={connection}
@@ -490,13 +533,15 @@ function AccountItem({
                 : device
                   ? (forgetHow[service.id] ??
                     `The device is logged out of your ${service.name}, so your phone's linked devices drop it, and Hypomnema forgets its session. Your account itself is not touched.`)
-                  : role
-                    ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
-                    : account
-                      ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
-                      : app
-                        ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
-                        : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
+                  : keyed
+                    ? `Hypomnema forgets this account and removes its key from the vault; agents given it lose it. The key still exists at Google: delete it in the Cloud console, IAM, Service accounts, Keys.`
+                    : role
+                      ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
+                      : account
+                        ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
+                        : app
+                          ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
+                          : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
             }
             action="Disconnect"
             run={() =>

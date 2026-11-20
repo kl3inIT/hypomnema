@@ -1679,6 +1679,97 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SupersetAnswer" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/bigquery/connections/{label}/datasets:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionLabel"
+    get:
+      operationId: ListBigQueryDatasets
+      summary: The datasets of a BigQuery Connection's data projects
+      description: >-
+        The datasets of the projects of the Connection's GA4 datasets (issue #976). The owner may ask, and a
+        coordinator token when the owner switched the Connection on for chats, a Bot's when it is on its list. The
+        read is the Connection's bigquery.read action and has the owner's answer for it.
+      parameters:
+        - $ref: "#/components/parameters/AskingChat"
+        - $ref: "#/components/parameters/AskingRoutineRun"
+      responses:
+        "200":
+          description: The datasets.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BigQueryDatasetList" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/bigquery/connections/{label}/datasets/{dataset}/tables:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - name: dataset
+        in: path
+        required: true
+        description: The dataset, project.dataset.
+        schema: { type: string, minLength: 1, maxLength: 1100 }
+    get:
+      operationId: ListBigQueryTables
+      summary: The tables of a dataset with their types
+      description: Who may ask is as for the datasets.
+      parameters:
+        - $ref: "#/components/parameters/AskingChat"
+        - $ref: "#/components/parameters/AskingRoutineRun"
+      responses:
+        "200":
+          description: The tables.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BigQueryTableList" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/bigquery/connections/{label}/tables/{table}:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - name: table
+        in: path
+        required: true
+        description: The table, project.dataset.table.
+        schema: { type: string, minLength: 1, maxLength: 2200 }
+    get:
+      operationId: GetBigQueryTable
+      summary: A table's metadata and schema
+      description: Who may ask is as for the datasets.
+      parameters:
+        - $ref: "#/components/parameters/AskingChat"
+        - $ref: "#/components/parameters/AskingRoutineRun"
+      responses:
+        "200":
+          description: The table.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BigQueryTable" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/bigquery/connections/{label}/query:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionLabel"
+    post:
+      operationId: RunBigQueryQuery
+      summary: Check a query, dry-run it, and run it as a job under the Connection's bytes cap
+      description: >-
+        The query is checked by a lexer before any request, then by a dry run (one SELECT, no routine, under the
+        cap); only then does a job run, with the same SQL and cap. A refusal sends nothing further and is answered
+        403. The request is the Connection's bigquery.query action and has the owner's answer for it: from a
+        Routine's run it may wait 30 minutes for his Approval, then run up to timeout_seconds. At the limit the
+        job's cancel is requested; it may still finish and be billed up to the cap. Who may ask is as for the
+        datasets.
+      parameters:
+        - $ref: "#/components/parameters/AskingRoutineRun"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BigQueryQuery" }
+      responses:
+        "200":
+          description: What the query gave, or its dry run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BigQueryResult" }
+        default: { $ref: "#/components/responses/Error" }
   /approvals:
     get:
       operationId: ListApprovals
@@ -6740,13 +6831,14 @@ components:
         name: { type: string }
         kind:
           type: string
-          enum: [oauth, app, account, role, device]
+          enum: [oauth, app, account, role, device, serviceaccount]
           description: >-
             How a Connection is made: oauth signs an account in, in a browser;
             app has no sign-in, each Connection being an app of the service
             with its own id and secret; account is the service's address, a
             user name and a password; device is the owner's own messaging
-            account (WhatsApp), linked by a QR code his phone scans.
+            account (WhatsApp), linked by a QR code his phone scans;
+            serviceaccount is a Google service account's JSON key (BigQuery).
         client_id:
           type: string
           description: >-
@@ -6961,6 +7053,7 @@ components:
             IP, with a port or not. The Host header and the TLS name stay the host's. A temporary way round a name
             that does not resolve; absent dials the host.
         session: { $ref: "#/components/schemas/DeviceSession" }
+        bigquery: { $ref: "#/components/schemas/BigQuerySettings" }
         cannot:
           type: array
           items: { $ref: "#/components/schemas/ConnectionCannot" }
@@ -7053,6 +7146,130 @@ components:
         service: { type: string }
         name: { type: string }
         reason: { type: string, description: "Why, such as role ServiceReader has no can_read on Log." }
+    BigQuerySettings:
+      type: object
+      description: >-
+        What the owner set for a BigQuery Connection beside its key (issue #976). The key itself is never in an
+        answer; account is the service account's client_email.
+      required: [billing_project, datasets, max_bytes_billed]
+      properties:
+        billing_project: { type: string, description: Where jobs run and are billed. }
+        datasets:
+          type: array
+          items: { type: string }
+          description: The GA4 export datasets, project.dataset. Not a filter; the account's IAM roles are.
+        location: { type: string, description: Where jobs run; absent takes the dry run's. }
+        max_bytes_billed:
+          type: integer
+          format: int64
+          description: The cap on the bytes one query job may bill on demand.
+    BigQueryDatasetList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/BigQueryDataset" }
+    BigQueryDataset:
+      type: object
+      required: [project, dataset]
+      properties:
+        project: { type: string }
+        dataset: { type: string }
+    BigQueryTableList:
+      type: object
+      required: [data, truncated]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/BigQueryTableSummary" }
+        truncated: { type: boolean, description: More tables than are listed. }
+    BigQueryTableSummary:
+      type: object
+      required: [table, type]
+      properties:
+        table: { type: string }
+        type: { type: string, description: "TABLE, VIEW, MATERIALIZED_VIEW, EXTERNAL or SNAPSHOT." }
+    BigQueryField:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string }
+        type: { type: string }
+        mode: { type: string, description: "REPEATED or REQUIRED; absent is nullable." }
+        description: { type: string }
+        fields:
+          type: array
+          items: { $ref: "#/components/schemas/BigQueryField" }
+    BigQueryTable:
+      type: object
+      required: [project, dataset, table, type, rows, bytes, created, modified, schema]
+      properties:
+        project: { type: string }
+        dataset: { type: string }
+        table: { type: string }
+        type: { type: string }
+        description: { type: string }
+        rows: { type: integer, format: int64 }
+        bytes: { type: integer, format: int64 }
+        created: { type: string, format: date-time }
+        modified: { type: string, format: date-time }
+        partitioning: { type: string }
+        schema:
+          type: array
+          items: { $ref: "#/components/schemas/BigQueryField" }
+    BigQueryQuery:
+      type: object
+      required: [sql]
+      additionalProperties: false
+      properties:
+        sql:
+          type: string
+          minLength: 1
+          maxLength: 1048576
+          description: >-
+            One GoogleSQL SELECT over the native GA4 tables: no script, no statements but one, no CREATE, DECLARE,
+            SET, EXPORT or CALL, no user functions, no ML., AI. or VECTOR_SEARCH, no EXTERNAL_QUERY, no legacy SQL.
+        dry_run: { type: boolean, description: Only check the query and say the bytes it would process. }
+        max_rows: { type: integer, minimum: 1, maximum: 10000, description: The rows to answer with; default 50. }
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 600
+          description: How long the job may run; default 30. At the limit its cancel is requested.
+        chat_id: { type: string, maxLength: 64, description: The chat a coordinator asks from. }
+    BigQueryResult:
+      type: object
+      required:
+        [dry_run, statement_type, bytes_processed, bytes_billed, maximum_bytes_billed, columns, rows, total_rows,
+        truncated]
+      properties:
+        project: { type: string, description: The job's project; absent for a dry run. }
+        job_id: { type: string, description: "The job's id, hyp-<uuid>; absent for a dry run." }
+        location: { type: string }
+        dry_run: { type: boolean }
+        statement_type: { type: string }
+        bytes_processed:
+          type: integer
+          format: int64
+          description: What the dry run estimated, or what the job processed.
+        bytes_billed: { type: integer, format: int64 }
+        maximum_bytes_billed: { type: integer, format: int64 }
+        cache_hit: { type: boolean }
+        columns:
+          type: array
+          items: { type: string }
+        rows:
+          type: array
+          items:
+            type: array
+            items: {}
+        total_rows: { type: integer, format: int64 }
+        truncated: { type: boolean, description: The job gave more rows than are answered. }
+        computed_at:
+          type: string
+          format: date-time
+          description: When the job ended; the figures are as of then.
     NewAccountConnection:
       type: object
       description: >-
@@ -7104,6 +7321,31 @@ components:
           type: string
           maxLength: 1024
           writeOnly: true
+        service_account_key:
+          type: string
+          maxLength: 16384
+          writeOnly: true
+          description: >-
+            For BigQuery (issue #976): the service account's JSON key file whole, a new key of an account made for
+            this alone. Never answered back. Absent keeps the key of the label.
+        datasets:
+          type: array
+          maxItems: 20
+          items: { type: string, maxLength: 1100 }
+          description: For BigQuery, the GA4 export datasets as project.dataset; checked when connecting.
+        billing_project:
+          type: string
+          maxLength: 100
+          description: For BigQuery, where jobs run and are billed; default the key's project_id.
+        location:
+          type: string
+          maxLength: 40
+          description: For BigQuery, where jobs run, such as US; default the dry run's.
+        max_bytes_billed:
+          type: integer
+          format: int64
+          minimum: 1
+          description: For BigQuery, the cap on the bytes one query job may bill on demand; default 10 GiB.
     SupersetDashboardSummary:
       type: object
       required: [id, title, published]
@@ -7361,6 +7603,13 @@ components:
           description: >-
             Where its requests are dialed instead of their host's, as curl's --resolve: a host or an IP, with a port
             or not; the certificate is still checked against the host. Temporary. Empty clears it.
+        max_bytes_billed:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >-
+            For a BigQuery Connection (issue #976): the cap on the bytes one query job may bill on demand, for its
+            dry run and its job.
     NewIntegrationClient:
       type: object
       required: [client_id, client_secret]

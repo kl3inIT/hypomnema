@@ -184,6 +184,13 @@ var policies = map[string]policy{
 	"ListSupersetFilterValues": {long: true},
 	"RelaySupersetRequest":     {long: true},
 
+	// BigQuery (issue #976), as Superset's: the handler decides who may ask (bigquery.go). A query may wait for the
+	// owner's Approval and then run for up to ten minutes.
+	"ListBigQueryDatasets": {long: true},
+	"ListBigQueryTables":   {long: true},
+	"GetBigQueryTable":     {long: true},
+	"RunBigQueryQuery":     {long: true},
+
 	"ListApprovals":           {scope: scopeOwner},
 	"DecideApproval":          {scope: scopeOwner},
 	"ListRepos":               {},

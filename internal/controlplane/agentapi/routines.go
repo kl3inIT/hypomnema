@@ -88,7 +88,9 @@ func routineTool(a agent) (agenttool.BrowserTool, bool) {
 				"work in, such as routines/report.sh: alone, for work that needs no model; with prompt, a check " +
 				"that runs first and wakes you only when it finds work."},
 			"timeout_seconds": map[string]any{"type": "integer", "minimum": 1,
-				"description": "set: seconds a script may run (default 600)."},
+				"description": "set: seconds a script may run (default 600). The time a command waits for the " +
+					"owner's approval counts, up to 1800 a request: a script that runs `hypomnema bigquery query " +
+					"--timeout 10m` needs 2520 (30 minutes of approval, 10 of query, 2 to spare)."},
 			"summary": map[string]any{"type": "string", "description": "set: what the work is, in one line."},
 			"quiet": map[string]any{"type": "boolean",
 				"description": "set: true when a run's result is not to be added to this chat."},
@@ -111,8 +113,9 @@ func routineTool(a agent) (agenttool.BrowserTool, bool) {
 			"file you wrote under routines/ in the folder you work in, with its #! line (it runs later in that " +
 			"folder with your commands, no model and no tools, and prints what it did), or prompt, or both. A " +
 			"script has commands, not tools: it reads a Superset chart with `hypomnema superset chart " +
-			"<dashboard> <chart> [--filter \"Name=value\"]` and refreshes an artifact with `hypomnema artifact " +
-			"show --id <id> --path <folder>`. A script is at most 100,000 bytes: keep longer code in a file of " +
+			"<dashboard> <chart> [--filter \"Name=value\"]`, queries BigQuery with `hypomnema bigquery query " +
+			"--sql-file <file>` (give it a timeout_seconds of 2520 with --timeout 10m: an approval may wait 30 " +
+			"minutes first) and refreshes an artifact with `hypomnema artifact show --id <id> --path <folder>`. A script is at most 100,000 bytes: keep longer code in a file of " +
 			"your folder (routines/lib/report.py) run by a short script (exec python3 routines/lib/report.py), " +
 			"never split across Routines, and tell the owner the Routine runs that file. With both, the script " +
 			"runs first as a cheap check: when it prints nothing, or its last line is {\"wakeAgent\": false}, " +

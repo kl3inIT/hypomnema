@@ -118,7 +118,10 @@ type Server struct {
 	messaging Messaging
 	approvals Approvals
 	// relay sends requests to a Connection that has its own address; nil when the control plane wired none.
-	relay        Relay
+	relay Relay
+	// bigquery runs a BigQuery Connection's calls and judge decides them (issue #976); nil when none was wired.
+	bigquery     BigQuery
+	judge        Judge
 	larkChannels LarkChannels
 	// accounts shows the accounts with the state of their sign-ins and removes one; nil when the control plane
 	// wired none, and then an account shows what orchestration knows of it.

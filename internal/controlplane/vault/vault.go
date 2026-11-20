@@ -108,8 +108,10 @@ type Secret struct {
 	Kind Kind
 	// Metadata is not secret: what the owner needs to recognize the secret.
 	Metadata map[string]string
-	// Version counts from 1 and grows with each rotation.
-	Version int
+	// Version counts from 1 and grows with each rotation; VersionID names the current version and is never
+	// reused, not even by a secret made again under the same name.
+	Version   int
+	VersionID string
 	// KeyID names the root key the current version is sealed under;
 	// KeyMissing says that key is not in the keyring, so the secret cannot be
 	// opened until it is put back.
@@ -289,6 +291,16 @@ func (s *Service) RotateAt(ctx context.Context, name string, p Payload, version 
 	return s.rotateAt(ctx, name, p, nil, version)
 }
 
+// RotateTx stores a new value as the secret's next version in the referring record's transaction, and returns the
+// new version's id: the value and the record that names it are kept together or not at all.
+func (s *Service) RotateTx(ctx context.Context, tx *sql.Tx, name string, p Payload, now int64) (string, error) {
+	if s.keyring == nil {
+		return "", ErrNotConfigured
+	}
+
+	return s.rotateIn(ctx, store.New(tx), name, p, nil, 0, now)
+}
+
 func (s *Service) rotate(ctx context.Context, name string, p Payload, expires *time.Time) (Secret, error) {
 	return s.rotateAt(ctx, name, p, expires, 0)
 }
@@ -300,45 +312,55 @@ func (s *Service) rotateAt(ctx context.Context, name string, p Payload, expires 
 	}
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		row, current, err := currentVersion(ctx, q, name)
-		if err != nil {
-			return err
-		}
+		_, err := s.rotateIn(ctx, q, name, p, expires, at, now)
 
-		if at != 0 && int(current.VersionNumber) != at {
-			return fmt.Errorf("%w: secret %q is at version %d, not %d", ErrConflict, name, current.VersionNumber, at)
-		}
-
-		if err := validPayload(Kind(row.Kind), p); err != nil {
-			return err
-		}
-
-		id := identity{
-			SecretID: row.ID, VersionID: s.newID("secv"), VersionNumber: current.VersionNumber + 1, Kind: Kind(row.Kind),
-		}
-
-		sealedVersion, err := seal(s.keyring, id, p)
-		if err != nil {
-			return err
-		}
-
-		if err := insertVersion(ctx, q, id, sealedVersion, expires, now); err != nil {
-			return err
-		}
-
-		if err := q.SetCurrentSecretVersion(ctx, store.SetCurrentSecretVersionParams{
-			CurrentVersionID: id.VersionID, Now: now, ID: row.ID,
-		}); err != nil {
-			return fmt.Errorf("pointing secret %q at its new version: %w", name, err)
-		}
-
-		return nil
+		return err
 	})
 	if err != nil {
 		return Secret{}, fmt.Errorf("rotating a secret: %w", err)
 	}
 
 	return s.Get(ctx, name)
+}
+
+// rotateIn writes a secret's next version with q and returns its id; at, when not 0, is the version it must still
+// be at.
+func (s *Service) rotateIn(ctx context.Context, q *store.Queries, name string, p Payload, expires *time.Time, at int,
+	now int64,
+) (string, error) {
+	row, current, err := currentVersion(ctx, q, name)
+	if err != nil {
+		return "", err
+	}
+
+	if at != 0 && int(current.VersionNumber) != at {
+		return "", fmt.Errorf("%w: secret %q is at version %d, not %d", ErrConflict, name, current.VersionNumber, at)
+	}
+
+	if err := validPayload(Kind(row.Kind), p); err != nil {
+		return "", err
+	}
+
+	id := identity{
+		SecretID: row.ID, VersionID: s.newID("secv"), VersionNumber: current.VersionNumber + 1, Kind: Kind(row.Kind),
+	}
+
+	sealedVersion, err := seal(s.keyring, id, p)
+	if err != nil {
+		return "", err
+	}
+
+	if err := insertVersion(ctx, q, id, sealedVersion, expires, now); err != nil {
+		return "", err
+	}
+
+	if err := q.SetCurrentSecretVersion(ctx, store.SetCurrentSecretVersionParams{
+		CurrentVersionID: id.VersionID, Now: now, ID: row.ID,
+	}); err != nil {
+		return "", fmt.Errorf("pointing secret %q at its new version: %w", name, err)
+	}
+
+	return id.VersionID, nil
 }
 
 // Delete removes a secret and every version of it. It is refused while
@@ -535,7 +557,7 @@ func (s *Service) describe(row store.Secret, current store.SecretVersion) (Secre
 
 	return Secret{
 		ID: row.ID, Name: row.Name, Kind: Kind(row.Kind), Metadata: metadata,
-		Version: int(current.VersionNumber), KeyID: current.KeyID,
+		Version: int(current.VersionNumber), VersionID: row.CurrentVersionID, KeyID: current.KeyID,
 		KeyMissing:           s.keyring != nil && !s.keyring.has(current.KeyID),
 		AccessTokenExpiresAt: optionalTime(current.AccessTokenExpiresAt),
 		LoginRequired:        row.LoginRequiredAt.Valid,

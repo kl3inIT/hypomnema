@@ -80,6 +80,13 @@ func (s *Service) Check(ctx context.Context, integration, label string) (Connect
 		return Connection{}, err
 	}
 
+	// A service account is checked as when it was connected, step by step (issue #976).
+	if d.IsServiceAccount() {
+		if err := s.checkServiceAccountAgain(ctx, d, label); err != nil {
+			return Connection{}, err
+		}
+	}
+
 	if err := s.checker(ctx, d.ID, label); err != nil {
 		return Connection{}, err
 	}
@@ -130,6 +137,9 @@ func (s *Service) Holdings(ctx context.Context, integration, label string) (Hold
 	case d.IsRole():
 		// No reference reads what an AWS role may do without simulating its policies (issue #567, not in it).
 		h.Unknown = "what an AWS role may do is not read"
+	case d.IsServiceAccount():
+		// What a service account may read is its IAM roles at Google, which the connect check tries (issue #976).
+		h.Unknown = "what a service account may read is its IAM roles at Google"
 	case d.IsAccount():
 		s.supersetRoles(ctx, d, conn, &h)
 	case d.IsApp() && conn.User():

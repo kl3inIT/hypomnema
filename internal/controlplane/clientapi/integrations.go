@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bigquery"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
@@ -35,6 +36,11 @@ type Integrations interface {
 	ConnectAccount(ctx context.Context, id, label string, a integration.Account) (integration.Connection, error)
 	// ConnectRole connects an Integration of kind role: a role of an AWS account and the key that assumes it.
 	ConnectRole(ctx context.Context, id, label string, r integration.Role) (integration.Connection, error)
+	// ConnectServiceAccount connects an Integration of kind serviceaccount: a Google service account's key.
+	ConnectServiceAccount(ctx context.Context, id, label string, sa integration.ServiceAccount,
+	) (integration.Connection, error)
+	// SetMaxBytes changes a BigQuery Connection's cap on the bytes one query may bill.
+	SetMaxBytes(ctx context.Context, id, label string, maxBytes int64) (integration.Connection, error)
 	Disconnect(ctx context.Context, id, label string) (revoked bool, err error)
 	// SetChats says whether the coordinator may use a Connection in chats.
 	SetChats(ctx context.Context, id, label string, allowed bool) (integration.Connection, error)
@@ -86,6 +92,13 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 
 	if !c.Access.CheckedAt.IsZero() {
 		out.AccessCheckedAt = &c.Access.CheckedAt
+	}
+
+	if b := c.BigQuery; b != nil {
+		out.Bigquery = &openapi.BigQuerySettings{
+			BillingProject: b.BillingProject, Datasets: append([]string{}, b.Datasets...), Location: opt(b.Location),
+			MaxBytesBilled: b.MaxBytesBilled,
+		}
 	}
 
 	for _, g := range c.Grants {
@@ -254,6 +267,15 @@ func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIn
 	}
 
 	switch {
+	case val(b.ServiceAccountKey) != "" || b.Datasets != nil:
+		// The key is never logged nor answered back (issue #976).
+		conn, err = s.integrations.ConnectServiceAccount(ctx, req.Integration, req.Label, integration.ServiceAccount{
+			Key: []byte(val(b.ServiceAccountKey)),
+			Settings: bigquery.Settings{
+				BillingProject: val(b.BillingProject), Datasets: val(b.Datasets), Location: val(b.Location),
+				MaxBytesBilled: val(b.MaxBytesBilled),
+			},
+		})
 	case val(b.RoleArn) != "" || val(b.Key) != "":
 		conn, err = s.integrations.ConnectRole(ctx, req.Integration, req.Label, integration.Role{
 			ARN: val(b.RoleArn), Key: val(b.Key), AccessKeyID: val(b.AccessKeyId),
@@ -282,13 +304,17 @@ func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIn
 // #850). What the body leaves out stays.
 func (s *Server) PatchIntegrationConnection(ctx context.Context, req openapi.PatchIntegrationConnectionRequestObject,
 ) (openapi.PatchIntegrationConnectionResponseObject, error) {
-	if req.Body.Chats == nil && req.Body.Proxy == nil && req.Body.DialAddress == nil {
-		return nil, fmt.Errorf("%w: say chats, proxy or dial_address", orchestration.ErrInvalid)
+	if req.Body.Chats == nil && req.Body.Proxy == nil && req.Body.DialAddress == nil && req.Body.MaxBytesBilled == nil {
+		return nil, fmt.Errorf("%w: say chats, proxy, dial_address or max_bytes_billed", orchestration.ErrInvalid)
 	}
 
 	// A git host's Connection may be used in chats too: a Bot reads GitHub with it through the service proxy
 	// (issue #685). Its token lives with the git hosts, so the switch is set on the Connection itself.
 	if _, err := s.svc.GitHostOf(ctx, req.Integration); err == nil {
+		if req.Body.MaxBytesBilled != nil {
+			return nil, fmt.Errorf("%w: a git host's Connection has no bytes cap", orchestration.ErrInvalid)
+		}
+
 		conn, err := s.svc.ConnectionOf(ctx, req.Integration, req.Label)
 		if err == nil && req.Body.Chats != nil {
 			conn, err = s.svc.SetConnectionChats(ctx, req.Integration, req.Label, *req.Body.Chats)
@@ -335,6 +361,12 @@ func (s *Server) PatchIntegrationConnection(ctx context.Context, req openapi.Pat
 
 	if req.Body.DialAddress != nil {
 		if conn, err = s.integrations.SetDialAddress(ctx, req.Integration, req.Label, *req.Body.DialAddress); err != nil {
+			return nil, err
+		}
+	}
+
+	if req.Body.MaxBytesBilled != nil {
+		if conn, err = s.integrations.SetMaxBytes(ctx, req.Integration, req.Label, *req.Body.MaxBytesBilled); err != nil {
 			return nil, err
 		}
 	}

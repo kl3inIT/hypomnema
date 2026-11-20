@@ -130,6 +130,9 @@ func TestABotsToolSwitchesAreKeptAndUndone(t *testing.T) {
 	assert.Equal(t, agenttool.PresetFull, back.Preset)
 }
 
+// familiesAfterPresets are the tool families added after the presets' migration (00123_tool_presets.sql).
+var familiesAfterPresets = []string{"bigquery"}
+
 func TestToolPresetMigrationPreservesBotAndProfileAccess(t *testing.T) {
 	t.Parallel()
 
@@ -164,6 +167,12 @@ func TestToolPresetMigrationPreservesBotAndProfileAccess(t *testing.T) {
 			assert.Equal(t, agenttool.PresetFull, preset)
 			switches := agenttool.ToolSwitches{Preset: preset, On: splitNames(on), Off: splitNames(off)}
 			for _, family := range agenttool.ToolFamilies {
+				// The migration keeps access to the tools that existed then; a family added since is not one of
+				// them, and the full preset takes it (issue #976).
+				if slices.Contains(familiesAfterPresets, family.Name) {
+					continue
+				}
+
 				for _, tool := range family.Tools {
 					match := func(entry string) bool {
 						prefix, wild := strings.CutSuffix(entry, "*")

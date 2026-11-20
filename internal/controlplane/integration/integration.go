@@ -10,12 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bigquery"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -71,6 +73,9 @@ type Store interface {
 	SetIntegrationClient(ctx context.Context, integration, clientID, secret string) error
 	IntegrationClientOf(ctx context.Context, integration string) (orchestration.IntegrationClient, error)
 	SetConnectionSignInFailed(ctx context.Context, integration, label string, failed bool) error
+	SetConnectionSettings(ctx context.Context, integration, label, settings string) (orchestration.Connection, error)
+	SaveServiceConnectionTx(ctx context.Context, c orchestration.Connection,
+		with func(tx *orchestration.Tx, now int64) error) (orchestration.Connection, error)
 }
 
 // Service signs in and refreshes the Connections of the Integrations it was
@@ -107,6 +112,19 @@ type Service struct {
 	held    map[string]messaging.Account
 	// deviceMu orders the changes of a device Connection: a link saved, a disconnect.
 	deviceMu sync.Mutex
+	// serviceAccounts is the token of each Connection that is a service account, by "integration:label"
+	// (serviceaccount.go); googleTokenURL and bigqueryEndpoint replace Google's addresses, for a test.
+	serviceAccounts map[string]serviceAccountTokens
+	// saMu orders the writes of a service account's Connection: connect, disconnect, the cap, the refused mark.
+	saMu sync.Mutex
+	// betweenReads runs between the reads of a Connection's settings and of its key, for a test.
+	betweenReads func()
+	// saWriteTimeout replaces the bound of a Connection's writes, for a test; zero is defaultWriteTimeout.
+	saWriteTimeout   time.Duration
+	googleTokenURL   string
+	bigqueryEndpoint string
+	// logger is where a BigQuery job's lines are written; nil writes none.
+	logger *slog.Logger
 }
 
 // signIn is one sign-in the owner started and has not completed.
@@ -132,6 +150,7 @@ func New(store Store, secrets *vault.Service, clock platform.Clock, newID func(s
 		newID: newID, signIns: map[string]*signIn{}, appTokens: map[string]Token{},
 		accounts: map[string]accountSession{}, accountWays: newAccountWays(), roles: map[string]awsRole{},
 		after: time.After, devices: map[string]messaging.Service{}, held: map[string]messaging.Account{},
+		serviceAccounts: map[string]serviceAccountTokens{},
 	}
 }
 
@@ -174,7 +193,10 @@ type Connection struct {
 	// Session is the state of the account's session, for an Integration of kind device; nil otherwise.
 	Session *messaging.State
 	// Access is what the account can really do, action by action, as last read at the service (issue #567).
-	Access    orchestration.ConnectionAccess
+	Access orchestration.ConnectionAccess
+	// BigQuery is a BigQuery Connection's settings: billing project, datasets, location and bytes cap (issue
+	// #976); nil for any other.
+	BigQuery  *bigquery.Settings
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -277,6 +299,12 @@ func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connec
 
 	if d.IsRole() {
 		out.RoleARN, out.Key, out.Address = c.Address, AWSKeyOf(c.Secret), ""
+	}
+
+	if d.IsServiceAccount() {
+		if settings, err := settingsOf(c); err == nil {
+			out.BigQuery = &settings
+		}
 	}
 
 	// What is stored was checked when it was written; a service since removed from the catalog is left out.
@@ -633,6 +661,11 @@ func (s *Service) Token(ctx context.Context, integration, label string) (Token, 
 		return Token{}, fmt.Errorf("%w: a %s account is linked as a device and has no token", ErrInvalid, d.Name)
 	}
 
+	// A service account's token never leaves the control plane (issue #976): no tool is given one.
+	if d.IsServiceAccount() {
+		return Token{}, fmt.Errorf("%w: %s is read by the control plane alone; no token is handed out", ErrInvalid, d.Name)
+	}
+
 	opened, err := s.vault.Open(ctx, conn.Secret)
 	if err != nil {
 		return Token{}, vaultError(err)
@@ -715,6 +748,13 @@ func (s *Service) Disconnect(ctx context.Context, integration, label string) (re
 	}
 
 	conn, err := s.store.ConnectionOf(ctx, d.ID, label)
+	if err != nil && d.IsServiceAccount() && errors.Is(err, ErrNotFound) {
+		// A disconnect whose key's removal failed is finished now (review round 1).
+		if cleaned, cerr := s.cleanupServiceAccount(ctx, d, label); cerr != nil || cleaned {
+			return false, cerr
+		}
+	}
+
 	if err != nil {
 		return false, err
 	}
@@ -733,6 +773,11 @@ func (s *Service) Disconnect(ctx context.Context, integration, label string) (re
 
 	if d.IsRole() {
 		return true, s.forgetRole(ctx, d, conn)
+	}
+
+	// The key still exists at Google: nothing here can delete it, so nothing was revoked.
+	if d.IsServiceAccount() {
+		return false, s.forgetServiceAccount(ctx, d, conn)
 	}
 
 	if d.IsDevice() {

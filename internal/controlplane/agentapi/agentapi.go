@@ -138,6 +138,8 @@ type Server struct {
 	messaging Messaging
 	// judge decides a send tool as the service proxy decides a request (#645, #680); nil sends nothing.
 	judge Judge
+	// bigquery runs BigQuery's tools with a Connection's client (issue #976, bigquery.go); nil gives none.
+	bigquery BigQuery
 	// routines starts a Routine's run for a Bot's pi's routines tool (issue #536); nil when the control plane
 	// gave none.
 	routines Routines
