@@ -16,8 +16,9 @@ const oldLarkLabel = "[Lark message from Someone, who is not the owner. Question
 // chat and the former one stays as it was; a chat of another Bot, one that is not there, a Routine's chat, a Lark
 // chat mapped to a person, a Lark group's chat, one another person wrote in and another person's from before sender
 // ids, titled "Lark: <name>" with the label Lark put on that person's lines (migration 00138), are refused and leave
-// the main chat where it was; a Bot that is not there is not found. A web chat the owner began with "Lark: " is no Lark
-// chat and is made the main chat. Each chat says what it is when read alone and in a list.
+// the main chat where it was; a Bot that is not there is not found. A web chat the owner began with "Lark: " is no
+// Lark chat and is made the main chat, nor is one whose title has a % that a wildcard would match to a quoted label.
+// Each chat says what it is when read alone and in a list.
 func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	t.Parallel()
 
@@ -46,6 +47,13 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	web, err := w.s.CreateChatWithID(ctx, "", "", "Lark: fix the notice", ChatModel{})
 	require.NoError(t, err)
 	_, err = w.s.AddChatMessage(ctx, web.ID, ChatOwner, "Lark: fix the notice")
+	require.NoError(t, err)
+	// A web chat whose title has % in it and whose line quotes a label that a % read as a wildcard would match: the
+	// label is matched to the letter.
+	percent, err := w.s.CreateChatWithID(ctx, "", "", "Lark: 100% done", ChatModel{})
+	require.NoError(t, err)
+	_, err = w.s.AddChatMessage(ctx, percent.ID, ChatOwner,
+		"[Lark message from 100 jobs done, who is not the owner. Questions for approval go to the owner.]\nquoted")
 	require.NoError(t, err)
 
 	for _, stmt := range []string{
@@ -94,7 +102,7 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 
 	want := map[string]marks{
 		older.ID: {}, home.ID: {}, routine.ID: {routine: true}, person.ID: {channel: true},
-		group.ID: {channel: true}, wrote.ID: {channel: true}, titled.ID: {channel: true}, web.ID: {},
+		group.ID: {channel: true}, wrote.ID: {channel: true}, titled.ID: {channel: true}, web.ID: {}, percent.ID: {},
 	}
 
 	read := map[string]marks{}
@@ -120,6 +128,10 @@ func TestTheOwnerSetsAnOlderChatAsTheMainChat(t *testing.T) {
 	b, err = w.s.SetMainChat(ctx, DefaultBotID, web.ID)
 	require.NoError(t, err)
 	assert.Equal(t, web.ID, b.MainChat, "a web chat begun with \"Lark: \" is made the main chat")
+
+	b, err = w.s.SetMainChat(ctx, DefaultBotID, percent.ID)
+	require.NoError(t, err)
+	assert.Equal(t, percent.ID, b.MainChat, "a % in the title is no wildcard")
 }
 
 // Scenario: a Bot with no main chat whose chats are all older than the first page of chats (issue #923). The page
