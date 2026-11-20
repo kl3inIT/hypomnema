@@ -617,8 +617,8 @@ func (r *renderer) top(at Position, h float64) float64 {
 	}
 }
 
-// ringReaches says whether a tap's ring shows while a cue's frames are drawn and reaches the top of its tallest
-// block at the bottom: the cue then sits at the top, whole.
+// ringReaches says whether a tap's ring shows while one of a cue's frames is drawn and reaches the top of its
+// tallest block at the bottom: the cue then sits at the top, whole.
 func (r *renderer) ringReaches(frames []frame, rings []compose.Ring) bool {
 	tallest := 0.0
 	for _, fr := range frames {
@@ -631,14 +631,20 @@ func (r *renderer) ringReaches(frames []frame, rings []compose.Ring) bool {
 
 	top := r.top(PositionBottom, tallest)
 
-	// The span the cue is drawn in, after the cues before it hid its start (layoutCues): aidemo tests a ring
-	// against the times its caption strip is shown (src/compose.ts, lines 1994-1999).
-	from, to := frames[0].from, frames[len(frames)-1].to
-
+	// The times the cue is drawn: each of its frames, after the cues before it hid its start (layoutCues), and not
+	// the pauses between them, where nothing is drawn (a word not yet popped in). aidemo tests a ring against the
+	// times its caption strip is shown (src/compose.ts, lines 1994-1999).
 	for _, g := range rings {
+		if float64(g.Y)+float64(g.Size)/2 < top {
+			continue
+		}
+
 		at := float64(g.AtMs) / 1000
-		if at < to && at+compose.RingMs/1000.0 > from && float64(g.Y)+float64(g.Size)/2 >= top {
-			return true
+
+		for _, fr := range frames {
+			if at < fr.to && at+compose.RingMs/1000.0 > fr.from {
+				return true
+			}
 		}
 	}
 

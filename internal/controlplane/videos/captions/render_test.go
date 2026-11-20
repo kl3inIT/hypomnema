@@ -593,6 +593,39 @@ func TestARingFlipsOnlyTheCueItIsDrawnWithAsDrawn(t *testing.T) {
 	}
 }
 
+// The sixth review's case, drawn: One Word with a ring from 640 ms, in the pause after "Rồi," (450 ms to 1.25 s),
+// draws its words at the bottom at 300 ms and 1.5 s; the control, a ring from 250 ms while "RỒI" is drawn, moves
+// both to the top.
+func TestARingInAPauseFlipsNothingAsDrawn(t *testing.T) {
+	t.Parallel()
+
+	tl := tools(t)
+	cues := pauseCue(t)
+
+	for atMs, bottom := range map[int64]bool{640: true, 250: false} {
+		t.Run(fmt.Sprintf("ring-at-%dms", atMs), func(t *testing.T) {
+			t.Parallel()
+
+			ring := []compose.Ring{{AtMs: atMs, X: 360, Y: 1200, Size: 101}}
+			ass, err := Render(t.Context(), tl, cues, Look{Preset: "one-word"}, 720, 1280, ring)
+			require.NoError(t, err)
+
+			for _, at := range []float64{0.3, 1.5} {
+				img, _ := burn(t, tl, ass, 720, 1280, at, "error")
+				drawn, ok := bbox(img, notGrey(img))
+				require.True(t, ok, "drawn at %.2f s", at)
+
+				if bottom {
+					assert.Greater(t, drawn.y0, 640, "at %.2f s the word is at the bottom: rows %d-%d", at, drawn.y0,
+						drawn.y1)
+				} else {
+					assert.Less(t, drawn.y1, 640, "at %.2f s the word is at the top: rows %d-%d", at, drawn.y0, drawn.y1)
+				}
+			}
+		})
+	}
+}
+
 // Classic's video is the one made before the presets: burned with the fonts of then and of now, the stream is the
 // same, byte for byte (check 5; its ASS is ASS's, TestLegacyIsTheCaptionsOfBefore).
 func TestClassicIsBurnedAsBefore(t *testing.T) {

@@ -381,3 +381,47 @@ func TestARingFlipsOnlyTheCueItIsDrawnWith(t *testing.T) {
 		}
 	}
 }
+
+// pauseCue is the sixth review's speech, "Rồi, bây giờ kiểm tra.": a pause after "Rồi," from 450 ms to 1.25 s, in
+// which One Word draws nothing.
+func pauseCue(t *testing.T) []Cue {
+	t.Helper()
+
+	// Each word at least One Word's floor (0.42 s), so that none is moved back into the pause.
+	cues, err := Build([]Scene{{StartMs: 0, EndMs: 4000, Words: []Word{
+		{"Rồi,", 0, 0.45}, {"bây", 1.25, 1.7}, {"giờ", 1.7, 2.15}, {"kiểm", 2.15, 2.6}, {"tra.", 2.6, 3.05},
+	}}}, Default)
+	require.NoError(t, err)
+	require.Len(t, cues, 1)
+
+	return cues
+}
+
+// A ring flips a cue only while one of its frames is drawn, not in a pause between them where nothing is (row 9,
+// aidemo src/compose.ts, lines 1994-1999): a ring from 640 ms, in the pause, leaves One Word at the bottom; one
+// from 250 ms, while "RỒI" is drawn, moves the whole cue to the top.
+func TestARingInAPauseFlipsNothing(t *testing.T) {
+	t.Parallel()
+
+	cues := pauseCue(t)
+	r, err := newRenderer("one-word", 720, 1280)
+	require.NoError(t, err)
+
+	frames := placed(t, "one-word", PositionPreset, 720, 1280, cues, nil)
+	for _, pf := range frames {
+		assert.False(t, pf.from < 1.25-1e-9 && pf.to > 0.45+1e-9, "nothing is drawn in the pause: %v", shownWords(pf))
+	}
+
+	for atMs, top := range map[int64]bool{640: false, 250: true} {
+		ring := []compose.Ring{{AtMs: atMs, X: 360, Y: 1200, Size: 101}}
+
+		for _, pf := range placed(t, "one-word", PositionPreset, 720, 1280, cues, ring) {
+			want := r.top(PositionBottom, pf.block.h)
+			if top {
+				want = r.top(PositionTop, pf.block.h)
+			}
+
+			assert.InDelta(t, want, pf.top, 0, "ring at %d ms: %v at %.2f s", atMs, shownWords(pf), pf.from)
+		}
+	}
+}

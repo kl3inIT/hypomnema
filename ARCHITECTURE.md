@@ -938,7 +938,7 @@ sequenceDiagram
     words a line on a tall video, stepped through windows of the cue, each word at least 0.42 s (one or two words
     at a time) or 0.14 s; the block, as drawn, at most 0.94 of the width (shrunk, then squeezed with `\fscx` at the
     floor); a box as a `\p1` rounded rectangle, each line an `\an8\pos` event; a cue at the bottom moves to the top,
-    whole, while a tap's ring shows with it, as it is drawn, and reaches it; as demotape, only the first cue that covers an instant is shown, so cues
+    whole, while a tap's ring shows with one of its drawn frames (not a pause between them) and reaches it; as demotape, only the first cue that covers an instant is shown, so cues
     whose words overlap in time are never drawn over each other. Tests burn each preset on a grey frame with the pinned ffmpeg and measure
     the box, the width, the colors, the placement and the font libass picks. A scene with no word times fails the revision at `captioning`; with captions off the
     stage is skipped. While a revision is voiced, composed or captioned, it says how many of its scenes that
