@@ -181,7 +181,10 @@ func chosenRoleChain(ctx context.Context, q *store.Queries, task store.Task) ([]
 			return nil, fmt.Errorf("%w: the reviewer needs a model from another vendor", ErrInvalid)
 		}
 	}
-	provider, model := modelRef(task.Model.String)
+	provider, model, err := modelRef(task.Model.String)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := checkModel(ctx, q, runtime, provider, model, task.Effort.String); err != nil {
 		return nil, err
 	}

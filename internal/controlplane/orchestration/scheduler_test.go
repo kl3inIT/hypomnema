@@ -401,6 +401,35 @@ func TestAProviderAddedLaterChangesNoDispatch(t *testing.T) {
 	}, got)
 }
 
+// Scenario (review of PR #1000): a Task holds a model the migration could not place, a bare name two providers offer
+// (issue #1002). That Task waits with the reason and the form to write its model in; a Task after it in the same
+// pass is dispatched, and the pass is not undone.
+func TestABareModelHoldsOnlyItsOwnTask(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	_, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\n"+
+			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
+	require.NoError(t, err)
+	_, err = w.s.AddProviderModels(t.Context(), "opencode-go", []string{"claude-haiku-5-5"})
+	require.NoError(t, err)
+
+	w.gatewayAccount("claude")
+	tasks := w.tasks(
+		NewTask{Ref: "held", Profile: "implementer", Spec: "held", Model: "claude-subscription/claude-haiku-5-5"},
+		NewTask{Ref: "next", Profile: "implementer", Spec: "next"},
+	)
+	_, err = w.db.ExecContext(t.Context(), `UPDATE tasks SET model = 'claude-haiku-5-5' WHERE id = ?`, tasks[0].ID)
+	require.NoError(t, err)
+
+	created := w.schedule().Created
+	require.Len(t, created, 1, "the other Task is dispatched")
+	assert.Equal(t, tasks[1].ID, w.dispatchOf(created[0]).TaskID)
+	assert.Contains(t, w.task(tasks[0].ID).WaitingReason,
+		"name it <provider>/<model>, such as claude-subscription/claude-haiku-5-5 or opencode-go/claude-haiku-5-5")
+}
+
 // Scenario: a ready Task no node can run. After UnplaceableAfter the owner is
 // told once, with the reason; a Task with a runtime but no usable account
 // gets the other reason.

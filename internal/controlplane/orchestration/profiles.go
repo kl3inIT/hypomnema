@@ -384,6 +384,15 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 				return fmt.Errorf("%w: role %s uses role routing, not a profile model or fallbacks", ErrInvalid, p.Name)
 			}
 		} else {
+			if p.Provider == "" && p.Model != "" {
+				recorded, err := recordedProvider(ctx, q, p.Name, sourceDigest(source), p.Model)
+				if err != nil {
+					return err
+				}
+
+				p.Provider = recorded
+			}
+
 			var err error
 			provider, err = checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
 			if err != nil {
@@ -662,39 +671,75 @@ func checkModel(ctx context.Context, q *store.Queries, runtime, provider, model,
 	}
 
 	switch {
-	case len(fits) == 0 && provider != "":
-		return "", fmt.Errorf("%w: provider %s does not offer model %q", ErrInvalid, provider, model)
-	case len(fits) == 0 && gatewayOnly(runtime):
-		return "", fmt.Errorf("%w: no provider of kind %s offers model %q; %s", ErrInvalid, ProviderModelGateway,
-			model, needsGatewayMessage)
-	case len(fits) == 0:
-		return "", fmt.Errorf("%w: no provider runtime %s can use offers model %q", ErrInvalid, runtime, model)
 	case provider == "":
 		// Every model is named with its provider (owner, 2026-11-20; issue #1002): a bare name is never resolved,
 		// as omniroute refuses a bare name it cannot place ("Use provider/model prefix", open-sse/services/model.ts)
 		// and LiteLLM one it does not know ("Pass model as E.g. huggingface/starcoder",
 		// litellm_core_utils/get_llm_provider_logic.py), so a provider added later never changes what it means.
-		named := make([]string, len(fits))
-		for i, p := range fits {
-			named[i] = p + "/" + model
-		}
-
-		return "", fmt.Errorf("%w: model %q is named without its provider; name it <provider>/<model>, such as %s",
-			ErrInvalid, model, strings.Join(named, " or "))
+		return "", bareModel(runtime, model, fits)
+	case len(fits) == 0:
+		return "", fmt.Errorf("%w: provider %s does not offer model %q", ErrInvalid, provider, model)
 	default:
 		return fits[0], nil
 	}
 }
 
-// modelRef reads a model named with its provider, "<provider>/<model>" (issue #1002), as 9router and omniroute
-// read one at its first slash (9router open-sse/services/model.js parseModel): a provider's name has no slash, a
-// model's may. A name without a slash has no provider, which checkModel refuses.
-func modelRef(ref string) (provider, model string) {
-	if provider, model, found := strings.Cut(ref, "/"); found {
-		return provider, model
+// bareModel is the refusal of a model named without its provider: the form to write it in, with the names it
+// could be written as, or why no provider would serve it.
+func bareModel(runtime, model string, fits []string) error {
+	hint := "name it <provider>/<model>"
+
+	switch {
+	case len(fits) > 0:
+		named := make([]string, len(fits))
+		for i, p := range fits {
+			named[i] = p + "/" + model
+		}
+
+		hint += ", such as " + strings.Join(named, " or ")
+	case gatewayOnly(runtime):
+		hint += fmt.Sprintf("; no provider of kind %s offers it: %s", ProviderModelGateway, needsGatewayMessage)
+	default:
+		hint += fmt.Sprintf("; no provider runtime %s can use offers it", runtime)
 	}
 
-	return "", ref
+	return fmt.Errorf("%w: model %q is named without its provider; %s", ErrInvalid, model, hint)
+}
+
+// modelRef reads a model named with its provider, "<provider>/<model>" (issue #1002), as 9router and omniroute
+// read one at its first slash (9router open-sse/services/model.js parseModel): a provider's name has no slash, a
+// model's may. A name without a slash has no provider, which checkModel refuses with the form to write it in; a
+// name with an empty part ("opencode-go/", "/m", "/") is refused here, as omniroute refuses a name it cannot place.
+func modelRef(ref string) (provider, model string, err error) {
+	provider, model, found := strings.Cut(ref, "/")
+	if !found {
+		return "", ref, nil
+	}
+
+	if provider == "" || model == "" {
+		return "", "", fmt.Errorf("%w: model %q has an empty part; name it <provider>/<model>, such as "+
+			"opencode-go/deepseek-v4-pro", ErrInvalid, ref)
+	}
+
+	return provider, model, nil
+}
+
+// recordedProvider is the provider a profile's version recorded for a model its source names without one: the
+// version whose source this is, as the profile page restores it (issue #1002). The stored provider is what that
+// version ran under; a source no version has is not given one.
+func recordedProvider(ctx context.Context, q *store.Queries, profile, digest, model string) (string, error) {
+	rows, err := q.ListProfileVersions(ctx, profile)
+	if err != nil {
+		return "", fmt.Errorf("reading the versions of profile %s: %w", profile, err)
+	}
+
+	for _, row := range rows {
+		if row.Digest == digest && row.Model.String == model && row.Provider.Valid {
+			return row.Provider.String, nil
+		}
+	}
+
+	return "", nil
 }
 
 func knownRuntimes() string {
@@ -1376,7 +1421,10 @@ func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask, vendor 
 
 	provider, model := v.Provider.String, nt.Model
 	if nt.Model != "" || nt.Runtime != "" {
-		provider, model = modelRef(nt.Model) // a Task's model names its own provider (issue #1002)
+		var err error
+		if provider, model, err = modelRef(nt.Model); err != nil { // a Task's model names its own provider (#1002)
+			return fmt.Errorf("task %q: %w", nt.Ref, err)
+		}
 	}
 
 	if _, err := checkModel(ctx, q, runtime, provider, model, nt.Effort); err != nil {
@@ -1492,7 +1540,10 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 
 	// A Task's own model names its own provider, "<provider>/<model>" (issue #1002), as checkTaskProfile checked it.
 	if task.Model.String != "" {
-		provider, model = modelRef(task.Model.String)
+		var err error
+		if provider, model, err = modelRef(task.Model.String); err != nil {
+			return resolved{}, err
+		}
 
 		if _, err := checkModel(ctx, q, runtime, provider, model, ""); err != nil {
 			return resolved{}, err

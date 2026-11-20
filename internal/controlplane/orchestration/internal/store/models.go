@@ -675,6 +675,15 @@ type Model struct {
 	Name     string
 }
 
+type ModelNameChange struct {
+	TaskID string
+	Model  string
+}
+
+type ModelNameConversion struct {
+	Done int64
+}
+
 type Node struct {
 	ID                  string
 	Name                string

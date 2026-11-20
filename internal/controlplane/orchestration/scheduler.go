@@ -192,7 +192,10 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 
 	r, err := resolve(ctx, q, task)
 	if err != nil {
-		if errors.Is(err, errRoleEntry) {
+		// A Task whose own model or profile cannot be resolved (a model named without its provider, issue #1002, or
+		// one no provider offers now) waits with the reason, and the owner is told; the other Tasks of the pass go
+		// on, as a role entry that is unavailable does.
+		if errors.Is(err, errRoleEntry) || errors.Is(err, ErrInvalid) || errors.Is(err, ErrNotFound) {
 			return s.wait(ctx, q, now, task, err.Error(), out)
 		}
 		return err

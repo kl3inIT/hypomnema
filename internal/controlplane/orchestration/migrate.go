@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"strings"
 
 	"github.com/pressly/goose/v3"
 )
@@ -37,6 +38,22 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 	p, err := provider(db)
 	if err != nil {
 		return err
+	}
+
+	// Stored Task models get their provider right after the migration that asks for it, before any later one
+	// changes the providers (issue #1002, model_names.go).
+	for _, src := range p.ListSources() {
+		if !strings.HasSuffix(src.Path, modelNamesMigration) {
+			continue
+		}
+
+		if _, err := p.UpTo(ctx, src.Version); err != nil {
+			return fmt.Errorf("migrating: %w", err)
+		}
+
+		if err := nameStoredModels(ctx, db); err != nil {
+			return err
+		}
 	}
 
 	if _, err := p.Up(ctx); err != nil {
