@@ -1035,7 +1035,8 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 		args, "the Bot's model with the chat's effort")
 	assert.Equal(t, "gpt-sol", model.Model)
 
-	both, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "", orchestration.ChatModel{Provider: "gateway", Model: "gpt-luna", Effort: "low"})
+	both, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "",
+		orchestration.ChatModel{Provider: "gateway", Model: "gpt-luna", Effort: "low"})
 	require.NoError(t, err)
 
 	args, _, model, err = sup.botArgs(ctx, both.ID)
@@ -1100,7 +1101,8 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 	require.Eventually(t, func() bool { return !sup.Working(chat.ID) }, 5*time.Second, 20*time.Millisecond)
 
 	luna, xhigh, gateway := "gpt-luna", "xhigh", "gateway"
-	_, err = svc.SetChatModel(ctx, chat.ID, orchestration.ChatModelChange{Provider: &gateway, Model: &luna, Effort: &xhigh})
+	_, err = svc.SetChatModel(ctx, chat.ID,
+		orchestration.ChatModelChange{Provider: &gateway, Model: &luna, Effort: &xhigh})
 	require.NoError(t, err)
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "which model now")
