@@ -4944,7 +4944,6 @@ Node (`internal/node`):
   completed or pre-upgrade ones. The node recreates a pending checkout on retry without forcing a branch already
   in use elsewhere. A retry does not rerun interrupted setup or discard commits it made. Other mirrors and worktrees
   do not wait for that setup. Git uses the node user's own credentials. The offer names the
-  Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address, or from the repository's SSH address when the offer names one (issue #625, above). Before each fetch
   the mirror's `origin` is set to the address it is fetched from, so the worker pushes the same way. A GitHub
