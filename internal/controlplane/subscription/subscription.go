@@ -183,7 +183,7 @@ type State string
 const (
 	// StateActive: the tokens are there and the vendor accepts the login.
 	StateActive State = "active"
-	// StateLoginRequired: the vendor refused the refresh token for good.
+	// StateLoginRequired: the saved credential can no longer be used.
 	StateLoginRequired State = "login required"
 	// StateNoTokens: the account has no secret, after a login that failed
 	// halfway or a secret removed by hand.
@@ -198,6 +198,8 @@ type Account struct {
 	State State
 	// AccessTokenExpiresAt is when the access token ends, if known.
 	AccessTokenExpiresAt *time.Time
+	secretVersion        int
+	secretKind           vault.Kind
 }
 
 // Service logs accounts in and refreshes their tokens.
@@ -478,11 +480,14 @@ func (s *Service) view(ctx context.Context, a orchestration.Account) (Account, e
 		return Account{Account: a, State: StateNoTokens}, nil
 	case err != nil:
 		return Account{}, fmt.Errorf("reading the tokens of account %s: %w", a.ID, err)
-	case sec.LoginRequired:
-		return Account{Account: a, State: StateLoginRequired, AccessTokenExpiresAt: sec.AccessTokenExpiresAt}, nil
-	default:
-		return Account{Account: a, State: StateActive, AccessTokenExpiresAt: sec.AccessTokenExpiresAt}, nil
 	}
+
+	state := StateActive
+	if sec.LoginRequired {
+		state = StateLoginRequired
+	}
+	return Account{Account: a, State: state, AccessTokenExpiresAt: sec.AccessTokenExpiresAt,
+		secretVersion: sec.Version, secretKind: sec.Kind}, nil
 }
 
 // Refresh replaces an account's tokens now, whatever their age.
@@ -660,12 +665,11 @@ func (s *Service) tokenAmong(
 
 		token, err := s.usableToken(ctx, a)
 		if err != nil {
-			if errors.Is(err, vault.ErrLoginRequired) || errors.Is(err, ErrNoTokens) {
-				continue
-			}
-
 			var verify *VerificationError
 			if !errors.As(err, &verify) {
+				if s.skipFailedToken(ctx, a, a.secretVersion, err) {
+					continue
+				}
 				return Token{}, err
 			}
 
@@ -887,7 +891,7 @@ func (s *Service) TokenAfterRefusal(ctx context.Context, refused Token) (Token, 
 		retry = new(atomic.Int64)
 	}
 	if err := s.refresh(ctx, a, refused.Version, retry); err != nil {
-		return Token{}, err
+		return Token{}, s.failedRefusedToken(ctx, a, refused.Version, err)
 	}
 
 	a, err = s.Get(ctx, refused.AccountID)
@@ -895,7 +899,11 @@ func (s *Service) TokenAfterRefusal(ctx context.Context, refused Token) (Token, 
 		return Token{}, err
 	}
 
-	return s.tokenOf(ctx, a.Account, retry)
+	token, err := s.tokenOf(ctx, a.Account, retry)
+	if err != nil {
+		return Token{}, s.failedRefusedToken(ctx, a, a.secretVersion, err)
+	}
+	return token, nil
 }
 
 // ServedModel is a model a vendor serves an account, with what is left of
@@ -983,6 +991,10 @@ func vendorToken[T any](ctx context.Context, s *Service, id string) (T, Token, e
 
 	token, err := s.usableToken(ctx, a)
 	if err != nil {
+		// An account whose credential cannot be used is marked as a pick marks it (#849): a Codex or Antigravity account
+		// whose list cannot be read is never picked for a model (issue #814), so this read may be the one that meets it.
+		s.skipFailedToken(ctx, a, a.secretVersion, err)
+
 		return none, Token{}, err
 	}
 
@@ -1031,6 +1043,9 @@ func (s *Service) tokenOf(ctx context.Context, a orchestration.Account, retry *a
 	if err != nil {
 		return Token{}, fmt.Errorf("opening the tokens of account %s: %w", a.ID, err)
 	}
+	if opened.LoginRequired {
+		return Token{}, fmt.Errorf("%w: account %s", vault.ErrLoginRequired, a.ID)
+	}
 
 	// An OAuth login keeps the token under KeyAccessToken; an account added by
 	// hand with its own token (accounts add --token) keeps it under KeyValue.
@@ -1038,6 +1053,9 @@ func (s *Service) tokenOf(ctx context.Context, a orchestration.Account, retry *a
 	access := opened.Payload[vault.KeyAccessToken]
 	if access == "" {
 		access = opened.Payload[vault.KeyValue]
+	}
+	if access == "" {
+		return Token{}, fmt.Errorf("%w: no access token for account %s", ErrNoTokens, a.ID)
 	}
 
 	token := Token{
@@ -1075,7 +1093,7 @@ func (s *Service) RefreshDue(ctx context.Context) error {
 
 	for _, a := range accounts {
 		vendor, ok := s.vendors[a.Runtime]
-		if !ok || a.State != StateActive || a.AccessTokenExpiresAt == nil {
+		if !ok || a.State != StateActive || a.AccessTokenExpiresAt == nil || a.claudeSetupToken() {
 			continue
 		}
 
@@ -1137,6 +1155,10 @@ func (s *Service) Loop(ctx context.Context) {
 // records how it went. stale is the version of the tokens found too old; zero
 // means the ones in the vault now.
 func (s *Service) refresh(ctx context.Context, a Account, stale int, retry *atomic.Int64) error {
+	if a.claudeSetupToken() {
+		return ErrSetupToken
+	}
+
 	vendor, ok := s.vendors[a.Runtime]
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownVendor, a.Runtime)
@@ -1182,6 +1204,9 @@ func (s *Service) refresh(ctx context.Context, a Account, stale int, retry *atom
 		var verify *VerificationError
 		if errors.As(err, &verify) {
 			return verify
+		}
+		if errors.Is(err, vault.ErrConflict) {
+			return err
 		}
 
 		failed := errors.Join(

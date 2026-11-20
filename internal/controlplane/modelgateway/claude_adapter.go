@@ -103,7 +103,7 @@ func (s *Server) claudeCall(ctx context.Context, token *AccountToken, built clau
 		return resp, err
 	}
 
-	return s.retryRefusedAccount(ctx, resp, token, forModel{}, func(fresh AccountToken) (*http.Response, error) {
+	return s.retryRefusedAccount(ctx, resp, token, forModel{}, true, func(fresh AccountToken) (*http.Response, error) {
 		return s.claudePost(ctx, fresh, built)
 	})
 }

@@ -216,13 +216,13 @@ func (s *Server) callGateway(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool) {
-		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
-
+	if s.switchedOff(w, r, a, asked.Tool) {
 		return
 	}
 
-	if s.switchedOff(w, r, a, asked.Tool) {
+	if !slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool) {
+		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
+
 		return
 	}
 

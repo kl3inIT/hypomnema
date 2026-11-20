@@ -724,13 +724,7 @@ func (s *Server) codexImagePost(
 		return resp, err
 	}
 
-	drain(resp)
-
-	if *token, err = s.accounts.TokenAfterRefusal(ctx, *token); err != nil {
-		return nil, err
-	}
-
-	return send(*token)
+	return s.retryRefusedAccount(ctx, resp, token, forModel{}, false, send)
 }
 
 // antigravityImages makes the images under the Antigravity accounts in turn,
@@ -837,21 +831,7 @@ func (s *Server) antigravityImage(
 
 	resp, err := send(token)
 	if err == nil && resp.StatusCode == http.StatusUnauthorized {
-		fresh, refreshErr := s.tokenAfterRefusal(ctx, token, listedModel(antigravity.ImageModel))
-
-		switch {
-		case errors.Is(refreshErr, ErrModelNotServed):
-			// The account no longer serves the image model: its 401 stands, and the next account is tried.
-		case refreshErr != nil:
-			drain(resp)
-
-			err = refreshErr
-		default:
-			drain(resp)
-
-			token = fresh
-			resp, err = send(token)
-		}
+		resp, err = s.retryRefusedAccount(ctx, resp, &token, listedModel(antigravity.ImageModel), false, send)
 	}
 
 	if errors.Is(err, ErrAccountResting) {

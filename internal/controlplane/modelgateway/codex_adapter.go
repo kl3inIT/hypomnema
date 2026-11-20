@@ -77,6 +77,9 @@ var ErrNoAccount = errors.New("no account can be used")
 // its request goes to the next account.
 var ErrAccountResting = errors.New("the account rests until its next try")
 
+// ErrTokenUnavailable says a refused credential cannot be renewed for this request.
+var ErrTokenUnavailable = errors.New("the refused account token cannot be renewed")
+
 // CoolingError says every account of a kind waits for a usage limit to end.
 type CoolingError struct {
 	Until time.Time
@@ -101,6 +104,7 @@ type Subscriptions interface {
 	// TokenAfterRefusal refreshes an account whose token the vendor refused
 	// and returns the new one.
 	TokenAfterRefusal(ctx context.Context, refused AccountToken) (AccountToken, error)
+	MarkTokenRefused(ctx context.Context, refused AccountToken) error
 	// CoolDown keeps an account out of use until its usage limit ends.
 	CoolDown(ctx context.Context, runtime, accountID string, until time.Time, reason string) error
 	// Quota asks the vendor what is left of an account's quota for each
@@ -216,7 +220,7 @@ func (s *Server) codexCall(
 		return resp, err
 	}
 
-	return s.retryRefusedAccount(ctx, resp, token, model, func(fresh AccountToken) (*http.Response, error) {
+	return s.retryRefusedAccount(ctx, resp, token, model, true, func(fresh AccountToken) (*http.Response, error) {
 		return s.codexPost(ctx, fresh, built)
 	})
 }

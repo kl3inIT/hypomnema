@@ -39,6 +39,7 @@ const sync: Routine = {
   bot: "coordinator",
   name: "superset-to-lark",
   kind: "script",
+  access: "full",
   script: "superset-to-lark.sh",
   script_text: script,
   every_minutes: 60,
@@ -74,6 +75,7 @@ const brief: Routine = {
   bot: "coordinator",
   name: "morning-brief",
   kind: "prompt",
+  access: "read",
   prompt:
     "Read the mail that came since yesterday evening and the day's calendar. Write a brief of at most ten lines: what needs an answer today, and the meetings.",
   cron: "0 7 * * 1-5",
@@ -212,6 +214,7 @@ const failing: Routine = {
 // A Routine the Bot set up from the chat a moment ago, which the owner can still undo.
 const setUp: Routine = {
   ...brief,
+  access: "full",
   id: "rtn_week",
   name: "weekly-sales",
   state: "on",

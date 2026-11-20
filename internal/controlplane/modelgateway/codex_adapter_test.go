@@ -143,6 +143,8 @@ func (a *accounts) FirstFree(_ context.Context, _ string, modelReset func(string
 	return first, nil
 }
 
+func (a *accounts) MarkTokenRefused(context.Context, modelgateway.AccountToken) error { return nil }
+
 func (a *accounts) CoolDown(_ context.Context, _, id string, until time.Time, reason string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

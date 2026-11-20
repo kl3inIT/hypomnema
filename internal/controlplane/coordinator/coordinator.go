@@ -519,6 +519,14 @@ func (s *Supervisor) botArgs(ctx context.Context, chatID string,
 		args = append(args, "--group")
 	}
 
+	read, err := s.svc.ReadRun(ctx, chatID)
+	if err != nil {
+		return nil, "", none, err
+	}
+	if read {
+		args = append(args, "--read-run")
+	}
+
 	if m.Model != "" {
 		if m.Provider != "" {
 			args = append(args, "--provider", m.Provider)

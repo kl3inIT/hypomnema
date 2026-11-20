@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 
 import { FixButton, StatusMark } from "./parts"
@@ -27,6 +28,7 @@ import {
   useRemove,
   useRevoke,
   useRoutine,
+  useRoutineAccess,
   useRoutineRuns,
   useRunNow,
   useSwitch,
@@ -104,9 +106,10 @@ function Body({
   const status = routineStatus(routine)
   const runNow = useRunNow()
   const flip = useSwitch()
+  const access = useRoutineAccess()
   const remove = useRemove()
-  const busy = runNow.isPending || flip.isPending
-  const error = runNow.error ?? flip.error
+  const busy = runNow.isPending || flip.isPending || access.isPending
+  const error = runNow.error ?? flip.error ?? access.error
 
   return (
     <>
@@ -140,6 +143,27 @@ function Body({
 
         <Facts routine={routine} />
 
+        {routine.kind === "prompt" && !routine.script && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm">
+            <span>
+              <span className="block font-medium">Read-only</span>
+              <span id="routine-read-note" className="text-xs text-muted-foreground">
+                Read your accounts without sending or changing anything. Results stay in the run’s
+                chat.
+              </span>
+            </span>
+            <Switch
+              aria-label="Read-only"
+              aria-describedby="routine-read-note"
+              checked={routine.access === "read"}
+              disabled={busy}
+              onCheckedChange={(checked) =>
+                access.mutate({ id: routine.id, access: checked ? "read" : "full" })
+              }
+            />
+          </div>
+        )}
+
         <div id="routine-approvals" className="flex flex-col gap-3 empty:hidden">
           <PendingApprovals routineId={routine.id} />
         </div>
@@ -153,7 +177,7 @@ function Body({
           </pre>
         </Section>
 
-        <Grants routine={routine} />
+        {routine.access !== "read" && <Grants routine={routine} />}
 
         <Runs routine={routine} />
 
@@ -220,7 +244,9 @@ function Facts({ routine }: { routine: Routine }) {
     ["Time limit", routine.kind === "script" ? limitLine(routine.timeout_seconds) : "1 hour"],
     [
       "Results",
-      routine.chat_id && routine.announce ? (
+      routine.access === "read" ? (
+        "Each run’s chat only"
+      ) : routine.chat_id && routine.announce ? (
         <Link
           key="results"
           to="/chats/$chatId"

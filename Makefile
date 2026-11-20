@@ -149,8 +149,11 @@ zalo-bridge-build: ## Bundle the Zalo bridge into bridges/zalo/dist, which hypom
 	$(ZALO) build
 
 # pi loads the extension as TypeScript (jiti); Node 24 runs its tests without a build, as the Zalo bridge's run.
-pi-extension-check: ## Unit tests of pi's image extension (issue #675; needs Node 24)
-	node --test deploy/coordinator/pi-image-eviction.test.mts
+pi-extension-check: ## Tests of pi's extensions (needs Node 24)
+	mkdir -p .tmp/pi-extension-check
+	cp deploy/coordinator/package*.json deploy/coordinator/pi-*.mts .tmp/pi-extension-check/
+	npm ci --prefix .tmp/pi-extension-check
+	node --test .tmp/pi-extension-check/pi-*.test.mts
 
 # Not a gate: its findings are read, then fixed or ignored in web/doctor.config.json. It runs local checks only
 # (no score API, no crash reports, no Socket.dev lookups).

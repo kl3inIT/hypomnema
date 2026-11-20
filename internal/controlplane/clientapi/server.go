@@ -33,6 +33,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
@@ -520,6 +521,15 @@ func (s *Server) authorize(next openapi.StrictHandlerFunc, operationID string) o
 
 		c.sessionID = sessionID
 		ctx = context.WithValue(context.WithValue(ctx, principalKey{}, tok), callerKey{}, c)
+		if tok.Kind == bearertoken.Bot && tok.Chat != "" && operationID != "GetChatGatewayKey" {
+			read, err := s.svc.ReadRun(ctx, tok.Chat)
+			if err != nil {
+				return nil, err
+			}
+			if read {
+				return nil, fmt.Errorf("%w: %s", errForbidden, agenttool.ReadRunRefusal)
+			}
+		}
 
 		if err := s.checkPolicy(ctx, p, tok, request); err != nil {
 			return nil, err

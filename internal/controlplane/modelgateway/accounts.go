@@ -71,11 +71,13 @@ func movesOn(status int) bool {
 }
 
 func (s *Server) retryRefusedAccount(
-	ctx context.Context, resp *http.Response, token *AccountToken, model forModel,
+	ctx context.Context, resp *http.Response, token *AccountToken, model forModel, keepRefusalOnRefreshError bool,
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
 	fresh, err := s.tokenAfterRefusal(ctx, *token, model)
-	if err != nil && ctx.Err() == nil && !errors.Is(err, ErrAccountResting) {
+	// An account whose list no longer has the model keeps its refusal, so the next account is tried (issue #814).
+	if err != nil && ctx.Err() == nil && (errors.Is(err, ErrTokenUnavailable) || errors.Is(err, ErrModelNotServed) ||
+		keepRefusalOnRefreshError && !errors.Is(err, ErrAccountResting)) {
 		return resp, nil
 	}
 
@@ -85,7 +87,20 @@ func (s *Server) retryRefusedAccount(
 	}
 
 	*token = fresh
-	return attempt(fresh)
+	resp, err = attempt(fresh)
+	if err == nil && resp.StatusCode == http.StatusUnauthorized {
+		s.markTokenRefused(ctx, fresh)
+	}
+	return resp, err
+}
+
+func (s *Server) markTokenRefused(ctx context.Context, token AccountToken) {
+	if ctx.Err() == nil {
+		if err := s.accounts.MarkTokenRefused(ctx, token); err != nil {
+			s.logger.WarnContext(ctx, "marking a refused account",
+				slog.String("account_id", token.AccountID), slog.Any("error", err))
+		}
+	}
 }
 
 // accountState is what the gateway remembers of accounts while it runs: how

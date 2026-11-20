@@ -673,6 +673,31 @@ func TestAPromptRoutineRunsInAChatOfItsOwn(t *testing.T) {
 	assert.Equal(t, []string{third.ChatID}, w.pi.stopped())
 }
 
+func TestReadRoutineResultStaysInItsRunChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	home := w.chat()
+	brief := w.daily("private-brief", home)
+	_, err := w.svc.Routines().SetRoutineAccess(ctx, brief.ID, routinestore.AccessRead)
+	require.NoError(t, err)
+	run, err := w.runner.RunNow(ctx, brief.ID)
+	require.NoError(t, err)
+
+	_, err = w.svc.Routines().SetRoutineAccess(ctx, brief.ID, routinestore.AccessFull)
+	require.NoError(t, err)
+	w.work(run.ChatID, true)
+	w.says(run.ChatID, "A private result.")
+	w.work(run.ChatID, false)
+	w.runner.Follow(ctx)
+
+	done := w.ended(brief.ID, 1, routinestore.RunSucceeded)
+	assert.Empty(t, done.Output)
+	assert.Equal(t, []string{"A private result."}, w.said(run.ChatID, 1))
+	w.said(home, 0)
+}
+
 // Scenario: a prompt run's Bot asks for something the owner must approve.
 // Its tool's call waits in place, so the Bot is still working and the run
 // waits for the owner. He approves twenty minutes later: the run goes on, and

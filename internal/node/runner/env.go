@@ -48,11 +48,14 @@ func Path() string { return WorkerPath(os.Getenv("HOME"), os.Getenv("PATH")) }
 
 // HostEnv is what a worker's clean environment takes from the node's: its
 // PATH, as Path makes it, and who and where the user is (durable-harness
-// env.ts).
+// env.ts). Keep the user's XDG_RUNTIME_DIR so pnpm can coordinate access to
+// the shared store there instead of falling back to /tmp (issue #895).
 func HostEnv() []string {
 	var out []string
 
-	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP", "GOCACHE"} {
+	for _, name := range []string{
+		"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP", "GOCACHE", "XDG_RUNTIME_DIR",
+	} {
 		v, ok := os.LookupEnv(name)
 		if name == "PATH" {
 			v = Path()

@@ -211,11 +211,7 @@ func (s *Server) claudeSearch(
 
 	resp, err := send(token)
 	if err == nil && resp.StatusCode == http.StatusUnauthorized {
-		drain(resp)
-
-		if token, err = s.accounts.TokenAfterRefusal(ctx, token); err == nil {
-			resp, err = send(token)
-		}
+		resp, err = s.retryRefusedAccount(ctx, resp, &token, forModel{}, false, send)
 	}
 
 	if err != nil {
@@ -288,11 +284,7 @@ func (s *Server) antigravitySearch(
 
 	resp, err := send(token)
 	if err == nil && resp.StatusCode == http.StatusUnauthorized {
-		drain(resp)
-
-		if token, err = s.accounts.TokenAfterRefusal(ctx, token); err == nil {
-			resp, err = send(token)
-		}
+		resp, err = s.retryRefusedAccount(ctx, resp, &token, forModel{}, false, send)
 	}
 
 	if errors.Is(err, ErrAccountResting) {
