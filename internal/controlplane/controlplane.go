@@ -581,7 +581,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return err
 	}
 
-	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).
+	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithRunCoordinator(cfg.CoordinatorToken).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
 		WithHostTokens(tokens).WithGitSSHKey(sshKey).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).WithDevices(nodes).

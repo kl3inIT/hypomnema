@@ -31,7 +31,7 @@ func (q *Queries) ChatPageStart(ctx context.Context, arg ChatPageStartParams) (i
 
 const chatRunEvents = `-- name: ChatRunEvents :many
 SELECT e.seq, e.kind, e.run_id, e.task_id, e.dispatch_id, e.question_id, e.node_id, e.payload, e.created_at FROM events e JOIN runs r ON r.id = e.run_id
-WHERE r.chat_id = ?1 AND e.seq > ?2
+WHERE r.chat_id = ?1 AND e.seq > ?2 AND e.seq > r.wake_after
   AND (
     e.kind IN ('escalation', 'run.finished', 'run.canceled')
     OR (e.kind = 'task.status'
@@ -575,6 +575,22 @@ INSERT INTO restart_boots (at) VALUES (?1)
 
 func (q *Queries) InsertRestartBoot(ctx context.Context, at int64) error {
 	_, err := q.db.ExecContext(ctx, insertRestartBoot, at)
+	return err
+}
+
+const insertRunAdoptionNotice = `-- name: InsertRunAdoptionNotice :exec
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (?1, 'system', 'wake', ?2, 1, ?3)
+`
+
+type InsertRunAdoptionNoticeParams struct {
+	ChatID string
+	Text   string
+	Now    int64
+}
+
+func (q *Queries) InsertRunAdoptionNotice(ctx context.Context, arg InsertRunAdoptionNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, insertRunAdoptionNotice, arg.ChatID, arg.Text, arg.Now)
 	return err
 }
 

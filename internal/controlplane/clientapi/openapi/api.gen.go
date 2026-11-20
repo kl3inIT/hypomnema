@@ -5090,7 +5090,7 @@ type NewRepo struct {
 type NewRun struct {
 	Base *string `json:"base,omitempty"`
 
-	// ChatId The chat whose coordinator creates it; that chat is woken by the Run's events.
+	// ChatId The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat. A Bot request uses its own chat; a script Routine's Run has no chat.
 	ChatId    *string `json:"chat_id,omitempty"`
 	Objective string  `json:"objective"`
 
@@ -5796,6 +5796,12 @@ type Run struct {
 
 	// Uses The Connections the Run's workers may use, each as integration:label.
 	Uses *[]string `json:"uses,omitempty"`
+}
+
+// RunAdoption defines model for RunAdoption.
+type RunAdoption struct {
+	// ChatId The chat that continues the Run; defaults to the main Bot's main chat.
+	ChatId *string `json:"chat_id,omitempty"`
 }
 
 // RunDetail defines model for RunDetail.
@@ -7979,6 +7985,9 @@ type LaunchRoutineScriptJSONRequestBody = RoutineLaunchRequest
 
 // CreateRunJSONRequestBody defines body for CreateRun for application/json ContentType.
 type CreateRunJSONRequestBody = NewRun
+
+// AdoptRunJSONRequestBody defines body for AdoptRun for application/json ContentType.
+type AdoptRunJSONRequestBody = RunAdoption
 
 // CreateTasksJSONRequestBody defines body for CreateTasks for application/json ContentType.
 type CreateTasksJSONRequestBody = NewTasks
@@ -10480,14 +10489,14 @@ type ClientInterface interface {
 	// Corresponds with GET /runs (the `ListRuns` operationId).
 	ListRuns(ctx context.Context, params *ListRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateRunWithBody Create a Run; a coordinator token becomes its coordinator
+	// CreateRunWithBody Create a Run and assign interactive work to a supervised chat
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /runs (the `CreateRun` operationId).
 	CreateRunWithBody(ctx context.Context, params *CreateRunParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// CreateRun Create a Run; a coordinator token becomes its coordinator
+	// CreateRun Create a Run and assign interactive work to a supervised chat
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -10498,6 +10507,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /runs/{run_id} (the `GetRun` operationId).
 	GetRun(ctx context.Context, runId RunID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AdoptRunWithBody Assign an open, unbound Run to a supervised chat (owner only)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /runs/{run_id}/adopt (the `AdoptRun` operationId).
+	AdoptRunWithBody(ctx context.Context, runId RunID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AdoptRun Assign an open, unbound Run to a supervised chat (owner only)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /runs/{run_id}/adopt (the `AdoptRun` operationId).
+	AdoptRun(ctx context.Context, runId RunID, body AdoptRunJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CancelRun Cancel a Run and every Task in it that has not ended
 	//
@@ -16077,7 +16100,7 @@ func (c *Client) ListRuns(ctx context.Context, params *ListRunsParams, reqEditor
 	return c.Client.Do(req)
 }
 
-// CreateRunWithBody Create a Run; a coordinator token becomes its coordinator
+// CreateRunWithBody Create a Run and assign interactive work to a supervised chat
 //
 // Takes any type of body and a specified content type.
 //
@@ -16094,7 +16117,7 @@ func (c *Client) CreateRunWithBody(ctx context.Context, params *CreateRunParams,
 	return c.Client.Do(req)
 }
 
-// CreateRun Create a Run; a coordinator token becomes its coordinator
+// CreateRun Create a Run and assign interactive work to a supervised chat
 //
 // Takes a body of the `application/json` content type.
 //
@@ -16116,6 +16139,40 @@ func (c *Client) CreateRun(ctx context.Context, params *CreateRunParams, body Cr
 // Corresponds with GET /runs/{run_id} (the `GetRun` operationId).
 func (c *Client) GetRun(ctx context.Context, runId RunID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetRunRequest(c.Server, runId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AdoptRunWithBody Assign an open, unbound Run to a supervised chat (owner only)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /runs/{run_id}/adopt (the `AdoptRun` operationId).
+func (c *Client) AdoptRunWithBody(ctx context.Context, runId RunID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdoptRunRequestWithBody(c.Server, runId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AdoptRun Assign an open, unbound Run to a supervised chat (owner only)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /runs/{run_id}/adopt (the `AdoptRun` operationId).
+func (c *Client) AdoptRun(ctx context.Context, runId RunID, body AdoptRunJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdoptRunRequest(c.Server, runId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -27501,6 +27558,53 @@ func NewGetRunRequest(server string, runId RunID) (*http.Request, error) {
 	return req, nil
 }
 
+// NewAdoptRunRequest calls the generic AdoptRun builder with application/json body
+func NewAdoptRunRequest(server string, runId RunID, body AdoptRunJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAdoptRunRequestWithBody(server, runId, "application/json", bodyReader)
+}
+
+// NewAdoptRunRequestWithBody constructs an http.Request for the AdoptRun method, with any body, and a specified content type
+func NewAdoptRunRequestWithBody(server string, runId RunID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "run_id", runId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/runs/%s/adopt", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewCancelRunRequest constructs an http.Request for the CancelRun method
 func NewCancelRunRequest(server string, runId RunID) (*http.Request, error) {
 	var err error
@@ -31867,14 +31971,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /runs (the `ListRuns` operationId).
 	ListRunsWithResponse(ctx context.Context, params *ListRunsParams, reqEditors ...RequestEditorFn) (*ListRunsResponse, error)
 
-	// CreateRunWithBodyWithResponse Create a Run; a coordinator token becomes its coordinator
+	// CreateRunWithBodyWithResponse Create a Run and assign interactive work to a supervised chat
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /runs (the `CreateRun` operationId).
 	CreateRunWithBodyWithResponse(ctx context.Context, params *CreateRunParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateRunResponse, error)
 
-	// CreateRunWithResponse Create a Run; a coordinator token becomes its coordinator
+	// CreateRunWithResponse Create a Run and assign interactive work to a supervised chat
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -31887,6 +31991,20 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /runs/{run_id} (the `GetRun` operationId).
 	GetRunWithResponse(ctx context.Context, runId RunID, reqEditors ...RequestEditorFn) (*GetRunResponse, error)
+
+	// AdoptRunWithBodyWithResponse Assign an open, unbound Run to a supervised chat (owner only)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /runs/{run_id}/adopt (the `AdoptRun` operationId).
+	AdoptRunWithBodyWithResponse(ctx context.Context, runId RunID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdoptRunResponse, error)
+
+	// AdoptRunWithResponse Assign an open, unbound Run to a supervised chat (owner only)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /runs/{run_id}/adopt (the `AdoptRun` operationId).
+	AdoptRunWithResponse(ctx context.Context, runId RunID, body AdoptRunJSONRequestBody, reqEditors ...RequestEditorFn) (*AdoptRunResponse, error)
 
 	// CancelRunWithResponse Cancel a Run and every Task in it that has not ended
 	//
@@ -42710,6 +42828,54 @@ func (r GetRunResponse) ContentType() string {
 	return ""
 }
 
+type AdoptRunResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Run
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AdoptRunResponse) GetJSON200() *Run {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r AdoptRunResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AdoptRunResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AdoptRunResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AdoptRunResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AdoptRunResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type CancelRunResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -49073,7 +49239,7 @@ func (c *ClientWithResponses) ListRunsWithResponse(ctx context.Context, params *
 	return ParseListRunsResponse(rsp)
 }
 
-// CreateRunWithBodyWithResponse Create a Run; a coordinator token becomes its coordinator
+// CreateRunWithBodyWithResponse Create a Run and assign interactive work to a supervised chat
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -49086,7 +49252,7 @@ func (c *ClientWithResponses) CreateRunWithBodyWithResponse(ctx context.Context,
 	return ParseCreateRunResponse(rsp)
 }
 
-// CreateRunWithResponse Create a Run; a coordinator token becomes its coordinator
+// CreateRunWithResponse Create a Run and assign interactive work to a supervised chat
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -49110,6 +49276,32 @@ func (c *ClientWithResponses) GetRunWithResponse(ctx context.Context, runId RunI
 		return nil, err
 	}
 	return ParseGetRunResponse(rsp)
+}
+
+// AdoptRunWithBodyWithResponse Assign an open, unbound Run to a supervised chat (owner only)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /runs/{run_id}/adopt (the `AdoptRun` operationId).
+func (c *ClientWithResponses) AdoptRunWithBodyWithResponse(ctx context.Context, runId RunID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdoptRunResponse, error) {
+	rsp, err := c.AdoptRunWithBody(ctx, runId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdoptRunResponse(rsp)
+}
+
+// AdoptRunWithResponse Assign an open, unbound Run to a supervised chat (owner only)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /runs/{run_id}/adopt (the `AdoptRun` operationId).
+func (c *ClientWithResponses) AdoptRunWithResponse(ctx context.Context, runId RunID, body AdoptRunJSONRequestBody, reqEditors ...RequestEditorFn) (*AdoptRunResponse, error) {
+	rsp, err := c.AdoptRun(ctx, runId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdoptRunResponse(rsp)
 }
 
 // CancelRunWithResponse Cancel a Run and every Task in it that has not ended
@@ -57065,6 +57257,39 @@ func ParseGetRunResponse(rsp *http.Response) (*GetRunResponse, error) {
 	return response, nil
 }
 
+// ParseAdoptRunResponse parses an HTTP response from a AdoptRunWithResponse call
+func ParseAdoptRunResponse(rsp *http.Response) (*AdoptRunResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AdoptRunResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Run
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCancelRunResponse parses an HTTP response from a CancelRunWithResponse call
 func ParseCancelRunResponse(rsp *http.Response) (*CancelRunResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -59190,12 +59415,15 @@ type ServerInterface interface {
 	// ListRuns Runs, newest first
 	// (GET /runs)
 	ListRuns(w http.ResponseWriter, r *http.Request, params ListRunsParams)
-	// CreateRun Create a Run; a coordinator token becomes its coordinator
+	// CreateRun Create a Run and assign interactive work to a supervised chat
 	// (POST /runs)
 	CreateRun(w http.ResponseWriter, r *http.Request, params CreateRunParams)
 	// GetRun A Run with its Tasks and each Task's latest Dispatch
 	// (GET /runs/{run_id})
 	GetRun(w http.ResponseWriter, r *http.Request, runId RunID)
+	// AdoptRun Assign an open, unbound Run to a supervised chat (owner only)
+	// (POST /runs/{run_id}/adopt)
+	AdoptRun(w http.ResponseWriter, r *http.Request, runId RunID)
 	// CancelRun Cancel a Run and every Task in it that has not ended
 	// (POST /runs/{run_id}/cancel)
 	CancelRun(w http.ResponseWriter, r *http.Request, runId RunID)
@@ -66374,6 +66602,32 @@ func (siw *ServerInterfaceWrapper) GetRun(w http.ResponseWriter, r *http.Request
 	handler.ServeHTTP(w, r)
 }
 
+// AdoptRun operation middleware
+func (siw *ServerInterfaceWrapper) AdoptRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "run_id" -------------
+	var runId RunID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "run_id", r.PathValue("run_id"), &runId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "run_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdoptRun(w, r, runId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CancelRun operation middleware
 func (siw *ServerInterfaceWrapper) CancelRun(w http.ResponseWriter, r *http.Request) {
 
@@ -67838,6 +68092,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/runs", wrapper.ListRuns)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/runs", wrapper.CreateRun)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/runs/{run_id}", wrapper.GetRun)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/runs/{run_id}/adopt", wrapper.AdoptRun)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/runs/{run_id}/finish", wrapper.FinishRun)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/runs/{run_id}/cancel", wrapper.CancelRun)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/runs/{run_id}/tasks", wrapper.CreateTasks)
@@ -76834,6 +77089,46 @@ func (response GetRundefaultJSONResponse) VisitGetRunResponse(w http.ResponseWri
 	return err
 }
 
+type AdoptRunRequestObject struct {
+	RunId RunID `json:"run_id"`
+	Body  *AdoptRunJSONRequestBody
+}
+
+type AdoptRunResponseObject interface {
+	VisitAdoptRunResponse(w http.ResponseWriter) error
+}
+
+type AdoptRun200JSONResponse Run
+
+func (response AdoptRun200JSONResponse) VisitAdoptRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptRundefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AdoptRundefaultJSONResponse) VisitAdoptRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CancelRunRequestObject struct {
 	RunId RunID `json:"run_id"`
 }
@@ -79347,12 +79642,15 @@ type StrictServerInterface interface {
 	// ListRuns Runs, newest first
 	// (GET /runs)
 	ListRuns(ctx context.Context, request ListRunsRequestObject) (ListRunsResponseObject, error)
-	// CreateRun Create a Run; a coordinator token becomes its coordinator
+	// CreateRun Create a Run and assign interactive work to a supervised chat
 	// (POST /runs)
 	CreateRun(ctx context.Context, request CreateRunRequestObject) (CreateRunResponseObject, error)
 	// GetRun A Run with its Tasks and each Task's latest Dispatch
 	// (GET /runs/{run_id})
 	GetRun(ctx context.Context, request GetRunRequestObject) (GetRunResponseObject, error)
+	// AdoptRun Assign an open, unbound Run to a supervised chat (owner only)
+	// (POST /runs/{run_id}/adopt)
+	AdoptRun(ctx context.Context, request AdoptRunRequestObject) (AdoptRunResponseObject, error)
 	// CancelRun Cancel a Run and every Task in it that has not ended
 	// (POST /runs/{run_id}/cancel)
 	CancelRun(ctx context.Context, request CancelRunRequestObject) (CancelRunResponseObject, error)
@@ -85794,6 +86092,39 @@ func (sh *strictHandler) GetRun(w http.ResponseWriter, r *http.Request, runId Ru
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetRunResponseObject); ok {
 		if err := validResponse.VisitGetRunResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AdoptRun operation middleware
+func (sh *strictHandler) AdoptRun(w http.ResponseWriter, r *http.Request, runId RunID) {
+	var request AdoptRunRequestObject
+
+	request.RunId = runId
+
+	var body AdoptRunJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdoptRun(ctx, request.(AdoptRunRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdoptRun")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdoptRunResponseObject); ok {
+		if err := validResponse.VisitAdoptRunResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

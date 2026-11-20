@@ -139,13 +139,20 @@ export type NewRun = {
   repo?: string;
   base?: string;
   /**
-   * The chat whose coordinator creates it; that chat is woken by the Run's events.
+   * The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat. A Bot request uses its own chat; a script Routine's Run has no chat.
    */
   chat_id?: string;
   /**
    * The Connections the Run's workers may use, each as integration:label, such as google:work. None by default. A coordinator may give only Connections the owner allowed for chats.
    */
   uses?: Array<string>;
+};
+
+export type RunAdoption = {
+  /**
+   * The chat that continues the Run; defaults to the main Bot's main chat.
+   */
+  chat_id?: string;
 };
 
 export type TaskStatus = 'pending' | 'ready' | 'running' | 'blocked' | 'succeeded' | 'failed' | 'canceled';
@@ -5212,6 +5219,33 @@ export type GetRunResponses = {
 };
 
 export type GetRunResponse = GetRunResponses[keyof GetRunResponses];
+
+export type AdoptRunData = {
+  body: RunAdoption;
+  path: {
+    run_id: string;
+  };
+  query?: never;
+  url: '/runs/{run_id}/adopt';
+};
+
+export type AdoptRunErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AdoptRunError = AdoptRunErrors[keyof AdoptRunErrors];
+
+export type AdoptRunResponses = {
+  /**
+   * The Run with its chat and coordinator.
+   */
+  200: Run;
+};
+
+export type AdoptRunResponse = AdoptRunResponses[keyof AdoptRunResponses];
 
 export type FinishRunData = {
   body?: never;

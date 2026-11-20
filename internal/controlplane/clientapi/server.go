@@ -57,7 +57,8 @@ type Server struct {
 	stop      <-chan struct{}
 	heartbeat time.Duration
 	// coordinator reports whether pi works on a chat; nil when none runs.
-	coordinator Coordinator
+	coordinator    Coordinator
+	runCoordinator string
 	// takes are the takes agents filmed of the phone (takes.go); nil: none.
 	takes  Takes
 	videos Videos
@@ -276,6 +277,13 @@ type Coordinator interface {
 // WithCoordinator lets chats report whether pi is working on them.
 func (s *Server) WithCoordinator(c Coordinator) *Server {
 	s.coordinator = c
+
+	return s
+}
+
+// WithRunCoordinator names the registered parent token used by the chat supervisor.
+func (s *Server) WithRunCoordinator(name string) *Server {
+	s.runCoordinator = name
 
 	return s
 }

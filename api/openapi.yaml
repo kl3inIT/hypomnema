@@ -84,7 +84,7 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: CreateRun
-      summary: Create a Run; a coordinator token becomes its coordinator
+      summary: Create a Run and assign interactive work to a supervised chat
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -111,6 +111,24 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/RunDetail" }
+        default: { $ref: "#/components/responses/Error" }
+  /runs/{run_id}/adopt:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    post:
+      operationId: AdoptRun
+      summary: Assign an open, unbound Run to a supervised chat (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RunAdoption" }
+      responses:
+        "200":
+          description: The Run with its chat and coordinator.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
         default: { $ref: "#/components/responses/Error" }
   /runs/{run_id}/finish:
     parameters:
@@ -5329,7 +5347,9 @@ components:
         chat_id:
           type: string
           minLength: 1
-          description: The chat whose coordinator creates it; that chat is woken by the Run's events.
+          description: >-
+            The chat to wake for the Run's events. An owner request without a chat uses the main Bot's main chat.
+            A Bot request uses its own chat; a script Routine's Run has no chat.
         uses:
           type: array
           maxItems: 16
@@ -5337,6 +5357,14 @@ components:
           description: >-
             The Connections the Run's workers may use, each as integration:label, such as google:work. None by
             default. A coordinator may give only Connections the owner allowed for chats.
+    RunAdoption:
+      type: object
+      additionalProperties: false
+      properties:
+        chat_id:
+          type: string
+          minLength: 1
+          description: The chat that continues the Run; defaults to the main Bot's main chat.
     TaskStatus:
       type: string
       enum: [pending, ready, running, blocked, succeeded, failed, canceled]

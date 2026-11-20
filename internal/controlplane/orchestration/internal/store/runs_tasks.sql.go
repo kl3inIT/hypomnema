@@ -11,6 +11,42 @@ import (
 	"strings"
 )
 
+const bindRunToChat = `-- name: BindRunToChat :exec
+UPDATE runs SET chat_id = ?1, coordinator_token_id = ?2, bot_id = ?3, updated_at = ?4,
+    wake_after = coalesce((SELECT max(seq) FROM events WHERE run_id = runs.id), 0)
+WHERE id = ?5
+`
+
+type BindRunToChatParams struct {
+	ChatID             sql.NullString
+	CoordinatorTokenID sql.NullString
+	Bot                sql.NullString
+	Now                int64
+	ID                 string
+}
+
+func (q *Queries) BindRunToChat(ctx context.Context, arg BindRunToChatParams) error {
+	_, err := q.db.ExecContext(ctx, bindRunToChat,
+		arg.ChatID,
+		arg.CoordinatorTokenID,
+		arg.Bot,
+		arg.Now,
+		arg.ID,
+	)
+	return err
+}
+
+const chatHasOpenRuns = `-- name: ChatHasOpenRuns :one
+SELECT EXISTS (SELECT 1 FROM runs WHERE chat_id = ?1 AND status = 'open')
+`
+
+func (q *Queries) ChatHasOpenRuns(ctx context.Context, chatID sql.NullString) (bool, error) {
+	row := q.db.QueryRowContext(ctx, chatHasOpenRuns, chatID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const countUnfinishedTasks = `-- name: CountUnfinishedTasks :one
 SELECT count(*) FROM tasks WHERE run_id = ?1 AND status IN (/*SLICE:statuses*/?)
 `
@@ -56,7 +92,7 @@ func (q *Queries) GetFollowUp(ctx context.Context, id string) (TaskFollowUp, err
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host, uses, bot_id FROM runs WHERE id = ?1
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host, uses, bot_id, wake_after FROM runs WHERE id = ?1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
@@ -77,12 +113,13 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 		&i.RepoHost,
 		&i.Uses,
 		&i.BotID,
+		&i.WakeAfter,
 	)
 	return i, err
 }
 
 const getRunWithBot = `-- name: GetRunWithBot :one
-SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
+SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, runs.wake_after, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE runs.id = ?1
 `
@@ -111,6 +148,7 @@ func (q *Queries) GetRunWithBot(ctx context.Context, id string) (GetRunWithBotRo
 		&i.Run.RepoHost,
 		&i.Run.Uses,
 		&i.Run.BotID,
+		&i.Run.WakeAfter,
 		&i.Bot,
 	)
 	return i, err
@@ -445,7 +483,7 @@ func (q *Queries) ListFollowUpsOfTask(ctx context.Context, taskID string) ([]Tas
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
+SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot_id, runs.wake_after, CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE (CAST(?1 AS TEXT) = '' OR runs.status = ?1)
   AND (CAST(?2 AS TEXT) = '' OR runs.chat_id = ?2)
@@ -502,6 +540,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsR
 			&i.Run.RepoHost,
 			&i.Run.Uses,
 			&i.Run.BotID,
+			&i.Run.WakeAfter,
 			&i.Bot,
 		); err != nil {
 			return nil, err

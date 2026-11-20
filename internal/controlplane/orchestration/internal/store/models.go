@@ -893,6 +893,7 @@ type Run struct {
 	RepoHost           sql.NullString
 	Uses               sql.NullString
 	BotID              sql.NullString
+	WakeAfter          int64
 }
 
 type Secret struct {

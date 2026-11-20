@@ -32,6 +32,8 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    ```text
    hypomnema runs create --repo <owner/name> --objective-file <file> --key <new key> --json
    ```
+   The Run belongs to your Bot's chat. Outside a Bot chat, the owner's command defaults to the main Bot's main
+   chat; `--chat <chat_id>` picks another chat. The result names the chat the control plane will wake.
    `--repo` also takes the URL of a repository on GitLab, or a name from `hypomnema repos list --json`. When the
    create answers that a host is not known, tell the owner the command it names; only the owner declares a host.
 2. Write every Task you already know to a file and create them in one call:
@@ -132,20 +134,25 @@ evidence that proves it is done.
 hypomnema runs wait <run_id> --after <after> --json
 ```
 
-It returns when something needs you: a Task ended or was blocked, a worker asked you a question, an escalation
-arrived, or the Run ended. It prints those events, the `after` for the next wait, and `next`. Start with `--after 0`.
+This is optional observation, not how a Run keeps its coordinator. The assigned chat is woken even when the
+session that created the Run has closed. The wait returns when a Task ended or was blocked, a worker asked a
+question, an escalation arrived, or the Run ended. It prints those events, the `after` for the next wait, and
+`next`. Start with `--after 0`.
 
+- When the control plane says the owner assigned an existing Run to this chat, start with `runs show <run_id> --json`.
+  Read the current Tasks, open questions (`questions --run <run_id> --json`) and PR evidence. Continue only what
+  still needs a decision, review or follow-up. A reviewer Task that succeeded may still have found the change
+  incorrect. Only the owner can assign legacy Runs with `runs adopt`; leave Runs in other chats alone.
 - On a review wake, read the Run again and load the `review` reference. The verdict and PR state in the wake
   are a snapshot, not permission to merge. If a Task has already been added, do not repeat it. A Run stalled after
   review is not ready to finish merely because its Tasks ended.
 - When your turn began with a message from the control plane listing a Run's events, end your turn after acting;
   the control plane wakes you again.
-- In a session with the owner (Claude Code, Codex), start the wait as a background command if your runtime tells you
-  when one exits, and end your turn; otherwise run it in the foreground. Each time a wait returns, act on it, then
-  start the next one with the `after` it printed.
+- In a session with the owner (Claude Code, Codex), use the wait only when the owner wants to observe the Run
+  here. Do not give duplicate work while the assigned chat is already coordinating it.
 
-Keep one wait per Run and no status loops: a loop sends a request every few seconds and sees nothing the wait does
-not. "Tell me when it's done" also means: start the wait and end your turn.
+Keep at most one wait per Run and no status loops. To be notified when it is done, let the assigned chat receive
+the next wake-up and report there.
 
 ## Questions
 
