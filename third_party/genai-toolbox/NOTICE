@@ -1,0 +1,21 @@
+MCP Toolbox for Databases (googleapis/genai-toolbox)
+Copyright 2025 Google LLC
+
+Used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+Source: https://github.com/googleapis/genai-toolbox at a5dc5d4bb03ad2c724f9d6b2a2452307a593a29f,
+internal/tools/bigquery/bigquerycommon/table_name_parser.go.
+
+What is adapted from it here: the states of its GoogleSQL lexer (single, double,
+triple and raw strings; `--`, `#` and `/* */` comments) and the way it reads a
+dotted path whose parts may be backquoted and may have comments between them
+(parseIdentifierSequence), in internal/controlplane/bigquery/lexer.go. The
+tokens it gives and the refusals made from them (one statement, the keywords
+and function paths refused, the `#legacySQL` directive) are Hypomnema's own
+(issue #976, design v3, decision 8).
+
+What is learned from it, with no code of its copied: a dry run before every
+query and the statement type it reports (internal/tools/bigquery/
+bigqueryexecutesql/bigqueryexecutesql.go), the dry run's fields
+(bigquerycommon/util.go, DryRunQuery), labelling each job with the tool that
+ran it, and testing against an httptest server with option.WithEndpoint.
