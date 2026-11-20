@@ -3,7 +3,9 @@
 package claude
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -197,4 +199,102 @@ func serveClaudeMessage(w http.ResponseWriter, index int32, name, args, text str
 	frame("message_delta", fmt.Sprintf(`,"delta":{"stop_reason":%q,"stop_sequence":null},`+
 		`"usage":{"output_tokens":1}`, stop))
 	frame("message_stop", "")
+}
+
+// A planner hands work to an Agent in the background, as Bash is: its result comes with no queued turn, and the
+// Agent's end starts the follow-up that still needs the permission stream.
+func TestRealClaudeBackgroundAgent(t *testing.T) {
+	t.Parallel()
+
+	name := os.Getenv("HYPOMNEMA_TEST_CLAUDE")
+	if name == "" {
+		t.Skip("set HYPOMNEMA_TEST_CLAUDE=claude to run with a local Claude Code CLI")
+	}
+	cli, err := exec.LookPath(name)
+	require.NoError(t, err)
+	cli, err = filepath.Abs(cli)
+	require.NoError(t, err)
+
+	g := newRig(t, "")
+	api := agentModel(t)
+	g.rt.Claude, g.rt.URL = cli, api.URL
+	g.rt.Env = []string{
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "ENABLE_TOOL_SEARCH=false",
+		"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=5000", "TMPDIR=" + t.TempDir(),
+	}
+	r := newReporter("dsp_1")
+	dispatch := g.dispatch(r.ID())
+	dispatch.Offer.Model, dispatch.Offer.Effort = "claude-sonnet-4-6", ""
+	// A role-routed planner is the worker that may use Agent.
+	dispatch.Offer.RoleRouted, dispatch.Offer.Profile = true, "planner"
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, dispatch, r))
+	t.Cleanup(func() { g.sup.Stop(r.ID()) })
+	runDir := filepath.Join(g.rt.Home, "run", r.ID())
+	select {
+	case <-r.done:
+	case <-time.After(40 * time.Second):
+		t.Fatal("the worker did not end")
+	}
+
+	journal, err := os.ReadFile(filepath.Join(runDir, shim.JournalFile)) //nolint:gosec // the test's own run directory
+	require.NoError(t, err)
+	require.Len(t, r.finished, 1, "journal: %s", journal)
+	assert.Empty(t, r.finished[0].Class, "journal: %s", journal)
+	assert.Equal(t, "finished after the Agent", r.finished[0].Summary)
+	assert.Contains(t, string(journal), `"task_type":"local_agent"`)
+	assert.Contains(t, string(journal), `"result":"waiting"`)
+	assert.FileExists(t, filepath.Join(g.worktree, "after-agent"))
+	assert.NotContains(t, string(journal), "Stream closed")
+}
+
+const agentTask = "AGENT_TASK: wait, then report"
+
+// agentModel answers the planner's conversation and its Agent's apart: an Agent's conversation opens with its
+// prompt.
+func agentModel(t *testing.T) *httptest.Server {
+	t.Helper()
+	planner, agent := atomic.Int32{}, atomic.Int32{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{}`)
+
+			return
+		}
+		var body struct {
+			Messages []struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		}
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &body)
+		if len(body.Messages) > 0 && strings.Contains(string(body.Messages[0].Content), "AGENT_TASK") {
+			index := agent.Add(1)
+			if index == 1 {
+				serveClaudeMessage(w, 100+index, "Bash", `{"command":"sleep 6"}`, "", false)
+			} else {
+				serveClaudeMessage(w, 100+index, "", "", "agent done", false)
+			}
+
+			return
+		}
+
+		index := planner.Add(1)
+		name, args, text := "", "", "done"
+		switch index {
+		case 1:
+			name, args = "Agent", fmt.Sprintf(`{"description":"plan","prompt":%q,"subagent_type":"general-purpose",`+
+				`"run_in_background":true}`, agentTask)
+		case 2:
+			text = "waiting"
+		case 3:
+			name, args = "Bash", `{"command":"touch after-agent"}`
+		case 4:
+			name, args = "mcp__hypomnema__finish", `{"summary":"finished after the Agent"}`
+		}
+		serveClaudeMessage(w, index, name, args, text, false)
+	}))
+	t.Cleanup(server.Close)
+
+	return server
 }
