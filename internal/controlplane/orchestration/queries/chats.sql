@@ -25,7 +25,8 @@ SELECT * FROM chats WHERE id = @id;
 -- mapping a /new moved: titled "Lark: <name>", as migration 00138 tells them, with a line of the owner's role that
 -- opens with the label the Channel put on another person's direct message then, "[Lark message from <name>, who is
 -- not the owner. ...]" (channels/channels.go before commit 49050bf6, unchanged since issue #136). The label is asked
--- too, since the web titles a chat by its first line and the owner may begin one with "Lark: ". ListChats reads the same marks by the same rules.
+-- too, since the web titles a chat by its first line and the owner may begin one with "Lark: ". The label is
+-- compared to the letter, not with LIKE, so that a % or an _ in the name is no wildcard. ListChats reads the same marks by the same rules.
 SELECT
     CAST(EXISTS (SELECT 1 FROM routine_runs rr WHERE rr.chat_id = c.id)
         OR EXISTS (
@@ -41,7 +42,8 @@ SELECT
         OR (c.title LIKE 'Lark: %' AND EXISTS (
             SELECT 1 FROM chat_messages m
             WHERE m.chat_id = c.id AND m.role = 'owner' AND m.sender_id IS NULL
-              AND m.text LIKE '[Lark message from ' || substr(c.title, 7) || ', who is not the owner.%'
+              AND substr(m.text, 1, length('[Lark message from ' || substr(c.title, 7) || ', who is not the owner.'))
+                  = '[Lark message from ' || substr(c.title, 7) || ', who is not the owner.'
         )) AS INTEGER) AS channel
 FROM chats c WHERE c.id = @id;
 
@@ -68,7 +70,8 @@ SELECT sqlc.embed(chats),
            OR (chats.title LIKE 'Lark: %' AND EXISTS (
                SELECT 1 FROM chat_messages m
                WHERE m.chat_id = chats.id AND m.role = 'owner' AND m.sender_id IS NULL
-                 AND m.text LIKE '[Lark message from ' || substr(chats.title, 7) || ', who is not the owner.%'
+                 AND substr(m.text, 1, length('[Lark message from ' || substr(chats.title, 7) || ', who is not the owner.'))
+                     = '[Lark message from ' || substr(chats.title, 7) || ', who is not the owner.'
            )) AS INTEGER) AS channel,
        CAST(coalesce((
            SELECT substr(m.text, 1, 400) FROM chat_messages m
