@@ -62,7 +62,7 @@ Superset parses because it serves many engines.
 
 | Reference | Dry run | `maximum_bytes_billed` | Rows | Time | Read where |
 |---|---|---|---|---|---|
-| Superset | "Estimate cost" on demand: a `dry_run=True` job per statement, bytes processed shown | No | `SQL_MAX_ROW = 100000`, `DISPLAY_MAX_ROW = 10000`; BigQuery fetch capped at `BQ_FETCH_MAX_MB = 200` | `SQLLAB_TIMEOUT = 30` s for a synchronous query, `SQLLAB_VALIDATION_TIMEOUT = 10` s | `bigquery.py:787-824`, `:915-955`; `superset/config.py:1886`, `:1899`, `:2218-2224` |
+| Superset | "Estimate cost" on demand: a `dry_run=True` job per statement, bytes processed shown | No | `SQL_MAX_ROW = 100000`, `DISPLAY_MAX_ROW = 10000`; BigQuery fetch capped at `BQ_FETCH_MAX_MB = 200` | `SQLLAB_TIMEOUT = 30` s for a synchronous query, `SQLLAB_VALIDATION_TIMEOUT = 10` s | `bigquery.py:927-953` (the dry-run job and its bytes; `:787-824` runs it once a statement); `superset/config.py:1886`, `:1899`, `:2218-2224` |
 | Metabase | No | No | Its middleware stops reading at the maximum result size; page size only | The HTTP read timeout is the query timeout; a cancelled query cancels its BigQuery job | `bigquery_cloud_sdk.clj:165-180`, `:950-960`, `:1058-1064` |
 | Grafana | "Validate query" is a dry run with its statistics; "Save & test" is a dry run of `SELECT 1` | `MaxBytesBilled` setting, set on every query when above 0; unset means no cap | None in the backend | None of its own | `pkg/bigquery/api/api.go:113-130`; `pkg/bigquery/driver/conn.go:123-147`, `:208-215`; `types/types.go:20`; `docs/sources/troubleshooting.md:545` |
 | MCP Toolbox | Always, before the real run; the tool also takes `dry_run: true` to return only the dry run's job | `maximumBytesBilled`, passed to the dry run and the real job; 0 (none) by default | `maxQueryResultRows`, 50 by default | None of its own | `bigqueryexecutesql.go:129`, `:165-205`, `:332-337`; `bigquerycommon/util.go:76-117`; `bigquery.go:77-78`, `:612-645`; `prebuiltconfigs/tools/bigquery.yaml:24-26` |
@@ -82,8 +82,14 @@ quotas.
 | MCP Toolbox | `allowedDatasets` (`dataset` or `project.dataset`), each checked to exist at start; `list_dataset_ids` returns the list itself; `get_table_info` and `list_table_ids` refuse others; `execute_sql` checks the dry run's referenced tables, DDL targets and routines, refuses `SET`, schema DDL and `CALL`, and adds a lexical scan so an authorized view is not refused for its base tables | `bigquery.go:223-257`; `bigquerylistdatasetids.go:114-115`; `bigquerygettableinfo.go:133`; `bigquerycommon/util.go:162-320` |
 | Grafana, Metabase docs | Grant the account at the project or the dataset; `datasets.list` shows only what it can get | `troubleshooting.md:115`, `:161-165`; `metabase docs bigquery.md:68-74` |
 
-Open point, not verified: whether a dry run of a wildcard query (`events_*` over 90 days) lists each daily shard
-in `referencedTables`. If it does, Grafana's 50-table rule refuses an ordinary GA4 query.
+Grafana refuses as soon as the dry run lists 50 entries, even when all are in one allowed dataset
+(`allowlist.go:37-38`); the Go SDK says only that a query of more than 50 tables has an incomplete list
+(`cloud.google.com/go/bigquery@v1.86.3/job.go:521-525`). Whether a dry run of `events_*` over 60-90 days lists each
+daily shard or one wildcard entry is not said anywhere read; if it lists 50, the query is refused. And fewer than
+50 entries does not prove every source was checked: the REST statistics keep routines apart
+(`referencedRoutines`), and Toolbox also refuses `EXTERNAL_QUERY` and region-level `INFORMATION_SCHEMA` lexically
+(`bigquerycommon/table_name_parser.go:401-425`). So `referencedTables` is not a permission boundary; IAM on the
+dataset is (review round 1, below).
 
 ### Tools for an agent (MCP Toolbox)
 
@@ -134,12 +140,52 @@ lighter than the full library, since it brings gRPC and OpenTelemetry too.
 | Web | One card a service; Superset has a connect dialog; an AWS role is connected from a terminal | `web/src/features/settings/service-cards.tsx:120-127`, `:200-257` |
 | Superset skill | Which account, the tools, figures as of the call, personal data, what waits for the owner | `clientcli/skills/superset/SKILL.md` |
 
-## 3. Proposed design
+## 3. Review round 1: what more was read
 
-The design, with a From for each decision, is the comment on issue #976. In short: a new credential kind for a
-service-account key kept whole in the vault and never shown back; the control plane mints its tokens and runs every
-call with `cloud.google.com/go/bigquery`; every query is dry-run first, must be a `SELECT`, must fit a bytes cap
-that the real job also carries, and returns a bounded number of rows; an optional dataset allow-list; four tools
-(datasets, tables, table, query) for Bots and read-only Routines, the same as `hypomnema bigquery …` commands for
-Routine scripts; connect, check and disconnect on the web and in the CLI; tests against an `httptest` BigQuery with a
-throwaway RSA key.
+An independent review of design v1 (2026-11-20) found the read-only gate, the allow-list, the Routine wiring, the
+secret's exposure and the connect check short. What was read to answer it:
+
+### Read-only is more than the statement type
+
+| Source | What it says | Where |
+|---|---|---|
+| Google, *Work with multi-statement queries* | A request of several statements is a multi-statement query, "unless the statements consist entirely of `CREATE TEMP FUNCTION` statements followed by a single `SELECT` statement". Such a request dry-runs as a `SELECT` | https://cloud.google.com/bigquery/docs/multi-statement-queries (fetched 2026-11-20) |
+| Google, *Work with remote functions* | A remote function is a persistent function in a dataset, backed by a `CLOUD_RESOURCE` connection; it is used "in a query just like any other user-defined function", and BigQuery POSTs the rows of its arguments to a Cloud Run endpoint | https://cloud.google.com/bigquery/docs/remote-functions (fetched 2026-11-20) |
+| REST `JobStatistics2` | Has `statementType`, `referencedTables`, **`referencedRoutines`**, `ddlTargetRoutine`, `exportDataStatistics`, `externalServiceCosts` | `google.golang.org/api@v0.316.0/bigquery/v2/bigquery-api.json` |
+| Go SDK `QueryStatistics` | Exposes `StatementType`, `ReferencedTables`, `DDLTargetRoutine`, `ExportDataStatistics`, but **no `ReferencedRoutines`**; reading it needs the REST client, which Toolbox uses for its dry run | `cloud.google.com/go/bigquery@v1.86.3/job.go:492-553`; Toolbox `bigquerycommon/util.go:76-117` |
+| Toolbox | Its blocked mode checks only the statement type (`bigqueryexecutesql.go:179-193`); its lexical parser refuses `EXTERNAL_QUERY`, `EXECUTE IMMEDIATE` and `CREATE …` only when datasets are restricted | `bigquerycommon/table_name_parser.go:401-446` |
+
+### Job, cap and cancel in the Go SDK
+
+| Point | Where |
+|---|---|
+| `MaxBytesBilled` goes on the wire on both paths | `query.go:187` (`jobs.insert`), `:503` (`jobs.query`) |
+| A job given its own `JobID` is never sent on the `jobs.query` fast path, so it has an id before it runs | `job.go:165-167`; `query.go:494` |
+| `Cancel` only asks: "returns without waiting … Cancelled jobs may still incur costs" | `job.go:234-237` |
+| `Datasets` lists the client's project unless another is set | `dataset.go:878-882` |
+
+### Hypomnema: the paths a Routine takes, the secret, long requests
+
+| Point | Where (on `main` `ec719ebb`) |
+|---|---|
+| In a read run the proxy refuses every Integration but Lark, Google and Superset, and every action that is not of kind `Reads` | `serviceproxy/proxy.go:395-406` |
+| In a read run an action set to ask is refused, not asked | `serviceproxy/proxy.go:439-441` |
+| An Approval is tied to a Routine's run by `RunKey`; a grant "for the routine" passes later runs | `serviceproxy/proxy.go:606-616`, `:622-658` |
+| An act carries no `RunKey`: `Act` has none and `Judge` builds its session without one | `serviceproxy/act.go:16-31`, `:46` |
+| Superset's commands send the run's key and the API puts it on the call | `clientcli/superset.go:93-100`; `clientapi/superset.go:84` |
+| A Bot token of a read run is refused the whole client API | `clientapi/server.go:524-531` |
+| The owner can read any vault secret's value (recorded), by decision; an agent has no operation that returns one | `ownersecrets.go:64-71`; `clientapi/secrets.go:95-105`; `clientapi/policy.go:133`; `docs/decisions/2026-11-10-owner-reads-secret-values.md` |
+| Superset's routes are long, as are its commands (35 minutes in place of 70 s) | `clientapi/policy.go:178-183`; `clientcli/clientcli.go:40-44`, `:128-130` |
+
+## 4. Proposed design
+
+The design, with a From for each decision, is on issue #976: v1, then **v2, which answers review round 1** and
+replaces it. In short (v2): a new credential kind for a service-account key kept whole in the vault (readable only
+by the owner's recorded secret read, as every vault secret); a dedicated least-privilege account, Data Viewer on the
+GA4 dataset and Job User on the billing project; the control plane runs every call with `cloud.google.com/go/bigquery`
+and dry-runs with the REST client; a query must be one real `SELECT` (lexical single-statement check, then a dry run
+whose statistics are present, `SELECT`, with no referenced routines, under the cap), and the real job carries its own
+id and the same 10 GiB cap; no `referencedTables` allow-list; both actions are reads, wired through a read run and,
+with `RunKey` on acts, through a Routine's script; the connect check reads a table of each configured dataset and
+dry-runs in the billing project; routes and commands are long; tests against an `httptest` BigQuery prove no real job
+is sent when a query is refused.
