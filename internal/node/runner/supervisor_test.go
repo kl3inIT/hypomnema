@@ -539,14 +539,10 @@ func TestTheJournalIsReadOnceAcrossARestart(t *testing.T) {
 }
 
 // Scenario: the control plane takes back a Dispatch whose worker no daemon
-// follows, as after a restart. Release kills the shim found by its PID file
+// follows, as after a restart. Release reaches the shim at its private socket
 // and removes the run directory.
 func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 	t.Parallel()
-
-	if runtime.GOOS == "windows" {
-		t.Skip("a node runs on Linux: on Windows the shim's worker is in no group to kill")
-	}
 
 	g := newRig(t, "hang")
 	g.start(newReporter())
@@ -558,10 +554,14 @@ func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 	identity := filepath.Join(dir, "shim.identity")
 	original, err := os.ReadFile(identity) //nolint:gosec // an owned test fixture
 	require.NoError(t, err)
+	// Without its socket the shim is reached only through its recorded identity, which no longer matches.
+	socket, hidden := filepath.Join(dir, shim.SocketFile), filepath.Join(dir, "hidden.sock")
+	require.NoError(t, os.Rename(socket, hidden))
 	require.NoError(t, os.WriteFile(identity, []byte(`{"Started":1}`), 0o600))
 	restarted := g.restart().sup
 	restarted.Release("dsp_1")
 	assert.Never(t, func() bool { return !shim.Alive(pid) }, 100*time.Millisecond, 10*time.Millisecond)
+	require.NoError(t, os.Rename(hidden, socket))
 	require.NoError(t, os.WriteFile(identity, original, 0o600)) //nolint:gosec // the owned shim fixture
 	alias := filepath.Join(t.TempDir(), "node-home")
 	require.NoError(t, os.Symlink(restarted.Home, alias))
@@ -571,6 +571,16 @@ func TestReleaseKillsAWorkerNoDaemonFollows(t *testing.T) {
 
 	assert.DirExists(t, dir, "the shim record is needed to confirm the worker has stopped")
 	assert.Eventually(t, func() bool { return !shim.Alive(pid) }, 20*time.Second, 20*time.Millisecond)
+}
+
+func TestAnUnconfirmedExitDoesNotConfirmCancellation(t *testing.T) {
+	t.Parallel()
+	report := newReporter()
+	sup := &Supervisor{}
+	sup.ended(t.Context(), &Worker{stopping: true, r: report, turn: &fakeTurn{}}, shim.Exit{Unconfirmed: true})
+	assert.Zero(t, report.stopped)
+	assert.Zero(t, report.exited)
+	assert.Empty(t, report.finished)
 }
 
 func TestStopRevokesShimLaunchBeforePID(t *testing.T) {

@@ -4720,8 +4720,8 @@ Node (`internal/node`):
   given 10 s for the shim to write one, as a start is, and then ends as `start_failed` ("the shim did not start";
   Omnara fails a process whose execution was never committed).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
-  no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
-  process under a shim, as a Claude Code worker's: `codex exec --json --skip-git-repo-check --ignore-user-config
+  no login on the node: its model comes from the control plane's gateway under the offer's key. A Codex turn is one
+  process under a shim: `codex exec --json --skip-git-repo-check --ignore-user-config
   --dangerously-bypass-approvals-and-sandbox`, with `-c` overrides that name the gateway (`<control plane>/v1`,
   `wire_api = "responses"`, `supports_standalone_web_search = true` so that Codex offers its `web.run` search, which
   the gateway answers on `/v1/alpha/search` (codex-rs `ext/web-search/src/extension.rs`; OpenClaw sets it the same
@@ -4774,11 +4774,32 @@ Node (`internal/node`):
     worktree per Task, and the agent's memory is the control plane's (issue #21).
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The Supervisor reads the journal from a
-    saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt and closes stdin; a worker still
-    alive after 30 s is killed with its whole session group.
+    saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt
+    and closes stdin. If the worker is still alive after 30 s, the Supervisor asks the shim to kill it over the
+    Dispatch's private socket, not by a recorded PID. A stop first revokes a launch the shim has not claimed; a
+    shim that does not answer is killed with its process group only if its recorded identity still matches (the
+    temp-directory item below), and its exit stays unconfirmed.
+    Linux and macOS check ancestry and process start time before signaling descendants, including Claude Bash
+    jobs in separate sessions. After a bounded freeze attempt the shim sends SIGKILL even if a child cannot
+    freeze. Linux adopts and reaps orphans without consuming the CLI's exit status. Windows runs the worker in
+    a Job Object. If the shim cannot confirm the stop, the node records an error without inventing a signal.
   - Reported:
     - the session id from `system/init`, as started;
-    - one turn per Dispatch: stdin is closed after the turn's `result`.
+    - a Dispatch can include a follow-up turn from background work. A successful `result` while Claude reports
+      a background Bash, Agent (`local_agent`, as a planner runs) or workflow (`local_workflow`), or queued turns,
+      does not close stdin; permission replies still go over the same pipe.
+      If the background work settles without another result, the node closes stdin after 2 s with no pending
+      background work, queued turn, tool call, or active turn, and uses the most recent result. An explicit
+      `idle` with no such background task gives stale queue counts or missing tool results 5 s to settle, then closes
+      stdin unless new turn activity arrives. A `running`
+      state keeps stdin open even when Claude does not emit partial messages. The hold survives adoption.
+      A result with no outstanding work, a terminal error, or a result after `finish` also closes stdin.
+      Within a held continuation, the shim stops the worker and records its exit if Claude stays
+      alive for 30 s after stdin closes. There is no elapsed-time cutoff while work remains pending; the control
+      plane's 4-hour mark only warns (issue #867).
+    - if Claude's journal matches an explicit `finish` call to a closed-stdio permission error, the node validates
+      the same tool arguments and records a fallback in the bridge. A normal finish takes precedence. The node
+      sends the chosen report through the same durable outbox; prose or a PR alone is not a final report.
   - The worker's transcript goes to the control plane apart from its reports
     ([research](docs/research/2026-11-10-worker-sessions.md); one forwarder, `internal/node/transcript`, for every
     runtime since issue #157):
