@@ -8,6 +8,10 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
+func (s *Service) InboxNeedsYou(ctx context.Context) (int, error) {
+	return s.inbox.NeedsYou(ctx, s.clock.Now())
+}
+
 // RoutineRunOf is the live run of a Routine a Bot token acts in (issue #966), by which the Inbox names where an item
 // a Bot found came from: the run of the Routine a script's token is made for (Token.Routine), or the run a prompt
 // run's chat was opened for, whose pi's token is bound to that chat. Empty when the token is not a Bot's or acts in

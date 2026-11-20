@@ -99,7 +99,7 @@ func (s *Server) ListTodos(ctx context.Context, req openapi.ListTodosRequestObje
 // GetInboxNeedsYou counts the to-dos that need the owner now.
 func (s *Server) GetInboxNeedsYou(ctx context.Context, _ openapi.GetInboxNeedsYouRequestObject,
 ) (openapi.GetInboxNeedsYouResponseObject, error) {
-	n, err := s.svc.Inbox().NeedsYou(ctx, time.Now())
+	n, err := s.svc.InboxNeedsYou(ctx)
 	if err != nil {
 		return nil, err
 	}

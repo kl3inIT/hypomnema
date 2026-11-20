@@ -400,11 +400,10 @@ func TestAStaleProposalIsHiddenUntilAskedFor(t *testing.T) {
 
 	ctx := t.Context()
 	clock := &movedClock{}
-	clock.by.Store(int64(-inboxstore.StaleAfter - time.Minute))
 	w := newInboxWorldAt(t, clock)
 	old, touched := w.proposed(t), w.proposed(t)
 
-	clock.by.Store(0)
+	clock.by.Store(int64(inboxstore.StaleAfter + time.Minute))
 
 	r, err := w.owner.EditTodoWithResponse(ctx, touched.Id, openapi.TodoEdit{Revision: touched.Revision,
 		Notes: ptr("Linh asked again")})
@@ -430,6 +429,7 @@ func TestAStaleProposalIsHiddenUntilAskedFor(t *testing.T) {
 	assert.Equal(t, map[string]bool{touched.Id: false}, list(openapi.ListTodosParams{}))
 	assert.Equal(t, map[string]bool{old.Id: true, touched.Id: false},
 		list(openapi.ListTodosParams{IncludeStale: ptr(true)}))
+	assert.Equal(t, map[string]bool{touched.Id: false}, list(openapi.ListTodosParams{NeedsYou: ptr(true)}))
 
 	n, err := w.owner.GetInboxNeedsYouWithResponse(ctx)
 	require.NoError(t, err)
