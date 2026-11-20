@@ -33,11 +33,19 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
    ```
-   Start every review spec with `Review pull request: <canonical PR URL>` on its own line. In the first round,
+   <!-- pstack skills/poteto-mode/playbooks/shipping.md:7 (a verdict covers a patch); skills/swarm/SKILL.md:37 (a
+   result without its SHAs is dropped) (issue #953) -->
+   Start every review spec with `Review pull request: <canonical PR URL>` on its own line, then `Head: <sha>`, the
+   pull request's head now (`gh pr view <url> --json headRefOid`), on the next. A head gets one verdict: the
+   control plane refuses a review of a head that already has a `correct` or `incorrect` verdict, from any Run, and
+   names that Task and verdict; read that Task instead of asking again. A `blocked` verdict does not count. A
+   review of a pull request that has a verdict gets a `## Reviewed head` section with the head that verdict covers,
+   for step 7's `git diff <reviewed_sha>..<head>`. In the first round,
    give the reviewer the spec the change was made from, but not the author's report or transcript, so the
    reviewer judges the change itself.
 
    Ask the reviewer to include the reviewed PR or MR in `finish` evidence, not an earlier PR mentioned in the spec.
+   The control plane records a verdict only when the summary has both its `Verdict:` and `Head:` lines.
    <!-- orchestrate skills/orchestrate/prompts/verifier.md:38-61, references/handoffs.md:130-140; pstack
    skills/poteto-mode/playbooks/shipping.md:7, a verdict covers a patch (issue #952) -->
    Include these six lines in the summary before its findings:
@@ -111,7 +119,8 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    the cause needs the owner (an account, a login), or the new review is blocked too, tell the owner in one line
    what stops it and leave the Run and pull request open with auto-merge off.
 7. Have the updated pull request reviewed by a new review Task. Unlike the first round, its spec carries what the
-   rounds before found, so it can tell what was fixed: the pull request's URL and the spec as before, then
+   rounds before found, so it can tell what was fixed: the pull request's URL, `Head:` set to the updated head, and
+   the spec as before, then
    - `## Earlier review (Task <review_task_id>)`: that review's verdict, its `Head:` and its findings, pasted word
      for word;
    - `## The author's answer (Task <task_id>)`: the report the worker gave after the follow-up, word for word;

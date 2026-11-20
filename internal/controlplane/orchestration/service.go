@@ -457,6 +457,9 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 		if err := checkTaskProfile(ctx, q, nt, vendor); err != nil {
 			return nil, err
 		}
+		if nt.Spec, err = reviewedHead(ctx, q, nt); err != nil {
+			return nil, err
+		}
 
 		deps, err := resolveDeps(ctx, q, runID, nt.DependsOn, byRef, status)
 		if err != nil {
@@ -923,7 +926,7 @@ func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 
 	payload := map[string]any{"from": string(from), "to": string(to), "reason": why}
 	if to == TaskSucceeded {
-		review, err := reviewAfterTask(ctx, q, current, result)
+		review, err := reviewAfterTask(ctx, q, now, current, result)
 		if err != nil {
 			return err
 		}

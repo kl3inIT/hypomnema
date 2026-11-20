@@ -4823,6 +4823,18 @@ The owner's commands:
   reported, not replaced.
   A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
   in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
+  A head gets one verdict (issue #953, after pstack's "a verdict covers a patch",
+  `skills/poteto-mode/playbooks/shipping.md:7`, and its dropping of a result that does not record its SHAs,
+  `skills/swarm/SKILL.md:37`): when a reviewer-profile Task succeeds with a `Verdict:` of `correct`, `incorrect`
+  or `blocked` and a `Head:` naming a commit (7 to 40 hex digits), the control plane keeps the pull request, head
+  and verdict in `review_verdicts` (a later follow-up on that Task at the same head replaces it); a summary without
+  both records nothing. Creating a reviewer-profile Task whose spec names a pull request and a `Head:` that already
+  has a `correct` or `incorrect` verdict, from a Task of any Run, is refused (409) with that Task and verdict; two
+  SHAs name one commit when one is a prefix of the other, as git resolves an abbreviation. A `blocked` verdict
+  does not count, so a blocked review may run again. A new review of a pull request that has a verdict gets a
+  `## Reviewed head` section appended to its spec, naming the Task, verdict and head of the latest one and asking
+  for that verdict's findings and `git diff <reviewed_sha>..<head>`. A spec without `Head:` is not refused.
+  Verdicts given before the migration that adds `review_verdicts` are not recorded.
   A review that ends with no unfinished Task enriches the ordinary `task.status` wake, once, and the open Run's
   `review_stall` projects that event until work is added, resumed or the Run ends. The third completed round on
   the same PR ending incorrect shows as waiting for the owner on the

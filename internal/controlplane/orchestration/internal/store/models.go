@@ -832,6 +832,14 @@ type RestartBoot struct {
 	At int64
 }
 
+type ReviewVerdict struct {
+	TaskID      string
+	PullRequest string
+	HeadSha     string
+	Verdict     string
+	CreatedAt   int64
+}
+
 type RoleRouting struct {
 	ID     int64
 	Source string
