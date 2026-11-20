@@ -172,20 +172,58 @@ secret's exposure and the connect check short. What was read to answer it:
 | In a read run an action set to ask is refused, not asked | `serviceproxy/proxy.go:439-441` |
 | An Approval is tied to a Routine's run by `RunKey`; a grant "for the routine" passes later runs | `serviceproxy/proxy.go:606-616`, `:622-658` |
 | An act carries no `RunKey`: `Act` has none and `Judge` builds its session without one | `serviceproxy/act.go:16-31`, `:46` |
-| Superset's commands send the run's key and the API puts it on the call | `clientcli/superset.go:93-100`; `clientapi/superset.go:84` |
+| Superset's commands send the run's key and the API puts it on the call | `clientcli/superset.go:93-100`; `clientapi/superset.go:93` |
 | A Bot token of a read run is refused the whole client API | `clientapi/server.go:524-531` |
 | The owner can read any vault secret's value (recorded), by decision; an agent has no operation that returns one | `ownersecrets.go:64-71`; `clientapi/secrets.go:95-105`; `clientapi/policy.go:133`; `docs/decisions/2026-11-10-owner-reads-secret-values.md` |
 | Superset's routes are long, as are its commands (35 minutes in place of 70 s) | `clientapi/policy.go:178-183`; `clientcli/clientcli.go:40-44`, `:128-130` |
 
-## 4. Proposed design
+## 4. Review round 2: what more was read
 
-The design, with a From for each decision, is on issue #976: v1, then **v2, which answers review round 1** and
-replaces it. In short (v2): a new credential kind for a service-account key kept whole in the vault (readable only
-by the owner's recorded secret read, as every vault secret); a dedicated least-privilege account, Data Viewer on the
-GA4 dataset and Job User on the billing project; the control plane runs every call with `cloud.google.com/go/bigquery`
-and dry-runs with the REST client; a query must be one real `SELECT` (lexical single-statement check, then a dry run
-whose statistics are present, `SELECT`, with no referenced routines, under the cap), and the real job carries its own
-id and the same 10 GiB cap; no `referencedTables` allow-list; both actions are reads, wired through a read run and,
-with `RunKey` on acts, through a Routine's script; the connect check reads a table of each configured dataset and
-dry-runs in the billing project; routes and commands are long; tests against an `httptest` BigQuery prove no real job
-is sent when a query is refused.
+A second review (2026-11-20) found the tools would not reach a Bot at all, and asked for the lexer, the cost scope,
+the connect check and the timeouts to be pinned down.
+
+### How a tool reaches a Bot (on `main` `39d626df`)
+
+| Point | Where |
+|---|---|
+| A read run lists only the memory, Superset's tools, the messaging tools and `account_read`; any other family must be added to this branch | `agentapi/tools.go:61-64` |
+| Outside a read run, each family is appended to the list | `agentapi/tools.go:76` |
+| A call is routed by family: Superset's tools to `supersetCall`, after the Connections are read again | `agentapi/tools.go:151-169` |
+| One filter serves the list and the call: a read run allows only `ReadRunAllows`, then the Bot's switches decide | `agentapi/tools.go:242-258`, `:262-282` |
+| The switches decide by family; the `report` preset names its families: memory, artifacts, routines, web, superset. A `bigquery_*` family would be in `full` and not in `report` | `shared/agenttool/switches.go:129`, `:171-180`, `:262-292` (`:280-281`) |
+
+### The lexer
+
+| Point | Where |
+|---|---|
+| GoogleSQL comments are `--`, `#` and `/* */`; whitespace and comments may stand between the tokens of a path, so `AI /*x*/ .generate` is one function name | Google, *Lexical structure and syntax* (https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical) |
+| A Go lexer for exactly those states: single, double, triple and raw strings, the three comment kinds, Apache-2.0, adaptable with its notice | Toolbox `bigquerycommon/table_name_parser.go:27-42`, `:270-292` |
+| The `#legacySQL` directive is a `#` comment, so it disappears once comments are stripped; Metabase looks for it in the raw text | `bigquery_cloud_sdk.clj:953` |
+
+### What the cap covers
+
+| Point | Where |
+|---|---|
+| `maximumBytesBilled` limits the bytes BigQuery bills for the query on demand; a BigLake or external table reads its storage through a connection, which can bill at that storage | Google, *BigLake tables* (https://cloud.google.com/bigquery/docs/biglake-intro); *Control costs in BigQuery* (https://cloud.google.com/bigquery/docs/best-practices-costs) |
+| `tables.list` gives each table's `type` (`TABLE`, `VIEW`, `MATERIALIZED_VIEW`, `EXTERNAL`, `SNAPSHOT`); `tabledata.list` refuses a logical view | `bigquery-api.json` (`Table.type`; `TableList.tables[].type`); Google, *Views*, limitations (https://cloud.google.com/bigquery/docs/views#view_limitations) |
+
+### Waiting and a lost submit
+
+| Point | Where |
+|---|---|
+| The CLI's long timeout is 35 minutes; a Routine's request may wait 30 minutes for the owner, then the query may run 10 more | `clientcli/clientcli.go:40-44`; `serviceproxy/proxy.go:51-56`, `:622-629` |
+| `Query.Run` returns an error and no job when the `jobs.insert` answer is lost, though the job may have been made | SDK `query.go:372-385` |
+| A job is cancelled by project, id and location; the SDK can rebuild a job from its id and location | REST `jobs.cancel` (https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs/cancel); SDK `job.go:49-60` |
+
+## 5. Proposed design
+
+The design is on issue #976, with a From for each decision: v1, then v2 (answers review round 1), then **v3
+(answers review round 2)**, which replaces both. Beyond v2, v3:
+
+- wires a `bigquery` tool family into the agent API's list and call, the read-run branch, `ReadRunAllows` and the
+  `report` preset;
+- adapts Toolbox's lexer, checks `#legacySQL` before stripping comments, and matches function names over tokens;
+- limits v1 to native GA4 tables, and calls the cap what it is: the bytes BigQuery bills on demand for a query;
+- picks a native table for the connect check;
+- gives the query command a client timeout above the run's wait plus its own limit;
+- keeps the job's project, id and location before `jobs.insert`, so a lost answer can still be cancelled.
