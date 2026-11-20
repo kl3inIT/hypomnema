@@ -2,6 +2,7 @@ package modelgateway_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 
@@ -24,6 +25,11 @@ func newSubscriptionGateway(t *testing.T) *modelgateway.Service {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
+	return subscriptionGatewayOn(db)
+}
+
+// subscriptionGatewayOn is newSubscriptionGateway over a database already open.
+func subscriptionGatewayOn(db *sql.DB) *modelgateway.Service {
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	info := func(p orchestration.Provider) modelgateway.ProviderInfo {

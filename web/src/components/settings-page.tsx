@@ -5,6 +5,7 @@ import {
   AudioLines,
   BookA,
   BookOpen,
+  Cable,
   ChevronLeft,
   ChevronRight,
   Box,
@@ -43,6 +44,7 @@ type Section = {
     | "/settings/dictionary"
     | "/settings/notes-model"
     | "/settings/gateway-keys"
+    | "/settings/connect"
     | "/settings/usage"
     | "/settings/repositories"
     | "/settings/integrations"
@@ -77,6 +79,8 @@ const groups: { heading: string; sections: Section[] }[] = [
       { to: "/settings/muse", label: "Muse", icon: Telescope },
       { to: "/settings/audio", label: "Audio", icon: AudioLines },
       { to: "/settings/gateway-keys", label: "Gateway keys", icon: KeySquare },
+      // Connect a tool sits next to the keys it uses (issue #907), as 9router's CLI tools page beside its keys.
+      { to: "/settings/connect", label: "Connect a tool", icon: Cable },
       { to: "/settings/usage", label: "Usage", icon: ChartColumn },
     ],
   },

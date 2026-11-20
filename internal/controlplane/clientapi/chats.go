@@ -178,7 +178,16 @@ func (s *Server) GetChat(ctx context.Context, req openapi.GetChatRequestObject,
 		return nil, err
 	}
 
-	return openapi.GetChat200JSONResponse(s.toChat(chat)), nil
+	read, err := s.svc.ReadRun(ctx, chat.ID)
+	if err != nil {
+		return nil, err
+	}
+	shown := s.toChat(chat)
+	if read {
+		shown.ReadRun = &read
+	}
+
+	return openapi.GetChat200JSONResponse(shown), nil
 }
 
 // SendChatMessage keeps the owner's message with the files attached to it (issue #343), which the web uploaded into

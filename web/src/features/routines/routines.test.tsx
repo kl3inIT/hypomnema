@@ -52,6 +52,7 @@ const routine = (id: string, m: Partial<Routine> = {}): Routine => ({
   bot: "coordinator",
   name: id.replace("rtn_", ""),
   kind: "script",
+  access: "full",
   script: "sync.sh",
   script_text: "#!/bin/sh\nhypomnema superset chart 9 164 --format csv\n",
   every_minutes: 60,
@@ -87,6 +88,24 @@ const approval = (m: Partial<Approval> = {}): Approval => ({
   used: false,
   created_at: minutes(-2),
   ...m,
+})
+
+test("the owner can mark a prompt Routine read-only from its panel", async () => {
+  const calls = server([
+    routine("rtn_brief", { kind: "prompt", script: undefined, prompt: "Write the morning brief" }),
+  ])
+  open("/routines?open=rtn_brief")
+
+  const toggle = await screen.findByRole("switch", { name: "Read-only" })
+  expect(toggle).toHaveAttribute("aria-checked", "false")
+  await userEvent.click(toggle)
+  await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"))
+  expect(calls).toContainEqual({
+    call: "PATCH /routines/rtn_brief",
+    query: "",
+    body: { access: "read" },
+  })
+  expect(screen.getByText("Each run’s chat only")).toBeInTheDocument()
 })
 
 type Call = { call: string; query?: string; body?: unknown }
@@ -171,6 +190,8 @@ function server(
     switch (`${request.method} ${rest}`) {
       case "GET ":
         return json(found)
+      case "PATCH ":
+        return set({ access: body?.access as Routine["access"] })
       case "DELETE ":
         routines = routines.filter((r) => r.id !== id)
 

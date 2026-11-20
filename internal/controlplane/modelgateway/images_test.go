@@ -69,6 +69,10 @@ func (*imageAccounts) FirstFree(context.Context, string, func(string) time.Time)
 	return time.Time{}, nil
 }
 
+func (a *imageAccounts) MarkTokenRefused(context.Context, modelgateway.AccountToken) error {
+	return nil
+}
+
 func (a *imageAccounts) CoolDown(_ context.Context, _, id string, _ time.Time, _ string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

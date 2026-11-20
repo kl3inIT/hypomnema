@@ -52,6 +52,26 @@ func newRoutineWorld(t *testing.T) *world {
 	return w
 }
 
+func TestTheOwnerSetsReadRoutineAccessFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newRoutineWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmdIn(t, "Write the brief.", "routines", "set", "brief", "--every", "60",
+		"--prompt-file", "-", "--access", "read")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Read-only: results stay in each run's chat.")
+
+	out, err = w.cmd(t, "routines", "set", "brief", "--every", "120")
+	require.NoError(t, err)
+	assert.Contains(t, out, "Read-only", "an owner edit that omits the flag preserves access")
+
+	out, err = w.cmd(t, "routines", "set", "brief", "--access", "full")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "Read-only")
+}
+
 // Scenario: the owner makes an hourly script Routine from the laptop, with
 // the script in a file, and later moves it to a cron schedule: the script
 // stays. He pauses it, resumes it and runs it now; a second run now is told

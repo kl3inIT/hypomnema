@@ -158,6 +158,28 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 	assert.Equal(t, "no-store", value.HTTPResponse.Header.Get("Cache-Control"))
 	assert.Equal(t, secret, value.JSON200.Secret)
 
+	// Connect a tool (issue #907): the owner's alone, not cached, the key's value in the file.
+	connect := &openapi.GetGatewayToolConfigParams{BaseUrl: "https://hyp.example"}
+	refusedConnect, err := pi.GetGatewayToolConfigWithResponse(ctx, id, openapi.GatewayToolCodex, connect)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refusedConnect.StatusCode())
+
+	codex, err := owner.GetGatewayToolConfigWithResponse(ctx, id, openapi.GatewayToolCodex, connect)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, codex.StatusCode(), string(codex.Body))
+	assert.Equal(t, "no-store", codex.HTTPResponse.Header.Get("Cache-Control"))
+	assert.True(t, codex.JSON200.KeyStored)
+	require.Len(t, codex.JSON200.Files, 1)
+	assert.Equal(t, "~/.codex/config.toml", codex.JSON200.Files[0].Path)
+	assert.Equal(t, "toml", codex.JSON200.Files[0].Format)
+	assert.Contains(t, codex.JSON200.Files[0].Content, secret)
+	assert.Contains(t, codex.JSON200.Files[0].Content, `"https://hyp.example/v1/codex/models"`)
+
+	badBase, err := owner.GetGatewayToolConfigWithResponse(ctx, id, openapi.GatewayToolOmp,
+		&openapi.GetGatewayToolConfigParams{BaseUrl: "not an address"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, badBase.StatusCode())
+
 	secretName := strings.ReplaceAll(id, "_", "-")
 	vaultList, err := owner.ListSecretsWithResponse(ctx)
 	require.NoError(t, err)

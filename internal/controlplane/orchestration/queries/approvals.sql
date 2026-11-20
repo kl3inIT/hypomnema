@@ -1,8 +1,8 @@
 -- name: InsertApproval :exec
 INSERT INTO approvals (id, integration, label, action, action_name, dispatch_id, task_id, run_id, chat_id, asked_by,
-                       title, payload, match_hash, routine_id, routine_run_id, created_at)
+                       title, payload, match_hash, routine_id, routine_run_id, attempt_id, created_at)
 VALUES (@id, @integration, @label, @action, @action_name, @dispatch_id, @task_id, @run_id, @chat_id, @asked_by,
-        @title, @payload, @match_hash, @routine_id, @routine_run_id, @now);
+        @title, @payload, @match_hash, @routine_id, @routine_run_id, @attempt_id, @now);
 
 -- name: GetApproval :one
 SELECT * FROM approvals WHERE id = @id;

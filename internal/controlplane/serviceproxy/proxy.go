@@ -68,7 +68,8 @@ type Caller struct {
 	Coordinator bool
 	// ChatID is the chat a pi's own token is bound to (issue #260): its
 	// Approvals are shown there, whatever chat the request names.
-	ChatID string
+	ChatID  string
+	ReadRun bool
 }
 
 // Agents says who a request's credential belongs to and what it may use: the
@@ -390,11 +391,24 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 // another run (review of #746). The action returned is the one that decided.
 func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func(Action) asking,
 ) (governing Action, verdict, message string, err error) {
+	all := append([]Action{action}, action.With...)
+	if s.caller.ReadRun {
+		if !readRunIntegration(s.integration) && s.integration != SupersetID {
+			return action, "read-only", agenttool.ReadRunRefusal, nil
+		}
+
+		for _, named := range all {
+			if named.Kind != Reads || named.Plumbing || named.ID == "lark.other.read" ||
+				(s.integration == "google" && named.Service != "Gmail" && named.Service != "Calendar") {
+				return named, "read-only", agenttool.ReadRunRefusal, nil
+			}
+		}
+	}
+
 	if action.Plumbing {
 		return action, "plumbing", "", nil
 	}
 
-	all := append([]Action{action}, action.With...)
 	answers := make([]answered, len(all))
 
 	strictest := 0
@@ -421,6 +435,9 @@ func (p *Proxy) decide(ctx context.Context, action Action, s session, describe f
 	case orchestration.PolicyNever:
 		return action, "never", fmt.Sprintf("Refused: the owner set %q to never for %s. It was not run; do not try "+
 			"another way. Say so in your answer.", action.Name, s.connection()), nil
+	}
+	if s.caller.ReadRun {
+		return action, "read-only", agenttool.ReadRunRefusal, nil
 	}
 
 	asks := make([]Action, 0, len(all))
@@ -780,6 +797,22 @@ func (p *Proxy) way(ctx context.Context, s session) (http.RoundTripper, string, 
 // service's answer back.
 func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, body []byte, action Action, s session,
 ) error {
+	resp, status, message := p.upstream(ctx, req, body, action, s)
+	if resp == nil {
+		return p.reply(out, status, message)
+	}
+
+	defer resp.Body.Close() //nolint:errcheck // The answer was written or the write failed; closing adds nothing.
+	resp.Proto, resp.ProtoMajor, resp.ProtoMinor = "HTTP/1.1", 1, 1
+	if resp.ContentLength < 0 {
+		resp.TransferEncoding = []string{"chunked"}
+	}
+
+	return resp.Write(out)
+}
+
+func (p *Proxy) upstream(ctx context.Context, req *http.Request, body []byte, action Action, s session,
+) (*http.Response, int, string) {
 	if s.catalog.Rewrite != nil {
 		body = s.catalog.Rewrite(req, body, action)
 	}
@@ -792,7 +825,7 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 
 	upstream, err := http.NewRequestWithContext(ctx, req.Method, target.String(), bytes.NewReader(body))
 	if err != nil || upstream.URL.Host != s.host {
-		return p.reply(out, http.StatusBadGateway, "the request could not be sent on")
+		return nil, http.StatusBadGateway, "the request could not be sent on"
 	}
 
 	upstream.Header = req.Header.Clone()
@@ -812,7 +845,7 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 
 	if s.catalog.Signed {
 		if refused := p.signAgain(ctx, req, upstream, body, s); refused != "" {
-			return p.reply(out, http.StatusForbidden, refused)
+			return nil, http.StatusForbidden, refused
 		}
 	} else if !action.Plumbing {
 		token, err := p.cfg.Token(ctx, s.integration, s.label)
@@ -826,7 +859,7 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 				message = err.Error()
 			}
 
-			return p.reply(out, http.StatusForbidden, message)
+			return nil, http.StatusForbidden, message
 		}
 
 		upstream.Header.Set("Authorization", "Bearer "+token)
@@ -834,19 +867,17 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 
 	way, proxy, err := p.way(ctx, s)
 	if err != nil {
-		return p.reply(out, http.StatusBadGateway, "the request could not be sent on: "+err.Error())
+		return nil, http.StatusBadGateway, "the request could not be sent on: " + err.Error()
 	}
 
 	resp, err := way.RoundTrip(upstream)
 	if err != nil {
 		if proxy != "" {
-			return p.reply(out, http.StatusBadGateway, connproxy.Unreachable(s.host, proxy, errors.New(rootCause(err))).Error())
+			return nil, http.StatusBadGateway, connproxy.Unreachable(s.host, proxy, errors.New(rootCause(err))).Error()
 		}
 
-		return p.reply(out, http.StatusBadGateway, "the service could not be reached: "+rootCause(err))
+		return nil, http.StatusBadGateway, "the service could not be reached: " + rootCause(err)
 	}
-
-	defer resp.Body.Close() //nolint:errcheck // The answer was written or the write failed; closing adds nothing.
 
 	// A refusal is looked at before it is passed on (issue #567): its first bytes are read and put back.
 	var head []byte
@@ -860,13 +891,7 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 
 	p.noticed(ctx, s, action, resp.StatusCode, head)
 
-	// The tool speaks HTTP/1.1 whatever the service answered in.
-	resp.Proto, resp.ProtoMajor, resp.ProtoMinor = "HTTP/1.1", 1, 1
-	if resp.ContentLength < 0 {
-		resp.TransferEncoding = []string{"chunked"}
-	}
-
-	return resp.Write(out)
+	return resp, resp.StatusCode, ""
 }
 
 // credentialHeaders are the headers a tool sends a credential in: the proxy adds the Connection's own.

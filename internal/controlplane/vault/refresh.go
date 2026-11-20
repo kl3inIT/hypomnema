@@ -203,7 +203,7 @@ func (s *Service) claimRefresh(ctx context.Context, name string, staleVersion in
 
 		select {
 		case <-ctx.Done():
-			return nil, nil, fmt.Errorf("%w: another process is refreshing secret %q", ErrRefreshFailed, name)
+			return nil, nil, fmt.Errorf("%w: another process is refreshing secret %q: %w", ErrRefreshFailed, name, ctx.Err())
 		case <-time.After(leasePoll):
 		}
 	}
@@ -218,6 +218,9 @@ func (s *Service) refreshFailed(ctx context.Context, c *claim, cause error) erro
 	}
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		if err := stillOurs(ctx, q, c); err != nil {
+			return err
+		}
 		if err := q.SetSecretLoginRequired(ctx, store.SetSecretLoginRequiredParams{
 			Now: sql.NullInt64{Int64: now, Valid: true}, ID: c.row.ID,
 		}); err != nil {
@@ -226,8 +229,30 @@ func (s *Service) refreshFailed(ctx context.Context, c *claim, cause error) erro
 
 		return release(ctx, q, c)
 	})
+	if err != nil {
+		return errors.Join(err, s.releaseLease(ctx, c))
+	}
 
-	return errors.Join(fmt.Errorf("%w: secret %q: %w", ErrLoginRequired, c.row.Name, cause), err)
+	return fmt.Errorf("%w: secret %q: %w", ErrLoginRequired, c.row.Name, cause)
+}
+
+// MarkLoginRequired marks only the version that failed, not a newer login.
+func (s *Service) MarkLoginRequired(ctx context.Context, name string, rejectedVersion int) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		row, version, err := currentVersion(ctx, q, name)
+		if errors.Is(err, ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if row.LoginRequiredAt.Valid || version.VersionNumber != int64(rejectedVersion) {
+			return nil
+		}
+		return q.SetSecretLoginRequired(ctx, store.SetSecretLoginRequiredParams{
+			Now: sql.NullInt64{Int64: now, Valid: true}, ID: row.ID,
+		})
+	})
 }
 
 func (s *Service) releaseLease(ctx context.Context, c *claim) error {

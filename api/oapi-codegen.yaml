@@ -11,5 +11,7 @@ generate:
   client: true
   embedded-spec: false
 output-options:
+  # The model gateway's own routes (issue #907) are described in the contract but not served by the client API.
+  exclude-tags: [gateway]
   skip-prune: true
   nullable-type: true

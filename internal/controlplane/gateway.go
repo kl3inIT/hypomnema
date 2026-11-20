@@ -88,7 +88,15 @@ func (g gatewayAccounts) NoteAnswer(runtime, accountID string, h http.Header) {
 func (g gatewayAccounts) TokenAfterRefusal(
 	ctx context.Context, refused modelgateway.AccountToken,
 ) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.TokenAfterRefusal(ctx, subsToken(refused)))
+	token, err := g.subs.TokenAfterRefusal(ctx, subsToken(refused))
+	if errors.Is(err, subscription.ErrTokenUnavailable) || errors.Is(err, subscription.ErrSetupToken) {
+		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrTokenUnavailable, err)
+	}
+	return accountToken(token, err)
+}
+
+func (g gatewayAccounts) MarkTokenRefused(ctx context.Context, refused modelgateway.AccountToken) error {
+	return g.subs.MarkTokenRefused(ctx, subsToken(refused))
 }
 
 func (g gatewayAccounts) CoolDown(
