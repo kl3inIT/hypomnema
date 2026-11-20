@@ -74,7 +74,9 @@ func runsAdopt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	if resp.JSON200 == nil {
 		return apiError("adopting run "+id, resp.StatusCode(), resp.JSONDefault)
 	}
-	return e.print(fs, resp.JSON200, func() { e.printf("run %s (%s)%s\n", id, resp.JSON200.Status, runChatSuffix(*resp.JSON200)) })
+	return e.print(fs, resp.JSON200, func() {
+		e.printf("run %s (%s)%s\n", id, resp.JSON200.Status, runChatSuffix(*resp.JSON200))
+	})
 }
 
 func runsList(ctx context.Context, e *env, fs *flag.FlagSet) error {

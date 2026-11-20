@@ -51,8 +51,8 @@ func (s *Service) bindNewRun(ctx context.Context, q *store.Queries, now int64, n
 	}
 
 	if nr.CoordinatorTokenID != "" && nr.CoordinatorTokenID != parent.ID {
-		return store.Chat{}, "", fmt.Errorf("%w: this is not the configured chat coordinator; use an owner token to create a Run",
-			ErrForbidden)
+		return store.Chat{}, "", fmt.Errorf(
+			"%w: this is not the configured chat coordinator; use an owner token to create a Run", ErrForbidden)
 	}
 
 	chat, err := s.runChat(ctx, q, now, nr.ChatID)
@@ -143,7 +143,8 @@ func mayAdoptRun(ctx context.Context, q *store.Queries, run store.Run, parent st
 	}
 
 	if !incumbent.RevokedAt.Valid {
-		return fmt.Errorf("%w: run %s still belongs to another working coordinator token; left unchanged", ErrConflict, run.ID)
+		return fmt.Errorf("%w: run %s still belongs to another working coordinator token; left unchanged",
+			ErrConflict, run.ID)
 	}
 
 	return nil

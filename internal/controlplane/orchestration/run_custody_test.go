@@ -140,7 +140,8 @@ func TestAReadOnlyRoutineChatCannotTakeInteractiveWork(t *testing.T) {
 	_, err = w.db.ExecContext(ctx, `INSERT INTO chat_messages (chat_id, role, text, read_run, created_at)
 		VALUES (?, 'system', 'read-only Routine', 1, 0)`, chat.ID)
 	require.NoError(t, err)
-	_, err = w.s.CreateChatRunOnce(ctx, Once{}, NewRun{Objective: "work", CreatedBy: "owner", ChatID: chat.ID}, parent.Name)
+	nr := NewRun{Objective: "work", CreatedBy: "owner", ChatID: chat.ID}
+	_, err = w.s.CreateChatRunOnce(ctx, Once{}, nr, parent.Name)
 	require.ErrorContains(t, err, "read-only")
 	_, err = w.s.AdoptRun(ctx, w.run.ID, chat.ID, parent.Name)
 	require.ErrorContains(t, err, "read-only")

@@ -87,7 +87,8 @@ func (s *Server) CreateRun(ctx context.Context, req openapi.CreateRunRequestObje
 }
 
 // AdoptRun assigns a Run that has no chat to a coordinator that can continue it.
-func (s *Server) AdoptRun(ctx context.Context, req openapi.AdoptRunRequestObject) (openapi.AdoptRunResponseObject, error) {
+func (s *Server) AdoptRun(ctx context.Context, req openapi.AdoptRunRequestObject,
+) (openapi.AdoptRunResponseObject, error) {
 	if err := s.canAssignRun(); err != nil {
 		return nil, err
 	}
