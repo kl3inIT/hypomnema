@@ -25,7 +25,7 @@ export const defaults = {
   // A sender whose address or name matches one of these sends nothing that waits for an answer.
   noReply: ["no-?reply", "do-?not-?reply", "mailer-daemon", "postmaster", "notifications?@", "bounces?[@.+-]"],
   // Chats left out by their name or id: official accounts, ads, newsletters (a regular expression each).
-  dropChats: ["^Zalo ", "\\bOA\\b", "official account", "quảng cáo", "newsletter", "status@broadcast"],
+  dropChats: ["^Zalo ", "\\bOA\\b", "official account", "quảng cáo", "newsletter", "@broadcast$"],
   // Gmail: what is searched, besides what is new and not the owner's own.
   gmailQuery: "-category:promotions -category:social -category:forums -category:updates",
   // Gmail: a message with one of these headers is a list or a newsletter.
@@ -33,8 +33,11 @@ export const defaults = {
   // Lark: how many of the most active chats are read; a message an app (a bot) sent is left out.
   larkChats: 30,
   dropLarkApps: true,
-  // At most this many messages of one source are looked at in one run.
+  // Gmail: at most this many new mails are looked at in one run.
   perSource: 50,
+  // Zalo, WhatsApp: at most this many new messages of one account are read in one run, every chat's, 500 a page;
+  // past it the account keeps its last time and is read again from there next run.
+  scanMessages: 5000,
 };
 
 // sources are the owner's accounts and tools this run may read, from the tools the control plane lists.
@@ -80,28 +83,54 @@ export const dropped = (config, ...chat) => matchesAny(config.dropChats, ...chat
 const later = (at, since) => at && Date.parse(at) > since.getTime();
 
 // readMessaging counts a Zalo or WhatsApp account's new messages, per chat: not the owner's own, nor a broadcast's,
-// an official account's or a no-reply sender's.
+// an official account's or a no-reply sender's. It pages back through every chat's messages, the latest first, to
+// the last check, so that no chat is missed however many have new messages (review of #1037, round 1); past
+// scanMessages it says it is not complete, and the account keeps its last time.
 async function readMessaging(call, source, since, config) {
   const account = source.label ? { account: source.label } : {};
-  const { chats = [] } = await call(`${source.service}_chats`, { ...account, limit: config.perSource });
-  const found = [];
-  for (const chat of chats) {
-    if (!later(chat.LastMessageAt, since) || chat.Kind === "broadcast" || dropped(config, chat.Name, chat.ID)) {
+  const fresh = new Map();
+  let before;
+  let complete = false;
+  while (fresh.size < config.scanMessages) {
+    const { messages = [] } = await call(`${source.service}_messages`, {
+      ...account, limit: 500, ...(before ? { before } : {}),
+    });
+    let added = 0;
+    let reached = messages.length < 500;
+    for (const m of messages) {
+      if (!later(m.At, since)) {
+        reached = true;
+        continue;
+      }
+      if (!fresh.has(m.ID)) added += 1;
+      fresh.set(m.ID, m);
+    }
+    if (reached || added === 0) {
+      complete = true;
+      break;
+    }
+    // The next page ends just after this one's oldest message, so that one sent in the same millisecond is kept;
+    // the ids drop what is read twice.
+    before = new Date(Math.min(...messages.map((m) => Date.parse(m.At))) + 1).toISOString();
+  }
+  const chats = new Map();
+  for (const m of fresh.values()) {
+    if (m.FromMe || m.Revoked || noReply(config, m.SenderName, m.Sender) || dropped(config, m.ChatName, m.Chat)) {
       continue;
     }
-    const { messages = [] } = await call(`${source.service}_messages`, { ...account, chat: chat.ID, limit: 50 });
-    const fresh = messages.filter(
-      (m) => later(m.At, since) && !m.FromMe && !m.Revoked && !noReply(config, m.SenderName, m.Sender),
-    );
-    if (fresh.length === 0) continue;
-    found.push({
-      where: `${keyOf(source)} chat "${chat.Name}" (${chat.Kind}, id ${chat.ID})`,
-      count: fresh.length,
-      from: [...new Set(fresh.map((m) => m.SenderName || m.Sender))],
-      latest: fresh.map((m) => m.At).sort().at(-1),
-    });
+    const chat = chats.get(m.Chat) ?? { name: m.ChatName || m.Chat, count: 0, from: new Set(), latest: "" };
+    chat.count += 1;
+    chat.from.add(m.SenderName || m.Sender);
+    if (m.At > chat.latest) chat.latest = m.At;
+    chats.set(m.Chat, chat);
   }
-  return found;
+  const found = [...chats].map(([id, c]) => ({
+    where: `${keyOf(source)} chat "${c.name}" (id ${id})`,
+    count: c.count,
+    from: [...c.from],
+    latest: c.latest,
+  }));
+  return { found, complete };
 }
 
 // readLark counts the owner's new Lark messages in his most active chats: not his own, nor an app's.
@@ -205,8 +234,13 @@ export async function check({ tools, call, state = {}, config = {}, now = new Da
     const key = keyOf(source);
     const since = seen[key] ? new Date(seen[key]) : new Date(now.getTime() - config.firstLookBackMinutes * 60_000);
     try {
-      found.push(...(await readers[source.kind](call, source, since, config)));
-      seen[key] = now.toISOString();
+      const got = await readers[source.kind](call, source, since, config);
+      found.push(...(Array.isArray(got) ? got : got.found));
+      if (got.complete === false) {
+        problems.push(`${key}: more than ${config.scanMessages} new messages; the rest are read next time`);
+      } else {
+        seen[key] = now.toISOString();
+      }
     } catch (error) {
       problems.push(`${key}: ${error.message}`);
     }
