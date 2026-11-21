@@ -112,13 +112,8 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) (blocked bool)
 		locations = nil
 	}
 	var roots []cacheRoot
-	for _, path := range locations {
-		roots = append(roots, cacheRoot{path: path, readme: goCacheReadme})
-	}
 	if err == nil {
-		for _, path := range c.lintCaches() {
-			roots = append(roots, cacheRoot{path: path, readme: lintCacheReadme})
-		}
+		roots = c.defaultCaches(ctx, locations)
 	}
 	guarded := WithProtection(ctx, module)
 	trim := func(age time.Duration) {
@@ -156,19 +151,34 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) (blocked bool)
 	return true
 }
 
-// lintCaches are golangci-lint's caches, which keep Go's layout and trim rule, as golangci-lint copies Go's cache
-// (internal/go/cache): its default, under the worker's ~/.cache, and GOLANGCI_LINT_CACHE when it names another
-// (internal/go/cache/default.go:72-92).
-func (c Caches) lintCaches() []string {
-	if c.UserHome == "" {
+// defaultCaches are the caches the guard trims: Go's and golangci-lint's, each only at the place its tool uses for
+// the worker's user when nothing names another, os.UserCacheDir()/go-build (cmd/go/internal/cache/default.go:80-88
+// at go1.27.4) and os.UserCacheDir()/golangci-lint (golangci-lint's internal/go/cache/default.go:78-86 at v2.15.0).
+// A cache named elsewhere, by GOCACHE, Go's env file or GOLANGCI_LINT_CACHE, may be a directory of the owner's that
+// a mistaken setting points at, so it is left whole and said once (issue #1017).
+func (c Caches) defaultCaches(ctx context.Context, named []string) []cacheRoot {
+	base, err := os.UserCacheDir()
+	if err != nil || !filepath.IsAbs(base) {
+		c.Logger.WarnContext(ctx, "could not locate the worker's cache directory", slog.Any("error", err))
 		return nil
 	}
-	paths := []string{filepath.Join(c.UserHome, ".cache", "golangci-lint")}
-	if configured := os.Getenv("GOLANGCI_LINT_CACHE"); filepath.IsAbs(configured) &&
-		filepath.Clean(configured) != paths[0] {
-		paths = append(paths, filepath.Clean(configured))
+	roots := []cacheRoot{
+		{path: filepath.Join(base, "go-build"), readme: goCacheReadme},
+		{path: filepath.Join(base, "golangci-lint"), readme: lintCacheReadme},
 	}
-	return paths
+	if lint := os.Getenv("GOLANGCI_LINT_CACHE"); filepath.IsAbs(lint) {
+		named = append(named, filepath.Clean(lint))
+	}
+	for _, path := range named {
+		if path == roots[0].path || path == roots[1].path || !RealDir(path) {
+			continue
+		}
+		if _, said := unconfirmedCaches.LoadOrStore(path, true); !said {
+			c.Logger.WarnContext(ctx, "not trimming a cache outside its tool's default place",
+				slog.String("event", "node.cache_not_default"), slog.String("path", path))
+		}
+	}
+	return roots
 }
 
 type goCacheConfig struct {

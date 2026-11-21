@@ -184,7 +184,7 @@ func TestGoCachePressureTrimsWhenWorktreeRootIsASymlink(t *testing.T) {
 	link := filepath.Join(home, "linked-worktrees")
 	require.NoError(t, os.Mkdir(worktrees, 0o700))
 	require.NoError(t, os.Symlink(worktrees, link))
-	cache := filepath.Join(home, "go-build")
+	cache := defaultCacheDir(t, home, "go-build")
 	markCache(t, cache, testGoReadme)
 	bucket := filepath.Join(cache, "01")
 	require.NoError(t, os.MkdirAll(bucket, 0o700))
@@ -193,7 +193,7 @@ func TestGoCachePressureTrimsWhenWorktreeRootIsASymlink(t *testing.T) {
 	old := time.Now().Add(-goCacheAge - time.Hour)
 	require.NoError(t, os.Chtimes(entry, old, old))
 
-	t.Setenv("GOCACHE", cache)
+	t.Setenv("GOCACHE", "")
 	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
 	t.Setenv("GOENV", "off")
 	caches := Caches{
@@ -318,9 +318,9 @@ func TestYoungGoCacheIsTrimmedOldestFirstToTargetAndKeepsRecentEntries(t *testin
 
 func TestTrimTakesYoungEntriesOfGoAndLintCachesOnlyWhileStillLow(t *testing.T) {
 	home := realTempDir(t)
-	build := filepath.Join(home, "go-build")
-	lint := filepath.Join(home, ".cache", "golangci-lint")
-	t.Setenv("GOCACHE", build)
+	build := defaultCacheDir(t, home, "go-build")
+	lint := defaultCacheDir(t, home, "golangci-lint")
+	t.Setenv("GOCACHE", "")
 	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
 	t.Setenv("GOENV", "off")
 	t.Setenv("GOLANGCI_LINT_CACHE", "")
@@ -353,8 +353,8 @@ func TestTrimTakesYoungEntriesOfGoAndLintCachesOnlyWhileStillLow(t *testing.T) {
 // the 5-day pass and the pnpm prune; above it, even short of the target, it deletes nothing.
 func TestYoungPassWaitsForTheTrimThresholdNotTheTarget(t *testing.T) {
 	home := realTempDir(t)
-	build := filepath.Join(home, "go-build")
-	t.Setenv("GOCACHE", build)
+	build := defaultCacheDir(t, home, "go-build")
+	t.Setenv("GOCACHE", "")
 	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
 	t.Setenv("GOENV", "off")
 	t.Setenv("GOLANGCI_LINT_CACHE", "")
@@ -384,16 +384,16 @@ func TestYoungPassWaitsForTheTrimThresholdNotTheTarget(t *testing.T) {
 // GOLANGCI_LINT_CACHE, or GOCACHE, naming a directory of the same shape that no cache wrote, is left whole.
 func TestLookAlikeOfACacheIsNeverTrimmed(t *testing.T) {
 	home := realTempDir(t)
-	build := filepath.Join(home, "go-build")
+	build := defaultCacheDir(t, home, "go-build")
 	lookAlike := filepath.Join(home, "project-data")
 	markCache(t, build, testGoReadme)
-	t.Setenv("GOCACHE", build)
+	t.Setenv("GOCACHE", "")
 	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
 	t.Setenv("GOENV", "off")
 	t.Setenv("GOLANGCI_LINT_CACHE", lookAlike)
 	cached := writeCacheEntry(t, build, 0, 24*time.Hour)
 	kept := writeCacheEntry(t, lookAlike, 1, 24*time.Hour)
-	wrongReadme := filepath.Join(home, ".cache", "golangci-lint")
+	wrongReadme := defaultCacheDir(t, home, "golangci-lint")
 	markCache(t, wrongReadme, "notes\n")
 	alsoKept := writeCacheEntry(t, wrongReadme, 2, 24*time.Hour)
 	caches := Caches{
@@ -409,9 +409,9 @@ func TestLookAlikeOfACacheIsNeverTrimmed(t *testing.T) {
 // an mtime of 2h15m; the 2-hour pass keeps it, as Go's own trim adds that hour (cache.go:426-429 at go1.27.4).
 func TestYoungPassKeepsAnEntryUsedInTheLastTwoHoursWhoseMtimeIsOlder(t *testing.T) {
 	home := realTempDir(t)
-	build := filepath.Join(home, "go-build")
+	build := defaultCacheDir(t, home, "go-build")
 	markCache(t, build, testGoReadme)
-	t.Setenv("GOCACHE", build)
+	t.Setenv("GOCACHE", "")
 	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
 	t.Setenv("GOENV", "off")
 	t.Setenv("GOLANGCI_LINT_CACHE", "")
@@ -473,11 +473,13 @@ func TestOnlyGoCacheEntriesAreDeletedFromACacheShapedDirectory(t *testing.T) {
 }
 
 // defaultCacheDir points the worker's user cache directory into home and returns where a tool keeps its cache there
-// by default, as Go and golangci-lint find it (os.UserCacheDir: $XDG_CACHE_HOME, else ~/.cache, on Linux;
-// ~/Library/Caches on macOS).
+// by default, as Go and golangci-lint find it (os.UserCacheDir: $XDG_CACHE_HOME on Linux). On macOS it follows HOME
+// only, which the `go env` the guard runs would write its telemetry under, so the test does not run there.
 func defaultCacheDir(t *testing.T, home, tool string) string {
 	t.Helper()
-	t.Setenv("HOME", home)
+	if runtime.GOOS != "linux" {
+		t.Skip("the user cache directory is moved through XDG_CACHE_HOME, which only Linux reads")
+	}
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
 	dir, err := os.UserCacheDir()
 	require.NoError(t, err)
