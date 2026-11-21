@@ -186,7 +186,8 @@ export function VideoView({
       ) : made(rev) ? (
         <Made key={`${id}-${rev.rev}`} video={video} rev={rev} onChanged={changed} />
       ) : (
-        <Making video={video} rev={rev} onChanged={changed} />
+        // Keyed by its revision, as Made is: Make again of another revision is another request, with its own key.
+        <Making key={`${id}-${rev.rev}`} video={video} rev={rev} onChanged={changed} />
       )}
       <AlertDialog open={deleting} onOpenChange={setDeleting}>
         <AlertDialogContent>
