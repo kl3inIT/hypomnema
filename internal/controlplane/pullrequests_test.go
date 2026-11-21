@@ -12,8 +12,8 @@ import (
 
 // Scenario (issue #1053): a pull request left with auto-merge on is read at its host with the token of its
 // repository's Connection, the one its worker was given: GitHub's GraphQL answer names a required check that
-// failed. A repository without a token is not asked at all, and its pull request reads as open, so nothing is
-// sent.
+// failed. A repository without a token is not asked at all: the control plane cannot follow its pull request
+// (issue #1053, review round 2), and says so.
 func TestAFollowedPullRequestIsReadWithItsRepositorysToken(t *testing.T) {
 	t.Parallel()
 
@@ -33,14 +33,13 @@ func TestAFollowedPullRequestIsReadWithItsRepositorysToken(t *testing.T) {
 		Request: githost.Request{Repo: githost.Repo{Host: githost.GitHubHost, Path: "kl3inIT/hypomnema"}, Number: 1054},
 	}
 
-	st, err := tokens.readPullRequest(ctx, f)
-	require.NoError(t, err)
-	assert.Equal(t, githost.RequestState{Status: githost.RequestOpen}, st, "no token, no read")
+	_, err := tokens.readPullRequest(ctx, f)
+	require.ErrorIs(t, err, orchestration.ErrCannotFollow, "no token, no read: the control plane cannot follow it")
 	assert.Empty(t, hosts.askedSoFar())
 
 	require.NoError(t, tokens.Connect(ctx, githost.GitHubHost, "default", "ghp_octo"))
 
-	st, err = tokens.readPullRequest(ctx, f)
+	st, err := tokens.readPullRequest(ctx, f)
 	require.NoError(t, err)
 	assert.Equal(t, githost.RequestState{Status: githost.RequestOpen, Head: "b5abccde", Failed: []string{"Required"}}, st)
 	assert.Contains(t, hosts.askedSoFar(), "api.github.com/graphql ghp_octo")

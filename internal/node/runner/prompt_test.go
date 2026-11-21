@@ -253,6 +253,7 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 
 	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
 	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Offer.RepoToken = "ghp_x" // the control plane holds the repository's token, so it can follow the PR
 	p := Prompt(d)
 
 	for _, want := range []string{
@@ -320,6 +321,31 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	assert.Contains(t, Prompt(d),
 		"`gh api --hostname github.example.com repos/kl3inIT/second-bite --jq .allow_auto_merge`",
 		"a GitHub Enterprise host is named apart too")
+}
+
+// Scenario (issue #1053, review round 2): a Dispatch without the repository's token runs git and the host's CLI
+// with the node's own login, so the control plane cannot read its pull request. Its worker stays in charge, as
+// before #1053: once auto-merge is on it waits for the required checks with one blocking command, fixes a red one
+// its diff causes, and finishes once they are green. With a token the worker finishes at once and Hypomnema
+// follows the pull request.
+func TestPromptWaitsForTheChecksWhenTheControlPlaneCannotFollow(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+
+	p := Prompt(d)
+	assert.Contains(t, p, "4. Wait for the required checks with `gh pr checks <url> --required --watch`; fix a red "+
+		"one your diff causes and push, rerun a flake once as the rules say, and do step 2 again if a conflict "+
+		"appears. Once they are green, call `finish`")
+	assert.NotContains(t, p, "The control plane follows the pull request")
+	assert.NotContains(t, p, "once auto-merge is on, do not wait")
+
+	d.Offer.RepoToken = "ghp_x"
+	p = Prompt(d)
+	assert.Contains(t, p, "then call `finish` at once, without waiting for the checks")
+	assert.NotContains(t, p, "4. Wait for the required checks")
 }
 
 // Scenario (issue #723, decisions 2.2 to 2.4): the offer names the tools the
