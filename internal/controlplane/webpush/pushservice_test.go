@@ -97,7 +97,9 @@ func (p *pushService) browser(name string) browser {
 	return browser{endpoint: p.srv.URL + "/push/" + name, key: key, auth: auth}
 }
 
-func (b browser) p256dh() string { return base64.RawURLEncoding.EncodeToString(b.key.PublicKey().Bytes()) }
+func (b browser) p256dh() string {
+	return base64.RawURLEncoding.EncodeToString(b.key.PublicKey().Bytes())
+}
 func (b browser) authKey() string { return base64.RawURLEncoding.EncodeToString(b.auth) }
 
 // open decrypts an aes128gcm push body as the browser does (RFC 8291 section 3.4, RFC 8188).
