@@ -1123,12 +1123,30 @@ func TestParseAnswer(t *testing.T) {
 		{"2", openapi.Answer{Option: option(1)}},
 		{"green", openapi.Answer{Option: option(1)}},
 		{" RED ", openapi.Answer{Option: option(0)}},
-		{"blue please", openapi.Answer{Text: text("blue please")}},
 	} {
-		assert.Equal(t, c.want, ParseAnswer(options, c.typed), c.typed)
+		got, err := ParseAnswer(options, c.typed)
+		require.NoError(t, err)
+		assert.Equal(t, c.want, got, c.typed)
 	}
 
-	assert.Equal(t, openapi.Answer{Text: text("8080")}, ParseAnswer(nil, "8080"), "a number without options is text")
+	_, err := ParseAnswer(options, "blue please")
+	require.ErrorIs(t, err, ErrUsage)
+	require.ErrorContains(t, err, "pick one of the following options")
+	require.ErrorContains(t, err, "1. red")
+	require.ErrorContains(t, err, "2. Green")
+
+	options = append(options,
+		openapi.Option{Label: "Other", AllowsText: new(true)},
+		openapi.Option{Label: "Describe", AllowsText: new(true)},
+	)
+	got, err := ParseAnswer(options, "blue please\n")
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Answer{Option: option(2), Text: text("blue please\n")}, got,
+		"keep the text and select the first option that allows text")
+
+	got, err = ParseAnswer(nil, "8080")
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Answer{Text: text("8080")}, got, "a number without options is text")
 }
 
 // syncBuffer is a bytes.Buffer safe for one writer and one reader.
