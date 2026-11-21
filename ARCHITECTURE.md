@@ -1381,8 +1381,9 @@ sequenceDiagram
   - A Bot's pi has the tools `memory`, `show_artifact` and `routines` (issue #536), `web_search`, `web_fetch`,
     `generate_image`, `audio_transcribe` and `audio_speak` (issue #723), the Inbox's `inbox_*` (issue #1004), the
     meetings' `meeting_list` and `meeting_get` (issue #1023: the meetings recorded, changed or whose notes became
-    ready since a time, and one with its notes, actions and up to 400 lines of transcript from an offset in the
-    order they were said; reads only, also in a read run and its check), and Superset's
+    ready since a time (`Notes.WrittenAt`, which the list loads), and one with its notes, actions and up to 400 lines
+    of transcript after a line number, which only grows, so a live transcript pages without a line skipped or given
+    twice; reads only, also in a read run and its check), and Superset's
     `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
     server (issues #492, #536, see "An agent's tools"), and the shared browser's and the phone's (issue #536,
     step 4), which its pi mounts through pi's own MCP (below, the box). Those are relayed by the control plane
@@ -1842,9 +1843,12 @@ flowchart LR
     API then takes as a read run's (`agentapi` `authenticate`: the Bot's own accounts, user Connections included,
     only their reads, the meetings' and the messaging reads, never the Inbox, the memory or a send) and the client
     API refuses whole, as it refuses a read run's pi. The woken run's prompt keeps the read-only notice and treats
-    what the check printed as records. A run keeps the access its Routine had when it started
-    (`routine_runs.access`): the owner's switch or a Bot's edit meanwhile changes nothing of the check's token or the
-    chat it opens (`orchestration.RoutineScriptReads`; review of #1037). The wake-up in each run's new chat records the access then; it is still no owner
+    what the check printed as records. A run is one snapshot of its Routine when it starts (`routine_runs.access`,
+    `prompt`, `script`, `script_text`, `timeout_seconds`): the launch (`ClaimRoutineScript`), the wake
+    (`WakeRoutineRun`) and every check of the run's token (`orchestration.RoutineScriptReads`) read only that copy,
+    so the owner's switch or a Bot's edit meanwhile changes nothing of the run that goes on. A script's token is
+    bound to its run (`Token.RoutineRun`) and stops working when the run ends, in the run's own transaction, before
+    it is revoked (reviews of #1037). The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
     the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
     `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
@@ -4635,9 +4639,11 @@ its client API, its CLI and the Bots' tools.
   Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, never asked, in every chat and Routine of
   the Bot and by the workers of its Runs, whatever his answers or grants say; reads stay. The agent API carries it
   on the agent (`ownerReadOnly`: no `zalo_send` or `whatsapp_send`), and the service proxy refuses every action of
-  such a Connection that is not a read (`readsOnly`, `serviceproxy.Caller.OwnerReadOnly`). Only the owner changes
-  it: a change from the main Bot's chat is forbidden, and `UpdateBot`, which a Bot's change and its undo use, never
-  writes it (`SetBotOwnerAccounts`).
+  such a Connection that is not a read (`readsOnly`, `serviceproxy.Caller.OwnerReadOnly`), reading the caller again
+  at each request of an open connection, so the owner's change applies from the next request. Only the owner makes a
+  Bot use them again: a change from the main Bot's chat is forbidden, `UpdateBot`, which a Bot's change uses, never
+  writes it (`SetBotOwnerAccounts`), and an undo, of a change or of a removal, puts back `read` from the copy it
+  kept (`botSettings.OwnerAccounts`) and never `use`.
 - The "Thư ký" Bot (issue #1023, part 4): its prompt, switches, model and Routines are set by the owner with
   `deploy/thu-ky/setup.sh` (`hypomnema bots set`, `routines set`), not seeded by a migration. `triage` reads only,
   every 15 minutes, behind its check `new-messages.mjs`; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark
