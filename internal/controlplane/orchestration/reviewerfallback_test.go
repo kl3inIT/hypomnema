@@ -70,6 +70,39 @@ func TestTheReviewerSampleBlocksOnlyOnBugsSupportedUseReaches(t *testing.T) {
 		"each line of the instruction has its source comment")
 }
 
+// Scenario (PR #1056 review round 1): a plan review shares the reviewer profile but has no pull request, so the
+// fields only a pull request or merge request has (its merge state, mergeability, required checks, and the
+// reviewed pull request in the evidence) are asked for only when the review is of one. The verdict, head and
+// evidence level stay asked of every review.
+func TestTheReviewerSampleAsksPullRequestFieldsOnlyOfAPullRequestReview(t *testing.T) {
+	t.Parallel()
+
+	var sample profileSource
+	require.NoError(t, decodeStrict(deployProfile(t, "reviewer.yaml"), &sample))
+
+	const scope = "For a pull request or merge request review"
+
+	for _, field := range []string{"`Merge state:", "`Mergeable:", "`Checks:", "gh pr checks", "the reviewed pull request"} {
+		at := strings.Index(sample.Instruction, field)
+		require.NotEqual(t, -1, at, field)
+
+		start := strings.LastIndex(sample.Instruction[:at], "\n") + 1
+		sentence := strings.LastIndex(sample.Instruction[start:at], ". ")
+		if sentence >= 0 {
+			start += sentence
+		}
+
+		assert.Contains(t, sample.Instruction[start:at], scope, "%s is asked of a plan review too", field)
+	}
+
+	for _, every := range []string{"`Verdict: correct`", "`Head: <sha>`", "`Evidence: <level>`"} {
+		at := strings.Index(sample.Instruction, every)
+		require.NotEqual(t, -1, at, every)
+		line := sample.Instruction[strings.LastIndex(sample.Instruction[:at], "\n")+1 : at]
+		assert.NotContains(t, line, scope, "%s is asked of every review", every)
+	}
+}
+
 // Scenario (issue #756, split of PR #786): the gateway now ends a Codex worker's turn with a usage limit when every
 // Codex account cools, and the node reports it as rate_limited with no reset. A legacy reviewer profile is not
 // started on Codex again at once: it waits RateLimitCooldown, then runs again.
