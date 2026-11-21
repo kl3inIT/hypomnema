@@ -58,6 +58,24 @@ const (
 	windowMs = 100
 )
 
+// The numbers of design v5 (#910), written out here rather than read from the code, so that a change of one in the
+// code fails the tests: the voice at -16 LUFS under a -1.5 dBTP ceiling (row 8), the bed 3 LU under it plus the
+// track's gain, at most +10 dB (row 7), its fade over 1.8 s (row 11), its loop's 1.5 s crossfades and its float
+// stereo 44.1 kHz file of 352 800 B/s with 400 MB of disk kept beside it (row 10), and the output's warnings over
+// -1 dBTP or 2 LU off -16 (row 12).
+const (
+	v5VoiceLUFS      = -16.0
+	v5VoiceCeiling   = -1.5
+	v5BedUnderLU     = 3.0
+	v5MaxGainDB      = 10.0
+	v5FadeMs         = 1800
+	v5CrossfadeMs    = 1500
+	v5BedBytesPerSec = 352_800
+	v5FreeFloor      = 400_000_000
+	v5PeakDBTP       = -1.0
+	v5LoudnessLU     = 2.0
+)
+
 // clip is a voice clip: a tone of voiceHz, its peak at dbfs, ms long.
 type clip struct {
 	dbfs float64
@@ -200,15 +218,30 @@ func TestTheMusicIsDuckedUnderTheClips(t *testing.T) {
 
 	ducked := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000}, "ducked")
 	control := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000, noDuck: true}, "control")
+	quieter := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000, GainDB: -6}, "quieter")
 	require.NotNil(t, ducked.Music)
 	require.NotNil(t, control.Music)
+	require.NotNil(t, quieter.Music)
 	assert.Empty(t, ducked.Warnings)
 
+	// The voice's gain sets it to -16 LUFS unless that would put its true peak over -1.5 dBTP; the bed is set 3 LU
+	// under the voice, moved by the track's gain: 0, then -6 dB.
 	lv := ducked.Music
-	assert.InDelta(t, lv.VoiceLUFS+lv.VoiceGainDB-bedUnderLU-lv.BedLUFS+0, lv.BedGainDB, 0.01)
-	assert.InDelta(t, VoiceLUFS, lv.OutLUFS, warnLoudnessLU)
-	assert.LessOrEqual(t, lv.OutTPdB, warnPeakDBTP)
-	t.Logf("levels: %+v", *lv)
+	voice, err := Measure(t.Context(), tools, filepath.Join(ducked.work, "voice.wav"), 0)
+	require.NoError(t, err)
+	assert.InDelta(t, voice.LUFS, lv.VoiceLUFS, 0.001)
+	assert.InDelta(t, math.Min(v5VoiceLUFS-voice.LUFS, v5VoiceCeiling-voice.TPdB()), lv.VoiceGainDB, 0.01)
+	assert.InDelta(t, v5VoiceLUFS, lv.VoiceLUFS+lv.VoiceGainDB, 0.01, "this voice's peak leaves room for -16 LUFS")
+
+	for name, got := range map[string]made{"no gain": ducked, "-6 dB": quieter} {
+		gain := map[string]float64{"no gain": 0, "-6 dB": -6}[name]
+		assert.InDelta(t, lv.BedLUFS, got.Music.BedLUFS, 0.001, name)
+		assert.InDelta(t, v5VoiceLUFS-v5BedUnderLU-got.Music.BedLUFS+gain, got.Music.BedGainDB, 0.01, name)
+	}
+
+	assert.InDelta(t, v5VoiceLUFS, lv.OutLUFS, v5LoudnessLU)
+	assert.LessOrEqual(t, lv.OutTPdB, v5PeakDBTP)
+	t.Logf("levels: %+v; at -6 dB: %+v", *lv, *quieter.Music)
 
 	// Where the clips are, from the fixture: each scene lasts its clip and the 300 ms gap, 99 frames.
 	var starts []float64
@@ -223,7 +256,7 @@ func TestTheMusicIsDuckedUnderTheClips(t *testing.T) {
 
 	// The music is ducked from 0.2 s to the last clip's end or the fade, whichever is first: 0.2 s to 8.1 s, 79
 	// windows, six of them in the two gaps.
-	end := math.Min(totalMs-GapMs, totalMs-fadeOutMs)
+	end := math.Min(totalMs-GapMs, totalMs-v5FadeMs)
 	d, c := decode(t, tools, ducked.out, 1), decode(t, tools, control.out, 1)
 	worst := 0.0
 	checked, inGaps := 0, 0
@@ -249,6 +282,12 @@ func TestTheMusicIsDuckedUnderTheClips(t *testing.T) {
 	for i, s := range starts {
 		at := s + 1500
 		assert.InDelta(t, bandDB(c, at, voiceHz), bandDB(d, at, voiceHz), 0.5, "the voice of clip %d", i+1)
+	}
+
+	// The track's -6 dB is heard: its music is 6 dB under the ducked video's.
+	q := decode(t, tools, quieter.out, 1)
+	for _, at := range []float64{500, 3100, 5000, 7000} {
+		assert.InDelta(t, bandDB(d, at, musicHz)-6, bandDB(q, at, musicHz), 0.5, "the music at -6 dB at %.0f ms", at)
 	}
 
 	// The control's music is the bed's tone moved by its gain, before the fade.
@@ -331,7 +370,7 @@ func TestLoopPlays(t *testing.T) {
 		got, err := loopPlays(tc.lengthMs, tc.targetMs)
 		require.NoError(t, err)
 		assert.Equal(t, tc.plays, got, "L=%d T=%d", tc.lengthMs, tc.targetMs)
-		assert.GreaterOrEqual(t, int64(got)*tc.lengthMs-int64(got-1)*loopCrossfadeMs, tc.targetMs)
+		assert.GreaterOrEqual(t, int64(got)*tc.lengthMs-int64(got-1)*v5CrossfadeMs, tc.targetMs)
 	}
 
 	_, err := loopPlays(8000, 850000)
@@ -378,7 +417,7 @@ func TestTheBed(t *testing.T) {
 
 		info, err := os.Stat(out)
 		require.NoError(t, err)
-		assert.InDelta(t, BedBytesPerSec*targetMs/1000, info.Size(), BedBytesPerSec/FPS, "%s is %d bytes", name,
+		assert.InDelta(t, v5BedBytesPerSec*targetMs/1000, info.Size(), v5BedBytesPerSec/FPS, "%s is %d bytes", name,
 			info.Size())
 
 		return out
@@ -391,7 +430,7 @@ func TestTheBed(t *testing.T) {
 
 	for at := 0.0; at+windowMs <= targetMs; at += windowMs {
 		k := math.Floor(at / 8500)
-		if k >= 1 && at >= k*8500 && at+windowMs <= k*8500+loopCrossfadeMs {
+		if k >= 1 && at >= k*8500 && at+windowMs <= k*8500+v5CrossfadeMs {
 			seam = append(seam, math.Pow(10, rmsDB(p, at)/10))
 		} else if k >= 0 && math.Mod(at, 8500) > 2000 {
 			rest = append(rest, math.Pow(10, rmsDB(p, at)/10))
@@ -406,7 +445,7 @@ func TestTheBed(t *testing.T) {
 	a := decode(t, tools, bedOf("ambient", ambient, 7300), 1)
 	assert.InDelta(t, targetMs, float64(len(a))*1000/mixRate, 1000.0/FPS, "the bed lasts the video")
 
-	for at := 0.0; at+windowMs <= targetMs-fadeOutMs; at += windowMs {
+	for at := 0.0; at+windowMs <= targetMs-v5FadeMs; at += windowMs {
 		require.Greater(t, rmsDB(a, at), -70.0, "the bed is heard at %.0f ms", at)
 	}
 
@@ -487,10 +526,10 @@ func TestTheMixIsLimited(t *testing.T) {
 	var limited made
 
 	for name, file := range map[string]string{"in-phase": inPhase, "stress": track} {
-		got := composeWith(t, tools, dir, voices, &Music{File: file, LengthMs: 10000, GainDB: MaxMusicGainDB}, name)
+		got := composeWith(t, tools, dir, voices, &Music{File: file, LengthMs: 10000, GainDB: v5MaxGainDB}, name)
 		require.NotNil(t, got.Music)
 		t.Logf("%s: %+v, warnings %q", name, *got.Music, got.Warnings)
-		assert.LessOrEqual(t, got.Music.OutTPdB, warnPeakDBTP, name)
+		assert.LessOrEqual(t, got.Music.OutTPdB, v5PeakDBTP, name)
 		assert.NotContains(t, fmt.Sprint(got.Warnings), "true peak", name)
 		assert.Less(t, peakOf(decode(t, tools, got.out, 2)), 1.0, "%s: no sample at full scale", name)
 
@@ -513,10 +552,10 @@ func TestTheMixIsLimited(t *testing.T) {
 	assert.Equal(t, audioMD5(t, tools, limited.out), audioMD5(t, tools, burned), "Burn copies the sound")
 
 	loud := composeWith(t, tools, dir, voices,
-		&Music{File: track, LengthMs: 10000, GainDB: MaxMusicGainDB, noLimiter: true}, "unlimited")
+		&Music{File: track, LengthMs: 10000, GainDB: v5MaxGainDB, noLimiter: true}, "unlimited")
 	require.NotNil(t, loud.Music)
 	t.Logf("without the limiter: %+v", *loud.Music)
-	assert.Greater(t, loud.Music.OutTPdB, warnPeakDBTP)
+	assert.Greater(t, loud.Music.OutTPdB, v5PeakDBTP)
 	assert.Contains(t, loud.Warnings, fmt.Sprintf("the mix's true peak is %.1f dBTP, over -1 dBTP", loud.Music.OutTPdB))
 }
 
@@ -540,22 +579,33 @@ func TestAShortVideoFadesOverItsLengthAndTheBedNeedsDisk(t *testing.T) {
 	voices := musicTake(t, tools, dir, []clip{{-20, 700}})
 	track := sineTrack(t, tools, filepath.Join(dir, "music.wav"), musicHz, 0.25, 12)
 
-	short := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 12000, noDuck: true}, "short")
+	// The video is the clip and its 300 ms gap, 1 s; the bed needs 400 MB and a second of 352 800 B free beside it.
+	const lengthMs = 1000
+
+	need := uint64(v5FreeFloor + v5BedBytesPerSec*lengthMs/1000)
+	compose := func(name string, free uint64, m Music) (made, error) {
+		work, out := filepath.Join(dir, "work-"+name), filepath.Join(dir, name+".mp4")
+		res, err := Compose(t.Context(), tools, Input{
+			Dir: dir, Voice: voices, Aspect: Portrait, Work: work, Out: out, Music: &m,
+			FreeBytes: func(string) (uint64, error) { return free, nil },
+		})
+
+		return made{res, out, work}, err
+	}
+
+	short, err := compose("short", need, Music{File: track, LengthMs: 12000, noDuck: true})
+	require.NoError(t, err, "exactly the disk the bed needs is enough")
 	require.NotNil(t, short.Music)
-	require.Less(t, short.LengthMs, int64(fadeOutMs))
+	require.InDelta(t, lengthMs, short.LengthMs, frameMs+1)
+	require.Less(t, short.LengthMs, int64(v5FadeMs))
 
 	s := decode(t, tools, short.out, 1)
 	first, last := bandDB(s, 0, musicHz), bandDB(s, float64(short.LengthMs)-200, musicHz)
 	t.Logf("a %d ms video: the music is %.1f dB at its start and %.1f dB at its end", short.LengthMs, first, last)
 	assert.Less(t, last, first-14, "faded over the video's length, not over 1.8 s")
 
-	need := uint64(minFreeBytes) + uint64(short.LengthMs)*BedBytesPerSec/1000 //nolint:gosec // Positive.
-	_, err := Compose(t.Context(), tools, Input{
-		Dir: dir, Voice: voices, Aspect: Portrait, Work: filepath.Join(dir, "work-disk"),
-		Out: filepath.Join(dir, "disk.mp4"), Music: &Music{File: track, LengthMs: 12000},
-		FreeBytes: func(string) (uint64, error) { return need - 1, nil },
-	})
-	require.ErrorContains(t, err, "the music's bed needs")
+	_, err = compose("disk", need-1, Music{File: track, LengthMs: 12000})
+	require.ErrorContains(t, err, "the music's bed needs", "a byte less is not")
 	assert.NoFileExists(t, filepath.Join(dir, "disk.mp4"))
 }
 
@@ -596,6 +646,6 @@ func TestMeasure(t *testing.T) {
 	m, err = Measure(t.Context(), tools, silence, 0)
 	require.NoError(t, err)
 	assert.True(t, math.IsInf(m.TPdB(), -1))
-	assert.InDelta(t, SilentLUFS, m.LUFS, 0.001)
+	assert.InDelta(t, -70, m.LUFS, 0.001)
 	assert.True(t, m.Silent())
 }
