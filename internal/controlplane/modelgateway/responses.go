@@ -122,6 +122,10 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.refuseOverflow(w, r, key, model, raw) {
+		return
+	}
+
 	session := ""
 	for _, name := range sessionHeaders {
 		if session = r.Header.Get(name); session != "" {
@@ -136,6 +140,7 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: true, started: started}
 	serving, served := withServed(r)
 	s.serveResponses(w, serving, raw, session, model, &record, served)
+	s.noteOverflow(key, model, record)
 	record.AccountID = served.id
 	record.Duration = s.svc.clock.Now().Sub(started)
 

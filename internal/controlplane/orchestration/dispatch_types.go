@@ -78,6 +78,10 @@ const (
 	CloseNeverStarted CloseReason = "never_started"
 	// CloseSuperseded: a new Conversation was opened for the Task.
 	CloseSuperseded CloseReason = "superseded"
+	// CloseContextOverflow: its CLI session outgrew the model's context window, so resuming it fails again; the
+	// next Dispatch starts a new one, as Codex's error says to (codex-rs/protocol/src/error.rs:146-149) and OpenClaw
+	// tells the user to /new (src/shared/assistant-error-format.ts:38) (issue #1052).
+	CloseContextOverflow CloseReason = "context_overflow"
 )
 
 // RecoveryNote is what a worker is told when its Dispatch opens a new
@@ -217,6 +221,9 @@ type Outcome struct {
 	Result   Result
 	// Gate: the worker ended to wait for this decision.
 	Gate *Ask
+	// ContextOverflow: the worker_error was the CLI's session outgrowing the model's context window; the
+	// Conversation is closed so the next Dispatch starts a new session (issue #1052).
+	ContextOverflow bool
 }
 
 // Accepted is the reply to AcceptDispatch and ReattachDispatch.
