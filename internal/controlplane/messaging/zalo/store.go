@@ -348,7 +348,7 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 		args = append(args, phrase)
 	}
 
-	args = append(args, clampLimit(q.Limit))
+	args = append(args, clampLimit(q.Limit), max(q.Offset, 0))
 
 	//nolint:gosec // The conditions are this function's own; every value is a parameter.
 	rows, err := m.db.QueryContext(ctx, `SELECT m.msg_id, m.chat_id,
@@ -356,7 +356,7 @@ func (m *mirror) messages(ctx context.Context, account string, q messaging.Query
 			m.sender_id, m.sender_name, m.ts, m.from_me, m.text, m.quoted_msg_id, m.media_type, m.attachment_title,
 			m.mime_type, m.local_path <> ''
 		FROM zl_messages m LEFT JOIN zl_chats c ON c.account = m.account AND c.id = m.chat_id
-		WHERE `+strings.Join(where, " AND ")+` ORDER BY m.ts DESC, m.rowid DESC LIMIT ?`, args...)
+		WHERE `+strings.Join(where, " AND ")+` ORDER BY m.ts DESC, m.rowid DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("zalo: listing messages: %w", err)
 	}

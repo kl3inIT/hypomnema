@@ -230,6 +230,8 @@ func (m messagingService) tools(labels []string, relayMentions bool) []agenttool
 				"search": map[string]any{"type": "string", "description": "Words to find."},
 				"before": map[string]any{"type": "string", "description": "Only messages sent before this time."},
 				"limit":  limit,
+				"offset": map[string]any{"type": "integer", "minimum": 0, "description": "Skip this many, to " +
+					"page on without missing messages sent at the same time."},
 			}),
 		},
 		{
@@ -271,6 +273,7 @@ type messagingArgs struct {
 	Search  string `json:"search"`
 	Before  string `json:"before"`
 	Limit   int    `json:"limit"`
+	Offset  int    `json:"offset"`
 	Count   int    `json:"count"`
 }
 
@@ -325,7 +328,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 		s.messagingSignIn(ctx, a, m, label, err)
 		s.answerJSON(w, r, map[string]any{"note": untrusted, "chats": chats}, err)
 	case m.messages:
-		q := messaging.Query{Chat: strings.TrimSpace(in.Chat), Search: in.Search, Limit: in.Limit}
+		q := messaging.Query{Chat: strings.TrimSpace(in.Chat), Search: in.Search, Limit: in.Limit, Offset: in.Offset}
 		if in.Before != "" {
 			before, err := time.Parse(time.RFC3339, in.Before)
 			if err != nil {
