@@ -110,6 +110,8 @@ type Server struct {
 	hostTokens HostTokens
 	// gitSSHKey is the control plane's SSH key for git (issue #625); nil when the control plane wired none.
 	gitSSHKey GitSSHKey
+	// pusher sends Web Push notifications (issue #1047); nil when the control plane wired none.
+	pusher Pusher
 	// secrets is how the owner reaches the vault; nil when the control plane wired none.
 	secrets Secrets
 	// integrations signs accounts in; nil when the control plane wired none.

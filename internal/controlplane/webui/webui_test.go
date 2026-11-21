@@ -19,6 +19,7 @@ var build = fstest.MapFS{
 	"assets/index-a1.js":   {Data: []byte("console.log(1)")},
 	"manifest.webmanifest": {Data: []byte(`{"name":"Hypomnema","start_url":"/"}`)},
 	"apple-touch-icon.png": {Data: []byte("\x89PNG\r\n\x1a\n")},
+	"sw.js":                {Data: []byte("self.addEventListener('push', () => {})")},
 	".gitkeep":             {},
 }
 
@@ -49,6 +50,12 @@ func TestHandlerServesTheClient(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "public, max-age=31536000, immutable", rec.Header().Get("Cache-Control"))
 	assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+
+	// The service worker (issue #1047) is at the root, so its scope is the app, and asked for again before each use.
+	sw := get(t, http.MethodGet, "/sw.js")
+	require.Equal(t, http.StatusOK, sw.Code)
+	assert.Equal(t, "no-cache", sw.Header().Get("Cache-Control"))
+	assert.Contains(t, sw.Header().Get("Content-Type"), "javascript")
 
 	missing := []string{"/assets/gone.js", "/favicon.ico", "/.gitkeep", "/node/v1/other", "/api/x", "/readyz"}
 	for _, target := range missing {

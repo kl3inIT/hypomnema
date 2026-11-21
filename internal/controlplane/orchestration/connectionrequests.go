@@ -205,6 +205,11 @@ func (s *Service) RequestConnection(ctx context.Context, botID, chatID, use, rea
 			return fmt.Errorf("recording the request for %s: %w", use, err)
 		}
 
+		// The owner's browsers are told once it is committed (issue #1047).
+		if err := queuePush(ctx, q, now, PushConnectionRequest, id); err != nil {
+			return err
+		}
+
 		made, err := q.GetConnectionRequest(ctx, id)
 		if err != nil {
 			return fmt.Errorf("reading request %s: %w", id, err)
