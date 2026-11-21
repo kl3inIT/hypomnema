@@ -188,7 +188,10 @@ func legacyLinkDB(t *testing.T) (string, ArtifactShare, *vault.Keyring) {
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT token FROM artifact_shares WHERE id = ?", sh.ID).Scan(&old))
 	require.Equal(t, sh.Token, old, "the link from before, in plaintext")
 
-	require.NoError(t, Migrate(ctx, db))
+	// Up to the credential migration only: a later migration may rewrite the pages that still hold the plaintext,
+	// and what these tests look at is what this one left (main gained 00152_video_looks after it).
+	_, err = p.UpTo(ctx, credentialState(t))
+	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
 	return path, sh, keys
@@ -403,6 +406,27 @@ func TestWithoutTheVaultALinkFromBeforeWaitsAndNoLinkIsMade(t *testing.T) {
 
 // credentialStateBefore returns the version of the migration before this one, which `make migration-fix` renumbers
 // before the merge.
+// credentialState is the version of the credential_state migration.
+func credentialState(t *testing.T) int64 {
+	t.Helper()
+
+	entries, err := fs.ReadDir(migrations, "migrations")
+	require.NoError(t, err)
+
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), "_credential_state.sql") {
+			version, err := strconv.ParseInt(strings.SplitN(e.Name(), "_", 2)[0], 10, 64)
+			require.NoError(t, err)
+
+			return version
+		}
+	}
+
+	require.FailNow(t, "no credential_state migration")
+
+	return 0
+}
+
 func credentialStateBefore(t *testing.T) int64 {
 	t.Helper()
 
