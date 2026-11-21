@@ -44,6 +44,9 @@ type Server struct {
 	// modelKey makes the model gateway's key for a Dispatch; nil when the
 	// control plane wired none.
 	modelKey func(ctx context.Context, dispatchID, model string) (string, bool)
+	// modelSizes gives a model's context window and largest output as the
+	// gateway knows them (issue #1019); nil when the control plane wired none.
+	modelSizes func(ctx context.Context, model string) (window, output int64, ok bool)
 	// agentKey makes a Dispatch's own key to the agent API, for the
 	// Connections its Run may use; nil when the control plane wired none.
 	agentKey func(ctx context.Context, dispatchID string, uses []string) (string, bool)
@@ -198,6 +201,15 @@ func (s *Server) WithToolNames(names func(ctx context.Context, dispatchID, key s
 func (s *Server) WithAgentKeys(key func(ctx context.Context, dispatchID string, uses []string) (string, bool),
 ) *Server {
 	s.agentKey = key
+
+	return s
+}
+
+// WithModelSizes sets where an offer's model sizes come from: the gateway's context window and largest output of a
+// model, in tokens, and whether it knows them (issue #1019).
+func (s *Server) WithModelSizes(sizes func(ctx context.Context, model string) (window, output int64, ok bool),
+) *Server {
+	s.modelSizes = sizes
 
 	return s
 }
@@ -674,6 +686,13 @@ func (c *session) push(ctx context.Context) error {
 		if c.srv.modelKey != nil && o.AccountRef == orchestration.GatewayAccountRef {
 			if key, ok := c.srv.modelKey(ctx, o.DispatchID, o.Model); ok {
 				o.ModelKey = key
+			}
+		}
+
+		// And the model's sizes, so its CLI compacts before the window is full (issue #1019).
+		if c.srv.modelSizes != nil && o.AccountRef == orchestration.GatewayAccountRef && o.Model != "" {
+			if window, output, ok := c.srv.modelSizes(ctx, o.Model); ok {
+				o.ModelContextWindow, o.ModelMaxOutput = window, output
 			}
 		}
 
