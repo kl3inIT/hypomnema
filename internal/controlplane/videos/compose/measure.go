@@ -72,6 +72,9 @@ func Measure(parent context.Context, tools ffmpeg.Tools, file string, limitSec f
 
 	cmd := exec.CommandContext(ctx, tools.FFmpeg, args...) //nolint:gosec // The installed program, by its path.
 	cmd.Stderr = &stderr
+	// At the deadline the whole process group is killed, so nothing ffmpeg started outlives it holding its pipes.
+	ownGroup(cmd)
+	cmd.Cancel = func() error { return killGroup(cmd) }
 	// Once ffmpeg is killed, Wait closes its stderr after this long even if something it started still holds it.
 	cmd.WaitDelay = measureWaitDelay
 
