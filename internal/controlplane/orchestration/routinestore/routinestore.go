@@ -57,6 +57,9 @@ const (
 	RoutineScript RoutineKind = "script"
 )
 
+// The access of a Routine's runs (issue #956): full, or read, which only the owner grants. A read Routine runs a
+// prompt; its check script, when it has one, reads with the same rights as its runs (owner, 2026-11-21 on #1023,
+// after Hermes's pre-run script, cron/scheduler.py:2232-2250).
 const (
 	AccessFull = "full"
 	AccessRead = "read"
@@ -528,8 +531,8 @@ func checkRoutine(n RoutineSpec) (RoutineSpec, schedule, error) {
 	switch {
 	case n.Access != "" && n.Access != AccessFull && n.Access != AccessRead:
 		return n, sched, fmt.Errorf("%w: routine access is full or read", storeerr.ErrInvalid)
-	case n.Access == AccessRead && (n.Kind != RoutinePrompt || n.Script != "" || n.ScriptText != ""):
-		return n, sched, fmt.Errorf("%w: a read-only routine runs a prompt without a script", storeerr.ErrInvalid)
+	case n.Access == AccessRead && n.Kind != RoutinePrompt:
+		return n, sched, fmt.Errorf("%w: a read-only routine runs a prompt, with or without a check", storeerr.ErrInvalid)
 	case !storeutil.NamePattern.MatchString(n.Name):
 		return n, sched, fmt.Errorf("%w: a routine's name is lowercase letters, digits and dashes, starting with a "+
 			"letter", storeerr.ErrInvalid)
@@ -664,8 +667,8 @@ func (s *Store) PutRoutine(ctx context.Context, n RoutineSpec, by RoutineAuthor)
 			if by.Bot && !sameWork(specOfRow(row), n) {
 				n.Access = AccessFull
 			}
-			if n.Access == AccessRead && (n.Kind != RoutinePrompt || n.Script != "" || n.ScriptText != "") {
-				return fmt.Errorf("%w: set access to full before adding a script", storeerr.ErrInvalid)
+			if n.Access == AccessRead && n.Kind != RoutinePrompt {
+				return fmt.Errorf("%w: set access to full before making it a script alone", storeerr.ErrInvalid)
 			}
 		}
 
@@ -688,8 +691,8 @@ func (s *Store) SetRoutineAccess(ctx context.Context, id, access string) (Routin
 		switch {
 		case access != AccessRead && access != AccessFull:
 			return fmt.Errorf("%w: routine access is full or read", storeerr.ErrInvalid)
-		case access == AccessRead && (row.Kind != string(RoutinePrompt) || row.Script != "" || row.ScriptText != ""):
-			return fmt.Errorf("%w: a read-only routine runs a prompt without a script", storeerr.ErrInvalid)
+		case access == AccessRead && row.Kind != string(RoutinePrompt):
+			return fmt.Errorf("%w: a read-only routine runs a prompt, with or without a check", storeerr.ErrInvalid)
 		case access == row.Access:
 			return nil
 		}

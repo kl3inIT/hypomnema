@@ -122,7 +122,8 @@ func (s *Server) WithMessaging(m Messaging) *Server {
 // messagingLabels are all the owner's accounts, or the ones a Bot's pi was given, whoever's turn it is
 // (onTurn says which it may use now).
 func (s *Server) messagingLabels(ctx context.Context, a agent, m messagingService) ([]string, error) {
-	if s.messaging == nil || !(a.owner || a.isBotPi()) {
+	// The owner, a Bot's pi, and the check of a Bot's read Routine, which reads as its runs do (#1023).
+	if s.messaging == nil || !(a.owner || a.isBotPi() || a.routine != "") {
 		return nil, nil
 	}
 
@@ -321,6 +322,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 	switch call.Tool {
 	case m.chats:
 		chats, err := s.messaging.Chats(ctx, m.integration, label, in.Limit)
+		s.messagingSignIn(ctx, a, m, label, err)
 		s.answerJSON(w, r, map[string]any{"note": untrusted, "chats": chats}, err)
 	case m.messages:
 		q := messaging.Query{Chat: strings.TrimSpace(in.Chat), Search: in.Search, Limit: in.Limit}
@@ -336,6 +338,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 		}
 
 		msgs, err := s.messaging.Messages(ctx, m.integration, label, q)
+		s.messagingSignIn(ctx, a, m, label, err)
 		s.answerJSON(w, r, map[string]any{"note": untrusted, "messages": msgs}, err)
 	case m.media:
 		s.messagingMedia(w, r, a, m, label, in)

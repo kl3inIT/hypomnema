@@ -143,13 +143,13 @@ function Body({
 
         <Facts routine={routine} />
 
-        {routine.kind === "prompt" && !routine.script && (
+        {routine.kind === "prompt" && (
           <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm">
             <span>
               <span className="block font-medium">Read-only</span>
               <span id="routine-read-note" className="text-xs text-muted-foreground">
-                Read your accounts without sending or changing anything. Results stay in the run’s
-                chat.
+                Read your accounts without sending or changing anything; its check reads the same
+                way. Results stay in the run’s chat.
               </span>
             </span>
             <Switch

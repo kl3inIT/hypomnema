@@ -82,6 +82,17 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 	return count, err
 }
 
+const forgetTodoIdempotencyKey = `-- name: ForgetTodoIdempotencyKey :exec
+UPDATE todos SET idempotency_key = NULL, idempotency_hash = NULL WHERE id = ?1
+`
+
+// An account's "log in again" item lets its key go when it closes (issue #1023), so that the account's next refusal
+// adds a new one.
+func (q *Queries) ForgetTodoIdempotencyKey(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, forgetTodoIdempotencyKey, id)
+	return err
+}
+
 const getTodo = `-- name: GetTodo :one
 SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE id = ?1
 `

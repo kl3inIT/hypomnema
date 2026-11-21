@@ -73,6 +73,9 @@ type Store interface {
 	// OwnerTurn says whether a chat's pi works on the owner's own request now (issue #468).
 	OwnerTurn(ctx context.Context, chatID string) (bool, error)
 	ReadRun(ctx context.Context, chatID string) (bool, error)
+	// RoutineRunOf is the live run of a Routine's script's token, or of the Routine's run a pi's chat was opened for;
+	// empty when there is none (a read's sign-in item names it, issue #1023).
+	RoutineRunOf(ctx context.Context, tok orchestration.Token) (string, error)
 	// ChatTurn names the turn a chat's pi works on now, empty between turns (issue #817).
 	ChatTurn(ctx context.Context, chatID string) (string, error)
 	// ApprovedOnce says whether the owner approved a chat's request once and it has not run (issue #748).
@@ -151,7 +154,9 @@ type Server struct {
 	// gitSSHKey is the control plane's SSH key for git (issue #625, gitssh.go); nil when the control plane gave
 	// none.
 	gitSSHKey GitSSHKey
-	logger    *slog.Logger
+	// meetings is what the meetings' tools read (issue #1023, meetings.go); nil when the control plane gave none.
+	meetings Meetings
+	logger   *slog.Logger
 }
 
 // New returns a Server.
@@ -200,6 +205,8 @@ type agent struct {
 	chatID  string
 	bot     string
 	readRun bool
+	// routine is the read Routine whose check script asks, with its run's token; empty for any other agent.
+	routine string
 	// scope is the dashboards a Bot's agent may read of a Superset
 	// Connection (issue #562); nil for every other agent, which reads all.
 	scope func(label string) superset.Scope
@@ -286,6 +293,23 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		// A Routine's script's token (issue #211) is bound to its Bot and no chat: its tab is its Routine's.
 		// A Routine's run is never the owner's turn: one that should act as him needs a grant of its own.
 		if token.Routine != "" {
+			routine, err := s.store.Routines().GetRoutine(r.Context(), token.Routine)
+			if err != nil {
+				return agent{}, errNoCredential
+			}
+
+			if routine.Access == routinestore.AccessRead {
+				// The check of a read Routine reads with the same rights as its runs, with the same token a script
+				// of any Routine has (owner, 2026-11-21 on #1023; Hermes runs a job's script before its agent,
+				// cron/scheduler.py:2232-2250): the owner's own accounts the Bot may use, and only their reads.
+				return agent{
+					name: fmt.Sprintf("bot %s in read routine %s", token.Bot, token.Routine), coordinator: true,
+					bot: token.Bot, routine: token.Routine, key: "r-" + token.Routine, readRun: true,
+					may: bot.MayUse, offered: bot.MayUse, botSwitches: bot.ToolSwitches(),
+					scope: func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
+				}, nil
+			}
+
 			return agent{
 				name: fmt.Sprintf("bot %s in routine %s", token.Bot, token.Routine), coordinator: true,
 				key:   "r-" + token.Routine,
