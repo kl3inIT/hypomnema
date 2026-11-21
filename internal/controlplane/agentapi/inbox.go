@@ -126,7 +126,7 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"properties": map[string]any{
 				"kind": map[string]any{"type": "string", "enum": []string{inboxstore.FromZalo, inboxstore.FromWhatsApp,
 					inboxstore.FromLark}},
-				"chat":    map[string]any{"type": "string", "description": "The chat's id at the service."},
+				"chat": map[string]any{"type": "string", "description": "The chat's id at the service."},
 				"account": map[string]any{"type": "string", "description": "The owner's account the chat is in; " +
 					"without it, his message there never closes the item."},
 			},
@@ -145,7 +145,7 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		required    []string
 	}{
 		{agenttool.ToolInboxList, "List the owner's to-dos, by due then age: open ones by default. Filter by " +
-			"state, who does them, where they came from, needs_you (what waits for the owner), and include closed, " +
+			"state, who does them, where they came from, when they are due, needs_you (what waits for the owner), and include closed, " +
 			"snoozed or stale proposals; cursor pages on. Use it before you add one, so as never to add it twice.", map[string]any{
 			"state": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{
 				inboxstore.Proposed, inboxstore.Open, inboxstore.Doing, inboxstore.Review, inboxstore.Done,
@@ -157,8 +157,12 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"include_closed":  map[string]any{"type": "boolean"},
 			"include_snoozed": map[string]any{"type": "boolean"},
 			"include_stale":   map[string]any{"type": "boolean"},
-			"cursor":          map[string]any{"type": "string"},
-			"limit":           map[string]any{"type": "integer", "minimum": 1, "maximum": inboxstore.MaxPage},
+			"due_from": map[string]any{"type": "string", "description": "Only the items due at or after this " +
+				"moment, RFC 3339; a date is due from its first moment."},
+			"due_to": map[string]any{"type": "string", "description": "Only the items due before this moment, " +
+				"RFC 3339."},
+			"cursor": map[string]any{"type": "string"},
+			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": inboxstore.MaxPage},
 		}, nil},
 		{agenttool.ToolInboxGet, "Read one to-do with its draft, evidence and latest history. Use it before you " +
 			"change one you have not just read.",
@@ -252,6 +256,8 @@ type inboxListArgs struct {
 	IncludeClosed  bool     `json:"include_closed"`
 	IncludeSnoozed bool     `json:"include_snoozed"`
 	IncludeStale   bool     `json:"include_stale"`
+	DueFrom        string   `json:"due_from"`
+	DueTo          string   `json:"due_to"`
 	Cursor         string   `json:"cursor"`
 	Limit          int      `json:"limit"`
 }
@@ -332,6 +338,23 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 		f.Assignee = &inboxstore.Assignee{Kind: in.AssigneeKind, Name: strings.TrimSpace(in.Assignee)}
 	}
 
+	for _, bound := range []struct {
+		name, value string
+		into        *time.Time
+	}{{"due_from", in.DueFrom, &f.DueFrom}, {"due_to", in.DueTo, &f.DueTo}} {
+		if bound.value == "" {
+			continue
+		}
+
+		at, err := time.Parse(time.RFC3339, bound.value)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s is RFC 3339, such as 2026-11-21T00:00:00+07:00", orchestration.ErrInvalid,
+				bound.name)
+		}
+
+		*bound.into = at
+	}
+
 	page, err := s.store.Inbox().List(ctx, f, in.Cursor, in.Limit)
 	if err != nil {
 		return nil, err
@@ -345,9 +368,8 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 	return map[string]any{"total": page.Total, "next_cursor": page.Next, "items": items}, nil
 }
 
-// inboxDue is the due a call gives: none, a date or a moment in its time zone; for an item given to a person with
-// none given, the day to chase them.
-func inboxDue(in inboxArgs, person bool) (due inboxstore.Due, given bool, err error) {
+// inboxDue is the due a call gives: none, a date or a moment in its time zone.
+func inboxDue(in inboxArgs) (due inboxstore.Due, given bool, err error) {
 	switch {
 	case in.DueDate != "" && in.DueAt != "":
 		return due, false, fmt.Errorf("%w: give due_date or due_at, not both", orchestration.ErrInvalid)
@@ -361,16 +383,20 @@ func inboxDue(in inboxArgs, person bool) (due inboxstore.Due, given bool, err er
 		}
 
 		return inboxstore.Due{Kind: inboxstore.DueInstant, At: at, Zone: in.Timezone}, true, nil
-	case person:
-		zone := in.Timezone
-		if zone == "" {
-			zone = "UTC"
-		}
-
-		return inboxstore.Due{Kind: inboxstore.DueInstant, At: time.Now().Add(inboxDefaultChase), Zone: zone}, true, nil
 	}
 
 	return due, false, nil
+}
+
+// inboxChase is the due of an item given to a person when the Bot gives none: the day to chase them, counted by the
+// store from when the item is first made.
+func inboxChase(in inboxArgs) *inboxstore.DueIn {
+	zone := in.Timezone
+	if zone == "" {
+		zone = "UTC"
+	}
+
+	return &inboxstore.DueIn{After: inboxDefaultChase, Zone: zone}
 }
 
 func (s *Server) inboxAdd(ctx context.Context, c inboxCaller, in inboxArgs) (any, error) {
@@ -384,13 +410,16 @@ func (s *Server) inboxAdd(ctx context.Context, c inboxCaller, in inboxArgs) (any
 		n.Assignee = inboxstore.Assignee{Kind: in.AssigneeKind, Name: in.Assignee}
 	}
 
-	due, given, err := inboxDue(in, n.Assignee.Kind == inboxstore.Person)
+	due, given, err := inboxDue(in)
 	if err != nil {
 		return nil, err
 	}
 
-	if given {
+	switch {
+	case given:
 		n.Due = due
+	case n.Assignee.Kind == inboxstore.Person:
+		n.DueIn = inboxChase(in)
 	}
 
 	// Where it came from is the token's: this chat, or this Routine's run, which may name the owner's chat at a
@@ -459,7 +488,7 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 	case agenttool.ToolInboxUpdate:
 		e := inboxstore.Edit{Title: in.Title, Notes: in.Notes, DoneWhen: in.DoneWhen, Draft: in.Draft}
 
-		due, given, dueErr := inboxDue(in, false)
+		due, given, dueErr := inboxDue(in)
 		if dueErr != nil {
 			return nil, dueErr
 		}

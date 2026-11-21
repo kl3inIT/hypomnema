@@ -364,8 +364,13 @@ type NewTodo struct {
 	Title    string
 	Notes    string
 	DoneWhen string
-	Draft    string
-	Due      Due
+	// Draft is left out of the request's hash when empty, so a key used before drafts existed (issue #1004) still
+	// returns its item.
+	Draft string `json:",omitempty"`
+	Due   Due
+	// DueIn, with no Due, makes the item due a while after it is first added: the day to chase a person (issue
+	// #1004, section 6). The moment is taken when the item is made, so a retry with the same key is the same request.
+	DueIn    *DueIn `json:",omitempty"`
 	Assignee Assignee
 	// State is Open or Proposed.
 	State  string
@@ -375,6 +380,12 @@ type NewTodo struct {
 	WhyOpen string
 	// IdempotencyKey, when given, makes a retried create return the first item.
 	IdempotencyKey string
+}
+
+// DueIn is a due a while after an item is added, in a time zone.
+type DueIn struct {
+	After time.Duration
+	Zone  string
 }
 
 // Create adds a to-do. The owner adds open items by hand; a Bot adds open items in a chat with the owner (Source
@@ -405,6 +416,18 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 	due, err := dueRow(n.Due)
 	if err != nil {
 		return Todo{}, err
+	}
+
+	if n.DueIn != nil {
+		_, zoneErr := time.LoadLocation(n.DueIn.Zone)
+
+		switch {
+		case due.kind != DueNone || n.DueIn.After <= 0:
+			return Todo{}, fmt.Errorf("%w: a due a while after the item is added replaces a due, and is later",
+				storeerr.ErrInvalid)
+		case zoneErr != nil || n.DueIn.Zone == "" || n.DueIn.Zone == "Local":
+			return Todo{}, fmt.Errorf("%w: %q is not an IANA time zone", storeerr.ErrInvalid, n.DueIn.Zone)
+		}
 	}
 
 	if err := checkSource(n.Source); err != nil {
@@ -446,6 +469,13 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 
 		if err := checkAssignee(ctx, q, n.Assignee); err != nil {
 			return err
+		}
+
+		if n.DueIn != nil {
+			if due, err = dueRow(Due{Kind: DueInstant, At: time.UnixMilli(now).Add(n.DueIn.After),
+				Zone: n.DueIn.Zone}); err != nil {
+				return err
+			}
 		}
 
 		id := s.newID("tdo")
