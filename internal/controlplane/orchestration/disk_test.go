@@ -227,3 +227,46 @@ func TestWorktreeCleanupRequiresClosedRunAndSettledDispatches(t *testing.T) {
 	assert.Equal(t, tree, approved[0].WorktreePath)
 	assert.ElementsMatch(t, []string{dispatch.ID, nextDispatch.ID}, approved[0].Accepted)
 }
+
+// Issue #1017: a node that stays below its floor after trimming reports it in every heartbeat; the owner is told
+// once for the episode, once when it recovers, and a new episode within the debounce is not told, as Coder's
+// volume monitor (coderd/database/modelmethods.go:1012-1024).
+func TestBlockedNodeIsToldOncePerEpisodeAndOnRecovery(t *testing.T) {
+	t.Parallel()
+	w := newWorld(t)
+	ctx := t.Context()
+	require.NoError(t, w.s.NodeHello(ctx, w.node.ID, Hello{WorktreeRoot: "/srv/wt", DiskPolicy: true}))
+	report := func(free int64, blocked bool) *DiskAlert {
+		t.Helper()
+		sample := w.diskSample(free)
+		sample.Blocked = blocked
+		alert, err := w.s.ReportNodeDisk(ctx, w.node.ID, sample)
+		require.NoError(t, err)
+		w.advance(nodeproto.HeartbeatEvery)
+		return alert
+	}
+
+	assert.Nil(t, report(1<<30, false), "below the floor before the trim ran is not told")
+	alert := report(1<<30, true)
+	require.NotNil(t, alert)
+	assert.Equal(t, DiskAlert{NodeID: w.node.ID, Node: w.node.Name, FreeBytes: 1 << 30, FloorBytes: testDiskFloor},
+		*alert)
+	for range 10 {
+		assert.Nil(t, report(1<<30, true), "the same episode is told once")
+	}
+	assert.Nil(t, report(-1+testDiskFloor, false), "below the floor stays the episode")
+
+	recovered := report(testDiskFloor, false)
+	require.NotNil(t, recovered)
+	assert.True(t, recovered.Recovered)
+	assert.Equal(t, w.node.Name, recovered.Node)
+	assert.Nil(t, report(20<<30, false))
+
+	assert.Nil(t, report(1<<30, true), "a new episode within the debounce is not told")
+	assert.Nil(t, report(20<<30, false), "nor its recovery")
+
+	w.advance(DiskAlertDebounce)
+	again := report(1<<30, true)
+	require.NotNil(t, again)
+	assert.False(t, again.Recovered)
+}

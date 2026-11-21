@@ -967,6 +967,29 @@ sequenceDiagram
     instant shows (libass is given whole milliseconds, truncated; #937). Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
     `background()` (`compose/testdata/frames`), and check in the made video that the hole shows the picture and
     only the hole does, where a ring lands, and that a turned take is refused.
+    Compose lays a music track under the voice when `Input.Music` names one (#910 part 1, #1039; nothing passes
+    one yet: the library, the look's section and the runner are part 2): its file, its decoded length and a gain
+    of −20 to +10 dB. Without music the mux's command is as before, stream for stream. `compose.Measure` decodes a
+    file's first audio stream strictly (`-xerror`, optionally bounded by `-t`) through ebur128, read from ffmpeg's
+    stdout (`-progress pipe:1`, capped at 32 MB, refused unless it ends with `progress=end`, ffmpeg run in a process group of its own that is
+    killed whole at the context's deadline, its stdout closed then even while a child holds it): integrated LUFS, the
+    largest true peak (linear; `TPdB` is 20·log10 of it) and the decoded length. With music, the voice's chain is
+    written as `voice.wav` and measured; its gain is min(−16 − I, −1.5 − TP) (Kinocut, Apache-2.0,
+    `third_party/kinocut`). The bed (`bed.go`, Kinocut's loop) is the track made stereo 44.1 kHz float, cut at the
+    video's length T or, when shorter, played ⌈(T − 1.5)/(L − 1.5)⌉ times (at most 100) with 1.5 s equal-power
+    crossfades, written as `music-bed.wav` (pcm_f32le, 352 800 B/s) after checking 400 MB + that much free disk
+    (`Input.FreeBytes`, else `platform.FreeBytes`). It is measured over T: at −70 LUFS or under, the video is made
+    without music and with a warning; otherwise its gain sets it 3 LU under the voice plus the track's gain, capped
+    at +24 dB with a warning. The bed is ducked to 0.25 under each scene's clip (spans less than 0.6 s apart
+    merged; down over 0.15 s, up over 0.4 s; HyperFrames' duck, Apache-2.0, `third_party/hyperframes`) by a volume
+    expression evaluated every 256 samples, and faded out over min(1.8 s, T). The voice, made stereo, and the bed
+    are mixed by `amix normalize=0 duration=first`, limited by `alimiter` at −3 dBFS at 176.4 kHz, and encoded as
+    AAC 192k, the graph read from `mix.graph` (`-/filter_complex`). The made video is measured into
+    `Result.Music` (the voice's and the bed's loudness and gains, the output's LUFS and dBTP); a true peak over
+    −1 dBTP, a loudness more than 2 LU off −16, or a failed measurement is a warning. Tests make their audio with
+    lavfi and measure, against a control mixed without the duck, the duck under each clip and its 300 ms gaps,
+    the release between spans 1 s apart, the gains, the loop's seams, sizes and formats, and the peaks; a fake
+    ffmpeg locks the no-music mux's arguments.
   - Videos and revisions (`internal/controlplane/videos`, migrations 00126 and `video_looks`). A **video**
     belongs to one take (one row of `videos`, its take unique); each make or change request adds an immutable
     **revision** (`video_revisions`: rev 1, 2, …, its parent, the lines, voice, captions, aspect and look it is made
@@ -2083,15 +2106,17 @@ flowchart LR
   Migration 00115 (issue #718) makes the next version from that one (`pfv_seed8_reviewer`, where
   `pfv_seed7_reviewer` is still current) and keeps its text: the reviewer also checks out the pull request, runs the
   repository's checks for what it touched and says which it could not run and why; `reviewer-codex.yaml` carries
-  this text. The role sample `deploy/profiles/reviewer.yaml` (issue #952, after Cursor's pstack and orchestrate)
-  holds a review to its spec alone, with no check or round above it; makes a finding P0 or P1, and so the verdict
-  `incorrect`, only with proof at the head commit (a command run and its output, or a spec, contract or doc line
-  the change makes wrong), a problem the base already has blocking only when the change copies or newly reaches
-  it and the rest listed as follow-ups; names the head commit the verdict covers, an evidence level (`ran-live`,
-  `test-verified`, `typecheck-only`, `blocked`, never a pass, or `failed`) and an `Execution` list of what it ran;
-  checks a plan only for its cited code and whether it can be carried out; and returns `blocked` in place of
-  `correct` or `incorrect` when it could not run what the verdict needs, saying what stopped it (`review_stall`
-  shows it as `unknown`). No migration seeds it: a reviewer gets it when the owner applies the file.
+  this text. The role sample `deploy/profiles/reviewer.yaml` (issues #952 and #1051, after Cursor's pstack and
+  orchestrate, omp and Codex) is the one home of the reviewer's rules, with their sources: the spec alone is the
+  bar; P0 to P3 as omp and Codex define them, P2 and P3 never blocking; a P0 or P1 makes the verdict `incorrect` only with proof
+  at the head commit, a trigger that documented use with the default configuration reaches, and a break of the
+  spec's intent, the rest listed as follow-ups; from a second round, only what the diff since the reviewed head
+  adds may newly block; it runs the checks that touch the diff, answers CodeRabbit's Critical and Major findings,
+  and starts its summary with `Verdict:`, `Head:`, `Evidence:` (`ran-live`, `test-verified`, `typecheck-only`,
+  `blocked`, never a pass, or `failed`), for a pull request or merge request also the merge state and the
+  checks, then an `Execution` list; `blocked` when it could not run what the verdict needs (`review_stall` shows it as `unknown`). The coordinator's `review`
+  reference links to it and keeps only what the coordinator does; its sources are in `docs/role-routing.md`. No
+  migration seeds it: a reviewer gets it when the owner applies the file.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
   requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
@@ -5093,13 +5118,15 @@ The owner's commands:
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
   follow-up to its worker, not a new Task. The `planner` researches in one session; the `reviewer` checks plans
   before owner approval and `broad` or `narrow` changes from another vendor. A `quick` change needs green CI only.
-  A first PR review receives the pull request and spec, not the report or transcript, and is told to block only on
-  a P0 or P1 proved at the head and to give its `Head:` and evidence level in the summary (issue #952, after
-  pstack's `autopilot-full.md:16` and orchestrate's `verifier.md:23,41-61`); a P0 or P1 without proof is a
-  follow-up, and an `incorrect` verdict with none proved is handled as `blocked`: never a pass nor a fix round,
-  one new review once its cause is gone, then the owner told (orchestrate's `handoffs.md:137`). From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
-  effort `medium`, and the whole change again only for new behavior, a redesign or a large new diff; a clean merge
-  of the base or a wording-only change needs green CI only (pstack's `autopilot-full.md:5,14`). Before a review,
+  A first PR review receives the pull request and spec, not the report or transcript; an owner's acceptance
+  condition goes into the spec word for word, as one line, never restated as a property to hunt, and the spec does
+  not restate the reviewer's rules, which the `reviewer` profile holds (issue #1051, after pstack's `worker.md:4`).
+  An `incorrect` verdict with no finding that blocks by those rules is handled as `blocked`: never a pass nor a
+  fix round, one new review once its cause is gone, then the owner told (orchestrate's `handoffs.md:137`). From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
+  effort `medium`, and the whole change again only for new behavior, a redesign or a large new diff; a head whose
+  only change is a clean merge of the base, a `make migration-fix` rename or wording needs green CI only (pstack's
+  `autopilot-full.md:5,14` for wording; the clean merge without a verifier and the rename are the choice of
+  issues #952 and #1051, not pstack's). Before a review,
   a red check gets one rerun of its failed jobs, noted in the report; one green on the rerun, or failing outside
   the diff and also red on the base, is a flake: the review goes on, and the author opens an issue, with no fix
   in the pull request (pstack's `babysit.md:8`). A bug fix's spec asks for the failing test committed before the fix
@@ -5111,12 +5138,13 @@ The owner's commands:
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
   `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
-  and the owner told the verdict and findings, without adding a Task; a review first reads
-  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
-  so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
+  and the owner told the verdict and findings, without adding a Task; the reviewer first reads
+  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1
+  of its own) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
   permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
   nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
-  reported, not replaced.
+  reported, not replaced. The skill's files hold no source comments, since a coordinator turn reads them whole;
+  each rule's source is in `docs/role-routing.md` (issue #1051).
   A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
   in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
   A head gets one verdict (issue #953, after pstack's "a verdict covers a patch",
@@ -5565,15 +5593,46 @@ Node (`internal/node`):
   path so a short symlink alias remains usable even when the resolved path is too long for Unix sockets. Disk
   maintenance never removes state or its sidecars, accounts, shim records and journals,
   Conversations, Transcripts, Git mirrors and branches, the binary and configuration, or system logs.
-- Below the trim threshold, with protected paths confirmed, the node trims standard Go build cache entries in
-  `~/.cache/go-build` and the effective `GOCACHE` on the affected mount. It removes entries older than five days
+- Below the trim threshold, with protected paths confirmed, the node trims standard Go build cache entries, and
+  golangci-lint's, which keeps Go's layout and trim rule, on the affected mount, each only at its tool's default
+  place for the worker's user: `os.UserCacheDir()/go-build` (`cmd/go/internal/cache/default.go:80-88`) and
+  `os.UserCacheDir()/golangci-lint` (golangci-lint's `internal/go/cache/default.go:78-86`). A cache that `GOCACHE`,
+  Go's env file or `GOLANGCI_LINT_CACHE` puts anywhere else may be a directory a mistaken setting points at, so it
+  is left whole and logged once (`node.cache_not_default`); when `go env` cannot name the module cache it trims
+  neither. A directory is trimmed only when its `README` starts with the line Go,
+  or golangci-lint, writes in a cache it uses (`cmd/go/internal/cache/default.go:28,47-50`); one of the same shape
+  that no cache wrote is left whole and logged once (`node.cache_unconfirmed`). In it, only what Go writes there is
+  a candidate, as Go's own trim takes (`cmd/go/internal/cache/cache.go:117-119,439-467,598-620`; golangci-lint's
+  copy, `internal/go/cache/cache.go:121-123,446-472`): in a subdirectory `00`..`ff`, a regular file named by 64
+  lowercase hex digits starting with that subdirectory's and `-a` or `-d`, or such a `-d` directory holding one
+  executable; anything else there is never deleted. It removes entries older than five days
   plus one hour in oldest-first order, skips entries that changed after inspection, and remeasures in batches
   until it reaches the target. It checks for an idle node before invoking native
   `pnpm store prune` on the default worker store. It rejects symlinks and cross-mount entries and confines the
   command with the same platform sandbox; the worker's `dlx` cache is not pruned. The pnpm store must be on the affected mount.
   Go module, toolchain
   and fuzz caches are not touched. Playwright's own GC remains part of its browser install, not this sweep.
-  If the eligible cleanup cannot make enough room, the warning and admission floor remain. The policy does not
+  When the volume is still below its trim threshold after that, the node trims the same Go and golangci-lint
+  caches again, oldest first, down to entries unused for 2 hours, and stops once it has the target (issue #1017). Go
+  refreshes an entry's mtime on use at most once an hour (`mtimeInterval`), so that pass, as Go's own trim, adds
+  that hour: it takes only entries whose mtime is over 3 hours old, and a build in progress keeps its entries; Go
+  documents its cache as safe to remove (`go help cache`). There is no size cap: free space is the one
+  control, as Buildkite's low-disk prune and GitHub's runner warning trigger on free space.
+  If the eligible cleanup cannot make enough room, the warning (`node.disk_blocked`) and admission floor remain,
+  and the heartbeats after that trim say so (`disk.blocked`) while the volume stays below its floor; a heartbeat
+  that finds it at or above the floor clears that, and so does one during a trim for what the trim found, so a
+  later drop is reported blocked only by a trim that ran after it (the flag and the count of recoveries are kept
+  under one lock). The control
+  plane keeps an alert per node (`nodes.disk_alert` and `disk_alert_until`, migration `node_disk_alert`), as
+  Coder's volume monitor (`coderd/agentapi/resources_monitoring.go:213,248-252`): a blocked sample moves it from
+  `ok` to `low`, and the owner is told when 30 min (`DiskAlertDebounce`, Coder's debounce) have passed since the
+  last time he was told, which makes it `told`; a sample at or above the floor makes it `ok` again and, when it was
+  `told`, tells him the node recovered. He is told as a failing Routine tells him: a line in the main Bot's main
+  chat and a card through that Bot's Lark Channels (`controlplane/diskalert.go`). The node API keeps a node's
+  samples in order with the alerts they make and tells a node's alerts one after another, so a recovery never
+  comes before its drop. While one is told, what waits is the node's latest alert only, told when it differs from
+  the one just told, as client-go's workqueue keeps an item dirty once while it is processed
+  (`util/workqueue/queue.go:210-221,243-264,306-319`). The policy does not
   protect free space on a separate cache or temp volume.
 - The node does not sweep shared `/tmp` or `os.TempDir()`. Dispatch cleanup is limited to its own temporary directory.
 

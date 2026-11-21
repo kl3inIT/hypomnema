@@ -2,10 +2,10 @@ package diskguard
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -14,15 +14,47 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
 const (
-	goCacheAge   = 5*24*time.Hour + time.Hour
-	goCacheBatch = 128
+	// mtimeInterval is how stale an entry's mtime may be: Go refreshes it on use at most once an hour
+	// (cmd/go/internal/cache/cache.go:335-370 at go1.27.4; golangci-lint's copy, internal/go/cache/cache.go:355).
+	mtimeInterval = time.Hour
+	// goCacheAge is Go's own cut: entries unused for 5 days, plus mtimeInterval (cmd/go/internal/cache/cache.go:426-429;
+	// golangci-lint's copy, internal/go/cache/cache.go:434).
+	goCacheAge = 5*24*time.Hour + mtimeInterval
+	// youngCacheAge is the second pass's floor, taken only while the volume is still below its trim threshold
+	// (issue #1017): an entry used in the last 2 hours is kept, with the same mtimeInterval of slack Go's trim adds,
+	// so a build in progress keeps what it uses.
+	youngCacheAge = 2*time.Hour + mtimeInterval
+	goCacheBatch  = 128
 )
+
+// The first line of the README Go and golangci-lint write in a cache they use (cmd/go/internal/cache/default.go:28,
+// 47-50 at go1.27.4; golangci-lint's internal/go/cache/default.go:26,45-48 at v2.15.0). A directory is trimmed only
+// when its README starts with its kind's: one that merely has the cache's shape, named by a mistaken GOCACHE or
+// GOLANGCI_LINT_CACHE, is left whole (issue #1017).
+const (
+	goCacheReadme   = "This directory holds cached build artifacts from the Go build system.\n"
+	lintCacheReadme = "This directory holds cached build artifacts from golangci-lint.\n"
+)
+
+var errNotACache = errors.New("no README of Go's or golangci-lint's cache")
+
+// unconfirmedCaches are the directories already logged as not trimmed for want of a cache's README, so each is
+// said once.
+var unconfirmedCaches sync.Map
+
+// cacheRoot is a cache of Go's layout and the README that confirms it.
+type cacheRoot struct {
+	path   string
+	readme string
+}
 
 type Caches struct {
 	Policy       Policy
@@ -31,6 +63,17 @@ type Caches struct {
 	UserHome     string
 	WorkerPath   func() string
 	Logger       *slog.Logger
+
+	// measure stands for Policy.Measure of the worktree root when set: a test's free space, which a real volume
+	// cannot be made to show.
+	measure func(ctx context.Context) (nodeproto.DiskSpace, int64)
+}
+
+func (c Caches) space(ctx context.Context) (nodeproto.DiskSpace, int64) {
+	if c.measure != nil {
+		return c.measure(ctx)
+	}
+	return c.Policy.Measure(ctx, c.WorktreeRoot)
 }
 
 func (c Caches) worktreeVolume() string {
@@ -38,53 +81,104 @@ func (c Caches) worktreeVolume() string {
 	return path
 }
 
-func (c Caches) Trim(ctx context.Context, whileIdle func(func())) {
+// Trim frees room on the worktree volume when it is below its trim threshold, from the caches it manages only: Go's
+// build caches and golangci-lint's, oldest entry first, the entries unused for goCacheAge; then the pnpm store's
+// unreferenced packages while the node is idle; then, only when the volume is still below its trim threshold, the
+// same caches again down to youngCacheAge, until it reaches the target (issue #1017). It reports whether the volume is still below its floor after all of it.
+func (c Caches) Trim(ctx context.Context, whileIdle func(func())) (blocked bool) {
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 
-	space, _ := c.Policy.Measure(ctx, c.WorktreeRoot)
+	space, _ := c.space(ctx)
 	if space.FreeBytes == nil || *space.FreeBytes >= space.TrimBytes {
-		return
+		return false
 	}
 	volume := c.worktreeVolume()
 	needsRoom := func() bool {
 		if !RealDir(volume) || ctx.Err() != nil {
 			return false
 		}
-		space, target := c.Policy.Measure(ctx, c.WorktreeRoot)
+		space, target := c.space(ctx)
 		return space.FreeBytes != nil && *space.FreeBytes < target &&
 			SameVolume(volume, c.worktreeVolume())
 	}
 
+	// Without Go's own answer the module cache, which is never trimmed, is not known for sure, so neither cache of
+	// Go's layout is trimmed.
 	locations, module, err := c.goCaches(ctx)
 	if err != nil {
 		c.Logger.WarnContext(ctx, "could not locate the Go build cache", slog.Any("error", err))
-	} else {
-		for _, root := range locations {
-			c.trimGoCache(WithProtection(ctx, module), root, volume, needsRoom)
+		locations = nil
+	}
+	var roots []cacheRoot
+	if err == nil {
+		roots = c.defaultCaches(ctx, locations)
+	}
+	guarded := WithProtection(ctx, module)
+	trim := func(age time.Duration) {
+		for _, root := range roots {
+			c.trimGoCache(guarded, root, volume, age, needsRoom)
 		}
 	}
-	if !RealDir(c.UserHome) {
-		return
-	}
-	c.Logger.WarnContext(ctx, "worktree volume is below the disk trim threshold",
-		slog.String("event", "node.disk_pressure"), slog.Int64("free_bytes", *space.FreeBytes),
-		slog.Int64("floor_bytes", space.FloorBytes), slog.Int64("trim_bytes", space.TrimBytes))
+	trim(goCacheAge)
+	if RealDir(c.UserHome) {
+		c.Logger.WarnContext(ctx, "worktree volume is below the disk trim threshold",
+			slog.String("event", "node.disk_pressure"), slog.Int64("free_bytes", *space.FreeBytes),
+			slog.Int64("floor_bytes", space.FloorBytes), slog.Int64("trim_bytes", space.TrimBytes))
 
-	if needsRoom() {
-		whileIdle(func() {
-			if needsRoom() {
-				if err := c.prunePnpm(ctx, volume); err != nil {
-					c.Logger.WarnContext(ctx, "could not prune the pnpm store", slog.Any("error", err))
+		if needsRoom() {
+			whileIdle(func() {
+				if needsRoom() {
+					if err := c.prunePnpm(ctx, volume); err != nil {
+						c.Logger.WarnContext(ctx, "could not prune the pnpm store", slog.Any("error", err))
+					}
 				}
+			})
+		}
+	}
+	// The 2-hour pass is the low-disk trigger's own (issue #1017): it starts only while the volume is still below
+	// its trim threshold, and then stops at the target as the first pass does.
+	if after, _ := c.space(ctx); after.FreeBytes != nil && *after.FreeBytes < after.TrimBytes {
+		trim(youngCacheAge)
+	}
 
-			}
-		})
+	current, _ := c.space(ctx)
+	if ctx.Err() != nil || current.AllowsWork() {
+		return false
 	}
-	if current, _ := c.Policy.Measure(ctx, c.WorktreeRoot); ctx.Err() == nil && !current.AllowsWork() {
-		c.Logger.WarnContext(ctx, "the worktree volume still takes no new work", slog.String("event", "node.disk_blocked"))
+	c.Logger.WarnContext(ctx, "the worktree volume still takes no new work", slog.String("event", "node.disk_blocked"))
+	return true
+}
+
+// defaultCaches are the caches the guard trims: Go's and golangci-lint's, each only at the place its tool uses for
+// the worker's user when nothing names another, os.UserCacheDir()/go-build (cmd/go/internal/cache/default.go:80-88
+// at go1.27.4) and os.UserCacheDir()/golangci-lint (golangci-lint's internal/go/cache/default.go:78-86 at v2.15.0).
+// A cache named elsewhere, by GOCACHE, Go's env file or GOLANGCI_LINT_CACHE, may be a directory of the owner's that
+// a mistaken setting points at, so it is left whole and said once (issue #1017).
+func (c Caches) defaultCaches(ctx context.Context, named []string) []cacheRoot {
+	base, err := os.UserCacheDir()
+	if err != nil || !filepath.IsAbs(base) {
+		c.Logger.WarnContext(ctx, "could not locate the worker's cache directory", slog.Any("error", err))
+		return nil
 	}
+	roots := []cacheRoot{
+		{path: filepath.Join(base, "go-build"), readme: goCacheReadme},
+		{path: filepath.Join(base, "golangci-lint"), readme: lintCacheReadme},
+	}
+	if lint := os.Getenv("GOLANGCI_LINT_CACHE"); filepath.IsAbs(lint) {
+		named = append(named, filepath.Clean(lint))
+	}
+	for _, path := range named {
+		if path == roots[0].path || path == roots[1].path {
+			continue
+		}
+		if _, said := unconfirmedCaches.LoadOrStore(path, true); !said {
+			c.Logger.WarnContext(ctx, "not trimming a cache outside its tool's default place",
+				slog.String("event", "node.cache_not_default"), slog.String("path", path))
+		}
+	}
+	return roots
 }
 
 type goCacheConfig struct {
@@ -172,17 +266,49 @@ func (c Caches) fallbackGoCaches(paths []string, cause error) ([]string, string,
 	return slices.Compact(paths), filepath.Join(c.UserHome, "go", "pkg", "mod"), cause
 }
 
-func (c Caches) trimGoCache(ctx context.Context, root, worktreeVolume string, needsRoom func() bool) {
-	if !RealDir(root) || !SameVolume(worktreeVolume, root) {
+func (c Caches) trimGoCache(ctx context.Context, root cacheRoot, worktreeVolume string, age time.Duration,
+	needsRoom func() bool,
+) {
+	if !RealDir(root.path) || !SameVolume(worktreeVolume, root.path) {
 		return
 	}
-	protected, err := deletionIdentities(ctx, root, c.NodeHome, "", false)
+	protected, err := deletionIdentities(ctx, root.path, c.NodeHome, "", false)
 	if err == nil {
-		err = trimGo(ctx, worktreeVolume, root, time.Now().Add(-goCacheAge), needsRoom, protected)
+		err = trimGo(ctx, worktreeVolume, root.path, root.readme, time.Now().Add(-age), needsRoom, protected)
+	}
+	if errors.Is(err, errNotACache) {
+		if _, said := unconfirmedCaches.LoadOrStore(root.path, true); !said {
+			c.Logger.WarnContext(ctx, "not trimming a directory that is not a confirmed cache",
+				slog.String("event", "node.cache_unconfirmed"), slog.String("path", root.path), slog.Any("error", err))
+		}
+		return
 	}
 	if err != nil {
-		c.Logger.WarnContext(ctx, "could not trim the Go build cache", slog.String("path", root), slog.Any("error", err))
+		c.Logger.WarnContext(ctx, "could not trim a Go build cache", slog.String("path", root.path), slog.Any("error", err))
 	}
+}
+
+// confirmedCache checks, through the pinned handle of the cache's directory, that Go or golangci-lint wrote its
+// README there: a regular file whose text starts with readme.
+func confirmedCache(cache *os.Root, readme string) error {
+	info, err := cache.Lstat("README")
+	if err != nil || !info.Mode().IsRegular() {
+		return errNotACache
+	}
+	file, err := cache.Open("README")
+	if err != nil {
+		return errNotACache
+	}
+	defer file.Close() //nolint:errcheck // read only
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return errNotACache
+	}
+	head := make([]byte, len(readme))
+	if _, err := io.ReadFull(file, head); err != nil || string(head) != readme {
+		return errNotACache
+	}
+	return nil
 }
 
 type cacheEntry struct {
@@ -193,7 +319,7 @@ type cacheEntry struct {
 	executable os.FileInfo
 }
 
-func trimGo(ctx context.Context, volumePath, root string, olderThan time.Time, needsRoom func() bool,
+func trimGo(ctx context.Context, volumePath, root, readme string, olderThan time.Time, needsRoom func() bool,
 	protected []os.FileInfo,
 ) error {
 	if !RealDir(root) || !SameVolume(volumePath, root) || !needsRoom() {
@@ -210,6 +336,9 @@ func trimGo(ctx context.Context, volumePath, root string, olderThan time.Time, n
 		return err
 	}
 	if measured, err := volume(volumePath); err != nil || measured != mount {
+		return err
+	}
+	if err := confirmedCache(cache, readme); err != nil {
 		return err
 	}
 	buckets, err := fs.ReadDir(cache.FS(), ".")
@@ -260,6 +389,10 @@ func trimGo(ctx context.Context, volumePath, root string, olderThan time.Time, n
 	return removalErr
 }
 
+// scanGoBucket lists what Go itself writes in one subdirectory 00..ff of a cache and trims (cmd/go/internal/cache/
+// cache.go:117-119,439-467,598-620 at go1.27.4; golangci-lint's copy, internal/go/cache/cache.go:121-123,446-472 at
+// v2.15.0): a regular file named <64 lowercase hex>-a or -d whose hash starts with the subdirectory's name, or a -d
+// directory holding the one executable Go put there. Nothing else in a cache is ever a candidate.
 func scanGoBucket(cache *os.Root, mount mountID, bucket string, protected []os.FileInfo, candidates []cacheEntry) (
 	[]cacheEntry, error,
 ) {
@@ -358,13 +491,20 @@ func unchangedCacheEntry(current, expected os.FileInfo) bool {
 		current.ModTime().Equal(expected.ModTime()) && current.Size() == expected.Size()
 }
 
+// isHex reports whether name is size lowercase hex digits, as Go and golangci-lint name a cache's subdirectories
+// and entries (fmt "%02x" and "%x": cmd/go/internal/cache/cache.go:117-119 at go1.27.4; golangci-lint's
+// internal/go/cache/cache.go:121-123 at v2.15.0). A name in upper case is none they write, so it is not deleted.
 func isHex(name string, size int) bool {
 	if len(name) != size {
 		return false
 	}
 
-	_, err := hex.DecodeString(name)
-	return err == nil
+	for _, r := range name {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
