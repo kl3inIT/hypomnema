@@ -220,29 +220,6 @@ func diffBox(a, b []byte, w, h int) [4]int {
 	return box
 }
 
-// boxMeanDiff is the mean difference, in 0-255, of a and b inside box, each averaged over 2 × 2 pixels first: one
-// chroma sample of 4:2:0, which the video's encoder and the sample's JPEG each keep their own way at a text's edge.
-func boxMeanDiff(a, b []byte, w int, box [4]int) float64 {
-	total, n := 0.0, 0
-
-	for y := box[1] &^ 1; y+1 <= box[3]; y += 2 {
-		for x := box[0] &^ 1; x+1 <= box[2]; x += 2 {
-			for k := range 3 {
-				sum := 0
-
-				for _, d := range [][2]int{{0, 0}, {1, 0}, {0, 1}, {1, 1}} {
-					sum += pixelAt(a, w, x+d[0], y+d[1])[k] - pixelAt(b, w, x+d[0], y+d[1])[k]
-				}
-
-				total += math.Abs(float64(sum) / 4)
-				n++
-			}
-		}
-	}
-
-	return total / float64(n)
-}
-
 // meanDiff is the mean difference, in 0-255, of a and b inside box (in) or outside it.
 func meanDiff(a, b []byte, w, h int, box [4]int, in bool) float64 {
 	total, n := 0.0, 0
@@ -344,7 +321,16 @@ func TestTheLookSampleDrawsAsTheVideo(t *testing.T) {
 
 				assert.LessOrEqual(t, meanDiff(s1, e1, size.Width, size.Height, sb, false), 4.0,
 					"frame, background and picture")
-				assert.LessOrEqual(t, boxMeanDiff(s1, e1, size.Width, sb), 8.0, "the captions")
+				// Per pixel, the box at least 97 % within ±8 (the box drawn in full range, black as 16, put 9 out
+				// of every channel) and the text at least 92 %, every pixel within ±28 (measured on the pinned
+				// build: box 98.0-99.4 %, text 94.1-98.9 %, the most 23).
+				for part, share := range map[captionPart]float64{boxPart: 0.97, textPart: 0.92} {
+					within8, n, worst := captionPixels(s1, e1, size.Width, size.Height, sb, part)
+					require.Positive(t, n, "%s pixels", part)
+					assert.GreaterOrEqual(t, float64(within8)/float64(n), share, "%s: pixels within ±8 (%d of %d)",
+						part, within8, n)
+					assert.LessOrEqual(t, worst, 28, "%s: the most a pixel differs", part)
+				}
 			})
 		}
 	}
@@ -448,4 +434,62 @@ func streamMD5(t *testing.T, tools ffmpeg.Tools, file string) string {
 
 	return string(run(t.Context(), t, tools.FFmpeg, "-hide_banner", "-loglevel", "error", "-i", file, "-map", "0:v",
 		"-c", "copy", "-f", "md5", "-"))
+}
+
+// captionPart is a part of the captions' block: its text, white, or its box, dark.
+type captionPart string
+
+const (
+	textPart captionPart = "text"
+	boxPart  captionPart = "box"
+)
+
+// captionPixels compares the sample's and the video's captions pixel by pixel, inside box: the pixels of part (the
+// text, white in the sample; the box, dark), each at least a pixel from an edge in either picture, as the encoder
+// moves an edge by a 4:2:0 sample. It says how many are within ±8 in every channel, of how many, and the most any
+// differs. x264 at crf 20 and 4:2:0 dims a thin white stroke by up to 20 where the sample's JPEG keeps it (measured,
+// #937), so not every text pixel of the video can be within ±8 of the sample's.
+func captionPixels(sample, video []byte, w, h int, box [4]int, part captionPart) (within8, n, worst int) {
+	for y := box[1]; y <= box[3]; y++ {
+		for x := box[0]; x <= box[2]; x++ {
+			p, q := pixelAt(sample, w, x, y), pixelAt(video, w, x, y)
+
+			switch {
+			case part == textPart && min(p[0], p[1], p[2]) <= 200,
+				part == boxPart && max(p[0], p[1], p[2]) >= 100,
+				edgeNear(sample, w, h, x, y), edgeNear(video, w, h, x, y):
+				continue
+			}
+
+			d := 0
+			for k := range 3 {
+				d = max(d, int(math.Abs(float64(p[k]-q[k]))))
+			}
+
+			n++
+			worst = max(worst, d)
+
+			if d <= 8 {
+				within8++
+			}
+		}
+	}
+
+	return within8, n, worst
+}
+
+// edgeNear says whether a pixel next to x, y differs from it by more than 24 in a channel: an edge.
+func edgeNear(img []byte, w, h, x, y int) bool {
+	c := pixelAt(img, w, x, y)
+
+	for dy := -1; dy <= 1; dy++ {
+		for dx := -1; dx <= 1; dx++ {
+			xx, yy := x+dx, y+dy
+			if xx >= 0 && yy >= 0 && xx < w && yy < h && !within(pixelAt(img, w, xx, yy), c, 24) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
