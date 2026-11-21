@@ -127,7 +127,8 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 				"kind": map[string]any{"type": "string", "enum": []string{inboxstore.FromZalo, inboxstore.FromWhatsApp,
 					inboxstore.FromLark}},
 				"chat":    map[string]any{"type": "string", "description": "The chat's id at the service."},
-				"account": map[string]any{"type": "string", "description": "The owner's account the chat is in."},
+				"account": map[string]any{"type": "string", "description": "The owner's account the chat is in; " +
+					"without it, his message there never closes the item."},
 			},
 		},
 		"quote": map[string]any{"type": "string", "maxLength": inboxstore.MaxQuote,

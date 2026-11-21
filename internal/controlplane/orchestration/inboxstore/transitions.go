@@ -638,7 +638,7 @@ func ownersMessage(ctx context.Context, q *store.Queries, c Change, cur store.To
 
 // ownerSent says whether a message the owner sent is evidence that he answered the item (issue #1004; owner,
 // 2026-11-21: done when he sends): a LinkZaloSent, LinkWhatsAppSent or LinkLarkSent in the item's own chat at that
-// service (its source, account and chat), that the server keeps of that account or the service's API returns, that
+// service (its source, account and chat; an item without its account has none), that the server keeps of that account or the service's API returns, that
 // he sent himself and that is later than the item. claude-chief-of-staff reads the Sent mail to skip a thread
 // already answered (commands/triage.md:65); matching on the owner's own outgoing message is inference from the
 // business analysis.
@@ -649,9 +649,11 @@ func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (bool, e
 	}
 
 	for _, l := range evidence {
+		// Bound to the item's own account: an item without one (a Lark source names it only optionally) is never
+		// closed so, since another of the owner's Connections in the same chat could show the message.
 		service := sentService[l.Kind]
-		if service == "" || t.Source.Kind != service || l.Chat != t.Source.ID ||
-			(t.Source.Account != "" && l.Account != t.Source.Account) {
+		if service == "" || t.Source.Kind != service || l.Chat != t.Source.ID || t.Source.Account == "" ||
+			l.Account != t.Source.Account {
 			continue
 		}
 
