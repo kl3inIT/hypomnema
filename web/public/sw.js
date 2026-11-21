@@ -5,7 +5,10 @@
 /* global self, clients */
 
 // A push is a Declarative Web Push message ({web_push: 8030, notification: {title, body, navigate, tag}}), which
-// Safari shows by itself; this shows it in the browsers that hand it here, as Coder's serviceWorker.ts does.
+// Safari shows by itself; this shows it in the browsers that hand it here, as Coder's serviceWorker.ts does. Safari
+// shows the declarative notification when this handler shows none (WebKit's "Meet Declarative Web Push"), so the
+// chat in view is not hidden there; the design keeps the declarative form so a push shows even when the worker does
+// not run (issue #1047).
 self.addEventListener("push", (event) => {
   if (!event.data) return
 
@@ -21,13 +24,16 @@ self.addEventListener("push", (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
-      // A push for the page the owner is looking at is not shown (Coder, serviceWorker.ts:25-79).
-      const looking = windows.some(
-        (w) =>
-          w.visibilityState === "visible" &&
-          w.focused &&
-          new URL(w.url).pathname === target.pathname,
-      )
+      // A push for the chat the owner is reading is not shown (Coder, serviceWorker.ts:25-79); any other page's is,
+      // the test push that opens Settings included.
+      const looking =
+        target.pathname.startsWith("/chats/") &&
+        windows.some(
+          (w) =>
+            w.visibilityState === "visible" &&
+            w.focused &&
+            new URL(w.url).pathname === target.pathname,
+        )
       if (looking) return undefined
 
       return self.registration.showNotification(notification.title, {
