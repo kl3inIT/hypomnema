@@ -23,6 +23,21 @@ type laterClock struct{}
 
 func (laterClock) Now() time.Time { return fixedClock{}.Now().Add(time.Hour) }
 
+// failingRevocations are the gateway's revocations, with a step after a chat's that may fail.
+type failingRevocations struct {
+	modelgateway.Revocations
+
+	fail func() error
+}
+
+func (r failingRevocations) RevokeDeletedChatKeysTx(ctx context.Context, tx *sql.Tx, chatID string, now int64) error {
+	if err := r.Revocations.RevokeDeletedChatKeysTx(ctx, tx, chatID, now); err != nil {
+		return err
+	}
+
+	return r.fail()
+}
+
 // Scenario (issue #405): orchestration deletes a chat whose pi had keys, and
 // the gateway's own function revokes them in that transaction. A delete that
 // fails after the revocation leaves the chat and its live key as they were;
@@ -46,18 +61,15 @@ func TestADeletedChatEndsItsGatewayKeysInItsTransaction(t *testing.T) {
 		return fmt.Sprintf("%s_%04d", prefix, n)
 	}
 
-	orch := orchestration.New(db, laterClock{}, ids, orchestration.WithChatKeys(
-		func(ctx context.Context, tx *sql.Tx, chatID string, now int64) error {
-			if err := modelgateway.RevokeDeletedChatKeysTx(ctx, tx, chatID, now); err != nil {
-				return err
-			}
-
+	orch := orchestration.New(db, laterClock{}, ids, orchestration.WithGatewayKeys(failingRevocations{
+		fail: func() error {
 			if fail {
 				return errLater
 			}
 
 			return nil
-		}))
+		},
+	}))
 	g := modelgateway.New(db, fixedClock{}, ids, nil, nil)
 
 	chat, err := orch.CreateChat(ctx, "", "")

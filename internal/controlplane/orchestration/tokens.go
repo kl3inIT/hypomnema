@@ -25,6 +25,12 @@ type Token struct {
 	Kind      bearertoken.Kind
 	CreatedAt time.Time
 	RevokedAt *time.Time
+	// RevokeReason says why a revoked token stopped (issue #996); empty for a live one or one revoked before
+	// reasons were kept.
+	RevokeReason bearertoken.RevokeReason
+	// LastUsedAt is when the token last authenticated, written at most once an hour (issue #996); nil for one
+	// never used since it was kept.
+	LastUsedAt *time.Time
 	// Chat and Bot are what a Bot token (bearertoken.Bot) is bound to: the
 	// chat its pi runs for and the Bot it runs as. Empty for other kinds.
 	Chat string
@@ -92,24 +98,74 @@ func (s *Service) ListTokens(ctx context.Context) ([]Token, error) {
 	return out, nil
 }
 
-// RevokeToken stops a token from working. Revoking twice is a conflict.
+// RevokeToken stops a token from working. Revoking twice is a conflict. A coordinator token takes its children
+// with it, each with the reason parent_revoked (issue #996), as Orca revokes a device's children recursively
+// (runtime-rpc-mobile-devices.ts): the gateway keys of the chats whose pi runs under it, and the agent sessions and
+// gateway keys of the Dispatches of the Runs it created, in the same commit; then the Bot tokens made under it,
+// which are kept in memory (they were already refused by their parent's revocation, bottokens.go).
 func (s *Service) RevokeToken(ctx context.Context, id string) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
-		n, err := q.RevokeClientToken(ctx, store.RevokeClientTokenParams{Now: sql.NullInt64{Int64: now, Valid: true}, ID: id})
+	var kind bearertoken.Kind
+
+	err := s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
+		row, err := q.GetClientToken(ctx, id)
+		if err != nil {
+			return notFound(err, "token", id)
+		}
+
+		kind = bearertoken.Kind(row.Kind)
+
+		n, err := q.RevokeClientToken(ctx, store.RevokeClientTokenParams{
+			Now: validInt(now), Reason: revokeReason(bearertoken.RevokedByOwner), ID: id,
+		})
 		if err != nil {
 			return fmt.Errorf("revoking token %s: %w", id, err)
 		}
 
-		if n == 1 {
+		if n != 1 {
+			return fmt.Errorf("%w: token %s is already revoked", ErrConflict, id)
+		}
+
+		if kind != bearertoken.Coordinator {
 			return nil
 		}
 
-		if _, err := q.GetClientToken(ctx, id); err != nil {
-			return notFound(err, "token", id)
+		if err := q.RevokeAgentSessionsOfCoordinatorToken(ctx, store.RevokeAgentSessionsOfCoordinatorTokenParams{
+			Now: validInt(now), Reason: revokeReason(bearertoken.RevokedParentRevoked), TokenID: id,
+		}); err != nil {
+			return fmt.Errorf("revoking the agent sessions under token %s: %w", id, err)
 		}
 
-		return fmt.Errorf("%w: token %s is already revoked", ErrConflict, id)
+		if s.gatewayKeys == nil {
+			return nil
+		}
+
+		return s.gatewayKeys.RevokeCoordinatorKeysTx(ctx, tx, id, now)
 	})
+	if err != nil {
+		return err
+	}
+
+	if kind == bearertoken.Coordinator {
+		s.endBotTokens(func(b botToken) bool { return b.coordinatorID == id })
+	}
+
+	return nil
+}
+
+// CoordinatorTokenID returns the id of the coordinator token of that name, revoked or not, which a chat's pi runs
+// under: its gateway key names it, and the gateway refuses a key under a revoked one in the transaction that would
+// make it, so revoking the token ends the key and no new one is made (issue #996).
+func (s *Service) CoordinatorTokenID(ctx context.Context, name string) (string, error) {
+	row, err := s.read().GetClientTokenByName(ctx, name)
+	if err != nil {
+		return "", notFound(err, "coordinator token", name)
+	}
+
+	if bearertoken.Kind(row.Kind) != bearertoken.Coordinator {
+		return "", fmt.Errorf("%w: token %q is not a coordinator token", ErrInvalid, name)
+	}
+
+	return row.ID, nil
 }
 
 // AuthenticateToken returns the token a secret belongs to. A malformed,
@@ -143,14 +199,30 @@ func (s *Service) AuthenticateToken(ctx context.Context, secret string) (Token, 
 		return Token{}, fmt.Errorf("%w: token %s has another kind", ErrNotFound, t.ID)
 	}
 
+	before := s.clock.Now().Add(-bearertoken.TouchEvery).UnixMilli()
+	if !row.LastUsedAt.Valid || row.LastUsedAt.Int64 <= before {
+		err := s.write(ctx, func(q *store.Queries, now int64) error {
+			return q.TouchClientToken(ctx, store.TouchClientTokenParams{Now: now, ID: t.ID, Before: before})
+		})
+		if err != nil {
+			return Token{}, fmt.Errorf("recording the use of token %s: %w", t.ID, err)
+		}
+	}
+
 	return t, nil
 }
 
 func tokenFromRow(r store.ClientToken) Token {
 	return Token{
 		ID: r.ID, Name: r.Name, Kind: bearertoken.Kind(r.Kind), CreatedAt: millis(r.CreatedAt),
-		RevokedAt: optionalTime(r.RevokedAt),
+		RevokedAt: optionalTime(r.RevokedAt), RevokeReason: bearertoken.RevokeReason(r.RevokeReason.String),
+		LastUsedAt: optionalTime(r.LastUsedAt),
 	}
+}
+
+// revokeReason is how a reason is stored.
+func revokeReason(r bearertoken.RevokeReason) sql.NullString {
+	return sql.NullString{String: string(r), Valid: true}
 }
 
 // Once makes a client's create safe to repeat (an Idempotency-Key, as

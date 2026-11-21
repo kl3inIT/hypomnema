@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
@@ -33,10 +34,6 @@ const (
 	// NodeDeleted: removed by the owner; kept only for the record.
 	NodeDeleted NodeStatus = "deleted"
 )
-
-// nodeTokenTouchEvery is how often a token's last use is written (Omnara
-// touches a machine token at most hourly).
-const nodeTokenTouchEvery = time.Hour
 
 // RuntimeInfo is one CLI a node found.
 type RuntimeInfo struct {
@@ -234,6 +231,8 @@ type NodeToken struct {
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
 	RevokedAt  *time.Time
+	// RevokeReason says why a revoked token stopped (issue #996): the owner's revoke or its node's removal.
+	RevokeReason bearertoken.RevokeReason
 }
 
 // firstNodeTokenName names the token a node is added with.
@@ -282,7 +281,7 @@ func (s *Service) AddNode(ctx context.Context, name string, maxDispatches int) (
 // is a node created at a provider, whose machine must be destroyed first
 // (BeginMachineRemoval).
 func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
+	return s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
 		row, err := q.GetNode(ctx, nodeID)
 		if err != nil {
 			return notFound(err, "node", nodeID)
@@ -309,12 +308,35 @@ func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
 			return err
 		}
 
-		if err := q.RevokeNodeTokens(ctx, store.RevokeNodeTokensParams{Now: validInt(now), NodeID: nodeID}); err != nil {
-			return fmt.Errorf("revoking the tokens of node %s: %w", nodeID, err)
-		}
-
-		return nil
+		return s.revokeNodeCredentials(ctx, tx, q, nodeID, now)
 	})
+}
+
+// revokeNodeCredentials ends what a node being removed holds (issue #996), each with the reason node_removed: its
+// tokens, and the agent sessions and gateway keys of the Dispatches it ran, which the keys sweep ends anyway once
+// they settle (dispatchkeys.go); Omnara revokes a machine's daemon tokens as it deletes the machine
+// (executionstore/machine_lifecycle_store.go).
+func (s *Service) revokeNodeCredentials(ctx context.Context, tx *sql.Tx, q *store.Queries, nodeID string, now int64,
+) error {
+	reason := revokeReason(bearertoken.RevokedNodeRemoved)
+
+	if err := q.RevokeNodeTokens(ctx, store.RevokeNodeTokensParams{
+		Now: validInt(now), Reason: reason, NodeID: nodeID,
+	}); err != nil {
+		return fmt.Errorf("revoking the tokens of node %s: %w", nodeID, err)
+	}
+
+	if err := q.RevokeAgentSessionsOfNode(ctx, store.RevokeAgentSessionsOfNodeParams{
+		Now: validInt(now), Reason: reason, NodeID: nodeID,
+	}); err != nil {
+		return fmt.Errorf("revoking the agent sessions of node %s: %w", nodeID, err)
+	}
+
+	if s.gatewayKeys == nil {
+		return nil
+	}
+
+	return s.gatewayKeys.RevokeNodeKeysTx(ctx, tx, nodeID, now)
 }
 
 // NodeChange is what UpdateNode changes on a node; a part left nil keeps
@@ -475,8 +497,8 @@ func (s *Service) AddNodeToken(ctx context.Context, nodeID, name string) (NodeTo
 			return notFound(err, "node", nodeID)
 		}
 
-		if NodeStatus(n.Status) == NodeDeleted {
-			return fmt.Errorf("%w: node %s", ErrNotFound, nodeID)
+		if nodeLeaving(n) {
+			return fmt.Errorf("%w: node %s is removed or being removed", ErrNotFound, nodeID)
 		}
 
 		return q.InsertNodeToken(ctx, store.InsertNodeTokenParams{
@@ -514,7 +536,9 @@ func (s *Service) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToke
 // is refused at its next heartbeat.
 func (s *Service) RevokeNodeToken(ctx context.Context, tokenID string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		n, err := q.RevokeNodeToken(ctx, store.RevokeNodeTokenParams{Now: validInt(now), ID: tokenID})
+		n, err := q.RevokeNodeToken(ctx, store.RevokeNodeTokenParams{
+			Now: validInt(now), Reason: revokeReason(bearertoken.RevokedByOwner), ID: tokenID,
+		})
 
 		return oneRow(n, err, "live node token", tokenID)
 	})
@@ -533,7 +557,7 @@ func (s *Service) AuthenticateNodeToken(ctx context.Context, token string) (Node
 		return Node{}, "", fmt.Errorf("authenticating a node: %w", err)
 	}
 
-	before := s.clock.Now().Add(-nodeTokenTouchEvery).UnixMilli()
+	before := s.clock.Now().Add(-bearertoken.TouchEvery).UnixMilli()
 	if !row.LastUsedAt.Valid || row.LastUsedAt.Int64 <= before {
 		err := s.write(ctx, func(q *store.Queries, now int64) error {
 			return q.TouchNodeToken(ctx, store.TouchNodeTokenParams{Now: now, ID: row.ID, Before: before})
@@ -563,6 +587,14 @@ func (s *Service) CheckNodeToken(ctx context.Context, tokenID string) error {
 	return nil
 }
 
+// nodeLeaving says whether a node is removed or being removed, a provider's machine deleting or failing to be:
+// no credential is issued for it (issue #996), as BeginMachineRemoval revoked what it had.
+func nodeLeaving(n store.Node) bool {
+	state := MachineState(n.MachineState.String)
+
+	return NodeStatus(n.Status) == NodeDeleted || state == MachineDeleting || state == MachineDeleteFailed
+}
+
 func newNodeToken() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -576,6 +608,7 @@ func nodeTokenOut(r store.NodeToken) NodeToken {
 	return NodeToken{
 		ID: r.ID, NodeID: r.NodeID, Name: r.Name, CreatedAt: millis(r.CreatedAt),
 		LastUsedAt: optionalTime(r.LastUsedAt), RevokedAt: optionalTime(r.RevokedAt),
+		RevokeReason: bearertoken.RevokeReason(r.RevokeReason.String),
 	}
 }
 

@@ -32,6 +32,15 @@ func (fixedClock) Now() time.Time { return time.Date(2026, 11, 10, 9, 0, 0, 0, t
 func newGateway(t *testing.T) *modelgateway.Service {
 	t.Helper()
 
+	g, _ := newGatewayAndDB(t)
+
+	return g
+}
+
+// newGatewayAndDB is newGateway with its database.
+func newGatewayAndDB(t *testing.T) (*modelgateway.Service, *sql.DB) {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -64,7 +73,7 @@ func newGateway(t *testing.T) *modelgateway.Service {
 		return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Models: p.Models}, nil
 	}, func(context.Context, string) (string, error) { return "", nil }).WithKeyVault(testKeyVault(t, db))
 
-	return g
+	return g, db
 }
 
 func testKeyVault(t *testing.T, db *sql.DB) *vault.Service {
@@ -286,8 +295,10 @@ func TestListModelsOverHTTP(t *testing.T) {
 func TestAChatsPiHasAKeyOfItsOwn(t *testing.T) {
 	t.Parallel()
 
-	g := newGateway(t)
+	g, db := newGatewayAndDB(t)
 	ctx := t.Context()
+	chatFor(t, db, "cht_1", "")
+	chatFor(t, db, "cht_2", "")
 
 	_, owner, err := g.AddKey(ctx, "laptop", nil, nil)
 	require.NoError(t, err)

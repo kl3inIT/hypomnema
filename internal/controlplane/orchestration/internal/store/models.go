@@ -48,12 +48,14 @@ type ActionPolicy struct {
 }
 
 type AgentSession struct {
-	ID         string
-	KeyHash    string
-	DispatchID string
-	Uses       string
-	CreatedAt  int64
-	RevokedAt  sql.NullInt64
+	ID           string
+	KeyHash      string
+	DispatchID   string
+	Uses         string
+	CreatedAt    int64
+	RevokedAt    sql.NullInt64
+	RevokeReason sql.NullString
+	LastUsedAt   sql.NullInt64
 }
 
 type AntigravityPromptRewrite struct {
@@ -126,13 +128,17 @@ type ArtifactRevision struct {
 }
 
 type ArtifactShare struct {
-	ID           string
-	ArtifactID   string
-	Token        string
-	Label        string
-	CreatedAt    int64
-	Views        int64
-	LastViewedAt sql.NullInt64
+	ID              string
+	ArtifactID      string
+	TokenHash       sql.NullString
+	Token           sql.NullString
+	SecretVersionID sql.NullString
+	Label           string
+	CreatedAt       int64
+	Views           int64
+	LastViewedAt    sql.NullInt64
+	RevokedAt       sql.NullInt64
+	RevokeReason    sql.NullString
 }
 
 type Bot struct {
@@ -264,12 +270,14 @@ type ChatQueue struct {
 }
 
 type ClientToken struct {
-	ID        string
-	Name      string
-	Kind      string
-	TokenHash string
-	CreatedAt int64
-	RevokedAt sql.NullInt64
+	ID           string
+	Name         string
+	Kind         string
+	TokenHash    string
+	CreatedAt    int64
+	RevokedAt    sql.NullInt64
+	RevokeReason sql.NullString
+	LastUsedAt   sql.NullInt64
 }
 
 type Connection struct {
@@ -435,19 +443,22 @@ type GatewayImageProvider struct {
 }
 
 type GatewayKey struct {
-	ID              string
-	Name            string
-	KeyHash         string
-	Models          string
-	CreatedAt       int64
-	RevokedAt       sql.NullInt64
-	DispatchID      sql.NullString
-	ChatID          sql.NullString
-	KeyPrefix       string
-	BotID           sql.NullString
-	Endpoints       sql.NullString
-	SecretVersionID sql.NullString
-	MaskedValue     string
+	ID                 string
+	Name               string
+	KeyHash            string
+	Models             string
+	CreatedAt          int64
+	RevokedAt          sql.NullInt64
+	DispatchID         sql.NullString
+	ChatID             sql.NullString
+	KeyPrefix          string
+	BotID              sql.NullString
+	Endpoints          sql.NullString
+	SecretVersionID    sql.NullString
+	MaskedValue        string
+	RevokeReason       sql.NullString
+	LastUsedAt         sql.NullInt64
+	CoordinatorTokenID sql.NullString
 }
 
 type GatewayModel struct {
@@ -733,13 +744,14 @@ type Node struct {
 }
 
 type NodeToken struct {
-	ID         string
-	NodeID     string
-	Name       string
-	TokenHash  string
-	CreatedAt  int64
-	LastUsedAt sql.NullInt64
-	RevokedAt  sql.NullInt64
+	ID           string
+	NodeID       string
+	Name         string
+	TokenHash    string
+	CreatedAt    int64
+	LastUsedAt   sql.NullInt64
+	RevokedAt    sql.NullInt64
+	RevokeReason sql.NullString
 }
 
 type Profile struct {
@@ -966,6 +978,11 @@ type SetupChange struct {
 	UndoneAt  sql.NullInt64
 }
 
+type ShareTokenScrub struct {
+	ID    int64
+	Since int64
+}
+
 type Skill struct {
 	Name      string
 	Everyone  int64
@@ -1125,9 +1142,12 @@ type VideoRevision struct {
 }
 
 type WebSession struct {
-	ID         string
-	UserID     string
-	SecretHash string
-	CreatedAt  int64
-	ExpiresAt  int64
+	ID           string
+	UserID       string
+	SecretHash   string
+	CreatedAt    int64
+	ExpiresAt    int64
+	RevokedAt    sql.NullInt64
+	RevokeReason sql.NullString
+	LastUsedAt   sql.NullInt64
 }

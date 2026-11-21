@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -93,7 +94,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 
 	if code == openapi.InternalError {
 		s.logger.ErrorContext(r.Context(), "client API request failed",
-			slog.String("event", "clientapi.internal_error"), slog.String("path", r.URL.Path),
+			slog.String("event", "clientapi.internal_error"), slog.String("path", loggedPath(r.URL.Path)),
 			slog.String("error", err.Error()))
 
 		message = "internal error"
@@ -143,4 +144,20 @@ func writeJSONError(w http.ResponseWriter, status int, code openapi.ErrorCode, m
 	if err := json.NewEncoder(w).Encode(openapi.Error{Code: code, Message: message}); err != nil {
 		return // The client left; there is no one to tell.
 	}
+}
+
+// loggedPath is a request's path as it may be logged: a share link's token, which opens its artifact to whoever
+// has it, is replaced (issue #996).
+func loggedPath(path string) string {
+	rest, ok := strings.CutPrefix(path, sharesPath)
+	if !ok || rest == "" {
+		return path
+	}
+
+	_, after, found := strings.Cut(rest, "/")
+	if !found {
+		return sharesPath + "<token>"
+	}
+
+	return sharesPath + "<token>/" + after
 }

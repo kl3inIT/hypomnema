@@ -30,6 +30,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -60,6 +61,12 @@ func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clien
 	t.Cleanup(func() { _ = db.Close() })
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	// Share links' tokens are sealed in a vault, as the control plane wires it (issue #996).
+	entry, err := vault.GenerateKey("k1")
+	require.NoError(t, err)
+	keys, err := vault.ParseKeyring(entry, "k1")
+	require.NoError(t, err)
+	svc.WithShareVault(vault.New(db, platform.SystemClock{}, platform.NewID, keys, nil).Copies())
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 

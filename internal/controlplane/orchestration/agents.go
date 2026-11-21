@@ -242,6 +242,17 @@ func (s *Service) AddAgentSession(ctx context.Context, dispatchID string, uses [
 	}
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		// Read in the transaction that makes the key, so a revocation committed before it is seen (issue #996).
+		ended, err := q.DispatchCredentialsEnded(ctx, dispatchID)
+		if err != nil {
+			return fmt.Errorf("checking what dispatch %s's key hangs from: %w", dispatchID, err)
+		}
+
+		if ended > 0 {
+			return fmt.Errorf("%w: the coordinator token of dispatch %s's run is revoked or its node removed",
+				ErrConflict, dispatchID)
+		}
+
 		return q.InsertAgentSession(ctx, store.InsertAgentSessionParams{
 			ID: s.newID("ags"), KeyHash: bearertoken.Hash(secret), DispatchID: dispatchID,
 			Uses: strings.Join(uses, ","), Now: now,
@@ -268,6 +279,16 @@ func (s *Service) AgentSessionOf(ctx context.Context, secret string) (AgentSessi
 
 	if err != nil {
 		return AgentSession{}, fmt.Errorf("reading an agent session: %w", err)
+	}
+
+	before := s.clock.Now().Add(-bearertoken.TouchEvery).UnixMilli()
+	if !row.LastUsedAt.Valid || row.LastUsedAt.Int64 <= before {
+		err := s.write(ctx, func(q *store.Queries, now int64) error {
+			return q.TouchAgentSession(ctx, store.TouchAgentSessionParams{Now: now, ID: row.ID, Before: before})
+		})
+		if err != nil {
+			return AgentSession{}, fmt.Errorf("recording the use of agent session %s: %w", row.ID, err)
+		}
 	}
 
 	byCoordinator, bot, err := s.runOrigin(ctx, row.DispatchID)
@@ -347,12 +368,12 @@ func (s *Service) runOrigin(ctx context.Context, dispatchID string) (byCoordinat
 	return run.CoordinatorTokenID.Valid, run.BotID.String, nil
 }
 
-// RevokeAgentSessions stops every key of a Dispatch from working; none is no
-// error.
+// RevokeAgentSessions stops every key of a Dispatch that settled from working;
+// none is no error.
 func (s *Service) RevokeAgentSessions(ctx context.Context, dispatchID string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		_, err := q.RevokeAgentSessionsOfDispatch(ctx, store.RevokeAgentSessionsOfDispatchParams{
-			Now: sql.NullInt64{Int64: now, Valid: true}, DispatchID: dispatchID,
+			Now: validInt(now), Reason: revokeReason(bearertoken.RevokedDispatchEnded), DispatchID: dispatchID,
 		})
 		if err != nil {
 			return fmt.Errorf("revoking the agent sessions of dispatch %s: %w", dispatchID, err)

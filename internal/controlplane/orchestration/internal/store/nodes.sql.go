@@ -370,11 +370,12 @@ func (q *Queries) GetAccountByExternalID(ctx context.Context, arg GetAccountByEx
 }
 
 const getLiveNodeTokenByHash = `-- name: GetLiveNodeTokenByHash :one
-SELECT t.id, t.node_id, t.name, t.token_hash, t.created_at, t.last_used_at, t.revoked_at FROM node_tokens t JOIN nodes n ON n.id = t.node_id
+SELECT t.id, t.node_id, t.name, t.token_hash, t.created_at, t.last_used_at, t.revoked_at, t.revoke_reason FROM node_tokens t JOIN nodes n ON n.id = t.node_id
 WHERE t.token_hash = ?1 AND t.revoked_at IS NULL AND n.status <> 'deleted'
+  AND coalesce(n.machine_state, '') NOT IN ('deleting', 'delete_failed')
 `
 
-// The token, when it is not revoked and its node has not been removed.
+// The token, when it is not revoked and its node has not been removed nor is being removed (issue #996).
 func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) (NodeToken, error) {
 	row := q.db.QueryRowContext(ctx, getLiveNodeTokenByHash, tokenHash)
 	var i NodeToken
@@ -386,6 +387,7 @@ func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) 
 		&i.CreatedAt,
 		&i.LastUsedAt,
 		&i.RevokedAt,
+		&i.RevokeReason,
 	)
 	return i, err
 }
@@ -450,7 +452,7 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 }
 
 const getNodeToken = `-- name: GetNodeToken :one
-SELECT id, node_id, name, token_hash, created_at, last_used_at, revoked_at FROM node_tokens WHERE id = ?1
+SELECT id, node_id, name, token_hash, created_at, last_used_at, revoked_at, revoke_reason FROM node_tokens WHERE id = ?1
 `
 
 func (q *Queries) GetNodeToken(ctx context.Context, id string) (NodeToken, error) {
@@ -464,6 +466,7 @@ func (q *Queries) GetNodeToken(ctx context.Context, id string) (NodeToken, error
 		&i.CreatedAt,
 		&i.LastUsedAt,
 		&i.RevokedAt,
+		&i.RevokeReason,
 	)
 	return i, err
 }
@@ -712,7 +715,7 @@ func (q *Queries) ListActiveCooldowns(ctx context.Context, now int64) ([]Account
 }
 
 const listNodeTokens = `-- name: ListNodeTokens :many
-SELECT id, node_id, name, token_hash, created_at, last_used_at, revoked_at FROM node_tokens WHERE node_id = ?1 ORDER BY created_at, id
+SELECT id, node_id, name, token_hash, created_at, last_used_at, revoked_at, revoke_reason FROM node_tokens WHERE node_id = ?1 ORDER BY created_at, id
 `
 
 func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToken, error) {
@@ -732,6 +735,7 @@ func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToke
 			&i.CreatedAt,
 			&i.LastUsedAt,
 			&i.RevokedAt,
+			&i.RevokeReason,
 		); err != nil {
 			return nil, err
 		}
@@ -964,16 +968,17 @@ func (q *Queries) ResumeNode(ctx context.Context, arg ResumeNodeParams) (int64, 
 }
 
 const revokeNodeToken = `-- name: RevokeNodeToken :execrows
-UPDATE node_tokens SET revoked_at = ?1 WHERE id = ?2 AND revoked_at IS NULL
+UPDATE node_tokens SET revoked_at = ?1, revoke_reason = ?2 WHERE id = ?3 AND revoked_at IS NULL
 `
 
 type RevokeNodeTokenParams struct {
-	Now sql.NullInt64
-	ID  string
+	Now    sql.NullInt64
+	Reason sql.NullString
+	ID     string
 }
 
 func (q *Queries) RevokeNodeToken(ctx context.Context, arg RevokeNodeTokenParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeNodeToken, arg.Now, arg.ID)
+	result, err := q.db.ExecContext(ctx, revokeNodeToken, arg.Now, arg.Reason, arg.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -981,16 +986,17 @@ func (q *Queries) RevokeNodeToken(ctx context.Context, arg RevokeNodeTokenParams
 }
 
 const revokeNodeTokens = `-- name: RevokeNodeTokens :exec
-UPDATE node_tokens SET revoked_at = ?1 WHERE node_id = ?2 AND revoked_at IS NULL
+UPDATE node_tokens SET revoked_at = ?1, revoke_reason = ?2 WHERE node_id = ?3 AND revoked_at IS NULL
 `
 
 type RevokeNodeTokensParams struct {
 	Now    sql.NullInt64
+	Reason sql.NullString
 	NodeID string
 }
 
 func (q *Queries) RevokeNodeTokens(ctx context.Context, arg RevokeNodeTokensParams) error {
-	_, err := q.db.ExecContext(ctx, revokeNodeTokens, arg.Now, arg.NodeID)
+	_, err := q.db.ExecContext(ctx, revokeNodeTokens, arg.Now, arg.Reason, arg.NodeID)
 	return err
 }
 
