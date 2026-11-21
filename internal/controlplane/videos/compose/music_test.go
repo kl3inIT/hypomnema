@@ -1,3 +1,30 @@
+// The ambient bed of TestTheBed is ported from agent-demo-video (https://github.com/OrionArchitekton/agent-demo-video)
+// at commit f63b61a, src/sound.ts, ambientBedArgs (lines 21-29): brown noise at 44.1 kHz through
+// lowpass=f=300,highpass=f=45,tremolo=f=0.12:d=0.22,volume=6dB. Modified: 7.3 s long, written as a 16-bit WAV, as
+// a track with dynamics to loop. The notice is in third_party/agent-demo-video/NOTICE.
+//
+// MIT License
+//
+// Copyright (c) 2026 agent-demo-video authors
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 package compose
 
 import (
@@ -74,15 +101,9 @@ func musicTake(t *testing.T, tools ffmpeg.Tools, dir string, clips []clip) []str
 	for i, c := range clips {
 		take.Steps = append(take.Steps, devicetool.TakeStep{AtMs: int64(i) * 500, Text: fmt.Sprintf("Bước %d", i+1)})
 
-		samples := make([]int16, c.ms*sampleRate/1000)
-		amp := 32767 * math.Pow(10, c.dbfs/20)
-
-		for k := range samples {
-			samples[k] = int16(amp * math.Sin(2*math.Pi*voiceHz*float64(k)/sampleRate))
-		}
-
-		voices[i] = filepath.Join(dir, fmt.Sprintf("voice-%d.wav", i))
-		writeWAV(t, voices[i], samples)
+		voices[i] = lavfi(t, tools, filepath.Join(dir, fmt.Sprintf("voice-%d.wav", i)),
+			fmt.Sprintf("aevalsrc=%g*sin(2*PI*%d*t):s=%d:d=%s", math.Pow(10, c.dbfs/20), voiceHz, sampleRate,
+				ms(int64(c.ms))), "-c:a", "pcm_s16le")
 	}
 
 	raw, err := json.Marshal(take)
@@ -173,7 +194,8 @@ func TestTheMusicIsDuckedUnderTheClips(t *testing.T) {
 
 	tools := tools(t)
 	dir := t.TempDir()
-	voices := musicTake(t, tools, dir, []clip{{-20, 3000}, {-30, 3000}, {-40, 3000}})
+	clips := []clip{{-20, 3000}, {-30, 3000}, {-40, 3000}}
+	voices := musicTake(t, tools, dir, clips)
 	track := sineTrack(t, tools, filepath.Join(dir, "music.wav"), musicHz, 0.25, 30)
 
 	ducked := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000}, "ducked")
@@ -188,23 +210,44 @@ func TestTheMusicIsDuckedUnderTheClips(t *testing.T) {
 	assert.LessOrEqual(t, lv.OutTPdB, warnPeakDBTP)
 	t.Logf("levels: %+v", *lv)
 
-	d, c := decode(t, tools, ducked.out, 1), decode(t, tools, control.out, 1)
-	spans := duckSpans(ducked.Scenes)
-	require.Len(t, spans, 1, "the 300 ms gaps merge")
+	// Where the clips are, from the fixture: each scene lasts its clip and the 300 ms gap, 99 frames.
+	var starts []float64
 
-	end := math.Min(float64(spans[0].EndMs), float64(ducked.LengthMs-fadeOutMs))
+	totalMs := 0.0
+	for _, cl := range clips {
+		starts = append(starts, totalMs)
+		totalMs += float64(cl.ms + GapMs)
+	}
+
+	require.InDelta(t, totalMs, ducked.LengthMs, frameMs+1)
+
+	// The music is ducked from 0.2 s to the last clip's end or the fade, whichever is first: 0.2 s to 8.1 s, 79
+	// windows, six of them in the two gaps.
+	end := math.Min(totalMs-GapMs, totalMs-fadeOutMs)
+	d, c := decode(t, tools, ducked.out, 1), decode(t, tools, control.out, 1)
 	worst := 0.0
+	checked, inGaps := 0, 0
 
 	for at := 200.0; at+windowMs <= end; at += windowMs {
 		diff := bandDB(d, at, musicHz) - bandDB(c, at, musicHz)
 		worst = math.Max(worst, math.Abs(diff+12))
 		assert.InDelta(t, -12, diff, 1, "the music at %.0f ms is ducked 12 dB", at)
+
+		checked++
+
+		for _, s := range starts[1:] {
+			if at >= s-GapMs && at+windowMs <= s {
+				inGaps++
+			}
+		}
 	}
 
-	t.Logf("ducked - control: worst %.2f dB off -12", worst)
+	assert.Equal(t, 79, checked, "windows checked")
+	assert.Equal(t, 6, inGaps, "windows checked in the gaps")
+	t.Logf("ducked - control: worst %.2f dB off -12 over %d windows", worst, checked)
 
-	for i, sc := range ducked.Scenes {
-		at := float64(sc.OutStartMs) + 1500
+	for i, s := range starts {
+		at := s + 1500
 		assert.InDelta(t, bandDB(c, at, voiceHz), bandDB(d, at, voiceHz), 0.5, "the voice of clip %d", i+1)
 	}
 
@@ -390,11 +433,28 @@ type streamProbe struct {
 	Duration string `json:"duration"`
 }
 
+// probeStream is the first audio stream of file as ffprobe reads it.
 func probeStream(t *testing.T, tools ffmpeg.Tools, file string) streamProbe {
 	t.Helper()
 
+	return probeOf(t, tools, file, "a:0")
+}
+
+// streamMs is the duration of a file's stream, as ffprobe reads it from the stream, in ms.
+func streamMs(t *testing.T, tools ffmpeg.Tools, file, stream string) float64 {
+	t.Helper()
+
+	sec, err := strconv.ParseFloat(probeOf(t, tools, file, stream).Duration, 64)
+	require.NoError(t, err)
+
+	return sec * 1000
+}
+
+func probeOf(t *testing.T, tools ffmpeg.Tools, file, stream string) streamProbe {
+	t.Helper()
+
 	//nolint:gosec // The test's ffprobe.
-	out, err := exec.CommandContext(t.Context(), tools.FFprobe, "-v", "error", "-select_streams", "a:0",
+	out, err := exec.CommandContext(t.Context(), tools.FFprobe, "-v", "error", "-select_streams", stream,
 		"-show_entries", "stream=codec_name,channels,sample_rate,duration", "-of", "json", file).Output()
 	require.NoError(t, err)
 
@@ -443,9 +503,9 @@ func TestTheMixIsLimited(t *testing.T) {
 	assert.Equal(t, 2, probe.Channels)
 	assert.Equal(t, "44100", probe.Rate)
 
-	duration, err := strconv.ParseFloat(probe.Duration, 64)
-	require.NoError(t, err)
-	assert.InDelta(t, float64(limited.LengthMs), duration*1000, 1000.0/FPS, "the sound lasts the picture")
+	video, audio := streamMs(t, tools, limited.out, "v:0"), streamMs(t, tools, limited.out, "a:0")
+	t.Logf("the picture lasts %.1f ms and the sound %.1f ms", video, audio)
+	assert.InDelta(t, video, audio, 1000.0/FPS, "the sound lasts the picture")
 
 	burned, err := Burn(t.Context(), tools, limited.out, filepath.Join("testdata", "captions.ass"),
 		filepath.Join(dir, "burn"))
