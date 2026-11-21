@@ -2,6 +2,7 @@ package videos
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -535,4 +536,39 @@ func TestARetryAfterAFailedSceneKeepsTheFirstScenesVoice(t *testing.T) {
 	assert.Equal(t, 1, r.speech.count(speech.ProviderSoniox, "Mở ứng dụng"), "scene 1's clip is reused")
 	assert.Equal(t, 0, r.speech.count(speech.ProviderElevenLabs, "Mở ứng dụng"), "no other voice")
 	assert.Equal(t, 0, r.speech.count(speech.ProviderElevenLabs, "Chạm vào Đăng nhập"))
+}
+
+// A pinned revision whose clip was lost since is spoken again by its pinned provider, though the owner turned that
+// provider off: the call is pinned, so the speech service neither reads the settings nor refuses it (review of
+// #1001, P2).
+func TestAPinnedRevisionSpeaksALostClipWithItsProvider(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+
+	v, _ := r.make(t, "")
+	r.runAll(t)
+	require.Equal(t, speech.ProviderSoniox, r.revision(t, v.ID, 1).Provider)
+
+	clip := filepath.Join(r.dir, voiceDir,
+		voiceHash("Chạm vào Đăng nhập", speech.ProviderSoniox, speech.SonioxTTSModel, "", Language)+"."+clipFormat)
+	require.NoError(t, os.Remove(clip))
+
+	r.mu.Lock()
+	r.off = []string{speech.ProviderSoniox}
+	r.mu.Unlock()
+	r.speech.mu.Lock()
+	r.speech.off = []string{speech.ProviderSoniox}
+	r.speech.mu.Unlock()
+
+	_, rev, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{Look: &LookInput{
+		Frame: &FrameInput{Chrome: ptr("full")},
+	}})
+	require.NoError(t, err)
+	r.runAll(t)
+
+	made := r.revision(t, v.ID, rev.Rev)
+	require.Equal(t, Review, made.State, made.FailedCause)
+	assert.Equal(t, speech.ProviderSoniox, made.Provider)
+	assert.Equal(t, 2, r.speech.count(speech.ProviderSoniox, "Chạm vào Đăng nhập"), "the lost clip, spoken again")
 }

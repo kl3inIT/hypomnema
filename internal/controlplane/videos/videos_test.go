@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -63,6 +64,9 @@ type fakeSpeech struct {
 	noWords   bool
 	// lines are the lines spoken, in order, for a speech that hears them back.
 	lines []string
+	// off are the providers the owner turned off: one named is refused unless the call is pinned, as the speech
+	// service refuses it.
+	off []string
 }
 
 func newFakeSpeech() *fakeSpeech {
@@ -79,6 +83,10 @@ func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakReq
 
 	if f.down[req.Provider] {
 		return speech.Speech{}, errors.New(req.Provider + " is down")
+	}
+
+	if !req.Pinned && slices.Contains(f.off, req.Provider) {
+		return speech.Speech{}, errors.New(req.Provider + " is turned off on this control plane")
 	}
 
 	n := 0

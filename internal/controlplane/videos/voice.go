@@ -87,7 +87,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 		}
 
 		for k, line := range lines {
-			clip, err := s.clip(ctx, source, line, pin.provider, pin.voice)
+			clip, err := s.clip(ctx, source, line, pin.provider, pin.voice, true)
 			if err != nil {
 				return spoken{}, fmt.Errorf("scene %d, %s: %w", k+1, pin.provider, err)
 			}
@@ -122,7 +122,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 			continue
 		}
 
-		clip, err := s.clip(ctx, source, lines[0], p, voiceOf(p))
+		clip, err := s.clip(ctx, source, lines[0], p, voiceOf(p), false)
 		if err != nil {
 			if ctx.Err() != nil {
 				return spoken{}, ctx.Err()
@@ -153,7 +153,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 	done(1)
 
 	for k, line := range lines[1:] {
-		clip, err := s.clip(ctx, source, line, out.provider, out.voice)
+		clip, err := s.clip(ctx, source, line, out.provider, out.voice, false)
 		if err != nil {
 			return spoken{}, fmt.Errorf("scene %d, %s: %w", k+2, out.provider, err)
 		}
@@ -173,8 +173,10 @@ func (s *Service) settings(ctx context.Context) (speech.Settings, error) {
 	return s.cfg.Settings(ctx)
 }
 
-// clip is a line spoken by a provider: from the cache, or asked and kept there.
-func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, voice string) (string, error) {
+// clip is a line spoken by a provider: from the cache, or asked and kept there. A pinned clip asks its provider
+// alone, without the owner's settings (issue #908, row 4).
+func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, voice string, pinned bool,
+) (string, error) {
 	hash := voiceHash(text, provider, speech.Model(provider, speech.KindTTS), voice, Language)
 	path := filepath.Join(s.cfg.Dir, voiceDir, hash+"."+clipFormat)
 
@@ -183,7 +185,7 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 	}
 
 	out, err := s.cfg.Speech.Speak(ctx, source, speech.SpeakRequest{
-		Input: text, Voice: voice, Format: clipFormat, Language: Language, Provider: provider,
+		Input: text, Voice: voice, Format: clipFormat, Language: Language, Provider: provider, Pinned: pinned,
 	})
 	if err != nil {
 		return "", err
