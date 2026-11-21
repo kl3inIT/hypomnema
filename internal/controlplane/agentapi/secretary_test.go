@@ -62,7 +62,7 @@ type secretaryWorld struct {
 	lark    atomic.Int32
 	// larkBody is what each Lark read answers, with lark's status.
 	larkBody atomic.Pointer[string]
-	sent    atomic.Int32
+	sent     atomic.Int32
 }
 
 func newSecretaryWorld(t *testing.T) *secretaryWorld {
