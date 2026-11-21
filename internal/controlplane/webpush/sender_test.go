@@ -338,7 +338,6 @@ func TestTheVAPIDKeyIsMadeOnceAndKeptSealed(t *testing.T) {
 
 	for _, suffix := range []string{"", "-wal"} {
 		raw, err := os.ReadFile(w.path + suffix) //nolint:gosec // the test's own database files
-
 		if err != nil {
 			continue
 		}
@@ -346,11 +345,12 @@ func TestTheVAPIDKeyIsMadeOnceAndKeptSealed(t *testing.T) {
 		assert.NotContains(t, string(raw), private, "the private key is sealed")
 	}
 
-	again, err := w.keys.Regenerate(ctx)
+	keep, err := w.keys.Replacement()
 	require.NoError(t, err)
-	assert.NotEqual(t, public, again)
+	_, err = w.svc.ReplacePushKeys(ctx, keep)
+	require.NoError(t, err)
 
-	_, now, err := w.keys.Pair(ctx)
+	_, again, err := w.keys.Pair(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, again, now)
+	assert.NotEqual(t, public, again, "the next read is the new pair")
 }

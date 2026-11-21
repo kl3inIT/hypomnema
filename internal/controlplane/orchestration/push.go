@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -143,13 +144,16 @@ func (s *Service) DeletePushSubscriptionByEndpoint(ctx context.Context, endpoint
 	})
 }
 
-// DeleteAllPushSubscriptions forgets every browser: the VAPID keys were made again, and a subscription made with the
-// old public key takes no push signed with the new one, as Coder's RegenerateVAPIDKeys deletes them
-// (coderd/webpush/webpush.go:534).
-func (s *Service) DeleteAllPushSubscriptions(ctx context.Context) (int, error) {
+// ReplacePushKeys forgets every browser and keeps the new VAPID key with keep, in one transaction: a subscription
+// made with the old public key takes no push signed with the new one, and when the key cannot be kept no browser is
+// forgotten. As Coder's RegenerateVAPIDKeys deletes them and stores the keys in one transaction
+// (coderd/webpush/webpush.go:534); keep is the vault's write (vault.PutStep), as a deleted chat's gateway keys are
+// revoked in orchestration's transaction (WithChatKeys).
+func (s *Service) ReplacePushKeys(ctx context.Context, keep func(ctx context.Context, tx *sql.Tx, now int64) error,
+) (int, error) {
 	var n int64
 
-	err := s.write(ctx, func(q *store.Queries, _ int64) error {
+	err := s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
 		var err error
 
 		n, err = q.DeleteAllPushSubscriptions(ctx)
@@ -157,10 +161,13 @@ func (s *Service) DeleteAllPushSubscriptions(ctx context.Context) (int, error) {
 			return fmt.Errorf("deleting the push subscriptions: %w", err)
 		}
 
-		return nil
+		return keep(ctx, tx, now)
 	})
+	if err != nil {
+		return 0, err
+	}
 
-	return int(n), err
+	return int(n), nil
 }
 
 func pushSubscriptionFromRow(r store.PushSubscription) PushSubscription {

@@ -23,13 +23,14 @@ func (o *owner) push(ctx context.Context, args []string) error {
 		return fmt.Errorf("the vault has no root key (HYPOMNEMA_VAULT_KEYS): the VAPID key is kept there")
 	}
 
-	// The subscriptions go first: a key made without them deleted would leave devices that take nothing.
-	n, err := o.svc.DeleteAllPushSubscriptions(ctx)
+	keep, err := webpush.NewKeys(o.vault).Replacement()
 	if err != nil {
 		return err
 	}
 
-	if _, err := webpush.NewKeys(o.vault).Regenerate(ctx); err != nil {
+	// One transaction: the devices are forgotten only with the new key kept.
+	n, err := o.svc.ReplacePushKeys(ctx, keep)
+	if err != nil {
 		return err
 	}
 

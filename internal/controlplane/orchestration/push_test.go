@@ -1,6 +1,9 @@
 package orchestration
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -159,7 +162,17 @@ func TestAPushSubscriptionIsOneRowPerBrowser(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 	require.ErrorIs(t, w.s.DeletePushSubscription(ctx, first.ID), ErrNotFound)
 
-	n, err := w.s.DeleteAllPushSubscriptions(ctx)
+	// New VAPID keys forget every browser, in the transaction that keeps the key; a key that cannot be kept forgets
+	// none.
+	refused := errors.New("the vault refused the key")
+	_, err = w.s.ReplacePushKeys(ctx, func(context.Context, *sql.Tx, int64) error { return refused })
+	require.ErrorIs(t, err, refused)
+
+	all, err = w.s.ListPushSubscriptions(ctx)
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+
+	n, err := w.s.ReplacePushKeys(ctx, func(context.Context, *sql.Tx, int64) error { return nil })
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 }

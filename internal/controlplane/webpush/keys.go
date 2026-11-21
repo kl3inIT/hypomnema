@@ -51,28 +51,17 @@ func (k *Keys) Pair(ctx context.Context) (private, public string, err error) {
 	return private, public, err
 }
 
-// Regenerate makes a new pair in place of the one kept. Every browser subscribed with the old public key takes no
-// push signed with the new one, so the caller deletes the subscriptions in the same step, as Coder's
-// RegenerateVAPIDKeys does (coderd/webpush/webpush.go:534).
-func (k *Keys) Regenerate(ctx context.Context) (public string, err error) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-
-	private, public, err := newPair()
+// Replacement makes a new pair and returns the vault's write that keeps it in place of the one kept, for the
+// transaction that deletes every subscription (orchestration.Service.ReplacePushKeys): a browser subscribed with the
+// old public key takes no push signed with the new one, as Coder's RegenerateVAPIDKeys
+// (coderd/webpush/webpush.go:534).
+func (k *Keys) Replacement() (vault.TxStep, error) {
+	private, _, err := newPair()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	_, err = k.vault.Rotate(ctx, keySecret, vault.Payload{vault.KeyValue: private})
-	if errors.Is(err, vault.ErrNotFound) {
-		err = k.create(ctx, private)
-	}
-
-	if err != nil {
-		return "", fmt.Errorf("keeping the new VAPID key: %w", err)
-	}
-
-	return public, nil
+	return k.vault.PutStep(newSecret(private)), nil
 }
 
 func (k *Keys) open(ctx context.Context) (string, error) {
@@ -110,12 +99,16 @@ func (k *Keys) make(ctx context.Context) (string, error) {
 }
 
 func (k *Keys) create(ctx context.Context, private string) error {
-	_, err := k.vault.Create(ctx, vault.NewSecret{
-		Name: keySecret, Kind: vault.KindGeneric, Payload: vault.Payload{vault.KeyValue: private},
-		Metadata: map[string]string{"purpose": "the VAPID key Web Push notifications are signed with (issue #1047)"},
-	})
+	_, err := k.vault.Create(ctx, newSecret(private))
 
 	return err
+}
+
+func newSecret(private string) vault.NewSecret {
+	return vault.NewSecret{
+		Name: keySecret, Kind: vault.KindGeneric, Payload: vault.Payload{vault.KeyValue: private},
+		Metadata: map[string]string{"purpose": "the VAPID key Web Push notifications are signed with (issue #1047)"},
+	}
 }
 
 func newPair() (private, public string, err error) {
