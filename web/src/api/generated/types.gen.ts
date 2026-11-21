@@ -4306,9 +4306,13 @@ export type Chat = {
  */
 export type ChatContextUsage = {
   /**
-   * The model's context window in tokens; pi compacts on its own at this less 16384.
+   * The model's context window in tokens; pi compacts on its own at this less reserve_tokens.
    */
   context_window: number;
+  /**
+   * The tokens pi keeps free, the reserve the chat's pi is given for this window: max(15% of the window, 16384) (issues #395, #1009). pi compacts on its own once fewer are free.
+   */
+  reserve_tokens: number;
   /**
    * The tokens in pi's context; absent right after a compaction, until pi's next answer.
    */

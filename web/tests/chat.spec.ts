@@ -1118,7 +1118,15 @@ test("the context meter shows the window and compacts", async ({ page }) => {
     (text) => ({ status: 201, body: message(2, { role: "owner", text }) }),
     noWork(),
     botFolder(),
-    { ...chat, context_usage: { context_window: 128000, tokens: 105000, percent: 82.03 } },
+    {
+      ...chat,
+      context_usage: {
+        context_window: 128000,
+        reserve_tokens: 19200,
+        tokens: 105000,
+        percent: 82.03,
+      },
+    },
   )
   await open(page)
   await write(page, state(false))
@@ -1129,7 +1137,7 @@ test("the context meter shows the window and compacts", async ({ page }) => {
   await ring.click()
   const card = page.getByRole("dialog")
   await expect(card.getByText("105k / 128k (82%)")).toBeVisible()
-  await expect(card.getByText("pi compacts on its own at about 111,616 tokens.")).toBeVisible()
+  await expect(card.getByText("pi compacts on its own at about 108,800 tokens.")).toBeVisible()
   await settled(page)
   await shot(page, "chat-context-amber")
 
@@ -1138,7 +1146,7 @@ test("the context meter shows the window and compacts", async ({ page }) => {
   await write(page, state(true))
   await expect(card.getByRole("button", { name: "Compact" })).toBeDisabled()
 
-  await write(page, usage({ context_window: 128000 }) + state(false))
+  await write(page, usage({ context_window: 128000, reserve_tokens: 19200 }) + state(false))
   await expect(
     page.getByRole("button", { name: "Context: not measured since it was compacted" }),
   ).toHaveText("–")
@@ -1148,7 +1156,10 @@ test("the context meter shows the window and compacts", async ({ page }) => {
   await shot(page, "chat-context-compacted")
 
   await page.keyboard.press("Escape")
-  await write(page, usage({ context_window: 128000, tokens: 120000, percent: 93.75 }))
+  await write(
+    page,
+    usage({ context_window: 128000, reserve_tokens: 19200, tokens: 120000, percent: 93.75 }),
+  )
   const full = page.getByRole("button", { name: "Context: 94% used" })
   await expect(full).toHaveAttribute("data-tone", "critical")
   await full.click()
