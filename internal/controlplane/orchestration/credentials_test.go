@@ -502,6 +502,64 @@ func TestRevokingACoordinatorTokenEndsItsChildren(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Scenario (issue #996, review round 3): before the upgrade, the owner revoked a coordinator token, and the schema of
+// then marked only the token: the agent session and gateway key of a running Dispatch of a Run it created kept
+// working. The migration ends them with the reason parent_revoked; a Dispatch of the owner's Run keeps working.
+func TestTheMigrationEndsTheChildrenOfACoordinatorTokenRevokedBefore(t *testing.T) {
+	t.Parallel()
+
+	w, g, _ := credentialWorld(t)
+	ctx := t.Context()
+
+	coordinator, _, err := w.s.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	_, err = w.db.ExecContext(ctx, "UPDATE runs SET coordinator_token_id = ? WHERE id = ?", coordinator.ID, w.run.ID)
+	require.NoError(t, err)
+	theirs := w.dispatch(w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0].ID)
+
+	owners := newRun(t, w.s)
+	ownerTasks, err := w.s.CreateTasks(ctx, owners.ID, []NewTask{{Ref: "b", Profile: "implementer", Spec: "b"}})
+	require.NoError(t, err)
+	mine := w.dispatch(ownerTasks[0].ID)
+
+	theirSession, err := w.s.AddAgentSession(ctx, theirs.ID, nil)
+	require.NoError(t, err)
+	theirKey, err := g.AddDispatchKey(ctx, theirs.ID, "model-a")
+	require.NoError(t, err)
+	mySession, err := w.s.AddAgentSession(ctx, mine.ID, nil)
+	require.NoError(t, err)
+	myKey, err := g.AddDispatchKey(ctx, mine.ID, "model-a")
+	require.NoError(t, err)
+
+	// The schema before this migration, and a revocation as it made one: the token alone.
+	p, err := provider(w.db)
+	require.NoError(t, err)
+	_, err = p.DownTo(ctx, credentialStateBefore(t))
+	require.NoError(t, err)
+	_, err = w.db.ExecContext(ctx, "UPDATE client_tokens SET revoked_at = ? WHERE id = ?", t0.UnixMilli(), coordinator.ID)
+	require.NoError(t, err)
+
+	require.NoError(t, Migrate(ctx, w.db))
+
+	_, err = g.Authenticate(ctx, theirKey)
+	require.ErrorIs(t, err, modelgateway.ErrUnauthorized, "its Run's Dispatch key")
+	_, err = w.s.AgentSessionOf(ctx, theirSession)
+	require.ErrorIs(t, err, ErrNotFound, "its Run's agent session")
+
+	for _, table := range []string{"agent_sessions", "gateway_keys"} {
+		var reason string
+		require.NoError(t, w.db.QueryRowContext(ctx,
+			"SELECT revoke_reason FROM "+table+" WHERE dispatch_id = ? AND revoked_at IS NOT NULL", theirs.ID).
+			Scan(&reason), table)
+		assert.Equal(t, string(bearertoken.RevokedParentRevoked), reason, table)
+	}
+
+	_, err = g.Authenticate(ctx, myKey)
+	require.NoError(t, err, "the owner's Run's key works")
+	_, err = w.s.AgentSessionOf(ctx, mySession)
+	require.NoError(t, err)
+}
+
 // Scenario (issue #996): the owner removes a node whose Dispatch settled before the keys sweep ended its keys. The
 // node's tokens and the Dispatch's agent session and gateway key end with the reason node_removed and are refused.
 func TestRemovingANodeEndsTheKeysOfItsDispatches(t *testing.T) {
