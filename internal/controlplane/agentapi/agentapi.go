@@ -102,6 +102,10 @@ type Store interface {
 	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key
 	// (issue #625).
 	SSHOfDispatch(ctx context.Context, dispatchID string) (hostKeys string, overSSH bool, err error)
+	// StartBackground and EndBackground keep a Bot's pi's background commands and wake its chat when one ends
+	// (issue #1058).
+	StartBackground(ctx context.Context, chatID, pi, id string) error
+	EndBackground(ctx context.Context, chatID, pi string, e orchestration.BackgroundEnd) (bool, error)
 }
 
 // Token is a Connection's access token and when it ends.
@@ -185,6 +189,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+agenttool.PathTools, s.listTools)
 	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.callTool)
 	mux.HandleFunc("GET "+agenttool.PathGitSSHKey, s.gitSSHKeyFor)
+	mux.HandleFunc("POST "+agenttool.PathBackground, s.background)
 }
 
 // agent is who asks: what it is called in the log, and which Connections of
