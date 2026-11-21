@@ -105,9 +105,10 @@ func (s levelSpeech) Speak(ctx context.Context, source AudioSource, req speech.S
 		return speech.Speech{}, err
 	}
 
-	file := fixture(s.t, s.tools, "clip.mp3", "-f", "lavfi", "-i",
+	file := filepath.Join(s.t.TempDir(), "clip.mp3")
+	run(ctx, s.t, s.tools.FFmpeg, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
 		fmt.Sprintf("aevalsrc=%g*sin(2*PI*440*t):s=44100:d=3", math.Pow(10, s.levels[req.Input]/20)),
-		"-c:a", "libmp3lame", "-b:a", "192k")
+		"-c:a", "libmp3lame", "-b:a", "192k", file)
 
 	raw, err := os.ReadFile(file) //nolint:gosec // The test's own file.
 	if err != nil {

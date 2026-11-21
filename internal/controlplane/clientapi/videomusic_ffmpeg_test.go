@@ -75,7 +75,7 @@ func bedSource(sec float64) []string {
 func track(t *testing.T, tools ffmpeg.Tools, name string, args ...string) []byte {
 	t.Helper()
 
-	raw, err := os.ReadFile(trackFile(t, tools, name, args...)) //nolint:gosec // The test's own file.
+	raw, err := os.ReadFile(trackFile(t, tools, name, args...))
 	require.NoError(t, err)
 
 	return raw

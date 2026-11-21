@@ -517,7 +517,7 @@ func TestARollbackBringsBackATrackDeletedByTheLibrary(t *testing.T) {
 	data := filepath.Join(o.Home, "data")
 	migrated, err := os.ReadFile(sqlitetest.Migrated(t, orchestration.Migrate))
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(data, "hypomnema.db"), migrated, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(data, "hypomnema.db"), migrated, 0o600)) //nolint:gosec // The test's own folder.
 
 	library := func(fn func(svc *videos.Service, exec func(string, ...any))) {
 		db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(data, "hypomnema.db")})
