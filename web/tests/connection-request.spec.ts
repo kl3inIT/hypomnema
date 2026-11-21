@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test"
 
 import { openMenu } from "./menu.js"
 import { shot } from "./shot.js"
+import { stubPush } from "./push-stub.js"
 
 // The grant card (issue #471, part D), built, against a fake client API: a Bot whose Connections list is limited asked,
 // from its main chat, for one it was not given. The card is in the chat above the composer, in the Approval card's
@@ -203,4 +204,27 @@ test("the grant card answers Decline", async ({ page }) => {
   await expect(sidebar(page).getByRole("link", { name: /^hr/ })).not.toContainText("Needs you")
   if ((page.viewportSize()?.width ?? 1280) < 768) await page.keyboard.press("Escape")
   await shot(page, "grant-card-declined")
+})
+
+// Scenario: something waits on the owner in this chat (issue #1047): the chat offers notifications once, above the
+// card. Nothing is asked of the browser until he presses Turn on; "Not now" hides the offer, and it stays hidden
+// after a reload while the card still waits.
+// The Push API is stubbed (push-stub.ts): headless Chromium denies notifications, as a browser whose owner refused.
+test("a chat where something waits offers notifications once", async ({ page }) => {
+  await page.addInitScript(stubPush)
+  await fakeServer(page)
+  await page.goto("/chats/cht_hr")
+
+  const offer = page.getByRole("complementary", { name: "Turn on notifications" })
+  await expect(card(page)).toBeVisible()
+  await expect(offer).toContainText("Get a notification when something waits on you")
+  await expect(offer.getByRole("button", { name: "Turn on" })).toBeVisible()
+  await shot(page, "notifications-offer")
+
+  await offer.getByRole("button", { name: "Not now" }).click()
+  await expect(offer).toHaveCount(0)
+
+  await page.reload()
+  await expect(card(page)).toBeVisible()
+  await expect(offer).toHaveCount(0)
 })
