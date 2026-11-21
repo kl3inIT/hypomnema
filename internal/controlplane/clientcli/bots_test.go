@@ -168,6 +168,24 @@ func TestBotFallbacksFromTheCLI(t *testing.T) {
 	assert.Equal(t, [2]string{"gateway", "first"}, [2]string{val(bot.Provider), val(bot.Model)})
 }
 
+// Scenario (review of PR #1000, round 3): a Bot runs router's qwen/qwen3, a model whose own name has a slash. Setting
+// only its effort keeps its provider and model as stored; only a --model given is read as <provider>/<model>.
+func TestABotsEffortAloneKeepsItsModel(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+	_, err := w.svc.ApplyProvider(t.Context(), "", "name: router\nkind: openai_compatible\n"+
+		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [qwen/qwen3]\n")
+	require.NoError(t, err)
+
+	var bot openapi.Bot
+	w.jsonCmd(t, &bot, "", "bots", "set", "vmap", "--provider", "router", "--model", "qwen/qwen3")
+	w.jsonCmd(t, &bot, "", "bots", "set", "vmap", "--effort", "high")
+	assert.Equal(t, [3]string{"router", "qwen/qwen3", "high"},
+		[3]string{val(bot.Provider), val(bot.Model), val(bot.Effort)})
+}
+
 // Scenario: the owner limits what a Bot may use from the terminal (issue
 // #169): no Connection and one worker profile. The Bot is told in its prompt
 // which profiles it gives work to, and the Bot coordinator that it manages

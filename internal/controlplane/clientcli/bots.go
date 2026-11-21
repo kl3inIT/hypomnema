@@ -417,7 +417,8 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	// A model is named with its provider (issue #1002): --model provider/model names both, as tasks create's does.
-	if set.Model != nil && !isSet(fs, "provider") {
+	// Only a --model given is read so; the stored model, kept when the flag is left out, is sent as it is.
+	if isSet(fs, "model") && !isSet(fs, "provider") {
 		if provider, model, found := strings.Cut(*set.Model, "/"); found {
 			set.Provider, set.Model = &provider, &model
 		}
