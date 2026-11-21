@@ -26,7 +26,7 @@ type ownWhatsApp struct {
 	asked []string
 	// queries are the reads asked, in order.
 	queries []messaging.Query
-	sent  []messaging.Outgoing
+	sent    []messaging.Outgoing
 	// files are the kept files by message id.
 	files map[string]messaging.Media
 }

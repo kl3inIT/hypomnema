@@ -1380,8 +1380,9 @@ sequenceDiagram
     script keep. When the Bot cannot be read pi does not start.
   - A Bot's pi has the tools `memory`, `show_artifact` and `routines` (issue #536), `web_search`, `web_fetch`,
     `generate_image`, `audio_transcribe` and `audio_speak` (issue #723), the Inbox's `inbox_*` (issue #1004), the
-    meetings' `meeting_list` and `meeting_get` (issue #1023: the meetings recorded, since a time, and one with its
-    notes, actions and up to 400 lines of transcript; reads only, also in a read run and its check), and Superset's
+    meetings' `meeting_list` and `meeting_get` (issue #1023: the meetings recorded, changed or whose notes became
+    ready since a time, and one with its notes, actions and up to 400 lines of transcript from an offset in the
+    order they were said; reads only, also in a read run and its check), and Superset's
     `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
     server (issues #492, #536, see "An agent's tools"), and the shared browser's and the phone's (issue #536,
     step 4), which its pi mounts through pi's own MCP (below, the box). Those are relayed by the control plane
@@ -1841,7 +1842,9 @@ flowchart LR
     API then takes as a read run's (`agentapi` `authenticate`: the Bot's own accounts, user Connections included,
     only their reads, the meetings' and the messaging reads, never the Inbox, the memory or a send) and the client
     API refuses whole, as it refuses a read run's pi. The woken run's prompt keeps the read-only notice and treats
-    what the check printed as records. The wake-up in each run's new chat records the access then; it is still no owner
+    what the check printed as records. A run keeps the access its Routine had when it started
+    (`routine_runs.access`): the owner's switch or a Bot's edit meanwhile changes nothing of the check's token or the
+    chat it opens (`orchestration.RoutineScriptReads`; review of #1037). The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
     the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
     `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
@@ -2818,7 +2821,9 @@ flowchart LR
       `limit`) read the mirror, the latest first, for the owner only.
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
-      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image of the
+      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages` (as `zalo_messages`, with `offset` beside
+      `before` and `limit`: pages that never skip messages sent in the same second, issue #1023),
+      `whatsapp_media` (an image as an image of the
       type its bytes say when a model views it, JPEG, PNG, GIF or WebP, else its path with a line saying it was
       omitted, as OpenClaw's `sanitizeContentBlocksImages` does, [issue #760](https://github.com/kl3inIT/hypomnema/issues/760); a voice note
       with its transcript after its path, see "Incoming voice" under "An agent's tools") and `whatsapp_history`.
@@ -4620,8 +4625,11 @@ its client API, its CLI and the Bots' tools.
   open item "Log in again: <account>", given to the owner, from that run, with the refusal as its quote, or keeps
   the one that is open, unchanged (`SignInFailed`). A read of that account that works closes it, done by him, closed
   by the Bot, with the run as evidence (`SignInWorks`). The item holds the account's key (`idempotency_key`
-  `hypomnema:signin:<account>`, which is unique) while it is open and lets it go when it closes, also when the owner
-  closed it, so the next refusal adds a new one: one item per account, never one per failure.
+  `hypomnema:signin:<account>`, which is unique) while it is open and lets it go for one of its own when it closes,
+  also when the owner closed it, so the next refusal adds a new one; reopened, it takes the account's key again, and
+  the reopen is refused while another item of the account is open: one open item per account, never one per failure.
+  `account_read` closes it only after a read under 400 whose body is JSON records without the service's error (a
+  nonzero Lark `code`, a Google `error`).
 - The "Thư ký" Bot (issue #1023, part 4): its prompt, switches, model and Routines are set by the owner with
   `deploy/thu-ky/setup.sh` (`hypomnema bots set`, `routines set`), not seeded by a migration. `triage` reads only,
   every 15 minutes, behind its check `new-messages.mjs`; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark

@@ -86,11 +86,11 @@ func (s *Server) meetingTools(a agent) []agenttool.BrowserTool {
 }
 
 type meetingArgs struct {
-	ID       string `json:"id"`
-	Offset   int    `json:"offset"`
-	Since    string `json:"since"`
-	Query    string `json:"query"`
-	Limit    int    `json:"limit"`
+	ID     string `json:"id"`
+	Offset int    `json:"offset"`
+	Since  string `json:"since"`
+	Query  string `json:"query"`
+	Limit  int    `json:"limit"`
 }
 
 // meetingCall runs one of the meetings' tools.
