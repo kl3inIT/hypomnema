@@ -59,12 +59,12 @@ func (s *Server) meetingTools(a agent) []agenttool.BrowserTool {
 	}
 
 	list := json.RawMessage(`{"type":"object","properties":{
-		"since":{"type":"string","description":"Only the meetings recorded or changed at or after this moment, RFC 3339, such as the last time you looked."},
+		"since":{"type":"string","description":"Only the meetings recorded, changed or whose notes became ready at or after this moment, RFC 3339, such as the last time you looked."},
 		"query":{"type":"string","description":"Words of the title or the transcript."},
 		"limit":{"type":"integer","minimum":1,"maximum":100}}}`)
 	get := json.RawMessage(`{"type":"object","required":["id"],"properties":{
 		"id":{"type":"string","description":"The meeting's id, as meeting_list gives it."},
-		"from_line":{"type":"integer","minimum":1,"description":"The first line of the transcript to give; the first by default."}}}`)
+		"offset":{"type":"integer","minimum":0,"description":"How many lines of the transcript to skip, in the order they were said: next_offset of the last answer; 0 by default."}}}`)
 
 	return []agenttool.BrowserTool{
 		{
@@ -78,7 +78,7 @@ func (s *Server) meetingTools(a agent) []agenttool.BrowserTool {
 			Name: agenttool.ToolMeetingGet,
 			Description: "Read one meeting: its summary and sections, its decisions and actions (who does each, " +
 				"when it is due, whether it is done, the words it came from and its line), and its transcript, " +
-				"up to 400 lines from from_line. Use it to add a meeting's actions to the Inbox once its notes are " +
+				"up to 400 lines from offset, by when they were said. Use it to add a meeting's actions to the Inbox once its notes are " +
 				"ready.",
 			InputSchema: get,
 		},
@@ -87,7 +87,7 @@ func (s *Server) meetingTools(a agent) []agenttool.BrowserTool {
 
 type meetingArgs struct {
 	ID       string `json:"id"`
-	FromLine int    `json:"from_line"`
+	Offset   int    `json:"offset"`
 	Since    string `json:"since"`
 	Query    string `json:"query"`
 	Limit    int    `json:"limit"`
@@ -138,7 +138,7 @@ func (s *Server) meetingCall(w http.ResponseWriter, r *http.Request, call agentt
 			break
 		}
 
-		if !since.IsZero() && m.UpdatedAt.Before(since) {
+		if !since.IsZero() && changedAt(m).Before(since) {
 			continue
 		}
 
@@ -163,24 +163,15 @@ func (s *Server) meetingGet(w http.ResponseWriter, r *http.Request, in meetingAr
 		return
 	}
 
-	from := max(in.FromLine, 1)
-	lines := make([]map[string]any, 0, meetingLinesShown)
-	more, last := false, 0
+	// The store gives the lines by when they were said, not by n: a live meeting's tracks write them out of n's
+	// order (queries/meetings.sql, ListMeetingLines). The cursor is a position in that order.
+	from := min(max(in.Offset, 0), len(d.Lines))
+	upto := min(from+meetingLinesShown, len(d.Lines))
+	lines := make([]map[string]any, 0, upto-from)
 
-	for _, l := range d.Lines {
-		if l.N < from {
-			continue
-		}
-
-		if len(lines) == meetingLinesShown {
-			more = true
-
-			break
-		}
-
+	for _, l := range d.Lines[from:upto] {
 		lines = append(lines, map[string]any{"n": l.N, "at": l.Start.Round(time.Second).String(),
 			"speaker": l.Speaker, "text": l.Text})
-		last = l.N
 	}
 
 	items := make([]map[string]any, 0, len(d.Items))
@@ -212,11 +203,21 @@ func (s *Server) meetingGet(w http.ResponseWriter, r *http.Request, in meetingAr
 	meeting["items"] = items
 	meeting["lines"] = lines
 
-	if more {
-		meeting["more_lines_from"] = last + 1
+	if upto < len(d.Lines) {
+		meeting["next_offset"] = upto
 	}
 
 	s.answerJSON(w, r, map[string]any{"note": meetingNote, "meeting": meeting}, nil)
+}
+
+// changedAt is the last time a meeting changed for the Inbox: it was recorded or changed, or its notes became ready,
+// which moves only meeting_notes (review of #1037, round 2).
+func changedAt(m meetingstore.Meeting) time.Time {
+	if m.Notes.WrittenAt != nil && m.Notes.WrittenAt.After(m.UpdatedAt) {
+		return *m.Notes.WrittenAt
+	}
+
+	return m.UpdatedAt
 }
 
 // meetingSummary is a meeting as meeting_list gives it.
@@ -228,7 +229,7 @@ func meetingSummary(m meetingstore.Meeting) map[string]any {
 
 	return map[string]any{
 		"id": m.ID, "title": m.Title, "recorded_at": m.CreatedAt.Format(time.RFC3339),
-		"updated_at": m.UpdatedAt.Format(time.RFC3339), "state": m.State, "notes": m.Notes.State,
+		"updated_at": changedAt(m).Format(time.RFC3339), "state": m.State, "notes": m.Notes.State,
 		"duration": m.Duration.Round(time.Second).String(), "people": nonNilStrings(m.People),
 		"speakers": speakers, "actions": m.Actions, "open_actions": m.OpenActions,
 	}
