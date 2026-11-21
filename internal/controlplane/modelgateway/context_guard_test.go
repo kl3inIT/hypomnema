@@ -3,6 +3,7 @@ package modelgateway_test
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,17 +13,6 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/shared/contextwindow"
 )
-
-// windowed gives the gateway's model `sol` a window of 2,000 tokens.
-func (g chatGateway) windowed(t *testing.T) chatGateway {
-	t.Helper()
-
-	_, err := g.svc.ApplyModel(t.Context(),
-		"name: sol\ncontext_window: 2000\ntargets:\n  - {provider: codex-subscription, model: gpt-6.1-sol}\n")
-	require.NoError(t, err)
-
-	return g
-}
 
 // refusal is the error of a gateway's answer.
 func refusal(t *testing.T, body string) (code, message string) {
@@ -45,97 +35,65 @@ func asking(n int) string {
 		`{"type":"input_text","text":"` + strings.Repeat("x", n) + `"}]}]}`
 }
 
-// Scenario: a prompt that cannot fit the model's window (issue #1052). It is
-// refused before it is sent, with the window in the error and the code Codex
-// reads as its context-window overflow; an inline image counts as 1,200
-// tokens, not as its bytes, so a short prompt with a large image is sent.
-func TestAPromptOverTheWindowIsRefusedBeforeItIsSent(t *testing.T) {
-	t.Parallel()
+// failing is a Codex backend whose answers fail with the event failure, or end well while well is set.
+func failing(t *testing.T, failure string, well *atomic.Bool) (*httptest.Server, *seen) {
+	t.Helper()
 
-	backend, got := codexBackend(t, stream(helloEvents...))
-	g := newCodexGateway(t, backend, &accounts{}).windowed(t)
-
-	status, _, body := g.respond(t, g.key, asking(20000))
-	require.Equal(t, http.StatusBadRequest, status, body)
-	code, message := refusal(t, body)
-	assert.Equal(t, "context_length_exceeded", code)
-	assert.Contains(t, message, "limit 2000")
-	assert.Zero(t, got.calls(), "nothing was sent")
-
-	image := `{"model":"sol","stream":true,"input":[{"type":"message","role":"user","content":[` +
-		`{"type":"input_text","text":"what is it?"},` +
-		`{"type":"input_image","image_url":"data:image/png;base64,` + strings.Repeat("A", 40000) + `"}]}]}`
-	status, _, body = g.respond(t, g.key, image)
-	require.Equal(t, http.StatusOK, status, body)
-	assert.Equal(t, 1, got.calls())
-}
-
-// Scenario: a client that keeps sending prompts over the window, as Codex
-// does while it compacts (issue #1052). The first three are refused as
-// overflows, for it to shorten; the fourth ends its turn with a code it does
-// not retry, whose message names the window, and so is every prompt that
-// does not fit for the cooldown. A prompt that fits is sent.
-func TestARunOfOverflowsEndsTheTurn(t *testing.T) {
-	t.Parallel()
-
-	backend, got := codexBackend(t, stream(helloEvents...))
-	g := newCodexGateway(t, backend, &accounts{}).windowed(t)
-
-	for range 3 {
-		status, _, body := g.respond(t, g.key, asking(20000))
-		require.Equal(t, http.StatusBadRequest, status, body)
-		code, _ := refusal(t, body)
-		assert.Equal(t, "context_length_exceeded", code)
-	}
-
-	for range 2 {
-		status, _, body := g.respond(t, g.key, asking(20000))
-		require.Equal(t, http.StatusBadRequest, status, body)
-		code, message := refusal(t, body)
-		assert.Equal(t, "context_overflow", code)
-		assert.True(t, contextwindow.Exceeded(message), "the node tells why the turn ended: %s", message)
-	}
-
-	assert.Zero(t, got.calls())
-
-	// A prompt shortened to fit is sent, cooldown or not (review of PR #1057): only what does not fit is refused.
-	status, _, body := g.respond(t, g.key, asking(10))
-	require.Equal(t, http.StatusOK, status, body)
-	assert.Equal(t, 1, got.calls())
-}
-
-// Scenario: the provider itself says the prompt did not fit (issue #1052),
-// as the Codex backend answered on 2026-11-19. Its answers count with the
-// gateway's own refusals: after four in a row, a prompt that does not fit
-// ends the turn at once, while one that fits is still sent. An answer that
-// ends well between them starts the count again.
-func TestTheProvidersOverflowAnswersCount(t *testing.T) {
-	t.Parallel()
-
-	const overflowed = `{"type":"response.failed","response":{"error":{"code":"context_length_exceeded",` +
-		`"message":"Your input exceeds the context window of this model."}}}`
-
-	var answerWell atomic.Bool
-	backend, got := codexBackend(t, func(w http.ResponseWriter, r *http.Request) {
-		if answerWell.Load() {
+	return codexBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		if well.Load() {
 			stream(helloEvents...)(w, r)
 
 			return
 		}
 
-		stream(event(`{"type":"response.created","response":{"id":"resp_1"}}`), event(overflowed))(w, r)
+		stream(event(`{"type":"response.created","response":{"id":"resp_1"}}`), event(failure))(w, r)
 	})
-	g := newCodexGateway(t, backend, &accounts{}).windowed(t)
+}
+
+// Scenario: the gateway does not count a prompt's tokens (issue #1052,
+// review of PR #1057): bytes over four refused prompts that fit, and LiteLLM
+// checks a prompt against the window only when asked to. A prompt larger
+// than the model's window by its bytes is sent, and the provider answers.
+func TestAPromptIsSentWhateverItsSize(t *testing.T) {
+	t.Parallel()
+
+	backend, got := codexBackend(t, stream(helloEvents...))
+	g := newCodexGateway(t, backend, &accounts{})
+	_, err := g.svc.ApplyModel(t.Context(),
+		"name: sol\ncontext_window: 2000\ntargets:\n  - {provider: codex-subscription, model: gpt-6.1-sol}\n")
+	require.NoError(t, err)
+
+	status, _, body := g.respond(t, g.key, asking(20000))
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, 1, got.calls())
+}
+
+// Scenario: the provider says the prompt did not fit (issue #1052), as the
+// Codex backend answered on 2026-11-19 while Codex trimmed and resent its
+// history. Four such answers in a row are passed on; then for the cooldown
+// the key's requests to the model are not sent, and the refusal is one
+// Codex does not retry, so its turn ends, with a message that names the
+// context window for the node to tell why. An answer that ends well between
+// them starts the count again.
+func TestARunOfOverflowAnswersEndsTheTurn(t *testing.T) {
+	t.Parallel()
+
+	const overflowed = `{"type":"response.failed","response":{"error":{"code":"context_length_exceeded",` +
+		`"message":"Your input exceeds the context window of this model."}}}`
+
+	var well atomic.Bool
+	backend, got := failing(t, overflowed, &well)
+	g := newCodexGateway(t, backend, &accounts{})
 
 	for range 3 {
 		status, _, _ := g.respond(t, g.key, asking(10))
 		require.Equal(t, http.StatusOK, status)
 	}
 
-	answerWell.Store(true)
+	well.Store(true)
 	status, _, _ := g.respond(t, g.key, asking(10))
 	require.Equal(t, http.StatusOK, status)
-	answerWell.Store(false)
+	well.Store(false)
 
 	for range 4 {
 		status, _, _ := g.respond(t, g.key, asking(10))
@@ -144,13 +102,31 @@ func TestTheProvidersOverflowAnswersCount(t *testing.T) {
 
 	assert.Equal(t, 8, got.calls())
 
-	status, _, body := g.respond(t, g.key, asking(20000))
+	status, _, body := g.respond(t, g.key, asking(10))
 	require.Equal(t, http.StatusBadRequest, status, body)
-	code, _ := refusal(t, body)
-	assert.Equal(t, "context_overflow", code, "past the limit, not one more overflow to shorten")
-	assert.Equal(t, 8, got.calls())
+	code, message := refusal(t, body)
+	assert.Equal(t, "context_overflow", code)
+	assert.True(t, contextwindow.Exceeded(message), "the node tells why the turn ended: %s", message)
+	assert.Equal(t, 8, got.calls(), "the fifth was not sent")
+}
 
-	status, _, _ = g.respond(t, g.key, asking(10))
-	require.Equal(t, http.StatusOK, status)
-	assert.Equal(t, 9, got.calls(), "a prompt that fits is sent")
+// Scenario: the provider refuses a tool's arguments as too long (review of
+// PR #1057). That is no overflow of the context window: however many in a
+// row, the next request is sent.
+func TestAToolInputTooLongIsNoOverflow(t *testing.T) {
+	t.Parallel()
+
+	const refused = `{"type":"response.failed","response":{"error":{"code":"invalid_value",` +
+		`"message":"Tool input is too long"}}}`
+
+	var well atomic.Bool
+	backend, got := failing(t, refused, &well)
+	g := newCodexGateway(t, backend, &accounts{})
+
+	for range 5 {
+		status, _, _ := g.respond(t, g.key, asking(10))
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	assert.Equal(t, 5, got.calls())
 }
