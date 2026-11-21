@@ -326,7 +326,10 @@ func (s *Server) toChat(c orchestration.Chat) openapi.Chat {
 	}
 
 	if u := c.Usage; u != nil {
-		out.ContextUsage = &openapi.ChatContextUsage{ContextWindow: u.Window, Tokens: u.Tokens, Percent: u.Percent}
+		out.ContextUsage = &openapi.ChatContextUsage{
+			ContextWindow: u.Window, ReserveTokens: orchestration.CompactReserve(u.Window), Tokens: u.Tokens,
+			Percent: u.Percent,
+		}
 	}
 
 	return out

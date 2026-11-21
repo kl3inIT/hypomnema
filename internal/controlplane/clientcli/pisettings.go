@@ -6,21 +6,15 @@ import (
 	"flag"
 	"fmt"
 	"os"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // The settings every Bot's pi starts with (issue #395, part 1 of #366;
 // docs/research/2026-11-14-pi-defaults.md). What is not named keeps pi's
 // default, which matches most references: 20,000 recent tokens kept, the
-// thinking level, the tool output limits and the retries.
-const (
-	// piReserveShare and piReserveFloor: pi compacts a chat once fewer than
-	// max(15% of the model's window, 16,384) tokens are free, as omp
-	// (packages/agent/src/compaction/compaction.ts) and opencode
-	// (packages/core/src/session/compaction.ts) reserve. pi's own reserve is
-	// 16,384 whatever the window.
-	piReserveShare = 0.15
-	piReserveFloor = 16384
-)
+// thinking level, the tool output limits and the retries. The compaction
+// reserve is orchestration.CompactReserve, which the context meter shows too.
 
 // piDefaultTools are pi's read-only search tools, built in and off, turned on
 // beside read, bash, edit and write, as omp, opencode, OpenClaw and Hermes
@@ -95,7 +89,7 @@ func piSettingsOf(models piModelsFile) piSettingsFile {
 			}
 
 			settings.Compaction.ModelOverrides[provider+"/"+m.ID] = piCompactionOverride{
-				ReserveTokens: max(int64(float64(m.ContextWindow)*piReserveShare), piReserveFloor),
+				ReserveTokens: orchestration.CompactReserve(m.ContextWindow),
 			}
 		}
 	}
