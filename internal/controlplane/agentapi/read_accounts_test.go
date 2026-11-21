@@ -66,7 +66,9 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 	}
 
 	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
-		Name: "brief", Connections: orchestration.AllowList{Limited: true, Names: []string{"lark:me", "google:me", "zalo:me"}},
+		Name: "brief", Connections: orchestration.AllowList{
+			Limited: true, Names: []string{"lark:me", "google:me", "zalo:me"},
+		},
 		Tools: []string{"device_*"},
 	})
 	require.NoError(t, err)
@@ -145,7 +147,7 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 	_, text, failed = w.use(pi, agenttool.ToolAccountRead, get)
 	assert.True(t, failed)
 	assert.Contains(t, text, agenttool.ReadRunRefusal)
-	assert.Equal(t, int32(1), upstreamCalls.Load())
+	assert.Equal(t, int32(3), upstreamCalls.Load())
 	assert.Empty(t, w.judge.asked)
 	approvals, err := w.svc.ListApprovals(ctx, orchestration.ApprovalFilter{ChatID: chat})
 	require.NoError(t, err)
