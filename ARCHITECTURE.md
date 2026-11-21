@@ -5186,7 +5186,10 @@ Node (`internal/node`):
   which writes Settings → Connect a tool's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
   the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
   opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
-  out of its tools. Neither is given an image model. A turn is `initialize`, `session/new` with the tools server as an
+  out of its tools. Neither is given an image model. Each keeps its own default for MCP tools (owner, 2026-11-21,
+  issue #1015; [research](docs/research/2026-11-21-code-mode.md)): opencode's code mode, its `execute` tool
+  calling the tools server's tools from code, and omp's `tools.xdev`, the rarely used ones reached as `xd://`
+  devices; until then `execute` was denied and `xdev` off, which made them plain tools. A turn is `initialize`, `session/new` with the tools server as an
   MCP server (or `session/resume`, else `session/load`, for a follow-up; a session that is gone starts anew),
   `session/prompt`, then the agent's input is closed. The messages are written to the shim and read from its
   journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
