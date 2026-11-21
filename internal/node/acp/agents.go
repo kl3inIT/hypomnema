@@ -28,6 +28,9 @@ type launch struct {
 	// API is the wire for the model when it is a subscription's (nodeproto.Offer.ModelAPI); empty is chat.
 	API    string
 	Effort string
+	// ContextWindow and MaxOutput are the model's sizes as the gateway knows them (nodeproto.Offer
+	// ModelContextWindow, ModelMaxOutput); zero is agentconfig's default.
+	ContextWindow, MaxOutput int64
 	// Skills is the folder the Dispatch's skills were placed in, which the
 	// CLI is told of when it does not find it by itself; empty without skills.
 	Skills string
@@ -57,8 +60,11 @@ func Runtimes() []string { return []string{"omp", "opencode"} }
 
 // prepareOmp names the gateway in models.yml of an agent directory of the
 // Conversation's own (PI_CODING_AGENT_DIR, as Orca gives an account its
-// own), with the tools server's tools shown as plain tools (tools.xdev:
-// false) and sessions kept beside it (--session-dir). omp's own web_search
+// own), with sessions kept beside it (--session-dir). tools.xdev keeps omp's
+// default, on: rarely used tools, the tools server's among them, are reached as
+// xd:// devices through read and write instead of a schema on every request
+// (omp src/tools/settings.ts; owner, 2026-11-21, issue #1015; plain tools,
+// xdev: false, until then). omp's own web_search
 // and generate_image are off (web_search.enabled, generate_image.enabled,
 // omp src/tools/settings.ts), so that the worker has one search and one image
 // tool, the tools server's (issues #354, #492): a CLI's own tool is off when
@@ -67,11 +73,14 @@ func Runtimes() []string { return []string{"omp", "opencode"} }
 func prepareOmp(l launch) ([]string, []string, error) {
 	agentDir, sessions := filepath.Join(l.Dir, "agent"), filepath.Join(l.Dir, "sessions")
 
-	// The size of a model the gateway serves is not known to the node: omp is given the defaults
+	// The model's sizes are the gateway's, from the offer (issue #1019); without them omp is given the defaults
 	// (agentconfig.DefaultContextWindow, DefaultMaxOutput). omp reads the key from keyVariable.
-	gw := agentconfig.Gateway{URL: l.URL, Key: keyVariable, Model: l.Model, API: l.API, Reasoning: l.Effort != ""}
+	gw := agentconfig.Gateway{
+		URL: l.URL, Key: keyVariable, Model: l.Model, API: l.API, Reasoning: l.Effort != "",
+		ContextWindow: l.ContextWindow, MaxOutput: l.MaxOutput,
+	}
 	models := agentconfig.OmpModels(gw)
-	config := "tools:\n  xdev: false\nweb_search:\n  enabled: false\ngenerate_image:\n  enabled: false\n"
+	config := "web_search:\n  enabled: false\ngenerate_image:\n  enabled: false\n"
 
 	for name, content := range map[string]string{
 		filepath.Join(agentDir, "models.yml"): models,
@@ -98,9 +107,9 @@ func prepareOmp(l launch) ([]string, []string, error) {
 // prepareOpencode names the gateway in a configuration file of the
 // Conversation's own (OPENCODE_CONFIG), away from the user's and the
 // project's, with its data under the same directory. Every action is
-// allowed but `execute`, the tool that would hide the tools server's tools
-// behind code: denied, they are plain tools (opencode core/src/tool.ts).
-// Its own `websearch`, `webfetch` and `experimental_image_generate` are
+// allowed, `execute` included: opencode's default code mode reaches the tools
+// server's tools from code (core/src/tool.ts; owner, 2026-11-21, issue #1015;
+// denied until then, which made them plain tools). Its own `websearch`, `webfetch` and `experimental_image_generate` are
 // denied too, which takes them out of its tools (core/src/tool.ts,
 // whollyDisabled; for the image tool "permissions are the supported way to
 // turn it off", core/src/tool/plugin/image-generate.ts), so that the worker
@@ -109,10 +118,10 @@ func prepareOmp(l launch) ([]string, []string, error) {
 func prepareOpencode(l launch) ([]string, []string, error) {
 	settings := agentconfig.OpencodeConfig(agentconfig.Gateway{
 		URL: l.URL, Key: "{env:" + keyVariable + "}", Model: l.Model,
+		ContextWindow: l.ContextWindow, MaxOutput: l.MaxOutput,
 	})
 	settings["permissions"] = []map[string]string{
 		{"action": "*", "resource": "*", "effect": "allow"},
-		{"action": "execute", "resource": "*", "effect": "deny"},
 		{"action": "websearch", "resource": "*", "effect": "deny"},
 		{"action": "webfetch", "resource": "*", "effect": "deny"},
 		{"action": "experimental_image_generate", "resource": "*", "effect": "deny"},

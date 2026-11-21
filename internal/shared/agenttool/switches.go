@@ -58,12 +58,39 @@ const (
 	ToolZaloSend     = "zalo_send"
 )
 
+// The Inbox's tools (issue #1004): a Bot's pi keeps the owner's to-dos, over the Inbox's store (#845) as the client
+// API does (#966); Orca's `bot item add / set / done / cancel`, Hermes's kanban tools.
+const (
+	ToolInboxList    = "inbox_list"
+	ToolInboxGet     = "inbox_get"
+	ToolInboxAdd     = "inbox_add"
+	ToolInboxUpdate  = "inbox_update"
+	ToolInboxStart   = "inbox_start"
+	ToolInboxRelease = "inbox_release"
+	ToolInboxDone    = "inbox_done"
+	ToolInboxDrop    = "inbox_drop"
+)
+
+// InboxTools are the Inbox's tools.
+var InboxTools = []string{
+	ToolInboxList, ToolInboxGet, ToolInboxAdd, ToolInboxUpdate, ToolInboxStart, ToolInboxRelease, ToolInboxDone,
+	ToolInboxDrop,
+}
+
 const (
 	ToolAccountRead = "account_read"
 	ReadRunRefusal  = "This run reads only; do not try another way."
 )
 
+// ReadRunAllows says whether a Routine's run that reads only (issue #956) may use a tool: it reads the owner's
+// accounts and keeps the owner's to-dos in the Inbox (issue #1004), which writes only in the control plane, never
+// outward. Every tool that acts as the owner outside, such as zalo_send and whatsapp_send, stays refused: a Bot
+// that reads his messages never sends one as him (owner, 2026-11-17 and 2026-11-21 on #838).
 func ReadRunAllows(tool string) bool {
+	if slices.Contains(InboxTools, tool) {
+		return true
+	}
+
 	switch tool {
 	case ToolAccountRead, ToolMemory, ToolSupersetDashboards, ToolSupersetDashboard, ToolSupersetChartData,
 		ToolSupersetFilterValues, ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia, ToolWhatsAppHistory,
@@ -146,6 +173,27 @@ var ToolFamilies = []ToolFamily{
 			"is not there already, set it, then run it once and tell him what that run did. A Routine's script has " +
 			"commands, not tools: it reads Superset with `hypomnema superset chart` and refreshes an artifact with " +
 			"`hypomnema artifact show --id <id> --path <folder>`."},
+	{Name: "requests", Description: "Ask the owner for a Connection the Bot was not given (a Bot's main chat only)",
+		Pattern: ToolRequestConnection, Tools: []string{ToolRequestConnection},
+		WhenToUse: "When a task needs an account you were not given and request_connection lists it, ask the owner " +
+			"for it with request_connection, in your main chat only, saying why in one sentence; he answers on a " +
+			"card. Then end your turn: do not call it again or poll; you are woken with his answer. In another " +
+			"chat, tell him which account it needs."},
+	{Name: "inbox", Description: "Keep the owner's to-dos in the Inbox (a Bot only)", Pattern: "inbox_*",
+		Tools: InboxTools,
+		// The Bots' rules of the Inbox (issue #1004, section 8), after Orca's botItemRules (bot-preamble.ts:47).
+		WhenToUse: "Keep the owner's to-dos in the Inbox with the inbox_* tools. Add one for each direct ask to " +
+			"him that he has not answered and each promise he makes, with the quote and the message it came " +
+			"from; one you only infer is proposed. An ask is two items: \"Reply to <person>\" due today, since " +
+			"everyone gets an answer the same day, and, when it asks for work, that work with its own due date. " +
+			"Waiting on someone is an item given to that person, due the day to chase them (2 days when none is " +
+			"said). For a reply, draft it in his voice, attach it with inbox_update draft and hand_back, so it " +
+			"waits in Needs you: never send a message to a client or a boss yourself. Close an item with " +
+			"inbox_done and evidence of what was done; close his item only with his own message: in this chat, " +
+			"or the one he sent in the item's Zalo, WhatsApp or Lark chat after it was made (zalo_sent, " +
+			"whatsapp_sent, lark_sent). Edit and close only your own items. A send you make while working on an " +
+			"item names it (todo, or HYPOMNEMA_TODO=<id> before the command) and waits for his approval in " +
+			"review."},
 	{Name: "web", Description: "Search the web and read pages", Pattern: "web_*",
 		Tools: []string{ToolWebSearch, ToolWebFetch},
 		WhenToUse: "Search the web with web_search for what may have changed since your training or to find a " +
@@ -203,10 +251,10 @@ var ToolFamilies = []ToolFamily{
 			"search them. A page you open is in your own tab of the browser every agent shares, never in the " +
 			"owner's tab \"My browser\"; he sees your tab in the web client, named by the page's title with your " +
 			"name, and can press \"Take control\" there to click and type. When a page needs a sign-in, open the " +
-			"sign-in page in your tab, ask the owner to sign in there himself and to press \"Hand back\" when " +
-			"done, and wait for him; a sign-in made in any tab is shared by every agent. Never ask for, accept, " +
-			"use or type a password, a code or any other secret; if the owner sends one, do not use it: tell him " +
-			"not to send it in a chat, to sign in himself in your tab, and to change that password."},
+			"sign-in page in your tab; when the owner has given you the password or code for that account of his, " +
+			"type it there yourself, else ask him to sign in there himself and to press \"Hand back\" when done, " +
+			"and wait for him; a sign-in made in any tab is shared by every agent. Never repeat a password or code " +
+			"in a reply and never write one into a file, your memory, an artifact or a commit."},
 	{Name: "phone", Description: "The phone a node holds", Pattern: devicetool.Prefix + "*",
 		Tools: []string{devicetool.Screen, devicetool.Layout, devicetool.Tap, devicetool.Swipe, devicetool.Type,
 			devicetool.Key, devicetool.Launch, devicetool.Logcat, devicetool.Location, devicetool.VideoStart,
@@ -214,7 +262,8 @@ var ToolFamilies = []ToolFamily{
 			devicetool.VideoMake, devicetool.VideoGet},
 		WhenToUse: "An Android phone a node holds is shared by every agent; drive it with the device_* tools, one " +
 			"call at a time, after loading the `android-device` skill. Look with device_screen before each action " +
-			"and tap its numbered boxes. Never sign in to an account on it, and never buy or pay: ask the owner. " +
+			"and tap its numbered boxes. Sign in only with a password or code the owner gave you, and never buy " +
+			"or pay: ask the owner. " +
 			"To film a demo of an app, video_start a take, call video_say right before each action, then video_stop; " +
 			"make the take into a video for the owner to review with video_make, and follow it with video_get."},
 }

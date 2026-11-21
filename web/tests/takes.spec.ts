@@ -236,6 +236,18 @@ async function fakeServer(page: Page): Promise<Server> {
         return json(failedTake)
       case "GET /videos":
         return json({ data: server.made ? [madeVideo] : [] })
+      // The Look's catalogue, as the server starts it (#938); its sample is answered by the default below.
+      case "GET /videos/looks":
+        return json({
+          presets: [{ id: "clean", name: "Clean" }],
+          backgrounds: ["midnight"],
+          chromes: ["full", "none", "android", "iphone"],
+          default: {
+            captions: { preset: "clean", position: "preset" },
+            frame: { chrome: "android", padding: 48, radius: 40, shadow: true, safe_top: false },
+            background: { preset: "midnight" },
+          },
+        })
       case "POST /videos":
         server.made = true
 

@@ -191,8 +191,11 @@ var policies = map[string]policy{
 	"ListSupersetFilterValues": {long: true},
 	"RelaySupersetRequest":     {long: true},
 
-	"ListApprovals":           {scope: scopeOwner},
-	"DecideApproval":          {scope: scopeOwner},
+	"ListApprovals":  {scope: scopeOwner},
+	"DecideApproval": {scope: scopeOwner},
+	// A Bot's requests for a Connection (issue #471, part D): only the owner answers them (connectionrequests.go).
+	"ListConnectionRequests":  {scope: scopeOwner},
+	"DecideConnectionRequest": {scope: scopeOwner},
 	"ListRepos":               {},
 	"PutRepo":                 {scope: scopeOwner},
 	"DeleteRepo":              {scope: scopeOwner},
@@ -240,9 +243,11 @@ var policies = map[string]policy{
 	"GetProfile":          {},
 	"ListProfileVersions": {},
 	"ApplyProfile":        {},
-	"DeleteProfile":       {scope: scopeOwner},
-	"ListSetupChanges":    {scope: scopeOwner},
-	"UndoSetupChange":     {scope: scopeOwner},
+	// Restoring a version applies its source again, as ApplyProfile (issue #1002).
+	"RestoreProfileVersion": {},
+	"DeleteProfile":         {scope: scopeOwner},
+	"ListSetupChanges":      {scope: scopeOwner},
+	"UndoSetupChange":       {scope: scopeOwner},
 	// Memories (issue #21): every token reads them; a Bot keeps entries about the owner; only the owner changes
 	// an agent's, whose workers write it through the agent API, and replaces a whole memory.
 	"GetAgentMemory":    {},

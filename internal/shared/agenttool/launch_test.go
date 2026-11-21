@@ -468,7 +468,7 @@ func TestANodePreparesADispatchForThePhone(t *testing.T) {
 	block := ToolGuide([]string{devicetool.Screen})
 	assert.Contains(t, block, "- Phone: ")
 	assert.Contains(t, block, "device_screen before each action")
-	assert.Contains(t, block, "Never sign in")
+	assert.Contains(t, block, "Sign in only with a password or code the owner gave you")
 	assert.Contains(t, block, "never buy or pay")
 }
 

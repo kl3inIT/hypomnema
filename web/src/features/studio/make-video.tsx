@@ -30,21 +30,31 @@ import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { errorText } from "@/lib/server-error"
 
+import { LookSection } from "./look-section"
+import { fieldsOf, sentLook, type LookFields } from "./look-state"
+import { useVideoLooks } from "./use-look"
+
 type Aspect = NonNullable<VideoMake["aspect"]>
 
 // MakeVideo is a take's "Make video" button and its dialog (issue #818, rows 5, 6 and 8): the voice, captions on or
 // off, and 9:16 or 16:9, as POST /videos takes them; the voice left empty is each provider's set on Settings →
 // Audio. The take's first make creates its video, a later one adds a revision with the latest lines. The request
 // carries an idempotency key made when the dialog opens, so a make sent twice queues one revision
-// (docs/conventions.md). Once queued, the video opens.
+// (docs/conventions.md). Once queued, the video opens. Its Look (#908, row 16) starts from the saved default, and
+// the make sends only the sections the owner changed: the server takes the others from the default (#938). A take
+// that cannot be made, one with no steps (#1028), has the button disabled, described by the line saying why, as
+// Request changes is disabled with its line (./video-view.tsx); the dialog and its look sample never open.
 export function MakeVideo({
   take,
   again,
+  why,
   onMade,
 }: {
   take: string
   // again: the take has a video already, and a make adds a revision.
   again?: boolean
+  // why: the id of the line saying why the take cannot be made into a video; the button is then disabled.
+  why?: string
   onMade: (video: Video) => void
 }) {
   const formId = useId()
@@ -54,6 +64,12 @@ export function MakeVideo({
   const [captions, setCaptions] = useState(true)
   const [aspect, setAspect] = useState<Aspect>("9:16")
   const [key, setKey] = useState(() => crypto.randomUUID())
+  // look: the Look's fields as the owner set them; none, the saved default's (#938).
+  const [look, setLook] = useState<LookFields>()
+  const looks = useVideoLooks(open)
+  const start = looks.data && fieldsOf(looks.data.default)
+  const fields = look ?? start
+  const sent = start && fields && sentLook(start, fields)
   const make = useMutation({
     ...makeVideoMutation(),
     onSuccess: (video) => {
@@ -70,17 +86,22 @@ export function MakeVideo({
     setOpen(next)
     if (next) {
       setKey(crypto.randomUUID())
+      setLook(undefined)
       make.reset()
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={change}>
-      <DialogTrigger render={<Button variant="ghost" size="sm" />}>
+      <DialogTrigger
+        render={<Button variant="ghost" size="sm" />}
+        disabled={why !== undefined}
+        aria-describedby={why}
+      >
         <Film />
         Make video
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>Make a video</DialogTitle>
           <DialogDescription>
@@ -97,7 +118,13 @@ export function MakeVideo({
               event.preventDefault()
               make.mutate({
                 headers: { "Idempotency-Key": key },
-                body: { take, captions, aspect, ...(voice.trim() ? { voice: voice.trim() } : {}) },
+                body: {
+                  take,
+                  captions,
+                  aspect,
+                  ...(voice.trim() ? { voice: voice.trim() } : {}),
+                  ...(sent ? { look: sent } : {}),
+                },
               })
             }}
           >
@@ -149,6 +176,29 @@ export function MakeVideo({
                   : "Wide, the phone in the middle on black: 1280 × 720."}
               </FieldDescription>
             </Field>
+            {looks.data && fields ? (
+              <LookSection
+                looks={looks.data}
+                value={fields}
+                onChange={setLook}
+                captions={captions}
+                sample={{ take, aspect, captions, ...(sent ? { look: sent } : {}) }}
+                open={open}
+              />
+            ) : (
+              <p
+                role={looks.isError ? "alert" : "status"}
+                className="flex items-center gap-2 text-sm text-muted-foreground"
+              >
+                {looks.isError ? (
+                  `The looks could not be read: ${errorText(looks.error)} The video is made in the saved look.`
+                ) : (
+                  <>
+                    <Spinner /> Reading the looks…
+                  </>
+                )}
+              </p>
+            )}
             {make.error && (
               <Alert variant="destructive">
                 <AlertDescription>{errorText(make.error)}</AlertDescription>

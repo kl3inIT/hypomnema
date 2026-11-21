@@ -90,6 +90,24 @@ describe("a subscription", () => {
     expect(claude?.name).toBe("Claude")
   })
 
+  it("keeps OpenCode Go's keys and OpenCode Zen's apart", () => {
+    const [go, zen] = subscriptionsOf(
+      [provider("opencode-go", "opencode_go"), provider("opencode-zen", "opencode_zen")],
+      [
+        account("go-key", { runtime: "opencode_go" }),
+        account("zen-key", { runtime: "opencode_zen" }),
+      ],
+    )
+
+    expect(go?.accounts.map((a) => a.id)).toEqual(["go-key"])
+    expect(zen).toMatchObject({
+      name: "OpenCode Zen",
+      account: "OpenCode Zen key",
+      runtime: "opencode_zen",
+    })
+    expect(zen?.accounts.map((a) => a.id)).toEqual(["zen-key"])
+  })
+
   it("serves while one account can, and says why when none can", () => {
     const resting = account("r", { cooling_until: later })
     const signedOut = account("s", { sign_in: "login_required" })

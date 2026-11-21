@@ -464,17 +464,20 @@ func TestAChatChoosesItsModelAndEffort(t *testing.T) {
 		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet, haiku]\n")
 	require.NoError(t, err)
 
-	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Model: "sonnet", Effort: "high"})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Provider: "router", Model: "sonnet", Effort: "high"})
 	require.NoError(t, err)
 
 	plain, err := w.s.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 	assert.Equal(t, ChatModel{}, plain.Choice, "a chat that chose nothing runs with its Bot's")
 
-	chat, err := w.s.CreateChatWithID(ctx, "", vmapBot.ID, "", ChatModel{Model: "haiku", Effort: "minimal"})
+	_, err = w.s.CreateChatWithID(ctx, "", vmapBot.ID, "", ChatModel{Model: "haiku"})
+	require.ErrorContains(t, err, "named without its provider", "a chat's model names its provider (issue #1002)")
+
+	chat, err := w.s.CreateChatWithID(ctx, "", vmapBot.ID, "",
+		ChatModel{Provider: "router", Model: "haiku", Effort: "minimal"})
 	require.NoError(t, err)
-	assert.Equal(t, ChatModel{Provider: "router", Model: "haiku", Effort: "minimal"}, chat.Choice,
-		"the provider is the one that offers the model")
+	assert.Equal(t, ChatModel{Provider: "router", Model: "haiku", Effort: "minimal"}, chat.Choice)
 
 	low, none := "low", ""
 	chat, err = w.s.SetChatModel(ctx, chat.ID, ChatModelChange{Effort: &low})

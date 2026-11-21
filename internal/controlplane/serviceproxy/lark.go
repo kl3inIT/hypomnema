@@ -44,7 +44,10 @@ var larkMethods []byte
 
 // larkHost is where Lark's API is, for the international brand the
 // Integration declares.
-const larkHost = "open.larksuite.com"
+const larkHost = LarkHost
+
+// LarkHost is the host of Lark's API.
+const LarkHost = "open.larksuite.com"
 
 // The risks lark-cli gives a method.
 const (

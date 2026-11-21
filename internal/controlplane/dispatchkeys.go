@@ -53,6 +53,34 @@ func (d dispatchKeys) Key(ctx context.Context, dispatchID, model string) (string
 	return secret, true
 }
 
+// Sizes gives a model's context window and largest output as the gateway resolves them, set or from models.dev
+// (issue #1019), as Settings → Connect a tool writes them into a CLI's files; ok is false when it knows neither.
+func (d dispatchKeys) Sizes(ctx context.Context, model string) (window, output int64, ok bool) {
+	m, err := d.gateway.GetModel(ctx, model)
+	if err != nil {
+		return 0, 0, false
+	}
+
+	r, err := d.gateway.Resolve(ctx, m)
+	if err != nil {
+		d.logger.WarnContext(ctx, "reading a model's sizes",
+			slog.String("event", "controlplane.model_sizes_failed"), slog.String("model", model),
+			slog.String("error", err.Error()))
+
+		return 0, 0, false
+	}
+
+	if r.ContextWindow.Value != nil {
+		window = *r.ContextWindow.Value
+	}
+
+	if r.MaxOutput.Value != nil {
+		output = *r.MaxOutput.Value
+	}
+
+	return window, output, window > 0 || output > 0
+}
+
 // Loop revokes the keys of Dispatches that settled, whenever orchestration
 // commits and every dispatchKeysEvery, until ctx ends.
 func (d dispatchKeys) Loop(ctx context.Context) {

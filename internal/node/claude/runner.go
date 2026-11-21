@@ -213,6 +213,12 @@ func (rt *ClaudeRuntime) credentials(o nodeproto.Offer) ([]string, error) {
 			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+o.Model)
 	}
 
+	// Claude Code cannot learn a gateway model's window: it is told the gateway's (issue #1019), as Settings →
+	// Connect a tool writes it and as t3code (ClaudeAdapterV2.ts) and OpenClaw (cli-backend.ts) set it.
+	if o.ModelContextWindow > 0 {
+		out = append(out, "CLAUDE_CODE_AUTO_COMPACT_WINDOW="+strconv.FormatInt(o.ModelContextWindow, 10))
+	}
+
 	return out, nil
 }
 
@@ -226,7 +232,10 @@ func (rt *ClaudeRuntime) credentials(o nodeproto.Offer) ([]string, error) {
 // (server/drivers/claude-own-memory.ts).
 func (rt *ClaudeRuntime) env(configDir string, credentials []string) []string {
 	out := append([]string{"CLAUDE_CONFIG_DIR=" + configDir}, credentials...)
-	out = append(out, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+	// Its git instructions and status snapshot are off too: Claude Code rebuilds the snapshot when a session resumes,
+	// which rewrites the cached prefix of every follow-up after a commit; the worker reads git state with its tools
+	// (issue #1019; OpenClaw extensions/anthropic/cli-backend.ts sets it for the same reason).
+	out = append(out, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1",
 		"CLAUDE_CODE_SDK_READS_SESSION_STATE=1",
 		"LANG=C.UTF-8", "MCP_TOOL_TIMEOUT="+strconv.FormatInt(toolTimeout.Milliseconds(), 10))
 

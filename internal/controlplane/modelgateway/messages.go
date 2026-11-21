@@ -211,8 +211,8 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 		)
 
 		switch {
-		case a.goWire:
-			resp, err = s.goMessages(ctx, call, a.upstream.Model)
+		case a.openCode != nil:
+			resp, err = s.openCodeMessages(ctx, *a.openCode, call, a.upstream.Model)
 		case a.claude:
 			resp, err = s.claudeMessages(ctx, call, a.upstream.Model)
 		default:
@@ -339,9 +339,10 @@ type messagesAttempt struct {
 	target   Target
 	upstream upstream
 	// claude says the target answers in Messages' own format: a Claude
-	// subscription, or an OpenCode Go model served on Messages (go).
-	claude bool
-	goWire bool
+	// subscription, or an OpenCode Go or Zen model served on Messages
+	// (openCode, its provider).
+	claude   bool
+	openCode *openCodeProvider
 }
 
 // messagesAttempts are the targets of a model a call can be sent to, in order.
@@ -359,25 +360,31 @@ func (s *Server) messagesAttempts(ctx context.Context, call messagesCall, model 
 		}
 
 		claudeTarget := u.Kind == "claude_subscription"
-		// An OpenCode Go model served on Messages is passed the request as it is (issue #854).
-		goTarget := u.Kind == openCodeGoKind && call.generates && s.accounts != nil &&
-			s.svc.goWire(ctx, u.Model) == goWireMessages
+		// An OpenCode Go (issue #854) or Zen (issue #965) model served on Messages is passed the request as it is.
+		var openCode *openCodeProvider
+		if p, ok := openCodeOf(u.Kind); ok && call.generates && s.accounts != nil &&
+			s.svc.openCodeWire(ctx, u.Kind, u.Model) == goWireMessages {
+			openCode = &p
+		}
 
 		if (claudeTarget && s.accounts == nil) || (!claudeTarget && !call.generates) {
 			continue
 		}
 
 		attempts = append(attempts, messagesAttempt{
-			target: target, upstream: u, claude: claudeTarget || goTarget, goWire: goTarget,
+			target: target, upstream: u, claude: claudeTarget || openCode != nil, openCode: openCode,
 		})
 	}
 
 	return attempts
 }
 
-// goMessages passes a request to an OpenCode Go model served on Messages
-// under the Go keys: the client's body with the model's name at Go (issue #854).
-func (s *Server) goMessages(ctx context.Context, call messagesCall, upstreamModel string) (*http.Response, error) {
+// openCodeMessages passes a request to an OpenCode Go or Zen model served on
+// Messages under the provider's keys: the client's body with the model's name
+// at OpenCode (issues #854, #965).
+func (s *Server) openCodeMessages(
+	ctx context.Context, p openCodeProvider, call messagesCall, upstreamModel string,
+) (*http.Response, error) {
 	body, err := withModel(call.raw, upstreamModel, nil)
 	if err != nil {
 		return nil, &badMessagesError{err: err}
@@ -388,7 +395,7 @@ func (s *Server) goMessages(ctx context.Context, call messagesCall, upstreamMode
 		accept = "text/event-stream"
 	}
 
-	return s.underGo(ctx, openCodeGoSession(call.session), goWireMessages, body, accept, nil)
+	return s.underOpenCode(ctx, p, upstreamModel, openCodeGoSession(call.session), goWireMessages, body, accept, nil)
 }
 
 // chatFromMessages is a Messages request as the chat route reads one.

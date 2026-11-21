@@ -62,8 +62,9 @@ var added = map[string]string{
 	toolOpen: "In Hypomnema the page opens in your own tab of the browser every agent shares. The owner sees " +
 		"that tab in the web client, beside the chat it belongs to, and can take control of it there; it is not " +
 		"his own tab \"My browser\". When a page needs a sign-in, open it and ask the owner to sign in in your " +
-		"tab, then hand it back: the browser keeps one sign-in for every agent. Never ask for or use a password " +
-		"in the chat. Hypomnema launches the browser itself, so a window is not how the owner sees a page.",
+		"tab, then hand it back, or type the password or code he gave you for that account of his: the browser " +
+		"keeps one sign-in for every agent. Never repeat a password in a reply or write one into a file. " +
+		"Hypomnema launches the browser itself, so a window is not how the owner sees a page.",
 }
 
 // catalog is the tools offered and the arguments each takes.

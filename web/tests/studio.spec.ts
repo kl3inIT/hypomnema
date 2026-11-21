@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { deflateSync } from "node:zlib"
 
-import { expect, test, type Page, type Route } from "@playwright/test"
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test"
 
 import { shot } from "./shot.js"
 
@@ -61,6 +61,11 @@ function crc32(data: Buffer): number {
 }
 
 const takeId = "tk_0123456789abcdef"
+// turnedTake is a take whose phone turned while it was filmed: a frame sent for it is refused, a frame from the
+// default falls back to full (issue #908, row 11).
+const turnedTake = "tk_00000000000000a7"
+// silentTake is a take the agent said no line on: it has no steps, so it cannot be made into a video (#1028).
+const silentTake = "tk_000000000000051e"
 const videoId = "vid_signin"
 const failedVideo = "vid_checkout"
 const lines = ["Mở ứng dụng cửa hàng", "Chạm vào Đăng nhập", "Trang tài khoản hiện ra"]
@@ -240,9 +245,76 @@ type Revision = {
   failed_stage?: string
   failed_cause?: string
   progress?: { scenes_done: number; scenes_total: number }
+  look: Look
   created_at: string
   updated_at: string
 }
+
+type Look = {
+  captions: { preset: string; position: string }
+  frame: { chrome: string; padding: number; radius: number; shadow: boolean; safe_top: boolean }
+  background?: { preset?: string; colors?: string[] }
+  fell_back_from?: string
+}
+
+const frameOf = (chrome: string) => ({
+  chrome,
+  padding: 48,
+  radius: chrome === "android" || chrome === "iphone" ? 40 : 14,
+  shadow: true,
+  safe_top: false,
+})
+
+// savedLook is the saved default of the catalogue: an owner's make chose an iPhone frame, so choosing Android is a
+// change, and the default is a frame that falls back on a turned take.
+const savedLook: Look = {
+  captions: { preset: "clean", position: "preset" },
+  frame: frameOf("iphone"),
+  background: { preset: "midnight" },
+}
+
+const catalogue = {
+  presets: [
+    ["one-word", "One Word"],
+    ["word-pair", "Word Pair"],
+    ["pop", "Pop"],
+    ["karaoke", "Karaoke"],
+    ["highlight-yellow", "Highlight"],
+    ["highlight-green", "Pop Green"],
+    ["clean", "Clean"],
+    ["bold", "Bold"],
+    ["minimal", "Minimal"],
+    ["boxed", "Boxed"],
+    ["mono", "Mono"],
+    ["bar", "Bar"],
+    ["legacy", "Classic"],
+  ].map(([id, name]) => ({ id, name })),
+  backgrounds: [
+    "macos",
+    "macos-light",
+    "midnight",
+    "sunset",
+    "ocean",
+    "forest",
+    "peach",
+    "aurora",
+    "grid",
+    "mono",
+    "light",
+  ],
+  chromes: ["full", "none", "android", "iphone"],
+  default: savedLook,
+}
+
+// sampleHue is a look sample's colour, its body's own, so a test can tell which request's answer is shown.
+function sampleHue(body: string): [number, number, number] {
+  let h = 0
+  for (const c of body) h = (h * 31 + c.charCodeAt(0)) >>> 0
+
+  return [h & 0xff, (h >> 8) & 0xff, (h >> 16) & 0xff]
+}
+
+type Sample = { body: Record<string, unknown>; aborted: boolean }
 
 type Server = {
   items: Item[]
@@ -254,6 +326,12 @@ type Server = {
   retried: { rev: number; key: string }[]
   failedRevisions: Revision[]
   studioCalls: string[]
+  samples: Sample[]
+  // sampleAnswer answers a sample in place of the picture: a delay first, or a refusal.
+  sampleAnswer: (body: Record<string, unknown>) => { delay?: number; status?: number }
+  looks: { body: Record<string, unknown>; key: string }[]
+  // looksRead counts the reads of the looks' catalogue.
+  looksRead: number
 }
 
 function failedRevision(rev: number, more: Partial<Revision> = {}): Revision {
@@ -288,6 +366,11 @@ function revision(rev: number, state: string, more: Partial<Revision> = {}): Rev
     aspect: "16:9",
     length_ms: state === "review" || state === "approved" ? 3000 : 0,
     warnings: [],
+    look: {
+      captions: { preset: "clean", position: "preset" },
+      frame: frameOf("android"),
+      background: { preset: "midnight" },
+    },
     created_at: at(58),
     updated_at: at(58),
     ...more,
@@ -305,6 +388,10 @@ async function fakeServer(page: Page): Promise<Server> {
     retried: [],
     failedRevisions: [failedRevision(1)],
     studioCalls: [],
+    samples: [],
+    sampleAnswer: () => ({}),
+    looks: [],
+    looksRead: 0,
   }
   const video = () => ({
     id: videoId,
@@ -319,6 +406,11 @@ async function fakeServer(page: Page): Promise<Server> {
       : {}),
   })
 
+  page.on("requestfailed", (request) => {
+    if (!request.url().endsWith("/api/v1/videos/preview")) return
+    const sample = server.samples.find((s) => JSON.stringify(s.body) === (request.postData() ?? ""))
+    if (sample) sample.aborted = true
+  })
   await page.addInitScript({ content: "localStorage.setItem('hypomnema.token', 'secret')" })
   await page.route("**/api/v1/**", async (route: Route) => {
     const request = route.request()
@@ -383,11 +475,65 @@ async function fakeServer(page: Page): Promise<Server> {
       }
       case `GET /takes/${takeId}`:
         return json(take)
+      case `GET /takes/${turnedTake}`:
+        return json({ ...take, id: turnedTake, title: "Xoay ngang" })
+      case `GET /takes/${silentTake}`:
+        return json({ ...take, id: silentTake, title: "Thử luồng nộp địa điểm", steps: [] })
+      case "GET /videos/looks":
+        server.looksRead++
+
+        return json(catalogue)
+      case "POST /videos/preview": {
+        const raw = request.postData() ?? ""
+        const body = JSON.parse(raw) as { take: string; look?: { frame?: unknown } }
+        server.samples.push({ body, aborted: false })
+        const answer = server.sampleAnswer(body)
+        if (answer.delay) await new Promise((done) => setTimeout(done, answer.delay))
+        if (body.take === turnedTake && body.look?.frame) {
+          return json({ code: "conflict", message: "the phone turned during the take" }, 409)
+        }
+        if (answer.status) {
+          const refusal: Record<number, [string, string]> = {
+            429: ["rate_limited", "another look sample is being made; try again in a second"],
+            503: ["unavailable", "ffmpeg is not installed"],
+            504: ["timed_out", "the look sample took too long: longer than 20s"],
+          }
+          const [code, message] = refusal[answer.status]!
+
+          return json({ code, message }, answer.status)
+        }
+
+        // The page may have dropped the request meanwhile; then nothing is answered.
+        return route
+          .fulfill({ status: 200, contentType: "image/png", body: png(sampleHue(raw)) })
+          .catch(() => {})
+      }
       case "GET /videos":
         return json({ data: server.revisions.length > 0 ? [video()] : [] })
       case "POST /videos": {
-        server.made.push(request.postDataJSON() as Record<string, unknown>)
+        const body = request.postDataJSON() as { take: string; look?: { frame?: unknown } }
+        server.made.push(body)
         server.makeKeys.push(request.headers()["idempotency-key"] ?? "")
+        if (body.take === turnedTake) {
+          if (body.look?.frame) {
+            return json(
+              {
+                code: "conflict",
+                message: "the phone turned during the take, so it cannot be framed",
+              },
+              409,
+            )
+          }
+          // The default's frame falls back to full on this revision only, with a warning.
+          server.revisions = [
+            revision(1, "queued", {
+              look: { ...savedLook, frame: frameOf("full"), fell_back_from: "iphone" },
+              warnings: ["the phone turned during the take, so the video has no iphone frame"],
+            }),
+          ]
+
+          return json({ ...video(), take: turnedTake }, 201)
+        }
         server.revisions = [revision(1, "queued")]
 
         return json(video(), 201)
@@ -403,6 +549,20 @@ async function fakeServer(page: Page): Promise<Server> {
         ]
 
         return json(video())
+      }
+      case `POST /videos/${videoId}/revisions/1/look`: {
+        const body = request.postDataJSON() as { look: Partial<Look> }
+        server.looks.push({ body, key: request.headers()["idempotency-key"] ?? "" })
+        const source = server.revisions[0]!
+        server.revisions = [
+          ...server.revisions,
+          revision(server.revisions.length + 1, "queued", {
+            parent: 1,
+            look: { ...source.look, ...(body.look as Look) },
+          }),
+        ]
+
+        return json(video(), 201)
       }
       case `POST /videos/${videoId}/revisions/2/approve`:
         server.approved.push(2)
@@ -645,4 +805,211 @@ test("a take is made into a video the owner reviews and approves", async ({ page
   expect(server.retried[0]!.key).not.toEqual(server.retried[1]!.key)
   expect(server.retried.every((r) => r.key !== "")).toBe(true)
   expect(server.made).toHaveLength(made)
+})
+
+// shownHue is the colour of the look sample shown (the page's DOM, as a string: the tests have no DOM types).
+const shownHue = (page: Page) =>
+  page.evaluate(`(() => {
+    const img = document.querySelector("[data-testid=look-sample] img")
+    if (!img || !img.complete || !img.naturalWidth) return null
+    const canvas = document.createElement("canvas")
+    canvas.width = img.naturalWidth
+    canvas.height = img.naturalHeight
+    const g = canvas.getContext("2d")
+    g.drawImage(img, 0, 0)
+    return Array.from(g.getImageData(5, 5, 1, 1).data.slice(0, 3))
+  })()`)
+
+// showSample scrolls the dialog until the look sample is at its top, so a picture taken on a phone shows it.
+const showSample = (look: Locator) =>
+  look
+    .getByTestId("look-sample")
+    .evaluate((el) =>
+      (el as unknown as { scrollIntoView: (o: object) => void }).scrollIntoView({ block: "start" }),
+    )
+
+const lookOf = (sample: Sample) => (sample.body as { look?: unknown }).look
+
+// Scenario: the owner opens a take the agent said no line on (#1028). Make video is disabled, described by the
+// line that says why and how to get steps, in place of the server's refusal; the looks and their sample are never
+// read.
+test("a take with no steps cannot be made into a video and says why", async ({ page }) => {
+  const server = await fakeServer(page)
+  await page.goto(`/studio/takes/${silentTake}`)
+
+  const takeView = page.getByTestId("take-view")
+  const make = takeView.getByRole("button", { name: "Make video" })
+  await expect(make).toBeDisabled()
+  await expect(make).toHaveAccessibleDescription(
+    /cannot be made into a video\. Ask the agent to film it again, saying each step/,
+  )
+  const steps = takeView.getByRole("complementary", { name: "Steps" })
+  await expect(steps).toContainText("0 steps")
+  await expect(steps).toContainText("so this take cannot be made into a video")
+  await expect(takeView.getByTestId("take-video")).toBeVisible()
+  await shot(page, "studio-take-no-steps")
+  expect(server.looksRead).toBe(0)
+  expect(server.samples).toEqual([])
+})
+
+// Scenario: the owner makes a take into a video and opens its Look (issue #908, row 16; #938): it starts from the
+// saved default, with a sample of it. Changing the frame twice drops the first sample asked and shows only the
+// latest; a sample the server cannot draw says why (busy, no ffmpeg, too long). A background chosen and set back is
+// not sent; the make carries only the frame changed.
+test("Make video sends only the look sections changed, with a sample of the latest", async ({
+  page,
+}) => {
+  const server = await fakeServer(page)
+  await page.goto(`/studio/takes/${takeId}`)
+  await page.getByTestId("take-view").getByRole("button", { name: "Make video" }).click()
+
+  const dialog = page.getByRole("dialog", { name: "Make a video" })
+  const look = dialog.getByRole("region", { name: "Look" })
+  await expect(look.getByRole("button", { name: "iPhone" })).toHaveAttribute("aria-pressed", "true")
+  await expect(look.getByRole("combobox", { name: "Style" })).toHaveText(/Clean/)
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  expect(server.samples[0]!.body).toEqual({ take: takeId, aspect: "9:16", captions: true })
+  await expect(look.getByTestId("background-swatch")).toHaveCount(11)
+  await look.scrollIntoViewIfNeeded()
+  await shot(page, "studio-make-look")
+  await look.getByRole("button", { name: "Your two colours" }).scrollIntoViewIfNeeded()
+  await shot(page, "studio-make-look-background")
+
+  // A sample still drawing is dropped when the owner changes the look again: only the latest one is shown.
+  server.sampleAnswer = (body) => (JSON.stringify(body).includes('"none"') ? { delay: 3000 } : {})
+  await look.getByRole("button", { name: "Plain" }).click()
+  await expect.poll(() => server.samples.length).toBe(2)
+  await look.getByRole("button", { name: "Android" }).click()
+  await expect.poll(() => server.samples.length).toBe(3)
+  const latest = server.samples[2]!
+  expect(lookOf(latest)).toEqual({ frame: { chrome: "android", shadow: true, safe_top: false } })
+  await expect.poll(() => server.samples[1]!.aborted).toBe(true)
+  await expect.poll(() => shownHue(page)).toEqual(sampleHue(JSON.stringify(latest.body)))
+  await page.waitForTimeout(3500)
+  await expect.poll(() => shownHue(page)).toEqual(sampleHue(JSON.stringify(latest.body)))
+
+  // A sample the server refuses says why.
+  const refusals: Record<string, number> = { ocean: 429, sunset: 503, forest: 504 }
+  server.sampleAnswer = (body) => {
+    const preset = (body as { look?: { background?: { preset?: string } } }).look?.background
+      ?.preset
+
+    return preset && refusals[preset] ? { status: refusals[preset] } : {}
+  }
+  const sample = look.getByTestId("look-sample")
+  await look.getByRole("button", { name: "Ocean" }).click()
+  await expect(sample.getByRole("alert")).toHaveText(/another look sample is being made/)
+  await sample.scrollIntoViewIfNeeded()
+  await shot(page, "studio-look-sample-busy")
+  await look.getByRole("button", { name: "Sunset" }).click()
+  await expect(sample.getByRole("alert")).toHaveText(/ffmpeg is not installed/)
+  await showSample(look)
+  await shot(page, "studio-look-sample-unavailable")
+  await look.getByRole("button", { name: "Forest" }).click()
+  await expect(sample.getByRole("alert")).toHaveText(/took too long/)
+  await showSample(look)
+  await shot(page, "studio-look-sample-timed-out")
+  await look.getByRole("button", { name: "Midnight" }).click()
+  await expect(sample.getByRole("alert")).toHaveCount(0)
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+
+  await dialog.getByRole("button", { name: "Make video" }).click()
+  await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
+  expect(server.made).toEqual([
+    {
+      take: takeId,
+      captions: true,
+      aspect: "9:16",
+      look: { frame: { chrome: "android", shadow: true, safe_top: false } },
+    },
+  ])
+})
+
+// Scenario: the take's phone turned while it was filmed. Choosing the Android frame is refused in the sample and at
+// Make, with the server's reason; set back to the default's frame, the make sends no frame and succeeds, the
+// default's frame falling back to full with a warning (row 11).
+test("on a take whose phone turned, the default look is made and a chosen frame is refused", async ({
+  page,
+}) => {
+  const server = await fakeServer(page)
+  await page.goto(`/studio/takes/${turnedTake}`)
+  await page.getByTestId("take-view").getByRole("button", { name: "Make video" }).click()
+
+  const dialog = page.getByRole("dialog", { name: "Make a video" })
+  const look = dialog.getByRole("region", { name: "Look" })
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await look.getByRole("button", { name: "Android" }).click()
+  await expect(look.getByTestId("look-sample").getByRole("alert")).toHaveText(/the phone turned/)
+  await dialog.getByRole("button", { name: "Make video" }).click()
+  await expect(dialog.getByRole("alert").last()).toHaveText(/cannot be framed/)
+  expect((server.made[0] as { look?: unknown }).look).toEqual({
+    frame: { chrome: "android", shadow: true, safe_top: false },
+  })
+  await dialog.getByRole("alert").last().scrollIntoViewIfNeeded()
+  await shot(page, "studio-make-turned-refused")
+
+  await look.getByRole("button", { name: "iPhone" }).click()
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await showSample(look)
+  await shot(page, "studio-make-turned-default")
+  await dialog.getByRole("button", { name: "Make video" }).click()
+  await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
+  expect(server.made[1]).toEqual({ take: turnedTake, captions: true, aspect: "9:16" })
+
+  server.revisions = [{ ...server.revisions[0]!, state: "review", length_ms: 3000 }]
+  const review = page.getByRole("complementary", { name: "Review" })
+  await expect(review).toContainText("so the video has no iphone frame", { timeout: 5000 })
+  await shot(page, "studio-make-turned-made")
+})
+
+// Scenario: the owner opens Change look on a made revision. It starts from the revision's look, the sample is drawn
+// from that revision (rev), and the captions, off in it, are not chosen. A background changed is the only section
+// posted to the look route, with an idempotency key; revision 2 is queued from revision 1.
+test("Change look posts only the sections changed and the new revision appears", async ({
+  page,
+}) => {
+  const server = await fakeServer(page)
+  server.revisions = [revision(1, "review")]
+  await page.goto(`/studio/videos/${videoId}`)
+
+  const review = page.getByRole("complementary", { name: "Review" })
+  await review.getByRole("button", { name: "Change look" }).click()
+  const dialog = page.getByRole("dialog", { name: "Change the look" })
+  const look = dialog.getByRole("region", { name: "Look" })
+  await expect(look.getByRole("button", { name: "Android" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  await expect(look.getByRole("combobox", { name: "Style" })).toBeDisabled()
+  await expect(look).toContainText("Captions are off.")
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  expect(server.samples[0]!.body).toEqual({
+    take: takeId,
+    aspect: "16:9",
+    captions: false,
+    rev: 1,
+  })
+  await expect(dialog.getByRole("button", { name: "Change look" })).toBeDisabled()
+  await showSample(look)
+  await shot(page, "studio-change-look-start")
+
+  await look.getByRole("button", { name: "Your two colours" }).click()
+  await expect(look.getByLabel("Top left")).toHaveValue("#1b2140")
+  await look.getByLabel("Bottom right").scrollIntoViewIfNeeded()
+  await shot(page, "studio-change-look-colours")
+  await look.getByRole("button", { name: "Ocean" }).click()
+  await expect
+    .poll(() => lookOf(server.samples.at(-1)!))
+    .toEqual({ background: { preset: "ocean" } })
+  expect(server.samples.at(-1)!.body).toMatchObject({ rev: 1 })
+  await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await showSample(look)
+  await shot(page, "studio-change-look")
+  await dialog.getByRole("button", { name: "Change look" }).click()
+
+  await expect(dialog).toBeHidden()
+  expect(server.looks).toHaveLength(1)
+  expect(server.looks[0]!.body).toEqual({ look: { background: { preset: "ocean" } } })
+  expect(server.looks[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
+  await expect(page.getByTestId("video-progress")).toContainText("Revision 2 is queued")
 })

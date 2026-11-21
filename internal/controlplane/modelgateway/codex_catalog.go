@@ -143,9 +143,15 @@ func (e codexEntry) int64(key string) int64 {
 }
 
 // servedOnResponses says /v1/responses passes a request on to a target of this kind and model: a Codex
-// subscription, or an OpenCode Go model Go serves on Responses (issue #854).
+// subscription, or an OpenCode Go (issue #854) or Zen (issue #965) model served on Responses.
 func (s *Service) servedOnResponses(ctx context.Context, kind, model string) bool {
-	return kind == "codex_subscription" || (kind == openCodeGoKind && s.goWire(ctx, model) == goWireResponses)
+	if kind == "codex_subscription" {
+		return true
+	}
+
+	_, openCode := openCodeOf(kind)
+
+	return openCode && s.openCodeWire(ctx, kind, model) == goWireResponses
 }
 
 // responsesTarget is a model's first target /v1/responses serves, and its provider's kind.

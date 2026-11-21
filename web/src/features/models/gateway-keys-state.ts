@@ -12,6 +12,7 @@ function providerTitle(provider: string, kind: string) {
   if (kind === "codex_subscription") return "Codex subscription"
   if (kind === "antigravity_subscription") return "Antigravity"
   if (kind === "opencode_go") return "OpenCode Go"
+  if (kind === "opencode_zen") return "OpenCode Zen"
 
   return provider
 }

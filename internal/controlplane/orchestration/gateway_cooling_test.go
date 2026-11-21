@@ -173,7 +173,7 @@ func TestRoleWaitsForTheFirstResetWhenNoBackupIsUsable(t *testing.T) {
 func TestReviewerSkipsASecondCoolingEntry(t *testing.T) {
 	t.Parallel()
 	w := roleWorld(t)
-	author := w.tasks(NewTask{Ref: "author", Runtime: "omp", Model: "glm-5.3-flash", Spec: "work"})[0]
+	author := w.tasks(NewTask{Ref: "author", Runtime: "omp", Model: "opencode-go/glm-5.3-flash", Spec: "work"})[0]
 	created := w.schedule().Created
 	require.Len(t, created, 1)
 	require.NoError(t, w.finish(w.begin(created[0]), success("done")))

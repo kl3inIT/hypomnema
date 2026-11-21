@@ -66,7 +66,15 @@ func provider(t *testing.T, handle http.HandlerFunc) (*httptest.Server, *seen) {
 
 	got := &seen{}
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(providerHandler(got, handle))
+	t.Cleanup(srv.Close)
+
+	return srv, got
+}
+
+// providerHandler is what provider serves: the chat endpoint, recorded in got and answered with handle.
+func providerHandler(got *seen, handle http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" || r.Method != http.MethodPost {
 			http.Error(w, "unexpected "+r.Method+" "+r.URL.Path, http.StatusTeapot)
 
@@ -75,10 +83,7 @@ func provider(t *testing.T, handle http.HandlerFunc) (*httptest.Server, *seen) {
 
 		got.add(r)
 		handle(w, r)
-	}))
-	t.Cleanup(srv.Close)
-
-	return srv, got
+	})
 }
 
 // stream answers with the given event stream frames, flushing each.

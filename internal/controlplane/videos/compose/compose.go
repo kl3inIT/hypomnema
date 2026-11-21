@@ -51,6 +51,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
 // Aspect is the shape of the video made.
@@ -102,6 +103,11 @@ type Input struct {
 	// none, and the picture fills the video as before.
 	Frame      Frame
 	Background Background
+	// Music, when set, is laid under the voice (issue #910); nil for none, and the video's sound is as before.
+	Music *Music
+	// FreeBytes says how much disk the file system of a path has free, checked before the music's bed is made;
+	// nil for platform.FreeBytes.
+	FreeBytes func(path string) (uint64, error)
 }
 
 // SceneResult is how a scene was made, in the take's time (Keeps) and in the video's (OutStartMs, OutLengthMs,
@@ -136,6 +142,8 @@ type Result struct {
 	LengthMs int64         `json:"length_ms"`
 	Scenes   []SceneResult `json:"scenes"`
 	Warnings []string      `json:"warnings,omitempty"`
+	// Music is the levels the music was mixed at, when the video has music.
+	Music *MusicResult `json:"music,omitempty"`
 }
 
 // encodeArgs are the video encoder's arguments of every pass that encodes.
@@ -158,6 +166,12 @@ func (s segment) endMs() int64 { return s.AtMs + s.LengthMs }
 // Compose makes the video of the take in in.Dir. The MP4 is written in
 // in.Work and renamed to in.Out only once it is whole.
 func Compose(ctx context.Context, tools ffmpeg.Tools, in Input) (Result, error) {
+	if in.Music != nil {
+		if err := in.Music.Check(); err != nil {
+			return Result{}, err
+		}
+	}
+
 	// ffmpeg runs in the work folder: every path it is given is absolute.
 	in, err := absolute(in)
 	if err != nil {
@@ -339,6 +353,15 @@ func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) 
 	}
 
 	return c.result, nil
+}
+
+// freeBytes is the free disk of a path's file system, by Input.FreeBytes or the platform's.
+func (c *composer) freeBytes(path string) (uint64, error) {
+	if c.in.FreeBytes != nil {
+		return c.in.FreeBytes(path)
+	}
+
+	return platform.FreeBytes(path)
 }
 
 func (c *composer) warn(format string, args ...any) {
@@ -694,23 +717,27 @@ func (c *composer) frameGraph(plate int) string {
 // mux burns the captions, when there are any, and adds the voice: each
 // scene's clip resampled and padded with silence to the length of its scene's
 // video, the clips joined, encoded as AAC (aidemo's assembleNarration and
-// muxAudio).
+// muxAudio). With music, the music is mixed under the voice (music.go); without, the command is the same as
+// before the music (issue #910, row 14).
 func (c *composer) mux(ctx context.Context, video string) (string, error) {
-	args := []string{"-i", video}
-	filters := make([]string, 0, len(c.result.Scenes)+2)
-	labels := make([]string, 0, len(c.result.Scenes))
-
-	for k, sc := range c.result.Scenes {
-		args = append(args, "-i", c.in.Voice[k])
-		sec := float64(sc.OutLengthMs) / 1000
-		filters = append(filters, fmt.Sprintf(
-			"[%d:a]aresample=44100,aformat=sample_rates=44100:channel_layouts=mono,"+
-				"apad=whole_dur=%.3f,atrim=end=%.3f[a%d]", k+1, sec, sec, k))
-		labels = append(labels, fmt.Sprintf("[a%d]", k))
+	var total int64
+	for _, sc := range c.result.Scenes {
+		total += sc.OutLengthMs
 	}
 
-	filters = append(filters, fmt.Sprintf("%sconcat=n=%d:v=0:a=1[aout]", strings.Join(labels, ""), len(labels)))
+	if c.in.Music != nil {
+		out, done, err := c.mixMusic(ctx, video, total)
+		if err != nil || done {
+			return out, err
+		}
+	}
 
+	args := []string{"-i", video}
+	for k := range c.result.Scenes {
+		args = append(args, "-i", c.in.Voice[k])
+	}
+
+	filters := c.voiceGraph(1)
 	videoMap, videoCodec := "0:v", []string{"-c:v", "copy"}
 
 	if c.in.Captions != "" {
@@ -721,11 +748,6 @@ func (c *composer) mux(ctx context.Context, video string) (string, error) {
 		// Relative names, read in the work folder: a path in a filter's option needs no escaping then.
 		filters = append(filters, "[0:v]subtitles=filename=captions.ass:fontsdir=fonts[vout]")
 		videoMap, videoCodec = "[vout]", encodeArgs
-	}
-
-	var total int64
-	for _, sc := range c.result.Scenes {
-		total += sc.OutLengthMs
 	}
 
 	out := filepath.Join(c.in.Work, "video.mp4")
@@ -827,6 +849,12 @@ func absolute(in Input) (Input, error) {
 	paths := []*string{&in.Dir, &in.Work, &in.Out}
 	if in.Captions != "" {
 		paths = append(paths, &in.Captions)
+	}
+
+	if in.Music != nil {
+		music := *in.Music
+		in.Music = &music
+		paths = append(paths, &in.Music.File)
 	}
 
 	in.Voice = append([]string(nil), in.Voice...)

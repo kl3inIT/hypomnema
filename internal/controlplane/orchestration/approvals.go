@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
@@ -205,6 +206,13 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 			return fmt.Errorf("recording the approval: %w", err)
 		}
 
+		// The item whose attempt asked waits for the owner too, in review (issue #1004).
+		if n.AttemptID != "" {
+			if err := s.inbox.LinkApprovalTx(ctx, q, now, id, n.AttemptID); err != nil {
+				return err
+			}
+		}
+
 		// The run waits for the owner while its call does.
 		if routineRunID != "" {
 			if err := routinestore.WaitRunTx(ctx, q, routineRunID); err != nil {
@@ -262,6 +270,14 @@ func (s *Service) ExpireApproval(ctx context.Context, id string) (Approval, erro
 		row, err := q.GetApproval(ctx, id)
 		if err != nil {
 			return notFound(err, "approval", id)
+		}
+
+		// The item that waited for it is open again (issue #1004).
+		if row.Expired == 1 {
+			if err := s.inbox.ApprovalAnsweredTx(ctx, q, now, id, false,
+				"nobody answered the approval of "+strconv.Quote(row.Title)+" in time"); err != nil {
+				return err
+			}
 		}
 
 		if err := resumeRunOf(ctx, q, now, row.RoutineRunID); err != nil {
@@ -451,6 +467,12 @@ func (s *Service) DecideApproval(ctx context.Context, id string, approve bool, s
 		}
 
 		if err := resumeRunOf(ctx, q, now, row.RoutineRunID); err != nil {
+			return err
+		}
+
+		// The item waiting for it goes on, or is open again with the owner's no (issue #1004).
+		if err := s.inbox.ApprovalAnsweredTx(ctx, q, now, id, approve,
+			"the owner rejected "+strconv.Quote(row.Title)); err != nil {
 			return err
 		}
 

@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
@@ -211,7 +212,18 @@ func (s *Service) SetChatModel(ctx context.Context, id string, change ChatModelC
 			m.Effort = *change.Effort
 		}
 
-		if m, err = checkChatModel(ctx, q, m); err != nil {
+		if change.Model == nil && m.Provider == "" && m.Model != "" {
+			// The stored model, left as it is, from before issue #1002 (keptModel); the effort is a chat's.
+			kept := m
+			if m, err = checkChatModel(ctx, q, ChatModel{Effort: kept.Effort}); err != nil {
+				return err
+			}
+
+			m.Model = kept.Model
+			if m.Provider, err = keptModel(ctx, q, botRuntime, "", m.Model, ""); err != nil {
+				return err
+			}
+		} else if m, err = checkChatModel(ctx, q, m); err != nil {
 			return err
 		}
 
@@ -607,7 +619,7 @@ func (s *Service) ListChats(ctx context.Context, bot string, limit, offset int) 
 }
 
 // DeleteChat deletes a chat for good (issue #484), as OpenMausBot deletes a room, Hermes a session and opencode a
-// session, with no archive: its messages, setup changes, artifacts and Lark chat go; ended Runs, Routines' runs and
+// session, with no archive: its messages, setup changes, Connection requests, artifacts and Lark chat go; ended Runs, Routines' runs and
 // approvals made in it stay and lose the chat; its gateway keys are revoked and kept. A Bot's main chat deleted
 // leaves the Bot without one until the next message from the web or the CLI makes another (issue #471). A chat a Routine tells its runs
 // in, or whose Routine's run is live, is refused, as OpenMausBot refuses a working room (409): the Routine is removed
@@ -677,6 +689,11 @@ func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries
 		return fmt.Errorf("%w: chat %s has open Runs; settle them before deleting the chat", ErrConflict, id)
 	}
 
+	// What a Bot was doing in the chat is given back (issue #1004).
+	if err := s.inbox.EndAttemptsTx(ctx, q, now, inboxstore.WorkChat, id, "the chat was deleted"); err != nil {
+		return err
+	}
+
 	blobs, err := q.ListArtifactBlobsOfChat(ctx, id)
 	if err != nil {
 		return err
@@ -694,6 +711,7 @@ func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries
 			return s.gatewayKeys.RevokeDeletedChatKeysTx(ctx, tx, id, now)
 		},
 		q.DeleteSetupChangesOfChat,
+		q.DeleteConnectionRequestsOfChat,
 		func(ctx context.Context, id string) error { return channelstore.DeleteChannelChatOfChatTx(ctx, q, id) },
 		q.ClearMainChat, q.DeleteArtifactsOfChat, q.DeleteChatQueue, q.DeleteChatMessages, q.DeleteChat,
 	}

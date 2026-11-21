@@ -193,7 +193,8 @@ kept under its `om_` message id, or a heard voice message) or a Routine's (named
 Routine's prompt): the one with the owner's latest message, then the one active latest; a Bot with none has no main
 chat. An owner's Lark direct chat that a `/new` left with text alone keeps no mark of Lark, so a Bot a Channel talks
 to got no main chat from the migration (owner, 2026-11-19): its first message from the web or the CLI makes one. `GET /chats?bot=` lists one Bot's chats, a page at a time
-(`offset`); the first page also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with
+(`offset`); the first page also carries every Bot's main chat, every chat an Approval or a Connection request waits
+in and, of a Bot with
 no main chat, its latest chat that is not a Routine's run (the chat it opens, issue #923), whatever
 their age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
 has its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
@@ -564,7 +565,8 @@ sequenceDiagram
     dropped. `open` takes an http(s) address or `about:blank`; a bare host means https. Its description is
     agent-browser's with a paragraph of Hypomnema's after it (issue #704): the page is in the agent's own tab,
     which the owner sees and takes control of in the web client beside its chat, not in his own tab; a sign-in is
-    made by the owner there and shared by every agent; no password is asked for in the chat.
+    made by the owner there, or typed by the agent with a password the owner gave it (#1042), and shared by every
+    agent; a password is never repeated or stored.
   - Chrome keeps its sandbox. On a machine that blocks it (Ubuntu 23.10 and later) a call fails and says to run
     `deploy/browser/setup-browser.sh` once with sudo (and again when the pinned browser's path changes, as it did
     in issue #540), which writes an AppArmor profile and installs missing
@@ -807,7 +809,7 @@ sequenceDiagram
     drained stays drained through both.
   - An agent is told of the phone when one is there: the node API marks an offer with `device: android`, and
     the phone's line of the "Tools" block, which a worker and a Bot get while a node holds the phone (issue #789),
-    gives the rules that matter most: look before acting, act by box number, never sign in or pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
+    gives the rules that matter most: look before acting, act by box number, sign in only with what the owner gave, never pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
     skill of the skills store that requires the phone (`device: android`, issue #536): every worker and Bot is
     given it while a node holds a phone, by the path every skill takes (see "Skills"); the guide says a Bot asks
     the owner in its chat, a worker with `ask`.
@@ -847,7 +849,7 @@ sequenceDiagram
     (`optimizeForLatency`), configured from the SPS of a key frame, and asks for a key frame when it has none. A
     pointer is one finger, its moves merged one a frame, at a point from 0 to 1 through the letterbox; a key with an
     Android code is that code, Escape is Back, a typed or pasted text is text, Shift+Escape leaves the screen. Control
-    is taken only with the button. The owner types passwords here; agents never sign in. WebCodecs needs a secure
+    is taken only with the button. The owner types passwords here, or gives one to the agent, which may then sign in (#1042). WebCodecs needs a secure
     page (HTTPS or this computer's own address), and a page without it says so. The sidebar says when the owner
     holds the phone.
   - Filming (issue #817, step 1 of 3 of agent-made demo videos; [research](docs/research/2026-11-18-agent-recorded-phone-demo-video.md)).
@@ -866,6 +868,8 @@ sequenceDiagram
     While it lives another agent's phone calls are answered "The phone is filming for …" and reach no node;
     `video_say` and `video_stop` name the take, and one naming another is refused or, for a stop, answered with
     that take's state. A start retried with its request id answers the same take; a stop twice the same state.
+    A stop of a take with no steps also says it cannot be made into a video and how to film one that can, the
+    take kept (issue #1028).
     A take whose lease ends is recorded `finalizing` with its end at once, before the node answers, and the store
     never makes an ended take `recording` or `paused` again (a node's answer sent before the stop and kept after
     it), so `video_status` after a stop is never `recording` (issue #851).
@@ -963,6 +967,29 @@ sequenceDiagram
     instant shows (libass is given whole milliseconds, truncated; #937). Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
     `background()` (`compose/testdata/frames`), and check in the made video that the hole shows the picture and
     only the hole does, where a ring lands, and that a turned take is refused.
+    Compose lays a music track under the voice when `Input.Music` names one (#910 part 1, #1039; nothing passes
+    one yet: the library, the look's section and the runner are part 2): its file, its decoded length and a gain
+    of −20 to +10 dB. Without music the mux's command is as before, stream for stream. `compose.Measure` decodes a
+    file's first audio stream strictly (`-xerror`, optionally bounded by `-t`) through ebur128, read from ffmpeg's
+    stdout (`-progress pipe:1`, capped at 32 MB, refused unless it ends with `progress=end`, ffmpeg run in a process group of its own that is
+    killed whole at the context's deadline, its stdout closed then even while a child holds it): integrated LUFS, the
+    largest true peak (linear; `TPdB` is 20·log10 of it) and the decoded length. With music, the voice's chain is
+    written as `voice.wav` and measured; its gain is min(−16 − I, −1.5 − TP) (Kinocut, Apache-2.0,
+    `third_party/kinocut`). The bed (`bed.go`, Kinocut's loop) is the track made stereo 44.1 kHz float, cut at the
+    video's length T or, when shorter, played ⌈(T − 1.5)/(L − 1.5)⌉ times (at most 100) with 1.5 s equal-power
+    crossfades, written as `music-bed.wav` (pcm_f32le, 352 800 B/s) after checking 400 MB + that much free disk
+    (`Input.FreeBytes`, else `platform.FreeBytes`). It is measured over T: at −70 LUFS or under, the video is made
+    without music and with a warning; otherwise its gain sets it 3 LU under the voice plus the track's gain, capped
+    at +24 dB with a warning. The bed is ducked to 0.25 under each scene's clip (spans less than 0.6 s apart
+    merged; down over 0.15 s, up over 0.4 s; HyperFrames' duck, Apache-2.0, `third_party/hyperframes`) by a volume
+    expression evaluated every 256 samples, and faded out over min(1.8 s, T). The voice, made stereo, and the bed
+    are mixed by `amix normalize=0 duration=first`, limited by `alimiter` at −3 dBFS at 176.4 kHz, and encoded as
+    AAC 192k, the graph read from `mix.graph` (`-/filter_complex`). The made video is measured into
+    `Result.Music` (the voice's and the bed's loudness and gains, the output's LUFS and dBTP); a true peak over
+    −1 dBTP, a loudness more than 2 LU off −16, or a failed measurement is a warning. Tests make their audio with
+    lavfi and measure, against a control mixed without the duck, the duck under each clip and its 300 ms gaps,
+    the release between spans 1 s apart, the gains, the loop's seams, sizes and formats, and the peaks; a fake
+    ffmpeg locks the no-music mux's arguments.
   - Videos and revisions (`internal/controlplane/videos`, migrations 00126 and `video_looks`). A **video**
     belongs to one take (one row of `videos`, its take unique); each make or change request adds an immutable
     **revision** (`video_revisions`: rev 1, 2, …, its parent, the lines, voice, captions, aspect and look it is made
@@ -1070,9 +1097,19 @@ sequenceDiagram
     the take is filmed. `/studio/takes/:id` and `/studio/videos/:id` open a take's and a video's tab on a page of
     their own. A take's tab has Make video (voice, captions, 9:16 or 16:9, an Idempotency-Key), and Video once it
     has one; in a pane the video opens as a `video` tab beside the take's. A video's tab follows the revision being
-    made, stage by stage and scene by scene, a failure with its stage, its cause and Make again; a made revision
-    plays with its lines editable and a note, Approve and Request changes, a switch between revisions and the MP4's
-    download.
+    made, stage by stage and scene by scene, a failure with its stage, its cause and Make again (the retry route); a
+    made revision plays with its lines editable and a note, Approve and Request changes, Change look, a switch
+    between revisions and the MP4's download. Make video and Change look have a Look section (#908 part 4, #938;
+    `look-section.tsx`, `look-state.ts`, `use-look.ts`, `change-look.tsx`): the caption style and position, the
+    frame (full, plain, Android, iPhone, shadow, status strip) and a background, a swatch for each of autodemo's
+    templates painted by a port of its `background()` (`backgrounds.ts`, MIT) or two colours; padding and radius
+    are only in the API and the CLI. The fields start from `GET /videos/looks`' default or the revision's look, and
+    only the sections that differ from where they started are sent, to `POST /videos`, `POST
+    /videos/{id}/revisions/{rev}/look` and the look sample alike, so a section left alone stays the default's or the
+    source's (a default frame on a turned take falls back to full; a frame sent is refused with its 409 shown). The
+    look sample (`POST /videos/preview`, with `rev` for Change look) is a query keyed by its body: a change aborts
+    the sample being drawn and only the latest answer is shown; a refusal (429, 503, 504) shows the server's
+    message. Change look is disabled until a section changed.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1440,6 +1477,33 @@ sequenceDiagram
     the list. A Run's workers keep the Connections the Run was given when the Bot's list narrows later. A Run
     records the Bot that created it (`runs.bot`), and a Task of it moves to a backup profile (issue #171) only
     when the Bot's list, read then, has that backup; otherwise it waits for the reset.
+  - **Connection requests, the grant card** (issue #471, part D; `orchestration/connectionrequests.go`, migration
+    `connection_requests`, [research](docs/research/2026-11-21-grant-card.md)). A Bot whose `connections` list is
+    limited may ask the owner for a Connection outside it, from its pi in its main chat only: the tool
+    `request_connection(use, reason)` (`agentapi/connectionrequests.go`) is listed there, with the names of the
+    Connections that exist, are switched on for chats and are not a user Connection, and only while there is one;
+    its other chats (a Routine's, a Lark chat), a worker, the coordinator token and a Routine's script neither see it
+    nor may call it (404), as OpenMausBot's bot is told the apps assigned to it and asks with a card
+    (`server/cloud-connections-prompt.ts`). The call returns at once with the request's state: `pending` ("a card was
+    shown; end your turn; do not call again or poll", after t3code's `t3_environment_link`), `granted`, `declined` or
+    `stale`. A request is a record of its own, not an Approval (`connection_requests`: Bot, chat, integration,
+    label, reason, the chat's turn it was asked in, state, decided at), one pending per (Bot, chat, Connection): a
+    repeated or concurrent call gets the pending one and makes no second card; a call in the same turn as the latest
+    request, or in a turn the owner did not start (the turn his answer wakes), gets the latest one's state; only a
+    later turn the owner started asks again (coordinator, 2026-11-21, after OpenMausBot's per-turn `resumeKey` and
+    t3code's `clientRequestId`). The owner answers on a card in the chat's dock, above the composer, in the Approval
+    card's shape, with two choices (`web/src/features/approvals/connection-request-card.tsx`): **Always for this
+    Bot** and **Decline**, through `GET /connection-requests` and `POST /connection-requests/{id}/decision`
+    (`grant`, `decline`), the owner's token only. The first answer wins; the same answer again returns the request,
+    a contrary one is a 409. `grant` re-reads in its transaction the Connection (exists, on for chats, not a user
+    one), the Bot (exists, list limited) and that the chat is still its main chat, then appends that one use to the
+    Bot's list, once, changing no other setting (`SetBotConnections`); a failed check makes the request `stale` and
+    grants nothing. Either answer writes a system line in the chat (`Connection granted:`, `Connection declined:` or
+    `Connection not granted:`) marked for the coordinator, which pi is given once through the chat's undelivered
+    messages and which wakes it; `WakeChats` is not involved. A grant is revoked on the Bot's page as any Connection
+    of its list; `MayUse` is read at every use. A pending request counts as Needs you on its Bot's sidebar row and
+    its department's count, and its chat is on the first page of chats. A request goes with its chat. Not built: a
+    grant for one chat or once, a grant to a worker, a sign-in to a new account from the card.
   - **A Bot's scope of a Connection** (issue #562; `orchestration/botaccess.go`, migration 00093,
     `bots.connection_scopes`): beside `connections`, a map keyed `integration:label` of what the Bot may reach of
     that Connection; today only a Superset Connection's `dashboards`, by number (`{"superset:prod":
@@ -1596,8 +1660,12 @@ sequenceDiagram
     Open · Undo), the Routines' "Set up" card's shape (`web/src/features/bots/setup-change-card.tsx`).
   - pi's MCP (issue #492, pi 1.5.2's built-in, `docs/mcp.md`, as OpenMausBot mounts its `agents` server into its
     pi, `server/drivers/pi.ts`): the launcher writes `run/<chat>/mcp.json` with `hypomnema pi-mcp`, one server,
-    `hypomnema` (`<the binary> mcp`), each of its tools with pi's `direct` exposure, declared to the model like a
-    built-in tool rather than found through codemode or `tool_search` (owner, 2026-11-15), and a wait of 12 minutes
+    `hypomnema` (`<the binary> mcp`), with pi's default exposure, `codemode`: its tools are not declared to the
+    model but called from a `codemode` script, which gets each result whole and can filter it, where a direct call
+    has a result over 20 KB cut in the middle (owner, 2026-11-21, issue #1015;
+    [research](docs/research/2026-11-21-code-mode.md); `direct` until then). A read-only Routine's run, started
+    with `--no-extensions`, loads `builtin:codemode` and lists `codemode` in its `--tools`; a script reaches only
+    the active tools and the server's, so its tools stay `routine_*` and the server's. And a wait of 12 minutes
     a request, longer than an image may take (pi's default is 60 s). pi starts it in the box, where its
     `client.json` holds pi's own token; when it cannot write the file pi does not start. A server that fails to
     start leaves the Bot without the tools: pi says so only as a line of its UI (`MCP servers need attention`, an
@@ -1951,8 +2019,39 @@ flowchart LR
   Codex subscription alone); its Dispatch runs under the gateway with the model `<provider>/<model>`, and no
   subscription token leaves the control plane. Such a profile is available, and its Task placed, only while the
   control plane keeps an active account of the subscription (`ReasonNoAccount` otherwise); whether that account
-  cools down is the gateway's to find. A Task's own model picks its provider again, as it is checked when the Task
-  is made. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
+  cools down is the gateway's to find. Every model is named with its provider (issue #1002, owner 2026-11-20): a
+  profile's `model` gives its `provider`, a Bot's and a chat's model their provider, a role-routing entry its
+  `provider`, and a Task's own model is `<provider>/<model>` (`-model opencode-go/deepseek-v4-pro`), read at its
+  first slash (`orchestration` `modelRef`, as 9router's `parseModel`). A bare name is refused when it is applied,
+  when the Task is made and when it is dispatched, with the names it could be written as ("name it
+  <provider>/<model>, such as …", as omniroute's "Use provider/model prefix" and LiteLLM's "Pass model as E.g.
+  huggingface/starcoder"); it is never resolved by which provider offers it, so a provider added later (OpenCode
+  Zen, #965) changes no meaning. A migration gave each Task's stored bare model the provider the code before
+  dispatched it under, read the way that code read it (`orchestration/model_names.go`, run by `Migrate` right
+  after `*_models_named_with_provider.sql` and before any later migration): the role-chain entry its last Dispatch
+  recorded, else the one provider that offers the whole name, slash and all, to the Task's runtime (its own, its
+  last Dispatch's version's, its role chain's first entry's, or its profile's), among the kinds before OpenCode
+  Zen; each change is kept in `model_name_changes`. A name it would not have placed is left as it was and marked
+  (`tasks.model_unresolved`): it is read whole, never at a slash it has, and refused when the Task is dispatched, as
+  the code before refused it; such a Task waits with the reason (the form to write the model in) and the owner is
+  told, and the other Tasks of the scheduler's pass go on. The way back restores each changed model and gives every
+  other Task named with its provider, one made after the upgrade too, its model's own name where the code before
+  would place that name at the same provider, among its runtime's kinds then, which have no Zen; for a role Task,
+  whose runtime the role chain's YAML picks, only when every runtime taking the provider's kind would; it keeps the
+  provider where it would not, so a provider of Zen's kind under any name keeps it. Zen's way back splits a Bot's
+  fallbacks at their commas, never as JSON, as a model's name may hold a quote. The migration also gives a profile version, a Bot or a chat that names a model without a provider the one
+  provider that offers it to its runtime (the version's, pi's for a Bot and a chat), among the kinds before Zen,
+  recorded in `model_provider_changes`; the way back leaves each without it again while it still names what the
+  conversion left it with. One two providers or none offer is left, and is refused with the form to write it in
+  wherever it would be used: at dispatch (`resolveVersion`), for the coordinator (`PiModel`) and on an edit that
+  leaves it alone (`keptModel`), so no bare model reaches a worker or pi. An edit that leaves a model with a single
+  provider alone (a Bot's persona, a chat's effort, an undone setup change) is accepted and stores that provider;
+  a new model needs its provider.
+  A profile version is restored by its id (`POST /profiles/{name}/versions/{version_id}/restore`, the profile page's
+  Restore): its own source as the page shows it, with its tool policy as migration 00123 re-expressed it (never the
+  old allowlist its YAML still writes), and the provider that version recorded for a model the source names without one; the
+  same YAML under another provider is a new version. A name with an empty part (`opencode-go/`, `/`) is refused. The gateway itself already takes only `<provider>/<model>` or a name of its own
+  table, and every worker and Bot is given those names. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
   it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
   another provider is refused when applied, and a Task that would run Claude Code without the gateway (a profile
@@ -3235,6 +3334,17 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   a window Go calls `rate-limited` shown used up (omp `opencode-go.ts`). A 403 there is a key whose workspace has no
   Go subscription: the account's plan is set to "no Go subscription" (opencode `usage-limits.ts`); an answer clears
   it. The gateway's OpenCode Go provider runs under these accounts (below).
+- OpenCode Zen (issue #965, [research](docs/research/2026-11-20-opencode-zen-provider.md)): no login. Each Console
+  API key is an account of runtime `opencode_zen`, added as a Go key is (`accounts add opencode_zen <label> --token -`
+  or the Models page); a runtime of its own, so a Go key resting on its monthly limit does not stop Zen and an empty
+  balance does not stop Go (9router and omniroute keep the two providers apart). The same key may be added under
+  both. Each key is served its own workspace's list, and a model goes only to a key whose list has it, as a Codex
+  account's does (#814): two keys may be of two workspaces. `accounts models` reads the Console list, `GET opencode.ai/console/api/v1/models`, provider `opencode`: the
+  models the workspace has enabled, their chat models on a wire the gateway calls, each with its wire, window and
+  largest output, leaving out models priced 0 in and out (free models, which OpenCode serves only to OpenCode and
+  refuses with 403 to other clients, even with a key; omniroute tells them by their price). There is no limits
+  call: Zen spends the workspace's balance, and no balance or usage is read. The gateway's OpenCode Zen provider runs
+  under these accounts (below).
 - A login makes an account, or gives new tokens to the account that already has the vendor's id (Codex: the
   ChatGPT account id, read with the email and the plan from the id token; Antigravity: Google's id of the user, with
   the tier as the plan and the project) and the same email, case aside. The email is asked too since issue #326:
@@ -3314,13 +3424,13 @@ flowchart LR
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
-OpenAI-compatible providers the owner declares and from four built-in providers, the owner's Codex, Antigravity and
-Claude subscriptions and OpenCode Go, searches the web and reads pages, and makes images (below). Other provider formats and other
+OpenAI-compatible providers the owner declares and from five built-in providers, the owner's Codex, Antigravity and
+Claude subscriptions, OpenCode Go and OpenCode Zen, searches the web and reads pages, and makes images (below). Other provider formats and other
 capabilities do not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
   kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`,
-  `claude_subscription`, `opencode_go`) and
+  `claude_subscription`, `opencode_go`, `opencode_zen`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
 - The gateway serves every model of every subscription under `<provider>/<model>`, such as
@@ -3337,13 +3447,14 @@ capabilities do not exist yet.
   no other's; when a read of an account with no list yet ends, answered or not, the providers are updated then, not at
   the next hour), and for Claude the last list an account answered, kept for an hour and then replaced only by a
   newer answer from its first active account that answers, whatever accounts are disabled or fail meanwhile, as before
-  (neither reads Anthropic's list per account; OpenCode Go's wires are read the same way),
+  (neither reads Anthropic's list per account; OpenCode Go's and Zen's wires are read the same way),
   Codex (`GET chatgpt.com/backend-api/codex/models`, the models it lists in its picker), Anthropic
   (`GET api.anthropic.com/v1/models` with the OAuth token), Antigravity (`fetchAvailableModels`, without internal
   or disabled ones and omp's denylist `chat_20706`, `chat_23310`, `gemini-2.5-pro`) and OpenCode Go
   (`GET opencode.ai/inference/go/v1/models`, its chat models on a wire the gateway calls, each with its wire, window
-  and largest output; issue #854). OpenCode Go's provider is set to that list as Antigravity's is (OpenClaw, Hermes
-  and pi read Go's live list). Codex's provider also drops a model it lists that two readings in a row left out
+  and largest output; issue #854) and OpenCode Zen (each key's Console list above, unioned as Codex's; issue #965).
+  OpenCode Go's provider is set to its list as Antigravity's is (OpenClaw, Hermes and pi read Go's live list). Codex's
+  and Zen's providers also drop a model they list that two readings in a row left out
   (each counted once, by when it was read), since its requests go only to accounts whose list has the model (issue
   [#814](https://github.com/kl3inIT/hypomnema/issues/814)); each model is dropped on its own, so a model a profile
   uses keeps only itself. Claude's provider
@@ -3399,7 +3510,9 @@ capabilities do not exist yet.
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
   Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it, and
-  the Claude Code runner, which has no other credential since issue #381.
+  the Claude Code runner, which has no other credential since issue #381. The offer also carries the model's
+  context window and largest output as the gateway resolves them (`model_context_window`, `model_max_output`,
+  issue #1019), absent when it knows neither; each runner tells its CLI, below.
 - A chat's pi gets a key of its own too (issue #204, after Omnigent, whose pi asks the process that started it):
   - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the chat's model
     (its own, or its Bot's; issue #369), or for every model when neither names one, and made again for the new model
@@ -3446,8 +3559,9 @@ capabilities do not exist yet.
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
   format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets, and its
-  `opencode_go` targets whose model Go serves on Responses (issue #854; the body as the client sent it, the model's
-  name at Go and `stream` on, under the Go keys as the chat route sends it below):
+  `opencode_go` and `opencode_zen` targets whose model OpenCode serves on Responses (issues #854, #965; the body as
+  the client sent it, the model's name at OpenCode and `stream` on, under the provider's keys as the chat route sends
+  it below):
   - The client's body is passed on, not translated (`modelgateway/codex`, `PassThrough`): the model's name at the
     backend, `stream` on and `store` off, a string input as a user message, references to stored items and their ids
     taken out, `service_tier` `fast` as `priority`, the lite shape for the models that take it, the client's session
@@ -3462,9 +3576,9 @@ capabilities do not exist yet.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
   [research](docs/research/2026-11-13-gateway-features.md)) are for a client that speaks Anthropic's Messages format,
   Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They try a
-  model's targets in order, the next on 429 or 5xx. An `opencode_go` target whose model Go serves on Messages is
-  passed the body as sent but for the model's name, under the Go keys (issue #854), and its answer comes back as
-  Anthropic's does below. A `claude_subscription` target is passed the request:
+  model's targets in order, the next on 429 or 5xx. An `opencode_go` or `opencode_zen` target whose model OpenCode
+  serves on Messages is passed the body as sent but for the model's name, under the provider's keys (issues #854,
+  #965), and its answer comes back as Anthropic's does below. A `claude_subscription` target is passed the request:
   - The body is passed on as sent but for the model's name (`modelgateway/claude`, `PassThrough`). A client that is
     Claude Code (`X-App: cli`, a `claude-cli/` User-Agent, a `claude-code-` beta, a `metadata.user_id`) keeps its
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
@@ -3851,7 +3965,7 @@ capabilities do not exist yet.
   models, as `opencode-go/<model>` under the Go keys the owner added as accounts (above). The owner chose no limit on
   which callers may use it (owner, 2026-11-18).
   - Each model is called at `opencode.ai/inference/go` on the wire Go's model list names for it
-    (`modelgateway/opencode_go_adapter.go`): OpenAI's chat at `/openai/v1/chat/completions`, OpenAI's Responses at
+    (`modelgateway/opencode_adapter.go`): OpenAI's chat at `/openai/v1/chat/completions`, OpenAI's Responses at
     `/openai/v1/responses`, Anthropic's Messages at `/anthropic/v1/messages`; a model whose wire is not known yet is
     called on chat, the provider's API in models.dev. Gemini models (`generate-content`) are not served.
   - The chat route passes a chat model the request as `openai_compatible` does. A Messages model is asked with the
@@ -3867,8 +3981,31 @@ capabilities do not exist yet.
     refusal naming `GoUsageLimitError`, rests that key until the reset Go named, with no cap (an hour when it named
     none), and the request moves to the next key at once (omniroute `opencode-monthly-quota-resets-in`, opencode
     `QUOTA_CODES`). Any other refusal rests the key as every built-in provider's account rests (above).
-  - Not built: OpenCode Zen, the "Extra Usage" balance, a per-model wire for pi's `models.json` (pi speaks chat to a
+  - Not built: the "Extra Usage" balance, a per-model wire for pi's `models.json` (pi speaks chat to a
     Go model), moving the `ocg/*` models off 9Router on zm (#670).
+- `opencode-zen` (kind `opencode_zen`, issue #965, seeded by its migration unless the owner already named a provider
+  `opencode-zen`, which is then left as it is: Zen is served under a provider of kind `opencode_zen` the owner names.
+  Its way back leaves the code before rows it runs: a Task's Zen model is taken off, a profile version, Bot or chat on
+  Zen keeps no model, a Bot's Zen fallbacks and the gateway's Zen targets go (a gateway model with no other target
+  with them), and Zen's accounts stay;
+  [research](docs/research/2026-11-20-opencode-zen-provider.md)) serves OpenCode Zen, OpenCode's models paid from the
+  workspace's balance, as `opencode-zen/<model>` under the Zen keys the owner added as accounts (above). It is
+  OpenCode Go's adapter with Zen's kind, runtime and root:
+  - Each model is called at `opencode.ai/inference` (OpenCode's inference root, not the references' older `/zen/v1`)
+    on the wire the Console list names for it, at the same three paths, translated the same way, with the same
+    headers: the key, `User-Agent: hypomnema/<version>` and the hashed `x-opencode-session`. No OpenCode identity is
+    sent (owner, 2026-11-20), so OpenCode's free models are not served.
+  - A 402, or a refusal carrying one of OpenCode's quota codes (`insufficient_quota`, `usage_not_included`,
+    `billing_error`, `budgetlimiterror`, `creditlimitexceeded`, read where opencode reads codes: `code`,
+    `error_type`, `error.code`, `error.type`, `error.error_type`, or a message's `[code]` label), is a used-up balance
+    or budget: the key rests an hour whatever `Retry-After` says (a balance comes back only when the owner adds
+    credit) and the request moves to the next key; a quota code on a status that would not move on (a 400) is
+    answered as 402, the class opencode reads both as (`provider-error.ts` `QUOTA_CODES` and its 402; omniroute's
+    402 `quota_exhausted`). A 401
+    marks the key refused. Any other refusal rests the key as every built-in provider's account rests (above).
+  - Not built: the free models (`Bearer public` and OpenCode's identity, which the owner refused), Zen's balance or
+    usage, recording the `usage.cost` Zen answers, a Zen price in the price book (a Claude or GPT model is priced by
+    its maker's row; another Zen model is unpriced), Gemini, `interactions`, image models.
 - When all usable accounts for a model on a text route are cooling (issue #803), the gateway answers 429
   `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
   `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
@@ -4374,19 +4511,21 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143 and 00144; issues #838, #845 and #966, parts 1 and 2 of the
-Inbox): the store of the to-dos that have to happen, whoever does them, its state machine, its client API and its
-CLI.
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148 and 00151; issues #838, #845, #966 and
+#1004, parts 1 to 3 of the Inbox): the store of the to-dos that have to happen, whoever does them, its state machine,
+its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
-  notes (≤ 20,000), done_when (≤ 1,000); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
+  notes (≤ 20,000), done_when (≤ 1,000), `draft` (≤ 20,000, the reply a Bot drafted for the owner to send
+  himself; issue #1004); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
   `due_zone`) or `instant` (`due_at` and its zone), with `due_at` and `overdue_at` derived for order and the overdue
   test (a date's first moment and the next day's in its zone, the moment the clocks change where a zone skips
   midnight, never shown as a time); `assignee_kind` `me`,
   `person` (a name ≤ 100), `bot` (an existing Bot's id) or `unknown`; `state` `proposed`, `open`, `doing`, `review`,
   `done`, `dropped`, `duplicate`; `snoozed_until` (proposed or open only); the source (`owner`, `chat` with its chat,
-  `routine` with its run, `lark` or `zalo` with the chat's id at the service and its message as a `lark_message` or
-  `zalo_message` reference, and for `zalo` the owner's account the chat is in (`source_account`), as the Zalo store
-  keys a message by account, chat and id; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt
+  `routine` with its run, `lark`, `zalo` or `whatsapp` with the chat's id at the service and its message as a
+  `lark_message`, `zalo_message` or `whatsapp_message` reference, and for `zalo` and `whatsapp` the owner's account
+  (its Connection's label) the chat is in (`source_account`, optional for `lark`), as their stores key a message by
+  account, chat and id; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt
   while doing or review (`work_attempt`, its own id given by `Start`; `work_kind` `chat` or `run` and `work_id`,
   where it works, which may hold attempts at other items too; `work_bot`, the Bot that started it, and
   `work_started_at`); `approval_id` while review, the Approval linked, which was pending and asked by the item's
@@ -4394,8 +4533,10 @@ CLI.
   `ApprovalApproved` or `ApprovalEnded`; the close
   (`done_by_kind`/`done_by` apart from `recorded_by_kind`/`recorded_by`, `closed_how`, `close_reason`, `evidence`
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
-  `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `closed_at`); `duplicate_of`; `why_open`
-  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00144); a create's idempotency key,
+  `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
+  `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`;
+  `closed_at`); `duplicate_of`; `why_open`
+  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); a create's idempotency key,
   unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed` or `linked_approval`, the revision it made, JSON of the fields before and after, and the
@@ -4414,12 +4555,28 @@ CLI.
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
   owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message
   as evidence (a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source
-  chat, its attempt chat, or the chat the Bot acts in, which the caller takes from the Bot's session); `closed_how`
+  chat, its attempt chat, or the chat the Bot acts in, which the caller takes from the Bot's session; or, to close
+  it done, a `zalo_sent`, `whatsapp_sent` or `lark_sent` in the item's own source chat and account (an item without
+  its account, which `lark` allows, is never closed so), which the store
+  reads before the write through `Store.WithSent` and accepts only when it exists, he sent it himself and it is
+  later than the item: the control plane's `inboxSent` reads a Zalo or WhatsApp one from the server's store of that
+  account (`messaging.Query.ID`) and a Lark one from Lark's API with his own sign-in, `GET
+  /open-apis/im/v1/messages/:id` and `GET /open-apis/authen/v1/user_info`, since the server keeps none of his Lark
+  messages); a Bot closes or drops no item that is another Bot's (given to another, or added by another and not
+  given to it); `closed_how`
   `ai` and `time` are refused; nothing in review is closed while it waits; a doing or review item is given to
   another only once its attempt ended (released, closed or its Approval answered); a duplicate's target exists, is
   not the item nor a duplicate, and the item is the target of none;
   the owner reopens a closed item, which clears its close; only the owner snoozes, to a time to come; the owner
-  edits any item not closed, a Bot only those it added or is given, never their assignee. Every mutation names its
+  edits any item not closed, a Bot only those it added or is given, and changes their assignee only to give the item
+  back to the owner (`me`). The system's transitions run in the transaction of what causes them
+  (`LinkApprovalTx`, `ApprovalAnsweredTx`, `EndAttemptsTx`): `AskApproval` recording a new Approval with an
+  `AttemptID` puts the item of that attempt in review; `DecideApproval` puts it back to doing, or open with the
+  reason when rejected; `ExpireApproval` and a Routine's run ending (`FinishRoutineRun`, which refuses what the run
+  still asked) open it again; a chat deleted (`deleteChatTx`) or a Routine's run ended gives back to open what a Bot
+  was doing there, and an item there in review, its Approval ended as one nobody answered when still pending. A
+  second Approval of an attempt whose item already waits for another is refused in its own write (a conflict the
+  Bot is told), so no Approval waits that no item waits for. Every mutation names its
   actor, the revision it read and, for a Bot on a doing or review item, its attempt's id; a stale revision or
   another attempt's id is a conflict and writes nothing, and a Bot other than the attempt's is forbidden. Leaving doing or review clears the attempt, and any change
   of state the snooze. A create retried with its idempotency key and the same request (actor and every field)
@@ -4428,7 +4585,8 @@ CLI.
   item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
   created, pages of at most 200 with a cursor and the filter's total, read in one transaction with the page; `NeedsYou(now)`, the distinct items not closed nor snoozed that are proposed, in
-  review with a pending Approval, or the owner's own and overdue, the same predicate as `List`'s needs-you filter.
+  review with a pending Approval, or the owner's own and overdue or with a draft, the same predicate as `List`'s
+  needs-you filter.
   A stale proposal, proposed and untouched (at revision 1, no event after `created`) for `StaleAfter` (3 days, a
   constant), is left out of `List` unless asked for (`WithStale`), never counted by `NeedsYou` nor listed by the
   needs-you filter, and shown with `Stale`; it is neither accepted nor deleted, and any change makes it fresh.
@@ -4449,8 +4607,30 @@ CLI.
   [--due <date|date time|none|unknown> --tz <zone>] [--who me|unknown|bot:<id>|<name>] [--notes …] [--done-when …]`,
   `edit`, `accept`, `done [--evidence url] [--reason …]`, `drop <id> "<reason>"`, `duplicate <id> <of>`,
   `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision.
-- Not built: the Bot tools and the wiring of Approvals to `LinkApproval`/`ApprovalApproved`/`ApprovalEnded`, the
-  web page and the morning brief (later parts of #838).
+- Bot tools (`agentapi/inbox.go`, the family `inbox` of `agenttool/switches.go`, in the `full` preset only; issue
+  #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`), `inbox_start`,
+  `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, for a Bot's pi only. Who acts and
+  where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
+  the chat was opened for while it is live); each call reads the item and writes at the revision read (or the one
+  given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. A Routine's
+  run adds from the run, or from the owner's Zalo, WhatsApp or Lark chat it names, never as a chat with the owner.
+  An item given to a person without a due is due 48 hours after it is first added (`NewTodo.DueIn`, counted by the
+  store, so a retry with the same key is the same request; an empty draft stays out of the request's hash), the day
+  to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included. A Routine's run that reads
+  only (#956) gets the family too (`agenttool.ReadRunAllows`), which writes only in the Inbox, and still no tool
+  that sends as the owner: `zalo_send` and `whatsapp_send` are refused there by the agent API, and every write
+  through the service proxy (a Lark message, a mail) by its read-only check; so the Bot that reads his messages
+  cannot send one as him (owner, 2026-11-17 and 2026-11-21 on #838). A Bot in a chat with the owner, or in a
+  Routine's run with full access, with WhatsApp or Zalo on, still sends: on his turn, or with his Approval of that
+  message. The family's line of
+  the "Tools" block carries the Bots' rules (two items per ask, draft and hand back, never send to a client or a
+  boss, close with evidence, the owner's item only with his message). An Approval names the item a Bot works on:
+  `whatsapp_send` and `zalo_send` take `todo`, and a command run with `HYPOMNEMA_TODO=<id>` sends it on its
+  tunnel's opening (`agenttool.HeaderTodo`); the agent API or the proxy turn it into the item's current attempt
+  (`orchestration.InboxAttempt`, refused unless the Bot is doing the item in that chat or run), which
+  `NewApproval.AttemptID` records.
+- Not built: the system closing a reply from the messages as they arrive (the Bot of part 4 records it), the web
+  page, the morning brief and the "Thư ký" Bot (later parts of #838).
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
@@ -4476,6 +4656,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `memory` (Memories, above) | its agent's `/memories` and `USER.md` | its own Bot's `/memories` and `USER.md`, not in a Lark group's chat | shared `USER.md` only |
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no chat (`hypomnema artifact show`) |
 | `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no Bot (`hypomnema routines`) |
+| `request_connection` (Connection requests, above) | no | in its Bot's main chat only, while its limited list leaves a Connection to ask for | no |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | all three |
 | `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | both |
 | `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | yes, while on |
@@ -4593,8 +4774,8 @@ flowchart LR
   `system-prompt-tool-list.ts:21-71`). Every family has a line (issue #789): memory, artifacts, routines, web,
   images, audio, Muse, Superset, WhatsApp, Zalo, nodes, browser and phone. The browser's holds the owner's
   standing rules for it (the agent's own tab, never "My browser"; the owner signs in there and presses "Hand
-  back"; never a password or code in a chat), the phone's its rules (look before each action, never sign in, buy
-  or pay), the Routines' the owner's yes and a first run, so that every agent with the tool gets them, as
+  back", or the agent types a password or code the owner gave it, never repeating or storing it; #1042), the
+  phone's its rules (look before each action, sign in only with what the owner gave, never buy or pay), the Routines' the owner's yes and a first run, so that every agent with the tool gets them, as
   OpenMausBot gives its browser's rules with the browser (`server/browser/prompt.ts:4-5`). After the families
   come the commands an agent reaches an account with through the service proxy, each with its
   `agenttool.Def.WhenToUse` beside its pin in `catalog.go`, which names the skill to load: `gws`
@@ -5049,7 +5230,11 @@ Node (`internal/node`):
   `wire_api = "responses"`, `supports_standalone_web_search = true` so that Codex offers its `web.run` search, which
   the gateway answers on `/v1/alpha/search` (codex-rs `ext/web-search/src/extension.rs`; OpenClaw sets it the same
   way), the key read from the environment variable `HYPOMNEMA_MODEL_KEY`) and the tools server
-  (`ask`, `finish`), the model and the effort, and the prompt on standard input. `CODEX_HOME` is
+  (`ask`, `finish`), the model and the effort, and the prompt on standard input. It starts no subagent and has no
+  plugins or apps (`agents.enabled`, `features.multi_agent`, `features.multi_agent_v2`, `features.plugins`,
+  `features.apps` false, as OpenClaw's bounded turns and t3code's `codex exec`), and is told the model's window
+  (`model_context_window`) when the offer carries it; for a model it does not know Codex assumes 272,000 tokens
+  (issue #1019). `CODEX_HOME` is
   `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
   or else what `turn.failed` said. A stop kills the process.
@@ -5062,7 +5247,11 @@ Node (`internal/node`):
   which writes Settings → Connect a tool's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
   the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
   opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
-  out of its tools. Neither is given an image model. A turn is `initialize`, `session/new` with the tools server as an
+  out of its tools. Neither is given an image model. The model's context window and largest output are the
+  offer's when it carries them (issue #1019), else `agentconfig`'s defaults (128000, 16384). Each keeps its own default for MCP tools (owner, 2026-11-21,
+  issue #1015; [research](docs/research/2026-11-21-code-mode.md)): opencode's code mode, its `execute` tool
+  calling the tools server's tools from code, and omp's `tools.xdev`, the rarely used ones reached as `xd://`
+  devices; until then `execute` was denied and `xdev` off, which made them plain tools. A turn is `initialize`, `session/new` with the tools server as an
   MCP server (or `session/resume`, else `session/load`, for a follow-up; a session that is gone starts anew),
   `session/prompt`, then the agent's input is closed. The messages are written to the shim and read from its
   journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
@@ -5092,9 +5281,12 @@ Node (`internal/node`):
     `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
     key, `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` asks for the one-hour cache for the main conversation (subagents keep
     five minutes), and `ANTHROPIC_DEFAULT_OPUS|SONNET|HAIKU_MODEL` are the Dispatch's model, the only one its key
-    may use; its `CLAUDE_CONFIG_DIR` is `accounts/gateway/claude`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
+    may use; `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is the model's window when the offer carries it (issue #1019, as
+    t3code and OpenClaw); its `CLAUDE_CONFIG_DIR` is `accounts/gateway/claude`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
     (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, as OpenMausBot's bots): it is kept per working folder, a worker's is a new
-    worktree per Task, and the agent's memory is the control plane's (issue #21).
+    worktree per Task, and the agent's memory is the control plane's (issue #21). Its git instructions and status
+    snapshot are off (`CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1`, issue #1019, as OpenClaw): the snapshot is rebuilt
+    when a session resumes and would rewrite the cached prefix of each follow-up.
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The Supervisor reads the journal from a
     saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt

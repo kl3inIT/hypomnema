@@ -33,6 +33,9 @@ import (
 //     his turn only; a worker never;
 //   - routines (routines.go): a Bot's pi only, its own Bot's; a worker never,
 //     as Hermes keeps cronjob_manage from its sub-agents;
+//   - request_connection (connectionrequests.go, issue #471, part D): a Bot's
+//     pi in its Bot's main chat only, while there is a Connection to ask for;
+//   - inbox_* (inbox.go, issue #1004): a Bot's pi only, as routines;
 //   - the browser's: a worker and a Bot's pi (issue #536, step 4), each in its
 //     own tab (agent.key: a worker's its Dispatch's, a pi's its chat's);
 //   - node_exec, node_process, node_process_kill (nodes.go, issue #543): a
@@ -59,6 +62,7 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 		out = append(out, t)
 	}
 	if a.readRun {
+		out = append(out, inboxTools(a)...)
 		out = append(out, s.supersetToolList(ctx, a)...)
 		out = append(out, s.messagingToolList(ctx, a, relayMentions)...)
 		return append(out, s.readAccountTools(ctx, a)...)
@@ -71,6 +75,12 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	if t, ok := routineTool(a); ok {
 		out = append(out, t)
 	}
+
+	if t, ok := s.requestConnectionTool(ctx, a); ok {
+		out = append(out, t)
+	}
+
+	out = append(out, inboxTools(a)...)
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
 	out = append(out, s.supersetToolList(ctx, a)...)
@@ -205,6 +215,13 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		s.artifactCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolRoutines && makesRoutines(a):
 		s.routineCall(w, r, a, asked)
+	case asked.Tool == agenttool.ToolRequestConnection && asksConnections(a):
+		s.requestConnectionCall(w, r, a, asked)
+	case asked.Tool == agenttool.ToolRequestConnection:
+		// Not the browser's: an agent that is no Bot's pi has none.
+		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
+	case isInboxTool(asked.Tool) && keepsInbox(a):
+		s.inboxCall(w, r, a, asked)
 	case slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool):
 		s.gatewayCall(w, r, a, asked)
 	case s.hasBrowser(a):

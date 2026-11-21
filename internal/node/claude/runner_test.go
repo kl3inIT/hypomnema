@@ -59,7 +59,7 @@ func fakeClaude(mode string) int {
 	var gateway []string
 
 	for _, name := range []string{"ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_PROMPT_CACHE_TTL",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"} {
+		"ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "CLAUDE_CODE_AUTO_COMPACT_WINDOW"} {
 		gateway = append(gateway, name+"="+os.Getenv(name))
 	}
 
@@ -715,6 +715,7 @@ func TestWorkerReachesClaudeThroughTheGateway(t *testing.T) {
 	g.rt.URL = "https://cp.example/"
 	d := g.dispatch("dsp_1")
 	d.Offer.AccountRef, d.Offer.ModelKey, d.Offer.Model = "gateway", "hyp_gateway_v1_dispatch", "claude-sonnet-5-5"
+	d.Offer.ModelContextWindow = 200000
 
 	r := newReporter("dsp_1")
 	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
@@ -725,7 +726,7 @@ func TestWorkerReachesClaudeThroughTheGateway(t *testing.T) {
 	assert.Empty(t, g.file("token.txt"), "no account's token")
 	assert.Equal(t, "ANTHROPIC_BASE_URL=https://cp.example\nANTHROPIC_AUTH_TOKEN=hyp_gateway_v1_dispatch\n"+
 		"CLAUDE_CODE_PROMPT_CACHE_TTL=1h\nANTHROPIC_DEFAULT_SONNET_MODEL=claude-sonnet-5-5\n"+
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-sonnet-5-5", g.file("gateway.txt"))
+		"ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-sonnet-5-5\nCLAUDE_CODE_AUTO_COMPACT_WINDOW=200000", g.file("gateway.txt"))
 
 	keyless := g.dispatch("dsp_2")
 	keyless.Offer.ModelKey = ""
@@ -763,4 +764,12 @@ func TestClaudeCodesOwnMemoryIsOff(t *testing.T) {
 	t.Parallel()
 
 	assert.Contains(t, newRig(t, "success").rt.env("dir", nil), "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+}
+
+// Scenario: a worker resumes its session after a commit. Claude Code adds no git instructions or status snapshot, so
+// the cached prefix stays the same across follow-ups (issue #1019).
+func TestClaudeCodesGitSnapshotIsOff(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, newRig(t, "success").rt.env("dir", nil), "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1")
 }

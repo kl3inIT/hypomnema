@@ -302,6 +302,19 @@ type Connection struct {
 	GitSecretVersionID sql.NullString
 }
 
+type ConnectionRequest struct {
+	ID          string
+	BotID       string
+	ChatID      string
+	Integration string
+	Label       string
+	Reason      string
+	Turn        string
+	State       string
+	CreatedAt   int64
+	DecidedAt   sql.NullInt64
+}
+
 type Conversation struct {
 	ID            string
 	TaskID        string
@@ -693,6 +706,22 @@ type Model struct {
 	Name     string
 }
 
+type ModelNameChange struct {
+	TaskID string
+	Model  string
+}
+
+type ModelNameConversion struct {
+	Done int64
+}
+
+type ModelProviderChange struct {
+	Record   string
+	ID       string
+	Model    string
+	Provider string
+}
+
 type Node struct {
 	ID                  string
 	Name                string
@@ -1031,6 +1060,7 @@ type Task struct {
 	PushBranch        sql.NullString
 	StartFrom         sql.NullString
 	PrBase            sql.NullString
+	ModelUnresolved   int64
 }
 
 type TaskDep struct {
@@ -1052,6 +1082,7 @@ type Todo struct {
 	Title           string
 	Notes           string
 	DoneWhen        string
+	Draft           string
 	DueKind         string
 	DueDate         sql.NullString
 	DueZone         sql.NullString
