@@ -60,6 +60,10 @@ type Server struct {
 	// plane wired none.
 	phoneHeld func(ctx context.Context) bool
 
+	// diskAlert tells the owner a node is still out of disk after trimming, or has recovered (issue #1017); nil
+	// when the control plane wired none.
+	diskAlert func(ctx context.Context, alert orchestration.DiskAlert)
+
 	// releaseURL is where a node finds its releases, sent at hello.
 	releaseURL string
 
@@ -177,6 +181,13 @@ func (s *Server) skillsFor(nodeID string, skills []nodeproto.Skill) []nodeproto.
 	}
 
 	return slices.DeleteFunc(slices.Clone(skills), func(sk nodeproto.Skill) bool { return len(sk.Requires) > 0 })
+}
+
+// WithDiskAlerts sets how the owner is told of a node's out-of-disk episode and its recovery.
+func (s *Server) WithDiskAlerts(tell func(ctx context.Context, alert orchestration.DiskAlert)) *Server {
+	s.diskAlert = tell
+
+	return s
 }
 
 // WithPhone sets how an offer learns whether workers are given a phone.
@@ -798,8 +809,14 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 	}
 
 	if hb.Disk != nil {
-		if diskErr := c.srv.svc.NodeDisk(ctx, c.nodeID, *hb.Disk); diskErr != nil {
+		alert, diskErr := c.srv.svc.ReportNodeDisk(ctx, c.nodeID, *hb.Disk)
+		if diskErr != nil {
 			err = errors.Join(err, diskErr)
+		}
+
+		if alert != nil && c.srv.diskAlert != nil {
+			// Told apart from the session, as sending to a channel may take seconds the node's messages do not wait.
+			go c.srv.diskAlert(context.WithoutCancel(ctx), *alert)
 		}
 	}
 

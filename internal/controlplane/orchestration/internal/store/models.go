@@ -741,6 +741,8 @@ type Node struct {
 	TempIsolation       sql.NullInt64
 	TempIsolationReason string
 	TaskBranches        int64
+	DiskAlert           string
+	DiskAlertUntil      int64
 }
 
 type NodeToken struct {

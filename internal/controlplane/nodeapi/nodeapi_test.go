@@ -758,6 +758,38 @@ func TestHeartbeatCarriesTheNodesMeasurement(t *testing.T) {
 	assert.InDelta(t, 1.5, n.Stats.Load1, 0)
 }
 
+// Scenario: a node still below its disk floor after trimming says so in its heartbeats (issue #1017). The owner is
+// told once for the episode and once when it recovers.
+func TestBlockedDiskInHeartbeatsTellsTheOwnerOncePerEpisode(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	alerts := make(chan orchestration.DiskAlert, 8)
+	p.api.WithDiskAlerts(func(_ context.Context, alert orchestration.DiskAlert) { alerts <- alert })
+	conn := p.connect()
+	beat := func(free int64, blocked bool) {
+		p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Disk: &nodeproto.DiskSpace{
+			FreeBytes: &free, FloorBytes: 5 << 30, TrimBytes: 15 << 30, Blocked: blocked,
+		}})
+		p.next(conn, nodeproto.TypeHeartbeatAck)
+	}
+
+	for range 3 {
+		beat(1<<30, true)
+	}
+	beat(20<<30, false)
+
+	// Each is told from its own goroutine, so they may come in either order.
+	told := []orchestration.DiskAlert{<-alerts, <-alerts}
+	if told[0].Recovered {
+		told[0], told[1] = told[1], told[0]
+	}
+	assert.Equal(t, orchestration.DiskAlert{NodeID: p.node.ID, Node: p.node.Name, FreeBytes: 1 << 30,
+		FloorBytes: 5 << 30}, told[0])
+	assert.True(t, told[1].Recovered)
+	assert.Empty(t, alerts, "the episode is told once")
+}
+
 // Scenario: hello after a restart. Each claimed Dispatch is answered.
 func TestHelloAnswersEachClaim(t *testing.T) {
 	t.Parallel()

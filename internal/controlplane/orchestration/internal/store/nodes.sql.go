@@ -393,7 +393,7 @@ func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) 
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at, temp_isolation, temp_isolation_reason, task_branches FROM nodes WHERE id = ?1
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at, temp_isolation, temp_isolation_reason, task_branches, disk_alert, disk_alert_until FROM nodes WHERE id = ?1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -447,6 +447,8 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.TempIsolation,
 		&i.TempIsolationReason,
 		&i.TaskBranches,
+		&i.DiskAlert,
+		&i.DiskAlertUntil,
 	)
 	return i, err
 }
@@ -751,7 +753,7 @@ func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToke
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at, temp_isolation, temp_isolation_reason, task_branches FROM nodes WHERE status <> 'deleted' ORDER BY name
+SELECT id, name, status, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm, max_dispatches, reserved_cpu_millis, reserved_memory_bytes, disk_policy, disk_free_bytes, disk_floor_bytes, disk_trim_bytes, disk_sample_at, temp_isolation, temp_isolation_reason, task_branches, disk_alert, disk_alert_until FROM nodes WHERE status <> 'deleted' ORDER BY name
 `
 
 // Every node that has not been removed.
@@ -812,6 +814,8 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.TempIsolation,
 			&i.TempIsolationReason,
 			&i.TaskBranches,
+			&i.DiskAlert,
+			&i.DiskAlertUntil,
 		); err != nil {
 			return nil, err
 		}
@@ -1195,6 +1199,21 @@ func (q *Queries) SetNodeDisk(ctx context.Context, arg SetNodeDiskParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setNodeDiskAlert = `-- name: SetNodeDiskAlert :exec
+UPDATE nodes SET disk_alert = ?1, disk_alert_until = ?2 WHERE id = ?3
+`
+
+type SetNodeDiskAlertParams struct {
+	DiskAlert      string
+	DiskAlertUntil int64
+	ID             string
+}
+
+func (q *Queries) SetNodeDiskAlert(ctx context.Context, arg SetNodeDiskAlertParams) error {
+	_, err := q.db.ExecContext(ctx, setNodeDiskAlert, arg.DiskAlert, arg.DiskAlertUntil, arg.ID)
+	return err
 }
 
 const setNodeGitHosts = `-- name: SetNodeGitHosts :execrows
