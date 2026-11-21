@@ -88,6 +88,10 @@ type Store interface {
 	Channels() *channelstore.Store
 	// Routines keeps the Routines, for a Bot's pi's routines tool (issue #536).
 	Routines() *routinestore.Store
+	// GrantableConnections, IsMainChat and RequestConnection serve request_connection (issue #471, part D).
+	GrantableConnections(ctx context.Context, bot orchestration.Bot) ([]orchestration.Connection, error)
+	IsMainChat(ctx context.Context, botID, chatID string) (bool, error)
+	RequestConnection(ctx context.Context, botID, chatID, use, reason string) (orchestration.ConnectionRequest, error)
 	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key
 	// (issue #625).
 	SSHOfDispatch(ctx context.Context, dispatchID string) (hostKeys string, overSSH bool, err error)
@@ -201,6 +205,9 @@ type agent struct {
 	key string
 	// botSwitches are a Bot's pi's tool switches, its Bot's as read for this request (tools.go).
 	botSwitches agenttool.ToolSwitches
+	// botRow is a Bot's pi's Bot as read for this request, for the Connections it may ask for
+	// (connectionrequests.go).
+	botRow orchestration.Bot
 }
 
 // who is whose the agent's gateway calls are.
@@ -299,6 +306,7 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat, readRun), readRun: readRun,
 			offered:     bot.MayUse,
 			botSwitches: bot.ToolSwitches(),
+			botRow:      bot,
 			scope:       func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 		}, nil
 	default:

@@ -567,6 +567,48 @@ func (e ConnectionActionKind) Valid() bool {
 	}
 }
 
+// Defines values for ConnectionRequestDecisionDecision.
+const (
+	Decline ConnectionRequestDecisionDecision = "decline"
+	Grant   ConnectionRequestDecisionDecision = "grant"
+)
+
+// Valid indicates whether the value is a known member of the ConnectionRequestDecisionDecision enum.
+func (e ConnectionRequestDecisionDecision) Valid() bool {
+	switch e {
+	case Decline:
+		return true
+	case Grant:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConnectionRequestState.
+const (
+	ConnectionRequestStateDeclined ConnectionRequestState = "declined"
+	ConnectionRequestStateGranted  ConnectionRequestState = "granted"
+	ConnectionRequestStatePending  ConnectionRequestState = "pending"
+	ConnectionRequestStateStale    ConnectionRequestState = "stale"
+)
+
+// Valid indicates whether the value is a known member of the ConnectionRequestState enum.
+func (e ConnectionRequestState) Valid() bool {
+	switch e {
+	case ConnectionRequestStateDeclined:
+		return true
+	case ConnectionRequestStateGranted:
+		return true
+	case ConnectionRequestStatePending:
+		return true
+	case ConnectionRequestStateStale:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceNodeDevice.
 const (
 	DeviceNodeDeviceAndroid DeviceNodeDevice = "android"
@@ -3820,6 +3862,46 @@ type ConnectionCannot struct {
 	Reason  string `json:"reason"`
 	Service string `json:"service"`
 }
+
+// ConnectionRequest A Bot's request for a Connection it was not given (issue #471, part D). It is not an Approval.
+type ConnectionRequest struct {
+	// Bot The id of the Bot that asked.
+	Bot string `json:"bot"`
+
+	// ChatId The Bot's main chat, where it asked.
+	ChatId      string     `json:"chat_id"`
+	CreatedAt   time.Time  `json:"created_at"`
+	DecidedAt   *time.Time `json:"decided_at,omitempty"`
+	Id          string     `json:"id"`
+	Integration string     `json:"integration"`
+	Label       string     `json:"label"`
+
+	// Reason Why the Bot needs it, in its words.
+	Reason string `json:"reason"`
+
+	// State stale is a grant whose checks failed; it granted nothing.
+	State ConnectionRequestState `json:"state"`
+
+	// Why Of a grant that made the request stale just now, the check that failed.
+	Why *string `json:"why,omitempty"`
+}
+
+// ConnectionRequestDecision defines model for ConnectionRequestDecision.
+type ConnectionRequestDecision struct {
+	// Decision grant adds the Connection to the Bot's list, always for this Bot; decline refuses it.
+	Decision ConnectionRequestDecisionDecision `json:"decision"`
+}
+
+// ConnectionRequestDecisionDecision grant adds the Connection to the Bot's list, always for this Bot; decline refuses it.
+type ConnectionRequestDecisionDecision string
+
+// ConnectionRequestList defines model for ConnectionRequestList.
+type ConnectionRequestList struct {
+	Data []ConnectionRequest `json:"data"`
+}
+
+// ConnectionRequestState stale is a grant whose checks failed; it granted nothing.
+type ConnectionRequestState string
 
 // ConnectionScope The part of a Connection a Bot may reach. For Superset, the dashboards it may read, by number, and none when the list is empty; such a Bot reads only through the dashboards, dashboard and chart reads, and is refused the API relay for that Connection.
 type ConnectionScope struct {
@@ -8129,6 +8211,12 @@ type CommitWorkspaceUploadParams struct {
 	Bot *NewChatBot `form:"bot,omitempty" json:"bot,omitempty"`
 }
 
+// ListConnectionRequestsParams defines parameters for ListConnectionRequests.
+type ListConnectionRequestsParams struct {
+	State  *ConnectionRequestState `form:"state,omitempty" json:"state,omitempty"`
+	ChatId *string                 `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+}
+
 // ListDispatchItemsParams defines parameters for ListDispatchItems.
 type ListDispatchItemsParams struct {
 	// After The seq of the last event already read.
@@ -8637,6 +8725,9 @@ type SendWorkspaceUploadChunkJSONRequestBody = WorkspaceUploadChunk
 
 // CommitWorkspaceUploadJSONRequestBody defines body for CommitWorkspaceUpload for application/json ContentType.
 type CommitWorkspaceUploadJSONRequestBody = WorkspaceUploadCommit
+
+// DecideConnectionRequestJSONRequestBody defines body for DecideConnectionRequest for application/json ContentType.
+type DecideConnectionRequestJSONRequestBody = ConnectionRequestDecision
 
 // CreateDepartmentJSONRequestBody defines body for CreateDepartment for application/json ContentType.
 type CreateDepartmentJSONRequestBody = NewDepartment
@@ -9959,6 +10050,31 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit (the `CommitWorkspaceUpload` operationId).
 	CommitWorkspaceUpload(ctx context.Context, chatId ChatID, workspaceId WorkspaceID, params *CommitWorkspaceUploadParams, body CommitWorkspaceUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListConnectionRequests The requests Bots made for a Connection they were not given; only the owner
+	//
+	// A Bot whose Connections list is limited asks, from its pi in its main chat, for one outside it that is switched on for chats (issue #471, part D). The owner answers each on a card.
+	//
+	// Corresponds with GET /connection-requests (the `ListConnectionRequests` operationId).
+	ListConnectionRequests(ctx context.Context, params *ListConnectionRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideConnectionRequestWithBody Answer a Bot's request for a Connection; only the owner
+	//
+	// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+	DecideConnectionRequestWithBody(ctx context.Context, requestId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideConnectionRequest Answer a Bot's request for a Connection; only the owner
+	//
+	// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+	DecideConnectionRequest(ctx context.Context, requestId string, body DecideConnectionRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListDepartments The departments the sidebar lists Bots in, in the owner's order
 	//
@@ -13948,6 +14064,61 @@ func (c *Client) CommitWorkspaceUploadWithBody(ctx context.Context, chatId ChatI
 // Corresponds with POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit (the `CommitWorkspaceUpload` operationId).
 func (c *Client) CommitWorkspaceUpload(ctx context.Context, chatId ChatID, workspaceId WorkspaceID, params *CommitWorkspaceUploadParams, body CommitWorkspaceUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCommitWorkspaceUploadRequest(c.Server, chatId, workspaceId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListConnectionRequests The requests Bots made for a Connection they were not given; only the owner
+//
+// A Bot whose Connections list is limited asks, from its pi in its main chat, for one outside it that is switched on for chats (issue #471, part D). The owner answers each on a card.
+//
+// Corresponds with GET /connection-requests (the `ListConnectionRequests` operationId).
+func (c *Client) ListConnectionRequests(ctx context.Context, params *ListConnectionRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListConnectionRequestsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideConnectionRequestWithBody Answer a Bot's request for a Connection; only the owner
+//
+// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+func (c *Client) DecideConnectionRequestWithBody(ctx context.Context, requestId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideConnectionRequestRequestWithBody(c.Server, requestId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideConnectionRequest Answer a Bot's request for a Connection; only the owner
+//
+// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+func (c *Client) DecideConnectionRequest(ctx context.Context, requestId string, body DecideConnectionRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideConnectionRequestRequest(c.Server, requestId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -22753,6 +22924,119 @@ func NewCommitWorkspaceUploadRequestWithBody(server string, chatId ChatID, works
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
 		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListConnectionRequestsRequest constructs an http.Request for the ListConnectionRequests method
+func NewListConnectionRequestsRequest(server string, params *ListConnectionRequestsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/connection-requests")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDecideConnectionRequestRequest calls the generic DecideConnectionRequest builder with application/json body
+func NewDecideConnectionRequestRequest(server string, requestId string, body DecideConnectionRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDecideConnectionRequestRequestWithBody(server, requestId, "application/json", bodyReader)
+}
+
+// NewDecideConnectionRequestRequestWithBody constructs an http.Request for the DecideConnectionRequest method, with any body, and a specified content type
+func NewDecideConnectionRequestRequestWithBody(server string, requestId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "request_id", requestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/connection-requests/%s/decision", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
@@ -33335,6 +33619,33 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit (the `CommitWorkspaceUpload` operationId).
 	CommitWorkspaceUploadWithResponse(ctx context.Context, chatId ChatID, workspaceId WorkspaceID, params *CommitWorkspaceUploadParams, body CommitWorkspaceUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*CommitWorkspaceUploadResponse, error)
 
+	// ListConnectionRequestsWithResponse The requests Bots made for a Connection they were not given; only the owner
+	//
+	// A Bot whose Connections list is limited asks, from its pi in its main chat, for one outside it that is switched on for chats (issue #471, part D). The owner answers each on a card.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /connection-requests (the `ListConnectionRequests` operationId).
+	ListConnectionRequestsWithResponse(ctx context.Context, params *ListConnectionRequestsParams, reqEditors ...RequestEditorFn) (*ListConnectionRequestsResponse, error)
+
+	// DecideConnectionRequestWithBodyWithResponse Answer a Bot's request for a Connection; only the owner
+	//
+	// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+	DecideConnectionRequestWithBodyWithResponse(ctx context.Context, requestId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideConnectionRequestResponse, error)
+
+	// DecideConnectionRequestWithResponse Answer a Bot's request for a Connection; only the owner
+	//
+	// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+	DecideConnectionRequestWithResponse(ctx context.Context, requestId string, body DecideConnectionRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideConnectionRequestResponse, error)
+
 	// ListDepartmentsWithResponse The departments the sidebar lists Bots in, in the owner's order
 	//
 	// A department is a named section of the sidebar that lists Bots together (issue #471), as OpenMausBot's departments. A Bot is in at most one; a department shares nothing between its Bots.
@@ -39364,6 +39675,102 @@ func (r CommitWorkspaceUploadResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CommitWorkspaceUploadResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListConnectionRequestsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ConnectionRequestList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListConnectionRequestsResponse) GetJSON200() *ConnectionRequestList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListConnectionRequestsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListConnectionRequestsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListConnectionRequestsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListConnectionRequestsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListConnectionRequestsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DecideConnectionRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ConnectionRequest
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DecideConnectionRequestResponse) GetJSON200() *ConnectionRequest {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DecideConnectionRequestResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DecideConnectionRequestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DecideConnectionRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DecideConnectionRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DecideConnectionRequestResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -50810,6 +51217,51 @@ func (c *ClientWithResponses) CommitWorkspaceUploadWithResponse(ctx context.Cont
 	return ParseCommitWorkspaceUploadResponse(rsp)
 }
 
+// ListConnectionRequestsWithResponse The requests Bots made for a Connection they were not given; only the owner
+//
+// A Bot whose Connections list is limited asks, from its pi in its main chat, for one outside it that is switched on for chats (issue #471, part D). The owner answers each on a card.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /connection-requests (the `ListConnectionRequests` operationId).
+func (c *ClientWithResponses) ListConnectionRequestsWithResponse(ctx context.Context, params *ListConnectionRequestsParams, reqEditors ...RequestEditorFn) (*ListConnectionRequestsResponse, error) {
+	rsp, err := c.ListConnectionRequests(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListConnectionRequestsResponse(rsp)
+}
+
+// DecideConnectionRequestWithBodyWithResponse Answer a Bot's request for a Connection; only the owner
+//
+// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+func (c *ClientWithResponses) DecideConnectionRequestWithBodyWithResponse(ctx context.Context, requestId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideConnectionRequestResponse, error) {
+	rsp, err := c.DecideConnectionRequestWithBody(ctx, requestId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideConnectionRequestResponse(rsp)
+}
+
+// DecideConnectionRequestWithResponse Answer a Bot's request for a Connection; only the owner
+//
+// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+func (c *ClientWithResponses) DecideConnectionRequestWithResponse(ctx context.Context, requestId string, body DecideConnectionRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideConnectionRequestResponse, error) {
+	rsp, err := c.DecideConnectionRequest(ctx, requestId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideConnectionRequestResponse(rsp)
+}
+
 // ListDepartmentsWithResponse The departments the sidebar lists Bots in, in the owner's order
 //
 // A department is a named section of the sidebar that lists Bots together (issue #471), as OpenMausBot's departments. A Bot is in at most one; a department shares nothing between its Bots.
@@ -57421,6 +57873,72 @@ func ParseCommitWorkspaceUploadResponse(rsp *http.Response) (*CommitWorkspaceUpl
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest WorkspaceDone
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListConnectionRequestsResponse parses an HTTP response from a ListConnectionRequestsWithResponse call
+func ParseListConnectionRequestsResponse(rsp *http.Response) (*ListConnectionRequestsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListConnectionRequestsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectionRequestList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDecideConnectionRequestResponse parses an HTTP response from a DecideConnectionRequestWithResponse call
+func ParseDecideConnectionRequestResponse(rsp *http.Response) (*DecideConnectionRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DecideConnectionRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectionRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -64520,6 +65038,12 @@ type ServerInterface interface {
 	// CommitWorkspaceUpload Put an upload in its place, where nothing is or over the file expect_sha256 names (owner only)
 	// (POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit)
 	CommitWorkspaceUpload(w http.ResponseWriter, r *http.Request, chatId ChatID, workspaceId WorkspaceID, params CommitWorkspaceUploadParams)
+	// ListConnectionRequests The requests Bots made for a Connection they were not given; only the owner
+	// (GET /connection-requests)
+	ListConnectionRequests(w http.ResponseWriter, r *http.Request, params ListConnectionRequestsParams)
+	// DecideConnectionRequest Answer a Bot's request for a Connection; only the owner
+	// (POST /connection-requests/{request_id}/decision)
+	DecideConnectionRequest(w http.ResponseWriter, r *http.Request, requestId string)
 	// ListDepartments The departments the sidebar lists Bots in, in the owner's order
 	// (GET /departments)
 	ListDepartments(w http.ResponseWriter, r *http.Request)
@@ -67694,6 +68218,78 @@ func (siw *ServerInterfaceWrapper) CommitWorkspaceUpload(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CommitWorkspaceUpload(w, r, chatId, workspaceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConnectionRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListConnectionRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListConnectionRequestsParams
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConnectionRequests(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DecideConnectionRequest operation middleware
+func (siw *ServerInterfaceWrapper) DecideConnectionRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "request_id" -------------
+	var requestId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "request_id", r.PathValue("request_id"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "request_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DecideConnectionRequest(w, r, requestId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -74505,6 +75101,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/superset/connections/{label}/api", wrapper.RelaySupersetRequest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/approvals", wrapper.ListApprovals)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/approvals/{approval_id}/decision", wrapper.DecideApproval)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/connection-requests", wrapper.ListConnectionRequests)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/connection-requests/{request_id}/decision", wrapper.DecideConnectionRequest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets", wrapper.ListSecrets)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/secrets/{name}", wrapper.DeleteSecret)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/secrets/{name}", wrapper.PutSecret)
@@ -77833,6 +78431,85 @@ type CommitWorkspaceUploaddefaultJSONResponse struct {
 }
 
 func (response CommitWorkspaceUploaddefaultJSONResponse) VisitCommitWorkspaceUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectionRequestsRequestObject struct {
+	Params ListConnectionRequestsParams
+}
+
+type ListConnectionRequestsResponseObject interface {
+	VisitListConnectionRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListConnectionRequests200JSONResponse ConnectionRequestList
+
+func (response ListConnectionRequests200JSONResponse) VisitListConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectionRequestsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListConnectionRequestsdefaultJSONResponse) VisitListConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideConnectionRequestRequestObject struct {
+	RequestId string `json:"request_id"`
+	Body      *DecideConnectionRequestJSONRequestBody
+}
+
+type DecideConnectionRequestResponseObject interface {
+	VisitDecideConnectionRequestResponse(w http.ResponseWriter) error
+}
+
+type DecideConnectionRequest200JSONResponse ConnectionRequest
+
+func (response DecideConnectionRequest200JSONResponse) VisitDecideConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideConnectionRequestdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DecideConnectionRequestdefaultJSONResponse) VisitDecideConnectionRequestResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -86445,6 +87122,12 @@ type StrictServerInterface interface {
 	// CommitWorkspaceUpload Put an upload in its place, where nothing is or over the file expect_sha256 names (owner only)
 	// (POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit)
 	CommitWorkspaceUpload(ctx context.Context, request CommitWorkspaceUploadRequestObject) (CommitWorkspaceUploadResponseObject, error)
+	// ListConnectionRequests The requests Bots made for a Connection they were not given; only the owner
+	// (GET /connection-requests)
+	ListConnectionRequests(ctx context.Context, request ListConnectionRequestsRequestObject) (ListConnectionRequestsResponseObject, error)
+	// DecideConnectionRequest Answer a Bot's request for a Connection; only the owner
+	// (POST /connection-requests/{request_id}/decision)
+	DecideConnectionRequest(ctx context.Context, request DecideConnectionRequestRequestObject) (DecideConnectionRequestResponseObject, error)
 	// ListDepartments The departments the sidebar lists Bots in, in the owner's order
 	// (GET /departments)
 	ListDepartments(ctx context.Context, request ListDepartmentsRequestObject) (ListDepartmentsResponseObject, error)
@@ -89363,6 +90046,65 @@ func (sh *strictHandler) CommitWorkspaceUpload(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CommitWorkspaceUploadResponseObject); ok {
 		if err := validResponse.VisitCommitWorkspaceUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListConnectionRequests operation middleware
+func (sh *strictHandler) ListConnectionRequests(w http.ResponseWriter, r *http.Request, params ListConnectionRequestsParams) {
+	var request ListConnectionRequestsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListConnectionRequests(ctx, request.(ListConnectionRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListConnectionRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListConnectionRequestsResponseObject); ok {
+		if err := validResponse.VisitListConnectionRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DecideConnectionRequest operation middleware
+func (sh *strictHandler) DecideConnectionRequest(w http.ResponseWriter, r *http.Request, requestId string) {
+	var request DecideConnectionRequestRequestObject
+
+	request.RequestId = requestId
+
+	var body DecideConnectionRequestJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DecideConnectionRequest(ctx, request.(DecideConnectionRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DecideConnectionRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DecideConnectionRequestResponseObject); ok {
+		if err := validResponse.VisitDecideConnectionRequestResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

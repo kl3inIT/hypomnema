@@ -5,6 +5,7 @@ import { type DragEvent, type ReactNode, useState } from "react"
 import "@/api/client"
 import type { Chat } from "@/api/generated/types.gen"
 import { usePending } from "@/features/approvals/use-approvals"
+import { usePendingConnectionRequests } from "@/features/approvals/use-connection-requests"
 import { AgentAvatar } from "@/components/agent-avatar"
 import { useBotName, useBots, useReorderBots } from "@/features/bots/use-bots"
 import {
@@ -45,9 +46,14 @@ export function BotList({ current }: { current?: string }) {
   const bots = useBots()
   // The chat being viewed, which may be older than the chats read: the row of its Bot offers to make it the main one.
   const viewed = useChat(current ?? null).data
-  // A chat in which pi asked for an approval says so here: the owner may not have it open.
+  // A chat in which pi asked for an approval, or its Bot for a Connection (issue #471, part D), says so here: the
+  // owner may not have it open.
   const pending = usePending()
-  const waiting = new Set(pending.data?.flatMap((a) => (a.chat_id ? [a.chat_id] : [])))
+  const requests = usePendingConnectionRequests()
+  const waiting = new Set([
+    ...(pending.data?.flatMap((a) => (a.chat_id ? [a.chat_id] : [])) ?? []),
+    ...(requests.data?.map((r) => r.chat_id) ?? []),
+  ])
   const reorder = useReorderBots()
   const departments = useDepartments()
   const reorderDepartments = useReorderDepartments()

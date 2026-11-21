@@ -193,7 +193,8 @@ kept under its `om_` message id, or a heard voice message) or a Routine's (named
 Routine's prompt): the one with the owner's latest message, then the one active latest; a Bot with none has no main
 chat. An owner's Lark direct chat that a `/new` left with text alone keeps no mark of Lark, so a Bot a Channel talks
 to got no main chat from the migration (owner, 2026-11-19): its first message from the web or the CLI makes one. `GET /chats?bot=` lists one Bot's chats, a page at a time
-(`offset`); the first page also carries every Bot's main chat, every chat an Approval waits in and, of a Bot with
+(`offset`); the first page also carries every Bot's main chat, every chat an Approval or a Connection request waits
+in and, of a Bot with
 no main chat, its latest chat that is not a Routine's run (the chat it opens, issue #923), whatever
 their age, and each chat in a list carries `last_line`, the first line of its latest message of the owner or its Bot. A chat
 has its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
@@ -1440,6 +1441,33 @@ sequenceDiagram
     the list. A Run's workers keep the Connections the Run was given when the Bot's list narrows later. A Run
     records the Bot that created it (`runs.bot`), and a Task of it moves to a backup profile (issue #171) only
     when the Bot's list, read then, has that backup; otherwise it waits for the reset.
+  - **Connection requests, the grant card** (issue #471, part D; `orchestration/connectionrequests.go`, migration
+    `connection_requests`, [research](docs/research/2026-11-21-grant-card.md)). A Bot whose `connections` list is
+    limited may ask the owner for a Connection outside it, from its pi in its main chat only: the tool
+    `request_connection(use, reason)` (`agentapi/connectionrequests.go`) is listed there, with the names of the
+    Connections that exist, are switched on for chats and are not a user Connection, and only while there is one;
+    its other chats (a Routine's, a Lark chat), a worker, the coordinator token and a Routine's script neither see it
+    nor may call it (404), as OpenMausBot's bot is told the apps assigned to it and asks with a card
+    (`server/cloud-connections-prompt.ts`). The call returns at once with the request's state: `pending` ("a card was
+    shown; end your turn; do not call again or poll", after t3code's `t3_environment_link`), `granted`, `declined` or
+    `stale`. A request is a record of its own, not an Approval (`connection_requests`: Bot, chat, integration,
+    label, reason, the chat's turn it was asked in, state, decided at), one pending per (Bot, chat, Connection): a
+    repeated or concurrent call gets the pending one and makes no second card; a call in the same turn as the latest
+    request, or in a turn the owner did not start (the turn his answer wakes), gets the latest one's state; only a
+    later turn the owner started asks again (coordinator, 2026-11-21, after OpenMausBot's per-turn `resumeKey` and
+    t3code's `clientRequestId`). The owner answers on a card in the chat's dock, above the composer, in the Approval
+    card's shape, with two choices (`web/src/features/approvals/connection-request-card.tsx`): **Always for this
+    Bot** and **Decline**, through `GET /connection-requests` and `POST /connection-requests/{id}/decision`
+    (`grant`, `decline`), the owner's token only. The first answer wins; the same answer again returns the request,
+    a contrary one is a 409. `grant` re-reads in its transaction the Connection (exists, on for chats, not a user
+    one), the Bot (exists, list limited) and that the chat is still its main chat, then appends that one use to the
+    Bot's list, once, changing no other setting (`SetBotConnections`); a failed check makes the request `stale` and
+    grants nothing. Either answer writes a system line in the chat (`Connection granted:`, `Connection declined:` or
+    `Connection not granted:`) marked for the coordinator, which pi is given once through the chat's undelivered
+    messages and which wakes it; `WakeChats` is not involved. A grant is revoked on the Bot's page as any Connection
+    of its list; `MayUse` is read at every use. A pending request counts as Needs you on its Bot's sidebar row and
+    its department's count, and its chat is on the first page of chats. A request goes with its chat. Not built: a
+    grant for one chat or once, a grant to a worker, a sign-in to a new account from the card.
   - **A Bot's scope of a Connection** (issue #562; `orchestration/botaccess.go`, migration 00093,
     `bots.connection_scopes`): beside `connections`, a map keyed `integration:label` of what the Bot may reach of
     that Connection; today only a Superset Connection's `dashboards`, by number (`{"superset:prod":
@@ -4476,6 +4504,7 @@ gateway tools) and `POST /agent/v1/memory` (a worker's own `memory`).
 | `memory` (Memories, above) | its agent's `/memories` and `USER.md` | its own Bot's `/memories` and `USER.md`, not in a Lark group's chat | shared `USER.md` only |
 | `show_artifact` (Artifacts, above) | into its Run's chat; refused without one | into its chat | no chat (`hypomnema artifact show`) |
 | `routines` (Routines, above) | no (Hermes: no `cronjob_manage` for sub-agents) | its own Bot's, from its chat | no Bot (`hypomnema routines`) |
+| `request_connection` (Connection requests, above) | no | in its Bot's main chat only, while its limited list leaves a Connection to ask for | no |
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | all three |
 | `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | both |
 | `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | yes, while on |

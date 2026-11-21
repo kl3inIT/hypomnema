@@ -130,6 +130,10 @@ func TestABotsToolSwitchesAreKeptAndUndone(t *testing.T) {
 	assert.Equal(t, agenttool.PresetFull, back.Preset)
 }
 
+// familiesAfterPresets are the tool families made after migration 00123 converted the tool lists of the time: no
+// legacy list named them, and a preset gives them as it gives any family.
+var familiesAfterPresets = []string{"requests"}
+
 func TestToolPresetMigrationPreservesBotAndProfileAccess(t *testing.T) {
 	t.Parallel()
 
@@ -164,6 +168,10 @@ func TestToolPresetMigrationPreservesBotAndProfileAccess(t *testing.T) {
 			assert.Equal(t, agenttool.PresetFull, preset)
 			switches := agenttool.ToolSwitches{Preset: preset, On: splitNames(on), Off: splitNames(off)}
 			for _, family := range agenttool.ToolFamilies {
+				if slices.Contains(familiesAfterPresets, family.Name) {
+					continue
+				}
+
 				for _, tool := range family.Tools {
 					match := func(entry string) bool {
 						prefix, wild := strings.CutSuffix(entry, "*")

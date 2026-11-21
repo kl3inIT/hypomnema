@@ -302,6 +302,19 @@ type Connection struct {
 	GitSecretVersionID sql.NullString
 }
 
+type ConnectionRequest struct {
+	ID          string
+	BotID       string
+	ChatID      string
+	Integration string
+	Label       string
+	Reason      string
+	Turn        string
+	State       string
+	CreatedAt   int64
+	DecidedAt   sql.NullInt64
+}
+
 type Conversation struct {
 	ID            string
 	TaskID        string
