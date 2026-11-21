@@ -149,3 +149,9 @@ LIMIT 1;
 
 -- name: GetFollowUp :one
 SELECT * FROM task_follow_ups WHERE id = @id;
+
+-- name: SucceededTasksOfOpenRuns :many
+-- The Tasks whose pull request the control plane may follow after they succeeded (issue #1053).
+SELECT t.* FROM tasks t JOIN runs r ON r.id = t.run_id
+WHERE r.status = 'open' AND t.status = 'succeeded'
+ORDER BY t.run_id, t.position;

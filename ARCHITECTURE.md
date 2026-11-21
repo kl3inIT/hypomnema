@@ -5110,11 +5110,21 @@ The owner's commands:
   permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
   nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced.
-  A worker that turned auto-merge on finishes without waiting for CI; the coordinator follows its pull request:
-  one blocking wait for the required checks, then reading it back; merged goes on with the Run, and a conflict or a
-  red check of the diff's own (a flake rerun once) is a follow-up to that worker's succeeded Task, which fixes it,
-  pushes and turns auto-merge on again at the new head (issue #1053, after pstack's `shipping.md:8-9` and
-  `babysit.md:8`); no control plane code polls a pull request.
+  A worker that turned auto-merge on finishes without waiting for CI, its summary saying "auto-merge on at
+  <sha>", and the control plane follows its pull request (issue #1053, `orchestration/pullrequests.go`, after
+  pstack's watcher, `shipping.md:8-9` and `scripts/watch-pr/policy.ts:59-140`): once a minute
+  (`followPullRequests`, pstack's 60 s, `cli.ts:110`) it lists the succeeded, non-review Tasks of open Runs whose
+  last Dispatch's summary says so and names one pull request, and reads each at its host with the token of its
+  repository's Connection, by the Connection's route (`githost.ReadRequest`): on GitHub one GraphQL query for its
+  state, `mergeable`, head and the status check rollup of its last commit with `isRequired`, a check counted by
+  its newest run and failed in gh's fail and cancel buckets (cli/cli `api/query_builder.go:279-310`,
+  `pkg/cmd/pr/checks/aggregate.go:38-120`); on GitLab the merge request's state, `has_conflicts`, `sha` and head
+  pipeline. A conflict, before a failed required check (pstack's `babysit.md:8`), sends the worker a follow-up on
+  its succeeded Task, asked by the coordinator, to fix it, push, turn auto-merge on again and finish; merged,
+  closed, and a follow-up sent or refused each write one `escalation` event of kind `pull_request` on that
+  Dispatch (`state`, `pull_request`, `head`, `reason`, `follow_up` or `follow_up_refused`), which wakes the Run's
+  chat and marks the report settled; a follow-up's new Dispatch reports again. A repository without a token is
+  not read. The coordinator keeps the Run open until that wake says the pull request merged or was closed.
   A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
   in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
   A head gets one verdict (issue #953, after pstack's "a verdict covers a patch",
@@ -5407,7 +5417,8 @@ Node (`internal/node`):
         cause is on the base, or when the repository's rules ask, with only the affected checks rerun (OpenClaw,
         oh-my-opencode); CI waited for with one blocking command, never a polling loop (Orca, Coder, Hermes,
         oh-my-opencode, t3code), and not at all when the spec says a review comes first, since the coordinator's
-        review step waits for CI itself (owner, 2026-11-19), or once auto-merge is on (issue #1053);
+        review step waits for CI itself (owner, 2026-11-19), or once auto-merge is on, as the control plane follows
+        it (issue #1053); otherwise only when the Task needs CI's result;
       - for a worker that writes, that only its diff's failures get a commit: a red check outside the diff that is
         also red on the base, or green on one rerun, is a flake, rerun once and given an issue, which the worker
         opens or comments on without asking; and that a bug fix commits a test failing without the fix before the
@@ -5445,8 +5456,8 @@ Node (`internal/node`):
          `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
       4. reading the request back (`gh pr view <url> --json state,mergedAt`), since a requested auto-merge is not
          a merge, then `finish` at once, saying whether it merged or "auto-merge on at <sha>", without waiting for
-         the checks: the coordinator follows the pull request to merged and sends a follow-up when it goes red or
-         conflicts (issue #1053, after pstack's `shipping.md:8-9`); without auto-merge the worker waits for the
+         the checks: the control plane follows the pull request to merged and sends a follow-up when it goes red
+         or conflicts (issue #1053, after pstack's `shipping.md:8-9`); without auto-merge the worker waits for the
          required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`) only when the Task
          needs their result;
     - `Task (<profile>):` and the Task's spec;

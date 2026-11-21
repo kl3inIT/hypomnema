@@ -52,10 +52,12 @@ const writeRules =
 	// (internal/controlplane/clientcli/skills/hypomnema-coordinator/references/review.md; owner, 2026-11-19).
 	// Issue #1053: once auto-merge is on, the host lands the head when it is ready, so the worker does not wait
 	// either: pstack arms --auto on a verified head and reads the PR back (skills/poteto-mode/playbooks/shipping.md:8),
-	// and a watcher, not the step that armed it, follows it to merged (shipping.md:9); here the coordinator's.
-	"- Wait for CI with one command that blocks until it ends (the host's watch command, as in the merge steps " +
-	"below when they are given), never with a polling loop. When the task says a review comes first, or once " +
-	"auto-merge is on, do not wait for CI: report the pushed commit and finish; the coordinator follows CI.\n" +
+	// and a watcher, not the step that armed it, follows it to merged (shipping.md:9); here the control plane's
+	// (orchestration/pullrequests.go). One rule says when to wait, the merge steps below give the command.
+	"- Wait for CI only when the task needs its result. When the task says a review comes first, or once " +
+	"auto-merge is on, do not wait: report the pushed commit and finish; Hypomnema follows CI. When you wait, " +
+	"use one command that blocks until it ends (the host's watch command, as in the merge steps below when they " +
+	"are given), never a polling loop.\n" +
 	// Issue #952: a flake earns one fresh build and only the diff's own failures get a commit, after pstack
 	// skills/poteto-mode/playbooks/babysit.md:8; the flaky test is fixed in its own change, after
 	// playbooks/autonomous-run.md:9. The issue is the owner's allowance (owner, 2026-11-19).
@@ -236,8 +238,8 @@ func openCommand(kind, base, branch string) string {
 // auto-merge is not a merge, and finishes without waiting for the checks:
 // pstack arms --auto on a verified head and reads it back
 // (skills/poteto-mode/playbooks/shipping.md:8), and a watcher follows it to
-// merged (shipping.md:9), here the coordinator, which sends a follow-up when
-// it goes red or conflicts (issue #1053). Before #1053 the worker stayed
+// merged (shipping.md:9), here the control plane, which sends a follow-up
+// when it goes red or conflicts (issue #1053, orchestration/pullrequests.go). Before #1053 the worker stayed
 // until the checks were green, after OpenClaw's "until verified merge"
 // (landing.md:82). Without auto-merge it waits only when the task needs the
 // checks' result.
@@ -303,7 +305,7 @@ func autoMerge(kind, host, path, base, branch string) string {
 
 	fmt.Fprintf(&b, ".\n4. Read the pull request back with `%s`, since a requested auto-merge is not a merge, "+
 		"then call `finish` at once, without waiting for the checks, saying that it merged or \"auto-merge on at "+
-		"<sha>\". The coordinator follows the pull request from there and sends you a follow-up if a check goes "+
+		"<sha>\". The control plane follows the pull request from there and sends you a follow-up if a check goes "+
 		"red or a conflict appears.\nWhen auto-merge is not turned on, wait for the required checks with `%s` "+
 		"only when the task needs their result.\n",
 		m.Merged, strings.ReplaceAll(m.Watch, "<branch>", branch))

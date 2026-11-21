@@ -61,6 +61,8 @@ A Run has one controller: the Bot of the chat it belongs to. There are two paths
    canceled. A blocked Task has not ended.
 4. In a Bot chat: finish the Run with `hypomnema runs finish <run_id> --json` as soon as every Task has ended, without waiting
    for the owner to press anything, then report to the owner per Task: the outcome, its evidence, and what is left.
+   A Task whose summary says "auto-merge on at <sha>" has ended only once a `pull_request` wake says its pull
+   request merged or was closed (Results, below; issue #1053).
    <!-- Hermes hermes_cli/kanban_db_graph.py:156 (the root wakes when all children complete) and
    kanban_db_workspace.py:419; Orca src/main/runtime/orchestration/db/worker-terminal/worker-terminal-user-keep.ts:140
    (a finished orchestration worker closes by itself); t3code apps/server/src/cli/thread.ts:654 finishRun; owner,
@@ -230,16 +232,16 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   (`gh pr list --repo <owner/name> --head <branch>`), using the Task's `push_branch` or `hyp/<task_id>` when unset;
   when there is none, send the worker a follow-up (below)
   that names what is missing. `gh pr checks <url>` shows whether the checks ran.
-<!-- pstack skills/poteto-mode/playbooks/shipping.md:8 (a requested auto-merge is not a merge; read the PR back)
-and :9 (a watcher follows the armed PR until it reads merged); babysit.md:8 (conflicts, then CI; a flake earns one
-fresh build) (issue #1053) -->
+<!-- pstack skills/poteto-mode/playbooks/shipping.md:8 (a requested auto-merge is not a merge) and :9 (a watcher
+follows the armed PR until it reads merged); scripts/watch-pr/policy.ts:59-140; babysit.md:8 (conflicts, then CI)
+(issue #1053) -->
 - A worker that turned auto-merge on finishes without waiting for CI, its summary saying "auto-merge on at
-  <sha>": following the pull request to merged is yours. Wait for its required checks with one blocking command
-  (`gh pr checks <url> --required --watch`), then read it back (`gh pr view <url> --json
-  state,mergedAt,mergeStateStatus,headRefOid`). Merged: report it and go on with the Run. A conflict, or a red
-  check of the diff's own (a flake gets one rerun first, as in the `review` reference's step 1): send the worker a
-  follow-up on its succeeded Task naming it, which has it merge the base or fix it, push, turn auto-merge on again
-  at the new head and finish.
+  <sha>". The control plane follows that pull request, on GitHub and GitLab, until it merges: a conflict or a
+  failed required check is sent to the worker as a follow-up on its succeeded Task, and you are woken with a
+  `pull_request` escalation when it merges, is closed, or such a follow-up was sent or refused. Do not wait for its
+  CI yourself. Until that wake says it merged or was closed, the Task's work has not landed: keep the Run open
+  (step 4 of the Recipe), since a finished Run takes no follow-up. When the wake says the follow-up was refused,
+  create the Task with `"continues"` it names.
 - More work on a succeeded Task, such as a fix after a review or a correction the owner gives, goes to the same
   worker as a follow-up, not to a new Task:
   ```text

@@ -120,3 +120,22 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 	}
 	return items, nil
 }
+
+const pullRequestEscalationOf = `-- name: PullRequestEscalationOf :one
+SELECT CAST(count(*) AS INTEGER) AS n FROM events
+WHERE task_id = ?1 AND dispatch_id = ?2 AND kind = 'escalation' AND json_extract(payload, '$.kind') = 'pull_request'
+`
+
+type PullRequestEscalationOfParams struct {
+	TaskID     sql.NullString
+	DispatchID sql.NullString
+}
+
+// Whether the pull request a Dispatch reported was already settled (issue #1053): its escalation of kind
+// pull_request.
+func (q *Queries) PullRequestEscalationOf(ctx context.Context, arg PullRequestEscalationOfParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, pullRequestEscalationOf, arg.TaskID, arg.DispatchID)
+	var n int64
+	err := row.Scan(&n)
+	return n, err
+}

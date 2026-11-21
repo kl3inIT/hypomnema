@@ -46,7 +46,7 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 		assert.NotContains(t, prompt, "gh pr create")
 		assert.NotContains(t, prompt, "publish_branch")
 		assert.NotContains(t, prompt, "Do not end your turn on a plan")
-		assert.NotContains(t, prompt, "never with a polling loop", "a read-only worker pushes nothing")
+		assert.NotContains(t, prompt, "never a polling loop", "a read-only worker pushes nothing")
 		if role == "planner" {
 			assert.Contains(t, prompt, "this CLI's subagents for independent read-only lookups")
 			assert.NotContains(t, prompt, "Do not start subagents")
@@ -101,10 +101,10 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 		"pushing; CI runs the full suite.", "a worker runs the touched checks once (issue #894)")
 	assert.Contains(t, p, "Merge the base branch into yours only for a conflict, a red check whose cause is on "+
 		"the base, or when the repository's rules ask", "the base is merged only when needed (issue #894)")
-	assert.Contains(t, p, "never with a polling loop. When the task says a review comes first, or once auto-merge "+
-		"is on, do not wait for CI: report the pushed commit and finish",
+	assert.Contains(t, p, "When you wait, use one command that blocks until it ends (the host's watch command, as "+
+		"in the merge steps below when they are given), never a polling loop.",
 		"CI is waited for with one command, or not at all (issues #894, #1053)")
-	assert.Less(t, strings.Index(p, "never with a polling loop"), strings.Index(p, "Task (implementer):"),
+	assert.Less(t, strings.Index(p, "never a polling loop"), strings.Index(p, "Task (implementer):"),
 		"the rules come before the task, for the prompt cache (issue #672)")
 	assert.Contains(t, p, "Fix only the failures your diff causes. A red check that fails outside your diff and "+
 		"is also red on the base, or green on one rerun, is a flake: rerun it once, do not fix it in this pull "+
@@ -239,7 +239,7 @@ func TestPromptPutsTheTaskAfterTheRules(t *testing.T) {
 // auto-merge and that the base branch requires a check, by ruleset or branch
 // protection; a draft stays open; a conflict is resolved by merging the base;
 // auto-merge is pinned to the pushed commit; it reads the request back and
-// finishes without waiting for the checks, which the coordinator follows
+// finishes without waiting for the checks, which the control plane follows
 // (issue #1053), and waits for them only without auto-merge when the task
 // needs their result. A repository lacking a setting gets the pull request left
 // open, with what it lacks said first, and no gate. A task that says a review
@@ -275,11 +275,12 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 		"4. Read the pull request back with `gh pr view <url> --json state,mergedAt`, since a requested " +
 			"auto-merge is not a merge, then call `finish` at once, without waiting for the checks, saying that " +
 			"it merged or \"auto-merge on at <sha>\".",
-		"The coordinator follows the pull request from there and sends you a follow-up if a check goes red or " +
+		"The control plane follows the pull request from there and sends you a follow-up if a check goes red or " +
 			"a conflict appears.",
 		"When auto-merge is not turned on, wait for the required checks with " +
 			"`gh pr checks <url> --required --watch` only when the task needs their result.",
-		"When the task says a review comes first, or once auto-merge is on, do not wait for CI",
+		"Wait for CI only when the task needs its result. When the task says a review comes first, or once " +
+			"auto-merge is on, do not wait: report the pushed commit and finish; Hypomnema follows CI.",
 	} {
 		assert.Contains(t, p, want)
 	}
