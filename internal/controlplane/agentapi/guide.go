@@ -60,7 +60,7 @@ func (s *Server) WorkerTools(ctx context.Context, dispatchID, key string) []stri
 func (s *Server) BotTools(ctx context.Context, bot orchestration.Bot) []string {
 	return s.standingTools(ctx, agent{
 		name: "bot " + bot.ID, coordinator: true, chatID: anyChat, bot: bot.ID, botSwitches: bot.ToolSwitches(),
-		may: bot.MayUse, offered: bot.MayUse,
+		may: bot.MayUse, offered: bot.MayUse, botRow: bot,
 	})
 }
 
@@ -71,6 +71,12 @@ func (s *Server) standingTools(ctx context.Context, a agent) []string {
 		if tool, ok := t(a); ok {
 			names = append(names, tool.Name)
 		}
+	}
+
+	// request_connection while the Bot has a Connection to ask for: the block is the same for each of its chats,
+	// and the tool's line says it is its main chat's (agenttool.ToolFamilies).
+	if t, ok := s.requestConnectionTool(ctx, a); ok {
+		names = append(names, t.Name)
 	}
 
 	names = append(names, s.gatewayTools(ctx, a)...)

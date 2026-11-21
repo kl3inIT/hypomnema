@@ -41,8 +41,8 @@ it("keeps the generic model mark for an unknown maker", () => {
   )
 })
 
-it("reuses the OpenCode runtime mark for OpenCode Go", () => {
-  expect(renderToStaticMarkup(<ProviderMark kind="opencode_go" className="size-6" />)).toBe(
+it.each(["opencode_go", "opencode_zen"])("reuses the OpenCode runtime mark for %s", (kind) => {
+  expect(renderToStaticMarkup(<ProviderMark kind={kind} className="size-6" />)).toBe(
     renderToStaticMarkup(<OpenCodeMark className="size-6" />),
   )
 })

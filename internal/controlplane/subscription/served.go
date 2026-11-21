@@ -29,7 +29,10 @@ const (
 // one: neither reads an Anthropic list per account (CLIProxyAPI gives every Claude auth the same list), and its list
 // does not name every model it serves (models.go), so a Claude runtime is served what its first account that answers
 // is, and its requests go to any account, as before.
-var perAccount = map[string]bool{"antigravity": true, "codex": true}
+//
+// OpenCode Zen is one too (issue #965): the Console list is each key's workspace's (opencode console/api/models.mdx),
+// and two keys may be of two workspaces with different models enabled.
+var perAccount = map[string]bool{"antigravity": true, "codex": true, OpenCodeZenRuntime: true}
 
 // servedReading is the last reading of the models one account is served, in the vendor's order, with each one's
 // window and largest output.

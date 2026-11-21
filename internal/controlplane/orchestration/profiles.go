@@ -51,6 +51,9 @@ const (
 	// ProviderOpenCodeGo is OpenCode Go (issue #854), served by the model gateway only under the Go keys the
 	// owner pastes (OpenCodeGoRuntime).
 	ProviderOpenCodeGo = "opencode_go"
+	// ProviderOpenCodeZen is OpenCode Zen (issue #965), OpenCode's models paid from the workspace's balance, served
+	// by the model gateway only under the Console keys the owner pastes (OpenCodeZenRuntime).
+	ProviderOpenCodeZen = "opencode_zen"
 	// ProviderModelGateway is the control plane's own model gateway: a worker
 	// under it calls the gateway with a key made for its Dispatch, and which
 	// account or API serves the model is the gateway's business (issue #107).
@@ -68,6 +71,7 @@ const GatewayAccountRef = "gateway"
 // subscription runs through the gateway: no subscription token leaves the control plane (issue #381).
 var subscriptionKinds = []string{
 	ProviderClaudeSubscription, ProviderCodexSubscription, ProviderAntigravitySubscription, ProviderOpenCodeGo,
+	ProviderOpenCodeZen,
 }
 
 // throughGateway reports whether a provider of the kind is reached through the model gateway: the gateway itself,
@@ -83,6 +87,7 @@ var subscriptionAccounts = map[string]string{
 	ProviderCodexSubscription:       "codex",
 	ProviderAntigravitySubscription: "antigravity",
 	ProviderOpenCodeGo:              OpenCodeGoRuntime,
+	ProviderOpenCodeZen:             OpenCodeZenRuntime,
 }
 
 // GatewayModelName is the name the gateway serves a provider's model under: "<provider>/<model>" for a
@@ -102,10 +107,15 @@ const PiProvider = "hypomnema"
 const PiFallbackProvider = "hypomnema-fallback"
 
 // PiModel is a chat's model as pi names it: the gateway's name under PiProvider when the gateway serves it, as it
-// was otherwise.
+// was otherwise. A model stored without its provider, one the migration of issue #1002 could not place, is refused
+// with the form to write it in, never passed on bare (review of PR #1000, round 6).
 func (s *Service) PiModel(ctx context.Context, m ChatModel) (ChatModel, error) {
-	if m.Model == "" || m.Provider == "" {
+	if m.Model == "" {
 		return m, nil
+	}
+
+	if m.Provider == "" {
+		return ChatModel{}, bareModel(botRuntime, m.Model, nil)
 	}
 
 	row, err := s.read().GetProvider(ctx, m.Provider)
@@ -319,10 +329,35 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 	return s.applyProfile(ctx, "", name, source)
 }
 
+// RestoreProfileVersion applies one of a profile's versions again, as the profile page restores it: its own source,
+// with its tool policy as stored, and, for a model that source names without a provider (as versions before issue #1002 were written), the
+// provider that version recorded, not one another version with the same YAML recorded. With a chat, the new version
+// is the Bot coordinator's from that chat, as applyProfile's.
+func (s *Service) RestoreProfileVersion(ctx context.Context, chat, name, versionID string) (Profile, bool, error) {
+	row, err := s.read().GetProfileVersion(ctx, versionID)
+	if err != nil || row.Profile != name {
+		return Profile{}, false, fmt.Errorf("%w: version %s of profile %s", ErrNotFound, versionID, name)
+	}
+
+	// The version as the page shows it: its tool policy as migration 00123 re-expressed it, never the old allowlist
+	// its YAML still writes, which would now widen it (editableProfileSource; review of PR #1000).
+	source := editableProfileSource(profileFromRow(row))
+
+	return s.applyProfileRecorded(ctx, chat, name, source, row.Provider.String)
+}
+
 // applyProfile is ApplyProfile; with a chat, a new version is the Bot
 // coordinator's from that chat and is recorded with what undoes it
 // (setupchanges.go).
 func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (Profile, bool, error) {
+	return s.applyProfileRecorded(ctx, chat, name, source, "")
+}
+
+// applyProfileRecorded is applyProfile with the provider a restored version recorded, for a model its source names
+// without one; "" for none.
+func (s *Service) applyProfileRecorded(
+	ctx context.Context, chat, name, source, recorded string,
+) (Profile, bool, error) {
 	var in profileSource
 	if err := decodeStrict(source, &in); err != nil {
 		return Profile{}, false, err
@@ -379,6 +414,10 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 				return fmt.Errorf("%w: role %s uses role routing, not a profile model or fallbacks", ErrInvalid, p.Name)
 			}
 		} else {
+			if p.Provider == "" && p.Model != "" {
+				p.Provider = recorded // a restored version's own (RestoreProfileVersion)
+			}
+
 			var err error
 			provider, err = checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
 			if err != nil {
@@ -409,7 +448,8 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 		case errors.Is(err, sql.ErrNoRows):
 		case err != nil:
 			return fmt.Errorf("reading profile %s: %w", p.Name, err)
-		case current.Digest == digest && !current.deleted:
+		// The same YAML under another provider (a restored version's, issue #1002) is a new version.
+		case current.Digest == digest && !current.deleted && current.Provider.String == p.Provider:
 			out = profileFromRow(current.ProfileVersion)
 			out.Source = editableProfileSource(out)
 
@@ -657,19 +697,100 @@ func checkModel(ctx context.Context, q *store.Queries, runtime, provider, model,
 	}
 
 	switch {
-	case len(fits) == 0 && provider != "":
-		return "", fmt.Errorf("%w: provider %s does not offer model %q", ErrInvalid, provider, model)
-	case len(fits) == 0 && gatewayOnly(runtime):
-		return "", fmt.Errorf("%w: no provider of kind %s offers model %q; %s", ErrInvalid, ProviderModelGateway,
-			model, needsGatewayMessage)
+	case provider == "":
+		// Every model is named with its provider (owner, 2026-11-20; issue #1002): a bare name is never resolved,
+		// as omniroute refuses a bare name it cannot place ("Use provider/model prefix", open-sse/services/model.ts)
+		// and LiteLLM one it does not know ("Pass model as E.g. huggingface/starcoder",
+		// litellm_core_utils/get_llm_provider_logic.py), so a provider added later never changes what it means.
+		return "", bareModel(runtime, model, fits)
 	case len(fits) == 0:
-		return "", fmt.Errorf("%w: no provider runtime %s can use offers model %q", ErrInvalid, runtime, model)
-	case len(fits) > 1:
-		return "", fmt.Errorf("%w: model %q is offered by %s; name the provider", ErrInvalid, model,
-			strings.Join(fits, ", "))
+		return "", fmt.Errorf("%w: provider %s does not offer model %q", ErrInvalid, provider, model)
 	default:
 		return fits[0], nil
 	}
+}
+
+// keptModel checks a stored model that an edit leaves as it is, and returns its provider. One stored without a
+// provider, before issue #1002, is given the one provider that offers it to the runtime among the kinds before
+// OpenCode Zen, as checkModel picked one then, so an unrelated edit (a Bot's persona, a chat's effort) is accepted
+// (review of PR #1000); with none or several it is refused with the form to write it in, as checkModel refused it
+// then, and no bare model is stored again (round 6).
+func keptModel(ctx context.Context, q *store.Queries, runtime, provider, model, effort string) (string, error) {
+	if provider != "" || model == "" {
+		return checkModel(ctx, q, runtime, provider, model, effort)
+	}
+
+	kinds := runtimeProviders[runtime]
+
+	offers, err := q.ModelsNamed(ctx, model)
+	if err != nil {
+		return "", fmt.Errorf("reading the providers of model %s: %w", model, err)
+	}
+
+	var fits []string
+
+	for _, m := range offers {
+		if m.Kind != ProviderOpenCodeZen && slices.Contains(kinds, m.Kind) {
+			fits = append(fits, m.Provider)
+		}
+	}
+
+	if len(fits) == 1 {
+		return checkModel(ctx, q, runtime, fits[0], model, effort)
+	}
+
+	return checkModel(ctx, q, runtime, "", model, effort)
+}
+
+// bareModel is the refusal of a model named without its provider: the form to write it in, with the names it
+// could be written as, or why no provider would serve it.
+func bareModel(runtime, model string, fits []string) error {
+	hint := "name it <provider>/<model>"
+
+	switch {
+	case len(fits) > 0:
+		named := make([]string, len(fits))
+		for i, p := range fits {
+			named[i] = p + "/" + model
+		}
+
+		hint += ", such as " + strings.Join(named, " or ")
+	case gatewayOnly(runtime):
+		hint += fmt.Sprintf("; no provider of kind %s offers it: %s", ProviderModelGateway, needsGatewayMessage)
+	default:
+		hint += fmt.Sprintf("; no provider runtime %s can use offers it", runtime)
+	}
+
+	return fmt.Errorf("%w: model %q is named without its provider; %s", ErrInvalid, model, hint)
+}
+
+// taskModelRef reads a Task's own model: named with its provider, or, for a Task from before issue #1002 whose bare
+// name the migration could not place (model_unresolved), the whole name with no provider, which checkModel refuses as
+// the code before did (review of PR #1000), never split at a slash the name has.
+func taskModelRef(task store.Task) (provider, model string, err error) {
+	if task.ModelUnresolved != 0 {
+		return "", task.Model.String, nil
+	}
+
+	return modelRef(task.Model.String)
+}
+
+// modelRef reads a model named with its provider, "<provider>/<model>" (issue #1002), as 9router and omniroute
+// read one at its first slash (9router open-sse/services/model.js parseModel): a provider's name has no slash, a
+// model's may. A name without a slash has no provider, which checkModel refuses with the form to write it in; a
+// name with an empty part ("opencode-go/", "/m", "/") is refused here, as omniroute refuses a name it cannot place.
+func modelRef(ref string) (provider, model string, err error) {
+	provider, model, found := strings.Cut(ref, "/")
+	if !found {
+		return "", ref, nil
+	}
+
+	if provider == "" || model == "" {
+		return "", "", fmt.Errorf("%w: model %q has an empty part; name it <provider>/<model>, such as "+
+			"opencode-go/deepseek-v4-pro", ErrInvalid, ref)
+	}
+
+	return provider, model, nil
 }
 
 func knownRuntimes() string {
@@ -1096,7 +1217,7 @@ func padded(v []int, n int) []int {
 func validProvider(in providerSource) error {
 	kinds := []string{
 		ProviderAnthropic, ProviderOpenAICompatible, ProviderClaudeSubscription, ProviderCodexSubscription,
-		ProviderAntigravitySubscription, ProviderOpenCodeGo, ProviderModelGateway,
+		ProviderAntigravitySubscription, ProviderOpenCodeGo, ProviderOpenCodeZen, ProviderModelGateway,
 	}
 
 	switch {
@@ -1349,12 +1470,15 @@ func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask, vendor 
 
 	runtime := or(nt.Runtime, v.Runtime)
 
-	provider := v.Provider.String
+	provider, model := v.Provider.String, nt.Model
 	if nt.Model != "" || nt.Runtime != "" {
-		provider = "" // an override picks the provider again from the model
+		var err error
+		if provider, model, err = modelRef(nt.Model); err != nil { // a Task's model names its own provider (#1002)
+			return fmt.Errorf("task %q: %w", nt.Ref, err)
+		}
 	}
 
-	if _, err := checkModel(ctx, q, runtime, provider, nt.Model, nt.Effort); err != nil {
+	if _, err := checkModel(ctx, q, runtime, provider, model, nt.Effort); err != nil {
 		return fmt.Errorf("task %q: %w", nt.Ref, err)
 	}
 
@@ -1465,17 +1589,24 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 
 	runtime := or(task.Runtime.String, v.Runtime)
 
-	// A Task's own model picks its provider again, as checkTaskProfile checked it: the profile's provider may not
-	// offer it.
+	// A Task's own model names its own provider, "<provider>/<model>" (issue #1002), as checkTaskProfile checked it.
 	if task.Model.String != "" {
-		model = task.Model.String
-
-		p, err := checkModel(ctx, q, runtime, "", model, "")
-		if err != nil {
+		var err error
+		if provider, model, err = taskModelRef(task); err != nil {
 			return resolved{}, err
 		}
 
-		provider = p
+		if _, err := checkModel(ctx, q, runtime, provider, model, ""); err != nil {
+			return resolved{}, err
+		}
+	}
+
+	// A profile version's model stored without its provider, one the migration of issue #1002 could not place, is
+	// refused with the form to write it in, never sent on bare (review of PR #1000, round 6).
+	if provider == "" && model != "" {
+		if _, err := checkModel(ctx, q, runtime, "", model, ""); err != nil {
+			return resolved{}, err
+		}
 	}
 
 	gateway, accounts := false, ""

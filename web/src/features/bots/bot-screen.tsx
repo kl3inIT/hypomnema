@@ -342,7 +342,8 @@ function BotFallbacks({
     (model) =>
       model.kind === "model_gateway" ||
       model.kind.endsWith("_subscription") ||
-      model.kind === "opencode_go",
+      model.kind === "opencode_go" ||
+      model.kind === "opencode_zen",
   )
   const canAdd = gateway.some((model) => modelKey(model.provider, model.name) === primary)
   const free = gateway.filter((model) => {

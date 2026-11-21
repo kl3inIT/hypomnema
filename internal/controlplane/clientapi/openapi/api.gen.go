@@ -567,6 +567,48 @@ func (e ConnectionActionKind) Valid() bool {
 	}
 }
 
+// Defines values for ConnectionRequestDecisionDecision.
+const (
+	Decline ConnectionRequestDecisionDecision = "decline"
+	Grant   ConnectionRequestDecisionDecision = "grant"
+)
+
+// Valid indicates whether the value is a known member of the ConnectionRequestDecisionDecision enum.
+func (e ConnectionRequestDecisionDecision) Valid() bool {
+	switch e {
+	case Decline:
+		return true
+	case Grant:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConnectionRequestState.
+const (
+	ConnectionRequestStateDeclined ConnectionRequestState = "declined"
+	ConnectionRequestStateGranted  ConnectionRequestState = "granted"
+	ConnectionRequestStatePending  ConnectionRequestState = "pending"
+	ConnectionRequestStateStale    ConnectionRequestState = "stale"
+)
+
+// Valid indicates whether the value is a known member of the ConnectionRequestState enum.
+func (e ConnectionRequestState) Valid() bool {
+	switch e {
+	case ConnectionRequestStateDeclined:
+		return true
+	case ConnectionRequestStateGranted:
+		return true
+	case ConnectionRequestStatePending:
+		return true
+	case ConnectionRequestStateStale:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceNodeDevice.
 const (
 	DeviceNodeDeviceAndroid DeviceNodeDevice = "android"
@@ -849,6 +891,7 @@ const (
 	GatewayModelSourceCodex       GatewayModelSource = "codex"
 	GatewayModelSourceModelsDev   GatewayModelSource = "models_dev"
 	GatewayModelSourceOpencodeGo  GatewayModelSource = "opencode_go"
+	GatewayModelSourceOpencodeZen GatewayModelSource = "opencode_zen"
 	GatewayModelSourceSet         GatewayModelSource = "set"
 	GatewayModelSourceUnknown     GatewayModelSource = "unknown"
 )
@@ -863,6 +906,8 @@ func (e GatewayModelSource) Valid() bool {
 	case GatewayModelSourceModelsDev:
 		return true
 	case GatewayModelSourceOpencodeGo:
+		return true
+	case GatewayModelSourceOpencodeZen:
 		return true
 	case GatewayModelSourceSet:
 		return true
@@ -1373,8 +1418,9 @@ func (e NewTodoState) Valid() bool {
 
 // Defines values for NewTokenAccountRuntime.
 const (
-	NewTokenAccountRuntimeClaude     NewTokenAccountRuntime = "claude"
-	NewTokenAccountRuntimeOpencodeGo NewTokenAccountRuntime = "opencode_go"
+	NewTokenAccountRuntimeClaude      NewTokenAccountRuntime = "claude"
+	NewTokenAccountRuntimeOpencodeGo  NewTokenAccountRuntime = "opencode_go"
+	NewTokenAccountRuntimeOpencodeZen NewTokenAccountRuntime = "opencode_zen"
 )
 
 // Valid indicates whether the value is a known member of the NewTokenAccountRuntime enum.
@@ -1383,6 +1429,8 @@ func (e NewTokenAccountRuntime) Valid() bool {
 	case NewTokenAccountRuntimeClaude:
 		return true
 	case NewTokenAccountRuntimeOpencodeGo:
+		return true
+	case NewTokenAccountRuntimeOpencodeZen:
 		return true
 	default:
 		return false
@@ -1530,6 +1578,7 @@ const (
 	ProviderKindModelGateway            ProviderKind = "model_gateway"
 	ProviderKindOpenaiCompatible        ProviderKind = "openai_compatible"
 	ProviderKindOpencodeGo              ProviderKind = "opencode_go"
+	ProviderKindOpencodeZen             ProviderKind = "opencode_zen"
 )
 
 // Valid indicates whether the value is a known member of the ProviderKind enum.
@@ -1548,6 +1597,8 @@ func (e ProviderKind) Valid() bool {
 	case ProviderKindOpenaiCompatible:
 		return true
 	case ProviderKindOpencodeGo:
+		return true
+	case ProviderKindOpencodeZen:
 		return true
 	default:
 		return false
@@ -3608,7 +3659,7 @@ type ChatChange struct {
 	// Model The model; empty for its Bot's.
 	Model *string `json:"model,omitempty"`
 
-	// Provider Where the model is found, given with the model; the provider that offers it when empty.
+	// Provider Where the model is found, given with the model, which needs it (issue
 	Provider *string `json:"provider,omitempty"`
 }
 
@@ -3835,6 +3886,46 @@ type ConnectionCannot struct {
 	Reason  string `json:"reason"`
 	Service string `json:"service"`
 }
+
+// ConnectionRequest A Bot's request for a Connection it was not given (issue #471, part D). It is not an Approval.
+type ConnectionRequest struct {
+	// Bot The id of the Bot that asked.
+	Bot string `json:"bot"`
+
+	// ChatId The Bot's main chat, where it asked.
+	ChatId      string     `json:"chat_id"`
+	CreatedAt   time.Time  `json:"created_at"`
+	DecidedAt   *time.Time `json:"decided_at,omitempty"`
+	Id          string     `json:"id"`
+	Integration string     `json:"integration"`
+	Label       string     `json:"label"`
+
+	// Reason Why the Bot needs it, in its words.
+	Reason string `json:"reason"`
+
+	// State stale is a grant whose checks failed; it granted nothing.
+	State ConnectionRequestState `json:"state"`
+
+	// Why Of a grant that made the request stale just now, the check that failed.
+	Why *string `json:"why,omitempty"`
+}
+
+// ConnectionRequestDecision defines model for ConnectionRequestDecision.
+type ConnectionRequestDecision struct {
+	// Decision grant adds the Connection to the Bot's list, always for this Bot; decline refuses it.
+	Decision ConnectionRequestDecisionDecision `json:"decision"`
+}
+
+// ConnectionRequestDecisionDecision grant adds the Connection to the Bot's list, always for this Bot; decline refuses it.
+type ConnectionRequestDecisionDecision string
+
+// ConnectionRequestList defines model for ConnectionRequestList.
+type ConnectionRequestList struct {
+	Data []ConnectionRequest `json:"data"`
+}
+
+// ConnectionRequestState stale is a grant whose checks failed; it granted nothing.
+type ConnectionRequestState string
 
 // ConnectionScope The part of a Connection a Bot may reach. For Superset, the dashboards it may read, by number, and none when the list is empty; such a Bot reads only through the dashboards, dashboard and chart reads, and is refused the API relay for that Connection.
 type ConnectionScope struct {
@@ -4161,7 +4252,7 @@ type GatewayModelEffort string
 type GatewayModelEfforts struct {
 	ModelsDev *[]GatewayModelEffort `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 	Source GatewayModelSource    `json:"source"`
 	Value  *[]GatewayModelEffort `json:"value,omitempty"`
 }
@@ -4170,7 +4261,7 @@ type GatewayModelEfforts struct {
 type GatewayModelInput struct {
 	ModelsDev *[]GatewayModelInputKind `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 	Source GatewayModelSource       `json:"source"`
 	Value  *[]GatewayModelInputKind `json:"value,omitempty"`
 }
@@ -4195,7 +4286,7 @@ type GatewayModelPrice struct {
 type GatewayModelReasoning struct {
 	ModelsDev *bool `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 	Source GatewayModelSource `json:"source"`
 	Value  *bool              `json:"value,omitempty"`
 }
@@ -4209,7 +4300,7 @@ type GatewayModelSettings struct {
 	Reasoning     *bool                    `json:"reasoning,omitempty"`
 }
 
-// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 type GatewayModelSource string
 
 // GatewayModelTarget defines model for GatewayModelTarget.
@@ -4223,7 +4314,7 @@ type GatewayModelTokens struct {
 	// ModelsDev What models.dev gives, when it gives one.
 	ModelsDev *int64 `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 	Source GatewayModelSource `json:"source"`
 
 	// Value The number of tokens used; absent when unknown.
@@ -4451,7 +4542,7 @@ type GatewayUsageGroup struct {
 	// Name The model's or the key's name, or the account's label; empty for an account since removed.
 	Name string `json:"name"`
 
-	// Runtime An account's runtime (claude, codex, antigravity, opencode_go).
+	// Runtime An account's runtime (claude, codex, antigravity, opencode_go, opencode_zen).
 	Runtime *string `json:"runtime,omitempty"`
 }
 
@@ -5353,7 +5444,7 @@ type NewChat struct {
 	// Model The chat's own model, chosen on the New chat page (issue
 	Model *string `json:"model,omitempty"`
 
-	// Provider Where the model is found; the provider that offers it when left out.
+	// Provider Where the model is found; required with a model (issue
 	Provider *string `json:"provider,omitempty"`
 	Title    *string `json:"title,omitempty"`
 }
@@ -5506,7 +5597,9 @@ type NewTask struct {
 	DependsOn *[]string `json:"depends_on,omitempty"`
 	Effort    *string   `json:"effort,omitempty"`
 	Kind      *TaskKind `json:"kind,omitempty"`
-	Model     *string   `json:"model,omitempty"`
+
+	// Model The model instead of the profile's, named with its provider as <provider>/<model>, such as opencode-go/deepseek-v4-pro (issue #1002); a name without its provider is refused.
+	Model *string `json:"model,omitempty"`
 
 	// PrBase With start_from, the base of the pull request the Task opens: start_from (the default, stacked) or the Run's base.
 	PrBase *NewTaskPrBase `json:"pr_base,omitempty"`
@@ -5583,14 +5676,14 @@ type NewTokenAccount struct {
 	// Label The account's name for the owner; a token names no e-mail.
 	Label string `json:"label"`
 
-	// Runtime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
+	// Runtime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go (issue #854) or OpenCode Zen (issue #965), whose Console API key is the account.
 	Runtime NewTokenAccountRuntime `json:"runtime"`
 
-	// Token The token `claude setup-token` prints, or the OpenCode Go key, one line.
+	// Token The token `claude setup-token` prints, or the OpenCode Console key, one line.
 	Token *string `json:"token,omitempty"`
 }
 
-// NewTokenAccountRuntime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
+// NewTokenAccountRuntime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go (issue #854) or OpenCode Zen (issue #965), whose Console API key is the account.
 type NewTokenAccountRuntime string
 
 // Node defines model for Node.
@@ -8156,6 +8249,12 @@ type CommitWorkspaceUploadParams struct {
 	Bot *NewChatBot `form:"bot,omitempty" json:"bot,omitempty"`
 }
 
+// ListConnectionRequestsParams defines parameters for ListConnectionRequests.
+type ListConnectionRequestsParams struct {
+	State  *ConnectionRequestState `form:"state,omitempty" json:"state,omitempty"`
+	ChatId *string                 `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+}
+
 // ListDispatchItemsParams defines parameters for ListDispatchItems.
 type ListDispatchItemsParams struct {
 	// After The seq of the last event already read.
@@ -8664,6 +8763,9 @@ type SendWorkspaceUploadChunkJSONRequestBody = WorkspaceUploadChunk
 
 // CommitWorkspaceUploadJSONRequestBody defines body for CommitWorkspaceUpload for application/json ContentType.
 type CommitWorkspaceUploadJSONRequestBody = WorkspaceUploadCommit
+
+// DecideConnectionRequestJSONRequestBody defines body for DecideConnectionRequest for application/json ContentType.
+type DecideConnectionRequestJSONRequestBody = ConnectionRequestDecision
 
 // CreateDepartmentJSONRequestBody defines body for CreateDepartment for application/json ContentType.
 type CreateDepartmentJSONRequestBody = NewDepartment
@@ -9986,6 +10088,31 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit (the `CommitWorkspaceUpload` operationId).
 	CommitWorkspaceUpload(ctx context.Context, chatId ChatID, workspaceId WorkspaceID, params *CommitWorkspaceUploadParams, body CommitWorkspaceUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListConnectionRequests The requests Bots made for a Connection they were not given; only the owner
+	//
+	// A Bot whose Connections list is limited asks, from its pi in its main chat, for one outside it that is switched on for chats (issue #471, part D). The owner answers each on a card.
+	//
+	// Corresponds with GET /connection-requests (the `ListConnectionRequests` operationId).
+	ListConnectionRequests(ctx context.Context, params *ListConnectionRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideConnectionRequestWithBody Answer a Bot's request for a Connection; only the owner
+	//
+	// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+	DecideConnectionRequestWithBody(ctx context.Context, requestId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideConnectionRequest Answer a Bot's request for a Connection; only the owner
+	//
+	// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+	DecideConnectionRequest(ctx context.Context, requestId string, body DecideConnectionRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListDepartments The departments the sidebar lists Bots in, in the owner's order
 	//
@@ -11403,6 +11530,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
 	ListProfileVersions(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
+	//
+	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	//
+	// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
+	RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListProviders The sources of models, with the models each offers
 	//
@@ -13975,6 +14109,61 @@ func (c *Client) CommitWorkspaceUploadWithBody(ctx context.Context, chatId ChatI
 // Corresponds with POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit (the `CommitWorkspaceUpload` operationId).
 func (c *Client) CommitWorkspaceUpload(ctx context.Context, chatId ChatID, workspaceId WorkspaceID, params *CommitWorkspaceUploadParams, body CommitWorkspaceUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCommitWorkspaceUploadRequest(c.Server, chatId, workspaceId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListConnectionRequests The requests Bots made for a Connection they were not given; only the owner
+//
+// A Bot whose Connections list is limited asks, from its pi in its main chat, for one outside it that is switched on for chats (issue #471, part D). The owner answers each on a card.
+//
+// Corresponds with GET /connection-requests (the `ListConnectionRequests` operationId).
+func (c *Client) ListConnectionRequests(ctx context.Context, params *ListConnectionRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListConnectionRequestsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideConnectionRequestWithBody Answer a Bot's request for a Connection; only the owner
+//
+// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+func (c *Client) DecideConnectionRequestWithBody(ctx context.Context, requestId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideConnectionRequestRequestWithBody(c.Server, requestId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideConnectionRequest Answer a Bot's request for a Connection; only the owner
+//
+// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+func (c *Client) DecideConnectionRequest(ctx context.Context, requestId string, body DecideConnectionRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideConnectionRequestRequest(c.Server, requestId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -17282,6 +17471,23 @@ func (c *Client) SetAgentMemory(ctx context.Context, name Name, body SetAgentMem
 // Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
 func (c *Client) ListProfileVersions(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListProfileVersionsRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
+//
+// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+//
+// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
+func (c *Client) RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRestoreProfileVersionRequest(c.Server, name, versionId)
 	if err != nil {
 		return nil, err
 	}
@@ -22780,6 +22986,119 @@ func NewCommitWorkspaceUploadRequestWithBody(server string, chatId ChatID, works
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
 		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListConnectionRequestsRequest constructs an http.Request for the ListConnectionRequests method
+func NewListConnectionRequestsRequest(server string, params *ListConnectionRequestsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/connection-requests")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDecideConnectionRequestRequest calls the generic DecideConnectionRequest builder with application/json body
+func NewDecideConnectionRequestRequest(server string, requestId string, body DecideConnectionRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDecideConnectionRequestRequestWithBody(server, requestId, "application/json", bodyReader)
+}
+
+// NewDecideConnectionRequestRequestWithBody constructs an http.Request for the DecideConnectionRequest method, with any body, and a specified content type
+func NewDecideConnectionRequestRequestWithBody(server string, requestId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "request_id", requestId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/connection-requests/%s/decision", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
@@ -29053,6 +29372,47 @@ func NewListProfileVersionsRequest(server string, name Name) (*http.Request, err
 	return req, nil
 }
 
+// NewRestoreProfileVersionRequest constructs an http.Request for the RestoreProfileVersion method
+func NewRestoreProfileVersionRequest(server string, name Name, versionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "version_id", versionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/profiles/%s/versions/%s/restore", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListProvidersRequest constructs an http.Request for the ListProviders method
 func NewListProvidersRequest(server string) (*http.Request, error) {
 	var err error
@@ -33362,6 +33722,33 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit (the `CommitWorkspaceUpload` operationId).
 	CommitWorkspaceUploadWithResponse(ctx context.Context, chatId ChatID, workspaceId WorkspaceID, params *CommitWorkspaceUploadParams, body CommitWorkspaceUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*CommitWorkspaceUploadResponse, error)
 
+	// ListConnectionRequestsWithResponse The requests Bots made for a Connection they were not given; only the owner
+	//
+	// A Bot whose Connections list is limited asks, from its pi in its main chat, for one outside it that is switched on for chats (issue #471, part D). The owner answers each on a card.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /connection-requests (the `ListConnectionRequests` operationId).
+	ListConnectionRequestsWithResponse(ctx context.Context, params *ListConnectionRequestsParams, reqEditors ...RequestEditorFn) (*ListConnectionRequestsResponse, error)
+
+	// DecideConnectionRequestWithBodyWithResponse Answer a Bot's request for a Connection; only the owner
+	//
+	// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+	DecideConnectionRequestWithBodyWithResponse(ctx context.Context, requestId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideConnectionRequestResponse, error)
+
+	// DecideConnectionRequestWithResponse Answer a Bot's request for a Connection; only the owner
+	//
+	// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+	DecideConnectionRequestWithResponse(ctx context.Context, requestId string, body DecideConnectionRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideConnectionRequestResponse, error)
+
 	// ListDepartmentsWithResponse The departments the sidebar lists Bots in, in the owner's order
 	//
 	// A department is a named section of the sidebar that lists Bots together (issue #471), as OpenMausBot's departments. A Bot is in at most one; a department shares nothing between its Bots.
@@ -34922,6 +35309,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
 	ListProfileVersionsWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*ListProfileVersionsResponse, error)
+
+	// RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
+	//
+	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
+	RestoreProfileVersionWithResponse(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*RestoreProfileVersionResponse, error)
 
 	// ListProvidersWithResponse The sources of models, with the models each offers
 	//
@@ -39391,6 +39787,102 @@ func (r CommitWorkspaceUploadResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CommitWorkspaceUploadResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListConnectionRequestsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ConnectionRequestList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListConnectionRequestsResponse) GetJSON200() *ConnectionRequestList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListConnectionRequestsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListConnectionRequestsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListConnectionRequestsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListConnectionRequestsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListConnectionRequestsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DecideConnectionRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ConnectionRequest
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DecideConnectionRequestResponse) GetJSON200() *ConnectionRequest {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DecideConnectionRequestResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DecideConnectionRequestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DecideConnectionRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DecideConnectionRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DecideConnectionRequestResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -45635,6 +46127,61 @@ func (r ListProfileVersionsResponse) ContentType() string {
 	return ""
 }
 
+type RestoreProfileVersionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Profile
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Profile
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RestoreProfileVersionResponse) GetJSON200() *Profile {
+	return r.JSON200
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r RestoreProfileVersionResponse) GetJSON201() *Profile {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RestoreProfileVersionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RestoreProfileVersionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RestoreProfileVersionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RestoreProfileVersionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RestoreProfileVersionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListProvidersResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -50837,6 +51384,51 @@ func (c *ClientWithResponses) CommitWorkspaceUploadWithResponse(ctx context.Cont
 	return ParseCommitWorkspaceUploadResponse(rsp)
 }
 
+// ListConnectionRequestsWithResponse The requests Bots made for a Connection they were not given; only the owner
+//
+// A Bot whose Connections list is limited asks, from its pi in its main chat, for one outside it that is switched on for chats (issue #471, part D). The owner answers each on a card.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /connection-requests (the `ListConnectionRequests` operationId).
+func (c *ClientWithResponses) ListConnectionRequestsWithResponse(ctx context.Context, params *ListConnectionRequestsParams, reqEditors ...RequestEditorFn) (*ListConnectionRequestsResponse, error) {
+	rsp, err := c.ListConnectionRequests(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListConnectionRequestsResponse(rsp)
+}
+
+// DecideConnectionRequestWithBodyWithResponse Answer a Bot's request for a Connection; only the owner
+//
+// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+func (c *ClientWithResponses) DecideConnectionRequestWithBodyWithResponse(ctx context.Context, requestId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideConnectionRequestResponse, error) {
+	rsp, err := c.DecideConnectionRequestWithBody(ctx, requestId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideConnectionRequestResponse(rsp)
+}
+
+// DecideConnectionRequestWithResponse Answer a Bot's request for a Connection; only the owner
+//
+// The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /connection-requests/{request_id}/decision (the `DecideConnectionRequest` operationId).
+func (c *ClientWithResponses) DecideConnectionRequestWithResponse(ctx context.Context, requestId string, body DecideConnectionRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideConnectionRequestResponse, error) {
+	rsp, err := c.DecideConnectionRequest(ctx, requestId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideConnectionRequestResponse(rsp)
+}
+
 // ListDepartmentsWithResponse The departments the sidebar lists Bots in, in the owner's order
 //
 // A department is a named section of the sidebar that lists Bots together (issue #471), as OpenMausBot's departments. A Bot is in at most one; a department shares nothing between its Bots.
@@ -53530,6 +54122,21 @@ func (c *ClientWithResponses) ListProfileVersionsWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseListProfileVersionsResponse(rsp)
+}
+
+// RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
+//
+// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
+func (c *ClientWithResponses) RestoreProfileVersionWithResponse(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*RestoreProfileVersionResponse, error) {
+	rsp, err := c.RestoreProfileVersion(ctx, name, versionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRestoreProfileVersionResponse(rsp)
 }
 
 // ListProvidersWithResponse The sources of models, with the models each offers
@@ -57448,6 +58055,72 @@ func ParseCommitWorkspaceUploadResponse(rsp *http.Response) (*CommitWorkspaceUpl
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest WorkspaceDone
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListConnectionRequestsResponse parses an HTTP response from a ListConnectionRequestsWithResponse call
+func ParseListConnectionRequestsResponse(rsp *http.Response) (*ListConnectionRequestsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListConnectionRequestsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectionRequestList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDecideConnectionRequestResponse parses an HTTP response from a DecideConnectionRequestWithResponse call
+func ParseDecideConnectionRequestResponse(rsp *http.Response) (*DecideConnectionRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DecideConnectionRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectionRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -61777,6 +62450,46 @@ func ParseListProfileVersionsResponse(rsp *http.Response) (*ListProfileVersionsR
 	return response, nil
 }
 
+// ParseRestoreProfileVersionResponse parses an HTTP response from a RestoreProfileVersionWithResponse call
+func ParseRestoreProfileVersionResponse(rsp *http.Response) (*RestoreProfileVersionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RestoreProfileVersionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Profile
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Profile
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListProvidersResponse parses an HTTP response from a ListProvidersWithResponse call
 func ParseListProvidersResponse(rsp *http.Response) (*ListProvidersResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -64547,6 +65260,12 @@ type ServerInterface interface {
 	// CommitWorkspaceUpload Put an upload in its place, where nothing is or over the file expect_sha256 names (owner only)
 	// (POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit)
 	CommitWorkspaceUpload(w http.ResponseWriter, r *http.Request, chatId ChatID, workspaceId WorkspaceID, params CommitWorkspaceUploadParams)
+	// ListConnectionRequests The requests Bots made for a Connection they were not given; only the owner
+	// (GET /connection-requests)
+	ListConnectionRequests(w http.ResponseWriter, r *http.Request, params ListConnectionRequestsParams)
+	// DecideConnectionRequest Answer a Bot's request for a Connection; only the owner
+	// (POST /connection-requests/{request_id}/decision)
+	DecideConnectionRequest(w http.ResponseWriter, r *http.Request, requestId string)
 	// ListDepartments The departments the sidebar lists Bots in, in the owner's order
 	// (GET /departments)
 	ListDepartments(w http.ResponseWriter, r *http.Request)
@@ -64940,6 +65659,9 @@ type ServerInterface interface {
 	// ListProfileVersions A profile's versions, newest first
 	// (GET /profiles/{name}/versions)
 	ListProfileVersions(w http.ResponseWriter, r *http.Request, name Name)
+	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
+	// (POST /profiles/{name}/versions/{version_id}/restore)
+	RestoreProfileVersion(w http.ResponseWriter, r *http.Request, name Name, versionId string)
 	// ListProviders The sources of models, with the models each offers
 	// (GET /providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
@@ -67721,6 +68443,78 @@ func (siw *ServerInterfaceWrapper) CommitWorkspaceUpload(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CommitWorkspaceUpload(w, r, chatId, workspaceId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConnectionRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListConnectionRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListConnectionRequestsParams
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConnectionRequests(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DecideConnectionRequest operation middleware
+func (siw *ServerInterfaceWrapper) DecideConnectionRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "request_id" -------------
+	var requestId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "request_id", r.PathValue("request_id"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "request_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DecideConnectionRequest(w, r, requestId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -71931,6 +72725,41 @@ func (siw *ServerInterfaceWrapper) ListProfileVersions(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// RestoreProfileVersion operation middleware
+func (siw *ServerInterfaceWrapper) RestoreProfileVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "version_id" -------------
+	var versionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version_id", r.PathValue("version_id"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreProfileVersion(w, r, name, versionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -74532,6 +75361,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/superset/connections/{label}/api", wrapper.RelaySupersetRequest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/approvals", wrapper.ListApprovals)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/approvals/{approval_id}/decision", wrapper.DecideApproval)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/connection-requests", wrapper.ListConnectionRequests)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/connection-requests/{request_id}/decision", wrapper.DecideConnectionRequest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets", wrapper.ListSecrets)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/secrets/{name}", wrapper.DeleteSecret)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/secrets/{name}", wrapper.PutSecret)
@@ -74644,6 +75475,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}", wrapper.ApplyProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}/versions", wrapper.ListProfileVersions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/{name}/versions/{version_id}/restore", wrapper.RestoreProfileVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.GetAgentMemory)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.ChangeAgentMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.SetAgentMemory)
@@ -77860,6 +78692,85 @@ type CommitWorkspaceUploaddefaultJSONResponse struct {
 }
 
 func (response CommitWorkspaceUploaddefaultJSONResponse) VisitCommitWorkspaceUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectionRequestsRequestObject struct {
+	Params ListConnectionRequestsParams
+}
+
+type ListConnectionRequestsResponseObject interface {
+	VisitListConnectionRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListConnectionRequests200JSONResponse ConnectionRequestList
+
+func (response ListConnectionRequests200JSONResponse) VisitListConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectionRequestsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListConnectionRequestsdefaultJSONResponse) VisitListConnectionRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideConnectionRequestRequestObject struct {
+	RequestId string `json:"request_id"`
+	Body      *DecideConnectionRequestJSONRequestBody
+}
+
+type DecideConnectionRequestResponseObject interface {
+	VisitDecideConnectionRequestResponse(w http.ResponseWriter) error
+}
+
+type DecideConnectionRequest200JSONResponse ConnectionRequest
+
+func (response DecideConnectionRequest200JSONResponse) VisitDecideConnectionRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideConnectionRequestdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DecideConnectionRequestdefaultJSONResponse) VisitDecideConnectionRequestResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -83101,6 +84012,60 @@ func (response ListProfileVersionsdefaultJSONResponse) VisitListProfileVersionsR
 	return err
 }
 
+type RestoreProfileVersionRequestObject struct {
+	Name      Name   `json:"name"`
+	VersionId string `json:"version_id"`
+}
+
+type RestoreProfileVersionResponseObject interface {
+	VisitRestoreProfileVersionResponse(w http.ResponseWriter) error
+}
+
+type RestoreProfileVersion200JSONResponse Profile
+
+func (response RestoreProfileVersion200JSONResponse) VisitRestoreProfileVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreProfileVersion201JSONResponse Profile
+
+func (response RestoreProfileVersion201JSONResponse) VisitRestoreProfileVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreProfileVersiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RestoreProfileVersiondefaultJSONResponse) VisitRestoreProfileVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListProvidersRequestObject struct {
 }
 
@@ -86472,6 +87437,12 @@ type StrictServerInterface interface {
 	// CommitWorkspaceUpload Put an upload in its place, where nothing is or over the file expect_sha256 names (owner only)
 	// (POST /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit)
 	CommitWorkspaceUpload(ctx context.Context, request CommitWorkspaceUploadRequestObject) (CommitWorkspaceUploadResponseObject, error)
+	// ListConnectionRequests The requests Bots made for a Connection they were not given; only the owner
+	// (GET /connection-requests)
+	ListConnectionRequests(ctx context.Context, request ListConnectionRequestsRequestObject) (ListConnectionRequestsResponseObject, error)
+	// DecideConnectionRequest Answer a Bot's request for a Connection; only the owner
+	// (POST /connection-requests/{request_id}/decision)
+	DecideConnectionRequest(ctx context.Context, request DecideConnectionRequestRequestObject) (DecideConnectionRequestResponseObject, error)
 	// ListDepartments The departments the sidebar lists Bots in, in the owner's order
 	// (GET /departments)
 	ListDepartments(ctx context.Context, request ListDepartmentsRequestObject) (ListDepartmentsResponseObject, error)
@@ -86865,6 +87836,9 @@ type StrictServerInterface interface {
 	// ListProfileVersions A profile's versions, newest first
 	// (GET /profiles/{name}/versions)
 	ListProfileVersions(ctx context.Context, request ListProfileVersionsRequestObject) (ListProfileVersionsResponseObject, error)
+	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
+	// (POST /profiles/{name}/versions/{version_id}/restore)
+	RestoreProfileVersion(ctx context.Context, request RestoreProfileVersionRequestObject) (RestoreProfileVersionResponseObject, error)
 	// ListProviders The sources of models, with the models each offers
 	// (GET /providers)
 	ListProviders(ctx context.Context, request ListProvidersRequestObject) (ListProvidersResponseObject, error)
@@ -89390,6 +90364,65 @@ func (sh *strictHandler) CommitWorkspaceUpload(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CommitWorkspaceUploadResponseObject); ok {
 		if err := validResponse.VisitCommitWorkspaceUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListConnectionRequests operation middleware
+func (sh *strictHandler) ListConnectionRequests(w http.ResponseWriter, r *http.Request, params ListConnectionRequestsParams) {
+	var request ListConnectionRequestsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListConnectionRequests(ctx, request.(ListConnectionRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListConnectionRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListConnectionRequestsResponseObject); ok {
+		if err := validResponse.VisitListConnectionRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DecideConnectionRequest operation middleware
+func (sh *strictHandler) DecideConnectionRequest(w http.ResponseWriter, r *http.Request, requestId string) {
+	var request DecideConnectionRequestRequestObject
+
+	request.RequestId = requestId
+
+	var body DecideConnectionRequestJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DecideConnectionRequest(ctx, request.(DecideConnectionRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DecideConnectionRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DecideConnectionRequestResponseObject); ok {
+		if err := validResponse.VisitDecideConnectionRequestResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -93178,6 +94211,33 @@ func (sh *strictHandler) ListProfileVersions(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListProfileVersionsResponseObject); ok {
 		if err := validResponse.VisitListProfileVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreProfileVersion operation middleware
+func (sh *strictHandler) RestoreProfileVersion(w http.ResponseWriter, r *http.Request, name Name, versionId string) {
+	var request RestoreProfileVersionRequestObject
+
+	request.Name = name
+	request.VersionId = versionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreProfileVersion(ctx, request.(RestoreProfileVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreProfileVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreProfileVersionResponseObject); ok {
+		if err := validResponse.VisitRestoreProfileVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

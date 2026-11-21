@@ -277,6 +277,9 @@ export type NewTask = {
   review_of?: string;
   spec: string;
   runtime?: string;
+  /**
+   * The model instead of the profile's, named with its provider as <provider>/<model>, such as opencode-go/deepseek-v4-pro (issue #1002); a name without its provider is refused.
+   */
   model?: string;
   effort?: string;
   /**
@@ -2018,6 +2021,50 @@ export type ApprovalDecision = {
 };
 
 /**
+ * stale is a grant whose checks failed; it granted nothing.
+ */
+export type ConnectionRequestState = 'pending' | 'granted' | 'declined' | 'stale';
+
+/**
+ * A Bot's request for a Connection it was not given (issue #471, part D). It is not an Approval.
+ */
+export type ConnectionRequest = {
+  id: string;
+  /**
+   * The id of the Bot that asked.
+   */
+  bot: string;
+  /**
+   * The Bot's main chat, where it asked.
+   */
+  chat_id: string;
+  integration: string;
+  label: string;
+  /**
+   * Why the Bot needs it, in its words.
+   */
+  reason: string;
+  state: ConnectionRequestState;
+  /**
+   * Of a grant that made the request stale just now, the check that failed.
+   */
+  why?: string;
+  created_at: string;
+  decided_at?: string;
+};
+
+export type ConnectionRequestList = {
+  data: Array<ConnectionRequest>;
+};
+
+export type ConnectionRequestDecision = {
+  /**
+   * grant adds the Connection to the Bot's list, always for this Bot; decline refuses it.
+   */
+  decision: 'grant' | 'decline';
+};
+
+/**
  * What changes; what is absent stays.
  */
 export type ConnectionUse = {
@@ -2814,7 +2861,7 @@ export type GatewayUsageGroup = {
    */
   name: string;
   /**
-   * An account's runtime (claude, codex, antigravity, opencode_go).
+   * An account's runtime (claude, codex, antigravity, opencode_go, opencode_zen).
    */
   runtime?: string;
   counts: GatewayUsageCounts;
@@ -2978,9 +3025,9 @@ export type GatewayRequestList = {
 
 export type NewTokenAccount = {
   /**
-   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go (issue #854) or OpenCode Zen (issue #965), whose Console API key is the account.
    */
-  runtime: 'claude' | 'opencode_go';
+  runtime: 'claude' | 'opencode_go' | 'opencode_zen';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
@@ -3154,9 +3201,9 @@ export type GatewayModelAttributes = {
 };
 
 /**
- * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+ * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
  */
-export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'opencode_go' | 'unknown';
+export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'antigravity' | 'opencode_go' | 'opencode_zen' | 'unknown';
 
 export type GatewayModelInputKind = 'text' | 'image';
 
@@ -3943,7 +3990,7 @@ export type ProfileList = {
 
 export type Provider = {
   name: string;
-  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'opencode_go' | 'model_gateway';
+  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'opencode_go' | 'opencode_zen' | 'model_gateway';
   base_url?: string;
   /**
    * Where the API key is kept, by name; never the key.
@@ -4035,7 +4082,7 @@ export type NewChat = {
    */
   bot?: string;
   /**
-   * Where the model is found; the provider that offers it when left out.
+   * Where the model is found; required with a model (issue
    */
   provider?: string;
   /**
@@ -4090,7 +4137,7 @@ export type ChatDeleted = {
  */
 export type ChatChange = {
   /**
-   * Where the model is found, given with the model; the provider that offers it when empty.
+   * Where the model is found, given with the model, which needs it (issue
    */
   provider?: string;
   /**
@@ -5383,15 +5430,15 @@ export type NewIntegrationClientWritable = {
 
 export type NewTokenAccountWritable = {
   /**
-   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
+   * The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go (issue #854) or OpenCode Zen (issue #965), whose Console API key is the account.
    */
-  runtime: 'claude' | 'opencode_go';
+  runtime: 'claude' | 'opencode_go' | 'opencode_zen';
   /**
    * The account's name for the owner; a token names no e-mail.
    */
   label: string;
   /**
-   * The token `claude setup-token` prints, or the OpenCode Go key, one line.
+   * The token `claude setup-token` prints, or the OpenCode Console key, one line.
    */
   token: string;
 };
@@ -8249,6 +8296,61 @@ export type DecideApprovalResponses = {
 };
 
 export type DecideApprovalResponse = DecideApprovalResponses[keyof DecideApprovalResponses];
+
+export type ListConnectionRequestsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    state?: ConnectionRequestState;
+    chat_id?: string;
+  };
+  url: '/connection-requests';
+};
+
+export type ListConnectionRequestsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListConnectionRequestsError = ListConnectionRequestsErrors[keyof ListConnectionRequestsErrors];
+
+export type ListConnectionRequestsResponses = {
+  /**
+   * The requests, the newest first.
+   */
+  200: ConnectionRequestList;
+};
+
+export type ListConnectionRequestsResponse = ListConnectionRequestsResponses[keyof ListConnectionRequestsResponses];
+
+export type DecideConnectionRequestData = {
+  body: ConnectionRequestDecision;
+  path: {
+    request_id: string;
+  };
+  query?: never;
+  url: '/connection-requests/{request_id}/decision';
+};
+
+export type DecideConnectionRequestErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DecideConnectionRequestError = DecideConnectionRequestErrors[keyof DecideConnectionRequestErrors];
+
+export type DecideConnectionRequestResponses = {
+  /**
+   * The request as answered.
+   */
+  200: ConnectionRequest;
+};
+
+export type DecideConnectionRequestResponse = DecideConnectionRequestResponses[keyof DecideConnectionRequestResponses];
 
 export type ListSecretsData = {
   body?: never;
@@ -11365,6 +11467,38 @@ export type ListProfileVersionsResponses = {
 };
 
 export type ListProfileVersionsResponse = ListProfileVersionsResponses[keyof ListProfileVersionsResponses];
+
+export type RestoreProfileVersionData = {
+  body?: never;
+  path: {
+    name: string;
+    version_id: string;
+  };
+  query?: never;
+  url: '/profiles/{name}/versions/{version_id}/restore';
+};
+
+export type RestoreProfileVersionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RestoreProfileVersionError = RestoreProfileVersionErrors[keyof RestoreProfileVersionErrors];
+
+export type RestoreProfileVersionResponses = {
+  /**
+   * The version equals the current one, which is returned.
+   */
+  200: Profile;
+  /**
+   * A new version.
+   */
+  201: Profile;
+};
+
+export type RestoreProfileVersionResponse = RestoreProfileVersionResponses[keyof RestoreProfileVersionResponses];
 
 export type GetAgentMemoryData = {
   body?: never;

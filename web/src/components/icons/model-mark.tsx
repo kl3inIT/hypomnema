@@ -50,7 +50,8 @@ export function ProviderMark({ kind, className }: { kind: string; className?: st
   }
   if (kind === "codex_subscription") return <CodexMark className={className} />
   if (kind === "antigravity_subscription") return <AntigravityIcon className={className} />
-  if (kind === "opencode_go") return <OpenCodeMark className={className} />
+  if (kind === "opencode_go" || kind === "opencode_zen")
+    return <OpenCodeMark className={className} />
 
   return <Waypoints className={cn("text-muted-foreground", className)} aria-hidden />
 }

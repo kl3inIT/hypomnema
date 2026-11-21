@@ -405,8 +405,8 @@ function AccountRow({
                 onCheckedChange={(next) => change.mutate(next)}
               />
             </span>
-            {/* An OpenCode Go key is not signed in again: a new key is a new account (issue #854). */}
-            {here && owner.runtime !== "opencode_go" && (
+            {/* An OpenCode Go or Zen key is not signed in again: a new key is a new account (issues #854, #965). */}
+            {here && owner.runtime !== "opencode_go" && owner.runtime !== "opencode_zen" && (
               <AccountSignInDialog
                 runtime={owner.runtime as SignInRuntime}
                 name={subscription}

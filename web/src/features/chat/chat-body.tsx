@@ -21,6 +21,7 @@ import type {
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
+import { PendingConnectionRequests } from "@/features/approvals/connection-request-card"
 import { usePending } from "@/features/approvals/use-approvals"
 import { useBotName, useMainBot, useRefreshBots } from "@/features/bots/use-bots"
 import { useSetupChanges } from "@/features/bots/setup-changes"
@@ -220,11 +221,13 @@ export function ChatBody({
                       Reconnecting…
                     </output>
                   )}
-                  {/* What pi asked to do with an account and what this chat's workers ask the owner, both answered here,
-            then this chat's Runs as strips right above the composer, as Orca docks its task list (issue #314). The
-            cards scroll in their own box, so that the message box stays on the screen under them. */}
+                  {/* What pi asked to do with an account, the accounts its Bot asked for (issue #471, part D) and
+            what this chat's workers ask the owner, all answered here, then this chat's Runs as strips right above the
+            composer, as Orca docks its task list (issue #314). The cards scroll in their own box, so that the
+            message box stays on the screen under them. */}
                   <div className="mx-auto mb-3 flex max-h-[50dvh] w-full max-w-(--chat-content-max-width) flex-col gap-3 overflow-y-auto empty:hidden">
                     <PendingApprovals chatId={chatId} />
+                    <PendingConnectionRequests chatId={chatId} />
                     <DockedQuestions work={work} />
                     <DockedRuns chatId={chatId} work={work} />
                   </div>

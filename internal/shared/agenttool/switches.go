@@ -184,6 +184,12 @@ var ToolFamilies = []ToolFamily{
 			"is not there already, set it, then run it once and tell him what that run did. A Routine's script has " +
 			"commands, not tools: it reads Superset with `hypomnema superset chart` and refreshes an artifact with " +
 			"`hypomnema artifact show --id <id> --path <folder>`."},
+	{Name: "requests", Description: "Ask the owner for a Connection the Bot was not given (a Bot's main chat only)",
+		Pattern: ToolRequestConnection, Tools: []string{ToolRequestConnection},
+		WhenToUse: "When a task needs an account you were not given and request_connection lists it, ask the owner " +
+			"for it with request_connection, in your main chat only, saying why in one sentence; he answers on a " +
+			"card. Then end your turn: do not call it again or poll; you are woken with his answer. In another " +
+			"chat, tell him which account it needs."},
 	{Name: "inbox", Description: "Keep the owner's to-dos in the Inbox (a Bot only)", Pattern: "inbox_*",
 		Tools: InboxTools,
 		// The Bots' rules of the Inbox (issue #1004, section 8), after Orca's botItemRules (bot-preamble.ts:47).

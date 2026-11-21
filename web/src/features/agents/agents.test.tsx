@@ -76,6 +76,8 @@ function server(
   profiles: Profile[],
   opts: {
     versions?: Record<string, Profile[]>
+    // restored gets the name and version id of each restore asked for.
+    restored?: { name: string; versionId: string }[]
     apply?: (name: string, source: string) => Response
     skills?: Skill[]
   } = {},
@@ -106,6 +108,13 @@ function server(
     const versions = /^\/profiles\/([^/]+)\/versions$/.exec(path)
     if (request.method === "GET" && versions) {
       return json({ data: opts.versions?.[versions[1]!] ?? [] })
+    }
+
+    const restore = /^\/profiles\/([^/]+)\/versions\/([^/]+)\/restore$/.exec(path)
+    if (request.method === "POST" && restore) {
+      opts.restored?.push({ name: restore[1]!, versionId: restore[2]! })
+
+      return json(profile(restore[1]!, { version: 3 }), 201)
     }
 
     const one = /^\/profiles\/([^/]+)$/.exec(path)
@@ -538,8 +547,9 @@ test("going back to the builder asks before YAML edits are discarded", async () 
   expect(applied[0]?.source).toBe(`${profile("reviewer").source}instruction: by hand\n`)
 })
 
-// Scenario: an earlier version is restored. Its source is applied again as a new version; nothing is removed.
-test("restoring a version applies its source again", async () => {
+// Scenario: an earlier version is restored. It is restored by its id, so the server applies that version's own source
+// with the provider it recorded (issue #1002); nothing is removed.
+test("restoring a version restores that version by its id", async () => {
   const first = profile("reviewer", {
     version: 1,
     version_id: "pfv_1",
@@ -550,7 +560,8 @@ test("restoring a version applies its source again", async () => {
     version_id: "pfv_2",
     source: "name: reviewer\n# two\n",
   })
-  const applied = server([second], { versions: { reviewer: [second, first] } })
+  const restored: { name: string; versionId: string }[] = []
+  const applied = server([second], { versions: { reviewer: [second, first] }, restored })
   open("/settings/agents/reviewer")
   const user = userEvent.setup()
 
@@ -566,7 +577,8 @@ test("restoring a version applies its source again", async () => {
   const dialog = await screen.findByRole("alertdialog", { name: "Restore version 1?" })
   await user.click(within(dialog).getByRole("button", { name: "Restore" }))
 
-  await vi.waitFor(() => expect(applied).toEqual([{ name: "reviewer", source: first.source }]))
+  await vi.waitFor(() => expect(restored).toEqual([{ name: "reviewer", versionId: "pfv_1" }]))
+  expect(applied).toEqual([])
 })
 
 const draft = (m: Partial<Draft>): Draft => ({

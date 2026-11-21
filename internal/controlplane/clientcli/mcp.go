@@ -98,16 +98,17 @@ type piMCPServer struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
 	Timeout int      `json:"timeout"`
-	// Exposure is direct: each tool is declared to the model like a built-in one, not found through codemode or
-	// tool_search (owner, 2026-11-15), as OpenMausBot's pi registers every tool it is given.
-	Exposure string `json:"exposure"`
+	// No exposure: pi's default, codemode, applies (pi docs/mcp.md, "Control tool exposure"). The model reaches the
+	// tools from a codemode script, which receives each result whole and can filter it before the model sees it,
+	// where a direct call has a result over 20 KB cut in the middle (owner, 2026-11-21, issue #1015;
+	// docs/research/2026-11-21-code-mode.md). Until then it was direct.
 }
 
 // piMCP prints the mcp.json a chat's pi starts with: one server, this
 // binary's `mcp`, at the path the launcher names, which the box binds.
 func piMCP(_ context.Context, e *env, fs *flag.FlagSet) error {
 	out, err := json.MarshalIndent(piMCPFile{MCPServers: map[string]piMCPServer{
-		mcpName: {Command: fs.Arg(0), Args: []string{"mcp"}, Timeout: mcpTimeout, Exposure: "direct"},
+		mcpName: {Command: fs.Arg(0), Args: []string{"mcp"}, Timeout: mcpTimeout},
 	}}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding pi's mcp.json: %w", err)
