@@ -1191,7 +1191,7 @@ sequenceDiagram
     keeps working; then the files are cleared (`ScrubShareTokens`: `VACUUM`, and `wal_checkpoint(TRUNCATE)`, whose
     busy column must say it was done), so no plaintext is left in the database's files or its log. The migration
     records what the files owe (`share_token_scrub`), cleared only once they are clear: a stop in between, or a
-    reader holding an older snapshot, leaves it, the start tries again every 30 s, and no link is served meanwhile
+    reader holding an older snapshot, leaves it, the start tries again every 30 s, and no link or file of one is served meanwhile
     (503). Without the vault's keys an old link is neither moved, served, nor read back from its plaintext, which
     is kept only until a start with the keys seals it, since the owner could never read it again otherwise; the
     start logs how many wait. Only the owner
@@ -1204,8 +1204,9 @@ sequenceDiagram
     that `rev` is the newest on every request (OpenMausBot's `server/page-files.ts`), so a revoke takes effect at
     once and a file of a replaced revision answers 404; it mints no frame token and serves as the frame's route
     does (the same headers, a page with `pagePolicy` naming the link's folder). Opening the page itself counts a
-    view (Grafana's request count, Metabase's anonymous view event), counted in memory and written together at most
-    once a minute, the last view at most once an hour; the lists add the openings not written yet;
+    view (Grafana's request count, Metabase's anonymous view event), counted in memory and written together each
+    minute and as the control plane stops (`writeShareViews`, as Coder's stats batcher flushes on its ticker and as
+    it exits), the last view at most once an hour; the lists add the openings not written yet;
     reading the link does not, so the viewer's checks are not counted. Every answer under `/api/v1/shares/` and the web's page
     `/s/<token>` carry `X-Robots-Tag: noindex, nofollow` (LibreChat), `Referrer-Policy: no-referrer`,
     `Cache-Control: private, no-store` (LibreChat) and `frame-ancestors 'none'` (Grafana). An address that sends
@@ -3102,7 +3103,8 @@ which orchestration calls in its transaction (`orchestration.GatewayKeys`, `mode
 - Revoking a coordinator token ends, with `parent_revoked`, the Gateway keys of the chats whose pi runs under it (a
   chat's key names it, `gateway_keys.coordinator_token_id`), and the Sessions and Gateway keys of the Dispatches of
   the Runs it created; then the Bot tokens made under it, which their parent's revocation already refused. As Orca
-  revokes a device's children (`runtime-rpc-mobile-devices.ts`).
+  revokes a device's children (`runtime-rpc-mobile-devices.ts`). The migration `credential_state` ends the same way
+  the Sessions and Gateway keys of the Dispatches, running or not, of a coordinator token revoked before it.
 - Removing a node, or starting to remove a provider's machine, ends its Node tokens and the Sessions and Gateway keys
   of the Dispatches it ran, with `node_removed`, as Omnara revokes a machine's daemon tokens with it
   (`executionstore/machine_lifecycle_store.go`).
@@ -3113,7 +3115,7 @@ which orchestration calls in its transaction (`orchestration.GatewayKeys`, `mode
   or being removed (a provider's machine `deleting` or `delete_failed`; no node token is issued for it either, and
   `MachineRemoved` ends what is left). An offer read before the revocation and sent after it, as after a reconnect,
   carries no key. A chat's gateway key is refused when the chat or its Bot is gone, or under a revoked coordinator
-  token; one that names no coordinator token keeps the one of the chat's newest key, as when pi's model changes. A
+  token; one that names no coordinator token keeps the one of the chat's newest key, as when pi's model changes; the daily clean-up keeps that key. A
   Bot token is refused once its chat or Bot is read as gone, at each use, so the deletion ends it before its
   clean-up of memory; a read that fails keeps it.
 - Without a cascade, a Dispatch's keys end when it settles (`dispatch_ended`), a chat's key when its pi ends
@@ -3538,7 +3540,8 @@ capabilities do not exist yet.
   sheet. A row leads with its provider's mark (`components/icons/provider-marks.tsx`, shared with the Web search
   and Audio pages; lobe-icons, MIT): the search provider that answered, a globe for `web/fetch`, ElevenLabs's or
   Soniox's microphone for `audio/*`, the image provider's, else the model's maker. Once a day the gateway deletes the requests older than
-  31 days and every revoked key no request names any more; a live key is never deleted (issue
+  31 days and every revoked key no request names any more, but a chat's newest that names its coordinator token
+  (issue #996); a live key is never deleted (issue
   [#628](https://github.com/kl3inIT/hypomnema/issues/628), as Coder's dbpurge deletes expired API keys).
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key. Each model has a `display_name`
