@@ -227,16 +227,19 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 	stage := func(n int) { s.setProgress(id, rev.Rev, n, total) }
 	stage(0)
 
-	said, err := s.speak(ctx, source, rev.Lines, rev.Voice, rev.pin, stage)
-	if err != nil {
-		return nil, 0, at(Voicing, err)
+	// Who speaks is recorded as soon as the first scene is spoken, so a revision that fails at a later scene is made
+	// again by the same provider and voice, its clips reused (#937).
+	chosen := func(who spoken) error {
+		return s.write(ctx, func(q *store.Queries, now int64) error {
+			return q.SetRevisionVoice(ctx, store.SetRevisionVoiceParams{
+				VideoID: id, Rev: int64(rev.Rev), Provider: who.provider, Model: who.model, UsedVoice: who.voice,
+				Now: now,
+			})
+		})
 	}
 
-	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.SetRevisionVoice(ctx, store.SetRevisionVoiceParams{
-			VideoID: id, Rev: int64(rev.Rev), Provider: said.provider, Model: said.model, UsedVoice: said.voice, Now: now,
-		})
-	}); err != nil {
+	said, err := s.speak(ctx, source, rev.Lines, rev.Voice, rev.pin, stage, chosen)
+	if err != nil {
 		return nil, 0, at(Voicing, err)
 	}
 

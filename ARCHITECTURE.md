@@ -1014,7 +1014,7 @@ sequenceDiagram
     they start from as its parent and unchanged, with its lines, aspect, captions on or off and voice: a look
     change of a made revision (review, approved, changes_requested) takes the sections not sent from its look and
     pins the provider and voice it was spoken with; a retry of a failed revision keeps its look and its pin, or pins
-    the provider and voice it was voiced with before it failed. A video whose take was deleted is refused (409). On
+    the provider and voice that spoke its first scene, recorded as soon as that scene is spoken. A video whose take was deleted is refused (409). On
     a take whose phone turned, a frame sent is refused (409); one from the default or the source is stored `full`
     with `fell_back_from`, and the made revision warns. The **look sample** (`Preview`) resolves the look as a make
     does, or as a look change of `rev`, and draws it with `compose.Still` over the take's frame at its first step,
