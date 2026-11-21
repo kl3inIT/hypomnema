@@ -210,13 +210,15 @@ own report: on each `turn_end` and `compaction_end` the supervisor sends pi `get
 `refreshUsage` does, keeps its `contextUsage` with the chat (`chats.context_tokens`, `context_window`,
 `context_percent`, migration 68; the window NULL before pi first reported one, the tokens and the share NULL right
 after a compaction until pi's next answer) and, when it changed, sends the chat's watchers a `usage` frame; `GET
-/chats/{id}` carries it as `context_usage`. `POST /chats/{id}/compact` (owner only, 202) sends pi `compact`, starting
-pi when none runs, as OpenMausBot runs its compaction as a turn: the chat reads working until it ends, a message sent
-meanwhile waits, `abort` stops it with a `stopped` row, a failure ends in a `failed` row ("pi's compaction failed:
-…"), and a chat whose pi works is refused (409), as pi aborts a running turn to compact. pi's compaction settings are
-its own (reserve 16384, keep 20000). A compaction pi runs by itself that fails (above all "Context overflow recovery
-failed…", when a request stays too large after pi compacted and tried again once) is kept as a `failed` row with
-pi's own text, as pi's interactive mode shows it; pi then ends the turn and the chat stops working (issue #675).
+/chats/{id}` carries it as `context_usage`, both with `reserve_tokens`, the reserve the chat's pi is given for that
+window (`orchestration.CompactReserve`, the one function `pi-settings` below uses too; issue #1009). `POST
+/chats/{id}/compact` (owner only, 202) sends pi `compact`, starting pi when none runs, as OpenMausBot runs its
+compaction as a turn: the chat reads working until it ends, a message sent meanwhile waits, `abort` stops it with a
+`stopped` row, a failure ends in a `failed` row ("pi's compaction failed: …"), and a chat whose pi works is refused
+(409), as pi aborts a running turn to compact. pi keeps its own 20000 recent tokens; its reserve is `pi-settings`'s
+below. A compaction pi runs by itself that fails (above all "Context overflow recovery failed…", when a request stays
+too large after pi compacted and tried again once) is kept as a `failed` row with pi's own text, as pi's interactive
+mode shows it; pi then ends the turn and the chat stops working (issue #675).
 pi counts an image as about 1,200 tokens whatever its bytes, so every chat's pi is given an extension,
 `deploy/coordinator/pi-image-eviction.mts` (`--extension`, installed root-owned in `/usr/local/lib/hypomnema/`), that
 on pi's `context` event, before each model call, sends the oldest tool-result images as `[image removed to save
@@ -3438,7 +3440,8 @@ capabilities do not exist yet.
     [research](docs/research/2026-11-14-pi-defaults.md)): each model with a window compacts once fewer than
     max(15% of the window, 16,384) tokens are free (`compaction.modelOverrides`, which pi reads for the model in
     use, so a model changed during a chat needs nothing more), as omp and opencode reserve; a model without one
-    keeps pi's 16,384. pi's read-only `grep`, `find` and `ls` are on beside `read`, `bash`, `edit` and `write`
+    keeps pi's 16,384 (`orchestration.CompactReserve`, which the context meter's `reserve_tokens` reads too, issue
+    #1009). pi's read-only `grep`, `find` and `ls` are on beside `read`, `bash`, `edit` and `write`
     (`defaultTools`). Everything else is pi's default.
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
@@ -5535,7 +5538,8 @@ Node (`internal/node`):
     from that Bot's. Picking a model the chat's effort is not a level of gives the effort back to the Bot.
   - The context meter (issue #384, `features/chat/context-meter.tsx`): left of the model button, a ring that fills
     as pi's context does (assistant-ui's ContextDisplay ring, AI Elements' Context), amber from 80 % and red from
-    90 % with a tick where pi compacts on its own (the window less 16384), after t3code's ThreadDetailsContext.
+    90 % with a tick where pi compacts on its own (the window less the `reserve_tokens` the server sends, issue
+    #1009), after t3code's ThreadDetailsContext.
     Hovered or tapped, a card says "used / window (percent)", where pi compacts, and has Compact (`POST
     /chats/{id}/compact`), disabled while pi works, "Compacting…" while it is asked. No ring shows before pi
     reported, as in Orca; after a compaction it shows "–" until pi's next answer. A `usage` frame on the chat's

@@ -10309,12 +10309,18 @@ components:
       description: >-
         How full the chat's context window is, as pi last reported it after a turn or a compaction (issue #384; pi's
         get_session_stats). Absent from a chat before pi first reported it.
-      required: [context_window]
+      required: [context_window, reserve_tokens]
       properties:
         context_window:
           type: integer
           format: int64
-          description: The model's context window in tokens; pi compacts on its own at this less 16384.
+          description: The model's context window in tokens; pi compacts on its own at this less reserve_tokens.
+        reserve_tokens:
+          type: integer
+          format: int64
+          description: >-
+            The tokens pi keeps free, the reserve the chat's pi is given for this window: max(15% of the window,
+            16384) (issues #395, #1009). pi compacts on its own once fewer are free.
         tokens:
           type: integer
           format: int64

@@ -109,6 +109,21 @@ type ContextUsage struct {
 	Percent *float64
 }
 
+// piReserveShare and piReserveFloor: pi compacts a chat once fewer than max(15% of the model's window, 16,384)
+// tokens are free, as omp (packages/agent/src/compaction/compaction.ts) and opencode
+// (packages/core/src/session/compaction.ts) reserve (issue #395). pi's own reserve is 16,384 whatever the window.
+const (
+	piReserveShare = 0.15
+	piReserveFloor = 16384
+)
+
+// CompactReserve is the reserve each chat's pi is given for a model with this window (pi's
+// compaction.modelOverrides reserveTokens), and so what the context meter shows pi compacting at, the window less
+// this (issue #1009). It is the one place the reserve is computed: pi's settings and the API both read it.
+func CompactReserve(window int64) int64 {
+	return max(int64(float64(window)*piReserveShare), piReserveFloor)
+}
+
 // SetChatContextUsage keeps pi's last report of the chat's context window (issue #384). The chat's updated_at stays:
 // it orders the chats by what was said in them.
 func (s *Service) SetChatContextUsage(ctx context.Context, id string, u ContextUsage) error {

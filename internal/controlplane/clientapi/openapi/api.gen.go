@@ -3614,11 +3614,14 @@ type ChatChange struct {
 
 // ChatContextUsage How full the chat's context window is, as pi last reported it after a turn or a compaction (issue #384; pi's get_session_stats). Absent from a chat before pi first reported it.
 type ChatContextUsage struct {
-	// ContextWindow The model's context window in tokens; pi compacts on its own at this less 16384.
+	// ContextWindow The model's context window in tokens; pi compacts on its own at this less reserve_tokens.
 	ContextWindow int64 `json:"context_window"`
 
 	// Percent The share of the window used, 0 to 100; absent with tokens.
 	Percent *float64 `json:"percent,omitempty"`
+
+	// ReserveTokens The tokens pi keeps free, the reserve the chat's pi is given for this window: max(15% of the window, 16384) (issues #395, #1009). pi compacts on its own once fewer are free.
+	ReserveTokens int64 `json:"reserve_tokens"`
 
 	// Tokens The tokens in pi's context; absent right after a compaction, until pi's next answer.
 	Tokens *int64 `json:"tokens,omitempty"`
