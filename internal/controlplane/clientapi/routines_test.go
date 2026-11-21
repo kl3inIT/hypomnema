@@ -263,3 +263,41 @@ func TestAReadRoutineMayHaveACheckThatHasNoRightsHere(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, refused.StatusCode(), "a script alone is never read: %s", refused.Body)
 }
+
+// Scenario: review of #1037, round 2: while the check of a read Routine runs, the owner switches the Routine to
+// full and a Bot edits it. The check's token keeps the rights of its run, which are none in the client API.
+func TestAReadChecksTokenKeepsItsRunsAccess(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+	_, _ = w.token("pi-coordinator", bearertoken.Coordinator)
+
+	prompt, script, text, minutes, read := "Triage.", "new-messages.mjs", "#!/usr/bin/env node\n", 15, openapi.Read
+	made, err := owner.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "triage", openapi.RoutineSettings{
+		Kind: openapi.Prompt, Prompt: &prompt, Script: &script, ScriptText: &text, EveryMinutes: &minutes,
+		Access: &read,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, made.StatusCode(), string(made.Body))
+
+	_, err = w.svc.RunRoutineNow(ctx, made.JSON200.Id)
+	require.NoError(t, err)
+	secret, err := w.svc.AddRoutineToken(ctx, "pi-coordinator", made.JSON200.Id)
+	require.NoError(t, err)
+	check := w.client(secret)
+
+	full, err := owner.PatchRoutineWithResponse(ctx, made.JSON200.Id,
+		openapi.PatchRoutineJSONRequestBody{Access: openapi.Full})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, full.StatusCode(), string(full.Body))
+
+	work, err := check.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "script work"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, work.StatusCode(), "the run reads only as it started: %s", work.Body)
+
+	todo, err := check.CreateTodoWithResponse(ctx, &openapi.CreateTodoParams{}, openapi.NewTodo{Title: "Reply to Lan"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, todo.StatusCode(), string(todo.Body))
+}

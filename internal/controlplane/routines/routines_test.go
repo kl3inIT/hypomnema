@@ -1207,3 +1207,47 @@ func TestAReadRoutinesCheckWakesARunThatReadsOnly(t *testing.T) {
 	w.ended(triage.ID, 2, routinestore.RunSucceeded)
 	w.said(home, 0)
 }
+
+// Scenario: review of #1037, round 2: the owner switches the triage Routine to full while its check runs. The run
+// keeps the access it started with: the chat its check opens reads only.
+func TestAWokenRunKeepsTheAccessItStartedWith(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	triage := w.watched("triage", w.chat())
+	_, err := w.svc.Routines().SetRoutineAccess(ctx, triage.ID, routinestore.AccessRead)
+	require.NoError(t, err)
+
+	held := make(chan struct{})
+	w.script.then(func(context.Context) (string, int, error) {
+		<-held
+
+		return "zalo:main g_pmo \"PMO\": 2 new\n", 0, nil
+	})
+
+	_, err = w.runner.RunNow(ctx, triage.ID)
+	require.NoError(t, err)
+	_, err = w.svc.Routines().SetRoutineAccess(ctx, triage.ID, routinestore.AccessFull)
+	require.NoError(t, err)
+	close(held)
+
+	var run routinestore.RoutineRun
+
+	require.Eventually(t, func() bool {
+		runs, err := w.svc.Routines().ListRoutineRuns(ctx, triage.ID, 1)
+		if err != nil || len(runs) != 1 {
+			return false
+		}
+
+		run = runs[0]
+
+		return run.ChatID != ""
+	}, eventual, every, "the check never woke the bot")
+
+	assert.Equal(t, routinestore.AccessRead, run.Access)
+
+	read, err := w.svc.ReadRun(ctx, run.ChatID)
+	require.NoError(t, err)
+	assert.True(t, read, "the chat reads only, as its run started")
+}

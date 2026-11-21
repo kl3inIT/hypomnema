@@ -312,3 +312,44 @@ func TestOneLogInAgainItemPerBrokenAccount(t *testing.T) {
 	assert.Equal(t, []inboxstore.Link{{Kind: inboxstore.LinkRun, Ref: second, Label: "lark:me was read"}},
 		done[0].Evidence)
 }
+
+// Scenario: review of #1037, round 2: the owner switches the Thư ký's triage Routine to full while its check runs,
+// and a Bot's edit of it takes the read grant back: the check of the run that goes on keeps reading only (no send
+// as him, no Inbox), as its run started. A run of a full Routine that the owner marks read meanwhile is never
+// given his own accounts.
+func TestARunKeepsTheAccessItStartedWith(t *testing.T) {
+	t.Parallel()
+
+	sw := newSecretaryWorld(t)
+	ctx := t.Context()
+	script, _ := sw.check()
+
+	_, err := sw.svc.Routines().SetRoutineAccess(ctx, sw.routine.ID, routinestore.AccessFull)
+	require.NoError(t, err)
+
+	listed := toolNames(sw.tools(script))
+	assert.Contains(t, listed, agenttool.ToolAccountRead, "the run reads as it started")
+	assert.NotContains(t, listed, agenttool.ToolZaloSend)
+
+	_, text, failed := sw.use(script, agenttool.ToolZaloSend, `{"chat":"g_pmo","text":"Dạ em gửi anh báo giá ạ"}`)
+	assert.True(t, failed)
+	assert.Contains(t, text, agenttool.ReadRunRefusal)
+	assert.Empty(t, sw.whatsapp.sent)
+
+	full, err := sw.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: sw.bot.ID, Name: "sync", Kind: routinestore.RoutinePrompt, Prompt: "Sync.", Script: "check.sh",
+		ScriptText: "#!/bin/sh\n", EveryMinutes: 60,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+	_, err = sw.svc.RunRoutineNow(ctx, full.ID)
+	require.NoError(t, err)
+	fullScript, err := sw.svc.AddRoutineToken(ctx, "pi", full.ID)
+	require.NoError(t, err)
+
+	_, err = sw.svc.Routines().SetRoutineAccess(ctx, full.ID, routinestore.AccessRead)
+	require.NoError(t, err)
+
+	listed = toolNames(sw.tools(fullScript))
+	assert.NotContains(t, listed, agenttool.ToolAccountRead, "a run that started full never reads his accounts")
+	assert.NotContains(t, listed, agenttool.ToolZaloMessages)
+}
