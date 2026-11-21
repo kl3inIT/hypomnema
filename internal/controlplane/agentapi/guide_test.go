@@ -74,7 +74,7 @@ func TestAWorkerAndABotWithTheSameToolsGetTheSameBlock(t *testing.T) {
 
 	assert.NotContains(t, block, "- Routines: ", "a worker has no Routines")
 	assert.Contains(t, block, "never in the owner's tab \"My browser\"", "the browser's rules reach a worker")
-	assert.Contains(t, block, "Never ask for, accept, use or type a password")
+	assert.Contains(t, block, "Never repeat a password or code in a reply")
 
 	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "own"})
 	require.NoError(t, err)

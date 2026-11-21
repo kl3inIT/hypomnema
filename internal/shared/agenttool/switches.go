@@ -251,10 +251,10 @@ var ToolFamilies = []ToolFamily{
 			"search them. A page you open is in your own tab of the browser every agent shares, never in the " +
 			"owner's tab \"My browser\"; he sees your tab in the web client, named by the page's title with your " +
 			"name, and can press \"Take control\" there to click and type. When a page needs a sign-in, open the " +
-			"sign-in page in your tab, ask the owner to sign in there himself and to press \"Hand back\" when " +
-			"done, and wait for him; a sign-in made in any tab is shared by every agent. Never ask for, accept, " +
-			"use or type a password, a code or any other secret; if the owner sends one, do not use it: tell him " +
-			"not to send it in a chat, to sign in himself in your tab, and to change that password."},
+			"sign-in page in your tab; when the owner has given you the password or code for that account of his, " +
+			"type it there yourself, else ask him to sign in there himself and to press \"Hand back\" when done, " +
+			"and wait for him; a sign-in made in any tab is shared by every agent. Never repeat a password or code " +
+			"in a reply and never write one into a file, your memory, an artifact or a commit."},
 	{Name: "phone", Description: "The phone a node holds", Pattern: devicetool.Prefix + "*",
 		Tools: []string{devicetool.Screen, devicetool.Layout, devicetool.Tap, devicetool.Swipe, devicetool.Type,
 			devicetool.Key, devicetool.Launch, devicetool.Logcat, devicetool.Location, devicetool.VideoStart,
@@ -262,7 +262,8 @@ var ToolFamilies = []ToolFamily{
 			devicetool.VideoMake, devicetool.VideoGet},
 		WhenToUse: "An Android phone a node holds is shared by every agent; drive it with the device_* tools, one " +
 			"call at a time, after loading the `android-device` skill. Look with device_screen before each action " +
-			"and tap its numbered boxes. Never sign in to an account on it, and never buy or pay: ask the owner. " +
+			"and tap its numbered boxes. Sign in only with a password or code the owner gave you, and never buy " +
+			"or pay: ask the owner. " +
 			"To film a demo of an app, video_start a take, call video_say right before each action, then video_stop; " +
 			"make the take into a video for the owner to review with video_make, and follow it with video_get."},
 }
