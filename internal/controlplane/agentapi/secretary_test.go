@@ -2,6 +2,8 @@ package agentapi_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -352,4 +354,91 @@ func TestARunKeepsTheAccessItStartedWith(t *testing.T) {
 	listed = toolNames(sw.tools(fullScript))
 	assert.NotContains(t, listed, agenttool.ToolAccountRead, "a run that started full never reads his accounts")
 	assert.NotContains(t, listed, agenttool.ToolZaloMessages)
+}
+
+// laterNotes stands for a meeting named and transcribed at 09:00 whose notes became ready at 10:00, and whose two
+// tracks wrote their lines out of n's order: the store gives them by when they were said.
+type laterNotes struct{ lines []meetingstore.Line }
+
+var named = meetingstore.Meeting{
+	ID: "mtg_2", Title: "Kai sync", Titled: true, State: meetingstore.Transcribed,
+	CreatedAt: time.Date(2026, 11, 21, 8, 0, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC),
+	Notes: meetingstore.Notes{State: meetingstore.NotesReady,
+		WrittenAt: new(time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC))},
+	Actions: 1, OpenActions: 1,
+}
+
+func (laterNotes) List(context.Context, string, int) ([]meetingstore.Meeting, error) {
+	return []meetingstore.Meeting{named}, nil
+}
+
+func (m laterNotes) Get(context.Context, string) (meetings.Detail, error) {
+	return meetings.Detail{Meeting: named, Lines: m.lines}, nil
+}
+
+// Scenario: review of #1037, round 2: the check looked at 09:01, after the meeting was transcribed and before its
+// notes were ready; at its next look the meeting is listed, by when its notes became ready. Its transcript is read
+// on in the store's order, by when each line was said: every line once, none skipped, whatever their n.
+func TestMeetingsAreFoundByTheirNotesAndReadOnInOrder(t *testing.T) {
+	t.Parallel()
+
+	lines := make([]meetingstore.Line, 0, 450)
+	for i := range 450 {
+		// Two tracks: the mic's lines are numbered after the tab's, but said in between.
+		n := i/2 + 1
+		if i%2 == 1 {
+			n = 1000 + i/2
+		}
+		lines = append(lines, meetingstore.Line{N: n, Start: time.Duration(i) * time.Second, Text: fmt.Sprintf("line %d", i)})
+	}
+
+	var agents *agentapi.Server
+	w := newWorldWith(t, 0, func(api *agentapi.Server) { agents = api.WithMeetings(laterNotes{lines: lines}) })
+	_ = agents
+	ctx := t.Context()
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "Thư ký"})
+	require.NoError(t, err)
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+	chat, err := w.svc.CreateChat(ctx, bot.ID, "")
+	require.NoError(t, err)
+	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
+	require.NoError(t, err)
+
+	_, text, failed := w.use(pi, agenttool.ToolMeetingList, `{"since":"2026-11-21T09:01:00Z"}`)
+	require.False(t, failed, text)
+	assert.Contains(t, text, `"id": "mtg_2"`, "its notes became ready after since")
+
+	seen := map[string]int{}
+	offset := 0
+
+	for range 3 {
+		_, text, failed := w.use(pi, agenttool.ToolMeetingGet, fmt.Sprintf(`{"id":"mtg_2","offset":%d}`, offset))
+		require.False(t, failed, text)
+
+		var got struct {
+			Meeting struct {
+				Lines []struct {
+					Text string `json:"text"`
+				} `json:"lines"`
+				Next *int `json:"next_offset"`
+			} `json:"meeting"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(text), &got))
+
+		for _, l := range got.Meeting.Lines {
+			seen[l.Text]++
+		}
+
+		if got.Meeting.Next == nil {
+			break
+		}
+
+		offset = *got.Meeting.Next
+	}
+
+	assert.Len(t, seen, 450, "every line")
+	for line, times := range seen {
+		assert.Equal(t, 1, times, line)
+	}
 }
