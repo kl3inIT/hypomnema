@@ -82,7 +82,8 @@ func TestTheReviewerSampleAsksPullRequestFieldsOnlyOfAPullRequestReview(t *testi
 
 	const scope = "For a pull request or merge request review"
 
-	for _, field := range []string{"`Merge state:", "`Mergeable:", "`Checks:", "gh pr checks", "the reviewed pull request"} {
+	pullRequestOnly := []string{"`Merge state:", "`Mergeable:", "`Checks:", "gh pr checks", "the reviewed pull request"}
+	for _, field := range pullRequestOnly {
 		at := strings.Index(sample.Instruction, field)
 		require.NotEqual(t, -1, at, field)
 

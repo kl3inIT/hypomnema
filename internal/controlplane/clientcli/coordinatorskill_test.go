@@ -72,8 +72,8 @@ func TestTheCoordinatorSkillHoldsEachReviewRuleOnce(t *testing.T) {
 
 	for rule, from := range map[string]string{
 		`"Copy an owner's acceptance condition into the spec …"`: "pstack skills/poteto-mode/worker.md:4",
-		`"Size the review to the change. Round 1 …"`:             "That a `make migration-fix` rename needs none either is inference",
-		`"Do not restate the reviewer's rules in …"`:             "deploy/profiles/reviewer.yaml",
+		`"Size the review to the change. Round 1 …"`:             "departs from pstack's single verifier for a rebase",
+		`"Do not restate the reviewer's rules in …"`:             "references/handoffs.md:130-140",
 	} {
 		row := sourceRow(string(raw), rule)
 		assert.Contains(t, row, from, rule)

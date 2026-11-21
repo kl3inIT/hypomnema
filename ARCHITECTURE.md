@@ -2107,14 +2107,14 @@ flowchart LR
   `pfv_seed7_reviewer` is still current) and keeps its text: the reviewer also checks out the pull request, runs the
   repository's checks for what it touched and says which it could not run and why; `reviewer-codex.yaml` carries
   this text. The role sample `deploy/profiles/reviewer.yaml` (issues #952 and #1051, after Cursor's pstack and
-  orchestrate, omp and Codex) is the one home of the reviewer's rules, with their sources: the spec alone is the bar; P0 to P3
-  as omp and Codex define them, P2 and P3 never blocking; a P0 or P1 makes the verdict `incorrect` only with proof
+  orchestrate, omp and Codex) is the one home of the reviewer's rules, with their sources: the spec alone is the
+  bar; P0 to P3 as omp and Codex define them, P2 and P3 never blocking; a P0 or P1 makes the verdict `incorrect` only with proof
   at the head commit, a trigger that documented use with the default configuration reaches, and a break of the
   spec's intent, the rest listed as follow-ups; from a second round, only what the diff since the reviewed head
   adds may newly block; it runs the checks that touch the diff, answers CodeRabbit's Critical and Major findings,
   and starts its summary with `Verdict:`, `Head:`, `Evidence:` (`ran-live`, `test-verified`, `typecheck-only`,
-  `blocked`, never a pass, or `failed`), the merge state and the checks, then an `Execution` list; `blocked` when
-  it could not run what the verdict needs (`review_stall` shows it as `unknown`). The coordinator's `review`
+  `blocked`, never a pass, or `failed`), for a pull request or merge request also the merge state and the
+  checks, then an `Execution` list; `blocked` when it could not run what the verdict needs (`review_stall` shows it as `unknown`). The coordinator's `review`
   reference links to it and keeps only what the coordinator does; its sources are in `docs/role-routing.md`. No
   migration seeds it: a reviewer gets it when the owner applies the file.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
@@ -5095,7 +5095,8 @@ The owner's commands:
   fix round, one new review once its cause is gone, then the owner told (orchestrate's `handoffs.md:137`). From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
   effort `medium`, and the whole change again only for new behavior, a redesign or a large new diff; a head whose
   only change is a clean merge of the base, a `make migration-fix` rename or wording needs green CI only (pstack's
-  `autopilot-full.md:5,14` and `shipping.md:7`; the rename is inference, issue #1051). Before a review,
+  `autopilot-full.md:5,14` for wording; the clean merge without a verifier and the rename are the choice of
+  issues #952 and #1051, not pstack's). Before a review,
   a red check gets one rerun of its failed jobs, noted in the report; one green on the rerun, or failing outside
   the diff and also red on the base, is a flake: the review goes on, and the author opens an issue, with no fix
   in the pull request (pstack's `babysit.md:8`). A bug fix's spec asks for the failing test committed before the fix
