@@ -236,6 +236,8 @@ type rig struct {
 	free   uint64
 	off    []string
 	voices map[string]string
+	// order is the owner's order of the speaking providers; empty: the default.
+	order []string
 	mu     sync.Mutex
 }
 
@@ -262,7 +264,7 @@ func newRig(t *testing.T) *rig {
 			r.mu.Lock()
 			defer r.mu.Unlock()
 
-			return speech.Settings{Off: r.off, Voices: r.voices}, nil
+			return speech.Settings{Off: r.off, Voices: r.voices, TTS: r.order}, nil
 		},
 		Tools:     func(context.Context) (ffmpeg.Tools, error) { return ffmpeg.Tools{FFmpeg: "/x/ffmpeg"}, nil },
 		FreeBytes: func(string) (uint64, error) { r.mu.Lock(); defer r.mu.Unlock(); return r.free, nil },

@@ -499,3 +499,40 @@ func TestTheLookSampleStartsFromTheRevisionGiven(t *testing.T) {
 	}})
 	require.ErrorIs(t, err, ErrInvalid, "colors sent empty are refused")
 }
+
+// A revision whose first scene was spoken and whose second failed is made again by the provider and voice that
+// spoke the first (review of #1001, P1): its clip is reused, and the provider the owner now puts first is not asked.
+func TestARetryAfterAFailedSceneKeepsTheFirstScenesVoice(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	r.voices = map[string]string{speech.ProviderSoniox: "Linh"}
+	r.speech.failAfter[speech.ProviderSoniox] = 1
+
+	v, _ := r.make(t, "")
+	r.runAll(t)
+
+	failed := r.revision(t, v.ID, 1)
+	require.Equal(t, Failed, failed.State)
+	require.Contains(t, failed.FailedCause, "scene 2")
+	assert.Equal(t, speech.ProviderSoniox, failed.Provider, "the provider is kept once it spoke the first scene")
+	assert.Equal(t, "Linh", failed.UsedVoice)
+
+	r.speech.mu.Lock()
+	delete(r.speech.failAfter, speech.ProviderSoniox)
+	r.speech.mu.Unlock()
+	r.mu.Lock()
+	r.order = []string{speech.ProviderElevenLabs, speech.ProviderSoniox}
+	r.mu.Unlock()
+
+	_, rev, err := r.svc.Retry(t.Context(), v.ID, 1, Owner, "")
+	require.NoError(t, err)
+	r.runAll(t)
+
+	made := r.revision(t, v.ID, rev.Rev)
+	require.Equal(t, Review, made.State, made.FailedCause)
+	assert.Equal(t, speech.ProviderSoniox, made.Provider)
+	assert.Equal(t, 1, r.speech.count(speech.ProviderSoniox, "Mở ứng dụng"), "scene 1's clip is reused")
+	assert.Equal(t, 0, r.speech.count(speech.ProviderElevenLabs, "Mở ứng dụng"), "no other voice")
+	assert.Equal(t, 0, r.speech.count(speech.ProviderElevenLabs, "Chạm vào Đăng nhập"))
+}
