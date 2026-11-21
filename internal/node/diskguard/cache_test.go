@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -422,4 +423,51 @@ func TestYoungPassKeepsAnEntryUsedInTheLastTwoHoursWhoseMtimeIsOlder(t *testing.
 	caches.Trim(t.Context(), func(func()) {})
 	assert.FileExists(t, usedRecently)
 	assert.NoFileExists(t, unused)
+}
+
+// Fix round 4 of #1017: in a cache-shaped directory, only what Go writes there is deleted: a file named <64
+// lowercase hex>-a or -d in the subdirectory 00..ff of its first byte, or a -d directory holding one executable
+// (cmd/go/internal/cache/cache.go:117-119,439-467,598-620 at go1.27.4; golangci-lint's copy,
+// internal/go/cache/cache.go:121-123,446-472 at v2.15.0). Data placed there under any other name is left whole.
+func TestOnlyGoCacheEntriesAreDeletedFromACacheShapedDirectory(t *testing.T) {
+	t.Parallel()
+	root := realTempDir(t)
+	markCache(t, root, testGoReadme)
+	hash := fmt.Sprintf("ab%062x", 7)
+	entry := writeCacheEntry(t, root, 0, 30*24*time.Hour)
+	exe := filepath.Join(root, "ab", hash+"-d")
+	require.NoError(t, os.MkdirAll(exe, 0o700))
+	data := []string{
+		filepath.Join(root, "01", "notes.txt"),
+		filepath.Join(root, "01", fmt.Sprintf("01%062x.json", 1)),
+		filepath.Join(root, "01", fmt.Sprintf("01%062X-a", 0xABC)),
+		filepath.Join(root, "CD", "CD"+strings.Repeat("E", 62)+"-a"),
+		filepath.Join(root, "Ef", "ef"+strings.Repeat("0", 62)+"-d"),
+		filepath.Join(root, "01", fmt.Sprintf("02%062x-a", 2)),
+		filepath.Join(root, "01", fmt.Sprintf("01%062x-x", 3)),
+		filepath.Join(root, "01", "sub", fmt.Sprintf("01%062x-a", 4)),
+		filepath.Join(root, "ab", fmt.Sprintf("ab%062x-d", 5), "one"),
+		filepath.Join(root, "ab", fmt.Sprintf("ab%062x-d", 5), "two"),
+		filepath.Join(root, "ab", fmt.Sprintf("ab%062x-d", 6), "nested", "file"),
+		filepath.Join(root, "fuzz", fmt.Sprintf("01%062x-a", 8)),
+		filepath.Join(root, "trim.txt"),
+	}
+	old := time.Now().Add(-30 * 24 * time.Hour)
+	for _, path := range append(slices.Clone(data), filepath.Join(exe, "tool")) {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte("data"), 0o600))
+		require.NoError(t, os.Chtimes(path, old, old))
+	}
+	for _, dir := range []string{exe, filepath.Join(root, "ab", fmt.Sprintf("ab%062x-d", 5)),
+		filepath.Join(root, "ab", fmt.Sprintf("ab%062x-d", 6))} {
+		require.NoError(t, os.Chtimes(dir, old, old))
+	}
+
+	require.NoError(t, trimGo(t.Context(), root, root, goCacheReadme, time.Now().Add(-youngCacheAge),
+		func() bool { return true }, nil))
+	assert.NoFileExists(t, entry, "a Go cache entry is deleted")
+	assert.NoDirExists(t, exe, "a Go executable entry is deleted")
+	for _, path := range data {
+		assert.FileExists(t, path, "data under a name Go does not write survives")
+	}
 }
