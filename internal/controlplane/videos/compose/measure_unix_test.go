@@ -125,20 +125,26 @@ func TestMeasureKillsWhatFFmpegStarted(t *testing.T) {
 
 // ffmpeg that says progress=end and exits while something it started still holds its stderr alone: Measure kills
 // that too, whether its deadline comes while it waits for stderr (150 ms) or later (2 s, after the 500 ms it gives a
-// killed or ended ffmpeg's pipes); the ffmpeg's own end does not stop the cleanup (review round 3 of #1046).
+// killed or ended ffmpeg's pipes), and whether ffmpeg exits 0 or fails (review rounds 3 and 4 of #1046).
 func TestMeasureKillsWhatHoldsStderrAfterFFmpegEnds(t *testing.T) {
 	t.Parallel()
 
-	for name, deadline := range map[string]time.Duration{"deadline first": 150 * time.Millisecond, "deadline later": 2 *
-		time.Second} {
+	for name, tc := range map[string]struct {
+		deadline time.Duration
+		exit     int
+	}{
+		"deadline first":               {150 * time.Millisecond, 0},
+		"deadline later":               {2 * time.Second, 0},
+		"ffmpeg fails, deadline later": {5 * time.Second, 1},
+	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			pids := filepath.Join(t.TempDir(), "pids")
 			tools := fakeFFmpeg(t, measureLines+"printf 'progress=end\\n'\n"+
-				"sleep 30 </dev/null >/dev/null &\necho $! > '"+pids+"'\nexit 0\n")
+				"sleep 30 </dev/null >/dev/null &\necho $! > '"+pids+"'\nexit "+strconv.Itoa(tc.exit)+"\n")
 
-			ctx, cancel := context.WithTimeout(t.Context(), deadline)
+			ctx, cancel := context.WithTimeout(t.Context(), tc.deadline)
 			defer cancel()
 
 			start := time.Now()
