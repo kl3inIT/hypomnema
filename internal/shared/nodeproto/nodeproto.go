@@ -8,7 +8,10 @@
 package nodeproto
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
@@ -429,7 +432,10 @@ const (
 // Exec is one agent's command on a node (issue #543), or a question about
 // one it started in the background. SudoPassword is the node's sudo
 // password from the owner's vault, given to sudo through its askpass
-// helper; it is never logged or answered.
+// helper; it is never logged or answered. ProcessID, on a run or a start,
+// is the id the caller chose for it (IsProcessID), so that its result can
+// be asked for with ExecOutput when the answer is lost on the way, as when
+// the control plane restarts (issue #1060); the node makes one when empty.
 type Exec struct {
 	RequestID      string `json:"request_id"`
 	Action         string `json:"action"`
@@ -935,4 +941,35 @@ type ItemsAck struct {
 	Seq        int64  `json:"seq"`
 	Status     string `json:"status"`
 	Error      string `json:"error,omitempty"`
+}
+
+// A process's id on a node (issue #1060): "proc_" and lowercase hex. The node
+// makes one for a command, or takes the one its caller chose, as Coder's
+// agent names a process after the tool call that started it
+// (agent/agentproc/api.go handleStartProcess); one chosen must have the shape
+// the node makes, as a chat's id a client chooses must have the server's.
+const (
+	processIDPrefix  = "proc_"
+	processIDMinHex  = 12
+	processIDMaxHex  = 32
+	processIDNewHex  = 24
+	processIDHexBase = "0123456789abcdef"
+)
+
+// NewProcessID is a new process id, chosen by a caller before it asks.
+func NewProcessID() string {
+	raw := make([]byte, processIDNewHex/2)
+	_, _ = rand.Read(raw)
+
+	return processIDPrefix + hex.EncodeToString(raw)
+}
+
+// IsProcessID says whether id has the shape of a process's id.
+func IsProcessID(id string) bool {
+	digits, ok := strings.CutPrefix(id, processIDPrefix)
+	if !ok || len(digits) < processIDMinHex || len(digits) > processIDMaxHex {
+		return false
+	}
+
+	return strings.Trim(digits, processIDHexBase) == ""
 }
