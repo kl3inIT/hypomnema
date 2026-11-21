@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -365,8 +366,9 @@ func TestARunKeepsTheAccessItStartedWith(t *testing.T) {
 }
 
 // laterNotes stands for a meeting named and transcribed at 09:00 whose notes became ready at 10:00, and whose two
-// tracks wrote their lines out of n's order: the store gives them by when they were said.
-type laterNotes struct{ lines []meetingstore.Line }
+// tracks wrote their lines out of n's order: the store gives them by when they were said. lines may grow, as a
+// live meeting's do.
+type laterNotes struct{ lines *[]meetingstore.Line }
 
 var named = meetingstore.Meeting{
 	ID: "mtg_2", Title: "Kai sync", Titled: true, State: meetingstore.Transcribed,
@@ -381,16 +383,17 @@ func (laterNotes) List(context.Context, string, int) ([]meetingstore.Meeting, er
 }
 
 func (m laterNotes) Get(context.Context, string) (meetings.Detail, error) {
-	return meetings.Detail{Meeting: named, Lines: m.lines}, nil
+	return meetings.Detail{Meeting: named, Lines: slices.Clone(*m.lines)}, nil
 }
 
-// Scenario: review of #1037, round 2: the check looked at 09:01, after the meeting was transcribed and before its
-// notes were ready; at its next look the meeting is listed, by when its notes became ready. Its transcript is read
-// on in the store's order, by when each line was said: every line once, none skipped, whatever their n.
+// Scenario: review of #1037, rounds 2 and 3: the check looked at 09:01, after the meeting was transcribed and
+// before its notes were ready; at its next look the meeting is listed, by when its notes became ready. Its
+// transcript is read on by each line's number, which only grows: every line once, none skipped, whatever their
+// order in time, even when a line said early arrives between two pages, as a live meeting's track appends it.
 func TestMeetingsAreFoundByTheirNotesAndReadOnInOrder(t *testing.T) {
 	t.Parallel()
 
-	lines := make([]meetingstore.Line, 0, 450)
+	lines := make([]meetingstore.Line, 0, 451)
 	for i := range 450 {
 		// Two tracks: the mic's lines are numbered after the tab's, but said in between.
 		n := i/2 + 1
@@ -400,9 +403,7 @@ func TestMeetingsAreFoundByTheirNotesAndReadOnInOrder(t *testing.T) {
 		lines = append(lines, meetingstore.Line{N: n, Start: time.Duration(i) * time.Second, Text: fmt.Sprintf("line %d", i)})
 	}
 
-	var agents *agentapi.Server
-	w := newWorldWith(t, 0, func(api *agentapi.Server) { agents = api.WithMeetings(laterNotes{lines: lines}) })
-	_ = agents
+	w := newWorldWith(t, 0, func(api *agentapi.Server) { api.WithMeetings(laterNotes{lines: &lines}) })
 	ctx := t.Context()
 	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "Thư ký"})
 	require.NoError(t, err)
@@ -418,10 +419,10 @@ func TestMeetingsAreFoundByTheirNotesAndReadOnInOrder(t *testing.T) {
 	assert.Contains(t, text, `"id": "mtg_2"`, "its notes became ready after since")
 
 	seen := map[string]int{}
-	offset := 0
+	after := 0
 
-	for range 3 {
-		_, text, failed := w.use(pi, agenttool.ToolMeetingGet, fmt.Sprintf(`{"id":"mtg_2","offset":%d}`, offset))
+	for page := range 4 {
+		_, text, failed := w.use(pi, agenttool.ToolMeetingGet, fmt.Sprintf(`{"id":"mtg_2","after_line":%d}`, after))
 		require.False(t, failed, text)
 
 		var got struct {
@@ -429,7 +430,7 @@ func TestMeetingsAreFoundByTheirNotesAndReadOnInOrder(t *testing.T) {
 				Lines []struct {
 					Text string `json:"text"`
 				} `json:"lines"`
-				Next *int `json:"next_offset"`
+				Next *int `json:"next_after_line"`
 			} `json:"meeting"`
 		}
 		require.NoError(t, json.Unmarshal([]byte(text), &got))
@@ -438,14 +439,21 @@ func TestMeetingsAreFoundByTheirNotesAndReadOnInOrder(t *testing.T) {
 			seen[l.Text]++
 		}
 
+		if page == 0 {
+			// Between two pages, the mic's track appends a line said at 00:05, before every line read on.
+			late := meetingstore.Line{N: 2000, Start: 5 * time.Second, Text: "a late line"}
+			i := slices.IndexFunc(lines, func(l meetingstore.Line) bool { return l.Start > late.Start })
+			lines = slices.Insert(lines, i, late)
+		}
+
 		if got.Meeting.Next == nil {
 			break
 		}
 
-		offset = *got.Meeting.Next
+		after = *got.Meeting.Next
 	}
 
-	assert.Len(t, seen, 450, "every line")
+	assert.Len(t, seen, 451, "every line, the late one too")
 	for line, times := range seen {
 		assert.Equal(t, 1, times, line)
 	}
