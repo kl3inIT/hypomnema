@@ -603,6 +603,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	larkSettings := larkchannel.NewService(channels.NewService(channelData, secrets, runtime))
 
+	// A node still out of disk after trimming its caches, and its recovery, are told to the owner as a failing
+	// Routine is (issue #1017).
+	nodes.WithDiskAlerts(tellDiskAlert(svc, runtime, logger))
+
 	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
 	routineRunner := routines.New(svc, svc.Routines(), routines.Config{
 		Command: cfg.RoutineCommand, Coordinator: sup, Owner: runtime, Logger: logger,
