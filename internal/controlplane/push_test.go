@@ -42,7 +42,10 @@ func TestRegeneratingTheVAPIDKeysRemovesEveryDevice(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	require.NoError(t, Command(ctx, cfg, []string{"push", "regenerate-keys"}, strings.NewReader(""), &out))
+
+	run := func(cfg Config, args ...string) error { return Command(ctx, cfg, args, strings.NewReader(""), &out) }
+
+	require.NoError(t, run(cfg, "push", "regenerate-keys"))
 	assert.Contains(t, out.String(), "2 devices removed")
 	assert.NotContains(t, out.String(), private)
 
@@ -58,6 +61,6 @@ func TestRegeneratingTheVAPIDKeysRemovesEveryDevice(t *testing.T) {
 		return map[string]string{"HYPOMNEMA_DATABASE_PATH": path}[name]
 	})
 	require.NoError(t, err)
-	require.Error(t, Command(ctx, noVault, []string{"push", "regenerate-keys"}, strings.NewReader(""), &out))
-	require.ErrorIs(t, Command(ctx, cfg, []string{"push"}, strings.NewReader(""), &out), ErrUsage)
+	require.Error(t, run(noVault, "push", "regenerate-keys"))
+	require.ErrorIs(t, run(cfg, "push"), ErrUsage)
 }

@@ -32,7 +32,6 @@ type world struct {
 	push   *pushService
 	sender *webpush.Sender
 	chat   orchestration.Chat
-	n      int
 }
 
 func newWorld(t *testing.T, url string) *world {
@@ -338,7 +337,8 @@ func TestTheVAPIDKeyIsMadeOnceAndKeptSealed(t *testing.T) {
 	assert.Equal(t, vault.KindGeneric, secret.Kind)
 
 	for _, suffix := range []string{"", "-wal"} {
-		raw, err := os.ReadFile(w.path + suffix)
+		raw, err := os.ReadFile(w.path + suffix) //nolint:gosec // the test's own database files
+
 		if err != nil {
 			continue
 		}

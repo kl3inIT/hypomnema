@@ -190,16 +190,16 @@ func vapid(t *testing.T, r received, origin, subject string) string {
 
 	public, err := base64.RawURLEncoding.DecodeString(key)
 	require.NoError(t, err)
-	x, y := elliptic.Unmarshal(elliptic.P256(), public) //nolint:staticcheck // ecdsa.PublicKey still takes X and Y.
-	require.NotNil(t, x)
+	pub, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), public)
+	require.NoError(t, err)
 
 	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
 	require.NoError(t, err)
 	require.Len(t, sig, 64)
 
 	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
-	require.True(t, ecdsa.Verify(&ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, digest[:],
-		new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])), "signed by the key it names")
+	require.True(t, ecdsa.Verify(pub, digest[:], new(big.Int).SetBytes(sig[:32]), new(big.Int).SetBytes(sig[32:])),
+		"signed by the key it names")
 
 	return key
 }

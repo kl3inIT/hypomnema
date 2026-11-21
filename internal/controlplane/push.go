@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webpush"
 )
@@ -14,7 +15,7 @@ const pushUsage = "push regenerate-keys"
 // the new one, as Coder's `coder server regenerate-vapid-keypair` (coderd/webpush/webpush.go:534). Each device then
 // turns notifications on again.
 func (o *owner) push(ctx context.Context, args []string) error {
-	if len(args) != 1 || args[0] != "regenerate-keys" {
+	if !slices.Equal(args, []string{"regenerate-keys"}) {
 		return fmt.Errorf("%w: %s", ErrUsage, pushUsage)
 	}
 

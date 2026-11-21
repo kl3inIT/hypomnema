@@ -54,7 +54,9 @@ func (s *Server) ListPushSubscriptions(ctx context.Context, _ openapi.ListPushSu
 		return nil, err
 	}
 
-	out := openapi.ListPushSubscriptions200JSONResponse{PublicKey: key, Data: make([]openapi.PushSubscription, 0, len(subs))}
+	out := openapi.ListPushSubscriptions200JSONResponse{
+		PublicKey: key, Data: make([]openapi.PushSubscription, 0, len(subs)),
+	}
 	for _, sub := range subs {
 		out.Data = append(out.Data, toPushSubscription(sub))
 	}

@@ -183,7 +183,10 @@ func (s *Sender) send(ctx context.Context, n orchestration.PushNotice) error {
 		return err
 	}
 
-	msg := s.message(string(n.Kind)+"-"+n.ItemID, n.Title, n.Body, n.Path)
+	msg, err := s.message(string(n.Kind)+"-"+n.ItemID, n.Title, n.Body, n.Path)
+	if err != nil {
+		return err
+	}
 
 	// Every browser at once, as Coder's Dispatch (coderd/webpush/webpush.go); a browser that fails after its tries
 	// is logged and not tried again, as Coder drops what it cannot deliver.
@@ -200,8 +203,9 @@ func (s *Sender) send(ctx context.Context, n orchestration.PushNotice) error {
 
 	wg.Wait()
 
-	if ctx.Err() != nil {
-		return nil
+	// Stopped midway: the push stays queued and goes again at the next start.
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("stopped while pushing: %w", err)
 	}
 
 	return s.store.PushSent(ctx, n.Seq)
@@ -219,8 +223,11 @@ func (s *Sender) Test(ctx context.Context, sub orchestration.PushSubscription) e
 		return err
 	}
 
-	msg := s.message("test", "Notifications work", "This device will be told when something waits on you.",
+	msg, err := s.message("test", "Notifications work", "This device will be told when something waits on you.",
 		"/settings/notifications")
+	if err != nil {
+		return err
+	}
 
 	return s.deliver(ctx, msg, sub, private, public)
 }
@@ -246,7 +253,7 @@ type notification struct {
 	Tag      string `json:"tag"`
 }
 
-func (s *Sender) message(item, title, body, path string) message {
+func (s *Sender) message(item, title, body, path string) (message, error) {
 	tag := "hypomnema-" + item
 
 	var buf bytes.Buffer
@@ -255,11 +262,13 @@ func (s *Sender) message(item, title, body, path string) message {
 	// The words go as they are: HTML escapes would take payload room for nothing.
 	enc.SetEscapeHTML(false)
 
-	_ = enc.Encode(declarativePush{WebPush: declarative, Notification: notification{
+	if err := enc.Encode(declarativePush{WebPush: declarative, Notification: notification{
 		Title: title, Body: body, Navigate: s.publicURL + path, Tag: tag,
-	}})
+	}}); err != nil {
+		return message{}, fmt.Errorf("encoding a push: %w", err)
+	}
 
-	return message{tag: tag, payload: bytes.TrimSpace(buf.Bytes())}
+	return message{tag: tag, payload: bytes.TrimSpace(buf.Bytes())}, nil
 }
 
 // topic collapses a pending push of the same item at the push service: the hash of the tag in base64url, 32
