@@ -165,6 +165,7 @@ type Bot struct {
 	Preset               string
 	MainChat             sql.NullString
 	Department           sql.NullString
+	OwnerAccounts        string
 }
 
 type Channel struct {

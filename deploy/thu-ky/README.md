@@ -45,6 +45,8 @@ Run it on zm for two days before relying on it. Each day, look at the items it a
 
 - In `triage`'s runs, and in its check, it reads the owner's accounts it was given and writes only to the Inbox:
   every send and every write outside the control plane is refused at once, never asked (read-only Routines, #956).
-- `zalo_send` and `whatsapp_send` are switched off for the Bot everywhere. In the owner's own Lark chat with it, a
-  write to his Lark or Google through their tools is held for his approval on a card, as for every Bot.
+- It only reads the owner's own accounts (`bots set --owner-accounts read`, which only the owner changes): in every
+  chat and Routine of the Bot, his own Lark chat with it included, each write and send through his Lark sign-in,
+  his Google, his Zalo and his WhatsApp is refused at once, whatever his approvals or Allow settings say; reads
+  stay. It has no send tools and gives work to no worker.
 - A broken account is one "Log in again: <account>" item, kept and closed by the server from the Bot's reads.

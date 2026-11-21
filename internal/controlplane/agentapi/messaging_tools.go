@@ -287,6 +287,12 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 		return
 	}
 
+	if a.ownerReadOnly && call.Tool == m.send {
+		answerTool(w, agenttool.OwnerReadOnlyRefusal, true)
+
+		return
+	}
+
 	var in messagingArgs
 	if json.Unmarshal(orEmpty(call.Arguments), &in) != nil {
 		answerTool(w, call.Tool+" takes a JSON object of its arguments", true)

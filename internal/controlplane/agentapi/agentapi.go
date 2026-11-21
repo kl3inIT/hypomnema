@@ -213,6 +213,9 @@ type agent struct {
 	readRun bool
 	// routine is the read Routine whose check script asks, with its run's token; empty for any other agent.
 	routine string
+	// ownerReadOnly says the agent's Bot only reads the owner's own accounts (orchestration.Bot.OwnerAccounts,
+	// issue #1023): its pi in every chat and its Routines' scripts.
+	ownerReadOnly bool
 	// scope is the dashboards a Bot's agent may read of a Superset
 	// Connection (issue #562); nil for every other agent, which reads all.
 	scope func(label string) superset.Scope
@@ -236,7 +239,7 @@ func (a agent) hasAgentTools() bool { return a.owner || a.dispatchID != "" || a.
 func (a agent) proxyCaller() serviceproxy.Caller {
 	return serviceproxy.Caller{
 		Name: a.name, DispatchID: a.dispatchID, Coordinator: a.coordinator, ChatID: a.chatID, ReadRun: a.readRun,
-		Bot: a.bot,
+		Bot: a.bot, OwnerReadOnly: a.ownerReadOnly,
 	}
 }
 
@@ -270,7 +273,8 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 			// A Run a coordinator created was given only what the coordinator may use, and keeps it only while
 			// the coordinator may: the owner's switch and its Bot's scopes are read now, not when the Run was
 			// made (AgentSession.May). The owner's own sign-in is never a worker's.
-			may: session.May,
+			may:           session.May,
+			ownerReadOnly: session.OwnerReadOnly,
 		}, nil
 	}
 
@@ -316,14 +320,15 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 				return agent{
 					name: fmt.Sprintf("bot %s in read routine %s", token.Bot, token.Routine), coordinator: true,
 					bot: token.Bot, routine: token.Routine, key: "r-" + token.Routine, readRun: true,
-					may: bot.MayUse, offered: bot.MayUse, botSwitches: bot.ToolSwitches(),
+					ownerReadOnly: bot.ReadsOwnerAccountsOnly(),
+					may:           bot.MayUse, offered: bot.MayUse, botSwitches: bot.ToolSwitches(),
 					scope: func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 				}, nil
 			}
 
 			return agent{
 				name: fmt.Sprintf("bot %s in routine %s", token.Bot, token.Routine), coordinator: true,
-				key:   "r-" + token.Routine,
+				key: "r-" + token.Routine, ownerReadOnly: bot.ReadsOwnerAccountsOnly(),
 				may:   func(c orchestration.Connection) bool { return !c.User() && bot.MayUse(c) },
 				scope: func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 			}, nil
@@ -340,10 +345,11 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
 			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat, readRun), readRun: readRun,
-			offered:     bot.MayUse,
-			botSwitches: bot.ToolSwitches(),
-			botRow:      bot,
-			scope:       func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
+			ownerReadOnly: bot.ReadsOwnerAccountsOnly(),
+			offered:       bot.MayUse,
+			botSwitches:   bot.ToolSwitches(),
+			botRow:        bot,
+			scope:         func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
 		}, nil
 	default:
 		return agent{}, errNoCredential

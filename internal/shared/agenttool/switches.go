@@ -91,7 +91,15 @@ var MeetingTools = []string{ToolMeetingList, ToolMeetingGet}
 const (
 	ToolAccountRead = "account_read"
 	ReadRunRefusal  = "This run reads only; do not try another way."
+	// OwnerReadOnlyRefusal answers a write or a send through the owner's own accounts by a Bot that only reads them
+	// (issue #1023).
+	OwnerReadOnlyRefusal = "This Bot only reads the owner's own accounts: it never writes or sends as him. It was " +
+		"not run; do not try another way. Draft it for him instead."
 )
+
+// OwnerSendTools are the tools that send as the owner through his own accounts, which a Bot that only reads them
+// is never given (issue #1023).
+var OwnerSendTools = []string{ToolZaloSend, ToolWhatsAppSend}
 
 // ReadRunAllows says whether a Routine's run that reads only (issue #956) may use a tool: it reads the owner's
 // accounts and meetings (issue #1023) and keeps the owner's to-dos in the Inbox (issue #1004), which writes only in

@@ -69,7 +69,7 @@ func (q *Queries) DeleteDepartment(ctx context.Context, id string) error {
 }
 
 const getBot = `-- name: GetBot :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department FROM bots WHERE id = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots WHERE id = ?1
 `
 
 func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
@@ -99,12 +99,13 @@ func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
 		&i.Preset,
 		&i.MainChat,
 		&i.Department,
+		&i.OwnerAccounts,
 	)
 	return i, err
 }
 
 const getBotByName = `-- name: GetBotByName :one
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department FROM bots WHERE name = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots WHERE name = ?1
 `
 
 func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
@@ -134,6 +135,7 @@ func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
 		&i.Preset,
 		&i.MainChat,
 		&i.Department,
+		&i.OwnerAccounts,
 	)
 	return i, err
 }
@@ -177,10 +179,11 @@ func (q *Queries) GetSetupChange(ctx context.Context, id string) (SetupChange, e
 
 const insertBot = `-- name: InsertBot :exec
 INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, tools, tools_off, connections,
-                  workers, tool_display, position, connection_scopes, guaranteed_dispatches, preset, created_at, updated_at, fallbacks)
+                  workers, tool_display, position, connection_scopes, guaranteed_dispatches, preset, created_at, updated_at, fallbacks,
+                  owner_accounts)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
         ?12, ?13, (SELECT coalesce(max(position) + 1, 0) FROM bots), ?14,
-        ?15, ?16, ?17, ?17, ?18)
+        ?15, ?16, ?17, ?17, ?18, ?19)
 `
 
 type InsertBotParams struct {
@@ -202,6 +205,7 @@ type InsertBotParams struct {
 	Preset               string
 	Now                  int64
 	Fallbacks            string
+	OwnerAccounts        string
 }
 
 // A new Bot goes last in the order (issue #470).
@@ -225,6 +229,7 @@ func (q *Queries) InsertBot(ctx context.Context, arg InsertBotParams) error {
 		arg.Preset,
 		arg.Now,
 		arg.Fallbacks,
+		arg.OwnerAccounts,
 	)
 	return err
 }
@@ -367,7 +372,7 @@ func (q *Queries) ListBotModels(ctx context.Context) ([]ListBotModelsRow, error)
 }
 
 const listBots = `-- name: ListBots :many
-SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department FROM bots ORDER BY created_at, name
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -403,6 +408,7 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.Preset,
 			&i.MainChat,
 			&i.Department,
+			&i.OwnerAccounts,
 		); err != nil {
 			return nil, err
 		}
@@ -566,6 +572,23 @@ type SetBotMemoryParams struct {
 
 func (q *Queries) SetBotMemory(ctx context.Context, arg SetBotMemoryParams) error {
 	_, err := q.db.ExecContext(ctx, setBotMemory, arg.Memory, arg.Now, arg.ID)
+	return err
+}
+
+const setBotOwnerAccounts = `-- name: SetBotOwnerAccounts :exec
+UPDATE bots SET owner_accounts = ?1, updated_at = ?2 WHERE id = ?3
+`
+
+type SetBotOwnerAccountsParams struct {
+	OwnerAccounts string
+	Now           int64
+	ID            string
+}
+
+// What a Bot may do with the owner's own accounts (issue #1023); only the owner sets it, so UpdateBot, which a
+// Bot's change and its undo use, never does.
+func (q *Queries) SetBotOwnerAccounts(ctx context.Context, arg SetBotOwnerAccountsParams) error {
+	_, err := q.db.ExecContext(ctx, setBotOwnerAccounts, arg.OwnerAccounts, arg.Now, arg.ID)
 	return err
 }
 

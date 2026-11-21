@@ -277,6 +277,10 @@ func (a agent) allowsTool(switches agenttool.ToolSwitches, tool string) bool {
 		return false
 	}
 
+	if a.ownerReadOnly && slices.Contains(agenttool.OwnerSendTools, tool) {
+		return false
+	}
+
 	return (tool == agenttool.ToolAccountRead && a.readRun) || switches.Allows(tool)
 }
 
@@ -285,6 +289,12 @@ func (a agent) allowsTool(switches agenttool.ToolSwitches, tool string) bool {
 func (s *Server) switchedOff(w http.ResponseWriter, r *http.Request, a agent, tool string) bool {
 	if a.readRun && !agenttool.ReadRunAllows(tool) {
 		answerTool(w, agenttool.ReadRunRefusal, true)
+
+		return true
+	}
+
+	if a.ownerReadOnly && slices.Contains(agenttool.OwnerSendTools, tool) {
+		answerTool(w, agenttool.OwnerReadOnlyRefusal, true)
 
 		return true
 	}

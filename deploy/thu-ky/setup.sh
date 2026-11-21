@@ -25,15 +25,17 @@ while [ $# -gt 0 ]; do
 done
 
 # The Bot: Claude Sonnet 5.5, GPT-6.1 Sol when it fails (owner, 2026-11-21; never opencode-go/*, since it reads
-# clients' and VMAP's internal messages). Its tools: its memory, the Inbox, the meetings and the reads of Zalo and
-# WhatsApp; never a send as the owner (zalo_send, whatsapp_send off), no Routines of its own, no web, no artifacts.
-# In a Routine's read run every write outside the control plane is refused whatever the switches say (#956).
+# clients' and VMAP's internal messages). It only reads the owner's own accounts (--owner-accounts read; owner,
+# 2026-11-21 on #1037): every write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is
+# refused at once in every chat and Routine of the Bot, whatever his approvals say. Its tools: its memory, the
+# Inbox, the meetings and the reads of Zalo and WhatsApp; no send tools, no Routines of its own, no web, no
+# artifacts, and no workers. In a Routine's read run every write outside the control plane is refused (#956).
 hypomnema bots set "$bot" \
   --provider claude-subscription --model claude-sonnet-5-5 --fallbacks codex-subscription/gpt-6.1-sol \
   --persona-file "$here/persona.md" \
   --preset report --tools inbox,meetings,zalo,whatsapp \
   --tools-off zalo_send,whatsapp_send,routines,web,artifacts,superset \
-  --connections "$connections"
+  --connections "$connections" --owner-accounts read --workers ""
 
 # The triage: every 15 minutes, read only. Its check (new-messages.mjs) counts the new messages first and wakes the
 # Bot only when some are left after its filters; its result stays in the run's chat.

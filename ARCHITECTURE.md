@@ -4630,6 +4630,14 @@ its client API, its CLI and the Bots' tools.
   the reopen is refused while another item of the account is open: one open item per account, never one per failure.
   `account_read` closes it only after a read under 400 whose body is JSON records without the service's error (a
   nonzero Lark `code`, a Google `error`).
+- A Bot that only reads the owner's own accounts (`bots.owner_accounts` `read`, `hypomnema bots set
+  --owner-accounts read`; issue #1023, the owner's choice of 2026-11-21 on #1037): every write and send through his
+  Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, never asked, in every chat and Routine of
+  the Bot and by the workers of its Runs, whatever his answers or grants say; reads stay. The agent API carries it
+  on the agent (`ownerReadOnly`: no `zalo_send` or `whatsapp_send`), and the service proxy refuses every action of
+  such a Connection that is not a read (`readsOnly`, `serviceproxy.Caller.OwnerReadOnly`). Only the owner changes
+  it: a change from the main Bot's chat is forbidden, and `UpdateBot`, which a Bot's change and its undo use, never
+  writes it (`SetBotOwnerAccounts`).
 - The "Thư ký" Bot (issue #1023, part 4): its prompt, switches, model and Routines are set by the owner with
   `deploy/thu-ky/setup.sh` (`hypomnema bots set`, `routines set`), not seeded by a migration. `triage` reads only,
   every 15 minutes, behind its check `new-messages.mjs`; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark
