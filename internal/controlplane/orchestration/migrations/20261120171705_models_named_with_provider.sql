@@ -1,5 +1,6 @@
 -- Every model is named with its provider (issue #1002, owner 2026-11-20): a Task's stored bare model gets, once, the
--- provider the code before dispatched it under. The change needs the code's own resolution (the Task's runtime, its
+-- provider the code before dispatched it under, and a profile version, a Bot or a chat that names a model without a
+-- provider the one provider that offers it to its runtime (review of PR #1000, round 6). The change needs the code's own resolution (the Task's runtime, its
 -- role chain, the kinds a runtime runs against), so Migrate makes it in Go right after this migration and before any
 -- later one (orchestration/model_names.go nameStoredModels), and records here that it is due and what it changed.
 
@@ -21,6 +22,16 @@ CREATE TABLE model_name_changes (
 -- its model is the bare name as it was, read whole, never at its slash, and refused when the Task is dispatched, as
 -- the code before refused it (review of PR #1000).
 ALTER TABLE tasks ADD COLUMN model_unresolved INTEGER NOT NULL DEFAULT 0;
+
+-- Each profile version, Bot and chat given a provider, with the model and provider it was left with, for the way
+-- back: record is profile_version, bot or chat.
+CREATE TABLE model_provider_changes (
+    record   TEXT NOT NULL CHECK (record IN ('profile_version', 'bot', 'chat')),
+    id       TEXT NOT NULL,
+    model    TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    PRIMARY KEY (record, id)
+);
 
 -- +goose Down
 -- The code before reads a Task's model as a bare name and places it at the one provider that offers it to the Task's
@@ -75,5 +86,21 @@ SET model = (SELECT c.model FROM model_name_changes c WHERE c.task_id = tasks.id
 WHERE id IN (SELECT task_id FROM model_name_changes);
 
 ALTER TABLE tasks DROP COLUMN model_unresolved;
+-- A profile version, Bot or chat the conversion gave a provider is left without it again, as the code before ran it,
+-- while it still names the model and the provider the conversion left it with; one changed since keeps what it
+-- names, which the code before reads as it is.
+UPDATE profile_versions SET provider = NULL
+WHERE EXISTS (SELECT 1 FROM model_provider_changes c WHERE c.record = 'profile_version' AND c.id = profile_versions.id
+              AND c.model = profile_versions.model AND c.provider = profile_versions.provider);
+
+UPDATE bots SET provider = NULL
+WHERE EXISTS (SELECT 1 FROM model_provider_changes c WHERE c.record = 'bot' AND c.id = bots.id
+              AND c.model = bots.model AND c.provider = bots.provider);
+
+UPDATE chats SET provider = NULL
+WHERE EXISTS (SELECT 1 FROM model_provider_changes c WHERE c.record = 'chat' AND c.id = chats.id
+              AND c.model = chats.model AND c.provider = chats.provider);
+
+DROP TABLE model_provider_changes;
 DROP TABLE model_name_changes;
 DROP TABLE model_name_conversion;

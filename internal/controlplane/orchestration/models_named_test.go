@@ -351,3 +351,96 @@ func TestTheWayBackKeepsAProviderTheCodeBeforeCouldNotPlace(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT fallbacks FROM bots WHERE id = ?`, bot.ID).Scan(&fallbacks))
 	assert.Equal(t, `opencode-go/we"ird\`, fallbacks)
 }
+
+// Scenario (review of PR #1000, round 6): profile versions, Bots and chats stored with a model and no provider. Each
+// gets the one provider that offers its model to its runtime (a profile version's, pi's for a Bot and a chat); one
+// two providers or none offer is left, and nothing that could be placed is left bare in any table. The way back
+// leaves each without its provider again while it names what the conversion left it with; one changed since keeps it.
+func TestMigrationNamesProviderlessRowsOfEveryTable(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+
+	version := migrationVersion(t, p, modelNamesMigration)
+	_, err = p.UpTo(ctx, version-1)
+	require.NoError(t, err)
+
+	for _, stmt := range []string{
+		`INSERT OR IGNORE INTO models (provider, name) VALUES
+		 ('codex-subscription', 'gpt-6.1-sol'), ('opencode-go', 'gpt-6.1-sol'),
+		 ('claude-subscription', 'claude-haiku-5-5'), ('opencode-go', 'claude-haiku-5-5'),
+		 ('opencode-go', 'deepseek-v4-pro')`,
+		`INSERT INTO profile_versions (id, profile, version, source, digest, runtime, model, created_at, description)
+		 VALUES ('pv-codex', 'implementer', 91, 'name: implementer', 'a', 'codex', 'gpt-6.1-sol', 1, 'd'),
+		        ('pv-twice', 'implementer', 92, 'name: implementer', 'b', 'claude', 'claude-haiku-5-5', 1, 'd'),
+		        ('pv-none', 'implementer', 93, 'name: implementer', 'c', 'claude', 'no-such-model', 1, 'd')`,
+		`INSERT INTO bots (id, name, model, created_at, updated_at) VALUES
+		 ('bot-go', 'go', 'deepseek-v4-pro', 1, 1), ('bot-twice', 'twice', 'claude-haiku-5-5', 1, 1),
+		 ('bot-none', 'none', 'no-such-model', 1, 1), ('bot-default', 'default', NULL, 1, 1)`,
+		`INSERT INTO chats (id, title, bot_id, model, created_at, updated_at) VALUES
+		 ('cht-go', 't', 'bot-go', 'deepseek-v4-pro', 1, 1), ('cht-twice', 't', 'bot-go', 'claude-haiku-5-5', 1, 1),
+		 ('cht-bots', 't', 'bot-go', NULL, 1, 1)`,
+	} {
+		_, err := db.ExecContext(ctx, stmt)
+		require.NoError(t, err, stmt)
+	}
+
+	require.NoError(t, Migrate(ctx, db))
+
+	providers := func(table string) map[string]string {
+		rows, err := db.QueryContext(ctx, `SELECT id, coalesce(provider, '') FROM `+table+` WHERE id LIKE '%-%'`)
+		require.NoError(t, err)
+		defer rows.Close() //nolint:errcheck // read only
+
+		out := map[string]string{}
+		for rows.Next() {
+			var id, provider string
+			require.NoError(t, rows.Scan(&id, &provider))
+			out[id] = provider
+		}
+		require.NoError(t, rows.Err())
+
+		return out
+	}
+
+	assert.Equal(t, map[string]string{"pv-codex": "codex-subscription", "pv-twice": "", "pv-none": ""},
+		providers("profile_versions"), "Go's kind is not one Codex runs against")
+	assert.Equal(t, map[string]string{"bot-go": "opencode-go", "bot-twice": "", "bot-none": "", "bot-default": ""},
+		providers("bots"))
+	assert.Equal(t, map[string]string{"cht-go": "opencode-go", "cht-twice": "", "cht-bots": ""}, providers("chats"))
+
+	// Every row of every table that names a model and no provider is one two providers or none offer.
+	var left []string
+	rows, err := db.QueryContext(ctx, `
+		SELECT id FROM profile_versions WHERE model <> '' AND provider IS NULL
+		UNION ALL SELECT id FROM bots WHERE model <> '' AND provider IS NULL
+		UNION ALL SELECT id FROM chats WHERE model <> '' AND provider IS NULL
+		UNION ALL SELECT id FROM tasks WHERE model <> '' AND model_unresolved = 0
+		  AND NOT EXISTS (SELECT 1 FROM providers p WHERE substr(tasks.model, 1, length(p.name) + 1) = p.name || '/')
+		ORDER BY 1`)
+	require.NoError(t, err)
+	defer rows.Close() //nolint:errcheck // read only
+	for rows.Next() {
+		var id string
+		require.NoError(t, rows.Scan(&id))
+		left = append(left, id)
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, []string{"bot-none", "bot-twice", "cht-twice", "pv-none", "pv-twice"}, left)
+
+	// The Bot is changed after the upgrade; the chat is not.
+	_, err = db.ExecContext(ctx, `UPDATE bots SET model = 'kimi-k3' WHERE id = 'bot-go'`)
+	require.NoError(t, err)
+
+	_, err = p.DownTo(ctx, version-1)
+	require.NoError(t, err)
+	assert.Equal(t, "", providers("profile_versions")["pv-codex"], "left without it again, as it ran")
+	assert.Equal(t, "", providers("chats")["cht-go"])
+	assert.Equal(t, "opencode-go", providers("bots")["bot-go"], "a Bot changed since keeps what it names")
+}

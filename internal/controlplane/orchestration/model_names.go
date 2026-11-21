@@ -19,14 +19,16 @@ import (
 // to write it in when the Task is dispatched, as the code before refused it; the scheduler holds that Task alone.
 // Each change is kept in model_name_changes, which the way back restores.
 //
-// A profile version, a Bot or a chat keeps its provider beside its model, and the code before never picked one for
-// a stored one without (resolveVersion checked a Task's model only; PiModel passes an empty provider on), so those
-// are left as they are.
+// A profile version, a Bot or a chat keeps its provider beside its model. One stored with a model and no provider
+// gets the one provider that offers the model to its runtime (the profile version's, pi's for a Bot and a chat),
+// among the kinds before OpenCode Zen, as checkModel picked one when such a row was applied (review of PR #1000,
+// round 6); each is kept in model_provider_changes for the way back. One that two providers or none offer is left
+// as it is, and is refused with the form to write it in wherever it is used (resolveVersion, keptModel, PiModel).
 
 // modelNamesMigration ends the file name of the migration that asks for the change, whatever its version.
 const modelNamesMigration = "_models_named_with_provider.sql"
 
-// nameStoredModels gives each Task's stored bare model its provider, once.
+// nameStoredModels gives each stored bare model its provider, once.
 func nameStoredModels(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -78,6 +80,10 @@ func nameStoredModels(ctx context.Context, db *sql.DB) error {
 			provider+"/"+t.model, t.id); err != nil {
 			return fmt.Errorf("naming the model of task %s: %w", t.id, err)
 		}
+	}
+
+	if err := nameProviderlessRows(ctx, tx); err != nil {
+		return err
 	}
 
 	if _, err := tx.ExecContext(ctx, `UPDATE model_name_conversion SET done = 1`); err != nil {
@@ -283,4 +289,67 @@ func legacyProvider(ctx context.Context, tx *sql.Tx, runtime, model string) (str
 	}
 
 	return fits[0], true, nil
+}
+
+// providerless are the stored rows that name a model beside their provider, with the runtime each is run under.
+var providerless = []struct{ record, table, runtime string }{
+	{"profile_version", "profile_versions", "runtime"},
+	{"bot", "bots", "'" + botRuntime + "'"},
+	{"chat", "chats", "'" + botRuntime + "'"},
+}
+
+// nameProviderlessRows gives each profile version, Bot and chat that names a model without a provider the one
+// provider that offers the model to its runtime, and records it.
+func nameProviderlessRows(ctx context.Context, tx *sql.Tx) error {
+	for _, kind := range providerless {
+		type row struct{ id, model, runtime string }
+
+		var rows []row
+
+		//nolint:gosec // the table and the runtime's expression are the constants above
+		q, err := tx.QueryContext(ctx, `SELECT id, model, `+kind.runtime+` FROM `+kind.table+`
+			WHERE model IS NOT NULL AND model <> '' AND (provider IS NULL OR provider = '') ORDER BY id`)
+		if err != nil {
+			return fmt.Errorf("reading the models of %s: %w", kind.table, err)
+		}
+
+		for q.Next() {
+			var r row
+			if err := q.Scan(&r.id, &r.model, &r.runtime); err != nil {
+				_ = q.Close()
+
+				return fmt.Errorf("reading the models of %s: %w", kind.table, err)
+			}
+
+			rows = append(rows, r)
+		}
+
+		if err := q.Close(); err != nil {
+			return fmt.Errorf("reading the models of %s: %w", kind.table, err)
+		}
+
+		for _, r := range rows {
+			provider, ok, err := legacyProvider(ctx, tx, r.runtime, r.model)
+			if err != nil {
+				return err
+			}
+
+			if !ok {
+				continue // two providers offer it, or none: refused where it is used
+			}
+
+			if _, err := tx.ExecContext(ctx, `INSERT INTO model_provider_changes (record, id, model, provider)
+				VALUES (?, ?, ?, ?)`, kind.record, r.id, r.model, provider); err != nil {
+				return fmt.Errorf("recording the provider of %s %s: %w", kind.record, r.id, err)
+			}
+
+			//nolint:gosec // the table is one of the constants above
+			if _, err := tx.ExecContext(ctx, `UPDATE `+kind.table+` SET provider = ? WHERE id = ?`,
+				provider, r.id); err != nil {
+				return fmt.Errorf("naming the provider of %s %s: %w", kind.record, r.id, err)
+			}
+		}
+	}
+
+	return nil
 }

@@ -107,10 +107,15 @@ const PiProvider = "hypomnema"
 const PiFallbackProvider = "hypomnema-fallback"
 
 // PiModel is a chat's model as pi names it: the gateway's name under PiProvider when the gateway serves it, as it
-// was otherwise.
+// was otherwise. A model stored without its provider, one the migration of issue #1002 could not place, is refused
+// with the form to write it in, never passed on bare (review of PR #1000, round 6).
 func (s *Service) PiModel(ctx context.Context, m ChatModel) (ChatModel, error) {
-	if m.Model == "" || m.Provider == "" {
+	if m.Model == "" {
 		return m, nil
+	}
+
+	if m.Provider == "" {
+		return ChatModel{}, bareModel(botRuntime, m.Model, nil)
 	}
 
 	row, err := s.read().GetProvider(ctx, m.Provider)
@@ -707,9 +712,9 @@ func checkModel(ctx context.Context, q *store.Queries, runtime, provider, model,
 
 // keptModel checks a stored model that an edit leaves as it is, and returns its provider. One stored without a
 // provider, before issue #1002, is given the one provider that offers it to the runtime among the kinds before
-// OpenCode Zen, as checkModel picked one then; with none or several it keeps none and runs as it did (PiModel and
-// resolveVersion pass an empty provider on), so an unrelated edit (a Bot's persona, a chat's effort) is not refused
-// for it (review of PR #1000).
+// OpenCode Zen, as checkModel picked one then, so an unrelated edit (a Bot's persona, a chat's effort) is accepted
+// (review of PR #1000); with none or several it is refused with the form to write it in, as checkModel refused it
+// then, and no bare model is stored again (round 6).
 func keptModel(ctx context.Context, q *store.Queries, runtime, provider, model, effort string) (string, error) {
 	if provider != "" || model == "" {
 		return checkModel(ctx, q, runtime, provider, model, effort)
@@ -734,7 +739,7 @@ func keptModel(ctx context.Context, q *store.Queries, runtime, provider, model, 
 		return checkModel(ctx, q, runtime, fits[0], model, effort)
 	}
 
-	return checkModel(ctx, q, runtime, "", "", effort)
+	return checkModel(ctx, q, runtime, "", model, effort)
 }
 
 // bareModel is the refusal of a model named without its provider: the form to write it in, with the names it
@@ -1592,6 +1597,14 @@ func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v st
 		}
 
 		if _, err := checkModel(ctx, q, runtime, provider, model, ""); err != nil {
+			return resolved{}, err
+		}
+	}
+
+	// A profile version's model stored without its provider, one the migration of issue #1002 could not place, is
+	// refused with the form to write it in, never sent on bare (review of PR #1000, round 6).
+	if provider == "" && model != "" {
+		if _, err := checkModel(ctx, q, runtime, "", model, ""); err != nil {
 			return resolved{}, err
 		}
 	}
