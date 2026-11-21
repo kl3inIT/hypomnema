@@ -1219,3 +1219,61 @@ func TestANodeThatWritesItsOwnGuidesIsSentNone(t *testing.T) {
 		{Name: "superset", Revision: 1, Digest: sk.Digest, Requires: []string{"integration:superset"}},
 	}, offer.Skills)
 }
+
+// Scenario: telling the owner hangs while a node's disk keeps changing (fix round 4 of #1017). Its alerts do not
+// pile up: what waits is the node's latest state, as client-go's workqueue keeps an item dirty once however often
+// it is added while it is processed (util/workqueue/queue.go:210-221,243-264,306-319). The owner is told the drop
+// in flight, then the latest state when it differs from what he was told.
+func TestDiskAlertsOfANodeWaitAsItsLatestStateOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		flips []bool
+		told  []bool
+	}{
+		{name: "ends low", flips: []bool{true, false, true, false}, told: []bool{false}},
+		{name: "ends recovered", flips: []bool{true, false, true}, told: []bool{false, true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			release := make(chan struct{})
+			var mu sync.Mutex
+			var told []bool
+			s := New(nil, slog.New(slog.DiscardHandler)).WithDiskAlerts(
+				func(_ context.Context, alert orchestration.DiskAlert) {
+					if !alert.Recovered {
+						<-release
+					}
+					mu.Lock()
+					told = append(told, alert.Recovered)
+					mu.Unlock()
+				})
+			queue := func(recovered bool) {
+				s.diskReports.Lock()
+				s.queueDiskAlert(t.Context(), "node_a", orchestration.DiskAlert{NodeID: "node_a", Recovered: recovered})
+				s.diskReports.Unlock()
+			}
+
+			queue(false)
+			for _, recovered := range tc.flips {
+				queue(recovered)
+			}
+			s.diskReports.Lock()
+			assert.LessOrEqual(t, len(s.diskAlerts["node_a"]), 2, "the alert in flight and the latest state")
+			s.diskReports.Unlock()
+			close(release)
+			require.Eventually(t, func() bool {
+				s.diskReports.Lock()
+				defer s.diskReports.Unlock()
+				_, busy := s.diskAlerts["node_a"]
+				return !busy
+			}, 5*time.Second, time.Millisecond, "the sender ends once the latest state is told")
+
+			mu.Lock()
+			defer mu.Unlock()
+			assert.Equal(t, tc.told, told)
+		})
+	}
+}
