@@ -59,7 +59,7 @@ func ReadRequest(ctx context.Context, client *http.Client, kind Kind, r Request,
 
 	switch kind {
 	case GitHub:
-		req, err = githubRequestQuery(ctx, r)
+		return githubReadRequest(ctx, client, r, token)
 	case GitLab:
 		req, err = http.NewRequestWithContext(ctx, http.MethodGet, (&url.URL{
 			Scheme: "https", Host: r.Repo.Host,
@@ -79,11 +79,51 @@ func ReadRequest(ctx context.Context, client *http.Client, kind Kind, r Request,
 		return RequestState{}, err
 	}
 
-	if kind == GitLab {
-		return gitlabRequestState(body)
+	return gitlabRequestState(body)
+}
+
+// githubReadRequest reads the pull request and every page of its last commit's checks, 100 a page, following the
+// end cursor until there is no next page, as gh's populateStatusChecks does (cli/cli v2.104.0
+// pkg/cmd/pr/checks/checks.go:257-300); ctx bounds the whole read.
+func githubReadRequest(ctx context.Context, client *http.Client, r Request, token string) (RequestState, error) {
+	var (
+		state  RequestState
+		checks []githubCheck
+		after  string
+	)
+
+	for page := 0; ; page++ {
+		req, err := githubRequestQuery(ctx, r, after)
+		if err != nil {
+			return RequestState{}, fmt.Errorf("asking %s for a pull request: %w", r.Repo.Host, err)
+		}
+
+		body, err := ask(client, req, token, r.Repo.Host)
+		if err != nil {
+			return RequestState{}, err
+		}
+
+		got, more, next, err := githubRequestPage(body)
+		if err != nil {
+			return RequestState{}, err
+		}
+
+		if page == 0 {
+			state = got
+		}
+
+		checks = append(checks, more...)
+
+		if next == "" {
+			break
+		}
+
+		after = next
 	}
 
-	return githubRequestState(body)
+	state.Failed = failedRequired(checks)
+
+	return state, nil
 }
 
 // ask sends req with token and returns the answer's body, as ReadIdentity sends its one request.
@@ -118,7 +158,7 @@ func ask(client *http.Client, req *http.Request, token, host string) ([]byte, er
 	return body, nil
 }
 
-const githubRequestGraphQL = `query($owner: String!, $name: String!, $number: Int!) {
+const githubRequestGraphQL = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       state
@@ -128,7 +168,8 @@ const githubRequestGraphQL = `query($owner: String!, $name: String!, $number: In
         nodes {
           commit {
             statusCheckRollup {
-              contexts(first: 100) {
+              contexts(first: 100, after: $after) {
+                pageInfo { hasNextPage endCursor }
                 nodes {
                   __typename
                   ... on StatusContext { context state createdAt isRequired(pullRequestNumber: $number) }
@@ -148,7 +189,7 @@ const githubRequestGraphQL = `query($owner: String!, $name: String!, $number: In
 
 // githubRequestQuery is the GraphQL request: api.github.com/graphql for github.com, /api/graphql on a GitHub
 // Enterprise host, as gh sends it.
-func githubRequestQuery(ctx context.Context, r Request) (*http.Request, error) {
+func githubRequestQuery(ctx context.Context, r Request, after string) (*http.Request, error) {
 	owner, name, ok := strings.Cut(r.Repo.Path, "/")
 	if !ok || strings.Contains(name, "/") {
 		return nil, fmt.Errorf("%s is not owner/name", r.Repo.Path)
@@ -159,10 +200,12 @@ func githubRequestQuery(ctx context.Context, r Request) (*http.Request, error) {
 		endpoint = (&url.URL{Scheme: "https", Host: r.Repo.Host, Path: "/api/graphql"}).String()
 	}
 
-	body, err := json.Marshal(map[string]any{
-		"query":     githubRequestGraphQL,
-		"variables": map[string]any{"owner": owner, "name": name, "number": r.Number},
-	})
+	variables := map[string]any{"owner": owner, "name": name, "number": r.Number}
+	if after != "" {
+		variables["after"] = after
+	}
+
+	body, err := json.Marshal(map[string]any{"query": githubRequestGraphQL, "variables": variables})
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +240,9 @@ type githubCheck struct {
 	} `json:"checkSuite"`
 }
 
-func githubRequestState(body []byte) (RequestState, error) {
+// githubRequestPage reads one answer: the pull request's state, this page's checks, and the cursor of the next
+// page, "" when there is none.
+func githubRequestPage(body []byte) (RequestState, []githubCheck, string, error) {
 	var answer struct {
 		Data struct {
 			Repository struct {
@@ -210,6 +255,10 @@ func githubRequestState(body []byte) (RequestState, error) {
 							Commit struct {
 								StatusCheckRollup *struct {
 									Contexts struct {
+										PageInfo struct {
+											HasNextPage bool   `json:"hasNextPage"`
+											EndCursor   string `json:"endCursor"`
+										} `json:"pageInfo"`
 										Nodes []githubCheck `json:"nodes"`
 									} `json:"contexts"`
 								} `json:"statusCheckRollup"`
@@ -223,12 +272,12 @@ func githubRequestState(body []byte) (RequestState, error) {
 	}
 
 	if err := json.Unmarshal(body, &answer); err != nil {
-		return RequestState{}, fmt.Errorf("reading GitHub's pull request: %w", err)
+		return RequestState{}, nil, "", fmt.Errorf("reading GitHub's pull request: %w", err)
 	}
 
 	pr := answer.Data.Repository.PullRequest
 	if len(answer.Errors) > 0 || pr == nil {
-		return RequestState{}, fmt.Errorf("GitHub answered no pull request (%d errors)", len(answer.Errors))
+		return RequestState{}, nil, "", fmt.Errorf("GitHub answered no pull request (%d errors)", len(answer.Errors))
 	}
 
 	state := RequestState{Head: pr.HeadRefOid, Conflict: pr.Mergeable == "CONFLICTING"}
@@ -242,16 +291,22 @@ func githubRequestState(body []byte) (RequestState, error) {
 		state.Status = RequestOpen
 	}
 
-	var checks []githubCheck
+	var (
+		checks []githubCheck
+		next   string
+	)
+
 	for _, n := range pr.Commits.Nodes {
-		if n.Commit.StatusCheckRollup != nil {
-			checks = append(checks, n.Commit.StatusCheckRollup.Contexts.Nodes...)
+		if rollup := n.Commit.StatusCheckRollup; rollup != nil {
+			checks = append(checks, rollup.Contexts.Nodes...)
+
+			if rollup.Contexts.PageInfo.HasNextPage && rollup.Contexts.PageInfo.EndCursor != "" {
+				next = rollup.Contexts.PageInfo.EndCursor
+			}
 		}
 	}
 
-	state.Failed = failedRequired(checks)
-
-	return state, nil
+	return state, checks, next, nil
 }
 
 // failedRequired names the required checks that failed, each check by its newest run (gh's eliminateDuplicates

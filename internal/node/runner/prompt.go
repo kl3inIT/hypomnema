@@ -53,11 +53,12 @@ const writeRules =
 	// Issue #1053: once auto-merge is on, the host lands the head when it is ready, so the worker does not wait
 	// either: pstack arms --auto on a verified head and reads the PR back (skills/poteto-mode/playbooks/shipping.md:8),
 	// and a watcher, not the step that armed it, follows it to merged (shipping.md:9); here the control plane's
-	// (orchestration/pullrequests.go). One rule says when to wait, the merge steps below give the command.
-	"- Wait for CI only when the task needs its result. When the task says a review comes first, or once " +
-	"auto-merge is on, do not wait: report the pushed commit and finish; Hypomnema follows CI. When you wait, " +
-	"use one command that blocks until it ends (the host's watch command, as in the merge steps below when they " +
-	"are given), never a polling loop.\n" +
+	// (orchestration/pullrequests.go). One rule says when to wait; the merge steps below say whether Hypomnema
+	// follows an auto-merge, which it does only with the repository's token (review round 2), and give the command.
+	"- Wait for CI only when the task needs its result or the merge steps below say to. When the task says a " +
+	"review comes first, do not wait: report the pushed commit and finish; the coordinator follows CI. When you " +
+	"wait, use one command that blocks until it ends (the host's watch command, as in the merge steps below when " +
+	"they are given), never a polling loop.\n" +
 	// Issue #952: a flake earns one fresh build and only the diff's own failures get a commit, after pstack
 	// skills/poteto-mode/playbooks/babysit.md:8; the flaky test is fixed in its own change, after
 	// playbooks/autonomous-run.md:9. The issue is the owner's allowance (owner, 2026-11-19).
@@ -248,7 +249,7 @@ func openCommand(kind, base, branch string) string {
 // (orchestration's Offer); it is read as worktree.SourceOf reads it, so a
 // GitLab subgroup and a company's host are kept. An offer without a host is
 // one of before hosts existed, on github.com.
-func autoMerge(kind, host, path, base, branch string) string {
+func autoMerge(kind, host, path, base, branch string, followed bool) string {
 	if host == "" {
 		host = githost.GitHubHost
 	}
@@ -303,12 +304,27 @@ func autoMerge(kind, host, path, base, branch string) string {
 		b.WriteString("; " + m.Method)
 	}
 
+	watch := strings.ReplaceAll(m.Watch, "<branch>", branch)
+
+	if !followed {
+		// Without the repository's token the worker uses the node's own login, which the control plane cannot
+		// read the request with: the worker stays until the checks are green, as before #1053, after OpenClaw's
+		// "until verified merge" (landing.md:82); a red check outside the diff is a flake (writeRules), after
+		// pstack babysit.md:8 (issue #1053, review round 2; coordinator's choice).
+		fmt.Fprintf(&b, ".\n4. Wait for the required checks with `%s`; fix a red one your diff causes and push, "+
+			"rerun a flake once as the rules say, and do step 2 again if a conflict appears. Once they are green, "+
+			"call `finish` without waiting longer, saying whether the pull request merged (`%s`) or that its checks "+
+			"are green with auto-merge on.\n", watch, m.Merged)
+
+		return b.String()
+	}
+
 	fmt.Fprintf(&b, ".\n4. Read the pull request back with `%s`, since a requested auto-merge is not a merge, "+
 		"then call `finish` at once, without waiting for the checks, saying that it merged or \"auto-merge on at "+
 		"<sha>\". The control plane follows the pull request from there and sends you a follow-up if a check goes "+
 		"red or a conflict appears.\nWhen auto-merge is not turned on, wait for the required checks with `%s` "+
 		"only when the task needs their result.\n",
-		m.Merged, strings.ReplaceAll(m.Watch, "<branch>", branch))
+		m.Merged, watch)
 
 	return b.String()
 }
@@ -437,7 +453,7 @@ func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 			"commit your work and %s, which updates that pull request. Do not open a new one. Find it with `%s`; "+
 			"if none is open, open one with `%s`.\n",
 			push, publish, listCommand(o.RepoKind, push), openCommand(o.RepoKind, base, push))
-		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, push))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, push, o.RepoToken != ""))
 	default:
 		publish := "push the branch"
 		if canPublish(o) {
@@ -446,7 +462,7 @@ func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 
 		fmt.Fprintf(&b, "Commit your work, %s, and open a pull request with `%s`.\n",
 			publish, openCommand(o.RepoKind, base, own))
-		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, own))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, own, o.RepoToken != ""))
 	}
 
 	return b.String()

@@ -53,7 +53,16 @@ const (
 	// why none could be sent.
 	PullRequestConflict PullRequestOutcome = "conflict"
 	PullRequestFailed   PullRequestOutcome = "failed"
+	// PullRequestUnfollowed: the control plane cannot read it (no token for its repository); its worker waited
+	// for its checks itself, and the coordinator is told once (review round 2).
+	PullRequestUnfollowed PullRequestOutcome = "unfollowed"
+	// PullRequestGone: the Run, the Task or its report moved on while the host was read; nothing was written.
+	PullRequestGone PullRequestOutcome = "gone"
 )
+
+// ErrCannotFollow says the control plane cannot read a followed pull request: it holds no token for its
+// repository, whose worker used the node's own login.
+var ErrCannotFollow = errors.New("the control plane holds no token for the repository")
 
 // PullRequestsToFollow lists the pull requests to read: of each succeeded, non-review Task of an open Run whose
 // last Dispatch's summary says auto-merge is on at a head and names one pull request, and that was not settled
@@ -177,30 +186,93 @@ func (s *Service) SettlePullRequest(ctx context.Context, f FollowedRequest, st g
 		return outcome, nil
 	}
 
-	payload := map[string]any{
-		"kind": string(EscalationPullRequest), "state": string(outcome), "pull_request": f.URL, "head": f.Head,
-		"reason": what,
-	}
+	return s.settlePullRequest(ctx, f, outcome, what, note)
+}
 
-	if note != "" {
-		fu, err := s.FollowUpTask(ctx, f.TaskID, AddressCoordinator, note)
-		if err != nil {
-			// Refused (the Run finished, the worker's conversation closed): the coordinator decides.
-			payload["follow_up_refused"] = err.Error()
-		} else {
-			payload["follow_up"] = fu.ID
+// settlePullRequest writes, in one transaction, the follow-up a note asks for and the escalation that says what happened, so
+// a stop between them cannot keep one without the other (review round 2). It first reads again what the pass
+// read before the host answered: a Run that is no longer open, a Task that is no longer succeeded, a newer
+// Dispatch, or a report already settled settles nothing (PullRequestGone).
+func (s *Service) settlePullRequest(ctx context.Context, f FollowedRequest, outcome PullRequestOutcome,
+	what, note string,
+) (PullRequestOutcome, error) {
+	gone := false
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		current, err := stillFollowed(ctx, q, f)
+		if err != nil || !current {
+			gone = err == nil
+
+			return err
 		}
-	}
 
-	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		payload := map[string]any{
+			"kind": string(EscalationPullRequest), "state": string(outcome), "pull_request": f.URL, "head": f.Head,
+			"reason": what,
+		}
+
+		if note != "" {
+			fid := s.newID("fup")
+
+			switch err := followUpIn(ctx, q, now, f.TaskID, AddressCoordinator, fid, note); {
+			case err == nil:
+				payload["follow_up"] = fid
+			case errors.Is(err, ErrConflict):
+				// Refused (the worker's conversation closed): the coordinator decides. A refusal writes nothing.
+				payload["follow_up_refused"] = err.Error()
+			default:
+				return err
+			}
+		}
+
 		return emit(ctx, q, now, event{
 			kind: EventEscalation, run: f.RunID, task: f.TaskID, dispatch: f.DispatchID, payload: payload,
 		})
-	}); err != nil {
+	})
+	if err != nil {
 		return outcome, fmt.Errorf("recording what the pull request of task %s did: %w", f.TaskID, err)
 	}
 
+	if gone {
+		return PullRequestGone, nil
+	}
+
 	return outcome, nil
+}
+
+// stillFollowed reports whether f is still to be settled, inside the transaction that settles it.
+func stillFollowed(ctx context.Context, q *store.Queries, f FollowedRequest) (bool, error) {
+	task, err := q.GetTask(ctx, f.TaskID)
+	if err != nil {
+		return false, notFound(err, "task", f.TaskID)
+	}
+
+	run, err := q.GetRun(ctx, task.RunID)
+	if err != nil {
+		return false, notFound(err, "run", task.RunID)
+	}
+
+	if RunStatus(run.Status) != RunOpen || TaskStatus(task.Status) != TaskSucceeded {
+		return false, nil
+	}
+
+	d, err := q.LastDispatchOfTask(ctx, f.TaskID)
+	if err != nil {
+		return false, fmt.Errorf("reading the last dispatch of task %s: %w", f.TaskID, err)
+	}
+
+	if d.ID != f.DispatchID {
+		return false, nil
+	}
+
+	settled, err := q.PullRequestEscalationOf(ctx, store.PullRequestEscalationOfParams{
+		TaskID: nullString(f.TaskID), DispatchID: nullString(f.DispatchID),
+	})
+	if err != nil {
+		return false, fmt.Errorf("reading what task %s's pull request did: %w", f.TaskID, err)
+	}
+
+	return settled == 0, nil
 }
 
 // settling decides, from what was read: the outcome, a short reason, and the follow-up's note when the author
@@ -258,7 +330,11 @@ func pullRequestWakeText(e store.Event, p map[string]any) string {
 			at, e.RunID.String)
 	case PullRequestClosed:
 		return fmt.Sprintf("%s was closed without a merge: hypomnema tasks show %s --json", at, e.TaskID.String)
-	case PullRequestPending, PullRequestConflict, PullRequestFailed:
+	case PullRequestUnfollowed:
+		return fmt.Sprintf("%s has auto-merge on, but the control plane holds no token for its repository and "+
+			"does not follow it; its worker waited for its checks. Read it with the host's CLI, then finish the Run "+
+			"if nothing else is left: hypomnema tasks show %s --json", at, e.TaskID.String)
+	case PullRequestPending, PullRequestConflict, PullRequestFailed, PullRequestGone:
 	}
 
 	if refused := str("follow_up_refused"); refused != "" {
@@ -286,6 +362,15 @@ func (s *Service) FollowPullRequests(ctx context.Context, read ReadPullRequest) 
 
 	for _, f := range follow {
 		st, err := read(ctx, f)
+		if errors.Is(err, ErrCannotFollow) {
+			if _, err := s.settlePullRequest(ctx, f, PullRequestUnfollowed, "not followed: no token for its repository",
+				""); err != nil {
+				errs = append(errs, err)
+			}
+
+			continue
+		}
+
 		if err != nil {
 			errs = append(errs, fmt.Errorf("reading %s: %w", f.URL, err))
 

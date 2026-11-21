@@ -56,7 +56,7 @@ A Run has one controller: the Bot of the chat it belongs to. There are two paths
 4. In a Bot chat: finish the Run with `hypomnema runs finish <run_id> --json` as soon as every Task has ended, without waiting
    for the owner to press anything, then report to the owner per Task: the outcome, its evidence, and what is left.
    A Task whose summary says "auto-merge on at <sha>" has ended only once a `pull_request` wake says its pull
-   request merged or was closed (Results, below; issue #1053).
+   request merged, was closed, or is not followed (Results, below; issue #1053).
    While the owner has yet to decide on a fix you offered for a
    failed Task, or while its review waits for a next step, leave the Run open: a finished Run takes no new Tasks.
 
@@ -202,7 +202,9 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   `pull_request` escalation when it merges, is closed, or such a follow-up was sent or refused. Do not wait for its
   CI yourself. Until that wake says it merged or was closed, the Task's work has not landed: keep the Run open
   (step 4 of the Recipe), since a finished Run takes no follow-up. When the wake says the follow-up was refused,
-  create the Task with `"continues"` it names.
+  create the Task with `"continues"` it names. A repository the control plane holds no token for is not
+  followed: its worker used the node's login and waited for its checks itself, and the wake says so once; read
+  the pull request with the host's CLI before you finish the Run.
 - More work on a succeeded Task, such as a fix after a review or a correction the owner gives, goes to the same
   worker as a follow-up, not to a new Task:
   ```text

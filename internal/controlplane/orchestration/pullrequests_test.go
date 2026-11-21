@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -189,4 +190,84 @@ func undeliveredWakes(t *testing.T, w *world, chatID string) []string {
 	}
 
 	return out
+}
+
+// Scenario (issue #1053, review round 2): the control plane holds no token for the repository, so its worker used
+// the node's login and waited for its checks itself. The pass cannot read the pull request: it tells the
+// coordinator once that it does not follow it, sends no follow-up, and does not list it again, so no Run waits for
+// a wake that would never come.
+func TestAPullRequestTheControlPlaneCannotReadIsSaidOnceAndLeft(t *testing.T) {
+	t.Parallel()
+
+	const pr = "https://github.com/owner/repo/pull/12"
+
+	w := newWorld(t)
+	ctx := t.Context()
+	chat, err := w.s.CreateChat(ctx, "", "Ship")
+	require.NoError(t, err)
+	w.run, err = w.s.CreateRun(ctx, NewRun{Objective: "Ship", CreatedBy: "pi", ChatID: chat.ID})
+	require.NoError(t, err)
+
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "change a"})[0]
+	_, c := w.start(task.ID)
+	require.NoError(t, w.finish(c, withPR(success("Checks green; auto-merge on at abcdef1."), pr)))
+	_, err = w.s.WakeChats(ctx)
+	require.NoError(t, err)
+	require.NoError(t, w.s.MarkDelivered(ctx, chat.ID, 1<<40))
+
+	reads := 0
+	cannot := func(context.Context, FollowedRequest) (githost.RequestState, error) {
+		reads++
+
+		return githost.RequestState{}, fmt.Errorf("github.com/owner/repo: %w", ErrCannotFollow)
+	}
+
+	require.NoError(t, w.s.FollowPullRequests(ctx, cannot))
+	require.NoError(t, w.s.FollowPullRequests(ctx, cannot))
+	assert.Equal(t, 1, reads, "said once, then left")
+
+	ups, err := w.s.ListFollowUps(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Empty(t, ups)
+	assert.Equal(t, TaskSucceeded, w.task(task.ID).Status)
+
+	wakes := undeliveredWakes(t, w, chat.ID)
+	require.Len(t, wakes, 1)
+	assert.Contains(t, wakes[0], "Pull request "+pr+" of task "+task.ID+" (run "+w.run.ID+") has auto-merge on, "+
+		"but the control plane holds no token for its repository and does not follow it")
+}
+
+// Scenario (issue #1053, review round 2): the Run is canceled while its pull request is read at the host. What
+// the host answers is not acted on: no follow-up, and no wake after the cancel's own.
+func TestAPullRequestReadWhileItsRunIsCanceledSettlesNothing(t *testing.T) {
+	t.Parallel()
+
+	const pr = "https://github.com/owner/repo/pull/13"
+
+	w := newWorld(t)
+	ctx := t.Context()
+	chat, err := w.s.CreateChat(ctx, "", "Ship")
+	require.NoError(t, err)
+	w.run, err = w.s.CreateRun(ctx, NewRun{Objective: "Ship", CreatedBy: "pi", ChatID: chat.ID})
+	require.NoError(t, err)
+
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "change a"})[0]
+	_, c := w.start(task.ID)
+	require.NoError(t, w.finish(c, withPR(success("auto-merge on at abcdef1"), pr)))
+
+	canceling := func(ctx context.Context, _ FollowedRequest) (githost.RequestState, error) {
+		require.NoError(t, w.s.CancelRun(ctx, w.run.ID))
+
+		return githost.RequestState{Status: githost.RequestOpen, Head: "abcdef1", Conflict: true}, nil
+	}
+
+	require.NoError(t, w.s.FollowPullRequests(ctx, canceling))
+
+	ups, err := w.s.ListFollowUps(ctx, task.ID)
+	require.NoError(t, err)
+	assert.Empty(t, ups)
+
+	for _, wake := range undeliveredWakes(t, w, chat.ID) {
+		assert.NotContains(t, wake, "Pull request "+pr)
+	}
 }

@@ -46,7 +46,8 @@ func followPullRequests(ctx context.Context, svc *orchestration.Service, tokens 
 
 // readPullRequest reads a followed pull request with the token of its repository's Connection, the one its
 // worker was given, by the Connection's route, as the account of a token is read (gitIdentities.lookup). A
-// repository without a token is not read: its pull request is left as the worker reported it.
+// repository without a token is not read: orchestration.ErrCannotFollow, as its worker used the node's own login
+// and was told to wait for the checks itself (node/runner's prompt).
 func (c connections) readPullRequest(ctx context.Context, f orchestration.FollowedRequest,
 ) (githost.RequestState, error) {
 	repo := f.Request.Repo
@@ -57,7 +58,7 @@ func (c connections) readPullRequest(ctx context.Context, f orchestration.Follow
 	}
 
 	if !ok {
-		return githost.RequestState{Status: githost.RequestOpen}, nil
+		return githost.RequestState{}, fmt.Errorf("%s/%s: %w", repo.Host, repo.Path, orchestration.ErrCannotFollow)
 	}
 
 	opened, err := c.vault.Open(ctx, conn.Secret)
@@ -67,7 +68,7 @@ func (c connections) readPullRequest(ctx context.Context, f orchestration.Follow
 
 	token := opened.Payload[vault.KeyValue]
 	if token == "" {
-		return githost.RequestState{Status: githost.RequestOpen}, nil
+		return githost.RequestState{}, fmt.Errorf("%s/%s: %w", repo.Host, repo.Path, orchestration.ErrCannotFollow)
 	}
 
 	if c.identities == nil {

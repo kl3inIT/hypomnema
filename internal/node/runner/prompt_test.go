@@ -280,8 +280,8 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 			"a conflict appears.",
 		"When auto-merge is not turned on, wait for the required checks with " +
 			"`gh pr checks <url> --required --watch` only when the task needs their result.",
-		"Wait for CI only when the task needs its result. When the task says a review comes first, or once " +
-			"auto-merge is on, do not wait: report the pushed commit and finish; Hypomnema follows CI.",
+		"Wait for CI only when the task needs its result or the merge steps below say to. When the task says a " +
+			"review comes first, do not wait: report the pushed commit and finish; the coordinator follows CI.",
 	} {
 		assert.Contains(t, p, want)
 	}
@@ -340,7 +340,6 @@ func TestPromptWaitsForTheChecksWhenTheControlPlaneCannotFollow(t *testing.T) {
 		"one your diff causes and push, rerun a flake once as the rules say, and do step 2 again if a conflict "+
 		"appears. Once they are green, call `finish`")
 	assert.NotContains(t, p, "The control plane follows the pull request")
-	assert.NotContains(t, p, "once auto-merge is on, do not wait")
 
 	d.Offer.RepoToken = "ghp_x"
 	p = Prompt(d)

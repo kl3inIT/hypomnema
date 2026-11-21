@@ -83,3 +83,54 @@ func TestReadRequest(t *testing.T) {
 	assert.NotContains(t, err.Error(), "the-token")
 	assert.Contains(t, err.Error(), "HTTP 401")
 }
+
+// paging answers GitHub's GraphQL by the cursor asked for: the first page without one, the next with it.
+type paging struct {
+	pages  map[string]string
+	afters []string
+}
+
+func (p *paging) RoundTrip(r *http.Request) (*http.Response, error) {
+	var sent struct {
+		Variables map[string]any `json:"variables"`
+	}
+
+	body, _ := io.ReadAll(r.Body)
+	_ = json.Unmarshal(body, &sent)
+
+	after, _ := sent.Variables["after"].(string)
+	p.afters = append(p.afters, after)
+
+	return (&answering{body: p.pages[after]}).RoundTrip(r)
+}
+
+// Scenario (issue #1053, review round 2): a pull request with more than 100 checks has them on several pages. The
+// read follows the end cursor until there is no next page, as gh does, so a required check that failed on the
+// second page is named.
+func TestReadRequestReadsEveryPageOfChecks(t *testing.T) {
+	t.Parallel()
+
+	page := func(check, next string) string {
+		info := `{"hasNextPage":false,"endCursor":null}`
+		if next != "" {
+			info = `{"hasNextPage":true,"endCursor":"` + next + `"}`
+		}
+
+		return `{"data":{"repository":{"pullRequest":{"state":"OPEN","mergeable":"MERGEABLE","headRefOid":"abc1234",
+			"commits":{"nodes":[{"commit":{"statusCheckRollup":{"contexts":{"pageInfo":` + info + `,"nodes":[` +
+			check + `]}}}}]}}}}}`
+	}
+
+	host := &paging{pages: map[string]string{
+		"": page(`{"__typename":"CheckRun","name":"Lint","status":"COMPLETED","conclusion":"SUCCESS",
+			"startedAt":"2026-11-22T10:00:00Z","isRequired":true}`, "Y3Vyc29yOjEwMA=="),
+		"Y3Vyc29yOjEwMA==": page(`{"__typename":"CheckRun","name":"Required","status":"COMPLETED",
+			"conclusion":"FAILURE","startedAt":"2026-11-22T10:00:00Z","isRequired":true}`, ""),
+	}}
+	r := Request{Repo: Repo{Host: GitHubHost, Path: "kl3inIT/hypomnema"}, Number: 1054}
+
+	got, err := ReadRequest(t.Context(), &http.Client{Transport: host}, GitHub, r, "the-token")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Required"}, got.Failed)
+	assert.Equal(t, []string{"", "Y3Vyc29yOjEwMA=="}, host.afters, "two pages, the second by the first's cursor")
+}
