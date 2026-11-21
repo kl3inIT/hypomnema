@@ -24,6 +24,44 @@ FROM (SELECT 'glm-5.3' AS name UNION ALL SELECT 'kimi-k3' UNION ALL SELECT 'mini
 WHERE EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
 
 -- +goose Down
+-- The code before has no OpenCode Zen. What names this provider is left without it before the provider goes, so no
+-- foreign key stops the way back and that code reads every row and refuses no Task for it (review of PR #1000, round
+-- 3): a Task's Zen model is taken off, and it runs with its profile's; a profile version, a Bot or a chat on Zen
+-- keeps no model, and runs with its default; a Bot's Zen fallbacks and the gateway's Zen targets go, and a gateway
+-- model with no other target with them. Zen's accounts stay, which that code does not serve. Only Zen's own provider
+-- is touched, never one the owner named opencode-zen (see Up).
+UPDATE tasks SET model = NULL
+WHERE substr(model, 1, 13) = 'opencode-zen/'
+  AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
+
+UPDATE profile_versions SET provider = NULL, model = NULL
+WHERE provider = 'opencode-zen'
+  AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
+
+UPDATE bots SET provider = NULL, model = NULL
+WHERE provider = 'opencode-zen'
+  AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
+
+UPDATE bots
+SET fallbacks = coalesce((
+    SELECT group_concat(value, ',') FROM json_each('["' || replace(bots.fallbacks, ',', '","') || '"]')
+    WHERE substr(value, 1, 13) <> 'opencode-zen/'), '')
+WHERE instr(fallbacks, 'opencode-zen/') > 0
+  AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
+
+UPDATE chats SET provider = NULL, model = NULL
+WHERE provider = 'opencode-zen'
+  AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
+
+DELETE FROM gateway_models
+WHERE name IN (SELECT model FROM gateway_model_targets WHERE provider = 'opencode-zen')
+  AND NOT EXISTS (SELECT 1 FROM gateway_model_targets t WHERE t.model = gateway_models.name AND t.provider <> 'opencode-zen')
+  AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
+
+DELETE FROM gateway_model_targets
+WHERE provider = 'opencode-zen'
+  AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
+
 DELETE FROM models
 WHERE provider = 'opencode-zen' AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
 DELETE FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen';

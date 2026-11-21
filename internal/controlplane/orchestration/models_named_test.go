@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
@@ -194,4 +195,99 @@ func TestTheZenSeedLeavesAnOwnersProviderOfThatName(t *testing.T) {
 	got, err = svc.GetProvider(ctx, "opencode-zen")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"mine"}, got.Models, "the way back leaves it too")
+}
+
+// Scenario (review of PR #1000, round 3): the owner used OpenCode Zen, then takes the database back to the code before
+// both migrations. No foreign key stops it: a profile version, a Bot and a chat on Zen keep no model, a Bot's Zen
+// fallback and the gateway's Zen target go, and a Task's Zen model is taken off. Each other Task's model loses its
+// provider only where the code before would place the bare name at that same provider: a Codex Task's gpt-6.1-sol,
+// which Go also lists but not to Codex, does; a Claude Task's claude-haiku-5-5, which Go also offers to Claude Code,
+// keeps its provider.
+func TestTheWayBackAfterZenLeavesRowsTheCodeBeforeRuns(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	require.NoError(t, Migrate(ctx, db))
+
+	svc := New(db, &fakeClock{now: t0}, platform.NewID)
+	_, err = svc.AddProviderModels(ctx, "opencode-go", []string{"gpt-6.1-sol", "claude-haiku-5-5"})
+	require.NoError(t, err)
+	_, err = svc.AddProviderModels(ctx, "codex-subscription", []string{"gpt-6.1-sol"})
+	require.NoError(t, err)
+	_, err = svc.AddProviderModels(ctx, "claude-subscription", []string{"claude-haiku-5-5"})
+	require.NoError(t, err)
+
+	zenProfile, _, err := svc.ApplyProfile(ctx, "", "name: zen\ndescription: d\nruntime: claude\n"+
+		"model: {provider: opencode-zen, name: glm-5.3}\n")
+	require.NoError(t, err)
+	bot, err := svc.PutBot(ctx, Bot{
+		Name: "zen", Provider: "opencode-zen", Model: "glm-5.3",
+		Fallbacks: []string{"opencode-zen/kimi-k3", "opencode-go/deepseek-v4-pro"},
+	})
+	require.NoError(t, err)
+	chat, err := svc.CreateChatWithID(ctx, "", bot.ID, "", ChatModel{Provider: "opencode-zen", Model: "kimi-k3"})
+	require.NoError(t, err)
+
+	for _, stmt := range []string{
+		`INSERT INTO gateway_models (name, capability, source, created_at, updated_at) VALUES
+		 ('zen-only', 'chat', 'name: zen-only', 1, 1), ('both', 'chat', 'name: both', 1, 1)`,
+		`INSERT INTO gateway_model_targets (model, position, provider, upstream_model) VALUES
+		 ('zen-only', 0, 'opencode-zen', 'glm-5.3'), ('both', 0, 'opencode-zen', 'glm-5.3'),
+		 ('both', 1, 'opencode-go', 'glm-5.3')`,
+		`INSERT INTO runs (id, objective, status, created_by, created_at, updated_at) VALUES ('r', 'o', 'open', 'owner', 1, 1)`,
+	} {
+		_, err := db.ExecContext(ctx, stmt)
+		require.NoError(t, err, stmt)
+	}
+
+	made, err := svc.CreateTasks(ctx, "r", []NewTask{
+		{Ref: "zen", Spec: "s", Profile: "implementer", Runtime: "claude", Model: "opencode-zen/glm-5.3"},
+		{Ref: "codex", Spec: "s", Profile: "implementer", Runtime: "codex", Model: "codex-subscription/gpt-6.1-sol"},
+		{Ref: "claude", Spec: "s", Profile: "implementer", Runtime: "claude",
+			Model: "claude-subscription/claude-haiku-5-5"},
+	})
+	require.NoError(t, err)
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.DownTo(ctx, migrationVersion(t, p, modelNamesMigration)-1)
+	require.NoError(t, err, "no foreign key stops the way back")
+
+	models := taskModels(t, db)
+	assert.Equal(t, "", models[made[0].ID], "the Zen Task runs with its profile's model")
+	assert.Equal(t, "gpt-6.1-sol", models[made[1].ID], "placed at the Codex subscription again")
+	assert.Equal(t, "claude-subscription/claude-haiku-5-5", models[made[2].ID],
+		"Claude Code reaches two providers of the bare name: the provider is kept")
+
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = tx.Rollback() })
+	placed, ok, err := legacyProvider(ctx, tx, "codex", "gpt-6.1-sol")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, "codex-subscription", placed)
+
+	var zen, versionProvider, botModel, chatModel sql.NullString
+	var fallbacks string
+	var targets, gatewayModels int
+	require.NoError(t, tx.QueryRowContext(ctx, `SELECT
+		(SELECT name FROM providers WHERE name = 'opencode-zen'),
+		(SELECT provider FROM profile_versions WHERE id = ?),
+		(SELECT model FROM bots WHERE id = ?), (SELECT fallbacks FROM bots WHERE id = ?),
+		(SELECT model FROM chats WHERE id = ?),
+		(SELECT count(*) FROM gateway_model_targets WHERE provider = 'opencode-zen'),
+		(SELECT count(*) FROM gateway_models WHERE name IN ('zen-only', 'both'))`,
+		zenProfile.VersionID, bot.ID, bot.ID, chat.ID).
+		Scan(&zen, &versionProvider, &botModel, &fallbacks, &chatModel, &targets, &gatewayModels))
+	assert.False(t, zen.Valid, "Zen's provider is gone")
+	assert.False(t, versionProvider.Valid)
+	assert.False(t, botModel.Valid)
+	assert.Equal(t, "opencode-go/deepseek-v4-pro", fallbacks)
+	assert.False(t, chatModel.Valid)
+	assert.Zero(t, targets)
+	assert.Equal(t, 1, gatewayModels, "a gateway model with another target keeps it")
 }
