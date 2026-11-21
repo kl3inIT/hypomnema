@@ -431,6 +431,23 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 		return Action{}, "Refused: " + reason + ". The request was not run"
 	}
 
+	// On an open connection, who the agent is and what its Bot may do with the owner's accounts are read again at
+	// each request, never kept from when the connection opened (review of #1037): a token that ended refuses, and
+	// a Bot the owner made read his accounts only reads them from the next request on.
+	if s.opened != nil {
+		caller, err := p.cfg.Agents.Caller(s.opened)
+		if err != nil {
+			return Action{}, "Refused: this agent's credential no longer works. The request was not run"
+		}
+
+		s.caller.ReadRun, s.caller.OwnerReadOnly = caller.ReadRun, caller.OwnerReadOnly
+		s.ownerReadOnly = false
+
+		if err := p.readsOnly(ctx, &s); err != nil {
+			return Action{}, "the control plane could not decide this request; it was not run. Try again"
+		}
+	}
+
 	action, verdict, message, err := p.decideRequest(ctx, req, body, s)
 	if err != nil {
 		// Every error refuses.
