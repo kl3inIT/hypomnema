@@ -10,16 +10,23 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
 )
 
 // The update's backup of the database and the videos' music library (issue #910, row 6d). The update runs as root
-// while the data folder, the music in it and the backups are the control plane's user's: every file operation here
-// goes through an os.Root of the data folder, so no path, nor a symlink in it, leads out of it, and the music's own
-// files are taken only when they are regular files of the music tree, checked again once opened or linked. What is
-// written is first written under a temporary name and renamed in place whole.
+// while the control plane's folder, its data folder, the music in it and the backups are the control plane's user's
+// (setup-controlplane.sh: the folder is the user's home's), who may rename or replace any of them by name while the
+// update runs. So Install opens the data folder once, as an os.Root, and every step of the backup, the prune and the
+// rollback goes through that handle: whatever is renamed into data's place by name later, nothing outside the folder
+// it opened is read, written, renamed or removed. The folders the update writes into (the backup being made, a music
+// folder) are opened too and written through their own handles; a name is checked to still be the folder opened
+// before it is renamed or removed. The music's files are taken only when they are regular files, checked again once
+// opened or linked, and what is copied is written under a temporary name and renamed in place whole.
 
 const (
 	// partSuffix ends the name of a backup being written.
@@ -29,6 +36,9 @@ const (
 	// tmpSuffix ends the name of a file being copied.
 	tmpSuffix = ".tmp"
 )
+
+// errReplaced reports a folder whose name was given to another while the update wrote into it.
+var errReplaced = errors.New("the folder was replaced while the update wrote into it")
 
 // errNotRegular reports a file of the music or the database that is not a regular file, or that changed while it was
 // taken.
@@ -59,6 +69,55 @@ func openData(dir string) (*os.Root, error) {
 	return root, nil
 }
 
+// heldDir opens the folder name of the root and answers it with what it is, refusing what is not a folder or what
+// changed between its look and its opening: the update then writes through this handle, not through the name.
+func heldDir(root *os.Root, name string) (*os.Root, os.FileInfo, error) {
+	before, err := root.Lstat(name)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if !before.IsDir() {
+		return nil, nil, fmt.Errorf("%s is not a folder", name)
+	}
+
+	held, err := root.OpenRoot(name)
+	if err != nil {
+		return nil, nil, fmt.Errorf("opening %s: %w", name, err)
+	}
+
+	got, err := held.Stat(".")
+	if err != nil || !os.SameFile(before, got) {
+		_ = held.Close()
+
+		return nil, nil, fmt.Errorf("%s: %w", name, errReplaced)
+	}
+
+	return held, got, nil
+}
+
+// isStill says whether name in the root is still the folder held.
+func isStill(root *os.Root, name string, held os.FileInfo) bool {
+	got, err := root.Lstat(name)
+
+	return err == nil && os.SameFile(held, got)
+}
+
+// chownHeld gives a held folder to the control plane's user through its handle.
+func chownHeld(held *os.Root, owner ids) error {
+	f, err := held.Open(".")
+	if err != nil {
+		return err
+	}
+
+	err = f.Chown(owner.uid, owner.gid)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+
+	return err
+}
+
 // musicFolder is the music folder's path in the data folder, as videos.MusicDir names it.
 func (o Options) musicFolder() string {
 	rel, err := filepath.Rel(filepath.Dir(o.database()), videos.MusicDir(o.database()))
@@ -69,35 +128,39 @@ func (o Options) musicFolder() string {
 	return filepath.ToSlash(rel)
 }
 
-// backUp makes the backup of an update as a pair, the database and the videos' music library, published whole: into
-// .predeploy-<stamp>.part it copies the database and its WAL files and hard-links every regular file of the music
-// folder (copying across file systems; an absent folder is backed up empty), syncs them, gives the folder to the
-// control plane's user, and only then renames it to dir. Whatever fails before the rename removes the .part folder;
-// published says the backup has its name, even when syncing the data folder after failed.
-func backUp(o Options, dir string, owner ids) (published bool, err error) {
-	root, err := openData(filepath.Dir(dir))
-	if err != nil {
-		return false, err
-	}
-	defer root.Close() //nolint:errcheck // A folder, read only.
-
-	name := filepath.Base(dir)
+// backUp makes the backup of an update in the data folder root, as a pair, the database and the videos' music
+// library, published whole as name: into .<name>.part, made here and held, it copies the database and its WAL files
+// and hard-links every regular file of the music folder (copying across file systems; an absent folder is backed up
+// empty), syncs them, gives them to the control plane's user, and only then renames the folder to name, once its
+// name is checked to still be the folder made. Whatever fails before empties the folder made and removes it while it
+// still has its name; published says the backup has its name, even when syncing the data folder after failed.
+func backUp(o Options, root *os.Root, name string, owner ids) (published bool, err error) {
 	part := "." + name + partSuffix
 
 	if err := root.Mkdir(part, 0o700); err != nil {
 		return false, fmt.Errorf("making %s: %w", part, err)
 	}
 
+	held, info, err := heldDir(root, part)
+	if err != nil {
+		return false, err
+	}
+	defer held.Close() //nolint:errcheck // A folder.
+
 	defer func() {
 		if !published {
-			_ = root.RemoveAll(part)
+			emptyHeld(held)
+
+			if isStill(root, part, info) {
+				_ = root.Remove(part)
+			}
 		}
 	}()
 
 	db := filepath.Base(o.database())
 
 	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if err := o.copyRegular(root, db+suffix, part+"/"+db+suffix, owner); err != nil {
+		if err := o.copyRegular(root, db+suffix, held, db+suffix, owner); err != nil {
 			if suffix != "" && errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
@@ -106,41 +169,136 @@ func backUp(o Options, dir string, owner ids) (published bool, err error) {
 		}
 	}
 
-	music := part + "/" + musicBackup
-	if err := root.Mkdir(music, 0o700); err != nil {
-		return false, fmt.Errorf("making %s: %w", music, err)
+	if err := held.Mkdir(musicBackup, 0o700); err != nil {
+		return false, fmt.Errorf("making %s: %w", musicBackup, err)
 	}
 
-	if err := o.copyMusic(root, o.musicFolder(), music, owner, false); err != nil {
+	music, _, err := heldDir(held, musicBackup)
+	if err != nil {
+		return false, err
+	}
+	defer music.Close() //nolint:errcheck // A folder.
+
+	if err := o.copyMusic(root, o.musicFolder(), part+"/"+musicBackup, music, owner, false); err != nil {
 		return false, fmt.Errorf("backing up the videos' music: %w", err)
 	}
 
-	for _, d := range []string{music, part} {
-		if err := o.sync(root, d); err != nil {
+	for _, d := range []*os.Root{music, held} {
+		if err := o.sync(d, "."); err != nil {
 			return false, err
 		}
 
-		if err := root.Lchown(d, owner.uid, owner.gid); err != nil {
-			return false, fmt.Errorf("giving %s to the control plane's user: %w", d, err)
+		if err := chownHeld(d, owner); err != nil {
+			return false, fmt.Errorf("giving the backup to the control plane's user: %w", err)
 		}
 	}
 
+	if !isStill(root, part, info) {
+		return false, fmt.Errorf("%s: %w", part, errReplaced)
+	}
+
 	if err := root.Rename(part, name); err != nil {
-		return false, fmt.Errorf("publishing the backup %s: %w", dir, err)
+		return false, fmt.Errorf("publishing the backup %s: %w", name, err)
+	}
+
+	if !isStill(root, name, info) {
+		return false, fmt.Errorf("%s: %w", name, errReplaced)
 	}
 
 	return true, o.sync(root, ".")
 }
 
-// restoreMusic links every regular file of the backup's music that the music folder lacks back into it, as the
-// same file, making the folder when it is gone.
-func restoreMusic(o Options, backup string, owner ids) error {
-	root, err := openData(filepath.Dir(backup))
+// emptyHeld removes what a held folder holds.
+func emptyHeld(held *os.Root) {
+	dir, err := held.Open(".")
+	if err != nil {
+		return
+	}
+
+	entries, _ := dir.ReadDir(-1)
+	_ = dir.Close()
+
+	for _, e := range entries {
+		_ = held.RemoveAll(e.Name())
+	}
+}
+
+// pruneBackups removes all but the newest keep `predeploy-*` folders of the data folder root, by when they were
+// made, and the `.predeploy-*.part` folders a backup that stopped half-written left, through the root: an entry that
+// is not a folder (a symlink put there) is no backup, and is never followed. It runs once an update's backup is
+// published, whatever the update's outcome. A music file's bytes go with the last backup that links it.
+func pruneBackups(root *os.Root, keep int) error {
+	dir, err := root.Open(".")
 	if err != nil {
 		return err
 	}
-	defer root.Close() //nolint:errcheck // A folder, read only.
 
+	entries, err := dir.ReadDir(-1)
+	_ = dir.Close()
+
+	if err != nil {
+		return err
+	}
+
+	type backup struct {
+		name string
+		at   time.Time
+	}
+
+	var (
+		found []backup
+		errs  []error
+	)
+
+	for _, e := range entries {
+		name := e.Name()
+
+		switch {
+		case strings.HasPrefix(name, ".predeploy-") && strings.HasSuffix(name, partSuffix):
+			errs = append(errs, root.RemoveAll(name))
+		case strings.HasPrefix(name, "predeploy-"):
+			info, err := root.Lstat(name)
+			if err == nil && info.IsDir() {
+				found = append(found, backup{name: name, at: info.ModTime()})
+			}
+		}
+	}
+
+	if len(found) > keep {
+		slices.SortFunc(found, func(a, b backup) int { return b.at.Compare(a.at) })
+
+		for _, b := range found[keep:] {
+			errs = append(errs, root.RemoveAll(b.name))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// restoreDatabase copies the backup's database and WAL files back over the database, through the data folder root;
+// a WAL file the backup did not have is removed.
+func (o Options) restoreDatabase(root *os.Root, backup string, owner ids) error {
+	db := filepath.Base(o.database())
+
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		err := o.copyRegular(root, backup+"/"+db+suffix, root, db+suffix, owner)
+		if errors.Is(err, fs.ErrNotExist) {
+			_ = root.Remove(db + suffix)
+
+			continue
+		}
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// restoreMusic links every regular file of the backup's music that the music folder lacks back into it, as the
+// same file, making the folder when it is gone, through the data folder root.
+func (o Options) restoreMusic(root *os.Root, backup string, owner ids) error {
 	to := o.musicFolder()
 	for _, d := range parents(to) {
 		if err := ensureDir(root, d, owner); err != nil {
@@ -148,7 +306,13 @@ func restoreMusic(o Options, backup string, owner ids) error {
 		}
 	}
 
-	return o.copyMusic(root, filepath.Base(backup)+"/"+musicBackup, to, owner, true)
+	music, _, err := heldDir(root, to)
+	if err != nil {
+		return err
+	}
+	defer music.Close() //nolint:errcheck // A folder.
+
+	return o.copyMusic(root, backup+"/"+musicBackup, to, music, owner, true)
 }
 
 // parents are a relative path's folders from the top down, the path included.
@@ -185,11 +349,12 @@ func ensureDir(root *os.Root, name string, owner ids) error {
 	return nil
 }
 
-// copyMusic hard-links every regular file of the folder from into to, both in the root, copying when they are on two
-// file systems. An absent from is no file; a from, or a folder above it, that is not a folder (a symlink) is refused.
-// Anything in it that is not a regular file is left out, and so is a file replaced while it was linked. With
-// missingOnly, a name to already has, of any kind, is left as it is.
-func (o Options) copyMusic(root *os.Root, from, to string, owner ids, missingOnly bool) error {
+// copyMusic hard-links every regular file of the folder from of the root into the folder to, held as dst, copying
+// into dst when they are on two file systems. An absent from is no file; a from, or a folder above it, that is not a
+// folder (a symlink) is refused. Anything in from that is not a regular file is left out, and so is a file replaced
+// while it was linked; a link that did not land in dst (to was replaced) stops the copy. With missingOnly, a name dst
+// already has, of any kind, is left as it is.
+func (o Options) copyMusic(root *os.Root, from, to string, dst *os.Root, owner ids, missingOnly bool) error {
 	for _, d := range parents(from) {
 		info, err := root.Lstat(d)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -205,6 +370,11 @@ func (o Options) copyMusic(root *os.Root, from, to string, owner ids, missingOnl
 		}
 	}
 
+	held, err := dst.Stat(".")
+	if err != nil {
+		return err
+	}
+
 	dir, err := root.Open(from)
 	if err != nil {
 		return err
@@ -218,7 +388,8 @@ func (o Options) copyMusic(root *os.Root, from, to string, owner ids, missingOnl
 	}
 
 	for _, e := range entries {
-		src, dst := from+"/"+e.Name(), to+"/"+e.Name()
+		name := e.Name()
+		src := from + "/" + name
 
 		info, err := root.Lstat(src)
 		if err != nil {
@@ -232,20 +403,28 @@ func (o Options) copyMusic(root *os.Root, from, to string, owner ids, missingOnl
 		}
 
 		if missingOnly {
-			if _, err := root.Lstat(dst); !errors.Is(err, fs.ErrNotExist) {
+			if _, err := dst.Lstat(name); !errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
 		}
 
-		err = o.linkIn(root, src, dst)
+		err = o.linkIn(root, src, to+"/"+name)
+		if err != nil && !errors.Is(err, syscall.EXDEV) && !isStill(root, to, held) {
+			return fmt.Errorf("%s: %w", to, errReplaced)
+		}
 
 		switch {
 		case errors.Is(err, syscall.EXDEV):
-			err = o.copyRegular(root, src, dst, owner)
+			err = o.copyRegular(root, src, dst, name, owner)
 		case err == nil:
+			got, lerr := dst.Lstat(name)
+			if lerr != nil {
+				return fmt.Errorf("%s: %w", to, errReplaced)
+			}
+
 			// The link is of the file Lstat saw, not of a symlink put in its place meanwhile.
-			if got, lerr := root.Lstat(dst); lerr != nil || !os.SameFile(info, got) {
-				_ = root.Remove(dst)
+			if !os.SameFile(info, got) {
+				_ = dst.Remove(name)
 
 				o.printf("leaving %s out: it changed while it was linked\n", src)
 
@@ -258,13 +437,14 @@ func (o Options) copyMusic(root *os.Root, from, to string, owner ids, missingOnl
 		}
 	}
 
-	return o.sync(root, to)
+	return o.sync(dst, ".")
 }
 
-// copyRegular copies the regular file src of the root to dst, under a temporary name first, synced, mode 0600 and
-// owned by the control plane's user, then renamed to dst; a copy cut short never has dst's name.
-func (o Options) copyRegular(root *os.Root, src, dst string, owner ids) error {
-	info, err := root.Lstat(src)
+// copyRegular copies the regular file src of the root from to dstName in the root to, under a temporary name first,
+// synced, mode 0600 and owned by the control plane's user, then renamed to dstName; a copy cut short never has its
+// name.
+func (o Options) copyRegular(from *os.Root, src string, to *os.Root, dstName string, owner ids) error {
+	info, err := from.Lstat(src)
 	if err != nil {
 		return err
 	}
@@ -273,7 +453,7 @@ func (o Options) copyRegular(root *os.Root, src, dst string, owner ids) error {
 		return fmt.Errorf("%s: %w", src, errNotRegular)
 	}
 
-	in, err := root.Open(src)
+	in, err := from.Open(src)
 	if err != nil {
 		return err
 	}
@@ -283,12 +463,12 @@ func (o Options) copyRegular(root *os.Root, src, dst string, owner ids) error {
 		return fmt.Errorf("%s changed while it was opened: %w", src, errNotRegular)
 	}
 
-	tmp := path.Join(path.Dir(dst), "."+path.Base(dst)+tmpSuffix)
-	if err := root.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	tmp := path.Join(path.Dir(dstName), "."+path.Base(dstName)+tmpSuffix)
+	if err := to.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 
-	out, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	out, err := to.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", tmp, err)
 	}
@@ -312,13 +492,13 @@ func (o Options) copyRegular(root *os.Root, src, dst string, owner ids) error {
 	}
 
 	if err == nil {
-		err = root.Rename(tmp, dst)
+		err = to.Rename(tmp, dstName)
 	}
 
 	if err != nil {
-		_ = root.Remove(tmp)
+		_ = to.Remove(tmp)
 
-		return fmt.Errorf("writing %s: %w", dst, err)
+		return fmt.Errorf("writing %s: %w", dstName, err)
 	}
 
 	return nil

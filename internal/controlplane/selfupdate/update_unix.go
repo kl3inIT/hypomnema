@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -102,14 +101,22 @@ func Update(ctx context.Context, o Options) error {
 func Install(ctx context.Context, o Options, from string) error {
 	run := o.run()
 	stamp := time.Now().UTC().Format("20060102-150405")
-	data := filepath.Join(o.Home, "data")
-	backup := filepath.Join(data, "predeploy-"+stamp)
+	name := "predeploy-" + stamp
+	backup := filepath.Join(o.Home, "data", name)
 	previous := o.binary() + ".previous"
 
 	owner, err := lookup(o.User)
 	if err != nil {
 		return err
 	}
+
+	// The data folder is opened once: the backup, the prune and the rollback go through this handle, never through
+	// its name, which the control plane's user may give to another folder meanwhile (backup_unix.go).
+	data, err := openData(filepath.Dir(backup))
+	if err != nil {
+		return err
+	}
+	defer data.Close() //nolint:errcheck // A folder.
 
 	// From here until the release's coordinator is set up, the control plane starts no pi and no new turn (issue
 	// #716), and the turns that run end first, within a bound. Workers are not waited for: a node reconnects and its
@@ -126,7 +133,7 @@ func Install(ctx context.Context, o Options, from string) error {
 		return err
 	}
 
-	published, err := backUp(o, backup, owner)
+	published, err := backUp(o, data, name, owner)
 	if published {
 		// Once the backup is published, the newest backupsKept are kept whatever happens next, a failure syncing its
 		// folder included: an update that rolls back or fails leaves no more backups than one that works (issue
@@ -159,7 +166,7 @@ func Install(ctx context.Context, o Options, from string) error {
 	if err != nil {
 		o.printf("the new control plane did not start; putting the old one back: %v\n", err)
 
-		return errors.Join(err, rollBack(ctx, o, run, previous, backup))
+		return errors.Join(err, rollBack(ctx, o, run, previous, data, name))
 	}
 
 	// The launchers and the root-owned binary of this release, now that it runs: a chat started before this used
@@ -176,56 +183,6 @@ func Install(ctx context.Context, o Options, from string) error {
 // backupsKept is how many copies of the database an update keeps, the newest (issue #335; the number is inferred:
 // a rollback needs only the newest, the others are for the owner).
 const backupsKept = 5
-
-// pruneBackups removes all but the newest keep `predeploy-*` folders in dir, by when they were made, and the
-// `.predeploy-*.part` folders a backup that stopped half-written left. It runs once an update's backup is published,
-// whatever the update's outcome. A music file's bytes go with the last backup that links it.
-func pruneBackups(dir string, keep int) error {
-	stale, err := filepath.Glob(filepath.Join(dir, ".predeploy-*"+partSuffix))
-	if err != nil {
-		return err
-	}
-
-	var staleErrs []error
-	for _, p := range stale {
-		staleErrs = append(staleErrs, os.RemoveAll(p))
-	}
-
-	matches, err := filepath.Glob(filepath.Join(dir, "predeploy-*"))
-	if err != nil {
-		return err
-	}
-
-	type backup struct {
-		path string
-		at   time.Time
-	}
-
-	var found []backup
-
-	for _, m := range matches {
-		info, err := os.Stat(m)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-
-		found = append(found, backup{path: m, at: info.ModTime()})
-	}
-
-	errs := staleErrs
-
-	if len(found) <= keep {
-		return errors.Join(errs...)
-	}
-
-	slices.SortFunc(found, func(a, b backup) int { return b.at.Compare(a.at) })
-
-	for _, b := range found[keep:] {
-		errs = append(errs, os.RemoveAll(b.path))
-	}
-
-	return errors.Join(errs...)
-}
 
 func (o Options) run() func(ctx context.Context, name string, args ...string) error {
 	if o.Run != nil {
@@ -317,7 +274,8 @@ func place(binary, previous, from string, owner ids) error {
 }
 
 func rollBack(
-	ctx context.Context, o Options, run func(context.Context, string, ...string) error, previous, backup string,
+	ctx context.Context, o Options, run func(context.Context, string, ...string) error, previous string,
+	data *os.Root, backup string,
 ) error {
 	owner, err := lookup(o.User)
 	if err != nil {
@@ -331,25 +289,13 @@ func rollBack(
 		return fmt.Errorf("putting the old binary back: %w", err)
 	}
 
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		saved := filepath.Join(backup, filepath.Base(o.database())+suffix)
-		target := o.database() + suffix
-
-		if err := copyFile(saved, target, 0o600, owner); err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				// A WAL file the backup did not have.
-				_ = os.Remove(target)
-
-				continue
-			}
-
-			return fmt.Errorf("putting the database back: %w", err)
-		}
+	if err := o.restoreDatabase(data, backup, owner); err != nil {
+		return fmt.Errorf("putting the database back: %w", err)
 	}
 
 	// The tracks deleted since the backup come back, as the same files: their rows came back with the database. A
 	// track that cannot be put back does not keep the control plane stopped.
-	musicErr := restoreMusic(o, backup, owner)
+	musicErr := o.restoreMusic(data, backup, owner)
 	if musicErr != nil {
 		musicErr = fmt.Errorf("putting the videos' music back: %w", musicErr)
 		o.printf("%v\n", musicErr)

@@ -15,8 +15,11 @@ type Probe struct {
 	Format string
 	// Brand is an ISO base media file's major brand, as ffprobe reads its ftyp (M4A, isom, mp42, qt for QuickTime):
 	// the containers ffprobe names alike (mov,mp4,m4a,…) are told apart by it.
-	Brand   string
-	Streams []Stream
+	Brand string
+	// Compatible are the brands the file says it is compatible with, its ftyp's compatible_brands, each of four
+	// characters trimmed (an iso8 file may list mp41).
+	Compatible []string
+	Streams    []Stream
 }
 
 // Stream is one stream of a probed file.
@@ -33,7 +36,7 @@ type Stream struct {
 // Go's sniffing misses m4a, flac and an mp3 without ID3, as meetings found).
 func ProbeFile(ctx context.Context, tools ffmpeg.Tools, file string) (Probe, error) {
 	out, err := runner{tools: tools}.run(ctx, tools.FFprobe, "-v", "error", "-print_format", "json",
-		"-show_entries", "format=format_name:format_tags=major_brand:stream=codec_type,codec_name:"+
+		"-show_entries", "format=format_name:format_tags=major_brand,compatible_brands:stream=codec_type,codec_name:"+
 			"stream_disposition=attached_pic", file)
 	if err != nil {
 		return Probe{}, err
@@ -43,7 +46,8 @@ func ProbeFile(ctx context.Context, tools ffmpeg.Tools, file string) (Probe, err
 		Format struct {
 			FormatName string `json:"format_name"`
 			Tags       struct {
-				MajorBrand string `json:"major_brand"`
+				MajorBrand       string `json:"major_brand"`
+				CompatibleBrands string `json:"compatible_brands"`
 			} `json:"tags"`
 		} `json:"format"`
 		Streams []struct {
@@ -67,6 +71,12 @@ func ProbeFile(ctx context.Context, tools ffmpeg.Tools, file string) (Probe, err
 		p.Streams = append(p.Streams, Stream{
 			Type: s.CodecType, Codec: s.CodecName, AttachedPicture: s.Disposition.AttachedPic == 1,
 		})
+	}
+
+	for b := raw.Format.Tags.CompatibleBrands; len(b) >= 4; b = b[4:] {
+		if brand := strings.TrimSpace(b[:4]); brand != "" {
+			p.Compatible = append(p.Compatible, brand)
+		}
 	}
 
 	return p, nil

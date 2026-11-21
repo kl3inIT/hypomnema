@@ -1070,7 +1070,8 @@ sequenceDiagram
     has less than 400 MB plus it free, or its free disk cannot be read; it is streamed into `<id>.*.part` there,
     synced, refused when under 400 MB is left after it, typed by ffprobe (`compose.ProbeFile`: exactly one audio
     stream and no video, a cover picture, chapters and other data streams aside; mp3 `audio/mpeg`, an ISO base
-    media file of an M4A or MP4 major brand with AAC `audio/mp4`, wav with PCM `audio/wav`, flac `audio/flac`, ogg
+    media file whose major or a compatible brand is an M4A or MP4 one (M4A, M4B, mp41, mp42, isom, iso2-iso6; the MP4
+    Registration Authority's) with AAC `audio/mp4`, wav with PCM `audio/wav`, flac `audio/flac`, ogg
     with Vorbis or Opus `audio/ogg`; ALAC, QuickTime's MOV and the rest refused) and decoded whole by `compose.Measure` (`-t 1201`, 60 s at
     most): its length is the decoded length, 10 s to 20 minutes, and silence (−70 LUFS or no peak) is refused.
     Then it is renamed, the folder synced and the row inserted. A full disk anywhere, ENOSPC from a file or
@@ -4960,10 +4961,14 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     of `data/videos/music/` into `videos-music/` (copying across file systems, under a temporary name renamed in
     place; an absent folder is backed up empty), syncs them, gives them to the control plane's user, and only then
     renames the folder to `data/predeploy-<time>/`; a backup that fails is removed and the unit started again. The
-    update runs as root over the user's files, so these operations go through an `os.Root` of `data/`
-    (`selfupdate/backup_unix.go`): no path or symlink leads out of it, a music folder (or a folder above it) that is
-    a symlink is refused, anything in it that is not a regular file is left out, and a file is checked again once
-    opened or linked. It keeps the binary as `bin/hypomnema.previous` and puts the new one in place, runs
+    update runs as root over the user's files, and the user owns the control plane's folder, so may rename `data/`
+    itself or anything in it while the update runs: `update install` opens `data/` once, as an `os.Root`, and the
+    backup, the prune and the rollback all go through that handle (`selfupdate/backup_unix.go`), so nothing outside
+    the folder it opened is read, written, renamed or removed, whatever is put at its name meanwhile. The `.part`
+    folder and the music folder it writes into are opened too and written through their handles, and a name is
+    checked to still be the folder opened before it is published, renamed or removed: a `.part` replaced meanwhile
+    is not published. A music folder (or a folder above it) that is a symlink is refused, anything in it that is not
+    a regular file is left out, and a file is checked again once opened or linked. It keeps the binary as `bin/hypomnema.previous` and puts the new one in place, runs
     `hypomnema migrate` as the user (the migration stays an explicit step, `docs/conventions.md`), starts the unit
     and waits up to a minute for `/readyz`. A control plane that does not become ready is stopped and its old
     binary and database put back, every regular file of the backup's music missing from the music folder linked

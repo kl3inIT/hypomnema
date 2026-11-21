@@ -429,11 +429,27 @@ func (s *Service) checkTrack(parent context.Context, file string) (string, strin
 	return mediaType, ext, m.LengthMs, nil
 }
 
-// mp4Brands are the major brands of an M4A or MP4 file, the ISO base media files a browser plays as audio/mp4;
-// QuickTime's qt and 3GPP's brands are other containers ffprobe names alike.
+// mp4Brands are the brands of an M4A or MP4 file, the ISO base media files a browser plays as audio/mp4 (the MP4
+// Registration Authority's brands, mp4ra.org); a file is one when its major brand or one of its compatible brands is
+// one of them. QuickTime's qt and 3GPP's brands are other containers ffprobe names alike.
 var mp4Brands = map[string]bool{
 	"M4A": true, "M4B": true, "mp41": true, "mp42": true, "isom": true, "iso2": true, "iso4": true, "iso5": true,
 	"iso6": true,
+}
+
+// isMP4 says whether a probed ISO base media file is an M4A or MP4 by its major or a compatible brand.
+func isMP4(p compose.Probe) bool {
+	if mp4Brands[p.Brand] {
+		return true
+	}
+
+	for _, b := range p.Compatible {
+		if mp4Brands[b] {
+			return true
+		}
+	}
+
+	return false
 }
 
 // musicType is a probed track's type and extension: mp3; m4a or mp4 with AAC; wav with PCM; flac; ogg with Vorbis or
@@ -471,7 +487,7 @@ func musicType(p compose.Probe) (string, string, error) {
 	switch {
 	case is("mp3") && codec == "mp3":
 		return "audio/mpeg", "mp3", nil
-	case (is("mp4") || is("m4a")) && mp4Brands[p.Brand] && codec == "aac":
+	case (is("mp4") || is("m4a")) && isMP4(p) && codec == "aac":
 		return "audio/mp4", "m4a", nil
 	case is("wav") && strings.HasPrefix(codec, "pcm_"):
 		return "audio/wav", "wav", nil

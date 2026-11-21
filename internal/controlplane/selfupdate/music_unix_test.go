@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -430,7 +431,10 @@ func TestACutCopyOnRollbackLeavesNoTrack(t *testing.T) {
 
 	live := track(t, o, "mus_a.mp3", "a track of some length")
 
-	var rollingBack atomic.Bool
+	var (
+		rollingBack    atomic.Bool
+		rollbackCopies atomic.Int64
+	)
 
 	cmds := &commands{}
 	o.Run = func(ctx context.Context, name string, args ...string) error {
@@ -443,7 +447,8 @@ func TestACutCopyOnRollbackLeavesNoTrack(t *testing.T) {
 	}
 	o = selfupdate.WithLink(o, exdev)
 	o = selfupdate.WithCopyData(o, func(dst io.Writer, src io.Reader) (int64, error) {
-		if !rollingBack.Load() {
+		// The database is put back first, whole; the track's copy is cut.
+		if !rollingBack.Load() || rollbackCopies.Add(1) == 1 {
 			return io.Copy(dst, src)
 		}
 
@@ -476,7 +481,7 @@ func TestAFailedSyncAfterPublishingStillPrunes(t *testing.T) {
 	cmds := &commands{}
 	o.Run = cmds.run
 	o = selfupdate.WithSyncDir(o, func(root *os.Root, name string) error {
-		if name == "." {
+		if name == "." && filepath.Base(root.Name()) == "data" {
 			return syscall.EIO
 		}
 
@@ -570,4 +575,262 @@ func TestARollbackBringsBackATrackDeletedByTheLibrary(t *testing.T) {
 
 	assert.True(t, sameFile(t, filepath.Join(musicDir(o), id+".mp3"),
 		filepath.Join(data, names[0], "videos-music", id+".mp3")), "the very file the backup links")
+}
+
+// decoys fills dir with seven backups and a half-written one of another tree, an hour old: what a prune or a cleanup
+// that followed a swapped name would remove.
+func decoys(t *testing.T, dir string) []string {
+	t.Helper()
+
+	old := time.Now().Add(-2 * time.Hour)
+	names := []string{".predeploy-decoy.part"}
+
+	for i := range 7 {
+		names = append(names, fmt.Sprintf("predeploy-decoy-%d", i))
+	}
+
+	for _, n := range names {
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, n), 0o700))
+		write(t, filepath.Join(dir, n, "keep"), "another tree's")
+		require.NoError(t, os.Chtimes(filepath.Join(dir, n), old, old))
+	}
+
+	return names
+}
+
+// Scenario (review round 2 of #1049): once the backup is made, the control plane's user, who owns the control plane's
+// folder, renames data/ and puts a symlink to another tree in its place; the new release does not become ready. The
+// prune and the rollback go through the data folder the update opened: the other tree's backups are all there
+// after, nothing is written into it, and the opened folder gets its database back and keeps five backups.
+func TestASwappedDataFolderIsNeverFollowed(t *testing.T) {
+	t.Parallel()
+
+	o := installed(t)
+	o.Ready = ready(t, http.StatusServiceUnavailable)
+	o.ReadyWithin = time.Second
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	data := filepath.Join(o.Home, "data")
+	moved := filepath.Join(o.Home, "data.moved")
+	other := t.TempDir()
+	names := decoys(t, other)
+	oldBackups(t, o, 5, "")
+	track(t, o, "mus_a.mp3", "a track")
+
+	cmds := &commands{}
+	o.Run = func(ctx context.Context, name string, args ...string) error {
+		if name == "runuser" {
+			write(t, filepath.Join(data, "hypomnema.db"), "the migrated database")
+			require.NoError(t, os.Remove(filepath.Join(musicDir(o), "mus_a.mp3")))
+			require.NoError(t, os.Rename(data, moved))
+			require.NoError(t, os.Symlink(other, data))
+		}
+
+		return cmds.run(ctx, name, args...)
+	}
+
+	require.ErrorContains(t, selfupdate.Install(t.Context(), o, from), "did not become ready")
+
+	for _, n := range names {
+		assert.Equal(t, "another tree's", read(t, filepath.Join(other, n, "keep")), "%s is left as it was", n)
+	}
+
+	assert.NoFileExists(t, filepath.Join(other, "hypomnema.db"), "nothing is written into the other tree")
+	assert.NoDirExists(t, filepath.Join(other, "videos"))
+
+	assert.Equal(t, "the old database", read(t, filepath.Join(moved, "hypomnema.db")), "the opened folder's")
+	assert.Equal(t, "a track", read(t, filepath.Join(moved, "videos", "music", "mus_a.mp3")))
+
+	entries, err := os.ReadDir(moved)
+	require.NoError(t, err)
+
+	kept := 0
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "predeploy-") {
+			kept++
+		}
+	}
+
+	assert.Equal(t, 5, kept, "the opened folder keeps five backups")
+
+	ran := cmds.lines()
+	assert.Equal(t, "systemctl start hypomnema-cp.service", ran[len(ran)-1])
+}
+
+// Scenario (review round 2 of #1049): while the backup is written, the control plane's user renames its .part
+// folder and makes another folder of that name. The update writes only into the folder it made, refuses to publish
+// the other, leaves the user's folder as it is, and starts the control plane again.
+func TestAReplacedBackupFolderIsNotPublished(t *testing.T) {
+	t.Parallel()
+
+	o := installed(t)
+	o.Ready = ready(t, http.StatusNoContent)
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+	cmds := &commands{}
+	o.Run = cmds.run
+
+	data := filepath.Join(o.Home, "data")
+	stolen := filepath.Join(data, "stolen")
+	track(t, o, "mus_a.mp3", "a track")
+
+	var swapped atomic.Bool
+
+	o = selfupdate.WithCopyData(o, func(dst io.Writer, src io.Reader) (int64, error) {
+		if swapped.CompareAndSwap(false, true) {
+			parts, err := filepath.Glob(filepath.Join(data, ".predeploy-*"+".part"))
+			require.NoError(t, err)
+			require.Len(t, parts, 1)
+			require.NoError(t, os.Rename(parts[0], stolen))
+			require.NoError(t, os.Mkdir(parts[0], 0o700))
+			write(t, filepath.Join(parts[0], "decoy"), "the user's")
+		}
+
+		return io.Copy(dst, src)
+	})
+
+	require.ErrorContains(t, selfupdate.Install(t.Context(), o, from), "replaced")
+
+	names, _ := backups(t, o)
+	assert.Empty(t, names, "nothing is published")
+
+	parts, err := filepath.Glob(filepath.Join(data, ".predeploy-*"+".part"))
+	require.NoError(t, err)
+	require.Len(t, parts, 1)
+
+	entries, err := os.ReadDir(parts[0])
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "the update wrote nothing into the user's folder")
+	assert.Equal(t, "the user's", read(t, filepath.Join(parts[0], "decoy")))
+
+	inside, err := os.ReadDir(stolen)
+	require.NoError(t, err)
+	assert.Empty(t, inside, "the folder the update made is emptied")
+
+	assert.Equal(t, []string{"systemctl stop hypomnema-cp.service", "systemctl start hypomnema-cp.service"},
+		cmds.lines())
+}
+
+// withLibrary opens the control plane's database in data and its videos Service, as a start does (its sweep
+// included), runs fn, and closes them.
+func withLibrary(t *testing.T, data string, fn func(svc *videos.Service, exec func(string, ...any))) {
+	t.Helper()
+
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(data, "hypomnema.db")})
+	require.NoError(t, err)
+
+	defer db.Close() //nolint:errcheck // A test's database.
+
+	svc, err := videos.New(videos.Config{DB: db, Dir: filepath.Join(data, "videos")})
+	require.NoError(t, err)
+
+	fn(svc, func(q string, args ...any) {
+		_, err := db.ExecContext(t.Context(), q, args...)
+		require.NoError(t, err)
+	})
+}
+
+// addLibraryTrack puts a track in the library as an upload leaves it: its file and its row.
+func addLibraryTrack(t *testing.T, o selfupdate.Options, exec func(string, ...any), id, content string) {
+	t.Helper()
+
+	track(t, o, id+".mp3", content)
+	exec(`INSERT INTO video_music (id, name, file, media_type, length_ms, bytes, created_at)
+		VALUES (?, ?, ?, 'audio/mpeg', 30000, ?, 1)`, id, id, id+".mp3", len(content))
+}
+
+// PR2.5 end to end through the updater, with the control plane's database and library:
+//   - a track uploaded after an update's backup is gone from the database the rollback puts back, and the next
+//     start's sweep unlinks its file;
+//   - restoring by hand an older pair the updater made (ARCHITECTURE.md's steps: the database, then
+//     `rm -rf videos/music && cp -al predeploy-X/videos-music videos/music`) brings back its tracks as the same files,
+//     and the next start's sweep unlinks the newer track, whose bytes stay in the newer backup.
+func TestAnOlderPairComesBackThroughTheUpdater(t *testing.T) {
+	t.Parallel()
+
+	o := installed(t)
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+	o.Run = (&commands{}).run
+
+	data := filepath.Join(o.Home, "data")
+	migrated, err := os.ReadFile(sqlitetest.Migrated(t, orchestration.Migrate))
+	require.NoError(t, err)
+
+	db := filepath.Join(data, "hypomnema.db")
+	require.NoError(t, os.WriteFile(db, migrated, 0o600)) //nolint:gosec // The test's own folder.
+
+	first, second, late := platform.NewID("mus"), platform.NewID("mus"), platform.NewID("mus")
+
+	withLibrary(t, data, func(_ *videos.Service, exec func(string, ...any)) {
+		addLibraryTrack(t, o, exec, first, "the first track")
+	})
+
+	// The first update works: its backup holds the first track.
+	o.Ready = ready(t, http.StatusNoContent)
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	older, _ := backups(t, o)
+	require.Len(t, older, 1)
+
+	withLibrary(t, data, func(_ *videos.Service, exec func(string, ...any)) {
+		addLibraryTrack(t, o, exec, second, "the second track")
+	})
+
+	// The second update does not become ready: a track uploaded after its backup is not in the database put back.
+	time.Sleep(1100 * time.Millisecond) // a backup is named by the second.
+
+	o.Ready = ready(t, http.StatusServiceUnavailable)
+	o.ReadyWithin = time.Second
+	o.Run = func(_ context.Context, name string, _ ...string) error {
+		if name == "runuser" {
+			//nolint:contextcheck // As a start does: videos.New's sweep takes no request's context.
+			withLibrary(t, data, func(_ *videos.Service, exec func(string, ...any)) {
+				addLibraryTrack(t, o, exec, late, "a late track")
+			})
+		}
+
+		return nil
+	}
+	require.ErrorContains(t, selfupdate.Install(t.Context(), o, from), "did not become ready")
+
+	withLibrary(t, data, func(svc *videos.Service, _ func(string, ...any)) {
+		lib, err := svc.Music(t.Context())
+		require.NoError(t, err)
+		assert.Len(t, lib.Tracks, 2, "the first and second tracks")
+	})
+	assert.NoFileExists(t, filepath.Join(musicDir(o), late+".mp3"), "the sweep unlinks the late track")
+
+	names, _ := backups(t, o)
+	require.Len(t, names, 2)
+
+	newer := names[0]
+	if newer == older[0] {
+		newer = names[1]
+	}
+
+	// The owner restores the older pair by hand, the control plane stopped.
+	//nolint:gosec // The test's own folders.
+	restore := exec.CommandContext(t.Context(), "sh", "-ec", `cd "$1"
+cp "$2/hypomnema.db" hypomnema.db && rm -f hypomnema.db-wal hypomnema.db-shm
+rm -rf videos/music && cp -al "$2/videos-music" videos/music`, "sh", data, older[0])
+	out, err := restore.CombinedOutput()
+	require.NoError(t, err, "%s", out)
+
+	withLibrary(t, data, func(svc *videos.Service, _ func(string, ...any)) {
+		lib, err := svc.Music(t.Context())
+		require.NoError(t, err)
+		require.Len(t, lib.Tracks, 1, "the older pair's library")
+		assert.Equal(t, first, lib.Tracks[0].ID)
+		assert.False(t, lib.Tracks[0].Missing)
+	})
+
+	assert.NoFileExists(t, filepath.Join(musicDir(o), second+".mp3"), "the sweep unlinks the newer track")
+	assert.Equal(t, "the second track", read(t, filepath.Join(data, newer, "videos-music", second+".mp3")),
+		"its bytes stay in the newer backup")
+	assert.True(t, sameFile(t, filepath.Join(musicDir(o), first+".mp3"),
+		filepath.Join(data, older[0], "videos-music", first+".mp3")), "the same file as the backups'")
+	assert.True(t, sameFile(t, filepath.Join(data, older[0], "videos-music", first+".mp3"),
+		filepath.Join(data, newer, "videos-music", first+".mp3")), "one inode across backups")
 }
