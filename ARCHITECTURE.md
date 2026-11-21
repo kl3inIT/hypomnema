@@ -1966,8 +1966,10 @@ flowchart LR
   the code before refused it; such a Task waits with the reason (the form to write the model in) and the owner is
   told, and the other Tasks of the scheduler's pass go on. The way back restores each changed model and gives every
   other Task named with its provider, one made after the upgrade too, its model's own name where the code before
-  would place that name at the same provider (among its runtime's kinds then, or every provider for a role Task),
-  and keeps the provider where it would not. A profile version, a Bot or a chat with a model and no provider is left as it is, as the code before ran
+  would place that name at the same provider, among its runtime's kinds then, which have no Zen; for a role Task,
+  whose runtime the role chain's YAML picks, only when every runtime taking the provider's kind would; it keeps the
+  provider where it would not, so a provider of Zen's kind under any name keeps it. Zen's way back splits a Bot's
+  fallbacks at their commas, never as JSON, as a model's name may hold a quote. A profile version, a Bot or a chat with a model and no provider is left as it is, as the code before ran
   it; an edit that leaves that model alone (a Bot's persona, a chat's effort, an undone setup change) is accepted and
   gives it the one provider that offers it, as the code before did (`keptModel`); a new model needs its provider.
   A profile version is restored by its id (`POST /profiles/{name}/versions/{version_id}/restore`, the profile page's
