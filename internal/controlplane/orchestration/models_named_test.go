@@ -258,7 +258,7 @@ func TestTheWayBackAfterZenLeavesRowsTheCodeBeforeRuns(t *testing.T) {
 	require.NoError(t, err, "no foreign key stops the way back")
 
 	models := taskModels(t, db)
-	assert.Equal(t, "", models[made[0].ID], "the Zen Task runs with its profile's model")
+	assert.Empty(t, models[made[0].ID], "the Zen Task runs with its profile's model")
 	assert.Equal(t, "gpt-6.1-sol", models[made[1].ID], "placed at the Codex subscription again")
 	assert.Equal(t, "claude-subscription/claude-haiku-5-5", models[made[2].ID],
 		"Claude Code reaches two providers of the bare name: the provider is kept")
