@@ -220,6 +220,8 @@ type Config struct {
 	Maker Maker
 	// FreeBytes says how much disk is free; nil: the file system's own.
 	FreeBytes func(path string) (uint64, error)
+	// MusicFS is the music library's file operations; its fields left nil are the os package's.
+	MusicFS MusicFS
 	// Timeout bounds one revision; zero: MakeTimeout.
 	Timeout time.Duration
 	// PreviewWait is how long a look sample waits for the one being made; zero: PreviewWait.
@@ -246,7 +248,7 @@ type Service struct {
 	upload chan struct{}
 	// musicDir is the music library's folder; fs its file operations, which tests replace.
 	musicDir string
-	fs       musicFS
+	fs       MusicFS
 }
 
 // New returns a Service.
@@ -286,7 +288,7 @@ func New(cfg Config) (*Service, error) {
 	s := &Service{
 		cfg: cfg, db: cfg.DB, wake: make(chan struct{}, 1), progress: map[string]Progress{},
 		preview: make(chan struct{}, 1), upload: make(chan struct{}, 1), musicDir: filepath.Join(cfg.Dir, musicFolder),
-		fs: osMusicFS(),
+		fs: cfg.MusicFS.withDefaults(),
 	}
 
 	// The music folder is swept before the Service answers anything or makes anything (issue #910, row 6d).

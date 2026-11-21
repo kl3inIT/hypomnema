@@ -190,29 +190,41 @@ type Library struct {
 	QuotaBytes int64   `json:"quota_bytes"`
 }
 
-// musicFile is a temporary file a track is received into.
-type musicFile interface {
+// MusicFile is a temporary file a track is received into.
+type MusicFile interface {
 	io.Writer
 	Sync() error
 	Close() error
 	Name() string
 }
 
-// musicFS is the file operations of the library, which tests replace (row 6e).
-type musicFS struct {
-	createTemp func(dir, pattern string) (musicFile, error)
-	rename     func(from, to string) error
-	syncDir    func(dir string) error
-	remove     func(path string) error
+// MusicFS is the file operations of the library, which tests replace (row 6e); a field left nil is the os package's.
+type MusicFS struct {
+	CreateTemp func(dir, pattern string) (MusicFile, error)
+	Rename     func(from, to string) error
+	SyncDir    func(dir string) error
+	Remove     func(path string) error
 }
 
-func osMusicFS() musicFS {
-	return musicFS{
-		createTemp: func(dir, pattern string) (musicFile, error) { return os.CreateTemp(dir, pattern) },
-		rename:     os.Rename,
-		syncDir:    syncDir,
-		remove:     os.Remove,
+// withDefaults is fs with the os package's operations where it has none.
+func (fs MusicFS) withDefaults() MusicFS {
+	if fs.CreateTemp == nil {
+		fs.CreateTemp = func(dir, pattern string) (MusicFile, error) { return os.CreateTemp(dir, pattern) }
 	}
+
+	if fs.Rename == nil {
+		fs.Rename = os.Rename
+	}
+
+	if fs.SyncDir == nil {
+		fs.SyncDir = syncDir
+	}
+
+	if fs.Remove == nil {
+		fs.Remove = os.Remove
+	}
+
+	return fs
 }
 
 // diskError is err of doing, an ErrDiskLow when the disk or the database was full: ENOSPC from a file, or SQLite's
@@ -269,25 +281,23 @@ func (s *Service) UploadMusic(ctx context.Context, name string, size int64, body
 		return Track{}, diskError("making the music folder", err)
 	}
 
-	need := minFreeBytes + uint64(size)
-	if free, err := s.cfg.FreeBytes(s.musicDir); err == nil && free < need {
-		return Track{}, fmt.Errorf("%w: the control plane has %d MB of disk free", ErrDiskLow, free/1_000_000)
+	if err := s.checkFree(minFreeBytes + uint64(size)); err != nil {
+		return Track{}, err
 	}
 
 	id := platform.NewID("mus")
 
 	part, err := s.receiveMusic(id, size, body)
 	if part != "" {
-		defer func() { _ = s.fs.remove(part) }()
+		defer func() { _ = s.fs.Remove(part) }()
 	}
 
 	if err != nil {
 		return Track{}, err
 	}
 
-	if free, err := s.cfg.FreeBytes(s.musicDir); err == nil && free < minFreeBytes {
-		return Track{}, fmt.Errorf("%w: the control plane has %d MB of disk free after the track", ErrDiskLow,
-			free/1_000_000)
+	if err := s.checkFree(minFreeBytes); err != nil {
+		return Track{}, err
 	}
 
 	mediaType, ext, length, err := s.checkTrack(ctx, part)
@@ -298,7 +308,7 @@ func (s *Service) UploadMusic(ctx context.Context, name string, size int64, body
 	file := id + "." + ext
 	final := filepath.Join(s.musicDir, file)
 
-	if err := s.fs.rename(part, final); err != nil {
+	if err := s.fs.Rename(part, final); err != nil {
 		return Track{}, diskError("keeping the track", err)
 	}
 
@@ -306,11 +316,11 @@ func (s *Service) UploadMusic(ctx context.Context, name string, size int64, body
 
 	defer func() {
 		if !kept {
-			_ = s.fs.remove(final)
+			_ = s.fs.Remove(final)
 		}
 	}()
 
-	if err := s.fs.syncDir(s.musicDir); err != nil {
+	if err := s.fs.SyncDir(s.musicDir); err != nil {
 		return Track{}, diskError("keeping the track", err)
 	}
 
@@ -329,10 +339,26 @@ func (s *Service) UploadMusic(ctx context.Context, name string, size int64, body
 	}, nil
 }
 
+// checkFree refuses a track unless the music folder's disk is known to have need bytes free: a free disk that cannot
+// be read is no room.
+func (s *Service) checkFree(need uint64) error {
+	free, err := s.cfg.FreeBytes(s.musicDir)
+	if err != nil {
+		return fmt.Errorf("%w: the free disk could not be read: %w", ErrDiskLow, err)
+	}
+
+	if free < need {
+		return fmt.Errorf("%w: the control plane has %d MB of disk free; the track needs %d MB", ErrDiskLow,
+			free/1_000_000, need/1_000_000)
+	}
+
+	return nil
+}
+
 // receiveMusic streams the body to a temporary file of the music folder, synced and closed; it answers the file's
 // path, set as soon as the file is made, so the caller removes it.
 func (s *Service) receiveMusic(id string, size int64, body io.Reader) (string, error) {
-	tmp, err := s.fs.createTemp(s.musicDir, id+".*"+partSuffix)
+	tmp, err := s.fs.CreateTemp(s.musicDir, id+".*"+partSuffix)
 	if err != nil {
 		return "", diskError("receiving the track", err)
 	}
@@ -403,8 +429,16 @@ func (s *Service) checkTrack(parent context.Context, file string) (string, strin
 	return mediaType, ext, m.LengthMs, nil
 }
 
+// mp4Brands are the major brands of an M4A or MP4 file, the ISO base media files a browser plays as audio/mp4;
+// QuickTime's qt and 3GPP's brands are other containers ffprobe names alike.
+var mp4Brands = map[string]bool{
+	"M4A": true, "M4B": true, "mp41": true, "mp42": true, "isom": true, "iso2": true, "iso4": true, "iso5": true,
+	"iso6": true,
+}
+
 // musicType is a probed track's type and extension: mp3; m4a or mp4 with AAC; wav with PCM; flac; ogg with Vorbis or
-// Opus. Anything else, ALAC among them, is refused.
+// Opus. Anything else, ALAC and QuickTime's MOV among them, is refused. A track holds exactly one audio stream; a
+// cover picture, chapters and other data streams aside, any video is refused.
 func musicType(p compose.Probe) (string, string, error) {
 	var audio []compose.Stream
 
@@ -412,10 +446,9 @@ func musicType(p compose.Probe) (string, string, error) {
 		switch {
 		case st.Type == "audio":
 			audio = append(audio, st)
-		case st.Type == "video" && st.AttachedPicture:
-		default:
-			return "", "", fmt.Errorf("%w: a track holds one audio stream and nothing else; this holds a %s stream",
-				ErrInvalid, st.Type)
+		case st.Type == "video" && !st.AttachedPicture:
+			return "", "", fmt.Errorf("%w: a track holds no video; this holds a %s video stream", ErrInvalid,
+				st.Codec)
 		}
 	}
 
@@ -438,7 +471,7 @@ func musicType(p compose.Probe) (string, string, error) {
 	switch {
 	case is("mp3") && codec == "mp3":
 		return "audio/mpeg", "mp3", nil
-	case (is("mp4") || is("m4a")) && codec == "aac":
+	case (is("mp4") || is("m4a")) && mp4Brands[p.Brand] && codec == "aac":
 		return "audio/mp4", "m4a", nil
 	case is("wav") && strings.HasPrefix(codec, "pcm_"):
 		return "audio/wav", "wav", nil
@@ -449,7 +482,7 @@ func musicType(p compose.Probe) (string, string, error) {
 	}
 
 	return "", "", fmt.Errorf("%w: a track is mp3, m4a with AAC, wav, flac, or ogg with Vorbis or Opus; "+
-		"this is %s with %s", ErrInvalid, p.Format, codec)
+		"this is %s %s with %s", ErrInvalid, p.Format, p.Brand, codec)
 }
 
 // musicBytes is what the music folder's tracks hold: its files, a file whose remove failed among them until the
@@ -586,7 +619,7 @@ func (s *Service) DeleteMusic(ctx context.Context, id string) error {
 		return err
 	}
 
-	if err := s.fs.remove(filepath.Join(s.musicDir, file)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := s.fs.Remove(filepath.Join(s.musicDir, file)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		s.cfg.Logger.WarnContext(ctx, "a deleted track's file was not removed; the next start removes it",
 			slog.String("event", "videos.music_remove_failed"), slog.String("track", id),
 			slog.String("error", err.Error()))

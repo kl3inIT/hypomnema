@@ -3,6 +3,7 @@ package videos
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -75,6 +76,8 @@ func TestATrackIsTypedByItsStreams(t *testing.T) {
 	t.Parallel()
 
 	audio := func(codec string) compose.Stream { return compose.Stream{Type: "audio", Codec: codec} }
+	const mov = "mov,mp4,m4a,3gp,3g2,mj2"
+
 	cover := compose.Stream{Type: "video", Codec: "mjpeg", AttachedPicture: true}
 
 	for name, c := range map[string]struct {
@@ -84,16 +87,20 @@ func TestATrackIsTypedByItsStreams(t *testing.T) {
 	}{
 		"mp3":            {compose.Probe{Format: "mp3", Streams: []compose.Stream{audio("mp3")}}, "audio/mpeg", "mp3"},
 		"mp3 with cover": {compose.Probe{Format: "mp3", Streams: []compose.Stream{audio("mp3"), cover}}, "audio/mpeg", "mp3"},
-		"m4a": {compose.Probe{Format: "mov,mp4,m4a,3gp,3g2,mj2", Streams: []compose.Stream{audio("aac")}}, "audio/mp4",
-			"m4a"},
-		"wav":    {compose.Probe{Format: "wav", Streams: []compose.Stream{audio("pcm_s16le")}}, "audio/wav", "wav"},
-		"flac":   {compose.Probe{Format: "flac", Streams: []compose.Stream{audio("flac")}}, "audio/flac", "flac"},
-		"vorbis": {compose.Probe{Format: "ogg", Streams: []compose.Stream{audio("vorbis")}}, "audio/ogg", "ogg"},
-		"opus":   {compose.Probe{Format: "ogg", Streams: []compose.Stream{audio("opus")}}, "audio/ogg", "ogg"},
-		"alac":   {probe: compose.Probe{Format: "mov,mp4,m4a,3gp,3g2,mj2", Streams: []compose.Stream{audio("alac")}}},
-		"two audio streams": {probe: compose.Probe{Format: "mov,mp4,m4a,3gp,3g2,mj2",
+		"m4a":            {compose.Probe{Format: mov, Brand: "M4A", Streams: []compose.Stream{audio("aac")}}, "audio/mp4", "m4a"},
+		"mp4":            {compose.Probe{Format: mov, Brand: "isom", Streams: []compose.Stream{audio("aac")}}, "audio/mp4", "m4a"},
+		"m4a with chapters": {compose.Probe{Format: mov, Brand: "M4A",
+			Streams: []compose.Stream{audio("aac"), {Type: "data", Codec: "bin_data"}}}, "audio/mp4", "m4a"},
+		"QuickTime": {probe: compose.Probe{Format: mov, Brand: "qt", Streams: []compose.Stream{audio("aac")}}},
+		"no brand":  {probe: compose.Probe{Format: mov, Streams: []compose.Stream{audio("aac")}}},
+		"wav":       {compose.Probe{Format: "wav", Streams: []compose.Stream{audio("pcm_s16le")}}, "audio/wav", "wav"},
+		"flac":      {compose.Probe{Format: "flac", Streams: []compose.Stream{audio("flac")}}, "audio/flac", "flac"},
+		"vorbis":    {compose.Probe{Format: "ogg", Streams: []compose.Stream{audio("vorbis")}}, "audio/ogg", "ogg"},
+		"opus":      {compose.Probe{Format: "ogg", Streams: []compose.Stream{audio("opus")}}, "audio/ogg", "ogg"},
+		"alac":      {probe: compose.Probe{Format: mov, Brand: "M4A", Streams: []compose.Stream{audio("alac")}}},
+		"two audio streams": {probe: compose.Probe{Format: mov, Brand: "M4A",
 			Streams: []compose.Stream{audio("aac"), audio("aac")}}},
-		"a video": {probe: compose.Probe{Format: "mov,mp4,m4a,3gp,3g2,mj2",
+		"a video": {probe: compose.Probe{Format: mov, Brand: "isom",
 			Streams: []compose.Stream{audio("aac"), {Type: "video", Codec: "h264"}}}},
 		"no audio":   {probe: compose.Probe{Format: "mp3"}},
 		"mp3 in wav": {probe: compose.Probe{Format: "wav", Streams: []compose.Stream{audio("mp3")}}},
@@ -220,7 +227,7 @@ func TestAFullDiskWhileReceivingLeavesNothing(t *testing.T) {
 
 	for _, failWrite := range []bool{true, false} {
 		r := newRig(t)
-		r.svc.fs.createTemp = func(dir, pattern string) (musicFile, error) {
+		r.svc.fs.CreateTemp = func(dir, pattern string) (MusicFile, error) {
 			f, err := os.CreateTemp(dir, pattern)
 			if err != nil {
 				return nil, err
@@ -248,6 +255,33 @@ func TestAFullDiskWhileReceivingLeavesNothing(t *testing.T) {
 	_, err := r.svc.UploadMusic(t.Context(), "Nhạc", 4, bytes.NewReader([]byte("ID3x")))
 	require.ErrorIs(t, err, ErrDiskLow, "under 400 MB once the track is copied")
 	assert.Empty(t, r.musicFiles(t))
+}
+
+// A free disk that cannot be read is no room (review of #1049): before the body is read, and once it is copied.
+func TestAnUnknownFreeDiskIsNoRoom(t *testing.T) {
+	t.Parallel()
+
+	for failAt := 1; failAt <= 2; failAt++ {
+		r := newRig(t)
+		calls := 0
+		r.svc.cfg.FreeBytes = func(string) (uint64, error) {
+			calls++
+			if calls == failAt {
+				return 0, errors.New("statfs: input/output error")
+			}
+
+			return 1 << 40, nil
+		}
+
+		body := &countingReader{r: bytes.NewReader([]byte("ID3x"))}
+		_, err := r.svc.UploadMusic(t.Context(), "Nhạc", 4, body)
+		require.ErrorIs(t, err, ErrDiskLow, "the read that fails: %d", failAt)
+		assert.Empty(t, r.musicFiles(t))
+
+		if failAt == 1 {
+			assert.Zero(t, body.reads.Load(), "the body is not read")
+		}
+	}
 }
 
 // PR2.4: at start, the music folder loses what a crash left half-written and the files with no track, before New
@@ -467,6 +501,34 @@ func TestAGoneTrackAtQueueTime(t *testing.T) {
 		require.Equal(t, Review, made.State, made.FailedCause)
 		assert.Contains(t, made.Warnings, `the music "A" was deleted, so the video has no music`)
 		assert.Nil(t, r.maker.inputs[0].Music)
+	})
+
+	t.Run("a retry of a revision that has it", func(t *testing.T) {
+		t.Parallel()
+
+		r := newRig(t)
+		a := r.addTrack(t, "A", 30_000)
+
+		// The revision fails with the track still named, and the track is deleted after.
+		r.maker.fail = "compose"
+		v, _, err := r.makeWith(t, musicIn(a))
+		require.NoError(t, err)
+		r.runAll(t)
+		r.maker.fail = ""
+
+		failed := r.revision(t, v.ID, 1)
+		require.Equal(t, Failed, failed.State)
+		require.Equal(t, a, failed.Look.Music.Track, "the failed revision still names the track")
+		require.NoError(t, r.svc.DeleteMusic(t.Context(), a))
+
+		_, retried, err := r.svc.Retry(t.Context(), v.ID, 1, Owner, "r")
+		require.NoError(t, err)
+		fellBack(t, r, retried, a)
+		r.runAll(t)
+
+		made := r.revision(t, v.ID, retried.Rev)
+		require.Equal(t, Review, made.State, made.FailedCause)
+		assert.Contains(t, made.Warnings, `the music "A" was deleted, so the video has no music`)
 	})
 
 	t.Run("from the source", func(t *testing.T) {
