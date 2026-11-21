@@ -20,8 +20,14 @@ import (
 )
 
 const (
-	goCacheAge   = 5*24*time.Hour + time.Hour
-	goCacheBatch = 128
+	// goCacheAge is Go's own cut: entries unused for 5 days, plus an hour for the imprecision of their mtimes
+	// (cmd/go/internal/cache/cache.go:429; golangci-lint's copy, internal/go/cache/cache.go:434).
+	goCacheAge = 5*24*time.Hour + time.Hour
+	// youngCacheAge is the second pass's floor, taken only while the volume still needs room (issue #1017): an
+	// entry used in the last 2 hours is kept, as Go refreshes an entry's mtime on use at most once an hour
+	// (mtimeInterval), so a build in progress keeps what it uses.
+	youngCacheAge = 2 * time.Hour
+	goCacheBatch  = 128
 )
 
 type Caches struct {
@@ -38,14 +44,18 @@ func (c Caches) worktreeVolume() string {
 	return path
 }
 
-func (c Caches) Trim(ctx context.Context, whileIdle func(func())) {
+// Trim frees room on the worktree volume when it is below its trim threshold, from the caches it manages only: Go's
+// build caches and golangci-lint's, oldest entry first, the entries unused for goCacheAge; then the pnpm store's
+// unreferenced packages while the node is idle; then, while the volume still needs room, the same caches again down
+// to youngCacheAge (issue #1017). It reports whether the volume is still below its floor after all of it.
+func (c Caches) Trim(ctx context.Context, whileIdle func(func())) (blocked bool) {
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 
 	space, _ := c.Policy.Measure(ctx, c.WorktreeRoot)
 	if space.FreeBytes == nil || *space.FreeBytes >= space.TrimBytes {
-		return
+		return false
 	}
 	volume := c.worktreeVolume()
 	needsRoom := func() bool {
@@ -57,34 +67,60 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) {
 			SameVolume(volume, c.worktreeVolume())
 	}
 
+	// Without Go's own answer the module cache, which is never trimmed, is not known for sure, so neither cache of
+	// Go's layout is trimmed.
 	locations, module, err := c.goCaches(ctx)
 	if err != nil {
 		c.Logger.WarnContext(ctx, "could not locate the Go build cache", slog.Any("error", err))
+		locations = nil
 	} else {
+		locations = append(locations, c.lintCaches()...)
+	}
+	guarded := WithProtection(ctx, module)
+	trim := func(age time.Duration) {
 		for _, root := range locations {
-			c.trimGoCache(WithProtection(ctx, module), root, volume, needsRoom)
+			c.trimGoCache(guarded, root, volume, age, needsRoom)
 		}
 	}
-	if !RealDir(c.UserHome) {
-		return
-	}
-	c.Logger.WarnContext(ctx, "worktree volume is below the disk trim threshold",
-		slog.String("event", "node.disk_pressure"), slog.Int64("free_bytes", *space.FreeBytes),
-		slog.Int64("floor_bytes", space.FloorBytes), slog.Int64("trim_bytes", space.TrimBytes))
+	trim(goCacheAge)
+	if RealDir(c.UserHome) {
+		c.Logger.WarnContext(ctx, "worktree volume is below the disk trim threshold",
+			slog.String("event", "node.disk_pressure"), slog.Int64("free_bytes", *space.FreeBytes),
+			slog.Int64("floor_bytes", space.FloorBytes), slog.Int64("trim_bytes", space.TrimBytes))
 
-	if needsRoom() {
-		whileIdle(func() {
-			if needsRoom() {
-				if err := c.prunePnpm(ctx, volume); err != nil {
-					c.Logger.WarnContext(ctx, "could not prune the pnpm store", slog.Any("error", err))
+		if needsRoom() {
+			whileIdle(func() {
+				if needsRoom() {
+					if err := c.prunePnpm(ctx, volume); err != nil {
+						c.Logger.WarnContext(ctx, "could not prune the pnpm store", slog.Any("error", err))
+					}
 				}
+			})
+		}
+	}
+	trim(youngCacheAge)
 
-			}
-		})
+	current, _ := c.Policy.Measure(ctx, c.WorktreeRoot)
+	if ctx.Err() != nil || current.AllowsWork() {
+		return false
 	}
-	if current, _ := c.Policy.Measure(ctx, c.WorktreeRoot); ctx.Err() == nil && !current.AllowsWork() {
-		c.Logger.WarnContext(ctx, "the worktree volume still takes no new work", slog.String("event", "node.disk_blocked"))
+	c.Logger.WarnContext(ctx, "the worktree volume still takes no new work", slog.String("event", "node.disk_blocked"))
+	return true
+}
+
+// lintCaches are golangci-lint's caches, which keep Go's layout and trim rule, as golangci-lint copies Go's cache
+// (internal/go/cache): its default, under the worker's ~/.cache, and GOLANGCI_LINT_CACHE when it names another
+// (internal/go/cache/default.go:72-92).
+func (c Caches) lintCaches() []string {
+	if c.UserHome == "" {
+		return nil
 	}
+	paths := []string{filepath.Join(c.UserHome, ".cache", "golangci-lint")}
+	if configured := os.Getenv("GOLANGCI_LINT_CACHE"); filepath.IsAbs(configured) &&
+		filepath.Clean(configured) != paths[0] {
+		paths = append(paths, filepath.Clean(configured))
+	}
+	return paths
 }
 
 type goCacheConfig struct {
@@ -172,13 +208,15 @@ func (c Caches) fallbackGoCaches(paths []string, cause error) ([]string, string,
 	return slices.Compact(paths), filepath.Join(c.UserHome, "go", "pkg", "mod"), cause
 }
 
-func (c Caches) trimGoCache(ctx context.Context, root, worktreeVolume string, needsRoom func() bool) {
+func (c Caches) trimGoCache(ctx context.Context, root, worktreeVolume string, age time.Duration,
+	needsRoom func() bool,
+) {
 	if !RealDir(root) || !SameVolume(worktreeVolume, root) {
 		return
 	}
 	protected, err := deletionIdentities(ctx, root, c.NodeHome, "", false)
 	if err == nil {
-		err = trimGo(ctx, worktreeVolume, root, time.Now().Add(-goCacheAge), needsRoom, protected)
+		err = trimGo(ctx, worktreeVolume, root, time.Now().Add(-age), needsRoom, protected)
 	}
 	if err != nil {
 		c.Logger.WarnContext(ctx, "could not trim the Go build cache", slog.String("path", root), slog.Any("error", err))

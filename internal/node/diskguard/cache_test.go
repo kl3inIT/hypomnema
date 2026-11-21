@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -220,7 +221,7 @@ func TestConfiguredGoCacheTrimKeepsModuleCache(t *testing.T) {
 		require.NoError(t, os.WriteFile(entry, []byte("bytes"), 0o600))
 		old := time.Now().Add(-goCacheAge - time.Hour)
 		require.NoError(t, os.Chtimes(entry, old, old))
-		caches.trimGoCache(WithProtection(t.Context(), mod), root, home, func() bool { return true })
+		caches.trimGoCache(WithProtection(t.Context(), mod), root, home, goCacheAge, func() bool { return true })
 		if root == module {
 			assert.FileExists(t, entry)
 		} else {
@@ -252,4 +253,72 @@ func TestGoCacheContinuesAfterAnUndeletableEntry(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrPermission)
 	assert.FileExists(t, entries[0])
 	assert.NoFileExists(t, entries[1])
+}
+
+func writeCacheEntry(t *testing.T, root string, index int, age time.Duration) string {
+	t.Helper()
+	bucket := filepath.Join(root, "01")
+	require.NoError(t, os.MkdirAll(bucket, 0o700))
+	path := filepath.Join(bucket, fmt.Sprintf("01%062x-a", index))
+	require.NoError(t, os.WriteFile(path, []byte("bytes"), 0o600))
+	date := time.Now().Add(-age)
+	require.NoError(t, os.Chtimes(path, date, date))
+	return path
+}
+
+// Issue #1017: a cache of entries all younger than Go's 5 days, on a volume that still needs room, is trimmed
+// oldest-first until it has the room, and an entry used in the last 2 hours is never taken.
+func TestYoungGoCacheIsTrimmedOldestFirstToTargetAndKeepsRecentEntries(t *testing.T) {
+	t.Parallel()
+	root := realTempDir(t)
+	var paths []string
+	for index := range goCacheBatch + 1 {
+		paths = append(paths, writeCacheEntry(t, root, index, 4*24*time.Hour-time.Duration(index)*time.Minute*20))
+	}
+	recent := writeCacheEntry(t, root, goCacheBatch+1, youngCacheAge-10*time.Minute)
+	checks := 0
+	require.NoError(t, trimGo(t.Context(), root, root, time.Now().Add(-youngCacheAge), func() bool {
+		checks++
+		return checks <= 2
+	}, nil))
+	assert.NoFileExists(t, paths[0], "the oldest entry goes first")
+	assert.NoFileExists(t, paths[goCacheBatch-1])
+	assert.FileExists(t, paths[goCacheBatch], "nothing more is taken once the volume has room")
+	assert.FileExists(t, recent)
+
+	require.NoError(t, trimGo(t.Context(), root, root, time.Now().Add(-youngCacheAge), func() bool { return true },
+		nil))
+	assert.NoFileExists(t, paths[goCacheBatch])
+	assert.FileExists(t, recent, "an entry used in the last 2 hours is kept however low the volume is")
+}
+
+func TestTrimTakesYoungEntriesOfGoAndLintCachesOnlyWhileStillLow(t *testing.T) {
+	home := realTempDir(t)
+	build := filepath.Join(home, "go-build")
+	lint := filepath.Join(home, ".cache", "golangci-lint")
+	t.Setenv("GOCACHE", build)
+	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOLANGCI_LINT_CACHE", "")
+	var young, recent []string
+	for index, root := range []string{build, lint} {
+		young = append(young, writeCacheEntry(t, root, 2*index, 24*time.Hour))
+		recent = append(recent, writeCacheEntry(t, root, 2*index+1, time.Hour))
+	}
+	caches := Caches{
+		Policy: Policy{FloorBytes: 1}, WorktreeRoot: home, UserHome: home, Logger: slog.New(slog.DiscardHandler),
+	}
+	assert.False(t, caches.Trim(t.Context(), func(func()) { t.Error("must not prune without disk pressure") }))
+	for _, path := range append(slices.Clone(young), recent...) {
+		require.FileExists(t, path)
+	}
+
+	caches.Policy.FloorBytes = 1<<63 - 1
+	assert.True(t, caches.Trim(t.Context(), func(func()) {}), "a volume still below its floor is reported")
+	for _, path := range young {
+		assert.NoFileExists(t, path)
+	}
+	for _, path := range recent {
+		assert.FileExists(t, path)
+	}
 }

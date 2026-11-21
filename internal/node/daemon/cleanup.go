@@ -26,7 +26,8 @@ type Maintenance struct {
 	Stopped       func(id string, missingOK bool) bool
 	CleanTemp     func(ctx context.Context, id string) error
 	CleanWorktree func(ctx context.Context, path string, hasRepo bool, stopped func() bool) error
-	TrimCaches    func(ctx context.Context, whileIdle func(func()))
+	// TrimCaches frees room on the worktree volume and reports whether it is still below its floor.
+	TrimCaches func(ctx context.Context, whileIdle func(func())) (blocked bool)
 }
 
 func (d *Daemon) maintain(ctx context.Context, out chan<- nodeproto.Message, acks <-chan nodeproto.CleanupAck) {
@@ -48,7 +49,8 @@ func (d *Daemon) maintain(ctx context.Context, out chan<- nodeproto.Message, ack
 			guarded, err = d.cleanupProtection(ctx, ack)
 			if err == nil {
 				d.cleanTemps(guarded)
-				d.cfg.Maintenance.TrimCaches(guarded, func(prune func()) { d.whileIdle(guarded, prune) })
+				d.diskBlocked.Store(d.cfg.Maintenance.TrimCaches(guarded,
+					func(prune func()) { d.whileIdle(guarded, prune) }))
 			}
 		}
 		if err != nil {

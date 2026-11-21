@@ -114,7 +114,7 @@ func TestReconnectBackfillsOnlyConfirmedStoppedWorktrees(t *testing.T) {
 		CleanWorktree: func(ctx context.Context, path string, _ bool, recheck func() bool) error {
 			return diskguard.RemoveTree(ctx, path, recheck)
 		},
-		TrimCaches: func(context.Context, func(func())) { swept <- struct{}{} },
+		TrimCaches: func(context.Context, func(func())) bool { swept <- struct{}{}; return false },
 	}}, db, nil, slog.New(slog.DiscardHandler))
 
 	for round := range 3 {
@@ -372,4 +372,30 @@ func TestAcceptedStartReturnsLowDiskReportError(t *testing.T) {
 		return nodeproto.DiskSpace{FreeBytes: &free, FloorBytes: 5 << 30, TrimBytes: 15 << 30}
 	}}, db, nil, slog.New(slog.DiscardHandler))
 	require.ErrorIs(t, d.startAccepted(ctx, statedb.Dispatch{ID: platform.NewID("dsp")}), statedb.ErrNotFound)
+}
+
+// Issue #1017: the heartbeat says the volume is still below its floor after a trim, and only while it is.
+func TestHeartbeatSaysTheDiskIsBlockedAfterTrimming(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db, err := statedb.Open(ctx, filepath.Join(t.TempDir(), "state.db"), time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	const floor = 5 << 30
+	free := int64(1 << 30)
+	d := New(Config{Disk: func(context.Context) nodeproto.DiskSpace {
+		return nodeproto.DiskSpace{FreeBytes: &free, FloorBytes: floor, TrimBytes: 15 << 30}
+	}}, db, nil, slog.New(slog.DiscardHandler))
+	blocked := func() bool {
+		var hb nodeproto.Heartbeat
+		require.NoError(t, json.Unmarshal(d.heartbeat(ctx).Payload, &hb))
+		require.NotNil(t, hb.Disk)
+		return hb.Disk.Blocked
+	}
+
+	assert.False(t, blocked(), "below the floor before a trim ran")
+	d.diskBlocked.Store(true)
+	assert.True(t, blocked())
+	free = floor
+	assert.False(t, blocked(), "space came back before the next trim")
 }

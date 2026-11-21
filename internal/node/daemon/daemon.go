@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -149,6 +150,8 @@ type Phone interface {
 type Daemon struct {
 	diskWorkers sync.RWMutex
 	maintenance chan struct{}
+	// diskBlocked says the last trim of the caches left the worktree volume below its floor (issue #1017).
+	diskBlocked atomic.Bool
 	diskProbe   chan struct{}
 	statsProbe  chan struct{}
 	cfg         Config
@@ -654,6 +657,7 @@ func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
 	hb := nodeproto.Heartbeat{Reaches: d.hosts.said(), Tools: d.tools.said(), Device: d.phoneState()}
 	if d.cfg.Disk != nil {
 		disk := d.measureDisk(ctx)
+		disk.Blocked = d.diskBlocked.Load() && disk.FreeBytes != nil && !disk.AllowsWork()
 		hb.Disk = &disk
 	}
 	hb.Stats = d.measureStats(ctx)

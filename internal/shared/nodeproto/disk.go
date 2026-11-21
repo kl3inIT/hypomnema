@@ -5,6 +5,9 @@ type DiskSpace struct {
 	FloorBytes int64  `json:"floor_bytes"`
 	TrimBytes  int64  `json:"trim_bytes"`
 	SampleAt   int64  `json:"sample_at,omitempty"`
+	// Blocked says the node trimmed every cache it manages and the volume is still below its floor (issue #1017):
+	// what the control plane tells the owner of. Set in a heartbeat only.
+	Blocked bool `json:"blocked,omitempty"`
 }
 
 func (d DiskSpace) AllowsWork() bool {
