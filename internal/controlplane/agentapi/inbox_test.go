@@ -47,6 +47,30 @@ func (w *world) inbox(pi, tool string, args map[string]any) inboxItem {
 	return item
 }
 
+// inboxList calls inbox_list as pi and gives the ids it listed.
+func (w *world) inboxList(pi string, args map[string]any) []string {
+	w.t.Helper()
+
+	raw, err := json.Marshal(args)
+	require.NoError(w.t, err)
+
+	status, text, isError := w.use(pi, agenttool.ToolInboxList, string(raw))
+	require.Equal(w.t, http.StatusOK, status, text)
+	require.False(w.t, isError, text)
+
+	var page struct {
+		Items []inboxItem `json:"items"`
+	}
+	require.NoError(w.t, json.Unmarshal([]byte(text), &page), text)
+
+	ids := make([]string, 0, len(page.Items))
+	for _, item := range page.Items {
+		ids = append(ids, item.ID)
+	}
+
+	return ids
+}
+
 // inboxPi is a Bot's pi in a chat of its own.
 func (w *world) inboxPi(bot orchestration.Bot) (string, string) {
 	w.t.Helper()
@@ -138,6 +162,26 @@ func TestABotKeepsTheOwnersInbox(t *testing.T) {
 	due, err := time.Parse(time.RFC3339, chase.Due)
 	require.NoError(t, err, chase.Due)
 	assert.WithinDuration(t, time.Now().Add(48*time.Hour), due, time.Minute)
+
+	// The same add retried with its key returns the item it made: the 2 days count from the first.
+	asked := map[string]any{
+		"title": "Minh sends the invoice", "assignee_kind": inboxstore.Person, "assignee": "Minh",
+		"timezone": "Asia/Ho_Chi_Minh", "key": "minh-invoice",
+	}
+	first := w.inbox(pi, agenttool.ToolInboxAdd, asked)
+	time.Sleep(5 * time.Millisecond)
+	retried := w.inbox(pi, agenttool.ToolInboxAdd, asked)
+	assert.Equal(t, first.ID, retried.ID)
+	assert.Equal(t, first.Due, retried.Due)
+
+	// inbox_list takes the client API's due range: what is due from tomorrow to 3 days on, not today's reply.
+	listed := w.inboxList(pi, map[string]any{
+		"due_from": time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+		"due_to":   time.Now().Add(72 * time.Hour).Format(time.RFC3339),
+	})
+	assert.Contains(t, listed, chase.ID)
+	assert.Contains(t, listed, first.ID)
+	assert.NotContains(t, listed, reply.ID)
 
 	_, text, isError := w.use(pi, agenttool.ToolInboxAdd, `{"title":"x","source":{"kind":"zalo","chat":"g_1"}}`)
 	assert.True(t, isError)

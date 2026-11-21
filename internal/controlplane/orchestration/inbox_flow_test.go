@@ -281,3 +281,39 @@ func TestASecondApprovalOfAnAttemptWaitsForTheFirst(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.Open, w.todo(td.ID).State, "the owner's no moves the item")
 }
+
+// Scenario: a create retried with the idempotency key it was first sent with before the Inbox's part 3 (issue
+// #1004), whose request had no draft: the same request returns the item it made, not a conflict. The hash is the one
+// the store of part 2 kept for this request.
+func TestAKeyUsedBeforeTheDraftReturnsItsItem(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, migrationVersion(t, p, "_inbox_bot_tools.sql")-1)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO todos (id, title, state, source_kind, source_id, source_account,
+		source_ref, created_by_kind, created_by, idempotency_key, idempotency_hash, created_at, updated_at)
+		VALUES ('tdo_1', 'Answer Linh', 'proposed', 'zalo', 'g_1', 'main', '{"kind":"zalo_message","ref":"1"}',
+		'bot', 'default', 'zalo:g_1:1', '2240549110c108d0bc5c45c879d062846d4e1e08faa650fb3d880a0af7e95a37', 1, 1)`)
+	require.NoError(t, err)
+
+	require.NoError(t, Migrate(ctx, db))
+
+	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_new" })
+
+	again, err := s.Inbox().Create(ctx, inboxBot, inboxstore.NewTodo{
+		Title: "Answer Linh", State: inboxstore.Proposed, Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
+		Source: inboxstore.Source{Kind: inboxstore.FromZalo, ID: "g_1", Account: "main",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkZaloMessage, Ref: "1"}},
+		IdempotencyKey: "zalo:g_1:1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "tdo_1", again.ID)
+}
