@@ -212,9 +212,14 @@ type RoutineRun struct {
 	Error  string
 	// ChatID is a prompt run's chat.
 	ChatID string
-	// Access is the Routine's when the run started: a read run's check and chat read only for the whole run,
-	// whatever the Routine is changed to meanwhile (issue #1023, review of #1037).
-	Access string
+	// Access, Prompt, Script, ScriptText and Timeout are the Routine's when the run started, its snapshot: the
+	// launch, the wake and every check of the run's token read them, so a change of the Routine meanwhile, the
+	// owner's or a Bot's, changes nothing of the run that goes on (issue #1023, reviews of #1037).
+	Access     string
+	Prompt     string
+	Script     string
+	ScriptText string
+	Timeout    time.Duration
 }
 
 // RoutineSpec is what a Routine is made or changed with.
@@ -390,6 +395,8 @@ func routineRunFromRow(r store.RoutineRun) RoutineRun {
 		ID: r.ID, RoutineID: r.RoutineID, StartedBy: r.StartedBy, State: RunState(r.State),
 		StartedAt: storeutil.Millis(r.StartedAt), EndedAt: storeutil.OptionalMillis(r.EndedAt),
 		Output: r.Output, Error: r.Error, ChatID: r.ChatID.String, Access: r.Access,
+		Prompt: r.Prompt, Script: r.Script, ScriptText: r.ScriptText,
+		Timeout: time.Duration(r.TimeoutSeconds) * time.Second,
 	}
 
 	if r.ExitCode.Valid {
@@ -1020,6 +1027,7 @@ func StartRunTx(ctx context.Context, q *store.Queries, now int64, r Routine, id,
 ) (StartedRun, error) {
 	if err := q.InsertRoutineRun(ctx, store.InsertRoutineRunParams{
 		ID: id, RoutineID: r.ID, StartedBy: by, Now: now, ChatID: nullString(chatID), Access: cmp.Or(r.Access, AccessFull),
+		Prompt: r.Prompt, Script: r.Script, ScriptText: r.ScriptText, TimeoutSeconds: int64(r.Timeout / time.Second),
 	}); err != nil {
 		return StartedRun{}, fmt.Errorf("recording a run of routine %s: %w", r.ID, err)
 	}
@@ -1133,11 +1141,8 @@ func (s *Store) ClaimRoutineScript(ctx context.Context, routineID, bot string) (
 			return storeutil.NotFound(err, "routine", routineID)
 		}
 
-		switch {
-		case row.BotID != bot:
+		if row.BotID != bot {
 			return fmt.Errorf("%w: routine %s is not bot %s's", storeerr.ErrInvalid, routineID, bot)
-		case row.Script == "":
-			return fmt.Errorf("%w: routine %s runs a prompt, not a script", storeerr.ErrInvalid, routineID)
 		}
 
 		live, err := liveRun(ctx, q, routineID)
@@ -1145,8 +1150,13 @@ func (s *Store) ClaimRoutineScript(ctx context.Context, routineID, bot string) (
 			return err
 		}
 
-		if live == nil {
+		switch {
+		case live == nil:
 			return fmt.Errorf("%w: no run of routine %s is starting", storeerr.ErrConflict, routineID)
+		case live.Script == "":
+			// The run's own copy says what runs: the Routine as it was when the run started (#1023).
+			return fmt.Errorf("%w: run %s of routine %s runs a prompt, not a script", storeerr.ErrInvalid, live.ID,
+				routineID)
 		}
 
 		n, err := q.ClaimRoutineRunKey(ctx, store.ClaimRoutineRunKeyParams{
@@ -1160,8 +1170,7 @@ func (s *Store) ClaimRoutineScript(ctx context.Context, routineID, bot string) (
 			return fmt.Errorf("%w: run %s of routine %s was started already", storeerr.ErrConflict, live.ID, routineID)
 		}
 
-		out.Script, out.Text = row.Script, row.ScriptText
-		out.Timeout = time.Duration(row.TimeoutSeconds) * time.Second
+		out.Script, out.Text, out.Timeout = live.Script, live.ScriptText, live.Timeout
 
 		return nil
 	})

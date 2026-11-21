@@ -76,8 +76,8 @@ type Store interface {
 	// RoutineRunOf is the live run of a Routine's script's token, or of the Routine's run a pi's chat was opened for;
 	// empty when there is none (a read's sign-in item names it, issue #1023).
 	RoutineRunOf(ctx context.Context, tok orchestration.Token) (string, error)
-	// RoutineScriptReads says whether a Routine's script reads only, by its live run's access (issue #1023).
-	RoutineScriptReads(ctx context.Context, routineID string) (bool, error)
+	// RoutineScriptReads says whether a Routine's run's script reads only, by the run's own snapshot (issue #1023).
+	RoutineScriptReads(ctx context.Context, runID string) (bool, error)
 	// ChatTurn names the turn a chat's pi works on now, empty between turns (issue #817).
 	ChatTurn(ctx context.Context, chatID string) (string, error)
 	// ApprovedOnce says whether the owner approved a chat's request once and it has not run (issue #748).
@@ -308,7 +308,7 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		if token.Routine != "" {
 			// By the access its run started with: a change of the Routine meanwhile changes nothing of it (review
 			// of #1037).
-			reads, err := s.store.RoutineScriptReads(r.Context(), token.Routine)
+			reads, err := s.store.RoutineScriptReads(r.Context(), token.RoutineRun)
 			if err != nil {
 				return agent{}, errNoCredential
 			}

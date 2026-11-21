@@ -10,6 +10,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // Bot tokens (issue #260): the key of one pi process, made when the
@@ -30,8 +31,9 @@ type botToken struct {
 	chat          string
 	bot           string
 	// routine is the Routine whose script's run it is made for (issue #211);
-	// chat is empty then.
+	// chat is empty then. run is that run: the token works only while it is live (issue #1023).
 	routine   string
+	run       string
 	createdAt time.Time
 }
 
@@ -79,11 +81,19 @@ func (s *Service) AddRoutineToken(ctx context.Context, coordinator, routineID st
 		return "", err
 	}
 
-	if r.Script == "" {
-		return "", fmt.Errorf("%w: routine %s runs no script", ErrInvalid, routineID)
+	// Bound to the run that is starting, whose own copy of the Routine it acts by (issue #1023, reviews of #1037).
+	run, err := routinestore.LiveRunTx(ctx, s.read(), routineID)
+
+	switch {
+	case err != nil:
+		return "", err
+	case run == nil:
+		return "", fmt.Errorf("%w: no run of routine %s is live", ErrConflict, routineID)
+	case run.Script == "":
+		return "", fmt.Errorf("%w: run %s of routine %s runs no script", ErrInvalid, run.ID, routineID)
 	}
 
-	return s.addBotToken(botToken{coordinatorID: parent.ID, bot: r.Bot, routine: r.ID})
+	return s.addBotToken(botToken{coordinatorID: parent.ID, bot: r.Bot, routine: r.ID, run: run.ID})
 }
 
 // addBotToken keeps a new Bot token and returns its secret.
@@ -158,7 +168,7 @@ func (s *Service) authenticateBotToken(ctx context.Context, secret string) (Toke
 
 	return Token{
 		ID: parent.ID, Name: parent.Name, Kind: bearertoken.Bot, CreatedAt: b.createdAt, Chat: b.chat, Bot: b.bot,
-		Routine: b.routine,
+		Routine: b.routine, RoutineRun: b.run,
 	}, nil
 }
 
@@ -182,6 +192,21 @@ func (s *Service) botTokenBound(ctx context.Context, b botToken) error {
 		}
 
 		return nil
+	}
+
+	// A Routine's run's token ends with its run: the run's end, in its own transaction, is the token's end, so no
+	// token outlives the snapshot it acts by (issue #1023, reviews of #1037).
+	if b.run != "" {
+		run, err := q.GetRoutineRun(ctx, b.run)
+
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return fmt.Errorf("%w: run %s is gone", ErrNotFound, b.run)
+		case err != nil:
+			return fmt.Errorf("reading run %s: %w", b.run, err)
+		case run.State != string(routinestore.RunRunning) && run.State != string(routinestore.RunWaiting):
+			return fmt.Errorf("%w: run %s ended", ErrNotFound, b.run)
+		}
 	}
 
 	_, err := q.GetBot(ctx, b.bot)

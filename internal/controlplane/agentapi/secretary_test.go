@@ -218,6 +218,8 @@ func TestAReadRoutinesCheckReadsAsItsRunAndNothingMore(t *testing.T) {
 		ScriptText: "#!/bin/sh\n", EveryMinutes: 60,
 	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
+	_, err = sw.svc.RunRoutineNow(t.Context(), full.ID) // a script's token is its live run's (#1023)
+	require.NoError(t, err)
 	fullScript, err := sw.svc.AddRoutineToken(t.Context(), "pi", full.ID)
 	require.NoError(t, err)
 

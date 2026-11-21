@@ -541,7 +541,7 @@ func (s *Server) authorize(next openapi.StrictHandlerFunc, operationID string) o
 		// A read Routine's check script has the rights of its runs, which have none here: it reads through the
 		// agent API's tools (owner, 2026-11-21 on #1023). Its run's access decides, as the run started.
 		if tok.Kind == bearertoken.Bot && tok.Routine != "" {
-			reads, err := s.svc.RoutineScriptReads(ctx, tok.Routine)
+			reads, err := s.svc.RoutineScriptReads(ctx, tok.RoutineRun)
 			if err != nil {
 				return nil, err
 			}

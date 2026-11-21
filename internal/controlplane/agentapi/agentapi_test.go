@@ -324,6 +324,8 @@ func TestABotGetsOnlyTheAccountsOnItsList(t *testing.T) {
 	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
+	_, err = w.svc.RunRoutineNow(ctx, routine.ID) // a script's token is its live run's (#1023)
+	require.NoError(t, err)
 	run, err := w.svc.AddRoutineToken(ctx, "pi", routine.ID)
 	require.NoError(t, err)
 
@@ -498,6 +500,8 @@ func TestTheOwnersOwnLarkSignInIsABotsOnHisTurn(t *testing.T) {
 		Bot: orchestration.DefaultBotID, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh",
 		ScriptText: "#!/bin/sh\n", EveryMinutes: 60,
 	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+	_, err = w.svc.RunRoutineNow(ctx, routine.ID) // a script's token is its live run's (#1023)
 	require.NoError(t, err)
 	run, err := w.svc.AddRoutineToken(ctx, "pi", routine.ID)
 	require.NoError(t, err)

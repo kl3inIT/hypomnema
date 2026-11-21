@@ -96,7 +96,8 @@ func (s *Service) openRunChat(ctx context.Context, q *store.Queries, now int64, 
 // WakeRoutineRun opens the chat of a live prompt run whose script said to
 // wake the Bot (issue #656): the prompt waits in it with what the script
 // printed before it, and from there the run is a prompt run. The Routine is
-// read as it is now, but for its access, which is the run's; a run that ended, or has its chat, is a conflict.
+// read as it is now, but for its access, prompt and script, which are the run's copy; a run that ended, or has its
+// chat, is a conflict.
 func (s *Service) WakeRoutineRun(ctx context.Context, runID, scriptOutput string) (routinestore.StartedRun, error) {
 	var out routinestore.StartedRun
 
@@ -111,12 +112,12 @@ func (s *Service) WakeRoutineRun(ctx context.Context, runID, scriptOutput string
 			return err
 		}
 
-		if r.Kind != routinestore.RoutinePrompt {
-			return fmt.Errorf("%w: routine %s runs a script alone and wakes no bot", ErrInvalid, r.ID)
+		// The run's own copy, as the Routine was when the run started: its access, its prompt and its script's name
+		// (issue #1023, reviews of #1037). A Bot's change since gives its new prompt to the next run only.
+		r.Access, r.Prompt, r.Script = run.Access, run.Prompt, run.Script
+		if r.Prompt == "" {
+			return fmt.Errorf("%w: run %s of routine %s runs a script alone and wakes no bot", ErrInvalid, runID, r.ID)
 		}
-
-		// The chat reads only when the run does, as the run started (issue #1023, review of #1037).
-		r.Access = run.Access
 
 		chatID, err := s.openRunChat(ctx, q, now, r, run.StartedBy, routinestore.KeptOutput(scriptOutput))
 		if err != nil {

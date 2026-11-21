@@ -175,6 +175,8 @@ func TestBotTokensActOnTheirOwnBotsRoutinesOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, launched.StatusCode(), "a run's key is not a pi's")
 
+	_, err = w.svc.RunRoutineNow(ctx, made.JSON200.Id) // a script's token is its live run's (#1023)
+	require.NoError(t, err)
 	secret, err := w.svc.AddRoutineToken(ctx, "pi-coordinator", made.JSON200.Id)
 	require.NoError(t, err)
 
@@ -236,6 +238,8 @@ func TestAReadRoutineMayHaveACheckThatHasNoRightsHere(t *testing.T) {
 	require.Equal(t, http.StatusOK, read.StatusCode(), string(read.Body))
 	assert.Equal(t, openapi.Read, read.JSON200.Access)
 
+	_, err = w.svc.RunRoutineNow(ctx, made.JSON200.Id) // a script's token is its live run's (#1023)
+	require.NoError(t, err)
 	secret, err := w.svc.AddRoutineToken(ctx, "pi-coordinator", made.JSON200.Id)
 	require.NoError(t, err)
 	check := w.client(secret)

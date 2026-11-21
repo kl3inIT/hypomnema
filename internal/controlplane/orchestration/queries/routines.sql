@@ -71,8 +71,11 @@ INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at
 VALUES (@chat_id, 'system', 'wake', @text, 1, @now, @read_run);
 
 -- name: InsertRoutineRun :exec
-INSERT INTO routine_runs (id, routine_id, started_by, state, started_at, chat_id, access)
-VALUES (@id, @routine_id, @started_by, 'running', @now, @chat_id, @access);
+-- The run keeps a copy of what its Routine was when it started: its access, its prompt and its script (#1023).
+INSERT INTO routine_runs (id, routine_id, started_by, state, started_at, chat_id, access, prompt, script, script_text,
+                          timeout_seconds)
+VALUES (@id, @routine_id, @started_by, 'running', @now, @chat_id, @access, @prompt, @script, @script_text,
+        @timeout_seconds);
 
 -- name: OpenRoutineRunChat :execrows
 -- A prompt run whose script said to wake the Bot gets its chat then (issue #656), once, while it is live.

@@ -44,6 +44,8 @@ func TestOnlyTheMainBotManagesBotsAndProfiles(t *testing.T) {
 	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
+	_, err = w.svc.RunRoutineNow(ctx, routine.ID) // a script's token is its live run's (#1023)
+	require.NoError(t, err)
 	script, err := w.svc.AddRoutineToken(ctx, "pi-coordinator", routine.ID)
 	require.NoError(t, err)
 
