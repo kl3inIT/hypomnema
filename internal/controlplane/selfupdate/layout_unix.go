@@ -87,10 +87,30 @@ func (o Options) waitTurns(ctx context.Context) {
 	deadline := time.Now().Add(within)
 	said := false
 
+	var last Turns
+
 	for {
-		running, err := o.turns(ctx)
+		// Each question gets what is left of the wait at most: the last one does not run past the bound. None is
+		// asked once the bound has passed (a client's timeout of zero is none).
+		left := min(turnsAskWithin, time.Until(deadline))
+
+		var (
+			running Turns
+			err     error
+		)
+
+		if left > 0 {
+			running, err = o.turns(ctx, left)
+		} else {
+			running, err = last, context.DeadlineExceeded
+		}
 
 		switch {
+		case err != nil && said && !time.Now().Before(deadline):
+			o.printf("Bots' turns or tool calls still run after %s, %s; a turn is cut, and continues after the "+
+				"update\n", within, last)
+
+			return
 		case err != nil:
 			o.printf("not waiting for Bots' turns: the control plane did not say which run: %v\n", err)
 
@@ -112,6 +132,8 @@ func (o Options) waitTurns(ctx context.Context) {
 			said = true
 		}
 
+		last = running
+
 		select {
 		case <-ctx.Done():
 			return
@@ -120,9 +142,12 @@ func (o Options) waitTurns(ctx context.Context) {
 	}
 }
 
-// turns asks the control socket which chats' turns run, and how many tool calls.
-func (o Options) turns(ctx context.Context) (Turns, error) {
-	resp, err := o.ask(ctx, http.MethodGet, PathTurns, nil, 5*time.Second)
+// turnsAskWithin bounds one question on the control socket.
+const turnsAskWithin = 5 * time.Second
+
+// turns asks the control socket which chats' turns run, and how many tool calls, within the time given.
+func (o Options) turns(ctx context.Context, within time.Duration) (Turns, error) {
+	resp, err := o.ask(ctx, http.MethodGet, PathTurns, nil, within)
 	if err != nil {
 		return Turns{}, err
 	}
