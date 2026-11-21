@@ -111,8 +111,15 @@ func TestAnAgentRunsACommandOnTheNodeItNames(t *testing.T) {
 	require.Len(t, m.sent, 1)
 	assert.Equal(t, "nod_zm", m.to[0])
 	assert.Equal(t, nodeproto.Exec{
-		Action: nodeproto.ExecRun, Command: "sudo df -h /", TimeoutSeconds: 60, SudoPassword: "s3cret",
-	}, m.sent[0])
+		Agent: "b-" + chat.ID, Action: nodeproto.ExecRun, Command: "sudo df -h /", TimeoutSeconds: 60,
+		SudoPassword: "s3cret",
+	}, m.sent[0], "a process is its chat's (issue #1060)")
+
+	w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm","process_id":"proc_0123456789ab"}`)
+	require.Len(t, m.sent, 2)
+	assert.Equal(t, "d-dsp_1", m.sent[1].Agent, "a worker's is its Dispatch's")
+
+	m.sent, m.to = m.sent[:1], m.to[:1]
 
 	failed := 2
 	m.give = nodeproto.ExecAnswer{ExitCode: &failed, Output: "rm: cannot remove\n"}

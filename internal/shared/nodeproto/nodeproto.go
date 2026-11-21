@@ -437,7 +437,11 @@ const (
 // be asked for with ExecOutput when the answer is lost on the way, as when
 // the control plane restarts (issue #1060); the node makes one when empty.
 type Exec struct {
-	RequestID      string `json:"request_id"`
+	RequestID string `json:"request_id"`
+	// Agent names the agent as the control plane knows it ("b-<chat>", "d-<dispatch>"), as a DeviceCall's does: a
+	// process is that agent's, read and killed by it alone (issue #1060), as Coder keys a process by its chat
+	// (agent/agentproc/process.go get). It is no credential; a control plane from before it names none.
+	Agent          string `json:"agent,omitempty"`
 	Action         string `json:"action"`
 	Command        string `json:"command,omitempty"`
 	Cwd            string `json:"cwd,omitempty"`

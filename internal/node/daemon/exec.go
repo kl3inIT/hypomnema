@@ -21,8 +21,8 @@ import (
 type Commands interface {
 	Run(ctx context.Context, req nodeexec.Request) nodeproto.ExecAnswer
 	Start(req nodeexec.Request) nodeproto.ExecAnswer
-	Output(ctx context.Context, id string, wait time.Duration) nodeproto.ExecAnswer
-	Kill(id string) nodeproto.ExecAnswer
+	Output(ctx context.Context, agent, id string, wait time.Duration) nodeproto.ExecAnswer
+	Kill(agent, id string) nodeproto.ExecAnswer
 }
 
 // answerExec answers an exec. It does not hold up the socket: a command runs
@@ -60,7 +60,7 @@ func (d *Daemon) exec(ctx context.Context, e nodeproto.Exec) nodeproto.ExecAnswe
 	}
 
 	req := nodeexec.Request{
-		ID: e.ProcessID, Command: e.Command, Cwd: e.Cwd, Timeout: time.Duration(e.TimeoutSeconds) * time.Second,
+		ID: e.ProcessID, Agent: e.Agent, Command: e.Command, Cwd: e.Cwd, Timeout: time.Duration(e.TimeoutSeconds) * time.Second,
 		SudoPassword: e.SudoPassword,
 	}
 
@@ -70,9 +70,9 @@ func (d *Daemon) exec(ctx context.Context, e nodeproto.Exec) nodeproto.ExecAnswe
 	case nodeproto.ExecStart:
 		return d.cfg.Commands.Start(req)
 	case nodeproto.ExecOutput:
-		return d.cfg.Commands.Output(ctx, e.ProcessID, time.Duration(e.WaitSeconds)*time.Second)
+		return d.cfg.Commands.Output(ctx, e.Agent, e.ProcessID, time.Duration(e.WaitSeconds)*time.Second)
 	case nodeproto.ExecKill:
-		return d.cfg.Commands.Kill(e.ProcessID)
+		return d.cfg.Commands.Kill(e.Agent, e.ProcessID)
 	default:
 		return nodeproto.ExecAnswer{Error: fmt.Sprintf("this node does not know the action %q", e.Action)}
 	}

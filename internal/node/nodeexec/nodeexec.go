@@ -52,7 +52,9 @@ var errClosed = errors.New("the node is stopping")
 // Request is one command.
 type Request struct {
 	// ID names it (nodeproto.IsProcessID); the node makes one when empty.
-	ID      string
+	ID string
+	// Agent is whose it is (nodeproto.Exec.Agent).
+	Agent   string
 	Command string
 	// Cwd is where it runs; the node user's home when empty.
 	Cwd string
@@ -166,7 +168,7 @@ func (m *Manager) keep(p *process) error {
 
 // Output answers about a background process once it has ended, or after
 // wait while it still runs.
-func (m *Manager) Output(ctx context.Context, id string, wait time.Duration) nodeproto.ExecAnswer {
+func (m *Manager) Output(ctx context.Context, _, id string, wait time.Duration) nodeproto.ExecAnswer {
 	p, ok := m.get(id)
 	if !ok {
 		return unknown(id)
@@ -192,7 +194,7 @@ func (m *Manager) Output(ctx context.Context, id string, wait time.Duration) nod
 
 // Kill kills a background process and what it started, and answers with
 // what it had written.
-func (m *Manager) Kill(id string) nodeproto.ExecAnswer {
+func (m *Manager) Kill(_, id string) nodeproto.ExecAnswer {
 	p, ok := m.get(id)
 	if !ok {
 		return unknown(id)

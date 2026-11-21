@@ -81,10 +81,10 @@ func TestABackgroundCommandIsReadWhileItRunsAndKilled(t *testing.T) {
 	assert.True(t, started.Running)
 	require.NotEmpty(t, started.ProcessID)
 
-	now := m.Output(t.Context(), started.ProcessID, 0)
+	now := m.Output(t.Context(), "", started.ProcessID, 0)
 	assert.True(t, now.Running)
 
-	ended := m.Output(t.Context(), started.ProcessID, 30*time.Second)
+	ended := m.Output(t.Context(), "", started.ProcessID, 30*time.Second)
 	assert.False(t, ended.Running)
 	require.NotNil(t, ended.ExitCode)
 	assert.Equal(t, 0, *ended.ExitCode)
@@ -93,14 +93,14 @@ func TestABackgroundCommandIsReadWhileItRunsAndKilled(t *testing.T) {
 
 	endless := m.Start(Request{Command: "echo up; sleep 300"})
 	require.Eventually(t, func() bool {
-		return m.Output(t.Context(), endless.ProcessID, 0).Output == "up\n"
+		return m.Output(t.Context(), "", endless.ProcessID, 0).Output == "up\n"
 	}, 10*time.Second, 20*time.Millisecond)
 
-	killed := m.Kill(endless.ProcessID)
+	killed := m.Kill("", endless.ProcessID)
 	assert.False(t, killed.Running)
 	assert.Equal(t, "up\n", killed.Output)
 
-	assert.Contains(t, m.Output(t.Context(), "proc_unknown", 0).Error, "no process")
+	assert.Contains(t, m.Output(t.Context(), "", "proc_unknown", 0).Error, "no process")
 }
 
 // sudo is given the node's password through its helper, which is gone once
@@ -144,7 +144,7 @@ func TestAForegroundCommandIsReadByTheIDItsCallerChose(t *testing.T) {
 	got := m.Run(t.Context(), Request{ID: id, Command: "echo built"})
 	require.Empty(t, got.Error)
 
-	again := m.Output(t.Context(), id, 0)
+	again := m.Output(t.Context(), "", id, 0)
 	require.Empty(t, again.Error)
 	assert.False(t, again.Running)
 	require.NotNil(t, again.ExitCode)
@@ -155,5 +155,30 @@ func TestAForegroundCommandIsReadByTheIDItsCallerChose(t *testing.T) {
 	assert.Contains(t, m.Run(t.Context(), Request{ID: id, Command: "echo twice"}).Error, "already runs",
 		"an id is one process's")
 	assert.Contains(t, m.Start(Request{ID: "../etc", Command: "id"}).Error, "not one this node takes")
-	assert.Contains(t, m.Output(t.Context(), nodeproto.NewProcessID(), 0).Error, "never started")
+	assert.Contains(t, m.Output(t.Context(), "", nodeproto.NewProcessID(), 0).Error, "never started")
+}
+
+// A process is the agent's that ran it, a chat's or a worker's (issue #1060, review round 1): another agent that
+// knows its id is told there is none, cannot read it and cannot kill it, as Coder keys a process by its chat
+// (agent/agentproc/process.go get).
+func TestAProcessIsReadOnlyByTheAgentThatRanIt(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	t.Cleanup(m.Close)
+
+	id := nodeproto.NewProcessID()
+
+	got := m.Run(t.Context(), Request{ID: id, Agent: "b-cht_a", Command: "echo foreground-only"})
+	require.Empty(t, got.Error)
+
+	assert.Equal(t, "foreground-only\n", m.Output(t.Context(), "b-cht_a", id, 0).Output)
+	assert.Contains(t, m.Output(t.Context(), "b-cht_b", id, 0).Error, "no process", "another chat")
+	assert.Contains(t, m.Output(t.Context(), "d-dsp_1", id, 0).Error, "no process", "a worker")
+	assert.Empty(t, m.Output(t.Context(), "d-dsp_1", id, 0).Output)
+
+	endless := m.Start(Request{Agent: "b-cht_a", Command: "sleep 300"})
+	assert.Contains(t, m.Kill("b-cht_b", endless.ProcessID).Error, "no process")
+	assert.True(t, m.Output(t.Context(), "b-cht_a", endless.ProcessID, 0).Running, "another's kill leaves it")
+	assert.False(t, m.Kill("b-cht_a", endless.ProcessID).Running)
 }
