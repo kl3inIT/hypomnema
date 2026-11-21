@@ -64,6 +64,8 @@ const takeId = "tk_0123456789abcdef"
 // turnedTake is a take whose phone turned while it was filmed: a frame sent for it is refused, a frame from the
 // default falls back to full (issue #908, row 11).
 const turnedTake = "tk_00000000000000a7"
+// silentTake is a take the agent said no line on: it has no steps, so it cannot be made into a video (#1028).
+const silentTake = "tk_000000000000051e"
 const videoId = "vid_signin"
 const failedVideo = "vid_checkout"
 const lines = ["Mở ứng dụng cửa hàng", "Chạm vào Đăng nhập", "Trang tài khoản hiện ra"]
@@ -328,6 +330,8 @@ type Server = {
   // sampleAnswer answers a sample in place of the picture: a delay first, or a refusal.
   sampleAnswer: (body: Record<string, unknown>) => { delay?: number; status?: number }
   looks: { body: Record<string, unknown>; key: string }[]
+  // looksRead counts the reads of the looks' catalogue.
+  looksRead: number
 }
 
 function failedRevision(rev: number, more: Partial<Revision> = {}): Revision {
@@ -387,6 +391,7 @@ async function fakeServer(page: Page): Promise<Server> {
     samples: [],
     sampleAnswer: () => ({}),
     looks: [],
+    looksRead: 0,
   }
   const video = () => ({
     id: videoId,
@@ -472,7 +477,11 @@ async function fakeServer(page: Page): Promise<Server> {
         return json(take)
       case `GET /takes/${turnedTake}`:
         return json({ ...take, id: turnedTake, title: "Xoay ngang" })
+      case `GET /takes/${silentTake}`:
+        return json({ ...take, id: silentTake, title: "Thử luồng nộp địa điểm", steps: [] })
       case "GET /videos/looks":
+        server.looksRead++
+
         return json(catalogue)
       case "POST /videos/preview": {
         const raw = request.postData() ?? ""
@@ -820,6 +829,28 @@ const showSample = (look: Locator) =>
     )
 
 const lookOf = (sample: Sample) => (sample.body as { look?: unknown }).look
+
+// Scenario: the owner opens a take the agent said no line on (#1028). Make video is disabled, described by the
+// line that says why and how to get steps, in place of the server's refusal; the looks and their sample are never
+// read.
+test("a take with no steps cannot be made into a video and says why", async ({ page }) => {
+  const server = await fakeServer(page)
+  await page.goto(`/studio/takes/${silentTake}`)
+
+  const takeView = page.getByTestId("take-view")
+  const make = takeView.getByRole("button", { name: "Make video" })
+  await expect(make).toBeDisabled()
+  await expect(make).toHaveAccessibleDescription(
+    /cannot be made into a video\. Ask the agent to film it again, saying each step/,
+  )
+  const steps = takeView.getByRole("complementary", { name: "Steps" })
+  await expect(steps).toContainText("0 steps")
+  await expect(steps).toContainText("so this take cannot be made into a video")
+  await expect(takeView.getByTestId("take-video")).toBeVisible()
+  await shot(page, "studio-take-no-steps")
+  expect(server.looksRead).toBe(0)
+  expect(server.samples).toEqual([])
+})
 
 // Scenario: the owner makes a take into a video and opens its Look (issue #908, row 16; #938): it starts from the
 // saved default, with a sample of it. Changing the frame twice drops the first sample asked and shows only the

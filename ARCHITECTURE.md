@@ -866,6 +866,8 @@ sequenceDiagram
     While it lives another agent's phone calls are answered "The phone is filming for …" and reach no node;
     `video_say` and `video_stop` name the take, and one naming another is refused or, for a stop, answered with
     that take's state. A start retried with its request id answers the same take; a stop twice the same state.
+    A stop of a take with no steps also says it cannot be made into a video and how to film one that can, the
+    take kept (issue #1028).
     A take whose lease ends is recorded `finalizing` with its end at once, before the node answers, and the store
     never makes an ended take `recording` or `paused` again (a node's answer sent before the stop and kept after
     it), so `video_status` after a stop is never `recording` (issue #851).

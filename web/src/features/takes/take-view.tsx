@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Clapperboard, Download, Film, Pause, Play, Trash2 } from "lucide-react"
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react"
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties } from "react"
 
 import {
   deleteTakeMutation,
@@ -44,7 +44,8 @@ import {
 // (src/share.js:68-78). The bar above has the take's download, a zip of its segments and take.json, and its
 // delete, which asks first. The bar is the phone view's (../device/phone-view.tsx), in the pane's shape. Where the
 // place showing it opens videos (onOpenVideo), an available take has "Make video" (issue #818, row 12), and "Video"
-// once it has one.
+// once it has one. A take with no steps cannot be made into a video (#1028): Make video is disabled, and the steps
+// say why and how to get them.
 export function TakeView({
   id,
   onClose,
@@ -63,6 +64,7 @@ export function TakeView({
     enabled: ready && onOpenVideo !== undefined,
     select: (list) => list.data.find((v) => v.take === id),
   }).data
+  const noSteps = useId()
   const [deleting, setDeleting] = useState(false)
   const queryClient = useQueryClient()
   const remove = useMutation({
@@ -93,7 +95,12 @@ export function TakeView({
           </Button>
         )}
         {ready && onOpenVideo && (
-          <MakeVideo take={id} again={video !== undefined} onMade={(v) => onOpenVideo(v.id)} />
+          <MakeVideo
+            take={id}
+            again={video !== undefined}
+            why={take.steps.length === 0 ? noSteps : undefined}
+            onMade={(v) => onOpenVideo(v.id)}
+          />
         )}
         {take?.state === "available" && (
           <Button
@@ -116,7 +123,7 @@ export function TakeView({
         )}
       </div>
       {take?.state === "available" ? (
-        <TakePlayer take={take} />
+        <TakePlayer take={take} noSteps={noSteps} />
       ) : (
         <div className="flex flex-1 items-center justify-center bg-muted px-6 py-10">
           <div
@@ -170,8 +177,9 @@ export function TakeView({
 // Pending is a seek to make once the segment's video has loaded.
 type Pending = { to: number; ahead: number; play: boolean }
 
-// TakePlayer plays an available take's segments on one timeline.
-function TakePlayer({ take }: { take: Take }) {
+// TakePlayer plays an available take's segments on one timeline; noSteps is the id of the line said when the take
+// has no steps.
+function TakePlayer({ take, noSteps }: { take: Take; noSteps: string }) {
   const video = useRef<HTMLVideoElement>(null)
   const [index, setIndex] = useState(0)
   const [time, setTime] = useState(0)
@@ -377,7 +385,10 @@ function TakePlayer({ take }: { take: Take }) {
               {take.steps.length} {take.steps.length === 1 ? "step" : "steps"}
             </h2>
             {take.steps.length === 0 && (
-              <p className="px-2 text-sm text-muted-foreground">The agent said no step.</p>
+              <p id={noSteps} className="px-2 text-sm text-muted-foreground">
+                The agent said no step, so this take cannot be made into a video. Ask the agent to
+                film it again, saying each step right before doing it.
+              </p>
             )}
             <ol>
               {take.steps.map((s, i) => (

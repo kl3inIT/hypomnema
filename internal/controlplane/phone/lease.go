@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -292,15 +293,36 @@ func (p *Phone) stopTake(ctx context.Context, c Caller, id string) (nodeproto.De
 	p.mu.Unlock()
 
 	if !running {
-		return p.takeStatus(ctx, c, id)
+		answer, err := p.takeStatus(ctx, c, id)
+
+		return withoutSteps(answer), err
 	}
 
 	answer := p.endLease(ctx, id, devicetool.EndedStop)
 	if answer.Take == nil {
-		return p.takeStatus(ctx, c, id)
+		answer, err := p.takeStatus(ctx, c, id)
+
+		return withoutSteps(answer), err
 	}
 
-	return answer, nil
+	return withoutSteps(answer), nil
+}
+
+// noSteps is what video_stop adds on a take with no step (issue #1028): a video's scenes are its steps, and Make
+// refuses a take without them (videos/compose/scenes.go, ErrNoSteps), as autodemo refuses a script with no scenes
+// (src/demo.js:11). The take is kept.
+const noSteps = "It has no steps, so it cannot be made into a video; it is kept. To make a video, film it again " +
+	"with video_say right before each action."
+
+// withoutSteps adds noSteps to video_stop's answer when the take it stopped has no step.
+func withoutSteps(a nodeproto.DeviceAnswer) nodeproto.DeviceAnswer {
+	if a.IsError || a.Take == nil || a.Take.Running() || len(a.Take.Steps) > 0 {
+		return a
+	}
+
+	a.Content = append(slices.Clone(a.Content), nodeproto.DeviceContent{Type: "text", Text: noSteps})
+
+	return a
 }
 
 // takeStatus answers a take's state: the node's while it is filmed, the
