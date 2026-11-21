@@ -78,10 +78,17 @@ self.addEventListener("notificationclick", (event) => {
 self.addEventListener("pushsubscriptionchange", (event) => {
   event.waitUntil(
     (async () => {
+      const old = event.oldSubscription
       const key =
-        event.newSubscription?.options.applicationServerKey ??
-        event.oldSubscription?.options.applicationServerKey
-      if (!key) return
+        event.newSubscription?.options.applicationServerKey ?? old?.options.applicationServerKey
+      if (!old || !key) return
+
+      // Only a device the owner still has is renewed: one he removed, or that the control plane forgot, stays
+      // removed (review of #1050).
+      const listed = await fetch("/api/v1/push/subscriptions", { credentials: "include" })
+      if (!listed.ok) return
+      const device = (await listed.json()).data?.find((d) => d.endpoint === old.endpoint)
+      if (!device) return
 
       const subscription =
         event.newSubscription ??
@@ -92,15 +99,23 @@ self.addEventListener("pushsubscriptionchange", (event) => {
       const json = subscription.toJSON()
       if (!json.endpoint || !json.keys) return
 
-      await fetch("/api/v1/push/subscriptions", {
+      const kept = await fetch("/api/v1/push/subscriptions", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           endpoint: json.endpoint,
           keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
+          label: device.label,
         }),
       })
+      // The old endpoint's row goes once the new one is kept, as Coder's handler deletes it.
+      if (kept.ok && json.endpoint !== old.endpoint) {
+        await fetch(`/api/v1/push/subscriptions/${encodeURIComponent(device.id)}`, {
+          method: "DELETE",
+          credentials: "include",
+        })
+      }
     })(),
   )
 })
