@@ -72,7 +72,8 @@ When the task asks for a video of an app, film it as a take (issue #817): the to
   where you are about to tap (`"#N"` or `"x,y"`, as `device_tap` takes it); `chapter` starts a new chapter. The line
   is stamped at the moment it arrives, so say it, then act.
 - `video_stop` with the take when done. It answers at once; the take is then finished and uploaded, and
-  `video_status` says when it is `available`. You never get the video itself: the owner watches it.
+  `video_status` says when it is `available`. You never get the video itself: the owner watches it. A take with
+  no `video_say` has no steps and cannot be made into a video, and the stop says so: film it again, saying each step.
 - `video_list` lists your own takes, the newest first; `state` keeps those in one state (`recording`). After an
   interrupted turn, look there to see whether a take of yours still films or how it ended before you start another.
 - The take ends by itself when your work ends (a worker's Dispatch, a Bot's turn), so stop it before you finish.
