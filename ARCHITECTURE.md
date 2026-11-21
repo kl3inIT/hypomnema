@@ -768,10 +768,17 @@ sequenceDiagram
     `save_to`, a `.png`, `.jpg` or `.jpeg` path in the folder the agent works in (a worker's worktree, a Bot's
     folder), the agent's own tools server (`toolsmcp.ShotCall`, called by `internal/node/workertools` and `hypomnema
     mcp`) takes it out of the call, writes the picture there in the format its name says, and answers
-    `Screenshot saved to: <path>` without the picture, as mobile-mcp's `mobile_save_screenshot`; a path out of
-    that folder, a link included, is refused before the phone is called, and the write is held in it by `os.Root`.
-    The browser's `agent_browser_screenshot` takes `save_to` the same way, and the control plane drops it from a
-    call that still has it; the control plane's phone refuses it as an argument it does not take (issue #1059);
+    `Screenshot saved to: <path>` without the picture, as mobile-mcp's `mobile_save_screenshot`. A path out of
+    that folder is refused before the phone is called, a link followed to its target, even one not there yet;
+    the write is held in it by `os.Root`, and goes to a new file beside the name that is renamed over it, so a
+    link or a hard link there is replaced rather than written through (mobile-mcp `src/utils.ts:95-185`). The
+    control plane's phone refuses `save_to` as an argument it does not take. The browser's
+    `agent_browser_screenshot` takes `save_to` the same way, but it is sent on: the engine never gives it to
+    agent-browser, and reads the picture from the file agent-browser saved under its HOME
+    (`.agent-browser/tmp/screenshots`), since agent-browser gives an image only up to 10 MiB and the engine keeps
+    8 MiB of another answer; that answer, the picture whole in base64, may be up to 64 MiB
+    (`agenttool.MaxSavedShotBytes`, generate_image's bound), and a larger one is refused with what to take instead
+    (issue #1059);
     `device_layout` is
     `android layout --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with boxes
     with `android screen resolve`

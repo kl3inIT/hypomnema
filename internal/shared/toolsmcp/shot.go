@@ -65,14 +65,19 @@ func (a *Agent) ShotCall(ctx context.Context, path string, within time.Duration,
 		return nil, err
 	}
 
-	delete(given, devicetool.SaveTo)
+	// The browser's control plane is told of save_to, and sends the picture whole from the file the browser saved
+	// rather than the image a model is given, which is bounded (internal/controlplane/browser, savedShot). The
+	// phone's answer is its whole picture already, and the phone takes no save_to.
+	if tool != agenttool.ToolBrowserScreenshot {
+		delete(given, devicetool.SaveTo)
+	}
 
 	sent, err := json.Marshal(given)
 	if err != nil {
 		return nil, err
 	}
 
-	raw, err := a.ToolCall(ctx, path, within, tool, sent)
+	raw, err := a.toolCall(ctx, path, within, agenttool.MaxSavedShotBytes, tool, sent)
 	if err != nil {
 		return nil, err
 	}

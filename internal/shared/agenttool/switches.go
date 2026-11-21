@@ -105,6 +105,11 @@ func ReadRunAllows(tool string) bool {
 // the agent's machine (toolsmcp's ShotCall, issue #1059).
 const ToolBrowserScreenshot = "agent_browser_screenshot"
 
+// MaxSavedShotBytes bounds the answer of a screenshot asked with save_to: the
+// picture sent whole, in base64, from the file the browser saved (issue
+// #1059), as generate_image's answer is bounded (toolsmcp/image.go).
+const MaxSavedShotBytes = 64 << 20
+
 // BrowserTools are the browser's tools an agent is offered, out of
 // agent-browser's `core` set (cli/src/mcp.rs, CORE_PROFILE_TOOLS). Each agent
 // has one tab, which the engine opens and closes, so the tab tools and

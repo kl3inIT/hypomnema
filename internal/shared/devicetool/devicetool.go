@@ -92,9 +92,10 @@ const point = `"#N", a number from your last device_screen with boxes, or "x,y" 
 // SaveTo is the argument of device_screen and of the browser's screenshot that writes the picture to a file in
 // the folder the agent works in and answers with its path, without the picture, as mobile-mcp's
 // mobile_save_screenshot takes saveTo (src/server.ts:1002-1031) and agent-browser's screenshot a path
-// (cli/src/mcp.rs:1068-1084). The agent's own tools server reads it and takes it out of the call
-// (toolsmcp's ShotCall, issue #1059): the control plane, which runs the call on another machine, never sees
-// it, and refuses it, as any argument its tool does not take.
+// (cli/src/mcp.rs:1068-1084). The agent's own tools server reads it and writes the file (toolsmcp's ShotCall,
+// issue #1059). It takes it out of device_screen's call: the control plane's phone refuses it, as any argument its
+// tool does not take. The browser's control plane is given it, to send the picture whole from the file the
+// browser saved, and never passes it to the browser (internal/controlplane/browser, shot.go).
 const SaveTo = "save_to"
 
 // SaveToProperty is SaveTo's entry in a tool's input schema.

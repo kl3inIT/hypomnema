@@ -69,11 +69,12 @@ var added = map[string]string{
 		"Hypomnema launches the browser itself, so a window is not how the owner sees a page.",
 }
 
-// addedOf are arguments Hypomnema adds to a tool's schema that the agent's
-// own tools server reads and takes out of the call (issue #1059): they are
-// not in what the tool takes, so a call that still has one loses it here.
-// The screenshot's save_to writes the picture in the folder the agent works
-// in, where the engine's own path is a file on this machine (withheldOf).
+// addedOf are arguments Hypomnema adds to a tool's schema that agent-browser
+// does not take (issue #1059): they are not in what the tool takes, so a call
+// loses them here. The screenshot's save_to is written in the folder the agent
+// works in by the agent's own tools server, where the engine's own path is a
+// file on this machine (withheldOf); the engine sends that picture whole
+// (shot.go).
 var addedOf = map[string]map[string]string{
 	agenttool.ToolBrowserScreenshot: {devicetool.SaveTo: devicetool.SaveToProperty},
 }
