@@ -115,6 +115,44 @@ func TestMeasureKillsWhatFFmpegStarted(t *testing.T) {
 	}
 }
 
+// ffmpeg that says progress=end and exits while something it started still holds its stderr alone: Measure kills
+// that too, whether its deadline comes while it waits for stderr (150 ms) or later (2 s, after the 500 ms it gives a
+// killed or ended ffmpeg's pipes); the ffmpeg's own end does not stop the cleanup (review round 3 of #1046).
+func TestMeasureKillsWhatHoldsStderrAfterFFmpegEnds(t *testing.T) {
+	t.Parallel()
+
+	for name, deadline := range map[string]time.Duration{"deadline first": 150 * time.Millisecond, "deadline later": 2 *
+		time.Second} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			pids := filepath.Join(t.TempDir(), "pids")
+			tools := fakeFFmpeg(t, measureLines+"printf 'progress=end\\n'\n"+
+				"sleep 30 </dev/null >/dev/null &\necho $! > '"+pids+"'\nexit 0\n")
+
+			ctx, cancel := context.WithTimeout(t.Context(), deadline)
+			defer cancel()
+
+			start := time.Now()
+			_, err := Measure(ctx, tools, "track.mp3", 0)
+			took := time.Since(start)
+
+			require.Error(t, err, "a pipe still held when ffmpeg is gone is an error")
+			assert.Less(t, took, time.Second, "Measure returns within its pipes' 500 ms")
+
+			raw, err := os.ReadFile(pids) //nolint:gosec // The test's own file.
+			require.NoError(t, err)
+
+			pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+			require.NoError(t, err)
+
+			t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+			assert.Eventually(t, func() bool { return !running(pid) }, 500*time.Millisecond, 10*time.Millisecond,
+				"what held stderr is gone once Measure returns")
+		})
+	}
+}
+
 // running says whether a process is alive and not a zombie waiting to be reaped: by /proc where there is one.
 func running(pid int) bool {
 	if _, err := os.Stat("/proc/self"); err != nil {
