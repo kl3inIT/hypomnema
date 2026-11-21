@@ -66,11 +66,37 @@ func TestAWorkerSavesThePhonesScreenInItsWorktree(t *testing.T) {
 	outside := filepath.Join(filepath.Dir(worktree), "out.jpg")
 	require.NoError(t, os.Symlink(filepath.Dir(worktree), filepath.Join(worktree, "up")))
 
-	for id, asked := range []string{outside, "../out.jpg", "up/out.jpg"} {
+	// A link to a file out of the worktree that is not there yet, as mobile-mcp follows one (src/utils.ts:95-142).
+	require.NoError(t, os.Symlink(outside, filepath.Join(worktree, "gone.jpg")))
+
+	for id, asked := range []string{outside, "../out.jpg", "up/out.jpg", "up/new/out.jpg", "gone.jpg"} {
 		assert.Contains(t, call(3+id, map[string]any{"save_to": asked}), "the folder you work in", asked)
 		assert.NoFileExists(t, outside)
 	}
 
-	assert.Contains(t, call(6, map[string]any{"save_to": "home.gif"}), ".png, .jpg or .jpeg")
+	assert.Contains(t, call(9, map[string]any{"save_to": "home.gif"}), ".png, .jpg or .jpeg")
 	assert.Len(t, cp.deviceCalls, 2, "a refused path does not reach the phone")
+
+	// A file of the worktree that is a hard link of one outside is replaced, not written through, as mobile-mcp
+	// writes a file beside it and renames it over (src/utils.ts:165-185).
+	shared := filepath.Join(filepath.Dir(worktree), "shared.jpg")
+	require.NoError(t, os.WriteFile(shared, []byte("kept"), 0o600))
+	require.NoError(t, os.Link(shared, filepath.Join(worktree, "shared.jpg")))
+	assert.Equal(t, "Screenshot saved to: "+filepath.Join(worktree, "shared.jpg"),
+		call(10, map[string]any{"save_to": "shared.jpg"}))
+
+	kept, err := os.ReadFile(shared) //nolint:gosec // the test's own file
+	require.NoError(t, err)
+	assert.Equal(t, "kept", string(kept))
+
+	saved, err = os.ReadFile(filepath.Join(worktree, "shared.jpg")) //nolint:gosec // the test's own file
+	require.NoError(t, err)
+	assert.Equal(t, picture.Bytes(), saved)
+
+	left, err := os.ReadDir(worktree)
+	require.NoError(t, err)
+
+	for _, entry := range left {
+		assert.NotContains(t, entry.Name(), ".partial", "no half-written file is left")
+	}
 }
