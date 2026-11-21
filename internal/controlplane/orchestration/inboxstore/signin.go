@@ -18,13 +18,53 @@ import (
 // that must be linked again), the Bot reading it adds one open item "Log in again: <account>", given to the owner,
 // or keeps the one that is open; the first read of that account that works closes it, with that read as evidence.
 // One item per account, never one per failure: the item holds the account's key while it is open (the idempotency
-// key, which is unique), and lets it go when it closes, so that the account's next refusal adds a new one.
+// key, which is unique), and lets it go when it closes, so that the account's next refusal adds a new one; reopened,
+// it takes the key again, or is refused while another item of the account is open.
 
 // signInHash marks the key as an account's sign-in item's, never a create's request hash (requestHash's sha256).
 const signInHash = "signin"
 
 // SignInKey is the key an account's open "log in again" item holds.
 func SignInKey(account string) string { return "hypomnema:signin:" + account }
+
+// closedSignInPrefix starts the key a closed "log in again" item keeps, its own: it names the item and the account,
+// so that a reopen knows which account's key to take again.
+const closedSignInPrefix = "hypomnema:signin-closed:"
+
+// release lets an account's key go from the item id, which keeps a key of its own.
+func release(ctx context.Context, q *store.Queries, id, account string) error {
+	return q.SetTodoIdempotencyKey(ctx, store.SetTodoIdempotencyKeyParams{
+		IdempotencyKey: nullString(closedSignInPrefix + id + ":" + account), ID: id,
+	})
+}
+
+// retake gives a "log in again" item being reopened its account's key again (review of #1037): refused while
+// another item of the account is open, so that the account never has two. Any other to-do is left as it is.
+func retake(ctx context.Context, q *store.Queries, cur store.Todo) error {
+	if cur.IdempotencyHash.String != signInHash {
+		return nil
+	}
+
+	rest, released := strings.CutPrefix(cur.IdempotencyKey.String, closedSignInPrefix)
+	if !released {
+		return nil // It still holds the account's key.
+	}
+
+	_, account, _ := strings.Cut(rest, ":")
+
+	holder, err := signInItem(ctx, q, account)
+	switch {
+	case err != nil:
+		return err
+	case holder != "":
+		return fmt.Errorf("%w: %s is open for %s: close it before reopening this one", storeerr.ErrConflict, holder,
+			account)
+	}
+
+	return q.SetTodoIdempotencyKey(ctx, store.SetTodoIdempotencyKeyParams{
+		IdempotencyKey: nullString(SignInKey(account)), ID: cur.ID,
+	})
+}
 
 // SignInTitle is the title of an account's "log in again" item.
 func SignInTitle(account string) string { return "Log in again: " + account }
@@ -134,7 +174,7 @@ func (s *Store) SignInWorks(ctx context.Context, bot Actor, account, runID, read
 
 		closed = true
 
-		return q.ForgetTodoIdempotencyKey(ctx, open)
+		return release(ctx, q, open, account)
 	})
 	if err != nil {
 		return Todo{}, false, err
@@ -156,7 +196,7 @@ func signInItem(ctx context.Context, q *store.Queries, account string) (string, 
 	case row.IdempotencyHash.String != signInHash:
 		return "", fmt.Errorf("%w: the key of %s's sign-in item is another to-do's", storeerr.ErrConflict, account)
 	case Closed(row.State):
-		return "", q.ForgetTodoIdempotencyKey(ctx, row.ID)
+		return "", release(ctx, q, row.ID, account)
 	}
 
 	return row.ID, nil
