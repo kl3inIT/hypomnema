@@ -37,7 +37,6 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/ownerhold"
-	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -240,7 +239,7 @@ func (e *Engine) call(ctx context.Context, agent, tool string, arguments json.Ra
 
 	// A screenshot to be saved on the agent's machine is sent whole (issue #1059); save_to itself is the agent's
 	// side's, and cat.arguments drops it.
-	whole := tool == agenttool.ToolBrowserScreenshot && asksToSave(arguments)
+	whole := SendsWhole(tool, arguments)
 
 	arguments, err = cat.arguments(tool, arguments)
 	if err != nil {

@@ -32,11 +32,13 @@ const shotLineBytes = 16 << 20
 // image_mime_type reads them (cli/src/mcp.rs).
 var shotTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
 
-// asksToSave says whether a call's arguments give save_to.
-func asksToSave(arguments json.RawMessage) bool {
+// SendsWhole says whether a call is a screenshot asked with save_to, whose
+// answer is the picture whole, up to agenttool.MaxSavedShotBytes.
+func SendsWhole(tool string, arguments json.RawMessage) bool {
 	var given map[string]json.RawMessage
 
-	return json.Unmarshal(arguments, &given) == nil && given[devicetool.SaveTo] != nil
+	return tool == agenttool.ToolBrowserScreenshot && json.Unmarshal(arguments, &given) == nil &&
+		given[devicetool.SaveTo] != nil
 }
 
 // savedShot takes a screenshot and answers with the file agent-browser saved,
