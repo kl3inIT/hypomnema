@@ -1,6 +1,7 @@
 package agentapi
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -64,7 +65,7 @@ func (s *Server) meetingTools(a agent) []agenttool.BrowserTool {
 		"limit":{"type":"integer","minimum":1,"maximum":100}}}`)
 	get := json.RawMessage(`{"type":"object","required":["id"],"properties":{
 		"id":{"type":"string","description":"The meeting's id, as meeting_list gives it."},
-		"offset":{"type":"integer","minimum":0,"description":"How many lines of the transcript to skip, in the order they were said: next_offset of the last answer; 0 by default."}}}`)
+		"after_line":{"type":"integer","minimum":0,"description":"Give the lines numbered after this one: next_after_line of the last answer; 0, the first, by default."}}}`)
 
 	return []agenttool.BrowserTool{
 		{
@@ -78,7 +79,7 @@ func (s *Server) meetingTools(a agent) []agenttool.BrowserTool {
 			Name: agenttool.ToolMeetingGet,
 			Description: "Read one meeting: its summary and sections, its decisions and actions (who does each, " +
 				"when it is due, whether it is done, the words it came from and its line), and its transcript, " +
-				"up to 400 lines from offset, by when they were said. Use it to add a meeting's actions to the Inbox once its notes are " +
+				"up to 400 lines after after_line, by their number, each with when it was said. Use it to add a meeting's actions to the Inbox once its notes are " +
 				"ready.",
 			InputSchema: get,
 		},
@@ -86,11 +87,11 @@ func (s *Server) meetingTools(a agent) []agenttool.BrowserTool {
 }
 
 type meetingArgs struct {
-	ID     string `json:"id"`
-	Offset int    `json:"offset"`
-	Since  string `json:"since"`
-	Query  string `json:"query"`
-	Limit  int    `json:"limit"`
+	ID        string `json:"id"`
+	AfterLine int    `json:"after_line"`
+	Since     string `json:"since"`
+	Query     string `json:"query"`
+	Limit     int    `json:"limit"`
 }
 
 // meetingCall runs one of the meetings' tools.
@@ -163,13 +164,17 @@ func (s *Server) meetingGet(w http.ResponseWriter, r *http.Request, in meetingAr
 		return
 	}
 
-	// The store gives the lines by when they were said, not by n: a live meeting's tracks write them out of n's
-	// order (queries/meetings.sql, ListMeetingLines). The cursor is a position in that order.
-	from := min(max(in.Offset, 0), len(d.Lines))
-	upto := min(from+meetingLinesShown, len(d.Lines))
+	// A line's number only grows: a live meeting's tracks append each line with the next one, though the store
+	// gives them by when they were said (queries/meetings.sql, ListMeetingLines; meetingstore.AppendLine). The
+	// cursor is a number, so a line that arrives between two pages, however early it was said, is in a later page,
+	// and none is skipped or given twice (review of #1037, round 3).
+	byNumber := slices.SortedFunc(slices.Values(d.Lines), func(a, b meetingstore.Line) int { return cmp.Compare(a.N, b.N) })
+	from, _ := slices.BinarySearchFunc(byNumber, in.AfterLine+1,
+		func(l meetingstore.Line, n int) int { return cmp.Compare(l.N, n) })
+	upto := min(from+meetingLinesShown, len(byNumber))
 	lines := make([]map[string]any, 0, upto-from)
 
-	for _, l := range d.Lines[from:upto] {
+	for _, l := range byNumber[from:upto] {
 		lines = append(lines, map[string]any{"n": l.N, "at": l.Start.Round(time.Second).String(),
 			"speaker": l.Speaker, "text": l.Text})
 	}
@@ -203,8 +208,8 @@ func (s *Server) meetingGet(w http.ResponseWriter, r *http.Request, in meetingAr
 	meeting["items"] = items
 	meeting["lines"] = lines
 
-	if upto < len(d.Lines) {
-		meeting["next_offset"] = upto
+	if upto < len(byNumber) {
+		meeting["next_after_line"] = byNumber[upto-1].N
 	}
 
 	s.answerJSON(w, r, map[string]any{"note": meetingNote, "meeting": meeting}, nil)
