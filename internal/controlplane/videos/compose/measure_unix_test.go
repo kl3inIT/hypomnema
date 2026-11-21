@@ -6,6 +6,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -78,4 +81,53 @@ func TestMeasureReturnsAtItsDeadline(t *testing.T) {
 			assert.Less(t, time.Since(start), 2*time.Second, "Measure returns soon after its deadline")
 		})
 	}
+}
+
+// Once Measure returns at its deadline, nothing ffmpeg started is left running: the whole process group is killed,
+// not ffmpeg alone (review of #1046: two `sleep 30` children were still sleeping after Measure returned).
+func TestMeasureKillsWhatFFmpegStarted(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	pids := filepath.Join(dir, "pids")
+	tools := fakeFFmpeg(t, measureLines+"sleep 30 </dev/null 2>/dev/null &\necho $! >> '"+pids+"'\n"+
+		"sleep 30 </dev/null &\necho $! >> '"+pids+"'\nwait\n")
+
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+
+	_, err := Measure(ctx, tools, "track.mp3", 0)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	raw, err := os.ReadFile(pids) //nolint:gosec // The test's own file.
+	require.NoError(t, err)
+
+	children := strings.Fields(string(raw))
+	require.Len(t, children, 2)
+
+	for _, field := range children {
+		pid, err := strconv.Atoi(field)
+		require.NoError(t, err)
+
+		t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+		assert.Eventually(t, func() bool { return !running(pid) }, 2*time.Second, 20*time.Millisecond,
+			"child %d is gone", pid)
+	}
+}
+
+// running says whether a process is alive and not a zombie waiting to be reaped: by /proc where there is one.
+func running(pid int) bool {
+	if _, err := os.Stat("/proc/self"); err != nil {
+		return syscall.Kill(pid, 0) == nil
+	}
+
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+
+	// The state follows the command's name in parentheses: "pid (comm) S ...".
+	_, after, _ := strings.Cut(string(stat), ") ")
+
+	return !strings.HasPrefix(after, "Z")
 }
