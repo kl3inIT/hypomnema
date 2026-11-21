@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/SherClockHolmes/webpush-go"
 
@@ -42,6 +43,9 @@ const (
 	// declarative is the member that makes a payload a Declarative Web Push message, which Safari shows by itself
 	// and opens at its navigate URL (WebKit's Declarative Web Push; the owner's Second Bite, push.go:347-367).
 	declarative = 8030
+	// maxPayload is the most a push's JSON may take: webpush-go pads it into one 4096-byte record, which leaves
+	// 3993 bytes after the record's header and tag (RFC 8291, RFC 8188), and Apple takes 4 KiB at most.
+	maxPayload = 3800
 )
 
 // retryWaits are the waits before each new try of a push the service refused for now (429 or a 5xx) or did not
@@ -257,6 +261,37 @@ type notification struct {
 func (s *Sender) message(item, title, body, path string) (message, error) {
 	tag := "hypomnema-" + item
 
+	payload, err := s.encode(tag, title, body, path)
+	if err != nil || len(payload) <= maxPayload {
+		return message{tag: tag, payload: payload}, err
+	}
+
+	// JSON escapes some characters to six bytes, so text cut to fit before encoding may not fit after it (review of
+	// #1050): the body is cut to the longest start that fits once encoded.
+	fits := func(n int) ([]byte, bool) {
+		p, err := s.encode(tag, title, cut(body, n), path)
+
+		return p, err == nil && len(p) <= maxPayload
+	}
+
+	best, ok := fits(0)
+	if !ok {
+		return message{}, fmt.Errorf("a push for %s does not fit in %d bytes", item, maxPayload)
+	}
+
+	for lo, hi := 0, len(body); lo < hi; {
+		mid := (lo + hi + 1) / 2
+		if p, ok := fits(mid); ok {
+			best, lo = p, mid
+		} else {
+			hi = mid - 1
+		}
+	}
+
+	return message{tag: tag, payload: best}, nil
+}
+
+func (s *Sender) encode(tag, title, body, path string) ([]byte, error) {
 	var buf bytes.Buffer
 
 	enc := json.NewEncoder(&buf)
@@ -266,10 +301,26 @@ func (s *Sender) message(item, title, body, path string) (message, error) {
 	if err := enc.Encode(declarativePush{WebPush: declarative, Notification: notification{
 		Title: title, Body: body, Navigate: s.publicURL + path, Tag: tag,
 	}}); err != nil {
-		return message{}, fmt.Errorf("encoding a push: %w", err)
+		return nil, fmt.Errorf("encoding a push: %w", err)
 	}
 
-	return message{tag: tag, payload: bytes.TrimSpace(buf.Bytes())}, nil
+	return bytes.TrimSpace(buf.Bytes()), nil
+}
+
+const ellipsis = "…"
+
+// cut cuts a text to at most n bytes at a character's edge, ending with an ellipsis; nothing when n leaves no room.
+func cut(text string, n int) string {
+	if n <= len(ellipsis) {
+		return ""
+	}
+
+	end := n - len(ellipsis)
+	for end > 0 && !utf8.RuneStart(text[end]) {
+		end--
+	}
+
+	return text[:end] + ellipsis
 }
 
 // topic collapses a pending push of the same item at the push service: the hash of the tag in base64url, 32
