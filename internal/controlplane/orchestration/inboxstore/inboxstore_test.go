@@ -1560,3 +1560,52 @@ func TestADraftHandedBackNeedsTheOwner(t *testing.T) {
 		Assignee: &inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.lan}})
 	require.ErrorIs(t, err, storeerr.ErrForbidden)
 }
+
+// Scenario: issue #1004, section 4, for Lark, whose source names its account only optionally. The owner's sent
+// message is evidence only in the item's own account: a Lark item without one is never closed by a lark_sent,
+// whatever account it names, since another Connection in the same group could show it; an item with its account
+// closes only with that account's message.
+func TestALarkReplyClosesOnlyWithItsOwnAccountsMessage(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	later := t0.Add(time.Minute)
+	w.inbox.WithSent(sentMessages{
+		inboxstore.FromLark + "/me/oc_pmo/mine":   {Chat: "oc_pmo", At: later, FromMe: true},
+		inboxstore.FromLark + "/work/oc_pmo/mine": {Chat: "oc_pmo", At: later, FromMe: true},
+	})
+
+	reply := func(account string) inboxstore.Todo {
+		td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{
+			Title: "Reply to the PMO group", State: inboxstore.Open, WhyOpen: inboxstore.AskedDirectly, Assignee: me,
+			Source: inboxstore.Source{Kind: inboxstore.FromLark, ID: "oc_pmo", Account: account,
+				Quote: "@Đạt check giúp?", Ref: &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_asked"}},
+		})
+		require.NoError(t, err)
+
+		return td
+	}
+	closing := func(account string) inboxstore.Closing {
+		return inboxstore.Closing{DoneBy: me, How: inboxstore.ClosedByBot, Evidence: []inboxstore.Link{
+			{Kind: inboxstore.LinkLarkSent, Ref: "mine", Account: account, Chat: "oc_pmo"},
+		}}
+	}
+
+	unbound := reply("")
+	for _, account := range []string{"me", "work"} {
+		_, err := w.inbox.Done(ctx, by(bot(w.kai), unbound), closing(account))
+		require.ErrorIs(t, err, storeerr.ErrInvalid, "an item without its account is not closed by %s's message",
+			account)
+	}
+
+	w.unchanged(t, unbound)
+
+	bound := reply("me")
+	_, err := w.inbox.Done(ctx, by(bot(w.kai), bound), closing("work"))
+	require.ErrorIs(t, err, storeerr.ErrInvalid, "another Connection's message")
+
+	done, err := w.inbox.Done(ctx, by(bot(w.kai), bound), closing("me"))
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Done, done.State)
+}
