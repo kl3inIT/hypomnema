@@ -55,7 +55,7 @@ func TestEveryFamilySaysWhenToUseIt(t *testing.T) {
 	assert.Contains(t, browser, "your own tab")
 	assert.Contains(t, browser, "\"My browser\"")
 	assert.Contains(t, browser, "\"Hand back\"")
-	assert.Contains(t, browser, "Never ask for, accept, use or type a password")
+	assert.Contains(t, browser, "Never repeat a password or code in a reply")
 
 	assert.Contains(t, ToolGuide([]string{ToolWhatsAppChats}), "\n- WhatsApp: ", "a family's own title")
 }

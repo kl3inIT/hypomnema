@@ -565,7 +565,8 @@ sequenceDiagram
     dropped. `open` takes an http(s) address or `about:blank`; a bare host means https. Its description is
     agent-browser's with a paragraph of Hypomnema's after it (issue #704): the page is in the agent's own tab,
     which the owner sees and takes control of in the web client beside its chat, not in his own tab; a sign-in is
-    made by the owner there and shared by every agent; no password is asked for in the chat.
+    made by the owner there, or typed by the agent with a password the owner gave it (#1042), and shared by every
+    agent; a password is never repeated or stored.
   - Chrome keeps its sandbox. On a machine that blocks it (Ubuntu 23.10 and later) a call fails and says to run
     `deploy/browser/setup-browser.sh` once with sudo (and again when the pinned browser's path changes, as it did
     in issue #540), which writes an AppArmor profile and installs missing
@@ -808,7 +809,7 @@ sequenceDiagram
     drained stays drained through both.
   - An agent is told of the phone when one is there: the node API marks an offer with `device: android`, and
     the phone's line of the "Tools" block, which a worker and a Bot get while a node holds the phone (issue #789),
-    gives the rules that matter most: look before acting, act by box number, never sign in or pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
+    gives the rules that matter most: look before acting, act by box number, sign in only with what the owner gave, never pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
     skill of the skills store that requires the phone (`device: android`, issue #536): every worker and Bot is
     given it while a node holds a phone, by the path every skill takes (see "Skills"); the guide says a Bot asks
     the owner in its chat, a worker with `ask`.
@@ -848,7 +849,7 @@ sequenceDiagram
     (`optimizeForLatency`), configured from the SPS of a key frame, and asks for a key frame when it has none. A
     pointer is one finger, its moves merged one a frame, at a point from 0 to 1 through the letterbox; a key with an
     Android code is that code, Escape is Back, a typed or pasted text is text, Shift+Escape leaves the screen. Control
-    is taken only with the button. The owner types passwords here; agents never sign in. WebCodecs needs a secure
+    is taken only with the button. The owner types passwords here, or gives one to the agent, which may then sign in (#1042). WebCodecs needs a secure
     page (HTTPS or this computer's own address), and a page without it says so. The sidebar says when the owner
     holds the phone.
   - Filming (issue #817, step 1 of 3 of agent-made demo videos; [research](docs/research/2026-11-18-agent-recorded-phone-demo-video.md)).
@@ -4748,8 +4749,8 @@ flowchart LR
   `system-prompt-tool-list.ts:21-71`). Every family has a line (issue #789): memory, artifacts, routines, web,
   images, audio, Muse, Superset, WhatsApp, Zalo, nodes, browser and phone. The browser's holds the owner's
   standing rules for it (the agent's own tab, never "My browser"; the owner signs in there and presses "Hand
-  back"; never a password or code in a chat), the phone's its rules (look before each action, never sign in, buy
-  or pay), the Routines' the owner's yes and a first run, so that every agent with the tool gets them, as
+  back", or the agent types a password or code the owner gave it, never repeating or storing it; #1042), the
+  phone's its rules (look before each action, sign in only with what the owner gave, never buy or pay), the Routines' the owner's yes and a first run, so that every agent with the tool gets them, as
   OpenMausBot gives its browser's rules with the browser (`server/browser/prompt.ts:4-5`). After the families
   come the commands an agent reaches an account with through the service proxy, each with its
   `agenttool.Def.WhenToUse` beside its pin in `catalog.go`, which names the skill to load: `gws`

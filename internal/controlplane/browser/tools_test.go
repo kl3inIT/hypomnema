@@ -167,7 +167,7 @@ func TestOpenSaysWhereTheOwnerSeesTheTab(t *testing.T) {
 	assert.True(t, strings.HasPrefix(got.Description, "does "+toolOpen+"\n\n"), "agent-browser's text comes first")
 	assert.Contains(t, got.Description, "your own tab")
 	assert.Contains(t, got.Description, "in the web client")
-	assert.Contains(t, got.Description, "Never ask for or use a password in the chat")
+	assert.Contains(t, got.Description, "type the password or code he gave you")
 	assert.NotContains(t, properties(t, got), "headed", "a window is not how the owner sees a tab")
 	assert.Equal(t, "does agent_browser_click", c.tools[indexOf(t, c, "agent_browser_click")].Description,
 		"only open's description is added to")
