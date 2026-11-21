@@ -106,7 +106,12 @@ func TestARoutineTokenIsMadeForAScriptRoutineOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = s.AddRoutineToken(ctx, "pi-coordinator", asked.ID)
-	require.ErrorIs(t, err, ErrInvalid)
+	require.ErrorIs(t, err, ErrConflict, "no run of it is live")
+
+	_, err = s.RunRoutineNow(ctx, asked.ID)
+	require.NoError(t, err)
+	_, err = s.AddRoutineToken(ctx, "pi-coordinator", asked.ID)
+	require.ErrorIs(t, err, ErrInvalid, "its run runs no script")
 
 	_, err = s.AddRoutineToken(ctx, "pi-coordinator", "rtn_missing")
 	require.ErrorIs(t, err, ErrNotFound)
@@ -117,6 +122,8 @@ func TestARoutineTokenIsMadeForAScriptRoutineOnly(t *testing.T) {
 	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
+	run, err := s.RunRoutineNow(ctx, syncRoutine.ID)
+	require.NoError(t, err)
 	secret, err := s.AddRoutineToken(ctx, "pi-coordinator", syncRoutine.ID)
 	require.NoError(t, err)
 
@@ -124,7 +131,7 @@ func TestARoutineTokenIsMadeForAScriptRoutineOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, Token{
 		ID: parent.ID, Name: "pi-coordinator", Kind: bearertoken.Bot, CreatedAt: clock.Now(),
-		Bot: DefaultBotID, Routine: syncRoutine.ID,
+		Bot: DefaultBotID, Routine: syncRoutine.ID, RoutineRun: run.Run.ID,
 	}, got)
 	assert.Empty(t, got.Chat, "a script answers no chat")
 
@@ -132,4 +139,86 @@ func TestARoutineTokenIsMadeForAScriptRoutineOnly(t *testing.T) {
 
 	_, err = s.AuthenticateToken(ctx, secret)
 	require.ErrorIs(t, err, ErrNotFound, "the token ends with the run")
+}
+
+// Scenario: review of #1037, round 3: a Routine's run ends, and its token is not revoked yet (the runner revokes it
+// after the run's end is written). It no longer works: the run's end, in its own transaction, ends it, so no token
+// outlives the run whose snapshot it acts by, even when the Routine was changed meanwhile.
+func TestARoutinesTokenEndsWithItsRun(t *testing.T) {
+	t.Parallel()
+
+	s, _, _ := newTestService(t)
+	ctx := t.Context()
+
+	_, _, err := s.AddToken(ctx, "pi-coordinator", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	triage, err := s.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: DefaultBotID, Name: "triage", Kind: routinestore.RoutinePrompt, Prompt: "Triage.", Script: "check.mjs",
+		ScriptText: syncScript, EveryMinutes: 15, Access: routinestore.AccessRead,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+
+	run, err := s.RunRoutineNow(ctx, triage.ID)
+	require.NoError(t, err)
+	secret, err := s.AddRoutineToken(ctx, "pi-coordinator", triage.ID)
+	require.NoError(t, err)
+
+	_, err = s.Routines().SetRoutineAccess(ctx, triage.ID, routinestore.AccessFull)
+	require.NoError(t, err)
+
+	reads, err := s.RoutineScriptReads(ctx, run.Run.ID)
+	require.NoError(t, err)
+	assert.True(t, reads, "while it runs it reads only, as it started")
+
+	_, err = s.FinishRoutineRun(ctx, run.Run.ID, routinestore.RunResult{State: routinestore.RunSucceeded})
+	require.NoError(t, err)
+
+	_, err = s.AuthenticateToken(ctx, secret)
+	require.ErrorIs(t, err, ErrNotFound, "the run ended: so did its token, before it was revoked")
+}
+
+// Scenario: review of #1037, round 3: the triage Routine's run starts reading only; then its check and its prompt
+// are changed, and the read grant taken back, as a Bot's change does. The run goes on as it started: the launcher is given the check the
+// run started with, and the chat its check opens holds the prompt it started with, reading only.
+func TestARunLaunchesAndWakesWhatItStartedWith(t *testing.T) {
+	t.Parallel()
+
+	s, _, _ := newTestService(t)
+	ctx := t.Context()
+
+	triage, err := s.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: DefaultBotID, Name: "triage", Kind: routinestore.RoutinePrompt, Prompt: "Triage the new messages.",
+		Script: "check.mjs", ScriptText: "#!/usr/bin/env node\nconsole.log('first')\n", EveryMinutes: 15,
+		Access: routinestore.AccessRead,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+
+	run, err := s.RunRoutineNow(ctx, triage.ID)
+	require.NoError(t, err)
+
+	edited, err := s.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: DefaultBotID, Name: "triage", Kind: routinestore.RoutinePrompt, Prompt: "Send everyone a reply.",
+		Script: "check.mjs", ScriptText: "#!/usr/bin/env node\nconsole.log('edited')\n", EveryMinutes: 15,
+		Access: routinestore.AccessFull,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+	require.Equal(t, routinestore.AccessFull, edited.Access)
+
+	launch, err := s.Routines().ClaimRoutineScript(ctx, triage.ID, DefaultBotID)
+	require.NoError(t, err)
+	assert.Contains(t, launch.Text, "first", "the check the run started with")
+
+	woken, err := s.WakeRoutineRun(ctx, run.Run.ID, "zalo:main g_pmo: 2 new\n")
+	require.NoError(t, err)
+
+	read, err := s.ReadRun(ctx, woken.Run.ChatID)
+	require.NoError(t, err)
+	assert.True(t, read, "the chat reads only, as the run started")
+
+	msgs, err := s.ListChatMessages(ctx, woken.Run.ChatID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Text, "Triage the new messages.")
+	assert.NotContains(t, msgs[0].Text, "Send everyone a reply.")
 }
