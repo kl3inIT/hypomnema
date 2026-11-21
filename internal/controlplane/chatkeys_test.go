@@ -109,7 +109,8 @@ func TestARunningPiGetsNoKeyOnceItsCoordinatorTokenIsRevoked(t *testing.T) {
 
 // Scenario (issue #996, review of #999): a pi's key is made from a read of its chat taken before the chat was
 // deleted, or before its Bot was removed with its chats; the gateway refuses it in the transaction that would make
-// it. A key that names no parent, made after the pi's coordinator token was revoked, is refused too.
+// it. A key that names no parent, made after the pi's coordinator token was revoked, is refused too, even after the
+// daily clean-up (review round 3).
 func TestNoChatKeyIsMadeForAChatGoneOrUnderARevokedToken(t *testing.T) {
 	t.Parallel()
 
@@ -155,4 +156,10 @@ func TestNoChatKeyIsMadeForAChatGoneOrUnderARevokedToken(t *testing.T) {
 
 	_, _, err = gateway.AddChatKey(ctx, chat.ID, chat.Bot, "")
 	require.ErrorIs(t, err, modelgateway.ErrConflict, "a key naming no parent keeps the chat's, which is revoked")
+
+	// The daily clean-up deletes the revoked keys no request names, but keeps the one that tells the chat's parent.
+	_, err = gateway.Purge(ctx)
+	require.NoError(t, err)
+	_, _, err = gateway.AddChatKey(ctx, chat.ID, chat.Bot, "")
+	require.ErrorIs(t, err, modelgateway.ErrConflict, "still refused after the clean-up")
 }
