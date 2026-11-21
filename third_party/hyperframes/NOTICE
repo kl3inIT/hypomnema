@@ -1,0 +1,11 @@
+HyperFrames
+Copyright 2026 HeyGen, Inc.
+
+Used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+Source: https://github.com/heygen-com/hyperframes at a744f5c.
+
+What is taken from it here, ported to Go and modified as the file says at its
+top: the duck of a music bed under speech, its spans merged and its keyframes
+(skills/media-use/scripts/lib/duck.mjs), in
+internal/controlplane/videos/compose/duck.go.

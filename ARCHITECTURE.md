@@ -966,6 +966,27 @@ sequenceDiagram
     instant shows (libass is given whole milliseconds, truncated; #937). Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
     `background()` (`compose/testdata/frames`), and check in the made video that the hole shows the picture and
     only the hole does, where a ring lands, and that a turned take is refused.
+    Compose lays a music track under the voice when `Input.Music` names one (#910 part 1, #1039; nothing passes
+    one yet: the library, the look's section and the runner are part 2): its file, its decoded length and a gain
+    of −20 to +10 dB. Without music the mux's command is as before, stream for stream. `compose.Measure` decodes a
+    file's first audio stream strictly (`-xerror`, optionally bounded by `-t`) through ebur128, read from ffmpeg's
+    stdout (`-progress pipe:1`, capped at 32 MB, refused unless it ends with `progress=end`): integrated LUFS, the
+    largest true peak (linear; `TPdB` is 20·log10 of it) and the decoded length. With music, the voice's chain is
+    written as `voice.wav` and measured; its gain is min(−16 − I, −1.5 − TP) (Kinocut, Apache-2.0,
+    `third_party/kinocut`). The bed (`bed.go`, Kinocut's loop) is the track made stereo 44.1 kHz float, cut at the
+    video's length T or, when shorter, played ⌈(T − 1.5)/(L − 1.5)⌉ times (at most 100) with 1.5 s equal-power
+    crossfades, written as `music-bed.wav` (pcm_f32le, 352 800 B/s) after checking 400 MB + that much free disk
+    (`Input.FreeBytes`, else `platform.FreeBytes`). It is measured over T: at −70 LUFS or under, the video is made
+    without music and with a warning; otherwise its gain sets it 3 LU under the voice plus the track's gain, capped
+    at +24 dB with a warning. The bed is ducked to 0.25 under each scene's clip (spans less than 0.6 s apart
+    merged; down over 0.15 s, up over 0.4 s; HyperFrames' duck, Apache-2.0, `third_party/hyperframes`) by a volume
+    expression evaluated every 256 samples, and faded out over min(1.8 s, T). The voice, made stereo, and the bed
+    are mixed by `amix normalize=0 duration=first`, limited by `alimiter` at −3 dBFS at 176.4 kHz, and encoded as
+    AAC 192k, the graph read from `mix.graph` (`-/filter_complex`). The made video is measured into
+    `Result.Music` (the voice's and the bed's loudness and gains, the output's LUFS and dBTP); a true peak over
+    −1 dBTP, a loudness more than 2 LU off −16, or a failed measurement is a warning. Tests make their audio with
+    lavfi and measure, against a control mixed without the duck, the duck under each clip and its 300 ms gaps,
+    the release between spans 1 s apart, the gains, the loop's seams, sizes and formats, and the peaks.
   - Videos and revisions (`internal/controlplane/videos`, migrations 00126 and `video_looks`). A **video**
     belongs to one take (one row of `videos`, its take unique); each make or change request adds an immutable
     **revision** (`video_revisions`: rev 1, 2, …, its parent, the lines, voice, captions, aspect and look it is made

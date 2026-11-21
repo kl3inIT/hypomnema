@@ -1,0 +1,14 @@
+Kinocut
+Copyright 2026 Simon Gonzalez de Cruz
+
+Used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+Source: https://github.com/KyaniteLabs/kinocut at d46975a.
+
+What is taken from it here, ported to Go and modified as each file says at its
+top: the looped music bed (kinocut/engine_audio_bed_filters.py and
+kinocut/engine_audio_bed.py) in internal/controlplane/videos/compose/bed.go,
+and the voice's gain under a true-peak ceiling, the mix of voice and bed and
+the measured output (kinocut/engine_audio_normalize.py,
+kinocut/engine_audio_normalize_output.py, kinocut/engine_audio_mix.py) in
+internal/controlplane/videos/compose/music.go.
