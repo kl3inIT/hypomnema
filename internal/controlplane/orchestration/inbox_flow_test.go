@@ -192,3 +192,92 @@ func TestInboxBotToolsMigrationKeepsTheItems(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.FromWhatsApp, made.Source.Kind)
 }
+
+// Scenario: issue #1004, section 7, while the item waits for the owner. A chat is deleted while the item its Bot
+// was doing there is in review: its pending Approval ends, refused as nobody answered, and the item is open again
+// with the reason, in the deletion's transaction; the owner's late answer moves nothing, and the item can be
+// started again from another chat.
+func TestDeletingAChatEndsTheApprovalItsItemWaitsFor(t *testing.T) {
+	t.Parallel()
+
+	w := newSeedWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, DefaultBotID, "")
+	require.NoError(t, err)
+
+	td := w.doingIn(inboxstore.Work{Kind: inboxstore.WorkChat, ID: chat.ID})
+	asked := w.askMail(chat.ID, td.Work.Attempt, "mail")
+	require.Equal(t, inboxstore.Review, w.todo(td.ID).State)
+
+	_, err = w.s.DeleteChat(ctx, chat.ID)
+	require.NoError(t, err)
+
+	got := w.todo(td.ID)
+	assert.Equal(t, inboxstore.Open, got.State)
+	assert.Nil(t, got.Work)
+	assert.Empty(t, got.ApprovalID)
+	assert.Contains(t, string(got.Events[len(got.Events)-1].After), "the chat was deleted")
+
+	ended, err := w.s.GetApproval(ctx, asked.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ApprovalRejected, ended.Status)
+	assert.True(t, ended.Expired)
+
+	_, err = w.s.DecideApproval(ctx, asked.ID, true, ScopeOnce)
+	require.Error(t, err, "the Approval was answered by the deletion")
+	assert.Equal(t, inboxstore.Open, w.todo(td.ID).State)
+
+	other, err := w.s.CreateChat(ctx, DefaultBotID, "")
+	require.NoError(t, err)
+
+	cur := w.todo(td.ID)
+	again, err := w.s.Inbox().Start(ctx, inboxstore.Change{Actor: inboxBot, ID: cur.ID, Revision: cur.Revision},
+		inboxstore.Work{Kind: inboxstore.WorkChat, ID: other.ID})
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Doing, again.State)
+}
+
+// Scenario: issue #1004, section 5. Two sends of one attempt read the item doing before the first put it in review:
+// the second is refused in its own write, recording no Approval that no item waits for, so the owner's answers
+// always move the item. Once the first is answered, the same second request is asked again and waits as the item's.
+func TestASecondApprovalOfAnAttemptWaitsForTheFirst(t *testing.T) {
+	t.Parallel()
+
+	w := newSeedWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, DefaultBotID, "")
+	require.NoError(t, err)
+
+	td := w.doingIn(inboxstore.Work{Kind: inboxstore.WorkChat, ID: chat.ID})
+	first := w.askMail(chat.ID, td.Work.Attempt, "first")
+
+	second := NewApproval{
+		Integration: "google", Label: "work", Action: "gmail.send", ActionName: "Send mail", ChatID: chat.ID,
+		AttemptID: td.Work.Attempt, AskedBy: "pi", Title: "Send mail to Minh", MatchHash: "second",
+	}
+	_, _, err = w.s.AskApproval(ctx, second)
+	require.ErrorIs(t, err, ErrConflict)
+
+	pending, err := w.s.ListApprovals(ctx, ApprovalFilter{Status: ApprovalPending})
+	require.NoError(t, err)
+	require.Len(t, pending, 1, "no Approval waits outside the item")
+	assert.Equal(t, first.ID, pending[0].ID)
+
+	_, err = w.s.DecideApproval(ctx, first.ID, true, ScopeOnce)
+	require.NoError(t, err)
+	require.Equal(t, inboxstore.Doing, w.todo(td.ID).State)
+
+	retried, granted, err := w.s.AskApproval(ctx, second)
+	require.NoError(t, err)
+	require.False(t, granted)
+
+	got := w.todo(td.ID)
+	assert.Equal(t, inboxstore.Review, got.State)
+	assert.Equal(t, retried.ID, got.ApprovalID)
+
+	_, err = w.s.DecideApproval(ctx, retried.ID, false, "")
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Open, w.todo(td.ID).State, "the owner's no moves the item")
+}
