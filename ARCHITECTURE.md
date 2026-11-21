@@ -5376,8 +5376,8 @@ Node (`internal/node`):
   command with the same platform sandbox; the worker's `dlx` cache is not pruned. The pnpm store must be on the affected mount.
   Go module, toolchain
   and fuzz caches are not touched. Playwright's own GC remains part of its browser install, not this sweep.
-  While the volume is still below its target after that, the node trims the same Go and golangci-lint caches
-  again, oldest first, down to entries unused for 2 hours, and stops once it has the target (issue #1017). Go
+  When the volume is still below its trim threshold after that, the node trims the same Go and golangci-lint
+  caches again, oldest first, down to entries unused for 2 hours, and stops once it has the target (issue #1017). Go
   refreshes an entry's mtime on use at most once an hour (`mtimeInterval`), so a build in progress keeps its
   entries; Go documents its cache as safe to remove (`go help cache`). There is no size cap: free space is the one
   control, as Buildkite's low-disk prune and GitHub's runner warning trigger on free space.

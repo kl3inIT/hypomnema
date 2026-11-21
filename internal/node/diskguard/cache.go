@@ -58,8 +58,8 @@ func (c Caches) worktreeVolume() string {
 
 // Trim frees room on the worktree volume when it is below its trim threshold, from the caches it manages only: Go's
 // build caches and golangci-lint's, oldest entry first, the entries unused for goCacheAge; then the pnpm store's
-// unreferenced packages while the node is idle; then, while the volume still needs room, the same caches again down
-// to youngCacheAge (issue #1017). It reports whether the volume is still below its floor after all of it.
+// unreferenced packages while the node is idle; then, only when the volume is still below its trim threshold, the
+// same caches again down to youngCacheAge, until it reaches the target (issue #1017). It reports whether the volume is still below its floor after all of it.
 func (c Caches) Trim(ctx context.Context, whileIdle func(func())) (blocked bool) {
 	if ctx.Err() != nil {
 		return false
@@ -110,7 +110,11 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) (blocked bool)
 			})
 		}
 	}
-	trim(youngCacheAge)
+	// The 2-hour pass is the low-disk trigger's own (issue #1017): it starts only while the volume is still below
+	// its trim threshold, and then stops at the target as the first pass does.
+	if after, _ := c.space(ctx); after.FreeBytes != nil && *after.FreeBytes < after.TrimBytes {
+		trim(youngCacheAge)
+	}
 
 	current, _ := c.space(ctx)
 	if ctx.Err() != nil || current.AllowsWork() {
