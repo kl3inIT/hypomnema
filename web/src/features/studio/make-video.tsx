@@ -41,15 +41,20 @@ type Aspect = NonNullable<VideoMake["aspect"]>
 // Audio. The take's first make creates its video, a later one adds a revision with the latest lines. The request
 // carries an idempotency key made when the dialog opens, so a make sent twice queues one revision
 // (docs/conventions.md). Once queued, the video opens. Its Look (#908, row 16) starts from the saved default, and
-// the make sends only the sections the owner changed: the server takes the others from the default (#938).
+// the make sends only the sections the owner changed: the server takes the others from the default (#938). A take
+// that cannot be made, one with no steps (#1028), has the button disabled, described by the line saying why, as
+// Request changes is disabled with its line (./video-view.tsx); the dialog and its look sample never open.
 export function MakeVideo({
   take,
   again,
+  why,
   onMade,
 }: {
   take: string
   // again: the take has a video already, and a make adds a revision.
   again?: boolean
+  // why: the id of the line saying why the take cannot be made into a video; the button is then disabled.
+  why?: string
   onMade: (video: Video) => void
 }) {
   const formId = useId()
@@ -88,7 +93,11 @@ export function MakeVideo({
 
   return (
     <Dialog open={open} onOpenChange={change}>
-      <DialogTrigger render={<Button variant="ghost" size="sm" />}>
+      <DialogTrigger
+        render={<Button variant="ghost" size="sm" />}
+        disabled={why !== undefined}
+        aria-describedby={why}
+      >
         <Film />
         Make video
       </DialogTrigger>
