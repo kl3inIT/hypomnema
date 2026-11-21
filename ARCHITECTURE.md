@@ -777,7 +777,8 @@ sequenceDiagram
     agent-browser, and reads the picture from the file agent-browser saved under its HOME
     (`.agent-browser/tmp/screenshots`), since agent-browser gives an image only up to 10 MiB and the engine keeps
     8 MiB of another answer; that answer, the picture whole in base64, may be up to 64 MiB
-    (`agenttool.MaxSavedShotBytes`, generate_image's bound), and a larger one is refused with what to take instead
+    (`agenttool.MaxSavedShotBytes`, generate_image's bound) and has no write timeout, as generate_image's has none;
+    the file is opened in that folder (`os.Root`), and a larger one is refused with what to take instead
     (issue #1059);
     `device_layout` is
     `android layout --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with boxes

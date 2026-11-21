@@ -179,6 +179,15 @@ func resolvesInside(dir, rel string) bool {
 	at := filepath.Join(dir, rel)
 
 	for range maxLinkHops {
+		// The folder the name is in, as its links resolve, so that a link's relative target is read from where the
+		// link is (mobile-mcp's resolveWithSymlinks resolves the directory first).
+		parent := filepath.Dir(at)
+		if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+			parent = resolved
+		}
+
+		at = filepath.Join(parent, filepath.Base(at))
+
 		info, err := os.Lstat(at)
 		if err != nil || info.Mode()&os.ModeSymlink == 0 {
 			return existingInside(top, at)
@@ -190,7 +199,7 @@ func resolvesInside(dir, rel string) bool {
 		}
 
 		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(at), target)
+			target = filepath.Join(parent, target)
 		}
 
 		at = target
@@ -257,7 +266,8 @@ func writeShot(dir, rel, format string, data []byte) error {
 // what is at rel, a link or a hard link of a file elsewhere, is replaced rather
 // than written through. A regular file there passes its mode on.
 func replaceIn(root *os.Root, rel string, data []byte) error {
-	partial := filepath.Join(filepath.Dir(rel), "."+filepath.Base(rel)+"."+rand.Text()+".partial")
+	// Unlike mobile-mcp's, the name does not repeat rel's: a name as long as a file's may be is still taken.
+	partial := filepath.Join(filepath.Dir(rel), "."+rand.Text()+".partial")
 
 	f, err := root.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {

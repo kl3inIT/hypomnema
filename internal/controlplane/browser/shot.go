@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,34 +67,58 @@ func (e *Engine) savedShot(ctx context.Context, s *session, cdp string, argument
 	})
 }
 
+// maxShotFileBytes is the largest picture whose answer, in base64 with what
+// surrounds it (well under a KiB), is within agenttool.MaxSavedShotBytes.
+const maxShotFileBytes = (agenttool.MaxSavedShotBytes - 1<<10) / 4 * 3
+
 // readShot reads a saved screenshot in base64, with its type, or says why it cannot be sent. Only a file in the
 // folder agent-browser saves a screenshot in when it is given no path (native/screenshot.rs:658-666, under the
-// HOME the engine gives it), which an agent cannot name (withheldOf), is read.
+// HOME the engine gives it), which an agent cannot name (withheldOf), is read: it is opened in that folder with
+// os.Root, so a link there to a file elsewhere is not followed, and read no further than can be sent.
 func (e *Engine) readShot(path string) (string, string, string) {
 	mime := shotTypes[strings.ToLower(filepath.Ext(path))]
+	folder := filepath.Join(e.home(), ".agent-browser", "tmp", "screenshots")
 
-	within, err := filepath.Rel(filepath.Join(e.home(), ".agent-browser", "tmp", "screenshots"), path)
+	within, err := filepath.Rel(folder, path)
 	if path == "" || err != nil || !filepath.IsLocal(within) || mime == "" {
 		return "", "", "The browser did not say where it saved the screenshot, so it could not be sent to be saved."
 	}
 
-	info, err := os.Stat(path)
+	raw, err := readIn(folder, within)
 	if err != nil {
 		return "", "", "The screenshot the browser saved could not be read: " + err.Error()
 	}
 
-	// What surrounds the picture in the answer is well under a KiB.
-	if base64.StdEncoding.EncodedLen(int(info.Size()))+1<<10 > agenttool.MaxSavedShotBytes {
-		return "", "", fmt.Sprintf("The screenshot is %d MB, more than can be sent to be saved (%d MB once encoded): "+
-			"take a part of the page with selector, or format jpeg.", info.Size()>>20, agenttool.MaxSavedShotBytes>>20)
-	}
-
-	raw, err := os.ReadFile(path) //nolint:gosec // agent-browser's own file, in its folder under the engine's.
-	if err != nil {
-		return "", "", "The screenshot the browser saved could not be read: " + err.Error()
+	if len(raw) > maxShotFileBytes {
+		return "", "", fmt.Sprintf("The screenshot is more than %d MB, more than can be sent to be saved (%d MB "+
+			"once encoded): take a part of the page with selector, or format jpeg.", maxShotFileBytes>>20,
+			agenttool.MaxSavedShotBytes>>20)
 	}
 
 	return base64.StdEncoding.EncodeToString(raw), mime, ""
+}
+
+// readIn reads the regular file name in folder, opened there, and at most one byte more than maxShotFileBytes.
+func readIn(folder, name string) ([]byte, error) {
+	root, err := os.OpenRoot(folder)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = root.Close() }()
+
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = f.Close() }()
+
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return nil, errors.Join(err, errors.New("it is not a file"))
+	}
+
+	return io.ReadAll(io.LimitReader(f, maxShotFileBytes+1))
 }
 
 func failedShot(why string) (json.RawMessage, error) {
