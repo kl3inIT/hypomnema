@@ -95,7 +95,8 @@ function larkWorld({ groups = [], p2p = [], messages = {} }) {
     }
     const chat = url.searchParams.get("container_id");
     const start = Number(url.searchParams.get("start_time") ?? 0) * 1000;
-    const list = (messages[chat] ?? []).filter((m) => Number(m.create_time) >= start);
+    const end = Number(url.searchParams.get("end_time") ?? Infinity) * 1000;
+    const list = (messages[chat] ?? []).filter((m) => Number(m.create_time) >= start && Number(m.create_time) <= end);
     return { status: 200, records: { code: 0, data: page(list, url, Number(url.searchParams.get("page_size") ?? 20)) } };
   };
   return { tools, call };
@@ -116,7 +117,7 @@ test("lark: a direct message wakes the Bot", async () => {
   assert.match(got.text, /lark:me chat "Kai Yong" \(id oc_kai\): 1 new/);
 });
 
-test("lark: every page of chats and of messages is read, or the source keeps its time", async () => {
+test("lark: every page of chats and of messages is read, and past the cap, the rest next run", async () => {
   const groups = Array.from({ length: 150 }, (_, i) => ({ chat_id: `oc_${i}`, name: `G${i}` }));
   const messages = Object.fromEntries(groups.map((g, i) => [g.chat_id,
     Array.from({ length: i === 120 ? 60 : 1 }, (_, j) => larkMessage(10 + j))]));
@@ -129,9 +130,18 @@ test("lark: every page of chats and of messages is read, or the source keeps its
   assert.equal(seen.oc_120, 60, "and the second page of a chat's messages");
   assert.equal(got.state.sources["lark:me"].mark, at(600));
 
-  const capped = await check({ tools: w.tools, call: w.call, state, config: { larkChats: 50 }, now: new Date(at(600)) });
-  assert.equal(capped.state.sources["lark:me"].mark, mark, "chats left unread: the source keeps its time");
-  assert.match(capped.text, /could not read lark:me/);
+  // Review of #1037, round 3: past its cap the source keeps where it stopped, and reads on from there.
+  const config = { larkChats: 50, printBytes: 1e6 };
+  let kept = state;
+  const read = {};
+  for (let run = 0; run < 4; run++) {
+    const got = await check({ tools: w.tools, call: w.call, state: kept, config, now: new Date(at(600 + run * 60)) });
+    Object.assign(read, counted(got.text));
+    kept = got.state;
+    if (!got.wake) break;
+  }
+  assert.equal(Object.keys(read).length, 150, "every chat in the end, 50 a run");
+  assert.deepEqual(kept.sources["lark:me"].gaps, [], "nothing is left to read");
 });
 
 function gmailWorld(count) {
@@ -154,7 +164,7 @@ function gmailWorld(count) {
   return { tools, call };
 }
 
-test("gmail: every page of mail is read, or the source keeps its time", async () => {
+test("gmail: every page of mail is read, and past the cap, the rest next run", async () => {
   const w = gmailWorld(150);
   const state = { sources: { "google:me": mark } };
 
@@ -162,9 +172,51 @@ test("gmail: every page of mail is read, or the source keeps its time", async ()
   assert.equal(Object.keys(counted(got.text.replaceAll("thread ", "id "))).length, 150);
   assert.equal(got.state.sources["google:me"].mark, at(600));
 
-  const capped = await check({ tools: w.tools, call: w.call, state, config: { perSource: 100 }, now: new Date(at(600)) });
-  assert.equal(capped.state.sources["google:me"].mark, mark, "mail left unread: the source keeps its time");
-  assert.match(capped.text, /could not read google:me/);
+  // Review of #1037, round 3: past its cap the source keeps where it stopped, and reads on from there.
+  const config = { perSource: 100, printBytes: 1e6 };
+  let kept = state;
+  const read = {};
+  for (let run = 0; run < 4; run++) {
+    const got = await check({ tools: w.tools, call: w.call, state: kept, config, now: new Date(at(600 + run * 60)) });
+    Object.assign(read, counted(got.text.replaceAll("thread ", "id ")));
+    kept = got.state;
+    if (!got.wake) break;
+  }
+  assert.equal(Object.keys(read).length, 150, "every mail in the end, 100 a run");
+  assert.deepEqual(kept.sources["google:me"].gaps, [], "nothing is left to read");
+});
+
+test("whatsapp: more messages in one second than the cap are all read, a run after another", async () => {
+  const messages = Array.from({ length: 7000 }, (_, i) => ({
+    Chat: `c_${i}`, ChatName: `C${i}`, ID: "m1", At: at(30), SenderName: "Lan",
+  }));
+  const w = messagingWorld("whatsapp", messages, "s");
+  let kept = { sources: { "whatsapp:main": mark } };
+  const read = {};
+  for (let run = 0; run < 4; run++) {
+    const got = await check({ tools: w.tools, call: w.call, state: kept, config: { printBytes: 1e9 },
+      now: new Date(at(60 + run * 60)) });
+    Object.assign(read, counted(got.text));
+    kept = got.state;
+    if (!got.wake) break;
+  }
+  assert.equal(Object.keys(read).length, 7000, "the 2,000 past the first run's cap are read by the next");
+});
+
+test("a conversation too long for the prompt is cut, not left to block the others", async () => {
+  const messages = [
+    ...Array.from({ length: 3000 }, (_, i) => ({
+      Chat: "g_all", ChatName: "Everyone", ID: `a${i}`, At: at(20), SenderName: `A person with a long name ${i}`,
+    })),
+    { Chat: "g_pmo", ChatName: "PMO", ID: "p1", At: at(10), SenderName: "Lan" },
+  ];
+  const w = messagingWorld("zalo", messages);
+  const got = await check({ tools: w.tools, call: w.call, state: { sources: { "zalo:main": mark } },
+    now: new Date(at(60)) });
+
+  assert.ok(Buffer.byteLength(got.text, "utf8") <= 16 << 10);
+  assert.match(got.text, /\(id g_all\): 3000 new from .* and \d+ more/);
+  assert.match(got.text, /\(id g_pmo\): 1 new/, "the next conversation is told too");
 });
 
 test("what the prompt cannot hold is told at the next check, never dropped", async () => {

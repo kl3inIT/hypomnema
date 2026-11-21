@@ -176,5 +176,6 @@ test("every chat with new messages is found, however many there are", async () =
   const capped = await check({ tools, call: world({ chats, messages }).call, state, now, config: { scanMessages: 100 } });
   assert.equal(capped.state.sources["zalo:main"].gaps.length, 1, "past the cap the account keeps what is left");
   assert.equal(capped.state.sources["zalo:main"].gaps[0].after, since);
+  assert.equal(capped.state.sources["zalo:main"].gaps[0].offset, 100, "and where it stopped in them");
   assert.match(capped.text, /could not read zalo:main: more than 100 new messages/);
 });
