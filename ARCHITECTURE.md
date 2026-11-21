@@ -970,7 +970,8 @@ sequenceDiagram
     one yet: the library, the look's section and the runner are part 2): its file, its decoded length and a gain
     of −20 to +10 dB. Without music the mux's command is as before, stream for stream. `compose.Measure` decodes a
     file's first audio stream strictly (`-xerror`, optionally bounded by `-t`) through ebur128, read from ffmpeg's
-    stdout (`-progress pipe:1`, capped at 32 MB, refused unless it ends with `progress=end`): integrated LUFS, the
+    stdout (`-progress pipe:1`, capped at 32 MB, refused unless it ends with `progress=end`, its stdout closed at the context's deadline
+    even while a child of ffmpeg holds it): integrated LUFS, the
     largest true peak (linear; `TPdB` is 20·log10 of it) and the decoded length. With music, the voice's chain is
     written as `voice.wav` and measured; its gain is min(−16 − I, −1.5 − TP) (Kinocut, Apache-2.0,
     `third_party/kinocut`). The bed (`bed.go`, Kinocut's loop) is the track made stereo 44.1 kHz float, cut at the
@@ -986,7 +987,8 @@ sequenceDiagram
     `Result.Music` (the voice's and the bed's loudness and gains, the output's LUFS and dBTP); a true peak over
     −1 dBTP, a loudness more than 2 LU off −16, or a failed measurement is a warning. Tests make their audio with
     lavfi and measure, against a control mixed without the duck, the duck under each clip and its 300 ms gaps,
-    the release between spans 1 s apart, the gains, the loop's seams, sizes and formats, and the peaks.
+    the release between spans 1 s apart, the gains, the loop's seams, sizes and formats, and the peaks; a fake
+    ffmpeg locks the no-music mux's arguments.
   - Videos and revisions (`internal/controlplane/videos`, migrations 00126 and `video_looks`). A **video**
     belongs to one take (one row of `videos`, its take unique); each make or change request adds an immutable
     **revision** (`video_revisions`: rev 1, 2, …, its parent, the lines, voice, captions, aspect and look it is made
