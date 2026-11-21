@@ -5436,10 +5436,11 @@ Node (`internal/node`):
         `ask`, before changing the scope, deploying or changing a server, deleting what its change did not make, or
         acting outside its directory and pull request, and when no option keeps the task's goal (the owner's list,
         2026-11-17, issue #672, with merging taken off it by issue #714 and the goal added by issue #1069; after
-        OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do freely / Ask first"); the coordinator answers
-        a question about such an option itself when the worker recommends one inside the Task's scope (its
-        skill's Questions); no one reads the worker's messages before `finish`, so no progress messages (Orca,
-        omp);
+        OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do freely / Ask first"); when a worker still asks
+        about such an option, the coordinator answers it itself instead of forwarding it to the owner, if the
+        question reaches the coordinator (asked to it) and the worker's recommendation names its source and stays
+        inside the Task's scope (its skill's Questions); no one reads the worker's messages before `finish`, so no
+        progress messages (Orca, omp);
       - finish the whole task: errors and failing tests are worked through, a turn does not end on a plan or an
         offer to continue, and only what needs the owner stops it, with `ask` or a Gate (issue #672, after
         Anthropic's Opus 5.5 and Fable 5.2 pages, omp's subagent and Hermes's task-completion guidance);

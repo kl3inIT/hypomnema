@@ -32,8 +32,9 @@ const writeRules =
 // presents the choice after making it: pstack skills/principle-never-block-on-the-human/SKILL.md:9-15 ("Proceed,
 // then present", reversible work proceeds, "Product direction comes from the human. Execution should not
 // block"), OpenClaw's "Do freely / Ask first" above. Asking when no option keeps the goal is pstack's product
-// direction (owner, 2026-11-22). Workers had asked the owner four such questions in an hour, each already
-// recommending the option the owner then took.
+// direction (owner, 2026-11-22). Workers had asked the coordinator four such questions in an hour, and it forwarded
+// each to the owner, who took the option the worker had already recommended. This rule makes fewer such questions
+// start; the coordinator guide's Questions stops the forward when a worker still asks.
 "- Decide yourself, within what the task and your instructions allow: how to build it and where the code " +
 	"goes, which tests to add or change, running the repository's checks, committing and pushing your branch, " +
 	"opening or updating this task's pull request and turning on its auto-merge as said below. Never merge it " +
