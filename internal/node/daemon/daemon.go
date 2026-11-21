@@ -151,15 +151,18 @@ type Daemon struct {
 	diskWorkers sync.RWMutex
 	maintenance chan struct{}
 	// diskBlocked says the last trim of the caches left the worktree volume below its floor (issue #1017).
-	diskBlocked atomic.Bool
-	diskProbe   chan struct{}
-	statsProbe  chan struct{}
-	cfg         Config
-	db          *statedb.DB
-	runner      Runner
-	logger      *slog.Logger
-	http        *http.Client
-	newID       func(prefix string) string
+	// diskRecoveries counts the heartbeats that found it at or above the floor again, each of which clears
+	// diskBlocked, so that a trim that began before one does not set it.
+	diskBlocked    atomic.Bool
+	diskRecoveries atomic.Uint64
+	diskProbe      chan struct{}
+	statsProbe     chan struct{}
+	cfg            Config
+	db             *statedb.DB
+	runner         Runner
+	logger         *slog.Logger
+	http           *http.Client
+	newID          func(prefix string) string
 	// instance identifies this process to the control plane.
 	instance string
 
@@ -657,6 +660,10 @@ func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
 	hb := nodeproto.Heartbeat{Reaches: d.hosts.said(), Tools: d.tools.said(), Device: d.phoneState()}
 	if d.cfg.Disk != nil {
 		disk := d.measureDisk(ctx)
+		if disk.AllowsWork() {
+			d.diskRecoveries.Add(1)
+			d.diskBlocked.Store(false)
+		}
 		disk.Blocked = d.diskBlocked.Load() && disk.FreeBytes != nil && !disk.AllowsWork()
 		hb.Disk = &disk
 	}

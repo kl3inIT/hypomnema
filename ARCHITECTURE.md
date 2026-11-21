@@ -5369,7 +5369,9 @@ Node (`internal/node`):
 - Below the trim threshold, with protected paths confirmed, the node trims standard Go build cache entries in
   `~/.cache/go-build` and the effective `GOCACHE`, and golangci-lint's, which keeps Go's layout and trim rule
   (`~/.cache/golangci-lint` and an absolute `GOLANGCI_LINT_CACHE`), on the affected mount; when `go env` cannot
-  name the module cache it trims neither. It removes entries older than five days
+  name the module cache it trims neither. A directory is trimmed only when its `README` starts with the line Go,
+  or golangci-lint, writes in a cache it uses (`cmd/go/internal/cache/default.go:28,47-50`); one of the same shape
+  that no cache wrote is left whole and logged once (`node.cache_unconfirmed`). It removes entries older than five days
   plus one hour in oldest-first order, skips entries that changed after inspection, and remeasures in batches
   until it reaches the target. It checks for an idle node before invoking native
   `pnpm store prune` on the default worker store. It rejects symlinks and cross-mount entries and confines the
@@ -5378,17 +5380,22 @@ Node (`internal/node`):
   and fuzz caches are not touched. Playwright's own GC remains part of its browser install, not this sweep.
   When the volume is still below its trim threshold after that, the node trims the same Go and golangci-lint
   caches again, oldest first, down to entries unused for 2 hours, and stops once it has the target (issue #1017). Go
-  refreshes an entry's mtime on use at most once an hour (`mtimeInterval`), so a build in progress keeps its
-  entries; Go documents its cache as safe to remove (`go help cache`). There is no size cap: free space is the one
+  refreshes an entry's mtime on use at most once an hour (`mtimeInterval`), so that pass, as Go's own trim, adds
+  that hour: it takes only entries whose mtime is over 3 hours old, and a build in progress keeps its entries; Go
+  documents its cache as safe to remove (`go help cache`). There is no size cap: free space is the one
   control, as Buildkite's low-disk prune and GitHub's runner warning trigger on free space.
   If the eligible cleanup cannot make enough room, the warning (`node.disk_blocked`) and admission floor remain,
-  and the heartbeats after that trim say so (`disk.blocked`) while the volume stays below its floor. The control
+  and the heartbeats after that trim say so (`disk.blocked`) while the volume stays below its floor; a heartbeat
+  that finds it at or above the floor clears that, and so does one during a trim for what the trim found, so a
+  later drop is reported blocked only by a trim that ran after it. The control
   plane keeps an alert per node (`nodes.disk_alert` and `disk_alert_until`, migration `node_disk_alert`), as
   Coder's volume monitor (`coderd/agentapi/resources_monitoring.go:213,248-252`): a blocked sample moves it from
   `ok` to `low`, and the owner is told when 30 min (`DiskAlertDebounce`, Coder's debounce) have passed since the
   last time he was told, which makes it `told`; a sample at or above the floor makes it `ok` again and, when it was
   `told`, tells him the node recovered. He is told as a failing Routine tells him: a line in the main Bot's main
-  chat and a card through that Bot's Lark Channels (`controlplane/diskalert.go`). The policy does not
+  chat and a card through that Bot's Lark Channels (`controlplane/diskalert.go`). The node API keeps a node's
+  samples in order with the alerts they make and tells a node's alerts one after another, so a recovery never
+  comes before its drop. The policy does not
   protect free space on a separate cache or temp volume.
 - The node does not sweep shared `/tmp` or `os.TempDir()`. Dispatch cleanup is limited to its own temporary directory.
 

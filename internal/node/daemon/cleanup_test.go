@@ -427,3 +427,34 @@ func TestHeartbeatForgetsAnOldTrimAfterARecovery(t *testing.T) {
 	free = 1 << 30
 	assert.False(t, blocked(), "a new drop is not blocked before a trim ran after it")
 }
+
+// A trim that began before a recovery does not report the next drop blocked (issue #1017).
+func TestTrimThatBeganBeforeARecoveryDoesNotSetBlocked(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db, err := statedb.Open(ctx, filepath.Join(t.TempDir(), "state.db"), time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	const floor = 5 << 30
+	free := int64(1 << 30)
+	var d *Daemon
+	d = New(Config{
+		Disk: func(context.Context) nodeproto.DiskSpace {
+			return nodeproto.DiskSpace{FreeBytes: &free, FloorBytes: floor, TrimBytes: 15 << 30}
+		},
+		Maintenance: &Maintenance{TrimCaches: func(context.Context, func(func())) bool {
+			free = floor
+			d.heartbeat(ctx)
+			free = 1 << 30
+			return true
+		}},
+	}, db, nil, slog.New(slog.DiscardHandler))
+	d.trimCaches(ctx)
+	var hb nodeproto.Heartbeat
+	require.NoError(t, json.Unmarshal(d.heartbeat(ctx).Payload, &hb))
+	assert.False(t, hb.Disk.Blocked)
+	d.cfg.Maintenance.TrimCaches = func(context.Context, func(func())) bool { return true }
+	d.trimCaches(ctx)
+	require.NoError(t, json.Unmarshal(d.heartbeat(ctx).Payload, &hb))
+	assert.True(t, hb.Disk.Blocked, "a trim after the drop reports it")
+}

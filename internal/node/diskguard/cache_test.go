@@ -153,7 +153,7 @@ func TestGoCacheTrimStopsAtTargetAndKeepsNewAndUnknownFiles(t *testing.T) {
 	fuzz := filepath.Join(root, "fuzz")
 	require.NoError(t, os.Mkdir(fuzz, 0o700))
 	checks := 0
-	require.NoError(t, trimGo(t.Context(), root, root, now.Add(-goCacheAge), func() bool {
+	require.NoError(t, trimGo(t.Context(), root, root, goCacheReadme, now.Add(-goCacheAge), func() bool {
 		checks++
 		return checks <= 2
 	}, nil))
@@ -171,7 +171,7 @@ func TestGoCacheOnAnotherMountIsNeverTrimmed(t *testing.T) {
 	if !RealDir("/dev/shm") || SameVolume(volume, "/dev/shm") {
 		t.Skip("a separate /dev/shm mount is needed")
 	}
-	require.NoError(t, trimGo(t.Context(), volume, "/dev/shm", time.Now(), func() bool {
+	require.NoError(t, trimGo(t.Context(), volume, "/dev/shm", goCacheReadme, time.Now(), func() bool {
 		t.Error("a cache on a different mount must not be inspected or trimmed")
 		return false
 	}, nil))
@@ -226,7 +226,7 @@ func TestConfiguredGoCacheTrimKeepsModuleCache(t *testing.T) {
 		require.NoError(t, os.WriteFile(entry, []byte("bytes"), 0o600))
 		old := time.Now().Add(-goCacheAge - time.Hour)
 		require.NoError(t, os.Chtimes(entry, old, old))
-		caches.trimGoCache(WithProtection(t.Context(), mod), root, home, goCacheAge, func() bool { return true })
+		caches.trimGoCache(WithProtection(t.Context(), mod), cacheRoot{path: root, readme: goCacheReadme}, home, goCacheAge, func() bool { return true })
 		if root == module {
 			assert.FileExists(t, entry)
 		} else {
@@ -255,7 +255,7 @@ func TestGoCacheContinuesAfterAnUndeletableEntry(t *testing.T) {
 	}
 	require.NoError(t, os.Chmod(blocked, 0o500))                      //nolint:gosec // directory needs to be searchable
 	t.Cleanup(func() { assert.NoError(t, os.Chmod(blocked, 0o700)) }) //nolint:gosec // restore the test directory
-	err := trimGo(t.Context(), root, root, now.Add(-goCacheAge), func() bool { return true }, nil)
+	err := trimGo(t.Context(), root, root, goCacheReadme, now.Add(-goCacheAge), func() bool { return true }, nil)
 	require.ErrorIs(t, err, os.ErrPermission)
 	assert.FileExists(t, entries[0])
 	assert.NoFileExists(t, entries[1])
@@ -299,7 +299,7 @@ func TestYoungGoCacheIsTrimmedOldestFirstToTargetAndKeepsRecentEntries(t *testin
 	}
 	recent := writeCacheEntry(t, root, goCacheBatch+1, youngCacheAge-10*time.Minute)
 	checks := 0
-	require.NoError(t, trimGo(t.Context(), root, root, time.Now().Add(-youngCacheAge), func() bool {
+	require.NoError(t, trimGo(t.Context(), root, root, goCacheReadme, time.Now().Add(-youngCacheAge), func() bool {
 		checks++
 		return checks <= 2
 	}, nil))
@@ -308,7 +308,7 @@ func TestYoungGoCacheIsTrimmedOldestFirstToTargetAndKeepsRecentEntries(t *testin
 	assert.FileExists(t, paths[goCacheBatch], "nothing more is taken once the volume has room")
 	assert.FileExists(t, recent)
 
-	require.NoError(t, trimGo(t.Context(), root, root, time.Now().Add(-youngCacheAge), func() bool { return true },
+	require.NoError(t, trimGo(t.Context(), root, root, goCacheReadme, time.Now().Add(-youngCacheAge), func() bool { return true },
 		nil))
 	assert.NoFileExists(t, paths[goCacheBatch])
 	assert.FileExists(t, recent, "an entry used in the last 2 hours is kept however low the volume is")

@@ -780,11 +780,7 @@ func TestBlockedDiskInHeartbeatsTellsTheOwnerOncePerEpisode(t *testing.T) {
 	}
 	beat(20<<30, false)
 
-	// Each is told from its own goroutine, so they may come in either order.
 	told := []orchestration.DiskAlert{<-alerts, <-alerts}
-	if told[0].Recovered {
-		told[0], told[1] = told[1], told[0]
-	}
 	assert.Equal(t, orchestration.DiskAlert{NodeID: p.node.ID, Node: p.node.Name, FreeBytes: 1 << 30,
 		FloorBytes: 5 << 30}, told[0])
 	assert.True(t, told[1].Recovered)

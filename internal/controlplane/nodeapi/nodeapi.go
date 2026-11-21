@@ -63,6 +63,10 @@ type Server struct {
 	// diskAlert tells the owner a node is still out of disk after trimming, or has recovered (issue #1017); nil
 	// when the control plane wired none.
 	diskAlert func(ctx context.Context, alert orchestration.DiskAlert)
+	// diskReports orders a node's disk reports with the alerts they make, and diskAlerts holds, by node, the alerts
+	// still to tell, the first being told now: one sender a node, so a recovery is never told before its drop.
+	diskReports sync.Mutex
+	diskAlerts  map[string][]orchestration.DiskAlert
 
 	// releaseURL is where a node finds its releases, sent at hello.
 	releaseURL string
@@ -188,6 +192,52 @@ func (s *Server) WithDiskAlerts(tell func(ctx context.Context, alert orchestrati
 	s.diskAlert = tell
 
 	return s
+}
+
+// reportDisk keeps a heartbeat's disk sample and queues the alert it makes, in the order the samples were kept.
+func (s *Server) reportDisk(ctx context.Context, nodeID string, disk nodeproto.DiskSpace) error {
+	s.diskReports.Lock()
+	defer s.diskReports.Unlock()
+
+	alert, err := s.svc.ReportNodeDisk(ctx, nodeID, disk)
+	if alert == nil || s.diskAlert == nil {
+		return err
+	}
+
+	if s.diskAlerts == nil {
+		s.diskAlerts = map[string][]orchestration.DiskAlert{}
+	}
+
+	queued := s.diskAlerts[nodeID]
+	s.diskAlerts[nodeID] = append(queued, *alert)
+
+	if len(queued) == 0 {
+		// Told apart from the session, as sending to a channel may take seconds the node's messages do not wait.
+		go s.tellDiskAlerts(context.WithoutCancel(ctx), nodeID)
+	}
+
+	return err
+}
+
+// tellDiskAlerts tells a node's queued alerts one after another, and ends when none is left.
+func (s *Server) tellDiskAlerts(ctx context.Context, nodeID string) {
+	for {
+		s.diskReports.Lock()
+		queued := s.diskAlerts[nodeID]
+		if len(queued) == 0 {
+			delete(s.diskAlerts, nodeID)
+			s.diskReports.Unlock()
+
+			return
+		}
+		s.diskReports.Unlock()
+
+		s.diskAlert(ctx, queued[0])
+
+		s.diskReports.Lock()
+		s.diskAlerts[nodeID] = s.diskAlerts[nodeID][1:]
+		s.diskReports.Unlock()
+	}
 }
 
 // WithPhone sets how an offer learns whether workers are given a phone.
@@ -809,14 +859,8 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 	}
 
 	if hb.Disk != nil {
-		alert, diskErr := c.srv.svc.ReportNodeDisk(ctx, c.nodeID, *hb.Disk)
-		if diskErr != nil {
+		if diskErr := c.srv.reportDisk(ctx, c.nodeID, *hb.Disk); diskErr != nil {
 			err = errors.Join(err, diskErr)
-		}
-
-		if alert != nil && c.srv.diskAlert != nil {
-			// Told apart from the session, as sending to a channel may take seconds the node's messages do not wait.
-			go c.srv.diskAlert(context.WithoutCancel(ctx), *alert)
 		}
 	}
 
