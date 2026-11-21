@@ -436,7 +436,9 @@ func (m *Manager) spawn(req Request, key procKey) (*process, error) {
 		return nil, fmt.Errorf("starting the command: %w", err)
 	}
 
-	p := &process{key: key, id: key.id, command: req.Command, startedAt: m.now(), cmd: cmd, out: out, done: make(chan struct{})}
+	p := &process{
+		key: key, id: key.id, command: req.Command, startedAt: m.now(), cmd: cmd, out: out, done: make(chan struct{}),
+	}
 	if helper != nil {
 		p.hide = req.SudoPassword
 	}

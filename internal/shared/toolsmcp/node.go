@@ -15,14 +15,14 @@ import (
 // A node's command outlives a restart of the control plane, as when it updates (issue #1060): the node runs it and
 // keeps its result, and only the answer on its way through the control plane is lost. The tools server names a
 // node_exec's process before it asks (nodeproto.NewProcessID), as Coder's agent names a process after the tool call
-// that started it (agent/agentproc/api.go handleStartProcess); when the answer does not arrive, it reads the result
+// that started it (agent/agentproc/api.go:92-98 handleStartProcess); when the answer does not arrive, it reads the result
 // with node_process once the control plane is back, as Coder's execute tool reads a process again after a transport
-// error (codersdk/toolsdk/workspacetools/execute.go waitForProcess), and never runs the command again. A node_process
-// whose answer is lost is asked again the same way (execute.go ProcessOutput). What cannot be read in the call's time
-// is an error that names the process (execute.go: "use process_output with ID … to retry").
+// error (codersdk/toolsdk/workspacetools/execute.go:346-361 waitForProcess), and never runs the command again. A node_process
+// whose answer is lost is asked again the same way (execute.go:251-262 ProcessOutput). What cannot be read in the call's time
+// is an error that names the process (execute.go:361: "use process_output with ID … to retry").
 
 // Asking again after a restart waits from half a second, doubled up to eight, as OpenClaw's Control UI retries a
-// Gateway that restarts (docs/gateway/restart-recovery.md, "Startup retries … back off from 500 milliseconds to
+// Gateway that restarts (docs/gateway/restart-recovery.md:295-296, "Startup retries … back off from 500 milliseconds to
 // eight seconds").
 const (
 	reaskFirst = 500 * time.Millisecond

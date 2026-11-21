@@ -181,7 +181,8 @@ func (c *proxiedControlPlane) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := json.NewEncoder(w).Encode(toolsmcp.Text("exit code 0 (process_id proc_x)\noutput:\nbuilt\n", false)); err != nil {
+	answer := toolsmcp.Text("exit code 0 (process_id proc_x)\noutput:\nbuilt\n", false)
+	if err := json.NewEncoder(w).Encode(answer); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 }

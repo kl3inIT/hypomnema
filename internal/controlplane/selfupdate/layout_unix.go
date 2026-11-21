@@ -70,8 +70,8 @@ func (o Options) waitReady(ctx context.Context) error {
 // waitTurns waits until no Bot's turn and no agent's tool call runs in the control plane, asking its control socket
 // every TurnsEvery, for at most TurnsWithin; then the update goes on. The tool calls are waited for as OpenClaw's
 // update drains a Gateway's requests in flight before it restarts, for at most 5 minutes, then restarts anyway
-// (src/infra/restart-budget.ts DEFAULT_RESTART_DEFERRAL_TIMEOUT_MS, src/gateway/server-reload-active-work.ts
-// "gateway request(s)"; issue #1060). A control plane that does not answer, one from before the socket or one
+// (src/infra/restart-budget.ts:8 DEFAULT_RESTART_DEFERRAL_TIMEOUT_MS, src/gateway/server-reload-active-work.ts:38
+// "gateway request(s)", src/gateway/server-methods/update.ts:520; issue #1060). A control plane that does not answer, one from before the socket or one
 // that is down, is not waited for, as Hermes's updater takes a gateway whose control socket does not answer as one
 // it cannot drain (gateway/control_socket.py, query_gateway_control).
 func (o Options) waitTurns(ctx context.Context) {

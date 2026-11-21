@@ -968,8 +968,10 @@ type ItemsAck struct {
 // A process's id on a node (issue #1060): "proc_" and lowercase hex. The node
 // makes one for a command, or takes the one its caller chose, as Coder's
 // agent names a process after the tool call that started it
-// (agent/agentproc/api.go handleStartProcess); one chosen must have the shape
-// the node makes, as a chat's id a client chooses must have the server's.
+// (agent/agentproc/api.go:92-98 handleStartProcess); one chosen must have the
+// shape the node makes and not be taken, as a chat's id a client chooses
+// (orchestration/chats.go:458-461,504-511, after t3code's
+// apps/web/src/hooks/useHandleNewThread.ts:404-405).
 const (
 	processIDPrefix  = "proc_"
 	processIDMinHex  = 12

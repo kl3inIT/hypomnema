@@ -61,7 +61,8 @@ func (d *Daemon) exec(ctx context.Context, e nodeproto.Exec) nodeproto.ExecAnswe
 	}
 
 	req := nodeexec.Request{
-		ID: e.ProcessID, Agent: e.Agent, Command: e.Command, Cwd: e.Cwd, Timeout: time.Duration(e.TimeoutSeconds) * time.Second,
+		ID: e.ProcessID, Agent: e.Agent, Command: e.Command, Cwd: e.Cwd,
+		Timeout:      time.Duration(e.TimeoutSeconds) * time.Second,
 		SudoPassword: e.SudoPassword,
 	}
 
