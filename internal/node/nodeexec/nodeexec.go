@@ -27,6 +27,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -36,8 +37,10 @@ import (
 // output to be read (Coder's exitedProcessReapAge).
 const keepEnded = time.Hour
 
-// listCommandBytes is how much of a command List answers with.
-const listCommandBytes = 1 << 20
+// listCommandBytes is how much of a command List answers with, its start: ExecListMost of them stay far within a
+// node's answer (nodeproto.MaxExecAnswerBytes) whatever the commands were, and each process's id, state and start
+// always come back (issue #1060). The bound is this repository's: Coder's list answers a command whole.
+const listCommandBytes = 200
 
 // keepEndedMost is how many ended processes are kept at most, the oldest
 // dropped first, as OpenClaw keeps at most 50 finished sessions
@@ -83,6 +86,8 @@ type Manager struct {
 	reserved map[procKey]bool
 	closed   bool
 	now      func() time.Time
+	// started counts the starts, for List to put the newest first even when they share a millisecond.
+	started atomic.Uint64
 }
 
 // procKey is whose a process is and its id: an agent reads and kills its own alone (issue #1060), as Coder keys a
@@ -99,9 +104,10 @@ func New() *Manager {
 type process struct {
 	key procKey
 	id  string
-	// command is the agent's, as it asked; startedAt is when it started.
+	// command is the agent's, as it asked; startedAt is when it started, and seq its place among the starts.
 	command   string
 	startedAt time.Time
+	seq       uint64
 	// hide is the sudo password given to the command, taken out of what it answers; "" when none.
 	hide string
 	cmd  *exec.Cmd
@@ -179,6 +185,8 @@ func (m *Manager) keep(p *process) error {
 	}
 
 	m.procs[p.key] = p
+	// A command that ended before it was kept was not in the map when its end pruned it.
+	m.forgetEnded()
 
 	return nil
 }
@@ -239,9 +247,11 @@ func (m *Manager) List(agent string) []nodeproto.ExecProcess {
 	m.mu.Unlock()
 
 	out := make([]nodeproto.ExecProcess, 0, len(own))
+	seqs := make(map[string]uint64, len(own))
 
 	for _, p := range own {
 		out = append(out, p.listed())
+		seqs[p.id] = p.seq
 	}
 
 	slices.SortFunc(out, func(a, b nodeproto.ExecProcess) int {
@@ -253,7 +263,7 @@ func (m *Manager) List(agent string) []nodeproto.ExecProcess {
 			return 1
 		}
 
-		return cmp.Compare(b.StartedAt, a.StartedAt)
+		return cmp.Compare(seqs[b.ProcessID], seqs[a.ProcessID])
 	})
 
 	return out[:min(len(out), nodeproto.ExecListMost)]
@@ -270,9 +280,19 @@ func (p *process) listed() nodeproto.ExecProcess {
 	defer p.mu.Unlock()
 
 	return nodeproto.ExecProcess{
-		ProcessID: p.id, Command: command, Running: p.exitCode == nil, ExitCode: p.exitCode,
+		ProcessID: p.id, Command: cutCommand(command), Running: p.exitCode == nil, ExitCode: p.exitCode,
 		StartedAt: p.startedAt.UnixMilli(),
 	}
+}
+
+// cutCommand is a command's start, at most listCommandBytes, marked when cut, kept valid UTF-8 as Coder cuts a
+// command's output (codersdk/toolsdk/workspacetools/execute.go truncateOutput).
+func cutCommand(command string) string {
+	if len(command) <= listCommandBytes {
+		return command
+	}
+
+	return strings.ToValidUTF8(command[:listCommandBytes], "") + "…"
 }
 
 // Close kills the processes still running in the background: they end with
@@ -440,7 +460,8 @@ func (m *Manager) spawn(req Request, key procKey) (*process, error) {
 	}
 
 	p := &process{
-		key: key, id: key.id, command: req.Command, startedAt: m.now(), cmd: cmd, out: out, done: make(chan struct{}),
+		key: key, id: key.id, command: req.Command, startedAt: m.now(), seq: m.started.Add(1), cmd: cmd, out: out,
+		done: make(chan struct{}),
 	}
 	if helper != nil {
 		p.hide = req.SudoPassword

@@ -144,7 +144,8 @@ clear). A pi the control plane stops keeps it. As the supervisor starts, a chat 
 and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
 `continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
 check the current state before redoing anything, then finish the task", and lists its commands on a node with
-`node_process` before running one again, issue #1060; it is no turn input of its own, so a turn
+`node_process` before running one again, issue #1060: pi reads this prompt in place of the line, which is the
+owner's to read; it is no turn input of its own, so a turn
 that was the owner's stays his for `OwnerTurn`), one attempt more and its mark from now; any other mark is cleared
 with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
 line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
@@ -4751,7 +4752,8 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
   still running. A process is the agent's that ran it, a chat's pi (`b-<chat>`) or a worker's Dispatch
   (`d-<dispatch>`), named with each `exec`: another agent that knows its id is told there is none (Coder keys a
   process by its chat; issue #1060). `node_process {node}` with no `process_id` lists the agent's own on that
-  node, running first, then the newest, at most 10, with id, command, state and start (Coder's process list).
+  node, running first, then the newest started, at most 10, with id, state, start and the command's first 200
+  bytes (Coder's process list; the cut is this repository's, so that the list always fits a node's 1 MiB answer).
 - sudo: the vault secret `sudo-<node>` (lowercase, its `value`) is the node's sudo password. When there is one, the
   control plane sends it with the command, and the node adds `-A` after every `sudo` that is a simple command's
   command (parsed with `mvdan.cc/sh`) and sets `SUDO_ASKPASS` to a helper that prints it from a file only the

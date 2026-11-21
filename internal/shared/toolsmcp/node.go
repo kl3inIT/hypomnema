@@ -78,6 +78,15 @@ func (a *Agent) NodeCall(ctx context.Context, path, tool string, arguments json.
 		}
 
 		reask = arguments
+		said = func(raw json.RawMessage) json.RawMessage {
+			what := "process_id " + args.ProcessID
+			if args.ProcessID == "" {
+				what = "your commands"
+			}
+
+			return withFirstLine(raw, fmt.Sprintf("the control plane restarted while node_process waited, as when "+
+				"it updates; asked again on node %s for %s:", args.Node, what))
+		}
 		lost = func(err error) error {
 			return fmt.Errorf("the control plane restarted while node_process waited, as when it updates, and "+
 				"could not be asked again: %w. Ask again with node_process, node %s, process_id %s", err, args.Node,
