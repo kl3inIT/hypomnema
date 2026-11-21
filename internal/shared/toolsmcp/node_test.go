@@ -148,3 +148,53 @@ func TestANodeExecWhoseControlPlaneStaysAwayNamesItsProcess(t *testing.T) {
 	assert.Contains(t, err.Error(), "node_process, process_id "+exec.ProcessID)
 	assert.Contains(t, err.Error(), "node zm")
 }
+
+// proxiedControlPlane is a control plane behind a proxy, as zm's behind Nginx (issue #1060, review round 1): while
+// the control plane restarts, the proxy answers 502 for the call in flight and for the first reads; then the result.
+type proxiedControlPlane struct {
+	mu    sync.Mutex
+	calls []agenttool.BrowserCall
+}
+
+func (c *proxiedControlPlane) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var call agenttool.BrowserCall
+	_ = json.NewDecoder(r.Body).Decode(&call)
+
+	c.mu.Lock()
+	c.calls = append(c.calls, call)
+	n := len(c.calls)
+	c.mu.Unlock()
+
+	if n <= 2 {
+		w.WriteHeader(http.StatusBadGateway)
+
+		return
+	}
+
+	if err := json.NewEncoder(w).Encode(toolsmcp.Text("exit code 0 (process_id proc_x)\noutput:\nbuilt\n", false)); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+}
+
+// A proxy's 502 while the control plane restarts is an answer lost too: the result is read again.
+func TestANodeExecBehindAProxyThatAnswers502IsReadAgain(t *testing.T) {
+	t.Parallel()
+
+	cp := &proxiedControlPlane{}
+	srv := httptest.NewServer(cp)
+	t.Cleanup(srv.Close)
+
+	raw, err := toolsmcp.NewAgent(srv.URL, "key").NodeCall(t.Context(), agenttool.PathToolsCall,
+		agenttool.ToolNodeExec, json.RawMessage(`{"node":"zm","command":"make build"}`))
+	require.NoError(t, err)
+
+	text, failed := resultText(t, raw)
+	assert.False(t, failed)
+	assert.Contains(t, text, "built")
+
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+
+	require.Len(t, cp.calls, 3)
+	assert.Equal(t, agenttool.ToolNodeProcess, cp.calls[2].Tool)
+}

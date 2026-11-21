@@ -2,6 +2,7 @@ package agentapi_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,7 @@ type machines struct {
 	sent []nodeproto.Exec
 	to   []string
 	give nodeproto.ExecAnswer
+	fail error
 }
 
 func (m *machines) ListNodes(context.Context) ([]orchestration.Node, error) {
@@ -42,7 +44,7 @@ func (m *machines) Exec(_ context.Context, nodeID string, e nodeproto.Exec) (nod
 
 	m.sent, m.to = append(m.sent, e), append(m.to, nodeID)
 
-	return m.give, nil
+	return m.give, m.fail
 }
 
 // withMachines serves the world's agent API with the node tools; zm's sudo
@@ -248,4 +250,23 @@ func TestAToolCallCountsWhileItRuns(t *testing.T) {
 	assert.Equal(t, http.StatusOK, <-answered)
 	assert.Eventually(t, func() bool { return api.ToolCalls() == 0 }, 5*time.Second, time.Millisecond,
 		"the call ends once answered")
+}
+
+// A node the control plane lists as connected whose socket is not back yet, as right after the control plane
+// restarted (its last heartbeat still counts), answers as a node not connected, for the tools server to ask again
+// (issue #1060, review round 1).
+func TestANodeWhoseSocketIsNotBackAnswersNotConnected(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	m := &machines{fail: fmt.Errorf("%w: the machine is offline", orchestration.ErrUnavailable)}
+	withMachines(w, m)
+
+	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	_, text, isErr := w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm","process_id":"proc_0123456789ab"}`)
+	assert.True(t, isErr)
+	assert.True(t, agenttool.IsNodeNotConnected(text), text)
+	assert.Equal(t, `node "zm" is not connected; connected now: zm`, text)
 }
