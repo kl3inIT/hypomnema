@@ -977,7 +977,8 @@ sequenceDiagram
     punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
     word in #FFD400 (demotape's highlight and word timing normalize, ported), and burns it in with the font of
-    part 1 (`compose.Burn`): the preset `legacy` ("Classic"), the look of every revision made before the looks. The
+    part 1 (`compose.Burn`): the preset `legacy` ("Classic"), the look of every revision made before the looks, byte for byte in its own
+    position; a position chosen sets its style's alignment and vertical margin to the presets' offsets. The
     other caption presets (`captions.Render`, #908 part 1): demotape's
     eleven (`presets.go`, its macOS fonts mapped to the bundled ones) and aidemo's `bar`, Clean the default;
     position `preset`, `bottom`, `lower_third`, `center` or `top`. Each is laid out as demotape's drawBlock (`styled.go`):
