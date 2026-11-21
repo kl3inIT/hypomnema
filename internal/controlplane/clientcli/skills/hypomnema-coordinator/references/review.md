@@ -1,11 +1,9 @@
 # Review
 
-<!-- Omnigent examples/polly/config.yaml:182-199; no reference for the quick exception (owner, 2026-11-18) -->
 `quick` work (for example a README rename) needs green CI and no worker review. `narrow` and `broad` work (for
 example a queue fix or a refactor) needs a reviewer from another vendor. The author's spec says "A review comes
 before the merge: do not turn on auto-merge." Hold the PR if no independent reviewer can run.
 
-<!-- oh-my-opencode packages/senpi-task/src/agents/builtin/plan-reviewer.ts:120-151; no reference for approval and copying specs (owner, 2026-11-18) -->
 Review a plan before showing it to the owner: use `profile: reviewer`, `kind: broad` and `review_of` set to the
 succeeded planner Task's id. For example, "Check whether this retry design is executable; verify the cited paths
 and the acceptance checks", followed by the plan verbatim. Ask the planner to address blockers. Once the owner
@@ -13,8 +11,6 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
 
 1. Start from a Task that succeeded with a pull request in its evidence (`hypomnema tasks show <task_id> --json`).
    Look at its checks first (`gh pr checks <url>`).
-   <!-- pstack skills/poteto-mode/playbooks/babysit.md:8 ("Flake earns one fresh build. Only the diff's own
-   failures get a commit"); playbooks/autonomous-run.md:9 (flaky verifiers fixed in their own PR) (issue #952) -->
    A red check gets one fresh build before you decide: rerun its failed jobs once (`gh run rerun <run_id>
    --failed`, a write the owner approves like any other), wait for it (`gh run watch <run_id> --exit-status`) and
    note the rerun in your report. When it is green on the rerun, or fails outside the diff and is also red on the
@@ -26,15 +22,12 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    changes security or permissions, merging or auto-merge, or is a large change. When CodeRabbit is rate-limited or
    does not answer, nothing waits for it: go on with the review. Workers and reviewers never ask it (owner,
    2026-11-17, issue #766).
-<!-- Omnigent examples/polly/config.yaml:182-199; no reference for review_of (owner, 2026-11-18) -->
 2. Set `profile: reviewer`, `kind` to the work's kind and `review_of` to the succeeded author Task's id. Use
    the same Run so the scheduler excludes the vendor that actually did the work. Never specify a model yourself.
 3. Create the review as a Task in the same Run:
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
    ```
-   <!-- pstack skills/poteto-mode/playbooks/shipping.md:7 (a verdict covers a patch); skills/swarm/SKILL.md:37 (a
-   result without its SHAs is dropped) (issue #953) -->
    Start every review spec with `Review pull request: <canonical PR URL>` on its own line, then `Head: <sha>`, the
    pull request's head now (`gh pr view <url> --json headRefOid`), on the next. A head gets one verdict: the
    control plane refuses a review of a head that already has a `correct` or `incorrect` verdict, from any Run, and
@@ -44,38 +37,14 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    give the reviewer the spec the change was made from, but not the author's report or transcript, so the
    reviewer judges the change itself.
 
-   Ask the reviewer to include the reviewed PR or MR in `finish` evidence, not an earlier PR mentioned in the spec.
-   The control plane records a verdict only when the summary has both its `Verdict:` and `Head:` lines.
-   <!-- orchestrate skills/orchestrate/prompts/verifier.md:38-61, references/handoffs.md:130-140; pstack
-   skills/poteto-mode/playbooks/shipping.md:7, a verdict covers a patch (issue #952) -->
-   Include these six lines in the summary before its findings:
-   `Verdict: correct` (or `incorrect` or `blocked`), `Head: <sha>` (the commit the verdict covers), `Evidence: <level>`,
-   `Merge state: <mergeStateStatus>`, `Mergeable: <mergeable>` and
-   `Checks: <PASSING|FAILING|PENDING|UNKNOWN>`, one field per line. The level is one of `ran-live`,
-   `test-verified`, `typecheck-only`, `blocked` (could not run; never a pass) or `failed`; an `Execution` list
-   follows, with each command the reviewer ran and its outcome. Just before reporting, use `gh pr view <url>
-   --json mergeable,mergeStateStatus` and `gh pr checks <url> --required --json bucket`. Failing or canceled checks
-   take precedence over pending ones; a nonempty set of successful or skipped required checks is PASSING. Use
-   UNKNOWN for an unavailable read or when there are no required checks. For GitLab, report the equivalent
-   conflict and check states, and UNKNOWN for any field you cannot verify. Do not change the PR while reviewing it.
+   Do not restate the reviewer's rules in the spec: the `reviewer` profile holds how it reviews, which findings
+   block, what it runs, how it answers CodeRabbit and the lines its summary starts with
+   (`hypomnema profiles show reviewer --json`). The control plane records a verdict only when the summary has both
+   its `Verdict:` and `Head:` lines.
 
-   A review first reads what CodeRabbit (`coderabbitai[bot]`) already left on the pull request: its reviews and
-   their bodies, which hold the findings outside the diff (`gh api repos/<repo>/pulls/<n>/reviews`), its inline
-   comments (`gh api repos/<repo>/pulls/<n>/comments --paginate`) and its comments on the pull request
-   (`gh api repos/<repo>/issues/<n>/comments`). It checks each Critical or Major finding against the code at the
-   head commit and reports it as fixed, still open (a P1 finding of its own, so the verdict is not correct) or
-   wrong, with the reason; Minor findings are listed as follow-ups. A notice that CodeRabbit was rate-limited or
-   skipped the pull request is not a review; with no CodeRabbit review the review goes on without it.
-
-   <!-- pstack skills/poteto-mode/worker.md:4 (the bar is the whole bar); playbooks/autopilot-full.md:16 and
-   skills/interrogate/SKILL.md:19 (block only for what a run or a doc line shows); orchestrate
-   skills/orchestrate/prompts/verifier.md:23 ("Run the code") (issue #952) -->
-   Tell the reviewer that the spec is the whole bar: it adds no check, gate or round above it. A P0 or P1, and so
-   `incorrect`, needs proof at the head: a command it ran and its output (a failing test, a repro script), or a
-   spec, contract or doc line the change makes wrong. A problem the base already has does not block unless the
-   change copies it or newly reaches it. A finding without proof is a follow-up, listed, not a blocker. The
-   verdict is `blocked` when it could not run what it needs (a broken environment, a missing account), with what
-   stopped it.
+   Copy an owner's acceptance condition into the spec word for word, as one line. Never restate it as a general
+   property for the reviewer to hunt: "only delete what is safe to delete" stays that line, not "check every
+   deletion this change could make".
 4. Wait as for any Run. When woken, read `hypomnema runs show <run_id> --json` and the review Task's summary and
    findings (`hypomnema tasks show <task_id> --json`). If the Run is closed or the next Task is already queued,
    do not dispatch it again. When the review left `review_stall`, act on the branch below before ending your
@@ -84,8 +53,7 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
 5. A verdict of correct: read the PR's current merge state, head and required checks, since the wake is a snapshot.
    If the PR already merged, report it and finish the Run. If it conflicts or must be brought up to date, send
    the author a follow-up to merge the base, resolve any conflict, rerun checks, and report the new head. A head
-   past the verdict's `Head:` gets what step 7 says for its change: a clean merge of the base needs green CI only.
-   <!-- pstack skills/poteto-mode/playbooks/babysit.md:8 ("Flake earns one fresh build") (issue #952) -->
+   past the verdict's `Head:` gets what step 7 says for its change.
    For red checks, rerun once as in step 1: have the author fix a failure of its diff and report the updated
    head; a flake gets an issue, not a fix in this PR. For pending checks, have the author
    watch them. For an unmet policy or permission the author cannot fix, tell the owner what is blocking the PR and
@@ -98,11 +66,11 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    Report the pull request as reviewed, then report what the author says: merged, auto-merge on, or what the
    repository lacks for it, which the owner settles. You never merge nor turn on auto-merge yourself.
    Auto-merge on is not merged: the control plane follows it and wakes you, as the guide's Results say (issue #1053).
-   CodeRabbit is never a condition of its own: its findings count through the verdict, as in step 3.
+   CodeRabbit is never a condition of its own: its findings count through the verdict, which the reviewer
+   profile says how to reach.
 6. Findings that make the change incorrect: if `review_stall.waiting_for_owner` is true, use the stop rule below.
-   <!-- pstack skills/poteto-mode/playbooks/autopilot-full.md:16 (issue #952) -->
-   Only a P0 or P1 with the proof of step 3 makes it incorrect; an `incorrect` verdict where none has it is
-   handled as `blocked` (below), never as a pass.
+   Only a finding that blocks by the reviewer profile's rule makes it incorrect; an `incorrect` verdict where
+   none does is handled as `blocked` (below), never as a pass.
    Otherwise send the proven ones to the worker that made the change at once, without asking
    the owner (owner, 2026-11-18, issue #871), as a follow-up on that Task, the findings pasted word for word:
    ```text
@@ -113,8 +81,6 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    follow-up is refused, create a fix Task with `"continues": "<task_id>"` whose spec lists them: it pushes into the
    same branch and pull request (issue #690).
 
-   <!-- orchestrate skills/orchestrate/references/handoffs.md:137 ("Re-spawn the verifier once the env is healthy,
-   or escalate. Don't count as verified"); prompts/verifier.md:27 (issue #952) -->
    A verdict of `blocked` is not a pass and not a fix round. When its cause is gone, create one new review Task
    with the same spec and `## Blocked review (Task <review_task_id>)`, that review's summary word for word. When
    the cause needs the owner (an account, a login), or the new review is blocked too, tell the owner in one line
@@ -127,20 +93,13 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    - `## The author's answer (Task <task_id>)`: the report the worker gave after the follow-up, word for word;
    - `## Still disputed`: each finding the author did not fix and said why, or none.
 
-   <!-- pstack skills/poteto-mode/playbooks/autopilot-full.md:5,14 (one full swarm at the code-ready head, a
-   single verifier for a minor fix, none for wording); playbooks/shipping.md:7 (a verdict covers a patch)
-   (issue #952) -->
    Size the review to the change. Round 1 was the full review at the code-ready head. From round 2, ask the
    reviewer to check each earlier finding (fixed, still open or disputed) and only `git diff <reviewed_sha>..<head>`,
    where `<reviewed_sha>` is the earlier `Head:`, and set `"effort": "medium"` on the Task. Review the whole change
-   again, at the usual effort, only for new behavior, a redesign or a large new diff. A clean merge of the base or a
-   wording-only change needs green CI only, no review. Every verdict names the head it covers.
-   <!-- Three rounds: Codex codex-rs/ext/guardian-reviewer/src/lib.rs:87 (MAX_REVIEW_ATTEMPTS = 3) and
-   oh-my-opencode packages/memory-core/src/reflection/completion-validation.ts:127 (MAX_REPAIR_ROUNDS = 3, then
-   stop); both run their rounds with no human approval in between. Hermes agent/background_review.py:249 caps the
-   iterations inside one review, not the rounds. No reference has a one-line report to the owner after the last
-   round (owner, 2026-11-18, issue #871). -->
-   After round 3, if any P0 or P1 remains, give the owner a one-line report with the verdict
+   again, at the usual effort, only for new behavior, a redesign or a large new diff. A head whose only change
+   since the reviewed head is a clean merge of the base, a `make migration-fix` rename of the change's migrations
+   or wording needs green CI only, no new review. Every verdict names the head it covers.
+   After round 3, if any blocking finding remains, give the owner a one-line report with the verdict
    and remaining blockers, then stop without waiting for an answer (issue #871). Leave the Run and pull request open
    with auto-merge off and add no Task. The "Waiting for you" label may stay until work is added or the Run ends.
 

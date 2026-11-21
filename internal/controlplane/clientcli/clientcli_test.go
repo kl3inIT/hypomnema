@@ -936,18 +936,15 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "review")
 	require.NoError(t, err)
-	assert.Contains(t, out, "A review first reads what CodeRabbit (`coderabbitai[bot]`) already left",
-		"a review answers CodeRabbit's findings (issue #766)")
+	assert.Contains(t, out, "how it answers CodeRabbit",
+		"a review answers CodeRabbit's findings, as the reviewer profile says (issues #766, #1051)")
 	assert.Contains(t, out, `gh pr comment <url> --body
    "@coderabbitai review"`, "the coordinator may ask CodeRabbit on an important pull request")
 	assert.Contains(t, out, "CodeRabbit is never a condition of its own")
 	for _, want := range []string{
-		"A P0 or P1, and so\n   `incorrect`, needs proof at the head",
-		"`Head: <sha>` (the commit the verdict covers), `Evidence: <level>`",
 		"only `git diff <reviewed_sha>..<head>`",
 		"A red check gets one fresh build before you decide: rerun its failed jobs once",
-		"`Verdict: correct` (or `incorrect` or `blocked`)",
-		"an `incorrect` verdict where none has it is\n   handled as `blocked` (below), never as a pass",
+		"an `incorrect` verdict where\n   none does is handled as `blocked` (below), never as a pass",
 		"A verdict of `blocked` is not a pass and not a fix round.",
 	} {
 		assert.Contains(t, out, want, "reviews converge faster (issue #952)")
