@@ -2,7 +2,6 @@ package diskguard
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -380,6 +379,10 @@ func trimGo(ctx context.Context, volumePath, root, readme string, olderThan time
 	return removalErr
 }
 
+// scanGoBucket lists what Go itself writes in one subdirectory 00..ff of a cache and trims (cmd/go/internal/cache/
+// cache.go:117-119,439-467,598-620 at go1.27.4; golangci-lint's copy, internal/go/cache/cache.go:121-123,446-472 at
+// v2.15.0): a regular file named <64 lowercase hex>-a or -d whose hash starts with the subdirectory's name, or a -d
+// directory holding the one executable Go put there. Nothing else in a cache is ever a candidate.
 func scanGoBucket(cache *os.Root, mount mountID, bucket string, protected []os.FileInfo, candidates []cacheEntry) (
 	[]cacheEntry, error,
 ) {
@@ -478,13 +481,20 @@ func unchangedCacheEntry(current, expected os.FileInfo) bool {
 		current.ModTime().Equal(expected.ModTime()) && current.Size() == expected.Size()
 }
 
+// isHex reports whether name is size lowercase hex digits, as Go and golangci-lint name a cache's subdirectories
+// and entries (fmt "%02x" and "%x": cmd/go/internal/cache/cache.go:117-119 at go1.27.4; golangci-lint's
+// internal/go/cache/cache.go:121-123 at v2.15.0). A name in upper case is none they write, so it is not deleted.
 func isHex(name string, size int) bool {
 	if len(name) != size {
 		return false
 	}
 
-	_, err := hex.DecodeString(name)
-	return err == nil
+	for _, r := range name {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func (c Caches) prunePnpm(ctx context.Context, worktreeVolume string) error {
