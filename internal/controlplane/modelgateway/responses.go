@@ -122,7 +122,8 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.refuseOverflow(w, r, key, model) {
+	refused, run := s.refuseOverflow(w, r, key, model)
+	if refused {
 		return
 	}
 
@@ -140,7 +141,7 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: true, started: started}
 	serving, served := withServed(r)
 	s.serveResponses(w, serving, raw, session, model, &record, served)
-	s.noteOverflow(r.Context(), key, model, record)
+	s.noteOverflow(r.Context(), key, model, run, record)
 	record.AccountID = served.id
 	record.Duration = s.svc.clock.Now().Sub(started)
 
@@ -406,7 +407,7 @@ func (s *Server) relayResponses(
 		// connection (codex-rs/codex-api/src/sse/responses.rs), which is not a client gone (issue #635).
 		record.Outcome = OutcomeOK
 	case failure != "":
-		record.Outcome, record.Error = OutcomeTruncated, failure
+		record.Outcome, record.Error, record.explained = OutcomeTruncated, failure, true
 	case clientGone || r.Context().Err() != nil:
 		record.Outcome = OutcomeClientGone
 	default:

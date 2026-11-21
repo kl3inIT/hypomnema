@@ -3575,12 +3575,17 @@ capabilities do not exist yet.
     limit and the next account are the chat route's.
   - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
     keeps its status and body.
-  - A run of answers saying the prompt did not fit the context window ends the client's turn (issue #1052): after
-    more than 3 in a row on one key and model (LiteLLM's `allowed_fails`), the key's requests to the model are
-    answered 400 `context_overflow` without being sent for 5 s (LiteLLM's cooldown). Codex never retries that code,
-    so its turn ends instead of trimming and resending its history. An answer that ends well clears the run; a run
-    is forgotten 5 s after its last overflow, and the runs are in memory. The gateway does not count a prompt's
-    tokens before sending it, as LiteLLM checks a prompt against the window only when asked to.
+  - A run of answers that did not end ends the client's turn (issue #1052), whatever the prompt's size: a stream cut
+    short without a word, a client gone before anything came, or the provider saying the prompt did not fit the
+    context window; a stream the provider ended on another error of its own does not count. After more than 3 in a
+    row on one key (one Dispatch's) and model with none that ended well between them (LiteLLM's `allowed_fails`),
+    the key's requests to the model are answered 400 `context_overflow` without being sent for 5 s (LiteLLM's
+    cooldown); its message names the context window, so the node reports an overflow and the next Dispatch starts a
+    new Conversation. Codex never retries that code, so its turn ends instead of trimming and resending its history.
+    The 5 s are counted from an answer to the key's next request, and a run with a request in flight is kept, as one
+    answer may last longer; a run with nothing in flight 5 s after its last answer is forgotten. The runs are in
+    memory. The gateway does not count a prompt's tokens before sending it (the owner's choice, 2026-11-22), as
+    LiteLLM checks a prompt against the window only when asked to.
   - Not served: a model with no such target (400 `model_not_served_here`), an answer that is not a stream (400),
     `/v1/responses/compact`, a WebSocket.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;

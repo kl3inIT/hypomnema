@@ -11,30 +11,40 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/contextwindow"
 )
 
-// A run of answers saying the prompt did not fit its model's context window
-// ends the client's turn (issue #1052). On 2026-11-19 four Codex reviewers
-// resent prompts that did not fit the window, 70-176 times each: Codex
-// answers a context-window refusal while compacting by dropping its oldest
-// item and asking again (codex-rs/core/src/compact.rs:359-368).
+// A run of answers that did not end ends the client's turn (issue #1052). On
+// 2026-11-19 four Codex reviewers resent prompts that did not fit the window,
+// 70-176 times each, every answer truncated: Codex answers a context-window
+// refusal while compacting by dropping its oldest item and asking again
+// (codex-rs/core/src/compact.rs:359-368).
 //
-// The gateway does not count a prompt's tokens before sending it. LiteLLM
-// checks a prompt against the window only when asked to
-// (litellm/router.py:95, enable_pre_call_checks False), and then with the
-// model's tokenizer (router_rust/steps/precall.py:490-492); an estimate from
-// the request's bytes refused prompts that fit (review of PR #1057). What
-// counts is the provider's own answer, its error read as an overflow by
-// internal/shared/contextwindow.
+// The gateway does not count a prompt's tokens before sending it (the
+// owner's choice B, 2026-11-22). LiteLLM checks a prompt against the window
+// only when asked to (litellm/router.py:95, enable_pre_call_checks False).
+// What counts, whatever the prompt's size, is an answer that did not end: a
+// stream cut short without a word, a client gone before anything came, or the
+// provider saying the prompt did not fit (internal/shared/contextwindow). A
+// stream the provider ended on another error of its own, such as a tool's
+// input too long, is its refusal and does not count (review of PR #1057). An
+// answer that ends well clears the run.
 //
 // The run ends as LiteLLM's router cools a deployment: more than
 // DEFAULT_ALLOWED_FAILS (3) failures (litellm/constants.py:162;
 // router_utils/cooldown_handlers.py:800-803), and for
 // DEFAULT_COOLDOWN_TIME_SECONDS (5; constants.py:164) a request for it is
-// refused without being sent (router_utils/handle_error.py:23-55). An answer
-// that ends well clears the run. The refusal is a 400 whose code Codex does
-// not read as an overflow, which it never retries (protocol/src/error.rs:
-// 492-521; codex-api/src/api_bridge.rs:192-225), so its turn ends instead of
-// trimming again; its message names the context window, for the node to tell
-// why.
+// refused without being sent (router_utils/handle_error.py:23-55); then the
+// run starts again. LiteLLM's count lives for the cooldown after a failure
+// (cooldown_handlers.py:795-802). Here the cooldown is counted from an
+// answer to the key's next request, and a run with a request in flight is
+// kept: one of the 2026-11-19 answers took 7-19 s, longer than the window,
+// and was followed at once by the next. A run with nothing in flight 5 s
+// after its last answer is forgotten, so a revoked Dispatch key leaves
+// nothing behind.
+//
+// The refusal is a 400 whose code Codex does not read as an overflow, which
+// it never retries (protocol/src/error.rs:492-521;
+// codex-api/src/api_bridge.rs:192-225), so its turn ends instead of trimming
+// again; its message names the context window, so the node reports the
+// failure as an overflow and the next Dispatch starts a new Conversation.
 
 const (
 	// allowedOverflows is LiteLLM's DEFAULT_ALLOWED_FAILS; overflowCooldown its DEFAULT_COOLDOWN_TIME_SECONDS.
@@ -45,14 +55,27 @@ const (
 	codeContextOverflow = "context_overflow"
 )
 
-// overflowRun is a key's run of overflows on one model: how many in a row, the last one, and when the run went past
-// the limit.
+// answer is how an answer counts toward a run.
+type answer int
+
+const (
+	// answerOther neither counts nor clears: a refusal the provider explained, a client gone mid-answer.
+	answerOther answer = iota
+	// answerOK ended well and clears the run.
+	answerOK
+	// answerFailed did not end: cut short without a word, empty, or the prompt did not fit.
+	answerFailed
+)
+
+// overflowRun is a key's run of failed answers on one model: how many in a row, the last one, when the run went
+// past the limit, and the requests in flight.
 type overflowRun struct {
 	count         int
 	last, tripped time.Time
+	inFlight      int
 }
 
-// overflows are the runs of overflows the gateway is following, by key and model; they live while it runs.
+// overflows are the runs the gateway is following, by key and model; they live while it runs.
 type overflows struct {
 	mu   sync.Mutex
 	runs map[[2]string]*overflowRun
@@ -60,88 +83,112 @@ type overflows struct {
 
 func newOverflows() *overflows { return &overflows{runs: map[[2]string]*overflowRun{}} }
 
-// forget drops the runs that are over at now: overflowCooldown after the last overflow, as LiteLLM's count of
-// failures lives for the cooldown (router_utils/cooldown_handlers.py:800-802), and overflowCooldown after the run
-// went past the limit, as LiteLLM's cooldown ends. A Dispatch's key is revoked when it ends and never comes back, so
-// only recent runs are kept. The caller holds mu.
+// forget drops the runs that are over at now: past the limit for the cooldown, or with nothing in flight for the
+// cooldown after their last answer. The caller holds mu.
 func (o *overflows) forget(now time.Time) {
 	for k, run := range o.runs {
-		if !now.Before(run.last.Add(overflowCooldown)) ||
-			(!run.tripped.IsZero() && !now.Before(run.tripped.Add(overflowCooldown))) {
+		cooled := !run.tripped.IsZero() && !now.Before(run.tripped.Add(overflowCooldown))
+		idle := run.inFlight == 0 && !now.Before(run.last.Add(overflowCooldown))
+
+		if cooled || idle {
 			delete(o.runs, k)
 		}
 	}
 }
 
-// ended reports whether a key's requests to a model are refused at now: its run went past the limit.
-func (o *overflows) ended(key, model string, now time.Time) bool {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	o.forget(now)
-	run := o.runs[[2]string{key, model}]
-
-	return run != nil && !run.tripped.IsZero()
-}
-
-// add counts an overflow at now.
-func (o *overflows) add(key, model string, now time.Time) {
+// begin is a key's request to a model arriving at now. refused says its run is past the limit; else run, when not
+// nil, is the run the request is in flight in, to hand to end.
+func (o *overflows) begin(key, model string, now time.Time) (refused bool, run *overflowRun) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
 	o.forget(now)
 
-	run := o.runs[[2]string{key, model}]
-	if run == nil {
-		run = &overflowRun{}
-		o.runs[[2]string{key, model}] = run
-	}
+	run = o.runs[[2]string{key, model}]
+	switch {
+	case run == nil:
+		return false, nil
+	case !run.tripped.IsZero():
+		return true, nil
+	default:
+		run.inFlight++
 
-	run.count++
-	run.last = now
-
-	if run.count > allowedOverflows && run.tripped.IsZero() {
-		run.tripped = now
+		return false, run
 	}
 }
 
-// clear ends a run: an answer ended well.
-func (o *overflows) clear(key, model string) {
+// end is the answer to a request begin let through, at now.
+func (o *overflows) end(key, model string, now time.Time, began *overflowRun, kind answer) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	delete(o.runs, [2]string{key, model})
-}
-
-// refuseOverflow answers a request of a key whose run of overflows on the model went past the limit, and reports
-// whether it did.
-func (s *Server) refuseOverflow(w http.ResponseWriter, r *http.Request, key Key, model Model) bool {
-	if !s.overflows.ended(key.ID, model.Name, s.svc.clock.Now()) {
-		return false
+	if began != nil && began.inFlight > 0 {
+		began.inFlight--
 	}
 
-	s.logger.WarnContext(r.Context(), "a client's prompts keep overflowing its model's context window",
+	k := [2]string{key, model}
+	run := o.runs[k]
+
+	switch kind {
+	case answerOK:
+		delete(o.runs, k)
+	case answerFailed:
+		if run == nil {
+			run = &overflowRun{}
+			o.runs[k] = run
+		}
+
+		run.count++
+		run.last = now
+
+		if run.count > allowedOverflows && run.tripped.IsZero() {
+			run.tripped = now
+		}
+	case answerOther:
+		if run != nil {
+			run.last = now
+		}
+	}
+}
+
+// refuseOverflow answers a request of a key whose run on the model went past the limit, and reports whether it did;
+// else it returns the run the request is in flight in, for noteOverflow.
+func (s *Server) refuseOverflow(w http.ResponseWriter, r *http.Request, key Key, model Model) (bool, *overflowRun) {
+	refused, run := s.overflows.begin(key.ID, model.Name, s.svc.clock.Now())
+	if !refused {
+		return false, run
+	}
+
+	s.logger.WarnContext(r.Context(), "a client's answers keep ending early",
 		slog.String("event", "modelgateway.context_overflow_ended"), slog.String("key_id", key.ID),
 		slog.String("model", model.Name))
 
 	writeError(w, http.StatusBadRequest, typeInvalidRequest, codeContextOverflow, fmt.Sprintf(
-		"Each of the last %d prompts to %s exceeds the context window; for %s the gateway sends no more of "+
-			"this key's. Start a new conversation.", allowedOverflows+1, model.Name, overflowCooldown))
+		"The last %d answers of %s to this key did not end: cut short, empty, or the prompt exceeds the context "+
+			"window; for %s the gateway sends no more of this key's. Start a new conversation.",
+		allowedOverflows+1, model.Name, overflowCooldown))
 
-	return true
+	return true, nil
 }
 
-// noteOverflow follows a key's run of overflows once the provider answered: an answer that ended well clears it,
-// and one that says the prompt did not fit counts.
-func (s *Server) noteOverflow(ctx context.Context, key Key, model Model, record Usage) {
+// noteOverflow follows a key's run once the provider answered.
+func (s *Server) noteOverflow(ctx context.Context, key Key, model Model, run *overflowRun, record Usage) {
+	kind := answerOther
+
 	switch {
 	case record.Outcome == OutcomeOK:
-		s.overflows.clear(key.ID, model.Name)
-	case (record.Outcome == OutcomeTruncated || record.Outcome == OutcomeUpstreamError) &&
-		contextwindow.Exceeded(record.Error):
-		s.logger.WarnContext(ctx, "the provider says a prompt did not fit its model's context window",
-			slog.String("event", "modelgateway.context_overflow"), slog.String("key_id", key.ID),
-			slog.String("model", model.Name))
-		s.overflows.add(key.ID, model.Name, s.svc.clock.Now())
+		kind = answerOK
+	case record.Outcome == OutcomeTruncated && !record.explained,
+		record.Outcome == OutcomeClientGone && record.TTFT == nil,
+		(record.Outcome == OutcomeTruncated || record.Outcome == OutcomeUpstreamError) &&
+			contextwindow.Exceeded(record.Error):
+		kind = answerFailed
+
+		s.logger.WarnContext(ctx, "an answer did not end",
+			slog.String("event", "modelgateway.answer_failed"), slog.String("key_id", key.ID),
+			slog.String("model", model.Name), slog.String("outcome", string(record.Outcome)),
+			slog.String("error", record.Error))
 	}
+
+	s.overflows.end(key.ID, model.Name, s.svc.clock.Now(), run, kind)
 }
