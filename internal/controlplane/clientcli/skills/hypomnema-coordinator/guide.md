@@ -230,6 +230,16 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   (`gh pr list --repo <owner/name> --head <branch>`), using the Task's `push_branch` or `hyp/<task_id>` when unset;
   when there is none, send the worker a follow-up (below)
   that names what is missing. `gh pr checks <url>` shows whether the checks ran.
+<!-- pstack skills/poteto-mode/playbooks/shipping.md:8 (a requested auto-merge is not a merge; read the PR back)
+and :9 (a watcher follows the armed PR until it reads merged); babysit.md:8 (conflicts, then CI; a flake earns one
+fresh build) (issue #1053) -->
+- A worker that turned auto-merge on finishes without waiting for CI, its summary saying "auto-merge on at
+  <sha>": following the pull request to merged is yours. Wait for its required checks with one blocking command
+  (`gh pr checks <url> --required --watch`), then read it back (`gh pr view <url> --json
+  state,mergedAt,mergeStateStatus,headRefOid`). Merged: report it and go on with the Run. A conflict, or a red
+  check of the diff's own (a flake gets one rerun first, as in the `review` reference's step 1): send the worker a
+  follow-up on its succeeded Task naming it, which has it merge the base or fix it, push, turn auto-merge on again
+  at the new head and finish.
 - More work on a succeeded Task, such as a fix after a review or a correction the owner gives, goes to the same
   worker as a follow-up, not to a new Task:
   ```text

@@ -962,6 +962,15 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	assert.Contains(t, out, "it\n  is never a merge condition")
 	assert.Contains(t, out, "For a bug fix, ask for a test that fails without the fix, committed before the fix",
 		"a disputed finding is settled by a test (issue #952)")
+	for _, want := range []string{
+		"A worker that turned auto-merge on finishes without waiting for CI",
+		"following the pull request to merged is yours",
+		"`gh pr checks <url> --required --watch`",
+		"send the worker a\n  follow-up on its succeeded Task naming it",
+		"turn auto-merge on again\n  at the new head and finish",
+	} {
+		assert.Contains(t, out, want, "the coordinator follows a PR whose worker finished at auto-merge (issue #1053)")
+	}
 
 	_, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "nothing")
 	require.ErrorIs(t, err, ErrUsage)

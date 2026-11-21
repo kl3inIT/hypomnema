@@ -101,8 +101,9 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 		"pushing; CI runs the full suite.", "a worker runs the touched checks once (issue #894)")
 	assert.Contains(t, p, "Merge the base branch into yours only for a conflict, a red check whose cause is on "+
 		"the base, or when the repository's rules ask", "the base is merged only when needed (issue #894)")
-	assert.Contains(t, p, "never with a polling loop. When the task says a review comes first, do not wait for "+
-		"CI: report the pushed commit and finish", "CI is waited for with one command, or not at all (issue #894)")
+	assert.Contains(t, p, "never with a polling loop. When the task says a review comes first, or once auto-merge "+
+		"is on, do not wait for CI: report the pushed commit and finish",
+		"CI is waited for with one command, or not at all (issues #894, #1053)")
 	assert.Less(t, strings.Index(p, "never with a polling loop"), strings.Index(p, "Task (implementer):"),
 		"the rules come before the task, for the prompt cache (issue #672)")
 	assert.Contains(t, p, "Fix only the failures your diff causes. A red check that fails outside your diff and "+
@@ -237,8 +238,10 @@ func TestPromptPutsTheTaskAfterTheRules(t *testing.T) {
 // #714). On GitHub it checks, read-only, that the repository allows
 // auto-merge and that the base branch requires a check, by ruleset or branch
 // protection; a draft stays open; a conflict is resolved by merging the base;
-// auto-merge is pinned to the pushed commit; it waits for the required checks
-// and no longer. A repository lacking a setting gets the pull request left
+// auto-merge is pinned to the pushed commit; it reads the request back and
+// finishes without waiting for the checks, which the coordinator follows
+// (issue #1053), and waits for them only without auto-merge when the task
+// needs their result. A repository lacking a setting gets the pull request left
 // open, with what it lacks said first, and no gate. A task that says a review
 // comes first or to ask before merging skips it. GitLab has its own commands
 // and waits for a pipeline; a Task without a repository has none of this.
@@ -267,12 +270,25 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 		"On a conflict (mergeStateStatus is DIRTY), merge main into your branch, resolve it keeping the intent " +
 			"of both sides, rerun the checks the merge affects and push",
 		"`gh pr merge <url> --auto --merge --match-head-commit <sha>`, where <sha> is the commit you pushed",
-		"`gh pr checks <url> --required --watch`; fix a red one your diff causes and push, rerun a flake once " +
-			"as the rules say",
-		"Once they are green, call `finish` without waiting longer",
+		"Then do what the repository's instructions ask right before a merge, such as merging main and " +
+			"numbering a migration after its last, and push that too.",
+		"4. Read the pull request back with `gh pr view <url> --json state,mergedAt`, since a requested " +
+			"auto-merge is not a merge, then call `finish` at once, without waiting for the checks, saying that " +
+			"it merged or \"auto-merge on at <sha>\".",
+		"The coordinator follows the pull request from there and sends you a follow-up if a check goes red or " +
+			"a conflict appears.",
+		"When auto-merge is not turned on, wait for the required checks with " +
+			"`gh pr checks <url> --required --watch` only when the task needs their result.",
+		"When the task says a review comes first, or once auto-merge is on, do not wait for CI",
 	} {
 		assert.Contains(t, p, want)
 	}
+
+	// Issue #1053: a worker that turned auto-merge on finishes; it no longer waits for the checks to go green.
+	assert.NotContains(t, p, "Wait for the required checks with")
+	assert.NotContains(t, p, "Once they are green, call `finish`")
+	assert.Less(t, strings.Index(p, "instructions ask right before a merge"), strings.Index(p, "3. Turn auto-merge on"),
+		"what the repository asks before a merge comes before auto-merge lands the head")
 
 	assert.Less(t, strings.Index(p, "gh pr create"), strings.Index(p, "gh pr merge"),
 		"auto-merge follows the pull request it is for")
@@ -291,7 +307,8 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 			"read it one more time, never in a loop; if it is still null, do not enable auto-merge: finish and " +
 			"say the merge request has no pipeline.",
 		"`glab mr merge <iid> --auto-merge --yes --sha <sha>`",
-		"`glab ci status --live --branch hyp/tsk_1`",
+		"wait for the required checks with `glab ci status --live --branch hyp/tsk_1` only when the task needs " +
+			"their result",
 	} {
 		assert.Contains(t, p, want)
 	}

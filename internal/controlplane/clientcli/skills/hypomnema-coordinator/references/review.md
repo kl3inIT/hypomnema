@@ -97,6 +97,7 @@ approves, put the plan on the issue and pass it verbatim to the implementer.
    ```
    Report the pull request as reviewed, then report what the author says: merged, auto-merge on, or what the
    repository lacks for it, which the owner settles. You never merge nor turn on auto-merge yourself.
+   Auto-merge on is not merged: follow the pull request to merged as the guide's Results say (issue #1053).
    CodeRabbit is never a condition of its own: its findings count through the verdict, as in step 3.
 6. Findings that make the change incorrect: if `review_stall.waiting_for_owner` is true, use the stop rule below.
    <!-- pstack skills/poteto-mode/playbooks/autopilot-full.md:16 (issue #952) -->
