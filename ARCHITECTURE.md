@@ -4312,7 +4312,8 @@ its client API, its CLI and the Bots' tools.
   owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message
   as evidence (a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source
   chat, its attempt chat, or the chat the Bot acts in, which the caller takes from the Bot's session; or, to close
-  it done, a `zalo_sent`, `whatsapp_sent` or `lark_sent` in the item's own source chat and account, which the store
+  it done, a `zalo_sent`, `whatsapp_sent` or `lark_sent` in the item's own source chat and account (an item without
+  its account, which `lark` allows, is never closed so), which the store
   reads before the write through `Store.WithSent` and accepts only when it exists, he sent it himself and it is
   later than the item: the control plane's `inboxSent` reads a Zalo or WhatsApp one from the server's store of that
   account (`messaging.Query.ID`) and a Lark one from Lark's API with his own sign-in, `GET
@@ -4329,7 +4330,9 @@ its client API, its CLI and the Bots' tools.
   `AttemptID` puts the item of that attempt in review; `DecideApproval` puts it back to doing, or open with the
   reason when rejected; `ExpireApproval` and a Routine's run ending (`FinishRoutineRun`, which refuses what the run
   still asked) open it again; a chat deleted (`deleteChatTx`) or a Routine's run ended gives back to open what a Bot
-  was doing there, and an item there in review whose Approval was refused. Every mutation names its
+  was doing there, and an item there in review, its Approval ended as one nobody answered when still pending. A
+  second Approval of an attempt whose item already waits for another is refused in its own write (a conflict the
+  Bot is told), so no Approval waits that no item waits for. Every mutation names its
   actor, the revision it read and, for a Bot on a doing or review item, its attempt's id; a stale revision or
   another attempt's id is a conflict and writes nothing, and a Bot other than the attempt's is forbidden. Leaving doing or review clears the attempt, and any change
   of state the snooze. A create retried with its idempotency key and the same request (actor and every field)
@@ -4365,8 +4368,17 @@ its client API, its CLI and the Bots' tools.
   `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, for a Bot's pi only. Who acts and
   where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
   the chat was opened for while it is live); each call reads the item and writes at the revision read (or the one
-  given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. An item
-  given to a person without a due is due 48 hours after it is added, the day to chase them. The family's line of
+  given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. A Routine's
+  run adds from the run, or from the owner's Zalo, WhatsApp or Lark chat it names, never as a chat with the owner.
+  An item given to a person without a due is due 48 hours after it is first added (`NewTodo.DueIn`, counted by the
+  store, so a retry with the same key is the same request; an empty draft stays out of the request's hash), the day
+  to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included. A Routine's run that reads
+  only (#956) gets the family too (`agenttool.ReadRunAllows`), which writes only in the Inbox, and still no tool
+  that sends as the owner: `zalo_send` and `whatsapp_send` are refused there by the agent API, and every write
+  through the service proxy (a Lark message, a mail) by its read-only check; so the Bot that reads his messages
+  cannot send one as him (owner, 2026-11-17 and 2026-11-21 on #838). A Bot in a chat with the owner, or in a
+  Routine's run with full access, with WhatsApp or Zalo on, still sends: on his turn, or with his Approval of that
+  message. The family's line of
   the "Tools" block carries the Bots' rules (two items per ask, draft and hand back, never send to a client or a
   boss, close with evidence, the owner's item only with his message). An Approval names the item a Bot works on:
   `whatsapp_send` and `zalo_send` take `todo`, and a command run with `HYPOMNEMA_TODO=<id>` sends it on its

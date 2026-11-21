@@ -102,3 +102,21 @@ func TestThePhonesSwitchTakesItsVideoTools(t *testing.T) {
 	assert.True(t, one.Allows(devicetool.VideoSay))
 	require.NoError(t, CheckToolSwitches(nil, []string{devicetool.VideoStart}))
 }
+
+// The owner's rule that a Bot reading his messages never sends one as him (2026-11-17, and 2026-11-21 on #838: by
+// the tools' access, not the prompt): the Inbox's family has no send, and a Routine's run that reads only is given
+// the Inbox and no tool that sends as him.
+func TestAReadRunKeepsTheInboxAndNoSend(t *testing.T) {
+	t.Parallel()
+
+	sends := []string{ToolZaloSend, ToolWhatsAppSend}
+
+	for _, tool := range InboxTools {
+		assert.True(t, ReadRunAllows(tool), tool)
+		assert.NotContains(t, sends, tool)
+	}
+
+	for _, tool := range sends {
+		assert.False(t, ReadRunAllows(tool), tool)
+	}
+}
