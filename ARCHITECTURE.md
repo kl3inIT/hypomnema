@@ -5535,15 +5535,46 @@ Node (`internal/node`):
   path so a short symlink alias remains usable even when the resolved path is too long for Unix sockets. Disk
   maintenance never removes state or its sidecars, accounts, shim records and journals,
   Conversations, Transcripts, Git mirrors and branches, the binary and configuration, or system logs.
-- Below the trim threshold, with protected paths confirmed, the node trims standard Go build cache entries in
-  `~/.cache/go-build` and the effective `GOCACHE` on the affected mount. It removes entries older than five days
+- Below the trim threshold, with protected paths confirmed, the node trims standard Go build cache entries, and
+  golangci-lint's, which keeps Go's layout and trim rule, on the affected mount, each only at its tool's default
+  place for the worker's user: `os.UserCacheDir()/go-build` (`cmd/go/internal/cache/default.go:80-88`) and
+  `os.UserCacheDir()/golangci-lint` (golangci-lint's `internal/go/cache/default.go:78-86`). A cache that `GOCACHE`,
+  Go's env file or `GOLANGCI_LINT_CACHE` puts anywhere else may be a directory a mistaken setting points at, so it
+  is left whole and logged once (`node.cache_not_default`); when `go env` cannot name the module cache it trims
+  neither. A directory is trimmed only when its `README` starts with the line Go,
+  or golangci-lint, writes in a cache it uses (`cmd/go/internal/cache/default.go:28,47-50`); one of the same shape
+  that no cache wrote is left whole and logged once (`node.cache_unconfirmed`). In it, only what Go writes there is
+  a candidate, as Go's own trim takes (`cmd/go/internal/cache/cache.go:117-119,439-467,598-620`; golangci-lint's
+  copy, `internal/go/cache/cache.go:121-123,446-472`): in a subdirectory `00`..`ff`, a regular file named by 64
+  lowercase hex digits starting with that subdirectory's and `-a` or `-d`, or such a `-d` directory holding one
+  executable; anything else there is never deleted. It removes entries older than five days
   plus one hour in oldest-first order, skips entries that changed after inspection, and remeasures in batches
   until it reaches the target. It checks for an idle node before invoking native
   `pnpm store prune` on the default worker store. It rejects symlinks and cross-mount entries and confines the
   command with the same platform sandbox; the worker's `dlx` cache is not pruned. The pnpm store must be on the affected mount.
   Go module, toolchain
   and fuzz caches are not touched. Playwright's own GC remains part of its browser install, not this sweep.
-  If the eligible cleanup cannot make enough room, the warning and admission floor remain. The policy does not
+  When the volume is still below its trim threshold after that, the node trims the same Go and golangci-lint
+  caches again, oldest first, down to entries unused for 2 hours, and stops once it has the target (issue #1017). Go
+  refreshes an entry's mtime on use at most once an hour (`mtimeInterval`), so that pass, as Go's own trim, adds
+  that hour: it takes only entries whose mtime is over 3 hours old, and a build in progress keeps its entries; Go
+  documents its cache as safe to remove (`go help cache`). There is no size cap: free space is the one
+  control, as Buildkite's low-disk prune and GitHub's runner warning trigger on free space.
+  If the eligible cleanup cannot make enough room, the warning (`node.disk_blocked`) and admission floor remain,
+  and the heartbeats after that trim say so (`disk.blocked`) while the volume stays below its floor; a heartbeat
+  that finds it at or above the floor clears that, and so does one during a trim for what the trim found, so a
+  later drop is reported blocked only by a trim that ran after it (the flag and the count of recoveries are kept
+  under one lock). The control
+  plane keeps an alert per node (`nodes.disk_alert` and `disk_alert_until`, migration `node_disk_alert`), as
+  Coder's volume monitor (`coderd/agentapi/resources_monitoring.go:213,248-252`): a blocked sample moves it from
+  `ok` to `low`, and the owner is told when 30 min (`DiskAlertDebounce`, Coder's debounce) have passed since the
+  last time he was told, which makes it `told`; a sample at or above the floor makes it `ok` again and, when it was
+  `told`, tells him the node recovered. He is told as a failing Routine tells him: a line in the main Bot's main
+  chat and a card through that Bot's Lark Channels (`controlplane/diskalert.go`). The node API keeps a node's
+  samples in order with the alerts they make and tells a node's alerts one after another, so a recovery never
+  comes before its drop. While one is told, what waits is the node's latest alert only, told when it differs from
+  the one just told, as client-go's workqueue keeps an item dirty once while it is processed
+  (`util/workqueue/queue.go:210-221,243-264,306-319`). The policy does not
   protect free space on a separate cache or temp volume.
 - The node does not sweep shared `/tmp` or `os.TempDir()`. Dispatch cleanup is limited to its own temporary directory.
 
