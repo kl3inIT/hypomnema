@@ -394,7 +394,10 @@ var (
 // LinkApprovalTx puts the item the attempt is on in review while the pending Approval approvalID, which the attempt
 // asked, waits for the owner: the control plane recorded the attempt on the Approval from the item the Bot named
 // (orchestration's NewApproval.AttemptID), so the Bot never handles attempt ids. Nothing changes when no item is
-// doing in that attempt any more (released, closed, or already waiting for this Approval).
+// doing in that attempt any more (released or closed). When the item already waits for another Approval of the
+// attempt (two requests that read it doing before the first put it in review), it is a conflict, which undoes the
+// Approval's write: an item waits for one Approval, and none is left pending that no item waits for. The request
+// is asked again once the owner answered the first.
 func (s *Store) LinkApprovalTx(ctx context.Context, q *store.Queries, now int64, approvalID, attempt string) error {
 	cur, err := q.GetTodoOfAttempt(ctx, nullString(attempt))
 
@@ -403,6 +406,9 @@ func (s *Store) LinkApprovalTx(ctx context.Context, q *store.Queries, now int64,
 		return nil
 	case err != nil:
 		return fmt.Errorf("reading the to-do of attempt %s: %w", attempt, err)
+	case cur.State == Review && cur.ApprovalID.String != approvalID:
+		return fmt.Errorf("%w: to-do %s already waits for the owner's answer to another request; ask again once he "+
+			"has answered it", storeerr.ErrConflict, cur.ID)
 	case cur.State != Doing:
 		return nil
 	}
@@ -441,8 +447,9 @@ func (s *Store) ApprovalAnsweredTx(ctx context.Context, q *store.Queries, now in
 
 // EndAttemptsTx gives back to open, with the reason, every item a Bot is doing in a chat that is deleted or a
 // Routine's run that ended (Chatwoot's bot_handoff!; Coder ends an agent's token with its build), and every item there
-// in review whose Approval was refused meanwhile (a run's open Approvals are when it ends). An item whose Approval
-// still waits stays in review: the owner's answer moves it (ApprovalAnsweredTx).
+// in review: its Approval, refused when the run ended or still pending, ends here as one nobody answered (a run's
+// open Approvals are refused so when it ends), so no answer can later put the item back to doing in an attempt
+// whose chat or run is gone. All in the transaction of the deletion or the end.
 func (s *Store) EndAttemptsTx(ctx context.Context, q *store.Queries, now int64, kind, id, reason string) error {
 	rows, err := q.ListTodosOfWork(ctx, store.ListTodosOfWorkParams{
 		WorkKind: nullString(kind), WorkID: nullString(id),
@@ -460,13 +467,10 @@ func (s *Store) EndAttemptsTx(ctx context.Context, q *store.Queries, now int64, 
 		apply := released(reason)
 
 		if cur.State == Review {
-			a, err := q.GetApproval(ctx, cur.ApprovalID.String)
-			if err != nil {
-				return storeutil.NotFound(err, "Approval", cur.ApprovalID.String)
-			}
-
-			if a.Status != "rejected" {
-				continue
+			if _, err := q.ExpireApproval(ctx, store.ExpireApprovalParams{
+				ID: cur.ApprovalID.String, Now: sql.NullInt64{Int64: now, Valid: true},
+			}); err != nil {
+				return fmt.Errorf("ending Approval %s: %w", cur.ApprovalID.String, err)
 			}
 
 			apply = ended(ctx, reason)

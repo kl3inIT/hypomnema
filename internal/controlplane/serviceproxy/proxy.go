@@ -639,6 +639,11 @@ func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking,
 		Payload:   q.fields,
 		MatchHash: q.hash,
 	})
+	if errors.Is(err, orchestration.ErrConflict) {
+		// The Inbox item the request is for already waits for the owner's answer to another (issue #1004).
+		return "conflict", "Refused: " + err.Error() + ". It was not run", false, nil
+	}
+
 	if err != nil {
 		return "", "", false, err
 	}
