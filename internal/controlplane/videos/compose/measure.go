@@ -87,6 +87,11 @@ func Measure(parent context.Context, tools ffmpeg.Tools, file string, limitSec f
 		return Measurement{}, err
 	}
 
+	// The group is killed at the deadline until both pipes are done with, not only while ffmpeg runs: exec stops
+	// calling Cancel once ffmpeg has exited, while something it started may still hold its stderr.
+	stopGroup := context.AfterFunc(ctx, func() { _ = killGroup(cmd) })
+	defer stopGroup()
+
 	// At the deadline the read end is closed, so reading stops even while something ffmpeg started still holds
 	// its stdout (it would keep the read waiting for an end of file that never comes).
 	stop := context.AfterFunc(ctx, func() { _ = stdout.Close() })
@@ -100,6 +105,11 @@ func Measure(parent context.Context, tools ffmpeg.Tools, file string, limitSec f
 	}
 
 	waitErr := cmd.Wait()
+	if errors.Is(waitErr, exec.ErrWaitDelay) {
+		// ffmpeg has ended and something it started still held its stderr when Wait gave up on it: that is killed
+		// too. Its group is not empty, so its number is still that group's.
+		_ = killGroup(cmd)
+	}
 
 	switch {
 	case parent.Err() != nil:
