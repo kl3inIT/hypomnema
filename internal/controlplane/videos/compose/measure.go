@@ -45,6 +45,9 @@ func (m Measurement) Silent() bool { return m.LUFS <= SilentLUFS || m.TruePeak <
 // maxMeasureOutput bounds what Measure reads of ffmpeg's output: a 20-minute track prints about 3.5 MB.
 const maxMeasureOutput = 32 << 20
 
+// measureWaitDelay is how long Measure waits, once ffmpeg is killed, for its stderr to close.
+const measureWaitDelay = 500 * time.Millisecond
+
 // errMeasureCut is a decode whose output ended before ffmpeg said progress=end.
 var errMeasureCut = errors.New("ffmpeg's output ended before the decode's end")
 
@@ -53,8 +56,8 @@ var errMeasureCut = errors.New("ffmpeg's output ended before the decode's end")
 // stdout, with no file written (issue #910, row 6c: ffmpeg ignores the errors of writing a metadata file,
 // f_metadata.c:196-205, while a pipe has no such failure). The output must end with progress=end, so a decode that
 // stops early is never taken for a short file.
-func Measure(ctx context.Context, tools ffmpeg.Tools, file string, limitSec float64) (Measurement, error) {
-	ctx, cancel := context.WithCancel(ctx)
+func Measure(parent context.Context, tools ffmpeg.Tools, file string, limitSec float64) (Measurement, error) {
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	args := []string{"-nostats", "-v", "error", "-xerror", "-progress", "pipe:1"}
@@ -69,8 +72,8 @@ func Measure(ctx context.Context, tools ffmpeg.Tools, file string, limitSec floa
 
 	cmd := exec.CommandContext(ctx, tools.FFmpeg, args...) //nolint:gosec // The installed program, by its path.
 	cmd.Stderr = &stderr
-	// A killed ffmpeg's pipes are closed soon after, even if something it started still holds them.
-	cmd.WaitDelay = 5 * time.Second
+	// Once ffmpeg is killed, Wait closes its stderr after this long even if something it started still holds it.
+	cmd.WaitDelay = measureWaitDelay
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -81,7 +84,13 @@ func Measure(ctx context.Context, tools ffmpeg.Tools, file string, limitSec floa
 		return Measurement{}, err
 	}
 
+	// At the deadline the read end is closed, so reading stops even while something ffmpeg started still holds
+	// its stdout (it would keep the read waiting for an end of file that never comes).
+	stop := context.AfterFunc(ctx, func() { _ = stdout.Close() })
+
 	m, readErr := readMeasure(stdout)
+	stop()
+
 	if readErr != nil {
 		// Stop ffmpeg before waiting: it may still be writing to the pipe no one reads.
 		cancel()
@@ -90,13 +99,11 @@ func Measure(ctx context.Context, tools ffmpeg.Tools, file string, limitSec floa
 	waitErr := cmd.Wait()
 
 	switch {
+	case parent.Err() != nil:
+		return Measurement{}, parent.Err()
 	case readErr != nil:
 		return Measurement{}, fmt.Errorf("measuring %s: %w", file, readErr)
 	case waitErr != nil:
-		if ctx.Err() != nil {
-			return Measurement{}, ctx.Err()
-		}
-
 		return Measurement{}, fmt.Errorf("measuring %s: %s: %w\n%s", file, tools.FFmpeg, waitErr,
 			tail(stderr.String(), 25))
 	}

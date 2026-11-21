@@ -61,8 +61,8 @@ func TestMeasureReturnsAtItsDeadline(t *testing.T) {
 	t.Parallel()
 
 	for name, script := range map[string]string{
-		"never ends":                  measureLines + "sleep 8\n",
-		"a child holds stdout":        measureLines + "sleep 8 </dev/null 2>/dev/null &\nwait\n",
+		"never ends":                   measureLines + "sleep 8\n",
+		"a child holds stdout":         measureLines + "sleep 8 </dev/null 2>/dev/null &\nwait\n",
 		"a child holds both its pipes": measureLines + "sleep 8 </dev/null &\nwait\n",
 	} {
 		t.Run(name, func(t *testing.T) {
