@@ -399,3 +399,31 @@ func TestHeartbeatSaysTheDiskIsBlockedAfterTrimming(t *testing.T) {
 	free = floor
 	assert.False(t, blocked(), "space came back before the next trim")
 }
+
+// Review round 2 of #1017: a recovery clears what an earlier trim said, so a new drop below the floor is not
+// reported blocked until a trim runs after it.
+func TestHeartbeatForgetsAnOldTrimAfterARecovery(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db, err := statedb.Open(ctx, filepath.Join(t.TempDir(), "state.db"), time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	const floor = 5 << 30
+	free := int64(1 << 30)
+	d := New(Config{Disk: func(context.Context) nodeproto.DiskSpace {
+		return nodeproto.DiskSpace{FreeBytes: &free, FloorBytes: floor, TrimBytes: 15 << 30}
+	}}, db, nil, slog.New(slog.DiscardHandler))
+	blocked := func() bool {
+		var hb nodeproto.Heartbeat
+		require.NoError(t, json.Unmarshal(d.heartbeat(ctx).Payload, &hb))
+		require.NotNil(t, hb.Disk)
+		return hb.Disk.Blocked
+	}
+
+	d.diskBlocked.Store(true)
+	require.True(t, blocked())
+	free = floor
+	require.False(t, blocked(), "recovered")
+	free = 1 << 30
+	assert.False(t, blocked(), "a new drop is not blocked before a trim ran after it")
+}

@@ -132,6 +132,7 @@ func mustReadDir(t *testing.T, path string) []os.DirEntry {
 func TestGoCacheTrimStopsAtTargetAndKeepsNewAndUnknownFiles(t *testing.T) {
 	t.Parallel()
 	root := realTempDir(t)
+	markCache(t, root, testGoReadme)
 	bucket := filepath.Join(root, "01")
 	require.NoError(t, os.Mkdir(bucket, 0o700))
 	now := time.Now()
@@ -183,6 +184,7 @@ func TestGoCachePressureTrimsWhenWorktreeRootIsASymlink(t *testing.T) {
 	require.NoError(t, os.Mkdir(worktrees, 0o700))
 	require.NoError(t, os.Symlink(worktrees, link))
 	cache := filepath.Join(home, "go-build")
+	markCache(t, cache, testGoReadme)
 	bucket := filepath.Join(cache, "01")
 	require.NoError(t, os.MkdirAll(bucket, 0o700))
 	entry := filepath.Join(bucket, fmt.Sprintf("01%062x-d", 0))
@@ -216,6 +218,7 @@ func TestConfiguredGoCacheTrimKeepsModuleCache(t *testing.T) {
 	require.Contains(t, roots, custom)
 	require.Contains(t, roots, filepath.Join(home, ".cache", "go-build"))
 	require.Equal(t, module, mod)
+	markCache(t, custom, testGoReadme)
 	for _, root := range []string{custom, module} {
 		bucket := filepath.Join(root, "01")
 		require.NoError(t, os.MkdirAll(bucket, 0o700))
@@ -238,6 +241,7 @@ func TestGoCacheContinuesAfterAnUndeletableEntry(t *testing.T) {
 		t.Skip("unlink permission must not be bypassed by root")
 	}
 	root := realTempDir(t)
+	markCache(t, root, testGoReadme)
 	blocked, later := filepath.Join(root, "01"), filepath.Join(root, "02")
 	now := time.Now()
 	var entries []string
@@ -257,6 +261,21 @@ func TestGoCacheContinuesAfterAnUndeletableEntry(t *testing.T) {
 	assert.NoFileExists(t, entries[1])
 }
 
+// The READMEs Go and golangci-lint write in a cache they use (cmd/go/internal/cache/default.go:28-32,47-50 at
+// go1.27.4; golangci-lint's internal/go/cache/default.go:26-27,45-48 at v2.15.0).
+const (
+	testGoReadme = "This directory holds cached build artifacts from the Go build system.\n" +
+		"Run \"go clean -cache\" if the directory is getting too large.\n" +
+		"Run \"go clean -fuzzcache\" to delete the fuzz cache.\nSee go.dev to learn more about Go.\n"
+	testLintReadme = "This directory holds cached build artifacts from golangci-lint.\n"
+)
+
+func markCache(t *testing.T, root, readme string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(root, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "README"), []byte(readme), 0o600))
+}
+
 func writeCacheEntry(t *testing.T, root string, index int, age time.Duration) string {
 	t.Helper()
 	bucket := filepath.Join(root, "01")
@@ -273,6 +292,7 @@ func writeCacheEntry(t *testing.T, root string, index int, age time.Duration) st
 func TestYoungGoCacheIsTrimmedOldestFirstToTargetAndKeepsRecentEntries(t *testing.T) {
 	t.Parallel()
 	root := realTempDir(t)
+	markCache(t, root, testGoReadme)
 	var paths []string
 	for index := range goCacheBatch + 1 {
 		paths = append(paths, writeCacheEntry(t, root, index, 4*24*time.Hour-time.Duration(index)*time.Minute*20))
@@ -302,6 +322,8 @@ func TestTrimTakesYoungEntriesOfGoAndLintCachesOnlyWhileStillLow(t *testing.T) {
 	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
 	t.Setenv("GOENV", "off")
 	t.Setenv("GOLANGCI_LINT_CACHE", "")
+	markCache(t, build, testGoReadme)
+	markCache(t, lint, testLintReadme)
 	var young, recent []string
 	for index, root := range []string{build, lint} {
 		young = append(young, writeCacheEntry(t, root, 2*index, 24*time.Hour))
@@ -334,6 +356,7 @@ func TestYoungPassWaitsForTheTrimThresholdNotTheTarget(t *testing.T) {
 	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
 	t.Setenv("GOENV", "off")
 	t.Setenv("GOLANGCI_LINT_CACHE", "")
+	markCache(t, build, testGoReadme)
 	old := writeCacheEntry(t, build, 0, goCacheAge+time.Hour)
 	young := writeCacheEntry(t, build, 1, 24*time.Hour)
 	const floor, threshold, target = 50, 100, 200
@@ -353,4 +376,49 @@ func TestYoungPassWaitsForTheTrimThresholdNotTheTarget(t *testing.T) {
 	require.True(t, pruned, "the volume still needed room after the 5-day pass")
 	assert.NoFileExists(t, old)
 	assert.FileExists(t, young, "above the trim threshold the 2-hour pass deletes nothing")
+}
+
+// Review round 2 of #1017: a directory is trimmed only when Go or golangci-lint wrote its README there. A
+// GOLANGCI_LINT_CACHE, or GOCACHE, naming a directory of the same shape that no cache wrote, is left whole.
+func TestLookAlikeOfACacheIsNeverTrimmed(t *testing.T) {
+	home := realTempDir(t)
+	build := filepath.Join(home, "go-build")
+	lookAlike := filepath.Join(home, "project-data")
+	markCache(t, build, testGoReadme)
+	t.Setenv("GOCACHE", build)
+	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOLANGCI_LINT_CACHE", lookAlike)
+	cached := writeCacheEntry(t, build, 0, 24*time.Hour)
+	kept := writeCacheEntry(t, lookAlike, 1, 24*time.Hour)
+	wrongReadme := filepath.Join(home, ".cache", "golangci-lint")
+	markCache(t, wrongReadme, "notes\n")
+	alsoKept := writeCacheEntry(t, wrongReadme, 2, 24*time.Hour)
+	caches := Caches{
+		Policy: Policy{FloorBytes: 1<<63 - 1}, WorktreeRoot: home, UserHome: home, Logger: slog.New(slog.DiscardHandler),
+	}
+	caches.Trim(t.Context(), func(func()) {})
+	assert.NoFileExists(t, cached, "Go's own cache is trimmed")
+	assert.FileExists(t, kept, "a directory without a cache's README is not a cache")
+	assert.FileExists(t, alsoKept, "nor one whose README is not a cache's")
+}
+
+// Review round 2 of #1017: Go refreshes an entry's mtime at most once an hour, so an entry used 1h30m ago may show
+// an mtime of 2h15m; the 2-hour pass keeps it, as Go's own trim adds that hour (cache.go:426-429 at go1.27.4).
+func TestYoungPassKeepsAnEntryUsedInTheLastTwoHoursWhoseMtimeIsOlder(t *testing.T) {
+	home := realTempDir(t)
+	build := filepath.Join(home, "go-build")
+	markCache(t, build, testGoReadme)
+	t.Setenv("GOCACHE", build)
+	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOLANGCI_LINT_CACHE", "")
+	usedRecently := writeCacheEntry(t, build, 0, 2*time.Hour+15*time.Minute)
+	unused := writeCacheEntry(t, build, 1, 3*time.Hour+time.Minute)
+	caches := Caches{
+		Policy: Policy{FloorBytes: 1<<63 - 1}, WorktreeRoot: home, UserHome: home, Logger: slog.New(slog.DiscardHandler),
+	}
+	caches.Trim(t.Context(), func(func()) {})
+	assert.FileExists(t, usedRecently)
+	assert.NoFileExists(t, unused)
 }

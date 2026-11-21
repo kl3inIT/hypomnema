@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -788,6 +789,50 @@ func TestBlockedDiskInHeartbeatsTellsTheOwnerOncePerEpisode(t *testing.T) {
 		FloorBytes: 5 << 30}, told[0])
 	assert.True(t, told[1].Recovered)
 	assert.Empty(t, alerts, "the episode is told once")
+}
+
+// Scenario: telling the owner of a drop is slow, and the node recovers meanwhile (review round 2 of #1017). He is
+// told of the drop first and of the recovery after it.
+func TestDiskAlertsOfANodeAreToldInOrder(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var told []bool
+	done := make(chan struct{}, 2)
+	p.api.WithDiskAlerts(func(_ context.Context, alert orchestration.DiskAlert) {
+		if !alert.Recovered {
+			<-release
+		}
+		mu.Lock()
+		told = append(told, alert.Recovered)
+		mu.Unlock()
+		done <- struct{}{}
+	})
+	conn := p.connect()
+	beat := func(free int64, blocked bool) {
+		p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Disk: &nodeproto.DiskSpace{
+			FreeBytes: &free, FloorBytes: 5 << 30, TrimBytes: 15 << 30, Blocked: blocked,
+		}})
+		p.next(conn, nodeproto.TypeHeartbeatAck)
+	}
+
+	beat(1<<30, true)
+	beat(20<<30, false)
+	select {
+	case <-done:
+		close(release)
+		t.Fatal("the recovery was told while the drop was still being told")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	<-done
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []bool{false, true}, told, "the drop, then the recovery")
 }
 
 // Scenario: hello after a restart. Each claimed Dispatch is answered.
