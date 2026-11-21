@@ -17,7 +17,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
+
+// slowTakes reads a take after a delay, as a take whose upload is being checked is read.
+type slowTakes struct {
+	Takes
+
+	delay time.Duration
+}
+
+func (s slowTakes) Get(id string) (devicetool.Take, error) {
+	time.Sleep(s.delay)
+
+	return s.Takes.Get(id)
+}
 
 // slowFFmpeg is an ffmpeg that writes its pid to pidFile and sleeps.
 func slowFFmpeg(t *testing.T, r *rig) (pidFile string) {
@@ -65,6 +79,22 @@ func TestTheLookSampleKeepsItsLimits(t *testing.T) {
 
 		_, err := r.svc.Preview(t.Context(), PreviewRequest{Take: takeID})
 		require.ErrorIs(t, err, ErrBusy)
+	})
+
+	t.Run("busy while the take is read", func(t *testing.T) {
+		t.Parallel()
+
+		// The wait is counted from the request's start: reading the take, which may wait for an upload's checks
+		// (takes/upload.go), does not add to it (review of #1001).
+		r := newRig(t)
+		r.svc.cfg.Takes = slowTakes{Takes: r.takes, delay: 400 * time.Millisecond}
+		r.svc.cfg.PreviewWait = 50 * time.Millisecond
+		r.svc.preview <- struct{}{}
+
+		start := time.Now()
+		_, err := r.svc.Preview(t.Context(), PreviewRequest{Take: takeID})
+		require.ErrorIs(t, err, ErrBusy)
+		assert.Less(t, time.Since(start), 300*time.Millisecond, "busy within the wait, not after the take was read")
 	})
 
 	t.Run("no ffmpeg", func(t *testing.T) {
