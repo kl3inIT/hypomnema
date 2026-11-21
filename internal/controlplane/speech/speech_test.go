@@ -157,3 +157,33 @@ func TestKeyNames(t *testing.T) {
 
 	assert.Equal(t, "speech-soniox-2", speech.NextKeyName("soniox", []string{"speech-soniox", "speech-soniox-3"}))
 }
+
+// Scenario: a video revision made again with the voice it was spoken with is pinned to its provider (issue #908,
+// row 4; review of #1001): that provider is asked though the owner turned it off since, and the settings are not
+// read; a pin names its provider.
+func TestAPinnedCallAsksItsProviderWithoutTheSettings(t *testing.T) {
+	t.Parallel()
+
+	tts := &sonioxTTS{}
+	reads := 0
+	svc := speech.New(speech.Config{
+		Keys: sonioxKeys("speech-soniox"), SonioxTTSURL: tts.serve(t).URL,
+		Settings: func(context.Context) (speech.Settings, error) {
+			reads++
+
+			return speech.Settings{Off: []string{"soniox"}}, nil
+		},
+	})
+
+	_, err := svc.Speak(t.Context(), speech.SpeakRequest{Input: "hi", Provider: "soniox"})
+	require.ErrorIs(t, err, speech.ErrInvalid, "named, not pinned: refused while off")
+	assert.Equal(t, 1, reads)
+
+	out, err := svc.Speak(t.Context(), speech.SpeakRequest{Input: "hi", Provider: "soniox", Pinned: true})
+	require.NoError(t, err)
+	assert.Equal(t, "soniox", out.Provider)
+	assert.Equal(t, 1, reads, "a pinned call reads no settings")
+
+	_, err = svc.Speak(t.Context(), speech.SpeakRequest{Input: "hi", Pinned: true})
+	require.ErrorIs(t, err, speech.ErrInvalid, "a pin names its provider")
+}

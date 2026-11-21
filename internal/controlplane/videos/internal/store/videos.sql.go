@@ -172,7 +172,7 @@ func (q *Queries) FinishRevision(ctx context.Context, arg FinishRevisionParams) 
 }
 
 const getRevision = `-- name: GetRevision :one
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at FROM video_revisions WHERE video_id = ?1 AND rev = ?2
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice FROM video_revisions WHERE video_id = ?1 AND rev = ?2
 `
 
 type GetRevisionParams struct {
@@ -205,6 +205,9 @@ func (q *Queries) GetRevision(ctx context.Context, arg GetRevisionParams) (Video
 		&i.RequestHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Look,
+		&i.PinProvider,
+		&i.PinVoice,
 	)
 	return i, err
 }
@@ -245,11 +248,23 @@ func (q *Queries) GetVideoOfTake(ctx context.Context, takeID string) (Video, err
 	return i, err
 }
 
+const getVideoSettings = `-- name: GetVideoSettings :one
+SELECT look FROM video_settings WHERE id = 1
+`
+
+// The look a make that sends none gets (issue #908, row 15): one row, written by the migration.
+func (q *Queries) GetVideoSettings(ctx context.Context) (string, error) {
+	row := q.db.QueryRowContext(ctx, getVideoSettings)
+	var look string
+	err := row.Scan(&look)
+	return look, err
+}
+
 const insertRevision = `-- name: InsertRevision :exec
-INSERT INTO video_revisions (video_id, rev, parent, state, lines, voice, captions, aspect, requested_by, request_id,
-                             request_hash, created_at, updated_at)
-VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, ?8, ?9,
-        ?10, ?11, ?11)
+INSERT INTO video_revisions (video_id, rev, parent, state, lines, voice, captions, aspect, look, pin_provider,
+                             pin_voice, requested_by, request_id, request_hash, created_at, updated_at)
+VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+        ?11, ?12, ?13, ?14, ?14)
 `
 
 type InsertRevisionParams struct {
@@ -260,6 +275,9 @@ type InsertRevisionParams struct {
 	Voice       string
 	Captions    int64
 	Aspect      string
+	Look        string
+	PinProvider string
+	PinVoice    string
 	RequestedBy string
 	RequestID   string
 	RequestHash string
@@ -275,6 +293,9 @@ func (q *Queries) InsertRevision(ctx context.Context, arg InsertRevisionParams) 
 		arg.Voice,
 		arg.Captions,
 		arg.Aspect,
+		arg.Look,
+		arg.PinProvider,
+		arg.PinVoice,
 		arg.RequestedBy,
 		arg.RequestID,
 		arg.RequestHash,
@@ -358,7 +379,7 @@ func (q *Queries) LastRev(ctx context.Context, videoID string) (int64, error) {
 }
 
 const listRevisions = `-- name: ListRevisions :many
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at FROM video_revisions WHERE video_id = ?1 ORDER BY rev
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice FROM video_revisions WHERE video_id = ?1 ORDER BY rev
 `
 
 func (q *Queries) ListRevisions(ctx context.Context, videoID string) ([]VideoRevision, error) {
@@ -392,6 +413,9 @@ func (q *Queries) ListRevisions(ctx context.Context, videoID string) ([]VideoRev
 			&i.RequestHash,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Look,
+			&i.PinProvider,
+			&i.PinVoice,
 		); err != nil {
 			return nil, err
 		}
@@ -441,7 +465,7 @@ func (q *Queries) ListVideos(ctx context.Context) ([]Video, error) {
 }
 
 const nextQueued = `-- name: NextQueued :one
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at FROM video_revisions WHERE state = 'queued' ORDER BY created_at, video_id, rev LIMIT 1
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice FROM video_revisions WHERE state = 'queued' ORDER BY created_at, video_id, rev LIMIT 1
 `
 
 func (q *Queries) NextQueued(ctx context.Context) (VideoRevision, error) {
@@ -469,6 +493,9 @@ func (q *Queries) NextQueued(ctx context.Context) (VideoRevision, error) {
 		&i.RequestHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Look,
+		&i.PinProvider,
+		&i.PinVoice,
 	)
 	return i, err
 }
@@ -499,7 +526,7 @@ func (q *Queries) RequestChanges(ctx context.Context, arg RequestChangesParams) 
 }
 
 const revisionByRequest = `-- name: RevisionByRequest :one
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at FROM video_revisions WHERE requested_by = ?1 AND request_id = ?2
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice FROM video_revisions WHERE requested_by = ?1 AND request_id = ?2
 `
 
 type RevisionByRequestParams struct {
@@ -532,6 +559,9 @@ func (q *Queries) RevisionByRequest(ctx context.Context, arg RevisionByRequestPa
 		&i.RequestHash,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Look,
+		&i.PinProvider,
+		&i.PinVoice,
 	)
 	return i, err
 }
@@ -559,6 +589,20 @@ func (q *Queries) SetRevisionVoice(ctx context.Context, arg SetRevisionVoicePara
 		arg.VideoID,
 		arg.Rev,
 	)
+	return err
+}
+
+const setVideoSettings = `-- name: SetVideoSettings :exec
+UPDATE video_settings SET look = ?1, updated_at = ?2 WHERE id = 1
+`
+
+type SetVideoSettingsParams struct {
+	Look string
+	Now  int64
+}
+
+func (q *Queries) SetVideoSettings(ctx context.Context, arg SetVideoSettingsParams) error {
+	_, err := q.db.ExecContext(ctx, setVideoSettings, arg.Look, arg.Now)
 	return err
 }
 

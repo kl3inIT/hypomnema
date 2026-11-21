@@ -58,7 +58,7 @@ func TestLegacyIsTheCaptionsOfBefore(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, size := range [][2]int{{720, 1280}, {1280, 720}} {
-		got, err := Render(t.Context(), ffmpeg.Tools{}, cues, Look{Preset: Legacy, Position: PositionCenter},
+		got, err := Render(t.Context(), ffmpeg.Tools{}, cues, Look{Preset: Legacy, Position: PositionPreset},
 			size[0], size[1], []compose.Ring{{AtMs: 1000, X: 360, Y: 1200, Size: 101}})
 		require.NoError(t, err)
 		assert.Equal(t, ASS(cues, size[0], size[1], Default), got)

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -63,6 +64,9 @@ type fakeSpeech struct {
 	noWords   bool
 	// lines are the lines spoken, in order, for a speech that hears them back.
 	lines []string
+	// off are the providers the owner turned off: one named is refused unless the call is pinned, as the speech
+	// service refuses it.
+	off []string
 }
 
 func newFakeSpeech() *fakeSpeech {
@@ -79,6 +83,10 @@ func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakReq
 
 	if f.down[req.Provider] {
 		return speech.Speech{}, errors.New(req.Provider + " is down")
+	}
+
+	if !req.Pinned && slices.Contains(f.off, req.Provider) {
+		return speech.Speech{}, errors.New(req.Provider + " is turned off on this control plane")
 	}
 
 	n := 0
@@ -236,7 +244,9 @@ type rig struct {
 	free   uint64
 	off    []string
 	voices map[string]string
-	mu     sync.Mutex
+	// order is the owner's order of the speaking providers; empty: the default.
+	order []string
+	mu    sync.Mutex
 }
 
 func newRig(t *testing.T) *rig {
@@ -262,14 +272,27 @@ func newRig(t *testing.T) *rig {
 			r.mu.Lock()
 			defer r.mu.Unlock()
 
-			return speech.Settings{Off: r.off, Voices: r.voices}, nil
+			return speech.Settings{Off: r.off, Voices: r.voices, TTS: r.order}, nil
 		},
 		Tools:     func(context.Context) (ffmpeg.Tools, error) { return ffmpeg.Tools{FFmpeg: "/x/ffmpeg"}, nil },
 		FreeBytes: func(string) (uint64, error) { r.mu.Lock(); defer r.mu.Unlock(); return r.free, nil },
 	})
 	require.NoError(t, err)
 
+	// The fake ffmpeg draws no preset: the rig's makes keep the captions made before the presets, with no frame,
+	// unless a test sets another default.
+	r.setDefault(t, legacyLook)
+
 	return r
+}
+
+// setDefault sets the saved default look.
+func (r *rig) setDefault(t *testing.T, l Look) {
+	t.Helper()
+
+	require.NoError(t, store.New(r.svc.db).SetVideoSettings(t.Context(), store.SetVideoSettingsParams{
+		Look: l.encode(), Now: 1,
+	}))
 }
 
 func (r *rig) make(t *testing.T, requestID string) (Video, Revision) {

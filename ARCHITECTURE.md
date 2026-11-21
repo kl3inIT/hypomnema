@@ -939,8 +939,8 @@ sequenceDiagram
     a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
     scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build. A take with taps
     and no `screen` (filmed before the node recorded it) is made without rings, with a warning.
-    Compose also draws a frame around the picture when `Input.Frame` asks for one (#908 part 2; no revision asks
-    yet, so every video is still `full`, the picture filling the video as above, stream for stream). The chromes
+    Compose also draws a frame around the picture when `Input.Frame` asks for one (#908 part 2; a revision's
+    stored look says which, and `full` draws none, the picture filling the video as above, stream for stream). The chromes
     are `full`, `none`, `android` and `iphone`, with padding (0-400, default 48), radius (0-80, default 40 for a
     device and 14 for none), shadow and safe_top (`frame.go`, aidemo's frameLayout, MIT). The layout is in a phone's
     dp, 360 wide, and the canvas grows to the video's aspect. The hole is the anchor, each of its values rounded to
@@ -952,20 +952,23 @@ sequenceDiagram
     size, rings are drawn on it, and then it is padded onto the video at the hole and the PNG overlaid. A segment
     of another shape than the first (the phone turned) is refused with `ErrTurnedTake`, not padded with bars; the
     hole's own rounding is not counted as another shape (a contain fit into the unrounded hole leaving ≤ 2 px).
-    A ring's place and size follow the hole. `compose.Still` writes a JPEG of the take's frame at its first step
+    A ring's place and size follow the hole. `compose.Frameable` tells from the take's record alone whether a frame
+    can be drawn on it. `compose.Still` writes a JPEG of the take's frame at its first step
     (or one frame before the take's end) drawn the same way, with an ASS file's captions as they are at a given
     instant. Its frame is the one that covers that instant: the last frame to start at or before it, even a single
-    frame at 0 ms. Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
+    frame at 0 ms. The still is made limited-range yuv420p, as the encoder makes the video, before its captions are
+    drawn, and is put at the instant plus half a millisecond on a 1/2000 timebase, so a cue that starts at that
+    instant shows (libass is given whole milliseconds, truncated; #937). Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
     `background()` (`compose/testdata/frames`), and check in the made video that the hole shows the picture and
     only the hole does, where a ring lands, and that a turned take is refused.
-  - Videos and revisions (`internal/controlplane/videos`, migration 00126). A **video** belongs to one take (one
-    row of `videos`, its take unique); each make or change request adds an immutable **revision** (`video_revisions`:
-    rev 1, 2, …, its parent, the lines, voice, captions and aspect it is made with, the provider, model and voice
-    that spoke it, its length, warnings and state). States: `queued`, `voicing`, `composing`, `captioning`,
+  - Videos and revisions (`internal/controlplane/videos`, migrations 00126 and `video_looks`). A **video**
+    belongs to one take (one row of `videos`, its take unique); each make or change request adds an immutable
+    **revision** (`video_revisions`: rev 1, 2, …, its parent, the lines, voice, captions, aspect and look it is made
+    with, a voice pin, the provider, model and voice that spoke it, its length, warnings and state). States: `queued`, `voicing`, `composing`, `captioning`,
     then `review`; `approved` or `changes_requested` by the owner; `failed` with its stage and cause. At most one
     revision is approved: approving another moves it back to review; an approved revision is never changed, and
-    a change request on one is refused. A make of a take with a video adds a revision with the latest one's lines
-    (a retry of a failed one); requested_by and request_id make a make or change request safe to repeat. One
+    a change request on one is refused. A make of a take with a video adds a revision with the latest one's lines;
+    requested_by and request_id make a make, change request, look change or retry safe to repeat. One
     **runner** goroutine makes the queued revisions one at a time, the oldest first, claiming each by a conditional
     update from `queued` to `voicing`; at its start a revision found `voicing`, `composing` or `captioning` is
     failed `interrupted` at that stage and its files removed, so no paid speech is asked again on its own. At most
@@ -974,15 +977,19 @@ sequenceDiagram
     order that is on and answers speaks the first scene and then every other one, with the voice asked or that
     provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
     no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
-    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision. Composing is
+    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the word times heard
+    from a clip are kept beside it (`<clip>.words.json`) and removed before the clip is spoken again. A revision
+    made from another (a look change, a retry) is **pinned** (`pin_provider`, `pin_voice`): only that provider is
+    asked, with exactly that voice, even an empty one, and the owner's audio settings are not read. Composing is
     `compose.Compose`; captioning transcribes each scene's clip with its words' times through the speech service,
     joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
     cues by aidemo's rules (2 lines of 38 characters, at most 12 words, 1-6 s, broken at a sentence end, a clause's
     punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
     word in #FFD400 (demotape's highlight and word timing normalize, ported), and burns it in with the font of
-    part 1 (`compose.Burn`). Every revision is captioned so, as the preset `legacy` ("Classic"), until a revision
-    stores its look (#908, part 3). The other caption presets are built (`captions.Render`, #908 part 1): demotape's
+    part 1 (`compose.Burn`): the preset `legacy` ("Classic"), the look of every revision made before the looks, byte for byte in its own
+    position; a position chosen sets its style's alignment and vertical margin to the presets' offsets. The
+    other caption presets (`captions.Render`, #908 part 1): demotape's
     eleven (`presets.go`, its macOS fonts mapped to the bundled ones) and aidemo's `bar`, Clean the default;
     position `preset`, `bottom`, `lower_third`, `center` or `top`. Each is laid out as demotape's drawBlock (`styled.go`):
     an em of 5 % of the height (6.2 % animated) times the preset's scale, at least 20 px, given to libass through
@@ -996,20 +1003,50 @@ sequenceDiagram
     whole, if its ASS-rounded events and a tap's ring share a drawn 30 fps frame and the ring reaches it. As demotape,
     only the first cue that covers an instant is shown, so cues whose words overlap in time are never drawn over
     each other. Tests burn each preset on a grey frame with the pinned ffmpeg and measure
-    the box, the width, the colors, the placement and the font libass picks. A scene with no word times fails the revision at `captioning`; with captions off the
+    the box, the width, the colors, the placement and the font libass picks. A clip with no word times fails the
+    revision at `captioning` at once, before another clip is heard; with captions off the
     stage is skipped. While a revision is voiced, composed or captioned, it says how many of its scenes that
     stage has done (`progress {scenes_done, scenes_total}`, kept in memory as aidemo's job keeps its count, reset at
     each stage). The first frame is the revision's thumbnail. Everything is made in
     `videos/<video>/<rev>/.work/`, the thumbnail then the MP4 renamed into place only once whole; any failure
     removes the revision's folder. A video with a revision queued or being made is not deleted, nor is its take
     (409).
+  - The look of a revision (#908 part 3, #937; `videos/look.go`, `remake.go`, `preview.go`): `video_revisions.look`
+    holds the resolved snapshot the runner draws as it is: captions `{preset, position}`, frame `{chrome, padding,
+    radius, shadow, safe_top}`, background `{preset}` or `{colors: [a, b]}`, and `fell_back_from` when a frame fell
+    back. The migration gave every revision before it, queued ones included, `{"captions":{"preset":"legacy"},
+    "frame":{"chrome":"full"}}`. A look is sent by section; only a section sent is explicit, and its fields left out
+    take the references' defaults (aidemo's frame: chrome none, padding 48, radius 40 for a device and 14 otherwise,
+    a shadow; demotape's Clean; autodemo's midnight). A make takes the sections not sent from the saved default
+    (`video_settings`, one row, first Clean, android, midnight); an owner's make that sends sections merges them
+    into the default in the same transaction, never on a replay, an agent's make or a fallback. A make without a
+    look keeps the request hash it had before. A change request with new lines copies its revision's look. A
+    **look change** (`ChangeLook`) and a **retry** (`Retry`) queue a revision numbered after the latest, the one
+    they start from as its parent and unchanged, with its lines, aspect, captions on or off and voice: a look
+    change of a made revision (review, approved, changes_requested) takes the sections not sent from its look and
+    pins the provider and voice it was spoken with; a retry of a failed revision keeps its look and its pin, or pins
+    the provider and voice that spoke its first scene, recorded as soon as that scene is spoken. A video whose take was deleted is refused (409). On
+    a take whose phone turned, a frame sent is refused (409); one from the default or the source is stored `full`
+    with `fell_back_from`, and the made revision warns. The **look sample** (`Preview`) resolves the look as a make
+    does, or as a look change of `rev`, and draws it with `compose.Still` over the take's frame at its first step,
+    with the line's captions (the revision's first line, else the latest's, else the take's first scene) as its
+    second word starts, the words timed at demotape's 14 characters a second (`captions.SynthesizeWords`, ported):
+    one at a time, refused as busy after 5 s of waiting, timed out after 20 s, its ffmpeg killed when the client
+    goes. It shows the look, not a frame the video is sure to show. `Looks` is the catalog: the presets, Classic
+    included, the backgrounds, the chromes and the default.
   - Access to videos: the owner's (`clientapi/videos.go`, owner tokens only): `GET /videos`, `POST /videos`
-    `{take, title?, aspect?, captions?, voice?}` with an Idempotency-Key, `GET` and `DELETE /videos/{id}`, `POST
+    `{take, title?, aspect?, captions?, voice?, look?}` with an Idempotency-Key, `GET /videos/looks`, `POST
+    /videos/preview` `{take, aspect?, captions?, look?, rev?}` answering `image/jpeg` (busy `rate_limited` with
+    Retry-After 1, too long `timed_out` 504, no ffmpeg `unavailable`), `POST /videos/{id}/revisions/{rev}/look`
+    `{look}` and `POST /videos/{id}/revisions/{rev}/retry`, each with a required Idempotency-Key and answering 201 with the
+    video, `GET` and `DELETE /videos/{id}`, `POST
     /videos/{id}/revisions/{rev}/approve`, `POST /videos/{id}/revisions/{rev}/changes` `{lines?, note?}` with an
     Idempotency-Key (a note alone is kept and starts nothing; changed lines queue a new revision, the other lines'
     clips reused), `GET /videos/{id}/revisions/{rev}/video.mp4` with Range requests and `GET
     .../thumbnail.jpg`, in review, approved or changes_requested; `hypomnema videos list|get|make|request-changes|
-    approve|delete|download`. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
+    approve|delete|download|look|retry|looks|preview`, where `make`, `look` and `preview` send only the look's
+    sections whose flags are given (`--caption-preset --caption-position --chrome --padding --radius --shadow
+    --safe-top --background --background-colors`). The web's "Make again" of a failed revision is a retry. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
     `video_get {video}` (`agentapi/videos.go`), listed and called on the control plane's tools route apart from
     the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
     latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider

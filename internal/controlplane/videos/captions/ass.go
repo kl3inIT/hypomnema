@@ -89,7 +89,27 @@ func Normalize(words []Word, minWordDuration, cueStart, cueEnd float64) []Word {
 // cue at the bottom, wrapped as Wrap does, with one event for each stretch in
 // which the word spoken is the same.
 func ASS(cues []Cue, width, height int, cfg Config) string {
+	return positionedASS(cues, width, height, cfg, PositionPreset)
+}
+
+// positionedASS is ASS at a position (issue #908, row 9): its own, the preset's, is ASS's bottom as made before the
+// presets; a position chosen sets the style's alignment and vertical margin to the presets' offsets.
+func positionedASS(cues []Cue, width, height int, cfg Config, at Position) string {
 	size := FontSize(width, height, cfg.MaxCharsPerLine)
+
+	align, marginV := 2, height/14
+
+	switch at {
+	case PositionBottom:
+		marginV = int(math.Round(float64(height) * bottomOffset))
+	case PositionLowerThird:
+		marginV = int(math.Round(float64(height) * lowerOffset))
+	case PositionCenter:
+		align, marginV = 5, 0
+	case PositionTop:
+		align, marginV = 8, int(math.Round(float64(height)*topOffset))
+	case PositionPreset:
+	}
 
 	var b strings.Builder
 
@@ -98,8 +118,8 @@ func ASS(cues []Cue, width, height int, cfg Config) string {
 	b.WriteString("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, " +
 		"BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, " +
 		"Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-	fmt.Fprintf(&b, "Style: Default,%s,%d,%s,%s,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,%d,0,2,%d,%d,%d,1\n\n",
-		FontName, size, baseColour, baseColour, max(2, size/14), width/20, width/20, height/14)
+	fmt.Fprintf(&b, "Style: Default,%s,%d,%s,%s,&H00101010,&H80000000,0,0,0,0,100,100,0,0,1,%d,0,%d,%d,%d,%d,1\n\n",
+		FontName, size, baseColour, baseColour, max(2, size/14), align, width/20, width/20, marginV)
 	b.WriteString("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
 
 	for _, c := range cues {

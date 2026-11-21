@@ -236,3 +236,55 @@ func TestThePinCoversTheControlPlanesSystems(t *testing.T) {
 		assert.Contains(t, rel.URL, rel.Root+".tar.xz")
 	}
 }
+
+// Ready answers at once, never waiting for an install under way: no programs while the first install runs, the
+// programs once installed, and none once they are gone from the disk (review of #1001: the look sample's 503).
+func TestReadyNeverWaitsForAnInstall(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	root := "ffmpeg-n1-linux64-gpl"
+	body := tarXZ(t, root, fakeFFmpeg(allFilters, allEncoders))
+	unblock := make(chan struct{})
+	asked := make(chan struct{}, 1)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		asked <- struct{}{}
+		<-unblock
+
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(server.Close)
+
+	sum := sha256.Sum256(body)
+	in := installer(dir, build{Version: "n1", Releases: map[string]release{runtime.GOOS + "/" + runtime.GOARCH: {
+		URL: server.URL, SHA256: hex.EncodeToString(sum[:]), Bytes: int64(len(body)), Root: root,
+	}}})
+
+	_, err := in.Ready()
+	require.Error(t, err, "nothing installed")
+
+	done := make(chan error, 1)
+
+	go func() {
+		_, err := in.Ensure(t.Context())
+		done <- err
+	}()
+
+	<-asked
+
+	_, err = in.Ready()
+	require.Error(t, err, "being installed: no wait")
+
+	close(unblock)
+	require.NoError(t, <-done)
+
+	tools, err := in.Ready()
+	require.NoError(t, err)
+	assert.Equal(t, "n1", tools.Version)
+
+	require.NoError(t, os.Remove(tools.FFmpeg))
+
+	_, err = in.Ready()
+	require.Error(t, err, "gone from the disk")
+}

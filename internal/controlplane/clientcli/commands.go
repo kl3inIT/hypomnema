@@ -865,10 +865,48 @@ var commands = []command{
 			fs.String("aspect", "", "9:16 or 16:9 (default 9:16)")
 			fs.Bool("no-captions", false, "make it without captions")
 			fs.String("voice", "", "the voice to speak with (default each provider's, from `audio voice`)")
+			lookFlags(fs)
 			fs.String("key", "", "idempotency key; repeat a make whose result was lost with the same key")
 			jsonFlag(fs)
 		},
 		run: videosMake,
+	},
+	{
+		name: "videos look", args: "<video_id> <rev>", min: 2, max: 2,
+		summary: "make a made revision again in another look, with its voice; only the flagged parts change (owner)",
+		flags: func(fs *flag.FlagSet) {
+			lookFlags(fs)
+			fs.String("key", "", "idempotency key; repeat a request whose result was lost with the same key")
+			jsonFlag(fs)
+		},
+		run: videosLook,
+	},
+	{
+		name: "videos retry", args: "<video_id> <rev>", min: 2, max: 2,
+		summary: "make a failed revision again as it was asked: its lines, look and voice (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("key", "", "idempotency key; repeat a request whose result was lost with the same key")
+			jsonFlag(fs)
+		},
+		run: videosRetry,
+	},
+	{
+		name:    "videos looks",
+		summary: "the caption presets, backgrounds and chromes a look is chosen from, and the default look (owner)",
+		flags:   jsonFlag, run: videosLooks,
+	},
+	{
+		name: "videos preview", args: "<take_id>", min: 1, max: 1,
+		summary: "save a look sample of a take as a JPEG: the look over its picture at the first step (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("aspect", "", "9:16 or 16:9 (default 9:16)")
+			fs.Bool("no-captions", false, "without captions")
+			fs.Int("rev", 0, "start from this revision's look and line, as `videos look` does")
+			lookFlags(fs)
+			fs.String("out", "", "the file to write (default <take_id>-look.jpg)")
+			jsonFlag(fs)
+		},
+		run: videosPreview,
 	},
 	{
 		name: "videos request-changes", args: "<video_id> <rev>", min: 2, max: 2,
