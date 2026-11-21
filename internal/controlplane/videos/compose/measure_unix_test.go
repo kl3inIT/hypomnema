@@ -5,6 +5,7 @@ package compose
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,12 +19,19 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
 )
 
-// fakeFFmpeg writes a shell script that stands for ffmpeg.
+// fakeFFmpeg writes a shell script that stands for ffmpeg. A shell writes it, not this process: a file this process
+// opened for writing can be inherited by another test's fork until that child execs, and running the script in that
+// moment fails with ETXTBSY ("text file busy"), whatever the file is named; the shell's descriptor dies with it.
 func fakeFFmpeg(t *testing.T, script string) ffmpeg.Tools {
 	t.Helper()
 
 	fake := filepath.Join(t.TempDir(), "ffmpeg")
-	require.NoError(t, os.WriteFile(fake, []byte("#!/bin/sh\n"+script), 0o700)) //nolint:gosec // A script.
+	//nolint:gosec // The test's own shell, writing into its own folder.
+	write := exec.CommandContext(t.Context(), "/bin/sh", "-c", `cat > "$1" && chmod 700 "$1"`, "sh", fake)
+	write.Stdin = strings.NewReader("#!/bin/sh\n" + script)
+
+	out, err := write.CombinedOutput()
+	require.NoError(t, err, "%s", out)
 
 	return ffmpeg.Tools{FFmpeg: fake}
 }
