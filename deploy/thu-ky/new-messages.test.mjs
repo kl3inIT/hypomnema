@@ -34,7 +34,8 @@ function world({ chats = [], messages = {}, mail = [], lark = { chats: [], messa
           )
           .filter((m) => !args.before || Date.parse(m.At) < Date.parse(args.before))
           .sort((a, b) => Date.parse(b.At) - Date.parse(a.At));
-        return { messages: all.slice(0, args.limit ?? 50) };
+        const offset = args.offset ?? 0;
+        return { messages: all.slice(offset, offset + (args.limit ?? 50)) };
       }
       case "meeting_list":
         return { meetings };
@@ -78,7 +79,7 @@ test("nothing new wakes no model", async () => {
   assert.equal(got.wake, false);
   assert.equal(got.text.split("\n").at(-1), '{"wakeAgent":false}');
   assert.equal(w.calls.filter((c) => c.name === "zalo_messages").length, 1, "one page reaches the last check");
-  assert.equal(got.state.sources["zalo:main"], now.toISOString());
+  assert.equal(got.state.sources["zalo:main"].mark, now.toISOString());
 });
 
 test("the owner's own messages, official accounts, lists and no-reply senders are left out", async () => {
@@ -145,8 +146,8 @@ test("a source that cannot be read keeps its time and is named, without waking t
 
   assert.equal(got.wake, false);
   assert.match(got.text, /could not read lark:me: lark:me could not be read: HTTP 401/);
-  assert.equal(got.state.sources["lark:me"], since, "its messages are read next time");
-  assert.equal(got.state.sources["google:me"], now.toISOString());
+  assert.equal(got.state.sources["lark:me"].mark, since, "its messages are read next time");
+  assert.equal(got.state.sources["google:me"].mark, now.toISOString());
 });
 
 // Review of #1037, round 1: more chats have new messages than one page holds. Every one is found, the pages going
@@ -170,9 +171,10 @@ test("every chat with new messages is found, however many there are", async () =
   assert.equal(got.wake, true);
   for (let i = 0; i < 60; i++) assert.match(got.text, new RegExp(`chat "Group ${i}" \\(id g_${i}\\): 9 new`));
   assert.ok(w.calls.filter((c) => c.name === "zalo_messages").length >= 2, "540 messages are two pages");
-  assert.equal(got.state.sources["zalo:main"], now.toISOString());
+  assert.equal(got.state.sources["zalo:main"].mark, now.toISOString());
 
   const capped = await check({ tools, call: world({ chats, messages }).call, state, now, config: { scanMessages: 100 } });
-  assert.equal(capped.state.sources["zalo:main"], since, "past the cap the account keeps its time");
+  assert.equal(capped.state.sources["zalo:main"].gaps.length, 1, "past the cap the account keeps what is left");
+  assert.equal(capped.state.sources["zalo:main"].gaps[0].after, since);
   assert.match(capped.text, /could not read zalo:main: more than 100 new messages/);
 });

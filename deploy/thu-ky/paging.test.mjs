@@ -158,7 +158,7 @@ test("gmail: every page of mail is read, or the source keeps its time", async ()
   const w = gmailWorld(150);
   const state = { sources: { "google:me": mark } };
 
-  const got = await check({ tools: w.tools, call: w.call, state, config: { perSource: 500 }, now: new Date(at(600)) });
+  const got = await check({ tools: w.tools, call: w.call, state, config: { perSource: 500, printBytes: 1e6 }, now: new Date(at(600)) });
   assert.equal(Object.keys(counted(got.text.replaceAll("thread ", "id "))).length, 150);
   assert.equal(got.state.sources["google:me"].mark, at(600));
 
