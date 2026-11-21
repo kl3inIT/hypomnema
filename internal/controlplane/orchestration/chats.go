@@ -608,7 +608,7 @@ func (s *Service) ListChats(ctx context.Context, bot string, limit, offset int) 
 }
 
 // DeleteChat deletes a chat for good (issue #484), as OpenMausBot deletes a room, Hermes a session and opencode a
-// session, with no archive: its messages, setup changes, artifacts and Lark chat go; ended Runs, Routines' runs and
+// session, with no archive: its messages, setup changes, Connection requests, artifacts and Lark chat go; ended Runs, Routines' runs and
 // approvals made in it stay and lose the chat; its gateway keys are revoked and kept. A Bot's main chat deleted
 // leaves the Bot without one until the next message from the web or the CLI makes another (issue #471). A chat a Routine tells its runs
 // in, or whose Routine's run is live, is refused, as OpenMausBot refuses a working room (409): the Routine is removed
@@ -700,6 +700,7 @@ func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries
 			return s.gatewayKeys.RevokeDeletedChatKeysTx(ctx, tx, id, now)
 		},
 		q.DeleteSetupChangesOfChat,
+		q.DeleteConnectionRequestsOfChat,
 		func(ctx context.Context, id string) error { return channelstore.DeleteChannelChatOfChatTx(ctx, q, id) },
 		q.ClearMainChat, q.DeleteArtifactsOfChat, q.DeleteChatQueue, q.DeleteChatMessages, q.DeleteChat,
 	}

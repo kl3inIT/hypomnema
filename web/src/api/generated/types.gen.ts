@@ -2018,6 +2018,50 @@ export type ApprovalDecision = {
 };
 
 /**
+ * stale is a grant whose checks failed; it granted nothing.
+ */
+export type ConnectionRequestState = 'pending' | 'granted' | 'declined' | 'stale';
+
+/**
+ * A Bot's request for a Connection it was not given (issue #471, part D). It is not an Approval.
+ */
+export type ConnectionRequest = {
+  id: string;
+  /**
+   * The id of the Bot that asked.
+   */
+  bot: string;
+  /**
+   * The Bot's main chat, where it asked.
+   */
+  chat_id: string;
+  integration: string;
+  label: string;
+  /**
+   * Why the Bot needs it, in its words.
+   */
+  reason: string;
+  state: ConnectionRequestState;
+  /**
+   * Of a grant that made the request stale just now, the check that failed.
+   */
+  why?: string;
+  created_at: string;
+  decided_at?: string;
+};
+
+export type ConnectionRequestList = {
+  data: Array<ConnectionRequest>;
+};
+
+export type ConnectionRequestDecision = {
+  /**
+   * grant adds the Connection to the Bot's list, always for this Bot; decline refuses it.
+   */
+  decision: 'grant' | 'decline';
+};
+
+/**
  * What changes; what is absent stays.
  */
 export type ConnectionUse = {
@@ -8249,6 +8293,61 @@ export type DecideApprovalResponses = {
 };
 
 export type DecideApprovalResponse = DecideApprovalResponses[keyof DecideApprovalResponses];
+
+export type ListConnectionRequestsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    state?: ConnectionRequestState;
+    chat_id?: string;
+  };
+  url: '/connection-requests';
+};
+
+export type ListConnectionRequestsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListConnectionRequestsError = ListConnectionRequestsErrors[keyof ListConnectionRequestsErrors];
+
+export type ListConnectionRequestsResponses = {
+  /**
+   * The requests, the newest first.
+   */
+  200: ConnectionRequestList;
+};
+
+export type ListConnectionRequestsResponse = ListConnectionRequestsResponses[keyof ListConnectionRequestsResponses];
+
+export type DecideConnectionRequestData = {
+  body: ConnectionRequestDecision;
+  path: {
+    request_id: string;
+  };
+  query?: never;
+  url: '/connection-requests/{request_id}/decision';
+};
+
+export type DecideConnectionRequestErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DecideConnectionRequestError = DecideConnectionRequestErrors[keyof DecideConnectionRequestErrors];
+
+export type DecideConnectionRequestResponses = {
+  /**
+   * The request as answered.
+   */
+  200: ConnectionRequest;
+};
+
+export type DecideConnectionRequestResponse = DecideConnectionRequestResponses[keyof DecideConnectionRequestResponses];
 
 export type ListSecretsData = {
   body?: never;
