@@ -134,3 +134,26 @@ commerce-agents; one reference family each), a network allow-list for the Bot's 
 from the owner's 2026-11-12 choice), filesystem confinement of workers (a change of the permissive-worker stance),
 role plugins with hosted MCP connectors (the control plane provides tools and credentials), `healthcare` (no
 licence).
+
+## 6. Candidates 2 and 3 checked against Claude Code's docs (2026-11-21)
+
+Read the same day in Claude Code's official docs ([cli-reference](https://code.claude.com/docs/en/cli-reference.md),
+[memory](https://code.claude.com/docs/en/memory.md), [env-vars](https://code.claude.com/docs/en/env-vars.md),
+[hooks](https://code.claude.com/docs/en/hooks.md),
+[Agent SDK features](https://code.claude.com/docs/en/agent-sdk/claude-code-features.md)):
+
+- **`--setting-sources user` drops more than settings.** The `project` source also loads the project's `CLAUDE.md`,
+  `.claude/CLAUDE.md`, `.claude/rules/*.md` and its skills, commands and subagents ("Project rules are skipped if you
+  exclude `project` from `--setting-sources`", memory page). A worker would lose the repository's instructions.
+  OpenClaw can pass it because it supplies the workspace instructions itself; `claude-code-action` instead restores
+  `.claude/` from the base branch, which guards against a pull request's config, while Hypomnema's worktrees start
+  from the base branch. `.mcp.json` is already ignored through `--strict-mcp-config`.
+- **The lighter documented switch** is `--settings '{"disableAllHooks": true}'`, which "takes precedence over project
+  and local settings" (hooks page) and keeps `CLAUDE.md`; a project's `env` and `apiKeyHelper` still apply.
+- **`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`** strips variables whose name or value looks like a credential from Bash,
+  hooks and stdio MCP servers, keeping GitHub tokens and proxies (env-vars page). It would strip
+  `HYPOMNEMA_AGENT_KEY` (`internal/shared/agenttool/launch.go:157`), which a worker's `gws`, `lark-cli` and `aws`
+  launchers need; on Linux it also puts Bash in its own PID namespace, so `ps` and `kill` no longer see the host.
+
+Outcome: neither is taken now; the issue waits (owner, 2026-11-21). If workers ever run on repositories the owner
+does not trust, `disableAllHooks` through `--settings` is the candidate, not `--setting-sources user`.
