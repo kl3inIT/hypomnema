@@ -24,9 +24,18 @@ function world({ chats = [], messages = {}, mail = [], lark = { chats: [], messa
     calls.push({ name, args });
     switch (name) {
       case "zalo_chats":
-        return { chats };
-      case "zalo_messages":
-        return { messages: messages[args.chat] ?? [] };
+        return { chats: chats.slice(0, args.limit ?? 50) };
+      case "zalo_messages": {
+        if (args.chat) return { messages: messages[args.chat] ?? [] };
+        // Every chat's, the latest first, before a time, as the server keeps them (messaging/zalo/store.go).
+        const all = Object.entries(messages)
+          .flatMap(([chat, list]) =>
+            list.map((m) => ({ Chat: chat, ChatName: chats.find((c) => c.ID === chat)?.Name ?? "", ...m })),
+          )
+          .filter((m) => !args.before || Date.parse(m.At) < Date.parse(args.before))
+          .sort((a, b) => Date.parse(b.At) - Date.parse(a.At));
+        return { messages: all.slice(0, args.limit ?? 50) };
+      }
       case "meeting_list":
         return { meetings };
       case "account_read": {
@@ -68,7 +77,7 @@ test("nothing new wakes no model", async () => {
 
   assert.equal(got.wake, false);
   assert.equal(got.text.split("\n").at(-1), '{"wakeAgent":false}');
-  assert.equal(w.calls.filter((c) => c.name === "zalo_messages").length, 0, "a chat with nothing new is not read");
+  assert.equal(w.calls.filter((c) => c.name === "zalo_messages").length, 1, "one page reaches the last check");
   assert.equal(got.state.sources["zalo:main"], now.toISOString());
 });
 
@@ -123,7 +132,7 @@ test("what is left wakes the Bot with each conversation", async () => {
   const got = await check({ tools, call: w.call, state, now });
 
   assert.equal(got.wake, true);
-  assert.match(got.text, /zalo:main chat "PMO" \(group, id g_pmo\): 2 new from Lan/);
+  assert.match(got.text, /zalo:main chat "PMO" \(id g_pmo\): 2 new from Lan/);
   assert.match(got.text, /google:me mail thread "About c" \(thread t_c\): 1 new from Kai Yong <kai@genaifund.sg>/);
   assert.match(got.text, /lark:me chat "VMAP core" \(id oc_core\): 1 new from ou_laura/);
   assert.match(got.text, /meeting "VMAP standup" \(id mtg_1\): notes ready, 2 open actions/);
@@ -138,4 +147,32 @@ test("a source that cannot be read keeps its time and is named, without waking t
   assert.match(got.text, /could not read lark:me: lark:me could not be read: HTTP 401/);
   assert.equal(got.state.sources["lark:me"], since, "its messages are read next time");
   assert.equal(got.state.sources["google:me"], now.toISOString());
+});
+
+// Review of #1037, round 1: more chats have new messages than one page holds. Every one is found, the pages going
+// back to the last check, and the account's time moves on only once they all are read.
+test("every chat with new messages is found, however many there are", async () => {
+  const chats = [];
+  const messages = {};
+  for (let i = 0; i < 60; i++) {
+    const id = `g_${i}`;
+    chats.unshift({ ID: id, Kind: "group", Name: `Group ${i}`, LastMessageAt: new Date(Date.parse("2026-11-21T01:46:00Z") + (i * 9 + 8) * 1000).toISOString() });
+    messages[id] = Array.from({ length: 9 }, (_, j) => ({
+      ID: `${id}_${j}`,
+      At: new Date(Date.parse("2026-11-21T01:46:00Z") + (i * 9 + j) * 1000).toISOString(),
+      FromMe: false,
+      SenderName: `Person ${i}`,
+    }));
+  }
+  const w = world({ chats, messages });
+  const got = await check({ tools, call: w.call, state, now });
+
+  assert.equal(got.wake, true);
+  for (let i = 0; i < 60; i++) assert.match(got.text, new RegExp(`chat "Group ${i}" \\(id g_${i}\\): 9 new`));
+  assert.ok(w.calls.filter((c) => c.name === "zalo_messages").length >= 2, "540 messages are two pages");
+  assert.equal(got.state.sources["zalo:main"], now.toISOString());
+
+  const capped = await check({ tools, call: world({ chats, messages }).call, state, now, config: { scanMessages: 100 } });
+  assert.equal(capped.state.sources["zalo:main"], since, "past the cap the account keeps its time");
+  assert.match(capped.text, /could not read zalo:main: more than 100 new messages/);
 });
