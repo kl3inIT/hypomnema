@@ -1606,8 +1606,12 @@ sequenceDiagram
     Open · Undo), the Routines' "Set up" card's shape (`web/src/features/bots/setup-change-card.tsx`).
   - pi's MCP (issue #492, pi 1.5.2's built-in, `docs/mcp.md`, as OpenMausBot mounts its `agents` server into its
     pi, `server/drivers/pi.ts`): the launcher writes `run/<chat>/mcp.json` with `hypomnema pi-mcp`, one server,
-    `hypomnema` (`<the binary> mcp`), each of its tools with pi's `direct` exposure, declared to the model like a
-    built-in tool rather than found through codemode or `tool_search` (owner, 2026-11-15), and a wait of 12 minutes
+    `hypomnema` (`<the binary> mcp`), with pi's default exposure, `codemode`: its tools are not declared to the
+    model but called from a `codemode` script, which gets each result whole and can filter it, where a direct call
+    has a result over 20 KB cut in the middle (owner, 2026-11-21, issue #1015;
+    [research](docs/research/2026-11-21-code-mode.md); `direct` until then). A read-only Routine's run, started
+    with `--no-extensions`, loads `builtin:codemode` and lists `codemode` in its `--tools`; a script reaches only
+    the active tools and the server's, so its tools stay `routine_*` and the server's. And a wait of 12 minutes
     a request, longer than an image may take (pi's default is 60 s). pi starts it in the box, where its
     `client.json` holds pi's own token; when it cannot write the file pi does not start. A server that fails to
     start leaves the Bot without the tools: pi says so only as a line of its UI (`MCP servers need attention`, an

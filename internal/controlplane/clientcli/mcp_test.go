@@ -323,7 +323,7 @@ func TestPiMCPNamesTheToolsServer(t *testing.T) {
 			Command  string   `json:"command"`
 			Args     []string `json:"args"`
 			Timeout  int      `json:"timeout"`
-			Exposure string   `json:"exposure"`
+			Exposure *string  `json:"exposure"`
 		} `json:"mcpServers"`
 	}
 
@@ -333,6 +333,6 @@ func TestPiMCPNamesTheToolsServer(t *testing.T) {
 	server := file.MCPServers["hypomnema"]
 	assert.Equal(t, "/usr/local/bin/hypomnema", server.Command)
 	assert.Equal(t, []string{"mcp"}, server.Args)
-	assert.Equal(t, "direct", server.Exposure)
+	assert.Nil(t, server.Exposure, "pi's default exposure, codemode")
 	assert.Greater(t, server.Timeout, 11*60, "pi waits longer than an image may take")
 }

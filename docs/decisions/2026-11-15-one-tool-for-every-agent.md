@@ -37,7 +37,7 @@ flowchart TD
 1. **One tool definition in the control plane**: name, description, parameters, the handler, and which agent kinds
    get it. The agent API lists it and refuses a call from an agent that was not given it.
 2. **Every agent kind gets it through Hypomnema's one MCP server** (`internal/shared/toolsmcp`): a Bot's pi mounts
-   it with pi's built-in MCP (`hypomnema mcp`, `direct` exposure), a worker's CLI with its own MCP configuration
+   it with pi's built-in MCP (`hypomnema mcp`, `direct` exposure; pi's default `codemode` since 2026-11-21, issue #1015), a worker's CLI with its own MCP configuration
    (`hypomnema-node mcp`). No per-CLI configuration and no node release for a new tool. A CLI's own tool for the
    same thing is turned off, unless the gateway itself answers it (Codex's `web.run`).
 3. **A skill only for method**: how to do the work well (design a page, lay out a PDF), naming the tool. How to call
@@ -82,7 +82,8 @@ role skill, which only a coordinator has.
   way, a script on its `PATH` running the launcher, its account chosen by the Connections it was given and its
   requests held by the service proxy ([decision](2026-11-11-service-proxy-in-the-control-plane.md)); OpenClaw
   likewise gives its agents Google's CLI with a skill.
-- A tool's definitions cost tokens on every request with `direct` exposure (about 840 for the three of #492);
+- A tool's definitions cost tokens on every request with `direct` exposure (about 840 for the three of #492; a Bot
+  uses `codemode` exposure since 2026-11-21, which declares one tool, issue #1015);
   a capability used often pays for itself against reading a skill and running commands.
 - A tool's description is reviewed like a prompt: it is what teaches the agent.
 
