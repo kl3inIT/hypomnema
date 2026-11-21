@@ -4729,6 +4729,16 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
   once, as a phone call does. Each call is logged with the agent, the node and the action, not the command.
 - MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), longer than the 300 s
   and the node's answer.
+- A restart of the control plane, as at an update, does not lose a command's result (issue #1060). The tools server
+  (`toolsmcp.NodeCall`, a worker's and a Bot's) names each `node_exec`'s process before it asks (`process_id`, not
+  in the tool's schema: `proc_` and hex, the shape the node makes), as Coder's agent names a process after its tool
+  call; the node keeps a foreground command by that id too, an hour once it ended. When the answer's connection
+  ends without it (not a connection that could not be opened: that command never ran), the tools server asks
+  `node_process` for that id, waiting as long as the command may run, from half a second apart doubled up to eight
+  (OpenClaw's Control UI retries), past a node not reconnected yet, within the 7 minutes, as Coder's execute tool
+  reads a process again after a transport error; it never runs the command again. The result read says first that
+  the control plane restarted; none within the 7 minutes is an error naming the node and the `process_id` to read
+  it with. A `node_process` whose answer is lost is asked again the same way; a kill is not.
 - Not built: a PTY, a per-node switch to refuse commands (Nezha), a list of commands always refused (Hermes).
 
 ```mermaid

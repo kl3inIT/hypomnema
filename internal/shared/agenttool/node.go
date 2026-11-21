@@ -16,6 +16,12 @@ const (
 	ToolNodeProcessKill = "node_process_kill"
 )
 
+// NodeRereadable says whether a node tool's result is read again when the control plane restarts while it runs
+// (issue #1060): node_exec's and node_process's. A kill is not asked again: it is the agent's to repeat.
+func NodeRereadable(tool string) bool {
+	return tool == ToolNodeExec || tool == ToolNodeProcess
+}
+
 // NodeExecArgs are ToolNodeExec's arguments. ProcessID is not in the tool's
 // schema: the tools server sets it (nodeproto.NewProcessID) before it asks, so
 // that the command's result can be read with ToolNodeProcess when the control

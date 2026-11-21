@@ -55,7 +55,9 @@ func (c *restartingControlPlane) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		text, failed = agenttool.NodeNotConnected("zm", ""), true
 	}
 
-	_ = json.NewEncoder(w).Encode(toolsmcp.Text(text, failed))
+	if err := json.NewEncoder(w).Encode(toolsmcp.Text(text, failed)); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 func (c *restartingControlPlane) seen() []agenttool.BrowserCall {

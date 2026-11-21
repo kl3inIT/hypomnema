@@ -64,6 +64,9 @@ func callAgentTool(ctx context.Context, agent *toolsmcp.Agent, name string, args
 	switch {
 	case devicetool.Routed(name):
 		return agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, name, args)
+	case agenttool.NodeRereadable(name):
+		// A command on a node is read again when the control plane restarts while it runs (issue #1060).
+		return agent.NodeCall(ctx, agenttool.PathToolsCall, name, args)
 	case name == agenttool.ToolGenerateImage:
 		return agent.ImageCall(ctx, args, toolsmcp.Images{Path: agenttool.PathToolsCall, Folder: mcpImages})
 	case name == agenttool.ToolAudioTranscribe:

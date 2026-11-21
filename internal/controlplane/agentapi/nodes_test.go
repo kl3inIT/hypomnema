@@ -118,13 +118,23 @@ func TestAnAgentRunsACommandOnTheNodeItNames(t *testing.T) {
 	assert.Equal(t, "exit code 2\noutput:\nrm: cannot remove\n", text)
 	assert.Equal(t, 300, m.sent[1].TimeoutSeconds, "a command runs five minutes at most")
 
+	// The process id the tools server chose names the command on the node, for its result to be read again after a
+	// restart of the control plane (issue #1060); one of another shape is refused and not sent.
+	named := nodeproto.NewProcessID()
+	w.use(pi, agenttool.ToolNodeExec, `{"node":"zm","command":"make","process_id":"`+named+`"}`)
+	assert.Equal(t, named, m.sent[2].ProcessID)
+
+	_, text, isErr = w.use(pi, agenttool.ToolNodeExec, `{"node":"zm","command":"make","process_id":"../x"}`)
+	assert.True(t, isErr)
+	assert.Contains(t, text, "process_id")
+
 	_, text, isErr = w.use(worker, agenttool.ToolNodeExec, `{"node":"old","command":"id"}`)
 	assert.True(t, isErr)
 	assert.Equal(t, `node "old" is not connected; connected now: zm`, text)
 
 	_, text, _ = w.use(worker, agenttool.ToolNodeExec, `{"node":"nowhere","command":"id"}`)
 	assert.Equal(t, `no node "nowhere"; connected now: zm`, text)
-	assert.Len(t, m.sent, 2, "a command for a node that cannot run it is not sent")
+	assert.Len(t, m.sent, 3, "a command for a node that cannot run it is not sent")
 
 	logs := w.logs.String()
 	assert.Contains(t, logs, "agentapi.node_exec")
@@ -173,3 +183,4 @@ func TestABackgroundCommandIsFollowedByItsID(t *testing.T) {
 	assert.True(t, isErr)
 	assert.Equal(t, "killed: its time ran out\noutput, 10 bytes in the middle left out:\nhalf\n", text)
 }
+

@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
 // A command runs as `sh -c` where it is asked to, and its answer is its exit
@@ -126,4 +128,32 @@ func TestSudoGetsTheNodesPasswordFromItsHelper(t *testing.T) {
 
 	none := m.Run(t.Context(), Request{Command: "sudo echo done"})
 	assert.Equal(t, "no -A\n", none.Output)
+}
+
+// A command run in the foreground under the id its caller chose (issue #1060) is kept by that id once it ends, so
+// that its result can be read when the answer that would have carried it was lost, as when the control plane
+// restarts; an id the node did not give the shape of its own, or one another process holds, is refused.
+func TestAForegroundCommandIsReadByTheIDItsCallerChose(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	t.Cleanup(m.Close)
+
+	id := nodeproto.NewProcessID()
+
+	got := m.Run(t.Context(), Request{ID: id, Command: "echo built"})
+	require.Empty(t, got.Error)
+
+	again := m.Output(t.Context(), id, 0)
+	require.Empty(t, again.Error)
+	assert.False(t, again.Running)
+	require.NotNil(t, again.ExitCode)
+	assert.Equal(t, 0, *again.ExitCode)
+	assert.Equal(t, "built\n", again.Output)
+	assert.Equal(t, id, again.ProcessID)
+
+	assert.Contains(t, m.Run(t.Context(), Request{ID: id, Command: "echo twice"}).Error, "already runs",
+		"an id is one process's")
+	assert.Contains(t, m.Start(Request{ID: "../etc", Command: "id"}).Error, "not one this node takes")
+	assert.Contains(t, m.Output(t.Context(), nodeproto.NewProcessID(), 0).Error, "never started")
 }

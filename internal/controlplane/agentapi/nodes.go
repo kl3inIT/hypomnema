@@ -124,7 +124,8 @@ func nodeToolList() []agenttool.BrowserTool {
 				"is never shown to you. Nothing waits for input: use -y and non-interactive flags. A command " +
 				"that takes longer than five minutes runs in the background (background: true): read it with " +
 				"node_process and stop it with node_process_kill. It ends if the node restarts, as when it " +
-				"updates. Commands run one per call with no state kept between them: cd or export in one does " +
+				"updates; a restart of the control plane does not end it, and its result is read again for " +
+				"you. Commands run one per call with no state kept between them: cd or export in one does " +
 				"not carry to the next.",
 			InputSchema: execSchema,
 		},
@@ -161,8 +162,16 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 			return
 		}
 
+		// A process id its tools server chose names the command on the node, for its result to be read again
+		// when this answer is lost (issue #1060); one of another shape is the node's to make.
+		if args.ProcessID != "" && !nodeproto.IsProcessID(args.ProcessID) {
+			answerTool(w, "node_exec's process_id is the tools server's, as proc_ and hex", true)
+
+			return
+		}
+
 		nodeRef = args.Node
-		e = nodeproto.Exec{Action: nodeproto.ExecRun, Command: args.Command, Cwd: args.Cwd}
+		e = nodeproto.Exec{Action: nodeproto.ExecRun, Command: args.Command, Cwd: args.Cwd, ProcessID: args.ProcessID}
 
 		if args.Background {
 			e.Action = nodeproto.ExecStart
@@ -243,8 +252,7 @@ func (s *Server) findNode(ctx context.Context, ref string) (orchestration.Node, 
 	case i < 0:
 		return orchestration.Node{}, fmt.Errorf("no node %q; connected now: %s", ref, strings.Join(connected, ", "))
 	case !nodes[i].Connected:
-		return orchestration.Node{}, fmt.Errorf("node %q is not connected; connected now: %s", ref,
-			strings.Join(connected, ", "))
+		return orchestration.Node{}, errors.New(agenttool.NodeNotConnected(ref, strings.Join(connected, ", ")))
 	default:
 		return nodes[i], nil
 	}

@@ -98,13 +98,13 @@ func (a *Agent) doWithin(ctx context.Context, method, path string, body any, lim
 			err = urlErr.Err
 		}
 
-		return nil, fmt.Errorf("the control plane could not be reached: %w", err)
+		return nil, unreachable{fmt.Errorf("the control plane could not be reached: %w", err)}
 	}
 	defer resp.Body.Close() //nolint:errcheck // The answer was read or the read failed; closing adds nothing.
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
-		return nil, fmt.Errorf("reading the control plane's answer: %w", err)
+		return nil, unreachable{fmt.Errorf("reading the control plane's answer: %w", err)}
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -178,3 +178,9 @@ func (a *Agent) toolCall(ctx context.Context, path string, within time.Duration,
 
 	return json.RawMessage(raw), nil
 }
+
+// unreachable is a request whose answer did not arrive: the control plane could not be reached, or the connection
+// ended before its answer did, as when it restarts.
+type unreachable struct{ error }
+
+func (u unreachable) Unwrap() error { return u.error }

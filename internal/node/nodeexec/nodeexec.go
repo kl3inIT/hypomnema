@@ -6,7 +6,13 @@
 // instead, as Coder's and Omnara's may: it answers at once with its id,
 // runs with no time limit, and its output is asked for later, as Coder's
 // agentproc keeps a process (start, output with a wait, signal; an ended one
-// kept an hour). The node's own end ends them all.
+// kept an hour). A command run in the foreground is kept by its id too, the
+// one its caller chose when it did (issue #1060), so that its result can be
+// asked for once the answer that would have carried it is lost, as when the
+// control plane restarts while it runs: Coder runs a foreground command as a
+// process its tool waits on and reads again after a transport error
+// (codersdk/toolsdk/workspacetools/execute.go waitForProcess). The node's own
+// end ends them all.
 package nodeexec
 
 import (
@@ -45,6 +51,8 @@ var errClosed = errors.New("the node is stopping")
 
 // Request is one command.
 type Request struct {
+	// ID names it (nodeproto.IsProcessID); the node makes one when empty.
+	ID      string
 	Command string
 	// Cwd is where it runs; the node user's home when empty.
 	Cwd string
@@ -89,6 +97,10 @@ func (m *Manager) Run(ctx context.Context, req Request) nodeproto.ExecAnswer {
 		return nodeproto.ExecAnswer{Error: err.Error()}
 	}
 
+	if err := m.keep(p); err != nil {
+		return nodeproto.ExecAnswer{Error: err.Error()}
+	}
+
 	timeout := req.Timeout
 	if timeout <= 0 || timeout > nodeproto.ExecTimeoutMax {
 		timeout = nodeproto.ExecTimeoutDefault
@@ -120,19 +132,36 @@ func (m *Manager) Start(req Request) nodeproto.ExecAnswer {
 		return nodeproto.ExecAnswer{Error: err.Error()}
 	}
 
+	if err := m.keep(p); err != nil {
+		return nodeproto.ExecAnswer{Error: err.Error()}
+	}
+
+	return nodeproto.ExecAnswer{ProcessID: p.id, Running: true}
+}
+
+// keep keeps a process that started, by its id, for its output to be asked for; one that started as the node
+// began to stop, or whose id another took meanwhile, is killed.
+func (m *Manager) keep(p *process) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.closed {
 		p.kill()
 
-		return nodeproto.ExecAnswer{Error: errClosed.Error()}
+		return errClosed
 	}
 
 	m.forgetEnded()
+
+	if _, taken := m.procs[p.id]; taken {
+		p.kill()
+
+		return fmt.Errorf("a process %q already runs on this node", p.id)
+	}
+
 	m.procs[p.id] = p
 
-	return nodeproto.ExecAnswer{ProcessID: p.id, Running: true}
+	return nil
 }
 
 // Output answers about a background process once it has ended, or after
@@ -217,8 +246,8 @@ func (m *Manager) forgetEnded() {
 }
 
 func unknown(id string) nodeproto.ExecAnswer {
-	return nodeproto.ExecAnswer{Error: fmt.Sprintf("no process %q on this node: it ended more than an hour ago, "+
-		"or the node restarted since", id)}
+	return nodeproto.ExecAnswer{Error: fmt.Sprintf("no process %q on this node: it never started, it ended more "+
+		"than an hour ago, or the node restarted since", id)}
 }
 
 // start starts a command as `sh -c` in a process group of its own, its
@@ -230,6 +259,18 @@ func (m *Manager) start(req Request) (*process, error) {
 
 	if closed {
 		return nil, errClosed
+	}
+
+	id := req.ID
+	switch {
+	case id == "":
+		id = newID()
+	case !nodeproto.IsProcessID(id):
+		return nil, fmt.Errorf("the process id %q is not one this node takes", id)
+	default:
+		if _, taken := m.get(id); taken {
+			return nil, fmt.Errorf("a process %q already runs on this node", id)
+		}
 	}
 
 	command := req.Command
@@ -275,7 +316,7 @@ func (m *Manager) start(req Request) (*process, error) {
 		return nil, fmt.Errorf("starting the command: %w", err)
 	}
 
-	p := &process{id: newID(), cmd: cmd, out: out, done: make(chan struct{})}
+	p := &process{id: id, cmd: cmd, out: out, done: make(chan struct{})}
 	if helper != nil {
 		p.hide = req.SudoPassword
 	}
