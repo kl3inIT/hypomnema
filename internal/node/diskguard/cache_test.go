@@ -226,7 +226,8 @@ func TestConfiguredGoCacheTrimKeepsModuleCache(t *testing.T) {
 		require.NoError(t, os.WriteFile(entry, []byte("bytes"), 0o600))
 		old := time.Now().Add(-goCacheAge - time.Hour)
 		require.NoError(t, os.Chtimes(entry, old, old))
-		caches.trimGoCache(WithProtection(t.Context(), mod), cacheRoot{path: root, readme: goCacheReadme}, home, goCacheAge, func() bool { return true })
+		caches.trimGoCache(WithProtection(t.Context(), mod), cacheRoot{path: root, readme: goCacheReadme}, home,
+			goCacheAge, func() bool { return true })
 		if root == module {
 			assert.FileExists(t, entry)
 		} else {
@@ -308,8 +309,8 @@ func TestYoungGoCacheIsTrimmedOldestFirstToTargetAndKeepsRecentEntries(t *testin
 	assert.FileExists(t, paths[goCacheBatch], "nothing more is taken once the volume has room")
 	assert.FileExists(t, recent)
 
-	require.NoError(t, trimGo(t.Context(), root, root, goCacheReadme, time.Now().Add(-youngCacheAge), func() bool { return true },
-		nil))
+	require.NoError(t, trimGo(t.Context(), root, root, goCacheReadme, time.Now().Add(-youngCacheAge),
+		func() bool { return true }, nil))
 	assert.NoFileExists(t, paths[goCacheBatch])
 	assert.FileExists(t, recent, "an entry used in the last 2 hours is kept however low the volume is")
 }
