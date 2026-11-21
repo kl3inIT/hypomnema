@@ -1,12 +1,14 @@
 package modelgateway_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -129,4 +131,61 @@ func TestAToolInputTooLongIsNoOverflow(t *testing.T) {
 	}
 
 	assert.Equal(t, 5, got.calls())
+}
+
+// Scenario: the reviewer's repro of round 2 of PR #1057 (issue #1052). The
+// answers end without a word: cut short after response.created, or the
+// client gone before anything came. Whatever the prompt's size, after four
+// in a row with none that ended well, the fifth request is not sent, and its
+// refusal ends the turn as the provider's overflow answers do.
+func TestARunOfAnswersThatDoNotEndEndsTheTurn(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		handle http.HandlerFunc
+		ask    func(g chatGateway) (int, string)
+	}{
+		"silent truncation": {
+			handle: stream(event(`{"type":"response.created","response":{"id":"resp_1"}}`)),
+			ask: func(g chatGateway) (int, string) {
+				status, _, body := g.respond(t, g.key, asking(10))
+
+				return status, body
+			},
+		},
+		"empty client_gone": {
+			handle: func(_ http.ResponseWriter, r *http.Request) { <-r.Context().Done() },
+			ask: func(g chatGateway) (int, string) {
+				ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+				defer cancel()
+
+				req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/v1/responses", strings.NewReader(asking(10)))
+				req.Header.Set("Authorization", "Bearer "+g.key)
+				rec := httptest.NewRecorder()
+				g.mux.ServeHTTP(rec, req)
+
+				return rec.Code, rec.Body.String()
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, got := codexBackend(t, tc.handle)
+			g := newCodexGateway(t, backend, &accounts{})
+
+			for range 4 {
+				tc.ask(g)
+			}
+
+			require.Equal(t, 4, got.calls())
+
+			status, body := tc.ask(g)
+			require.Equal(t, http.StatusBadRequest, status, body)
+			code, message := refusal(t, body)
+			assert.Equal(t, "context_overflow", code)
+			assert.True(t, contextwindow.Exceeded(message), "the node tells why the turn ended: %s", message)
+			assert.Equal(t, 4, got.calls(), "the fifth was not sent")
+		})
+	}
 }
