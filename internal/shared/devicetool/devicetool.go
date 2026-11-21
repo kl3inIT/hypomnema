@@ -101,7 +101,9 @@ const SaveTo = "save_to"
 const SaveToProperty = `{"type":"string","description":"a .png, .jpg or .jpeg path in the folder you work in; ` +
 	`the picture is written there and the answer is its path, without the picture"}`
 
-// SaveToHelp is what a screenshot tool's description says of SaveTo (issue #1059): a Bot that wanted its
+// SaveToHelp is what a screenshot tool's description says of SaveTo. Its first sentence is what mobile-mcp's
+// mobile_save_screenshot says ("Save a screenshot of the mobile device to a file", src/server.ts:1005); not to
+// write a script is the approved plan of issue #1059 (owner, 2026-11-22), since a Bot that wanted its
 // screenshots as files wrote a script of its own to save them, and half its reads of those files failed.
 const SaveToHelp = "To keep the picture as a file, for an artifact or a page, give save_to: it is written " +
 	"there and the answer is its path. Do not write a script of your own to save a screenshot."

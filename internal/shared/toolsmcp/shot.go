@@ -3,6 +3,7 @@ package toolsmcp
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -31,8 +32,9 @@ import (
 // (src/utils.ts:144-163, validateOutputPath); the one folder allowed is the
 // one the agent works in, whose files a Bot's artifacts and chat take. A link
 // in it cannot carry the write out of it (os.Root, as utils.ts:95-142 follows
-// every link to refuse one). Folders on the way are made, as generate_image
-// makes them (image.go, saveImage).
+// every link to refuse one), and the file is written beside its name and
+// renamed over it (utils.ts:165-185). Folders on the way are made, as
+// generate_image makes them (image.go, saveImage).
 
 // shotQuality is the JPEG quality a PNG is written at when a .jpg is asked,
 // mobile-mcp's for its screenshot (src/server.ts, mobile_take_screenshot: quality 75).
@@ -153,24 +155,55 @@ func shotPath(dir, name string) (string, string, error) {
 	return rel, format, nil
 }
 
-// resolvesInside says whether rel, its links followed as far as it exists, is
-// still in dir, as mobile-mcp follows them before a write (src/utils.ts:95-142):
-// so a link out of the folder is refused before the screen is taken. The
-// write itself is held in the folder by os.Root (writeShot).
+// maxLinkHops bounds how many links resolvesInside follows, mobile-mcp's
+// MAX_SYMLINK_HOPS (src/utils.ts:93).
+const maxLinkHops = 64
+
+// resolvesInside says whether rel is still in dir with its links followed,
+// as mobile-mcp follows them before a write (src/utils.ts:95-142): a link at
+// the name, even to a file not there yet, is followed to its target, and the
+// target's folder is resolved as far as it exists. So a link out of the folder
+// is refused before the screen is taken. The write itself is held in the
+// folder by os.Root (writeShot).
 func resolvesInside(dir, rel string) bool {
 	top, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		return false
 	}
 
-	for at := filepath.Join(dir, rel); ; at = filepath.Dir(at) {
+	at := filepath.Join(dir, rel)
+
+	for range maxLinkHops {
+		info, err := os.Lstat(at)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			return existingInside(top, at)
+		}
+
+		target, err := os.Readlink(at)
+		if err != nil {
+			return false
+		}
+
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(at), target)
+		}
+
+		at = target
+	}
+
+	return false
+}
+
+// existingInside says whether at, resolved as far as it exists, is in top.
+func existingInside(top, at string) bool {
+	for ; ; at = filepath.Dir(at) {
 		if resolved, err := filepath.EvalSymlinks(at); err == nil {
 			within, err := filepath.Rel(top, resolved)
 
 			return err == nil && filepath.IsLocal(within)
 		}
 
-		if at == dir || at == filepath.Dir(at) {
+		if at == filepath.Dir(at) {
 			return false
 		}
 	}
@@ -207,11 +240,45 @@ func writeShot(dir, rel, format string, data []byte) error {
 	err = root.MkdirAll(filepath.Dir(rel), 0o750)
 	if err != nil {
 		err = fmt.Errorf("making the folder of %s: %w", rel, err)
-	} else if err = root.WriteFile(rel, data, 0o600); err != nil {
-		err = fmt.Errorf("writing %s: %w", rel, err)
+	} else {
+		err = replaceIn(root, rel, data)
 	}
 
 	return errors.Join(err, root.Close())
+}
+
+// replaceIn writes data beside rel, in a new file of an unguessable name, and
+// renames it over rel, as mobile-mcp's writeOutputFile does (src/utils.ts:165-185):
+// what is at rel, a link or a hard link of a file elsewhere, is replaced rather
+// than written through. A regular file there passes its mode on.
+func replaceIn(root *os.Root, rel string, data []byte) error {
+	partial := filepath.Join(filepath.Dir(rel), "."+filepath.Base(rel)+"."+rand.Text()+".partial")
+
+	f, err := root.OpenFile(partial, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", rel, err)
+	}
+
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+
+	if info, lerr := root.Lstat(rel); err == nil && lerr == nil && info.Mode().IsRegular() {
+		err = root.Chmod(partial, info.Mode().Perm())
+	}
+
+	if err == nil {
+		err = root.Rename(partial, rel)
+	}
+
+	if err != nil {
+		_ = root.Remove(partial)
+
+		return fmt.Errorf("writing %s: %w", rel, err)
+	}
+
+	return nil
 }
 
 // ShotRoute is the route and the wait of a tool that takes save_to: the phone's screen and the browser's
