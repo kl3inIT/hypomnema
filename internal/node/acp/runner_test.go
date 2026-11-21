@@ -359,7 +359,7 @@ func TestOmpThroughTheGateway(t *testing.T) {
 
 	config, err := os.ReadFile(filepath.Join(conversation, "agent", "config.yml")) //nolint:gosec // the test's own
 	require.NoError(t, err)
-	assert.Contains(t, string(config), "xdev: false")
+	assert.NotContains(t, string(config), "xdev", "omp's default xd:// devices (issue #1015)")
 	assert.Contains(t, string(config), "web_search:\n  enabled: false\n", "omp's own search is off")
 	assert.Contains(t, string(config), "generate_image:\n  enabled: false\n",
 		"omp's own image tool is off: the tools server's is the worker's (issue #492)")
@@ -406,7 +406,8 @@ func TestOpencodeThroughTheGateway(t *testing.T) {
 	assert.Equal(t, map[string]string{
 		"baseURL": "https://hypomnema.example/v1", "apiKey": "{env:HYPOMNEMA_MODEL_KEY}",
 	}, config.Providers["hypomnema"].Settings)
-	assert.Contains(t, config.Permissions, map[string]string{"action": "execute", "resource": "*", "effect": "deny"})
+	assert.NotContains(t, config.Permissions, map[string]string{"action": "execute", "resource": "*", "effect": "deny"},
+		"opencode's default code mode (issue #1015)")
 
 	for _, own := range []string{"websearch", "webfetch", "experimental_image_generate"} {
 		assert.Contains(t, config.Permissions, map[string]string{"action": own, "resource": "*", "effect": "deny"},
