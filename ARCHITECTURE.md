@@ -1969,9 +1969,14 @@ flowchart LR
   would place that name at the same provider, among its runtime's kinds then, which have no Zen; for a role Task,
   whose runtime the role chain's YAML picks, only when every runtime taking the provider's kind would; it keeps the
   provider where it would not, so a provider of Zen's kind under any name keeps it. Zen's way back splits a Bot's
-  fallbacks at their commas, never as JSON, as a model's name may hold a quote. A profile version, a Bot or a chat with a model and no provider is left as it is, as the code before ran
-  it; an edit that leaves that model alone (a Bot's persona, a chat's effort, an undone setup change) is accepted and
-  gives it the one provider that offers it, as the code before did (`keptModel`); a new model needs its provider.
+  fallbacks at their commas, never as JSON, as a model's name may hold a quote. The migration also gives a profile version, a Bot or a chat that names a model without a provider the one
+  provider that offers it to its runtime (the version's, pi's for a Bot and a chat), among the kinds before Zen,
+  recorded in `model_provider_changes`; the way back leaves each without it again while it still names what the
+  conversion left it with. One two providers or none offer is left, and is refused with the form to write it in
+  wherever it would be used: at dispatch (`resolveVersion`), for the coordinator (`PiModel`) and on an edit that
+  leaves it alone (`keptModel`), so no bare model reaches a worker or pi. An edit that leaves a model with a single
+  provider alone (a Bot's persona, a chat's effort, an undone setup change) is accepted and stores that provider;
+  a new model needs its provider.
   A profile version is restored by its id (`POST /profiles/{name}/versions/{version_id}/restore`, the profile page's
   Restore): its own source as the page shows it, with its tool policy as migration 00123 re-expressed it (never the
   old allowlist its YAML still writes), and the provider that version recorded for a model the source names without one; the
