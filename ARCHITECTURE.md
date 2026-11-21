@@ -1070,9 +1070,19 @@ sequenceDiagram
     the take is filmed. `/studio/takes/:id` and `/studio/videos/:id` open a take's and a video's tab on a page of
     their own. A take's tab has Make video (voice, captions, 9:16 or 16:9, an Idempotency-Key), and Video once it
     has one; in a pane the video opens as a `video` tab beside the take's. A video's tab follows the revision being
-    made, stage by stage and scene by scene, a failure with its stage, its cause and Make again; a made revision
-    plays with its lines editable and a note, Approve and Request changes, a switch between revisions and the MP4's
-    download.
+    made, stage by stage and scene by scene, a failure with its stage, its cause and Make again (the retry route); a
+    made revision plays with its lines editable and a note, Approve and Request changes, Change look, a switch
+    between revisions and the MP4's download. Make video and Change look have a Look section (#908 part 4, #938;
+    `look-section.tsx`, `look-state.ts`, `use-look.ts`, `change-look.tsx`): the caption style and position, the
+    frame (full, plain, Android, iPhone, shadow, status strip) and a background, a swatch for each of autodemo's
+    templates painted by a port of its `background()` (`backgrounds.ts`, MIT) or two colours; padding and radius
+    are only in the API and the CLI. The fields start from `GET /videos/looks`' default or the revision's look, and
+    only the sections that differ from where they started are sent, to `POST /videos`, `POST
+    /videos/{id}/revisions/{rev}/look` and the look sample alike, so a section left alone stays the default's or the
+    source's (a default frame on a turned take falls back to full; a frame sent is refused with its 409 shown). The
+    look sample (`POST /videos/preview`, with `rev` for Change look) is a query keyed by its body: a change aborts
+    the sample being drawn and only the latest answer is shown; a refusal (429, 503, 504) shows the server's
+    message. Change look is disabled until a section changed.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
