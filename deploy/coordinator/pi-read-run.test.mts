@@ -51,7 +51,6 @@ test("pinned pi declares the read-run tools on its first turn and refuses the RP
             console.log(JSON.stringify({ jsonrpc: "2.0", id, result }));
           }
         `],
-        exposure: "direct",
       },
     },
   }));
@@ -78,9 +77,9 @@ test("pinned pi declares the read-run tools on its first turn and refuses the RP
   }));
   const pi = spawn(resolve(import.meta.dirname, "node_modules/.bin/pi"), [
     "--mode", "rpc", "--offline", "--no-session", "--no-approve", "--no-extensions", "--no-skills",
-    "--no-context-files", "--no-prompt-templates", "--extension", "builtin:mcp",
+    "--no-context-files", "--no-prompt-templates", "--extension", "builtin:mcp", "--extension", "builtin:codemode",
     "--extension", resolve(import.meta.dirname, "pi-read-run.mts"),
-    "--tools", "routine_read,routine_write,routine_edit,mcp__hypomnema__*", "--provider", "fixture", "--model", "stub",
+    "--tools", "routine_read,routine_write,routine_edit,codemode,mcp__hypomnema__*", "--provider", "fixture", "--model", "stub",
   ], { cwd, env: { ...process.env, PI_CODING_AGENT_DIR: agentDir } });
   test.after(() => pi.kill());
   const lines = createInterface({ input: pi.stdout });
@@ -100,9 +99,8 @@ test("pinned pi declares the read-run tools on its first turn and refuses the RP
     if (reply.type === "agent_end") {
       assert.ok(firstRequest, `pi did not send a model request: ${stderr}`);
       const tools = JSON.parse(firstRequest).tools.map((tool: { function: { name: string } }) => tool.function.name);
-      assert.deepEqual(tools.sort(), [
-        "mcp__hypomnema__account_read", "mcp__hypomnema__zalo_messages", "routine_edit", "routine_read", "routine_write",
-      ]);
+      // The tools server's tools have pi's default exposure, codemode: reached from scripts, not declared.
+      assert.deepEqual(tools.sort(), ["codemode", "routine_edit", "routine_read", "routine_write"]);
       return;
     }
   }
