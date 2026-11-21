@@ -105,11 +105,9 @@ func Measure(parent context.Context, tools ffmpeg.Tools, file string, limitSec f
 	}
 
 	waitErr := cmd.Wait()
-	if errors.Is(waitErr, exec.ErrWaitDelay) {
-		// ffmpeg has ended and something it started still held its stderr when Wait gave up on it: that is killed
-		// too. Its group is not empty, so its number is still that group's.
-		_ = killGroup(cmd)
-	}
+	// Whatever Wait returned, what ffmpeg started may still be running, holding its stderr: its group is killed.
+	// An empty group is no error to Measure.
+	_ = killGroup(cmd)
 
 	switch {
 	case parent.Err() != nil:
