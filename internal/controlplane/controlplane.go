@@ -843,13 +843,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		pusher.Run(ctx)
 	}()
 
-	// `hypomnema update` asks which Bots' turns run before it stops the control plane (issue #716).
+	// `hypomnema update` asks which Bots' turns and how many tool calls run before it stops the control plane (issues
+	// #716, #1060).
 	controlDone := make(chan struct{})
 
 	go func() {
 		defer close(controlDone)
 
-		serveControl(ctx, controlSocket(cfg.Database.Path), sup.WorkingChats, sup.BeginUpdate, logger)
+		serveControl(ctx, controlSocket(cfg.Database.Path), sup.WorkingChats, agents.ToolCalls, sup.BeginUpdate, logger)
 	}()
 
 	serveErr := platform.Serve(ctx, ln, mux, logger)

@@ -46,6 +46,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
@@ -160,6 +161,22 @@ type Server struct {
 	// none.
 	gitSSHKey GitSSHKey
 	logger    *slog.Logger
+	// calls is how many tool calls run now (ToolCalls).
+	calls atomic.Int64
+}
+
+// ToolCalls is how many agents' tool calls run now, for `hypomnema update` to wait for before it stops the control
+// plane, as it waits for Bots' turns (issue #1060).
+func (s *Server) ToolCalls() int { return int(s.calls.Load()) }
+
+// counted counts the calls of a tool route while they run.
+func (s *Server) counted(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.calls.Add(1)
+		defer s.calls.Add(-1)
+
+		h(w, r)
+	}
 }
 
 // New returns a Server.
@@ -180,14 +197,14 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+agenttool.PathConnections, s.connections)
 	mux.HandleFunc("POST "+agenttool.PathToken, s.token)
 	mux.HandleFunc("GET "+agenttool.PathBrowserTools, s.browserTools)
-	mux.HandleFunc("POST "+agenttool.PathBrowserCall, s.browserCall)
+	mux.HandleFunc("POST "+agenttool.PathBrowserCall, s.counted(s.browserCall))
 	mux.HandleFunc("POST "+agenttool.PathMemory, s.memory)
 	mux.HandleFunc("GET "+agenttool.PathDeviceTools, s.deviceTools)
-	mux.HandleFunc("POST "+agenttool.PathDeviceCall, s.deviceCall)
+	mux.HandleFunc("POST "+agenttool.PathDeviceCall, s.counted(s.deviceCall))
 	mux.HandleFunc("GET "+agenttool.PathGatewayTools, s.listGateway)
 	mux.HandleFunc("POST "+agenttool.PathGatewayCall, s.callGateway)
 	mux.HandleFunc("GET "+agenttool.PathTools, s.listTools)
-	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.callTool)
+	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.counted(s.callTool))
 	mux.HandleFunc("GET "+agenttool.PathGitSSHKey, s.gitSSHKeyFor)
 	mux.HandleFunc("POST "+agenttool.PathBackground, s.background)
 }

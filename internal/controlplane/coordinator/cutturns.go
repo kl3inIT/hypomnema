@@ -25,10 +25,13 @@ const (
 )
 
 // continuedPrompt is what pi is given for ContinuedText, after Hermes's auto-continue note
-// (session_auto_continue.py _auto_continue_note): pi's session holds the request and what the cut turn had done.
+// (session_auto_continue.py _auto_continue_note): pi's session holds the request and what the cut turn had done. A
+// command the cut turn ran on a node goes on there, and its id went with the cut turn's tools server: node_process
+// lists the chat's own (issue #1060, Coder's process list).
 const continuedPrompt = "The control plane restarted for an update and cut your previous turn before it could " +
 	"finish. Some of the work may already be complete; check the current state before redoing anything, then " +
-	"finish the task."
+	"finish the task. A command you ran on a node may still run there or have ended: list yours with " +
+	"node_process given only the node before running it again."
 
 // turnStarted marks the chat's turn in the store as p's. The write outlives the request that runs it: a turn that
 // starts as the control plane stops is still marked.

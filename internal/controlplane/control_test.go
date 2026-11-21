@@ -51,7 +51,8 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 	go func() {
 		defer close(done)
 
-		serveControl(ctx, path, func() []string { return []string{"cht_a"} }, begin, slog.New(slog.DiscardHandler))
+		serveControl(ctx, path, func() []string { return []string{"cht_a"} }, func() int { return 2 }, begin,
+			slog.New(slog.DiscardHandler))
 	}()
 
 	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{
@@ -78,7 +79,7 @@ func TestTheControlSocketSaysWhichTurnsRun(t *testing.T) {
 		return resp.StatusCode == http.StatusOK && json.NewDecoder(resp.Body).Decode(&got) == nil
 	}, 5*time.Second, 10*time.Millisecond)
 
-	assert.Equal(t, []string{"cht_a"}, got.Chats)
+	assert.Equal(t, selfupdate.Turns{Chats: []string{"cht_a"}, ToolCalls: 2}, got)
 
 	// The update names itself: the control plane writes the marker, through the coordinator's lock.
 	body := strings.NewReader(fmt.Sprintf(`{"pid":%d,"start":""}`, os.Getpid()))

@@ -209,6 +209,11 @@ func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
 			return s.agent.ArtifactCall(ctx, agenttool.PathToolsCall, c.Arguments, dir)
 		}
 
+		// A command on a node is read again when the control plane restarts while it runs (issue #1060).
+		if s.agent != nil && agenttool.NodeRereadable(c.Name) {
+			return s.agent.NodeCall(ctx, agenttool.PathToolsCall, c.Name, c.Arguments)
+		}
+
 		if s.agent != nil {
 			return s.agent.ToolCall(ctx, agenttool.PathToolsCall, toolsmcp.CallTimeout, c.Name, c.Arguments)
 		}

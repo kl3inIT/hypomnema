@@ -143,7 +143,9 @@ with its own token, so an old pi's exit never clears the turn of the chat's next
 clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
 and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
 `continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
-check the current state before redoing anything, then finish the task"; it is no turn input of its own, so a turn
+check the current state before redoing anything, then finish the task", and lists its commands on a node with
+`node_process` before running one again, issue #1060: pi reads this prompt in place of the line, which is the
+owner's to read; it is no turn input of its own, so a turn
 that was the owner's stays his for `OwnerTurn`), one attempt more and its mark from now; any other mark is cleared
 with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
 line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
@@ -4783,18 +4785,38 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
   out. An exit code other than 0, or a time run out, is an error result.
 - `background: true` answers at once with a `process_id`; the command runs with no time limit. `node_process
   {node, process_id, wait_seconds}` answers once it ended or after `wait_seconds` (at most 300), with the output so
-  far; `node_process_kill` kills its group. An ended one is kept an hour (Coder); the node's restart, as at an
-  update, kills the ones still running.
+  far; `node_process_kill` kills its group. An ended one is kept an hour (Coder), and at most 50 ended ones, the
+  oldest dropped as each ends (OpenClaw's finished sessions); the node's restart, as at an update, kills the ones
+  still running. A process is the agent's that ran it, a chat's pi (`b-<chat>`) or a worker's Dispatch
+  (`d-<dispatch>`), named with each `exec`: another agent that knows its id is told there is none (Coder keys a
+  process by its chat; issue #1060). `node_process {node}` with no `process_id` lists the agent's own on that
+  node, running first, then the newest started, at most 10, with id, state, start and the command's first 200
+  bytes (Coder's process list; the cut is this repository's, so that the list always fits a node's 1 MiB answer).
 - sudo: the vault secret `sudo-<node>` (lowercase, its `value`) is the node's sudo password. When there is one, the
   control plane sends it with the command, and the node adds `-A` after every `sudo` that is a simple command's
   command (parsed with `mvdan.cc/sh`) and sets `SUDO_ASKPASS` to a helper that prints it from a file only the
   node's user reads, removed when the command ends (Hermes's askpass form). The password is not logged, answered or
   on a command line. A node with none runs `sudo` as it is: it works where sudo needs no password, else fails.
-- The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`) and waits for the answer on
+- The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`, `list`) and waits for the answer on
   `POST /node/v1/exec?request=` for the command's time and 30 s; a node that goes away meanwhile fails the call at
   once, as a phone call does. Each call is logged with the agent, the node and the action, not the command.
 - MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), longer than the 300 s
   and the node's answer.
+- A restart of the control plane, as at an update, does not lose a command's result (issue #1060). The tools server
+  (`toolsmcp.NodeCall`, a worker's and a Bot's) names each `node_exec`'s process before it asks (`process_id`, not
+  in the tool's schema: `proc_` and hex, the shape the node makes), as Coder's agent names a process after its tool
+  call; the node reserves the id before the command starts and keeps a foreground command by it too, an hour once
+  it ended. When the answer's connection ends without it, or a proxy answers 502, 503 or 504 without the control
+  plane's own message (not a connection that could not be opened: that command never ran), the tools server asks
+  `node_process` for that id, waiting as long as the command may run, from half a second apart doubled up to eight
+  (OpenClaw's Control UI retries), within the 7 minutes, as Coder's execute tool reads a process again after a
+  transport error; it never runs the command again. It asks again past a node not reconnected yet: one the control
+  plane lists, whose socket is not back (its last heartbeat still counts), is answered as not connected. The
+  result read says first that the control plane restarted, with the node and the `process_id`; none within the 7
+  minutes is an error naming them. A `node_process` whose answer is lost is asked again the same way; a kill is
+  not. A Bot's turn the update cuts loses its tools server, and the id with it: the continued turn's prompt says
+  to list its commands with `node_process {node}` before running one again (the coordinator's choice of Coder's
+  process list over a stored row a command, 2026-11-22).
 - Not built: a PTY, a per-node switch to refuse commands (Nezha), a list of commands always refused (Hermes).
 
 ```mermaid
@@ -4977,8 +4999,13 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     drains a gateway's turns before it stops it): it asks the control plane every second on its control socket,
     `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
     TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
-    `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
-    still running at the bound is cut, and continues when the control plane starts again (above). From before
+    `{"chats": [...], "tool_calls": N}`. It also waits, within the same bound, until no agent's call of the control
+    plane's tools runs (`tool_calls`, a worker's too: the calls on the tools', the browser's and the phone's routes,
+    issue #1060), as OpenClaw's update drains a Gateway's requests in flight for at most 5 minutes before it
+    restarts. Each question on the socket gets 5 s or what is left of the bound, whichever is less, and none is
+    asked past it. A control plane that does not answer is not waited for; a worker's turn is never waited for. A turn
+    still running at the bound is cut, and continues when the control plane starts again (above); a command on a
+    node is read again (`node_exec`, above). From before
     that wait until the release's coordinator is set up, `update install` names its process (pid and start time
     from `/proc`) in `data/updating`, which it removes when it returns. It asks the control plane to write it
     (`POST /update` on the control socket), which does so under the lock each pi start holds from its last look for
