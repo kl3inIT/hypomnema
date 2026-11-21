@@ -393,8 +393,13 @@ func TestMigrationNamesProviderlessRowsOfEveryTable(t *testing.T) {
 
 	require.NoError(t, Migrate(ctx, db))
 
+	queries := map[string]string{
+		"profile_versions": `SELECT id, coalesce(provider, '') FROM profile_versions WHERE id LIKE '%-%'`,
+		"bots":             `SELECT id, coalesce(provider, '') FROM bots WHERE id LIKE '%-%'`,
+		"chats":            `SELECT id, coalesce(provider, '') FROM chats WHERE id LIKE '%-%'`,
+	}
 	providers := func(table string) map[string]string {
-		rows, err := db.QueryContext(ctx, `SELECT id, coalesce(provider, '') FROM `+table+` WHERE id LIKE '%-%'`)
+		rows, err := db.QueryContext(ctx, queries[table])
 		require.NoError(t, err)
 		defer rows.Close() //nolint:errcheck // read only
 
@@ -440,7 +445,7 @@ func TestMigrationNamesProviderlessRowsOfEveryTable(t *testing.T) {
 
 	_, err = p.DownTo(ctx, version-1)
 	require.NoError(t, err)
-	assert.Equal(t, "", providers("profile_versions")["pv-codex"], "left without it again, as it ran")
-	assert.Equal(t, "", providers("chats")["cht-go"])
+	assert.Empty(t, providers("profile_versions")["pv-codex"], "left without it again, as it ran")
+	assert.Empty(t, providers("chats")["cht-go"])
 	assert.Equal(t, "opencode-go", providers("bots")["bot-go"], "a Bot changed since keeps what it names")
 }

@@ -702,6 +702,13 @@ type ModelNameConversion struct {
 	Done int64
 }
 
+type ModelProviderChange struct {
+	Record   string
+	ID       string
+	Model    string
+	Provider string
+}
+
 type Node struct {
 	ID                  string
 	Name                string

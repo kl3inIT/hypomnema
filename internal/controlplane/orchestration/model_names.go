@@ -298,34 +298,44 @@ var providerless = []struct{ record, table, runtime string }{
 	{"chat", "chats", "'" + botRuntime + "'"},
 }
 
+// providerlessRow is a stored row naming a model without a provider, with its runtime.
+type providerlessRow struct{ id, model, runtime string }
+
+// providerlessRows are a table's rows naming a model without a provider.
+func providerlessRows(ctx context.Context, tx *sql.Tx, table, runtime string) ([]providerlessRow, error) {
+	//nolint:gosec // the table and the runtime's expression are the constants of providerless
+	q, err := tx.QueryContext(ctx, `SELECT id, model, `+runtime+` FROM `+table+`
+		WHERE model IS NOT NULL AND model <> '' AND (provider IS NULL OR provider = '') ORDER BY id`)
+	if err != nil {
+		return nil, fmt.Errorf("reading the models of %s: %w", table, err)
+	}
+	defer q.Close() //nolint:errcheck // read only
+
+	var rows []providerlessRow
+
+	for q.Next() {
+		var r providerlessRow
+		if err := q.Scan(&r.id, &r.model, &r.runtime); err != nil {
+			return nil, fmt.Errorf("reading the models of %s: %w", table, err)
+		}
+
+		rows = append(rows, r)
+	}
+
+	if err := q.Err(); err != nil {
+		return nil, fmt.Errorf("reading the models of %s: %w", table, err)
+	}
+
+	return rows, nil
+}
+
 // nameProviderlessRows gives each profile version, Bot and chat that names a model without a provider the one
 // provider that offers the model to its runtime, and records it.
 func nameProviderlessRows(ctx context.Context, tx *sql.Tx) error {
 	for _, kind := range providerless {
-		type row struct{ id, model, runtime string }
-
-		var rows []row
-
-		//nolint:gosec // the table and the runtime's expression are the constants above
-		q, err := tx.QueryContext(ctx, `SELECT id, model, `+kind.runtime+` FROM `+kind.table+`
-			WHERE model IS NOT NULL AND model <> '' AND (provider IS NULL OR provider = '') ORDER BY id`)
+		rows, err := providerlessRows(ctx, tx, kind.table, kind.runtime)
 		if err != nil {
-			return fmt.Errorf("reading the models of %s: %w", kind.table, err)
-		}
-
-		for q.Next() {
-			var r row
-			if err := q.Scan(&r.id, &r.model, &r.runtime); err != nil {
-				_ = q.Close()
-
-				return fmt.Errorf("reading the models of %s: %w", kind.table, err)
-			}
-
-			rows = append(rows, r)
-		}
-
-		if err := q.Close(); err != nil {
-			return fmt.Errorf("reading the models of %s: %w", kind.table, err)
+			return err
 		}
 
 		for _, r := range rows {
