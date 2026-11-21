@@ -451,3 +451,34 @@ func TestOnlyTheOwnerChangesWhatABotDoesWithHisAccounts(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, owner.ReadsOwnerAccountsOnly(), "the owner changes it")
 }
+
+// Scenario: review of #1037, round 3: the main Bot removes the Thư ký Bot, which only reads the owner's accounts,
+// from its chat, and the owner undoes it: the Bot comes back reading only, as it was. A Bot the main Bot makes
+// reading only stays so.
+func TestAnUndoneRemovalKeepsWhatABotDoesWithTheOwnersAccounts(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	secretary, err := w.s.PutBot(ctx, Bot{Name: "Thư ký", OwnerAccounts: OwnerAccountsRead})
+	require.NoError(t, err)
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	require.NoError(t, w.s.DeleteBotFromChat(ctx, chat.ID, secretary.ID))
+
+	changes, err := w.s.ListSetupChanges(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, changes, 1)
+	_, err = w.s.UndoSetupChange(ctx, changes[0].ID)
+	require.NoError(t, err)
+
+	back, err := w.s.GetBot(ctx, secretary.ID)
+	require.NoError(t, err)
+	assert.True(t, back.ReadsOwnerAccountsOnly(), "it comes back reading only")
+
+	made, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "Thư ký 2", OwnerAccounts: OwnerAccountsRead})
+	require.NoError(t, err)
+	assert.True(t, made.ReadsOwnerAccountsOnly())
+}
