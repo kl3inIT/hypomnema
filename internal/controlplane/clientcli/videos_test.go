@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,6 +28,7 @@ type cliVideos struct {
 	// looks are the looks sent, as JSON, and previews the samples asked for.
 	looks    []string
 	previews []videos.PreviewRequest
+	tracks   []videos.Track
 }
 
 func (c *cliVideos) List(context.Context) ([]videos.Video, error) { return []videos.Video{c.v}, nil }
@@ -106,6 +108,34 @@ func lookJSON(l *videos.LookInput) string {
 	raw, _ := json.Marshal(l) //nolint:errchkjson // The test's own value.
 
 	return string(raw)
+}
+
+func (c *cliVideos) Music(context.Context) (videos.Library, error) {
+	return videos.Library{Tracks: c.tracks, UsedBytes: 1500, QuotaBytes: videos.MusicQuotaBytes}, nil
+}
+
+func (c *cliVideos) UploadMusic(_ context.Context, name string, size int64, body io.Reader) (videos.Track, error) {
+	raw, err := io.ReadAll(body)
+	if err != nil {
+		return videos.Track{}, err
+	}
+
+	c.asked = append(c.asked, fmt.Sprintf("upload %s %d %s", name, size, raw))
+	t := videos.Track{ID: "mus_0123456789abcdefghijklmnop", Name: name, MediaType: "audio/mpeg", LengthMs: 75_000,
+		Bytes: size, CreatedAt: time.Now()}
+	c.tracks = append(c.tracks, t)
+
+	return t, nil
+}
+
+func (c *cliVideos) MusicAudio(context.Context, string) (string, string, error) {
+	return c.file, "audio/mpeg", nil
+}
+
+func (c *cliVideos) DeleteMusic(_ context.Context, id string) error {
+	c.asked = append(c.asked, "delete music "+id)
+
+	return nil
 }
 
 func (c *cliVideos) File(context.Context, string, int) (string, error)      { return c.file, nil }
@@ -234,4 +264,55 @@ func TestTheCLISendsOnlyTheFlaggedLook(t *testing.T) {
 	raw, err := os.ReadFile(jpg) //nolint:gosec // The test's own file.
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0xFF, 0xD8, 0xFF}, raw)
+}
+
+// Scenario: the owner keeps the music library with the CLI and chooses a video's music (issue #910): a file
+// uploaded as it is, with its name, then listed and deleted; -music sends the music section, with -music-gain when
+// given, and -music-gain alone is refused before anything is sent.
+func TestTheCLIKeepsTheMusicAndChoosesIt(t *testing.T) {
+	t.Parallel()
+
+	fake := &cliVideos{v: videos.Video{
+		ID: "vid_abc", Take: "tk_0123456789abcdef", Title: "Đăng nhập", CreatedAt: time.Now(),
+		Revisions: []videos.Revision{{Rev: 1, State: videos.Review, Lines: []string{"Mở"}, Aspect: "9:16",
+			Captions: true, Warnings: []string{}, Look: videos.DefaultLook()}},
+	}}
+
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithVideos(fake) })
+	w.login(t, bearertoken.Owner)
+
+	file := filepath.Join(t.TempDir(), "Nhạc nền.mp3")
+	require.NoError(t, os.WriteFile(file, []byte("ID3 a track"), 0o600))
+
+	out, err := w.cmd(t, "videos", "music", "add", file)
+	require.NoError(t, err)
+	assert.Contains(t, out, "added mus_0123456789abcdefghijklmnop  1:15")
+	assert.Equal(t, "upload Nhạc nền 11 ID3 a track", fake.asked[0], "the file as it is, named after it")
+
+	_, err = w.cmd(t, "videos", "music", "add", file, "--name", "Lofi")
+	require.NoError(t, err)
+	assert.Equal(t, "upload Lofi 11 ID3 a track", fake.asked[1])
+
+	out, err = w.cmd(t, "videos", "music", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "mus_0123456789abcdefghijklmnop  1:15")
+	assert.Contains(t, out, "Lofi")
+
+	out, err = w.cmd(t, "videos", "music", "rm", "mus_0123456789abcdefghijklmnop")
+	require.NoError(t, err)
+	assert.Contains(t, out, "deleted music track mus_0123456789abcdefghijklmnop")
+
+	_, err = w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--music-gain", "-6")
+	require.ErrorIs(t, err, ErrUsage)
+	require.ErrorContains(t, err, "-music-gain needs -music")
+	assert.Empty(t, fake.looks, "nothing is sent")
+
+	_, err = w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--music", "mus_0123456789abcdefghijklmnop",
+		"--music-gain", "-6")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"music":{"track":"mus_0123456789abcdefghijklmnop","gain_db":-6}}`, fake.looks[0])
+
+	_, err = w.cmd(t, "videos", "look", "vid_abc", "1", "--music", "none")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"music":{"track":"none"}}`, fake.looks[1])
 }

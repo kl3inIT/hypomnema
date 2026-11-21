@@ -11,7 +11,7 @@ import (
 )
 
 // The look of a revision (issue #908, rows 1-3, 11 and 15; #937): how its captions look, the frame drawn around the
-// phone's picture and the background it stands on. A look is sent by section; a section is explicit only when the
+// phone's picture and the background it stands on; and its music (#910, row 15, music.go). A look is sent by section; a section is explicit only when the
 // request carries it, and the fields a sent section leaves out take the references' defaults (aidemo's frame,
 // src/types.ts:538-562; demotape's Clean, CaptionStyle.swift:88; autodemo's midnight, compositor.html:28). The
 // sections not sent come from a base: the saved default for a make, the revision a look change or a sample starts
@@ -26,6 +26,8 @@ type Look struct {
 	// FellBackFrom is the chrome a frame taken from the default or the source would have drawn, on a take whose
 	// phone turned: the revision is made full, with a warning (row 11).
 	FellBackFrom compose.Chrome `json:"fell_back_from,omitempty"`
+	// Music is the track laid under the voice, as a snapshot (issue #910, row 15); absent: none.
+	Music *MusicLook `json:"music,omitempty"`
 }
 
 // CaptionsLook is a caption preset and where the captions sit.
@@ -42,6 +44,7 @@ type LookInput struct {
 	Captions   *CaptionsInput   `json:"captions,omitempty"`
 	Frame      *FrameInput      `json:"frame,omitempty"`
 	Background *BackgroundInput `json:"background,omitempty"`
+	Music      *MusicInput      `json:"music,omitempty"`
 }
 
 // CaptionsInput is the captions section as sent.
@@ -220,6 +223,18 @@ func resolveLook(in *LookInput, base Look) (Look, error) {
 		out.Frame, out.FellBackFrom = f, ""
 	}
 
+	if in.Music != nil {
+		m, err := musicOf(in.Music)
+		if err != nil {
+			return Look{}, err
+		}
+
+		out.Music = m
+	} else if out.Music != nil {
+		m := *out.Music
+		out.Music = &m
+	}
+
 	if in.Background != nil {
 		bg, err := backgroundOf(in.Background)
 		if err != nil {
@@ -271,6 +286,10 @@ func mergeDefault(saved Look, in *LookInput, resolved Look) Look {
 
 	if in.Background != nil {
 		out.Background = resolved.Background
+	}
+
+	if in.Music != nil {
+		out.Music = resolved.Music
 	}
 
 	return out

@@ -76,6 +76,20 @@ func (q *Queries) ClaimRevision(ctx context.Context, arg ClaimRevisionParams) (i
 	return result.RowsAffected()
 }
 
+const countMakingWithMusic = `-- name: CountMakingWithMusic :one
+SELECT COUNT(*) FROM video_revisions
+WHERE state IN ('queued', 'voicing', 'composing', 'captioning')
+  AND json_extract(look, '$.music.track') = CAST(?1 AS TEXT)
+`
+
+// The revisions queued or being made whose look names a track: the track may not be deleted then.
+func (q *Queries) CountMakingWithMusic(ctx context.Context, track string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countMakingWithMusic, track)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countQueued = `-- name: CountQueued :one
 SELECT COUNT(*) FROM video_revisions WHERE state = 'queued'
 `
@@ -97,6 +111,18 @@ func (q *Queries) CountUnfinished(ctx context.Context, videoID string) (int64, e
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deleteMusic = `-- name: DeleteMusic :execrows
+DELETE FROM video_music WHERE id = ?1
+`
+
+func (q *Queries) DeleteMusic(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteMusic, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteRevisions = `-- name: DeleteRevisions :exec
@@ -169,6 +195,25 @@ func (q *Queries) FinishRevision(ctx context.Context, arg FinishRevisionParams) 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const getMusic = `-- name: GetMusic :one
+SELECT id, name, file, media_type, length_ms, bytes, created_at FROM video_music WHERE id = ?1
+`
+
+func (q *Queries) GetMusic(ctx context.Context, id string) (VideoMusic, error) {
+	row := q.db.QueryRowContext(ctx, getMusic, id)
+	var i VideoMusic
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.File,
+		&i.MediaType,
+		&i.LengthMs,
+		&i.Bytes,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const getRevision = `-- name: GetRevision :one
@@ -258,6 +303,35 @@ func (q *Queries) GetVideoSettings(ctx context.Context) (string, error) {
 	var look string
 	err := row.Scan(&look)
 	return look, err
+}
+
+const insertMusic = `-- name: InsertMusic :exec
+INSERT INTO video_music (id, name, file, media_type, length_ms, bytes, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+`
+
+type InsertMusicParams struct {
+	ID        string
+	Name      string
+	File      string
+	MediaType string
+	LengthMs  int64
+	Bytes     int64
+	Now       int64
+}
+
+// The owner's music library (issue #910, rows 6a and 6d).
+func (q *Queries) InsertMusic(ctx context.Context, arg InsertMusicParams) error {
+	_, err := q.db.ExecContext(ctx, insertMusic,
+		arg.ID,
+		arg.Name,
+		arg.File,
+		arg.MediaType,
+		arg.LengthMs,
+		arg.Bytes,
+		arg.Now,
+	)
+	return err
 }
 
 const insertRevision = `-- name: InsertRevision :exec
@@ -376,6 +450,41 @@ func (q *Queries) LastRev(ctx context.Context, videoID string) (int64, error) {
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const listMusic = `-- name: ListMusic :many
+SELECT id, name, file, media_type, length_ms, bytes, created_at FROM video_music ORDER BY created_at DESC, id
+`
+
+func (q *Queries) ListMusic(ctx context.Context) ([]VideoMusic, error) {
+	rows, err := q.db.QueryContext(ctx, listMusic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []VideoMusic{}
+	for rows.Next() {
+		var i VideoMusic
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.File,
+			&i.MediaType,
+			&i.LengthMs,
+			&i.Bytes,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRevisions = `-- name: ListRevisions :many

@@ -9,7 +9,7 @@ export type Error = {
   message: string;
 };
 
-export type ErrorCode = 'validation_failed' | 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'unavailable' | 'request_too_large' | 'rate_limited' | 'timed_out' | 'internal_error';
+export type ErrorCode = 'validation_failed' | 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'unavailable' | 'request_too_large' | 'rate_limited' | 'timed_out' | 'insufficient_storage' | 'internal_error';
 
 export type TokenKind = 'owner' | 'coordinator' | 'bot';
 
@@ -2449,6 +2449,18 @@ export type VideoLookInput = {
   captions?: VideoCaptionsInput;
   frame?: VideoFrameInput;
   background?: VideoBackground;
+  music?: VideoMusicInput;
+};
+
+/**
+ * The music sent (issue #910): its track is required, none or a track's id of GET /videos/music; a track deleted is refused with conflict.
+ */
+export type VideoMusicInput = {
+  track: string;
+  /**
+   * Moves the track from its level 3 LU under the voice; absent: 0.
+   */
+  gain_db?: number;
 };
 
 export type VideoCaptionsInput = {
@@ -2487,6 +2499,67 @@ export type VideoLook = {
   frame: VideoFrame;
   background?: VideoBackground;
   fell_back_from?: VideoChrome;
+  music?: VideoMusic;
+};
+
+/**
+ * The music a revision is made with, as a snapshot of the track when it was chosen; absent: none. A track taken from the default or another revision that was deleted is none, with fell_back_from.
+ */
+export type VideoMusic = {
+  /**
+   * A track's id, or none.
+   */
+  track: string;
+  /**
+   * The track's name when it was chosen; it stays after the track is deleted.
+   */
+  name?: string;
+  /**
+   * The track's decoded length.
+   */
+  length_ms?: number;
+  gain_db: number;
+  fell_back_from?: VideoMusicSnapshot;
+};
+
+/**
+ * A track a look named.
+ */
+export type VideoMusicSnapshot = {
+  track: string;
+  name: string;
+  length_ms: number;
+};
+
+export type VideoMusicLibrary = {
+  tracks: Array<VideoMusicTrack>;
+  /**
+   * What the library's files hold.
+   */
+  used_bytes: number;
+  quota_bytes: number;
+};
+
+/**
+ * A track of the owner's music library (issue
+ */
+export type VideoMusicTrack = {
+  id: string;
+  name: string;
+  /**
+   * audio/mpeg, audio/mp4, audio/wav, audio/flac or audio/ogg.
+   */
+  media_type: string;
+  /**
+   * Its decoded length.
+   */
+  length_ms: number;
+  bytes: number;
+  created_at: string;
+  /**
+   * Its file is not there, as after restoring an older backup.
+   */
+  missing?: boolean;
 };
 
 export type VideoCaptions = {
@@ -5518,6 +5591,8 @@ export type TakeId = string;
 
 export type VideoId = string;
 
+export type MusicId = string;
+
 export type VideoRev = number;
 
 export type ArtifactId = string;
@@ -6876,6 +6951,92 @@ export type PreviewVideoLookResponses = {
 };
 
 export type PreviewVideoLookResponse = PreviewVideoLookResponses[keyof PreviewVideoLookResponses];
+
+export type ListVideoMusicData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/videos/music';
+};
+
+export type ListVideoMusicErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListVideoMusicError = ListVideoMusicErrors[keyof ListVideoMusicErrors];
+
+export type ListVideoMusicResponses = {
+  /**
+   * The library.
+   */
+  200: VideoMusicLibrary;
+};
+
+export type ListVideoMusicResponse = ListVideoMusicResponses[keyof ListVideoMusicResponses];
+
+export type DeleteVideoMusicData = {
+  body?: never;
+  path: {
+    music_id: string;
+  };
+  query?: never;
+  url: '/videos/music/{music_id}';
+};
+
+export type DeleteVideoMusicErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteVideoMusicError = DeleteVideoMusicErrors[keyof DeleteVideoMusicErrors];
+
+export type DeleteVideoMusicResponses = {
+  /**
+   * Deleted.
+   */
+  204: void;
+};
+
+export type DeleteVideoMusicResponse = DeleteVideoMusicResponses[keyof DeleteVideoMusicResponses];
+
+export type ReadVideoMusicAudioData = {
+  body?: never;
+  headers?: {
+    Range?: string;
+  };
+  path: {
+    music_id: string;
+  };
+  query?: never;
+  url: '/videos/music/{music_id}/audio';
+};
+
+export type ReadVideoMusicAudioErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadVideoMusicAudioError = ReadVideoMusicAudioErrors[keyof ReadVideoMusicAudioErrors];
+
+export type ReadVideoMusicAudioResponses = {
+  /**
+   * The track.
+   */
+  200: Blob | File;
+  /**
+   * The part of the track asked for.
+   */
+  206: Blob | File;
+};
+
+export type ReadVideoMusicAudioResponse = ReadVideoMusicAudioResponses[keyof ReadVideoMusicAudioResponses];
 
 export type DeleteVideoData = {
   body?: never;

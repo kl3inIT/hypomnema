@@ -967,9 +967,8 @@ sequenceDiagram
     instant shows (libass is given whole milliseconds, truncated; #937). Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
     `background()` (`compose/testdata/frames`), and check in the made video that the hole shows the picture and
     only the hole does, where a ring lands, and that a turned take is refused.
-    Compose lays a music track under the voice when `Input.Music` names one (#910 part 1, #1039; nothing passes
-    one yet: the library, the look's section and the runner are part 2): its file, its decoded length and a gain
-    of −20 to +10 dB. Without music the mux's command is as before, stream for stream. `compose.Measure` decodes a
+    Compose lays a music track under the voice when `Input.Music` names one (#910 part 1, #1039; the runner passes
+    the track a revision's look names, below): its file, its decoded length and a gain of −20 to +10 dB. Without music the mux's command is as before, stream for stream. `compose.Measure` decodes a
     file's first audio stream strictly (`-xerror`, optionally bounded by `-t`) through ebur128, read from ffmpeg's
     stdout (`-progress pipe:1`, capped at 32 MB, refused unless it ends with `progress=end`, ffmpeg run in a process group of its own that is
     killed whole at the context's deadline, its stdout closed then even while a child holds it): integrated LUFS, the
@@ -1062,7 +1061,31 @@ sequenceDiagram
     second word starts, the words timed at demotape's 14 characters a second (`captions.SynthesizeWords`, ported):
     one at a time, refused as busy after 5 s of waiting, timed out after 20 s, its ffmpeg killed when the client
     goes. It shows the look, not a frame the video is sure to show. `Looks` is the catalog: the presets, Classic
-    included, the backgrounds, the chromes and the default.
+    included, the backgrounds, the chromes and the default, whose `music` is its only trace of the library.
+  - The music library and a look's music (#910 part 2, #1040; `videos/music.go`, migration `video_music`). The owner
+    uploads tracks; none is bundled and nothing has music until a look names a track. A track is a row of
+    `video_music` (id `mus_…`, name, file, media type, decoded length, bytes) and an immutable file
+    `videos/music/<id>.<ext>` (`videos.MusicDir(database)`). An upload is received one at a time; it is refused
+    before its body is read when the library's files plus it pass the 5 GB quota (owner, 2026-11-21) or the disk
+    has less than 400 MB plus it free; it is streamed into `<id>.*.part` there, synced, refused when under 400 MB
+    is left after it, typed by ffprobe (`compose.ProbeFile`: exactly one audio stream, a cover picture aside;
+    mp3 `audio/mpeg`, m4a or mp4 with AAC `audio/mp4`, wav with PCM `audio/wav`, flac `audio/flac`, ogg with Vorbis
+    or Opus `audio/ogg`; ALAC and the rest refused) and decoded whole by `compose.Measure` (`-t 1201`, 60 s at
+    most): its length is the decoded length, 10 s to 20 minutes, and silence (−70 LUFS or no peak) is refused.
+    Then it is renamed, the folder synced and the row inserted. A full disk anywhere, ENOSPC from a file or
+    SQLite's SQLITE_FULL (`sqlite.IsFull`), is `ErrDiskLow`; whatever fails removes the file. At start, inside
+    `videos.New`, so before the API and the runner, the folder loses its `*.part` and its files with no row; a row
+    with no file is listed `missing`. A delete, under the lock a make takes and in one transaction, is refused
+    (409) while a revision queued or being made names the track, and sets the saved default's music to none only
+    when it names this track; the file is removed after the commit, and one whose remove failed counts in the
+    quota until the next start removes it. A look's `music` is a snapshot, `{track, name, length_ms, gain_db}`
+    (gain −20 to +10 dB, 0 when left out), absent for none. A music section sent must carry its `track` (`none` or
+    an id); a sent track deleted is refused (409). A track taken from the default or the source (a make, a look
+    change without music, a retry, changed lines) that was deleted is stored as `{track: "none", fell_back_from:
+    {track, name, length_ms}}`, checked while the revision is queued under that lock, and the made revision warns.
+    The made revisions of a deleted track keep its name and length. The runner gives compose the track's file and
+    length and the look's gain, with the Service's free-disk function for the bed's check. Agents' `video_make` is
+    unchanged: their videos take the default's music.
   - Access to videos: the owner's (`clientapi/videos.go`, owner tokens only): `GET /videos`, `POST /videos`
     `{take, title?, aspect?, captions?, voice?, look?}` with an Idempotency-Key, `GET /videos/looks`, `POST
     /videos/preview` `{take, aspect?, captions?, look?, rev?}` answering `image/jpeg` (busy `rate_limited` with
@@ -1075,7 +1098,15 @@ sequenceDiagram
     .../thumbnail.jpg`, in review, approved or changes_requested; `hypomnema videos list|get|make|request-changes|
     approve|delete|download|look|retry|looks|preview`, where `make`, `look` and `preview` send only the look's
     sections whose flags are given (`--caption-preset --caption-position --chrome --padding --radius --shadow
-    --safe-top --background --background-colors`). The web's "Make again" of a failed revision is a retry. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
+    --safe-top --background --background-colors`, and `--music <id|none>` with `--music-gain <dB>` on `make` and
+    `look`; `--music-gain` alone is refused). The music library (#910): `GET /videos/music` `{tracks, used_bytes,
+    quota_bytes}`, `GET /videos/music/{id}/audio` with its stored type, `nosniff` and Range requests, `DELETE
+    /videos/music/{id}` (204, 404, 409), and the upload `POST /api/v1/videos/music?name=…` on a route of its own
+    outside the contract's validator (which reads a whole body first), described in `ListVideoMusic`: owner only
+    (401/403), its Content-Length required (411) and at most 64 MB (413), then the service's busy (429,
+    Retry-After 5), quota and disk (507 `insufficient_storage`) checks, all before a byte of the body is read, and
+    201 with the track; `hypomnema videos music add|list|rm`. The web's "Make again" of a failed revision is a
+    retry. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
     `video_get {video}` (`agentapi/videos.go`), listed and called on the control plane's tools route apart from
     the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
     latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
@@ -4920,14 +4951,25 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     marker (`hermes_cli/update_lock.py` `read_live_update`); a control plane that finds a marker whose process runs
     starts no pi, so none starts while the old control plane stops nor in the new one before
     `setup-coordinator.sh` has put pi in place. A marker whose process is gone is no update.
-  - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
-    binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
-    migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for
-    `/readyz`. A control plane that does not become ready is stopped and its old binary and database put back and
+  - `update install`: stops the unit and backs up the database with the videos' music library as a pair (#910):
+    into `data/.predeploy-<time>.part/` it copies the database and its WAL files and hard-links every file of
+    `data/videos/music/` into `videos-music/` (copying across file systems; an absent folder is backed up empty),
+    syncs them, and only then renames the folder to `data/predeploy-<time>/`; a backup that fails is removed and
+    the unit started again. It keeps the binary as `bin/hypomnema.previous` and puts the new one in place, runs
+    `hypomnema migrate` as the user (the migration stays an explicit step, `docs/conventions.md`), starts the unit
+    and waits up to a minute for `/readyz`. A control plane that does not become ready is stopped and its old
+    binary and database put back, every track of the backup missing from the music folder linked back, and
     started. Once it is ready, the release's `deploy/coordinator` files, built into the binary
     (`deploy/coordinator/files.go`), are written to a root-owned folder and its `setup-coordinator.sh` run, so the
-    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's. Then the five
-    newest `data/predeploy-*` folders are kept and the others removed (issue #335).
+    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's. Whatever the
+    outcome once the backup is published (ready, rolled back, the binary not placed, the coordinator not set up),
+    the five newest `data/predeploy-*` folders are kept and the others removed, with any stale `.predeploy-*.part`
+    (issue #335). A deleted track's bytes stay while a kept backup links it; an unchanged track is one inode
+    across backups. Restoring a backup by hand: stop the service, then restore the music into an empty folder,
+    `rm -rf data/videos/music && cp -al data/predeploy-X/videos-music data/videos/music` (`cp -a` over the live
+    folder fails on files that already share an inode); the next start removes a newer track's file whose row the
+    older database lacks. The updater backs up `Home/data/hypomnema.db` and its music only: a control plane whose
+    database is elsewhere (`HYPOMNEMA_DATABASE_PATH`) gets neither backed up, as before.
   - A release whose `update install` failed is written to `/var/lib/hypomnema-update/blocked` and not tried again
     until a newer release is out; one that installs removes the file, and removing it by hand retries the release
     (issue #349, after OpenMausBot's `update-runner.sh` STATE/blocked). Before, the timer stopped the control plane

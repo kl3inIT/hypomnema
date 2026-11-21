@@ -347,6 +347,10 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	// A view-only link's files (issue #745), checked against the link on every request, as a frame's are.
 	mux.HandleFunc(sharesPath+"{token}/files/{rev}/{path...}", s.shareFiles)
 
+	// A track of the videos' music library (issue #910, row 6a): checked before its body is read, which the
+	// contract's validator would read whole first.
+	mux.HandleFunc("POST "+musicUploadPath, s.uploadMusic)
+
 	contract := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := bodyLimit(r)
 		if limit > maxBodyBytes {

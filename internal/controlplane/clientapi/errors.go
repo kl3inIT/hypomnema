@@ -38,6 +38,8 @@ func statusOf(code openapi.ErrorCode) int {
 		return http.StatusTooManyRequests
 	case openapi.TimedOut:
 		return http.StatusGatewayTimeout
+	case openapi.InsufficientStorage:
+		return http.StatusInsufficientStorage
 	default:
 		return http.StatusInternalServerError
 	}
@@ -63,6 +65,10 @@ func codeOf(err error) openapi.ErrorCode {
 	}
 
 	if code, ok := videoCode(err); ok {
+		return code
+	}
+
+	if code, ok := musicCode(err); ok {
 		return code
 	}
 
@@ -130,6 +136,10 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 
 	if errors.Is(err, videos.ErrBusy) {
 		w.Header().Set("Retry-After", "1")
+	}
+
+	if errors.Is(err, videos.ErrMusicBusy) {
+		w.Header().Set("Retry-After", musicBusyRetry)
 	}
 
 	writeJSONError(w, statusOf(code), code, message)

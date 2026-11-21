@@ -3,7 +3,8 @@
 // server: run as root by a systemd oneshot that a timer starts, one at a time under a lock, it reads the release
 // manifest, downloads the binary into a root-owned folder, requires the manifest's SHA-256 and the version the
 // binary reports, and then has the NEW binary install itself (`hypomnema update install`), so that the steps and the
-// launchers are always the release's own: stop the control plane, back up its database, put the binary in place,
+// launchers are always the release's own: stop the control plane, back up its database with the videos' music
+// library (published whole, the five newest kept whatever the outcome), put the binary in place,
 // migrate as the control plane's user, start it, wait for /readyz, and only then run the release's
 // setup-coordinator.sh. A control plane that does not become ready is put back as it was, binary and database.
 package selfupdate
@@ -45,6 +46,9 @@ type Options struct {
 	// Reports is the version a binary reports; nil runs `<binary> version`.
 	Reports func(ctx context.Context, path string) (string, error)
 	Out     io.Writer
+
+	// copyData copies a backup's bytes; nil: io.Copy. A test fails it as a full disk would.
+	copyData func(dst io.Writer, src io.Reader) (int64, error)
 }
 
 // Defaults for zm's layout (docs: the deploy notes).

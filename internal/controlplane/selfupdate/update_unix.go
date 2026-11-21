@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/deploy/coordinator"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
 	"github.com/kl3inIT/hypomnema/internal/shared/release"
 )
 
@@ -102,7 +103,8 @@ func Update(ctx context.Context, o Options) error {
 func Install(ctx context.Context, o Options, from string) error {
 	run := o.run()
 	stamp := time.Now().UTC().Format("20060102-150405")
-	backup := filepath.Join(o.Home, "data", "predeploy-"+stamp)
+	data := filepath.Join(o.Home, "data")
+	backup := filepath.Join(data, "predeploy-"+stamp)
 	previous := o.binary() + ".previous"
 
 	owner, err := lookup(o.User)
@@ -125,9 +127,17 @@ func Install(ctx context.Context, o Options, from string) error {
 		return err
 	}
 
-	if err := backUp(o.database(), backup, owner); err != nil {
+	if err := backUp(o, backup, owner); err != nil {
 		return errors.Join(err, start(ctx, run, o.Unit))
 	}
+
+	// Once the backup is published, the newest backupsKept are kept whatever happens next: an update that rolls back
+	// or fails leaves no more backups than one that works (issue #910, row 6d).
+	defer func() {
+		if err := pruneBackups(data, backupsKept); err != nil {
+			o.printf("removing old backups failed: %v\n", err)
+		}
+	}()
 
 	if err := place(o.binary(), previous, from, owner); err != nil {
 		return errors.Join(err, start(ctx, run, o.Unit))
@@ -155,11 +165,7 @@ func Install(ctx context.Context, o Options, from string) error {
 		return fmt.Errorf("the control plane runs the new release, but setting up the coordinator failed: %w", err)
 	}
 
-	o.printf("the control plane runs the new release; the database before it is in %s\n", backup)
-
-	if err := pruneBackups(filepath.Join(o.Home, "data"), backupsKept); err != nil {
-		o.printf("removing old database backups failed: %v\n", err)
-	}
+	o.printf("the control plane runs the new release; the database and the music before it are in %s\n", backup)
 
 	return nil
 }
@@ -168,9 +174,20 @@ func Install(ctx context.Context, o Options, from string) error {
 // a rollback needs only the newest, the others are for the owner).
 const backupsKept = 5
 
-// pruneBackups removes all but the newest keep `predeploy-*` folders in dir, by when they were made. It runs only
-// after an update that worked.
+// pruneBackups removes all but the newest keep `predeploy-*` folders in dir, by when they were made, and the
+// `.predeploy-*.part` folders a backup that stopped half-written left. It runs once an update's backup is published,
+// whatever the update's outcome. A music file's bytes go with the last backup that links it.
 func pruneBackups(dir string, keep int) error {
+	stale, err := filepath.Glob(filepath.Join(dir, ".predeploy-*"+partSuffix))
+	if err != nil {
+		return err
+	}
+
+	var staleErrs []error
+	for _, p := range stale {
+		staleErrs = append(staleErrs, os.RemoveAll(p))
+	}
+
 	matches, err := filepath.Glob(filepath.Join(dir, "predeploy-*"))
 	if err != nil {
 		return err
@@ -192,13 +209,13 @@ func pruneBackups(dir string, keep int) error {
 		found = append(found, backup{path: m, at: info.ModTime()})
 	}
 
+	errs := staleErrs
+
 	if len(found) <= keep {
-		return nil
+		return errors.Join(errs...)
 	}
 
 	slices.SortFunc(found, func(a, b backup) int { return b.at.Compare(a.at) })
-
-	var errs []error
 
 	for _, b := range found[keep:] {
 		errs = append(errs, os.RemoveAll(b.path))
@@ -278,9 +295,119 @@ func lookup(name string) (ids, error) {
 	return ids{uid, gid}, nil
 }
 
-// backUp copies the database and its WAL files into dir, owned by the control plane's user.
-func backUp(database, dir string, owner ids) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+// partSuffix ends the name of a backup being written.
+const partSuffix = ".part"
+
+// musicBackup is the folder of a backup that holds the videos' music library.
+const musicBackup = "videos-music"
+
+// backUp makes the backup of an update as a pair, the database and the videos' music library, published whole (issue
+// #910, row 6d): into .predeploy-<stamp>.part it copies the database and its WAL files and hard-links every file of
+// the music folder (copying across file systems; an absent folder is backed up empty), syncs them, and only then
+// renames the folder to dir, owned by the control plane's user. Whatever fails removes the .part folder. A track's
+// file never changes once kept, so a link is its copy, and the backups that keep an unchanged track share it.
+func backUp(o Options, dir string, owner ids) (err error) {
+	part := filepath.Join(filepath.Dir(dir), "."+filepath.Base(dir)+partSuffix)
+
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(part)
+		}
+	}()
+
+	if err := os.MkdirAll(part, 0o700); err != nil {
+		return fmt.Errorf("making %s: %w", part, err)
+	}
+
+	if err := os.Lchown(part, owner.uid, owner.gid); err != nil {
+		return fmt.Errorf("giving %s to the control plane's user: %w", part, err)
+	}
+
+	database := o.database()
+
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		from := database + suffix
+		to := filepath.Join(part, filepath.Base(from))
+
+		if err := copyFileBy(o.copyData, from, to, 0o600, owner); err != nil {
+			if suffix != "" && errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+
+			return fmt.Errorf("backing up the database: %w", err)
+		}
+	}
+
+	err = linkFiles(o.copyData, videos.MusicDir(database), filepath.Join(part, musicBackup), owner, false)
+	if err != nil {
+		return fmt.Errorf("backing up the videos' music: %w", err)
+	}
+
+	if err := syncDir(part); err != nil {
+		return err
+	}
+
+	if err := os.Rename(part, dir); err != nil {
+		return fmt.Errorf("publishing the backup %s: %w", dir, err)
+	}
+
+	return syncDir(filepath.Dir(dir))
+}
+
+// linkFiles hard-links every file of from into to, copying when they are on two file systems; to is made, owned by
+// the control plane's user, when it is not there. An absent from is no file. With missingOnly, a file to already has
+// is left as it is.
+func linkFiles(copyData copyFunc, from, to string, owner ids, missingOnly bool) error {
+	entries, err := os.ReadDir(from)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("reading %s: %w", from, err)
+	}
+
+	if missingOnly && len(entries) == 0 {
+		return nil
+	}
+
+	if err := mkdirOwned(to, owner); err != nil {
+		return err
+	}
+
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+
+		src, dst := filepath.Join(from, e.Name()), filepath.Join(to, e.Name())
+
+		if missingOnly {
+			if _, err := os.Lstat(dst); err == nil {
+				continue
+			}
+		}
+
+		err := os.Link(src, dst)
+		if errors.Is(err, syscall.EXDEV) {
+			err = copyFileBy(copyData, src, dst, 0o600, owner)
+		}
+
+		if err != nil {
+			return fmt.Errorf("linking %s: %w", dst, err)
+		}
+	}
+
+	return syncDir(to)
+}
+
+// mkdirOwned makes dir and the parents it lacks, each owned by the control plane's user.
+func mkdirOwned(dir string, owner ids) error {
+	if _, err := os.Stat(dir); err == nil {
+		return nil
+	}
+
+	if err := mkdirOwned(filepath.Dir(dir), owner); err != nil {
+		return err
+	}
+
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("making %s: %w", dir, err)
 	}
 
@@ -288,17 +415,23 @@ func backUp(database, dir string, owner ids) error {
 		return fmt.Errorf("giving %s to the control plane's user: %w", dir, err)
 	}
 
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		from := database + suffix
-		to := filepath.Join(dir, filepath.Base(from))
+	return nil
+}
 
-		if err := copyFile(from, to, 0o600, owner); err != nil {
-			if suffix != "" && errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
+// syncDir makes a folder's entries durable.
+func syncDir(dir string) error {
+	f, err := os.Open(dir) //nolint:gosec // a folder of the update's own layout
+	if err != nil {
+		return fmt.Errorf("syncing %s: %w", dir, err)
+	}
 
-			return fmt.Errorf("backing up the database: %w", err)
-		}
+	err = f.Sync()
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+
+	if err != nil {
+		return fmt.Errorf("syncing %s: %w", dir, err)
 	}
 
 	return nil
@@ -353,6 +486,12 @@ func rollBack(
 		}
 	}
 
+	// The tracks deleted since the backup come back, as the same files: their rows came back with the database.
+	if err := linkFiles(o.copyData, filepath.Join(backup, musicBackup), videos.MusicDir(o.database()), owner,
+		true); err != nil {
+		return fmt.Errorf("putting the videos' music back: %w", err)
+	}
+
 	if err := start(ctx, run, o.Unit); err != nil {
 		return err
 	}
@@ -398,7 +537,19 @@ func setUpCoordinator(
 	return run(ctx, "sh", filepath.Join(dir, "setup-coordinator.sh"), o.User, dir)
 }
 
+// copyFunc copies a file's bytes, io.Copy unless a test fails it.
+type copyFunc func(dst io.Writer, src io.Reader) (int64, error)
+
 func copyFile(from, to string, mode os.FileMode, owner ids) error {
+	return copyFileBy(nil, from, to, mode, owner)
+}
+
+// copyFileBy copies from to to with copyData (io.Copy when nil), synced, with mode and owner.
+func copyFileBy(copyData copyFunc, from, to string, mode os.FileMode, owner ids) error {
+	if copyData == nil {
+		copyData = io.Copy
+	}
+
 	in, err := os.Open(from) //nolint:gosec // paths of the update's own layout
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", from, err)
@@ -410,7 +561,12 @@ func copyFile(from, to string, mode os.FileMode, owner ids) error {
 		return fmt.Errorf("writing %s: %w", to, err)
 	}
 
-	if _, err := io.Copy(out, in); err != nil {
+	_, err = copyData(out, in)
+	if err == nil {
+		err = out.Sync()
+	}
+
+	if err != nil {
 		_ = out.Close()
 
 		return fmt.Errorf("writing %s: %w", to, err)
