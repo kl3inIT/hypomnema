@@ -497,6 +497,16 @@ func restoreBot(ctx context.Context, q *store.Queries, now int64, b Bot, removed
 		return err
 	}
 
+	// An undo puts back that a Bot read the owner's accounts only; it never makes one use them again, which only the
+	// owner does (issue #1023).
+	if b.OwnerAccounts == OwnerAccountsRead {
+		if err := q.SetBotOwnerAccounts(ctx, store.SetBotOwnerAccountsParams{
+			OwnerAccounts: OwnerAccountsRead, Now: now, ID: b.ID,
+		}); err != nil {
+			return fmt.Errorf("putting back what bot %s may do with the owner's accounts: %w", b.ID, err)
+		}
+	}
+
 	row, err := q.GetBot(ctx, b.ID)
 	if err != nil {
 		return notFound(err, "bot", b.ID)
