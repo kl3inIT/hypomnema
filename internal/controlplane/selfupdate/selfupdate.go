@@ -14,6 +14,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -49,6 +50,10 @@ type Options struct {
 
 	// copyData copies a backup's bytes; nil: io.Copy. A test fails it as a full disk would.
 	copyData func(dst io.Writer, src io.Reader) (int64, error)
+	// link hard-links within a root; nil: Root.Link. A test fails it as two file systems would (EXDEV).
+	link func(root *os.Root, oldname, newname string) error
+	// syncDir syncs a folder of a root; nil: its own Sync. A test fails it.
+	syncDir func(root *os.Root, name string) error
 }
 
 // Defaults for zm's layout (docs: the deploy notes).

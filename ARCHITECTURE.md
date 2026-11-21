@@ -1067,10 +1067,11 @@ sequenceDiagram
     `video_music` (id `mus_…`, name, file, media type, decoded length, bytes) and an immutable file
     `videos/music/<id>.<ext>` (`videos.MusicDir(database)`). An upload is received one at a time; it is refused
     before its body is read when the library's files plus it pass the 5 GB quota (owner, 2026-11-21) or the disk
-    has less than 400 MB plus it free; it is streamed into `<id>.*.part` there, synced, refused when under 400 MB
-    is left after it, typed by ffprobe (`compose.ProbeFile`: exactly one audio stream, a cover picture aside;
-    mp3 `audio/mpeg`, m4a or mp4 with AAC `audio/mp4`, wav with PCM `audio/wav`, flac `audio/flac`, ogg with Vorbis
-    or Opus `audio/ogg`; ALAC and the rest refused) and decoded whole by `compose.Measure` (`-t 1201`, 60 s at
+    has less than 400 MB plus it free, or its free disk cannot be read; it is streamed into `<id>.*.part` there,
+    synced, refused when under 400 MB is left after it, typed by ffprobe (`compose.ProbeFile`: exactly one audio
+    stream and no video, a cover picture, chapters and other data streams aside; mp3 `audio/mpeg`, an ISO base
+    media file of an M4A or MP4 major brand with AAC `audio/mp4`, wav with PCM `audio/wav`, flac `audio/flac`, ogg
+    with Vorbis or Opus `audio/ogg`; ALAC, QuickTime's MOV and the rest refused) and decoded whole by `compose.Measure` (`-t 1201`, 60 s at
     most): its length is the decoded length, 10 s to 20 minutes, and silence (−70 LUFS or no peak) is refused.
     Then it is renamed, the folder synced and the row inserted. A full disk anywhere, ENOSPC from a file or
     SQLite's SQLITE_FULL (`sqlite.IsFull`), is `ErrDiskLow`; whatever fails removes the file. At start, inside
@@ -1103,9 +1104,12 @@ sequenceDiagram
     quota_bytes}`, `GET /videos/music/{id}/audio` with its stored type, `nosniff` and Range requests, `DELETE
     /videos/music/{id}` (204, 404, 409), and the upload `POST /api/v1/videos/music?name=…` on a route of its own
     outside the contract's validator (which reads a whole body first), described in `ListVideoMusic`: owner only
-    (401/403), its Content-Length required (411) and at most 64 MB (413), then the service's busy (429,
-    Retry-After 5), quota and disk (507 `insufficient_storage`) checks, all before a byte of the body is read, and
-    201 with the track; `hypomnema videos music add|list|rm`. The web's "Make again" of a failed revision is a
+    (401/403), sent as `application/octet-stream` as a meeting's recording is (400 otherwise, so a page of another
+    origin cannot send one as a simple request with the session's cookie), its Content-Length required (411) and at
+    most 64 MB (413), then the service's busy (429, Retry-After 5), quota and disk (507 `insufficient_storage`)
+    checks, all before a byte of the body is read, and 201 with the track. Its answers say `Connection: close`, so
+    Go's server answers a refusal at once instead of first reading a body left unread (a chunked one, or one under
+    256 KB); `hypomnema videos music add|list|rm`. The web's "Make again" of a failed revision is a
     retry. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
     `video_get {video}` (`agentapi/videos.go`), listed and called on the control plane's tools route apart from
     the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
@@ -4952,17 +4956,23 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     starts no pi, so none starts while the old control plane stops nor in the new one before
     `setup-coordinator.sh` has put pi in place. A marker whose process is gone is no update.
   - `update install`: stops the unit and backs up the database with the videos' music library as a pair (#910):
-    into `data/.predeploy-<time>.part/` it copies the database and its WAL files and hard-links every file of
-    `data/videos/music/` into `videos-music/` (copying across file systems; an absent folder is backed up empty),
-    syncs them, and only then renames the folder to `data/predeploy-<time>/`; a backup that fails is removed and
-    the unit started again. It keeps the binary as `bin/hypomnema.previous` and puts the new one in place, runs
+    into `data/.predeploy-<time>.part/` it copies the database and its WAL files and hard-links every regular file
+    of `data/videos/music/` into `videos-music/` (copying across file systems, under a temporary name renamed in
+    place; an absent folder is backed up empty), syncs them, gives them to the control plane's user, and only then
+    renames the folder to `data/predeploy-<time>/`; a backup that fails is removed and the unit started again. The
+    update runs as root over the user's files, so these operations go through an `os.Root` of `data/`
+    (`selfupdate/backup_unix.go`): no path or symlink leads out of it, a music folder (or a folder above it) that is
+    a symlink is refused, anything in it that is not a regular file is left out, and a file is checked again once
+    opened or linked. It keeps the binary as `bin/hypomnema.previous` and puts the new one in place, runs
     `hypomnema migrate` as the user (the migration stays an explicit step, `docs/conventions.md`), starts the unit
     and waits up to a minute for `/readyz`. A control plane that does not become ready is stopped and its old
-    binary and database put back, every track of the backup missing from the music folder linked back, and
-    started. Once it is ready, the release's `deploy/coordinator` files, built into the binary
+    binary and database put back, every regular file of the backup's music missing from the music folder linked
+    back the same way (a name the folder has, of any kind, left as it is; a failure there is reported and does not
+    keep the unit stopped), and started. Once it is ready, the release's `deploy/coordinator` files, built into the binary
     (`deploy/coordinator/files.go`), are written to a root-owned folder and its `setup-coordinator.sh` run, so the
     launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's. Whatever the
-    outcome once the backup is published (ready, rolled back, the binary not placed, the coordinator not set up),
+    outcome once the backup is published (ready, rolled back, the binary not placed, the coordinator not set up,
+    the data folder's sync failing),
     the five newest `data/predeploy-*` folders are kept and the others removed, with any stale `.predeploy-*.part`
     (issue #335). A deleted track's bytes stay while a kept backup links it; an unchanged track is one inode
     across backups. Restoring a backup by hand: stop the service, then restore the music into an empty folder,
