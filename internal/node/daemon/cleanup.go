@@ -67,12 +67,15 @@ func (d *Daemon) maintain(ctx context.Context, out chan<- nodeproto.Message, ack
 // trimCaches trims the caches and keeps whether the volume is still below its floor. A recovery a heartbeat saw while
 // the trim ran clears what it says: a later drop is reported blocked only by a trim that ran after it (issue #1017).
 func (d *Daemon) trimCaches(ctx context.Context) {
-	before := d.diskRecoveries.Load()
+	d.diskMu.Lock()
+	before := d.diskRecoveries
+	d.diskMu.Unlock()
+
 	blocked := d.cfg.Maintenance.TrimCaches(ctx, func(prune func()) { d.whileIdle(ctx, prune) })
-	d.diskBlocked.Store(blocked)
-	if blocked && d.diskRecoveries.Load() != before {
-		d.diskBlocked.Store(false)
-	}
+
+	d.diskMu.Lock()
+	d.diskBlocked = blocked && d.diskRecoveries == before
+	d.diskMu.Unlock()
 }
 
 func (d *Daemon) cleanWorktrees(ctx context.Context, out chan<- nodeproto.Message, acks <-chan nodeproto.CleanupAck) {

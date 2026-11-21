@@ -394,7 +394,9 @@ func TestHeartbeatSaysTheDiskIsBlockedAfterTrimming(t *testing.T) {
 	}
 
 	assert.False(t, blocked(), "below the floor before a trim ran")
-	d.diskBlocked.Store(true)
+	d.diskMu.Lock()
+	d.diskBlocked = true
+	d.diskMu.Unlock()
 	assert.True(t, blocked())
 	free = floor
 	assert.False(t, blocked(), "space came back before the next trim")
@@ -420,7 +422,9 @@ func TestHeartbeatForgetsAnOldTrimAfterARecovery(t *testing.T) {
 		return hb.Disk.Blocked
 	}
 
-	d.diskBlocked.Store(true)
+	d.diskMu.Lock()
+	d.diskBlocked = true
+	d.diskMu.Unlock()
 	require.True(t, blocked())
 	free = floor
 	require.False(t, blocked(), "recovered")

@@ -20,7 +20,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -152,9 +151,11 @@ type Daemon struct {
 	maintenance chan struct{}
 	// diskBlocked says the last trim of the caches left the worktree volume below its floor (issue #1017).
 	// diskRecoveries counts the heartbeats that found it at or above the floor again, each of which clears
-	// diskBlocked, so that a trim that began before one does not set it.
-	diskBlocked    atomic.Bool
-	diskRecoveries atomic.Uint64
+	// diskBlocked, so that a trim that began before one does not set it. diskMu guards both, so a heartbeat never
+	// reads what such a trim found.
+	diskMu         sync.Mutex
+	diskBlocked    bool
+	diskRecoveries uint64
 	diskProbe      chan struct{}
 	statsProbe     chan struct{}
 	cfg            Config
@@ -660,11 +661,13 @@ func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
 	hb := nodeproto.Heartbeat{Reaches: d.hosts.said(), Tools: d.tools.said(), Device: d.phoneState()}
 	if d.cfg.Disk != nil {
 		disk := d.measureDisk(ctx)
+		d.diskMu.Lock()
 		if disk.AllowsWork() {
-			d.diskRecoveries.Add(1)
-			d.diskBlocked.Store(false)
+			d.diskRecoveries++
+			d.diskBlocked = false
 		}
-		disk.Blocked = d.diskBlocked.Load() && disk.FreeBytes != nil && !disk.AllowsWork()
+		disk.Blocked = d.diskBlocked && disk.FreeBytes != nil && !disk.AllowsWork()
+		d.diskMu.Unlock()
 		hb.Disk = &disk
 	}
 	hb.Stats = d.measureStats(ctx)
