@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
@@ -675,6 +676,11 @@ func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries
 	}
 	if open {
 		return fmt.Errorf("%w: chat %s has open Runs; settle them before deleting the chat", ErrConflict, id)
+	}
+
+	// What a Bot was doing in the chat is given back (issue #1004).
+	if err := s.inbox.EndAttemptsTx(ctx, q, now, inboxstore.WorkChat, id, "the chat was deleted"); err != nil {
+		return err
 	}
 
 	blobs, err := q.ListArtifactBlobsOfChat(ctx, id)

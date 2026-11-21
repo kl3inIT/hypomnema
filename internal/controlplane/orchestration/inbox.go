@@ -2,8 +2,10 @@ package orchestration
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
@@ -40,4 +42,42 @@ func (s *Service) RoutineRunOf(ctx context.Context, tok Token) (string, error) {
 	}
 
 	return run.ID, nil
+}
+
+// InboxWorkOf is where a Bot's pi in a chat works on an Inbox item (issue #1004), as the client API's StartTodo
+// says: the Routine's run the chat was opened for while it is live, else the chat.
+func (s *Service) InboxWorkOf(ctx context.Context, chatID string) (inboxstore.Work, error) {
+	run, err := s.RoutineRunOf(ctx, Token{Kind: bearertoken.Bot, Chat: chatID})
+	if err != nil {
+		return inboxstore.Work{}, err
+	}
+
+	if run != "" {
+		return inboxstore.Work{Kind: inboxstore.WorkRun, ID: run}, nil
+	}
+
+	return inboxstore.Work{Kind: inboxstore.WorkChat, ID: chatID}, nil
+}
+
+// InboxAttempt is the attempt of a Bot's pi at the Inbox item it names (issue #1004): the item's current attempt
+// when the Bot is doing it in this chat or the chat's Routine's run, so that an Approval the Bot asks while working
+// on the item records it (NewApproval.AttemptID) and the Bot never handles attempt ids. Any other item is a conflict
+// the Bot is told.
+func (s *Service) InboxAttempt(ctx context.Context, todoID, bot, chatID string) (string, error) {
+	t, err := s.inbox.Get(ctx, todoID)
+	if err != nil {
+		return "", err
+	}
+
+	w, err := s.InboxWorkOf(ctx, chatID)
+	if err != nil {
+		return "", err
+	}
+
+	if t.State != inboxstore.Doing || t.Work == nil || t.Work.Bot != bot || t.Work.Kind != w.Kind || t.Work.ID != w.ID {
+		return "", fmt.Errorf("%w: to-do %s is not one you are doing here (it is %s); start it with inbox_start first",
+			ErrConflict, todoID, t.State)
+	}
+
+	return t.Work.Attempt, nil
 }

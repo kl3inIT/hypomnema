@@ -123,7 +123,7 @@ func (s *Server) CreateTodo(ctx context.Context, req openapi.CreateTodoRequestOb
 	}
 
 	n := inboxstore.NewTodo{
-		Title: b.Title, Notes: val(b.Notes), DoneWhen: val(b.DoneWhen), Due: dueIn(b.Due),
+		Title: b.Title, Notes: val(b.Notes), DoneWhen: val(b.DoneWhen), Draft: val(b.Draft), Due: dueIn(b.Due),
 		Assignee: assigneeIn(b.Assignee), Source: src, WhyOpen: string(val(b.WhyOpen)),
 		IdempotencyKey: val(req.Params.IdempotencyKey),
 	}
@@ -158,7 +158,8 @@ func (c inboxCaller) newSource(b openapi.NewTodoSource) (inboxstore.Source, erro
 
 	switch {
 	case src.Kind == c.source:
-	case c.source == inboxstore.FromRoutine && (src.Kind == inboxstore.FromLark || src.Kind == inboxstore.FromZalo):
+	case c.source == inboxstore.FromRoutine && (src.Kind == inboxstore.FromLark || src.Kind == inboxstore.FromZalo ||
+		src.Kind == inboxstore.FromWhatsApp):
 		src.ID = val(b.Id)
 
 		return src, nil
@@ -206,7 +207,7 @@ func (s *Server) EditTodo(ctx context.Context, req openapi.EditTodoRequestObject
 	}
 
 	b := req.Body
-	e := inboxstore.Edit{Title: b.Title, Notes: b.Notes, DoneWhen: b.DoneWhen}
+	e := inboxstore.Edit{Title: b.Title, Notes: b.Notes, DoneWhen: b.DoneWhen, Draft: b.Draft}
 
 	if b.Due != nil {
 		due := dueIn(b.Due)
@@ -408,7 +409,9 @@ func linkIn(l *openapi.TodoLink) *inboxstore.Link {
 		return nil
 	}
 
-	return &inboxstore.Link{Kind: string(l.Kind), Ref: l.Ref, Label: val(l.Label)}
+	return &inboxstore.Link{
+		Kind: string(l.Kind), Ref: l.Ref, Label: val(l.Label), Account: val(l.Account), Chat: val(l.Chat),
+	}
 }
 
 func linksIn(ls *[]openapi.TodoLink) []inboxstore.Link {
@@ -421,7 +424,9 @@ func linksIn(ls *[]openapi.TodoLink) []inboxstore.Link {
 }
 
 func linkOut(l inboxstore.Link) openapi.TodoLink {
-	return openapi.TodoLink{Kind: openapi.TodoLinkKind(l.Kind), Ref: l.Ref, Label: ptr(l.Label)}
+	return openapi.TodoLink{
+		Kind: openapi.TodoLinkKind(l.Kind), Ref: l.Ref, Label: ptr(l.Label), Account: ptr(l.Account), Chat: ptr(l.Chat),
+	}
 }
 
 func actorOut(a inboxstore.Actor) openapi.TodoActor {
@@ -435,7 +440,7 @@ func assigneeOut(a inboxstore.Assignee) openapi.TodoAssignee {
 // todoOut is a to-do as the API shows it; with its history when events.
 func todoOut(t inboxstore.Todo, events bool) openapi.Todo {
 	out := openapi.Todo{
-		Id: t.ID, Revision: t.Revision, Title: t.Title, Notes: t.Notes, DoneWhen: t.DoneWhen,
+		Id: t.ID, Revision: t.Revision, Title: t.Title, Notes: t.Notes, DoneWhen: t.DoneWhen, Draft: t.Draft,
 		Due: openapi.TodoDue{Kind: openapi.TodoDueKind(t.Due.Kind), Zone: ptr(t.Due.Zone)}, Assignee: assigneeOut(t.Assignee),
 		State: openapi.TodoState(t.State), SnoozedUntil: t.SnoozedUntil,
 		Source: openapi.TodoSource{

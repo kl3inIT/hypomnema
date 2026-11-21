@@ -67,9 +67,11 @@ func TestInboxMigrationOnADatabaseWithData(t *testing.T) {
 	assert.NotEqual(t, "apr_1", asked.ID, "the same request in an attempt is its own Approval")
 	assert.Equal(t, td.Work.Attempt, asked.AttemptID)
 
-	td, err = s.Inbox().LinkApproval(ctx, inboxstore.Change{Actor: system, ID: td.ID, Revision: td.Revision}, asked.ID)
+	// Asked in the attempt, the Approval puts the item in review in the same write (issue #1004).
+	td, err = s.Inbox().Get(ctx, td.ID)
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.Review, td.State)
+	assert.Equal(t, asked.ID, td.ApprovalID)
 
 	n, err := s.Inbox().NeedsYou(ctx, t0)
 	require.NoError(t, err)

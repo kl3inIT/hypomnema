@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
@@ -235,6 +236,11 @@ func (s *Service) FinishRoutineRun(ctx context.Context, runID string, r routines
 			RoutineRunID: nullString(runID), Now: sql.NullInt64{Int64: now, Valid: true},
 		}); err != nil {
 			return fmt.Errorf("refusing what run %s still asked: %w", runID, err)
+		}
+
+		// What the run's Bot was doing in it is given back (issue #1004).
+		if err := s.inbox.EndAttemptsTx(ctx, q, now, inboxstore.WorkRun, runID, "the Routine's run ended"); err != nil {
+			return err
 		}
 
 		out, err = routinestore.SettleRunTx(ctx, q, now, runID, result)
