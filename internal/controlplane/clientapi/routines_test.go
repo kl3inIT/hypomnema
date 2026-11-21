@@ -301,3 +301,34 @@ func TestAReadChecksTokenKeepsItsRunsAccess(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, todo.StatusCode(), string(todo.Body))
 }
+
+// Scenario: issue #1023 with the owner's choice of 2026-11-21 (review of #1037, round 2): the owner makes the Thư
+// ký Bot read his own accounts only; the main Bot, from its chat, cannot make it use them again.
+func TestOnlyTheOwnerSetsWhatABotDoesWithHisAccounts(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+	_, _ = w.token("pi-coordinator", bearertoken.Coordinator)
+
+	read, use := openapi.OwnerAccountsRead, openapi.OwnerAccountsUse
+	made, err := owner.CreateBotWithResponse(ctx, openapi.NewBot{Name: "Thư ký",
+		Settings: &openapi.BotSettings{OwnerAccounts: &read}})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, made.StatusCode(), string(made.Body))
+	require.NotNil(t, made.JSON201.OwnerAccounts)
+	assert.Equal(t, read, *made.JSON201.OwnerAccounts)
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	main := w.piToken("pi-coordinator", chat.ID, orchestration.DefaultBotID)
+
+	changed, err := main.PutBotWithResponse(ctx, made.JSON201.Id, openapi.BotSettings{OwnerAccounts: &use})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, changed.StatusCode(), string(changed.Body))
+
+	got, err := owner.GetBotWithResponse(ctx, made.JSON201.Id)
+	require.NoError(t, err)
+	assert.Equal(t, read, *got.JSON200.OwnerAccounts)
+}

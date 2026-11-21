@@ -448,3 +448,34 @@ func TestMeetingsAreFoundByTheirNotesAndReadOnInOrder(t *testing.T) {
 		assert.Equal(t, 1, times, line)
 	}
 }
+
+// Scenario: issue #1023 with the owner's choice of 2026-11-21 (review of #1037, round 2): in the Thư ký's own chat,
+// on the owner's turn, it reads his Zalo but has no send as him: zalo_send is neither listed nor run, whatever he
+// approved, and nothing is asked.
+func TestABotThatReadsTheOwnersAccountsHasNoSend(t *testing.T) {
+	t.Parallel()
+
+	sw := newSecretaryWorld(t)
+	ctx := t.Context()
+	bot := sw.bot
+	bot.OwnerAccounts = orchestration.OwnerAccountsRead
+	_, err := sw.svc.PutBot(ctx, bot)
+	require.NoError(t, err)
+
+	chat, err := sw.svc.CreateChat(ctx, bot.ID, "")
+	require.NoError(t, err)
+	_, err = sw.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "nhắn Lan giúp anh là mai em gửi")
+	require.NoError(t, err)
+	pi, err := sw.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
+	require.NoError(t, err)
+
+	listed := toolNames(sw.tools(pi))
+	assert.Contains(t, listed, agenttool.ToolZaloMessages, "reads stay")
+	assert.NotContains(t, listed, agenttool.ToolZaloSend)
+
+	_, text, failed := sw.use(pi, agenttool.ToolZaloSend, `{"chat":"g_lan","text":"Mai em gửi ạ"}`)
+	assert.True(t, failed)
+	assert.Contains(t, text, agenttool.OwnerReadOnlyRefusal)
+	assert.Empty(t, sw.whatsapp.sent, "nothing is sent as the owner")
+	assert.Empty(t, sw.judge.asked, "nor asked")
+}
