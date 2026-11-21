@@ -144,3 +144,29 @@ func TestABackgroundReportIsChecked(t *testing.T) {
 		require.ErrorIs(t, err, ErrInvalid, name)
 	}
 }
+
+// Scenario (issue #1058, review round 1): a command its deadline ended says so, with OpenClaw's advice on retrying.
+func TestABackgroundCommandItsTimeoutEndedSaysSo(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	require.NoError(t, w.s.StartBackground(ctx, chat.ID, "pi-1", "bg_dddddd"))
+
+	w.clock.now = w.clock.now.Add(30*time.Minute + 5*time.Second)
+	_, err = w.s.EndBackground(ctx, chat.ID, "pi-1", BackgroundEnd{
+		ID: "bg_dddddd", Signal: "SIGKILL", TimedOut: true, Output: "still fetching\n", OutputChars: 15,
+	})
+	require.NoError(t, err)
+
+	waiting, err := w.s.Undelivered(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, waiting, 1)
+	assert.Equal(t, "Background command bg_dddddd was killed (SIGKILL) when its timeout ran out after 30m5s:\n"+
+		"still fetching\nThe command was terminated, but external side effects may already have completed. Verify "+
+		"the resulting state before retrying. Do not automatically rerun commands unless repeating them is safe. Use "+
+		"a higher timeout only when the command is known to be safe to retry.", waiting[0].Text)
+}

@@ -17,17 +17,18 @@ import (
 // A Bot's background commands (issue #1058). pi's bash takes `background: true` (the box's pi-background
 // extension): the command runs on in the box, the tool answers at once, and its exit wakes the chat with an
 // ordinary wake-up, so the Bot ends its turn instead of sleeping to poll, as OpenClaw's exec continues the
-// conversation when a backgrounded command exits (tools.exec.notifyOnExit, on by default; docs/tools/exec.md:178,
-// src/agents/bash-tools.exec-notify.ts). Each command has a row while it runs (OpenClaw's
+// conversation when a backgrounded command exits (tools.exec.notifyOnExit, on by default:
+// src/config/schema.help.runtime.ts:467-470; docs/tools/exec.md:171-173; src/agents/bash-tools.exec-notify.ts:
+// 216-260). Each command has a row while it runs (OpenClaw's
 // bash-process-durable.ts:83-129); the wake takes it out, once. A command whose pi stopped, or that a restart of the
 // control plane cut, is reported lost from its row, as OpenClaw reports what the last Gateway lost
-// (bash-process-durable.ts:132-161). A wake that comes while the chat's pi works waits for its turn to settle and goes
-// with the other wake-ups as the next prompt (the supervisor's deliver), as OpenClaw holds an exit behind the
-// session's turn in flight and lets those waiting share the next one (src/auto-reply/reply/session-event-batch.ts:
-// 34-58).
+// (bash-process-durable.ts:132-161, 200-225). A wake that comes while the chat's pi works waits for its turn to
+// settle and goes with the other wake-ups as the next prompt (the supervisor's deliver), as OpenClaw holds an exit
+// behind the session's turn in flight and lets those waiting share the next one
+// (src/auto-reply/reply/session-event-batch.ts:34-58).
 
 // BackgroundTail is how much of a command's output its wake carries: the last 2,000 characters, OpenClaw's
-// (bash-tools.exec-notify.ts:234, docs/tools/exec.md:181).
+// (bash-tools.exec-notify.ts:234, docs/tools/exec.md:173).
 const BackgroundTail = 2000
 
 // backgroundID is what the extension names a command.
@@ -43,6 +44,8 @@ type BackgroundEnd struct {
 	ExitCode *int
 	// Signal is the signal that ended it, such as SIGTERM; empty when it exited.
 	Signal string
+	// TimedOut says it was killed because its deadline passed.
+	TimedOut bool
 	// Output is the last part of its output, at most BackgroundTail characters.
 	Output string
 	// OutputChars is how many characters it wrote in all.
@@ -145,7 +148,7 @@ func (s *Service) LoseBackground(ctx context.Context, chatID, pi, why string) (i
 
 // ChatsWithBackground lists the chats whose pi runs a command in the background: the supervisor does not stop such a
 // pi for being idle, as its box would end the command with it (OpenClaw's process owner keeps a backgrounded command
-// until it exits, docs/tools/exec.md:191).
+// until it exits, docs/tools/exec.md:185 and src/worker/worker-runtime-background-exec.suite.ts:462-489).
 func (s *Service) ChatsWithBackground(ctx context.Context) ([]string, error) {
 	ids, err := s.read().ChatsWithBackground(ctx)
 	if err != nil {
@@ -192,7 +195,13 @@ var signalName = regexp.MustCompile(`^SIG[A-Z0-9]{1,10}$`)
 // needs nothing more, after OpenClaw's (bash-tools.exec-notify.ts:245-260).
 func endedText(e BackgroundEnd, ran time.Duration) string {
 	how := "exited with code " + strconv.Itoa(derefInt(e.ExitCode))
-	if e.ExitCode == nil {
+
+	switch {
+	case e.TimedOut && e.ExitCode == nil:
+		how = "was killed (" + e.Signal + ") when its timeout ran out"
+	case e.TimedOut:
+		how = "exited with code " + strconv.Itoa(*e.ExitCode) + " when its timeout ran out"
+	case e.ExitCode == nil:
 		how = "was killed by " + e.Signal
 	}
 
@@ -219,8 +228,18 @@ func endedText(e BackgroundEnd, ran time.Duration) string {
 		b.WriteString("\nFull output: " + e.OutputFile + "; read only the part you need.")
 	}
 
+	if e.TimedOut {
+		b.WriteString("\n" + timeoutGuidance)
+	}
+
 	return b.String()
 }
+
+// timeoutGuidance follows the wake of a command its timeout ended, OpenClaw's (src/agents/bash-tools.exec-output.ts:
+// 117-118, 174-182).
+const timeoutGuidance = "The command was terminated, but external side effects may already have completed. Verify " +
+	"the resulting state before retrying. Do not automatically rerun commands unless repeating them is safe. Use a " +
+	"higher timeout only when the command is known to be safe to retry."
 
 // lostText is the wake of a command whose pi stopped while it ran, after OpenClaw's lost-command notice
 // (bash-process-durable.ts:158-161): its box ended it, so no result will come.

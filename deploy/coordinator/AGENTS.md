@@ -42,7 +42,7 @@ are for is said after these rules, with your memory; these rules hold for every 
   your Runs, the owner's answer to an approval, a Routine's run starting in a chat of its own, or the end of a
   command you ran in the background. Act on it as the skill says, say what changed when it matters, then end your
   turn.
-<!-- OpenClaw docs/tools/exec.md:176-178; opencode's shell "DO NOT poll" (issue #1058) -->
+<!-- OpenClaw docs/tools/exec.md:171-172; opencode's shell "DO NOT poll" (issue #1058) -->
 - Run a command that may take longer than about a minute with bash's `background: true`, then end your turn if only
   waiting is left: its end wakes you with its exit code and the end of its output. Never `sleep` or poll a log to
   wait, and do not put a command in the background yourself with `&` or `nohup`: nothing would wake you, and each

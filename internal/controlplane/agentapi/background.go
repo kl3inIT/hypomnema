@@ -47,8 +47,8 @@ func (s *Server) background(w http.ResponseWriter, r *http.Request) {
 		err = s.store.StartBackground(r.Context(), a.chatID, pi, asked.ID)
 	case agenttool.BackgroundEnded:
 		_, err = s.store.EndBackground(r.Context(), a.chatID, pi, orchestration.BackgroundEnd{
-			ID: asked.ID, ExitCode: asked.ExitCode, Signal: asked.Signal, Output: asked.Output,
-			OutputChars: asked.OutputChars, OutputFile: asked.OutputFile, Dropped: asked.Dropped,
+			ID: asked.ID, ExitCode: asked.ExitCode, Signal: asked.Signal, TimedOut: asked.TimedOut,
+			Output: asked.Output, OutputChars: asked.OutputChars, OutputFile: asked.OutputFile, Dropped: asked.Dropped,
 		})
 	default:
 		refuse(w, http.StatusBadRequest, "kind is started or ended")

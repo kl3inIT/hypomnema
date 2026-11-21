@@ -3,7 +3,7 @@ package agenttool
 // PathBackground is where a Bot's pi says what its background commands do (issue #1058): the box's pi-background
 // extension posts a BackgroundReport when one starts and when it ends, with pi's own token. The control plane keeps
 // the running ones and wakes the chat when one ends, as OpenClaw's exec continues the conversation when a
-// backgrounded command exits (docs/tools/exec.md:178).
+// backgrounded command exits (docs/tools/exec.md:171-173).
 const PathBackground = "/agent/v1/background"
 
 // The kinds of BackgroundReport.
@@ -20,6 +20,8 @@ type BackgroundReport struct {
 	// ExitCode is set when it exited, Signal when a signal ended it.
 	ExitCode *int   `json:"exit_code,omitempty"`
 	Signal   string `json:"signal,omitempty"`
+	// TimedOut says it was killed because its deadline passed.
+	TimedOut bool `json:"timed_out,omitempty"`
 	// Output is the end of its output, at most 2,000 characters; OutputChars how many it wrote in all.
 	Output      string `json:"output,omitempty"`
 	OutputChars int64  `json:"output_chars,omitempty"`

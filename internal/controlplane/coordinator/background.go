@@ -10,8 +10,8 @@ import (
 // A Bot's background commands (issue #1058, orchestration/background.go) run in its pi's box, which ends them when
 // pi ends (--unshare-pid, --die-with-parent). So the supervisor keeps a pi that runs one, however long it is idle, and
 // reports lost the ones a pi had when it stopped, as OpenClaw's process owner keeps a backgrounded command until it
-// exits and reports the ones the last Gateway lost (docs/tools/exec.md:191; src/agents/bash-process-durable.ts:
-// 132-161, 196-225).
+// exits and reports the ones the last Gateway lost (docs/tools/exec.md:185, src/worker/
+// worker-runtime-background-exec.suite.ts:462-489; src/agents/bash-process-durable.ts:132-161, 200-225).
 
 // lostOnStop and lostOnRestart say why a command was lost, in its chat's wake-up.
 const (
