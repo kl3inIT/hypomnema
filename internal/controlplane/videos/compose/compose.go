@@ -242,6 +242,29 @@ func frameOf(f Frame, bg Background, segs []segment, size Size) (*Layout, error)
 	return &l, nil
 }
 
+// Frameable says whether a take's picture can be drawn in frame f on a video of aspect, as Compose would draw it:
+// nil for no frame; ErrTurnedTake when the take's segments are not all of the first one's shape (issue #908, row
+// 11). It reads only the take's record, so a look is checked when a revision is asked for, before it is made.
+func Frameable(take devicetool.Take, f Frame, bg Background, aspect Aspect) error {
+	if !f.Framed() {
+		return nil
+	}
+
+	size, err := aspect.Size()
+	if err != nil {
+		return err
+	}
+
+	segs, err := segments(take, "")
+	if err != nil {
+		return err
+	}
+
+	_, err = frameOf(f, bg, segs, size)
+
+	return err
+}
+
 func (c *composer) compose(ctx context.Context, scenes []Scene) (Result, error) {
 	c.result = Result{Size: c.size}
 

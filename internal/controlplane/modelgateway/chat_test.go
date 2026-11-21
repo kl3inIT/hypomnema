@@ -358,6 +358,7 @@ func TestBotFallbacksSkipRestingAccountsAndKeepTheirOrder(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	g.chat(t, "chat_inherited", "")
 	_, key, err := g.svc.AddChatKey(ctx, "chat_inherited", "", "primary")
 	require.NoError(t, err)
 	status, _, _ := g.call(t, key, `{"model":"backup","messages":[]}`)
@@ -400,6 +401,7 @@ func TestBotFallbacksWaitForEveryRefusedAccount(t *testing.T) {
 	}, backup)
 	_, err := g.svc.ApplyModel(ctx, "name: primary\ntargets: [{provider: codex-subscription, model: gpt-6.1-sol}]\n")
 	require.NoError(t, err)
+	g.chat(t, "chat_inherited", "")
 	_, key, err := g.svc.AddChatKey(ctx, "chat_inherited", "", "primary")
 	require.NoError(t, err)
 	status, _, body := g.call(t, key, `{"model":"primary","messages":[{"role":"user","content":"Hi"}]}`)

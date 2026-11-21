@@ -20,6 +20,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -61,11 +62,19 @@ func run() error {
 
 	defer func() { _ = os.RemoveAll(dir) }()
 
+	// A vault with a root key made for this run: a view-only link is kept only with its token sealed (issue #996).
+	key, err := vault.GenerateKey("browser-tests")
+	if err != nil {
+		return err
+	}
+
 	env := map[string]string{
-		"HYPOMNEMA_DATABASE_PATH": filepath.Join(dir, "hypomnema.db"),
-		"HYPOMNEMA_HTTP_ADDR":     Addr,
-		"HYPOMNEMA_BROWSER":       "0",
-		"HYPOMNEMA_FFMPEG":        "0",
+		"HYPOMNEMA_DATABASE_PATH":       filepath.Join(dir, "hypomnema.db"),
+		"HYPOMNEMA_HTTP_ADDR":           Addr,
+		"HYPOMNEMA_BROWSER":             "0",
+		"HYPOMNEMA_FFMPEG":              "0",
+		"HYPOMNEMA_VAULT_KEYS":          key,
+		"HYPOMNEMA_VAULT_ACTIVE_KEY_ID": "browser-tests",
 	}
 
 	cfg, err := controlplane.LoadConfig(func(name string) string { return env[name] })

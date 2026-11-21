@@ -47,8 +47,11 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/captions"
 )
 
-// clipFormat is the format the clips are spoken in.
-const clipFormat = "mp3"
+// clipFormat is the format the clips are spoken in; wordsSuffix names the word times heard from a clip, beside it.
+const (
+	clipFormat  = "mp3"
+	wordsSuffix = ".words.json"
+)
 
 // spoken is the voice a revision was made with: the clips, and who spoke them.
 type spoken struct {
@@ -70,10 +73,32 @@ func voiceHash(text, provider, model, voice, lang string) string {
 
 // speak voices each line: the first provider of the owner's order that
 // answers speaks the first, and every other line with it; a clip made before
-// with the same text, provider, model and voice is reused. done is told how
-// many lines are voiced, after each.
-func (s *Service) speak(ctx context.Context, source AudioSource, lines []string, asked string, done func(n int),
+// with the same text, provider, model and voice is reused. A pinned revision
+// is spoken only by its pin's provider, with exactly its voice, and the
+// owner's settings are not read (issue #908, row 4). done is told how many
+// lines are voiced, after each; chosen is told who speaks once the first line is spoken.
+func (s *Service) speak(ctx context.Context, source AudioSource, lines []string, asked string, pin *voicePin,
+	done func(n int), chosen func(spoken) error,
 ) (spoken, error) {
+	if pin != nil {
+		out := spoken{provider: pin.provider, model: speech.Model(pin.provider, speech.KindTTS), voice: pin.voice}
+		if err := chosen(out); err != nil {
+			return spoken{}, err
+		}
+
+		for k, line := range lines {
+			clip, err := s.clip(ctx, source, line, pin.provider, pin.voice, true)
+			if err != nil {
+				return spoken{}, fmt.Errorf("scene %d, %s: %w", k+1, pin.provider, err)
+			}
+
+			out.clips = append(out.clips, clip)
+			done(len(out.clips))
+		}
+
+		return out, nil
+	}
+
 	set, err := s.settings(ctx)
 	if err != nil {
 		return spoken{}, err
@@ -97,7 +122,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 			continue
 		}
 
-		clip, err := s.clip(ctx, source, lines[0], p, voiceOf(p))
+		clip, err := s.clip(ctx, source, lines[0], p, voiceOf(p), false)
 		if err != nil {
 			if ctx.Err() != nil {
 				return spoken{}, ctx.Err()
@@ -121,10 +146,14 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 		return spoken{}, fmt.Errorf("scene 1: %s", strings.Join(failures, "; "))
 	}
 
+	if err := chosen(out); err != nil {
+		return spoken{}, err
+	}
+
 	done(1)
 
 	for k, line := range lines[1:] {
-		clip, err := s.clip(ctx, source, line, out.provider, out.voice)
+		clip, err := s.clip(ctx, source, line, out.provider, out.voice, false)
 		if err != nil {
 			return spoken{}, fmt.Errorf("scene %d, %s: %w", k+2, out.provider, err)
 		}
@@ -144,8 +173,10 @@ func (s *Service) settings(ctx context.Context) (speech.Settings, error) {
 	return s.cfg.Settings(ctx)
 }
 
-// clip is a line spoken by a provider: from the cache, or asked and kept there.
-func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, voice string) (string, error) {
+// clip is a line spoken by a provider: from the cache, or asked and kept there. A pinned clip asks its provider
+// alone, without the owner's settings (issue #908, row 4).
+func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, voice string, pinned bool,
+) (string, error) {
 	hash := voiceHash(text, provider, speech.Model(provider, speech.KindTTS), voice, Language)
 	path := filepath.Join(s.cfg.Dir, voiceDir, hash+"."+clipFormat)
 
@@ -154,13 +185,19 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 	}
 
 	out, err := s.cfg.Speech.Speak(ctx, source, speech.SpeakRequest{
-		Input: text, Voice: voice, Format: clipFormat, Language: Language, Provider: provider,
+		Input: text, Voice: voice, Format: clipFormat, Language: Language, Provider: provider, Pinned: pinned,
 	})
 	if err != nil {
 		return "", err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", err
+	}
+
+	// The word times kept beside a clip are of the audio they were heard from: when the clip is spoken again they are
+	// removed before the new audio is in place, so they never describe it (issue #908, row 5).
+	if err := os.Remove(path + wordsSuffix); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
 
@@ -177,7 +214,7 @@ func (s *Service) clipWords(ctx context.Context, source AudioSource, clip string
 		return nil, err
 	}
 
-	path := clip + ".words.json"
+	path := clip + wordsSuffix
 	var words []captions.Word
 
 	if raw, err := os.ReadFile(path); err == nil { //nolint:gosec // The voice cache's own file.
@@ -202,16 +239,19 @@ func (s *Service) clipWords(ctx context.Context, source AudioSource, clip string
 		pieces = append(pieces, captions.Piece{Text: w.Word, Start: w.Start.Seconds(), End: w.End.Seconds()})
 	}
 
+	// No word times fail the captions at once, so a clip of another scene is not heard again (issue #818, row 6).
 	words = captions.Words(pieces, t.Provider == speech.ProviderSoniox)
-	if len(words) > 0 {
-		raw, err := json.Marshal(words)
-		if err != nil {
-			return nil, err
-		}
+	if len(words) == 0 {
+		return nil, captions.ErrNoWordTimes
+	}
 
-		if err := writeCache(path, raw); err != nil {
-			return nil, err
-		}
+	raw, err := json.Marshal(words)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := writeCache(path, raw); err != nil {
+		return nil, err
 	}
 
 	return words, nil

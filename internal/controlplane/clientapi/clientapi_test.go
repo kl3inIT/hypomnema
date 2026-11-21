@@ -23,6 +23,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -32,6 +33,8 @@ import (
 type world struct {
 	t   *testing.T
 	svc *orchestration.Service
+	// exec runs a statement on the control plane's database, for a test that puts it in a state no request makes.
+	exec func(query string)
 	// srv is the server under test, for a test that wires more into it.
 	srv *Server
 	url string
@@ -62,6 +65,12 @@ func newWorldAt(t *testing.T, clock platform.Clock) *world {
 	t.Cleanup(func() { _ = db.Close() })
 
 	svc := orchestration.New(db, clock, platform.NewID)
+	// Share links' tokens are sealed in a vault, as the control plane wires it (issue #996).
+	entry, err := vault.GenerateKey("k1")
+	require.NoError(t, err)
+	keys, err := vault.ParseKeyring(entry, "k1")
+	require.NoError(t, err)
+	svc.WithShareVault(vault.New(db, platform.SystemClock{}, platform.NewID, keys, nil).Copies())
 	_, _, err = svc.AddToken(t.Context(), testRunCoordinator, bearertoken.Coordinator)
 	require.NoError(t, err)
 
@@ -83,7 +92,14 @@ func newWorldAt(t *testing.T, clock platform.Clock) *world {
 		}
 	})
 
-	return &world{t: t, svc: svc, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi}
+	exec := func(query string) {
+		_, err := db.ExecContext(t.Context(), query)
+		require.NoError(t, err)
+	}
+
+	return &world{
+		t: t, svc: svc, exec: exec, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi,
+	}
 }
 
 // token adds a token and returns a client that sends it.

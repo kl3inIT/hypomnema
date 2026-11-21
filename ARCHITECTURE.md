@@ -392,8 +392,8 @@ sequenceDiagram
   worktree volume's use, the one-minute load average and, on a machine with NVIDIA GPUs, each GPU's use, memory,
   temperature and power (read with `nvidia-smi` once a heartbeat, after Beszel's agent); only the latest measurement is kept, with its time
   (`GET /nodes` shows it as `stats`). A node can be drained and resumed; once the reaper marks it unavailable, it
-  stays so until its next hello or a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no
-  longer listed or placed on, and its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
+  stays so until its next hello or a resume. A removed node is kept as `deleted`: its tokens, and the keys of the Dispatches
+  it ran, are revoked ([Credentials](#credentials)), it is no longer listed or placed on, and its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
   disabled) are kept here with no secret value. One the owner logged in on the control plane (below) also has the
   vendor's id of the account, its email and plan, the name of the vault secret holding its tokens, and how its
   refreshes went; placement leaves these alone, since no node holds their tokens.
@@ -939,8 +939,8 @@ sequenceDiagram
     a take whose every frame carries its time and whose voices are tones (a fake speech), and measure each
     scene's cuts, retime, hold, ring and voice in the video; CI runs them on the pinned build. A take with taps
     and no `screen` (filmed before the node recorded it) is made without rings, with a warning.
-    Compose also draws a frame around the picture when `Input.Frame` asks for one (#908 part 2; no revision asks
-    yet, so every video is still `full`, the picture filling the video as above, stream for stream). The chromes
+    Compose also draws a frame around the picture when `Input.Frame` asks for one (#908 part 2; a revision's
+    stored look says which, and `full` draws none, the picture filling the video as above, stream for stream). The chromes
     are `full`, `none`, `android` and `iphone`, with padding (0-400, default 48), radius (0-80, default 40 for a
     device and 14 for none), shadow and safe_top (`frame.go`, aidemo's frameLayout, MIT). The layout is in a phone's
     dp, 360 wide, and the canvas grows to the video's aspect. The hole is the anchor, each of its values rounded to
@@ -952,20 +952,23 @@ sequenceDiagram
     size, rings are drawn on it, and then it is padded onto the video at the hole and the PNG overlaid. A segment
     of another shape than the first (the phone turned) is refused with `ErrTurnedTake`, not padded with bars; the
     hole's own rounding is not counted as another shape (a contain fit into the unrounded hole leaving ≤ 2 px).
-    A ring's place and size follow the hole. `compose.Still` writes a JPEG of the take's frame at its first step
+    A ring's place and size follow the hole. `compose.Frameable` tells from the take's record alone whether a frame
+    can be drawn on it. `compose.Still` writes a JPEG of the take's frame at its first step
     (or one frame before the take's end) drawn the same way, with an ASS file's captions as they are at a given
     instant. Its frame is the one that covers that instant: the last frame to start at or before it, even a single
-    frame at 0 ms. Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
+    frame at 0 ms. The still is made limited-range yuv420p, as the encoder makes the video, before its captions are
+    drawn, and is put at the instant plus half a millisecond on a 1/2000 timebase, so a cue that starts at that
+    instant shows (libass is given whole milliseconds, truncated; #937). Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
     `background()` (`compose/testdata/frames`), and check in the made video that the hole shows the picture and
     only the hole does, where a ring lands, and that a turned take is refused.
-  - Videos and revisions (`internal/controlplane/videos`, migration 00126). A **video** belongs to one take (one
-    row of `videos`, its take unique); each make or change request adds an immutable **revision** (`video_revisions`:
-    rev 1, 2, …, its parent, the lines, voice, captions and aspect it is made with, the provider, model and voice
-    that spoke it, its length, warnings and state). States: `queued`, `voicing`, `composing`, `captioning`,
+  - Videos and revisions (`internal/controlplane/videos`, migrations 00126 and `video_looks`). A **video**
+    belongs to one take (one row of `videos`, its take unique); each make or change request adds an immutable
+    **revision** (`video_revisions`: rev 1, 2, …, its parent, the lines, voice, captions, aspect and look it is made
+    with, a voice pin, the provider, model and voice that spoke it, its length, warnings and state). States: `queued`, `voicing`, `composing`, `captioning`,
     then `review`; `approved` or `changes_requested` by the owner; `failed` with its stage and cause. At most one
     revision is approved: approving another moves it back to review; an approved revision is never changed, and
-    a change request on one is refused. A make of a take with a video adds a revision with the latest one's lines
-    (a retry of a failed one); requested_by and request_id make a make or change request safe to repeat. One
+    a change request on one is refused. A make of a take with a video adds a revision with the latest one's lines;
+    requested_by and request_id make a make, change request, look change or retry safe to repeat. One
     **runner** goroutine makes the queued revisions one at a time, the oldest first, claiming each by a conditional
     update from `queued` to `voicing`; at its start a revision found `voicing`, `composing` or `captioning` is
     failed `interrupted` at that stage and its files removed, so no paid speech is asked again on its own. At most
@@ -974,15 +977,19 @@ sequenceDiagram
     order that is on and answers speaks the first scene and then every other one, with the voice asked or that
     provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
     no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
-    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision. Composing is
+    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the word times heard
+    from a clip are kept beside it (`<clip>.words.json`) and removed before the clip is spoken again. A revision
+    made from another (a look change, a retry) is **pinned** (`pin_provider`, `pin_voice`): only that provider is
+    asked, with exactly that voice, even an empty one, and the owner's audio settings are not read. Composing is
     `compose.Compose`; captioning transcribes each scene's clip with its words' times through the speech service,
     joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
     cues by aidemo's rules (2 lines of 38 characters, at most 12 words, 1-6 s, broken at a sentence end, a clause's
     punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
     word in #FFD400 (demotape's highlight and word timing normalize, ported), and burns it in with the font of
-    part 1 (`compose.Burn`). Every revision is captioned so, as the preset `legacy` ("Classic"), until a revision
-    stores its look (#908, part 3). The other caption presets are built (`captions.Render`, #908 part 1): demotape's
+    part 1 (`compose.Burn`): the preset `legacy` ("Classic"), the look of every revision made before the looks, byte for byte in its own
+    position; a position chosen sets its style's alignment and vertical margin to the presets' offsets. The
+    other caption presets (`captions.Render`, #908 part 1): demotape's
     eleven (`presets.go`, its macOS fonts mapped to the bundled ones) and aidemo's `bar`, Clean the default;
     position `preset`, `bottom`, `lower_third`, `center` or `top`. Each is laid out as demotape's drawBlock (`styled.go`):
     an em of 5 % of the height (6.2 % animated) times the preset's scale, at least 20 px, given to libass through
@@ -996,20 +1003,50 @@ sequenceDiagram
     whole, if its ASS-rounded events and a tap's ring share a drawn 30 fps frame and the ring reaches it. As demotape,
     only the first cue that covers an instant is shown, so cues whose words overlap in time are never drawn over
     each other. Tests burn each preset on a grey frame with the pinned ffmpeg and measure
-    the box, the width, the colors, the placement and the font libass picks. A scene with no word times fails the revision at `captioning`; with captions off the
+    the box, the width, the colors, the placement and the font libass picks. A clip with no word times fails the
+    revision at `captioning` at once, before another clip is heard; with captions off the
     stage is skipped. While a revision is voiced, composed or captioned, it says how many of its scenes that
     stage has done (`progress {scenes_done, scenes_total}`, kept in memory as aidemo's job keeps its count, reset at
     each stage). The first frame is the revision's thumbnail. Everything is made in
     `videos/<video>/<rev>/.work/`, the thumbnail then the MP4 renamed into place only once whole; any failure
     removes the revision's folder. A video with a revision queued or being made is not deleted, nor is its take
     (409).
+  - The look of a revision (#908 part 3, #937; `videos/look.go`, `remake.go`, `preview.go`): `video_revisions.look`
+    holds the resolved snapshot the runner draws as it is: captions `{preset, position}`, frame `{chrome, padding,
+    radius, shadow, safe_top}`, background `{preset}` or `{colors: [a, b]}`, and `fell_back_from` when a frame fell
+    back. The migration gave every revision before it, queued ones included, `{"captions":{"preset":"legacy"},
+    "frame":{"chrome":"full"}}`. A look is sent by section; only a section sent is explicit, and its fields left out
+    take the references' defaults (aidemo's frame: chrome none, padding 48, radius 40 for a device and 14 otherwise,
+    a shadow; demotape's Clean; autodemo's midnight). A make takes the sections not sent from the saved default
+    (`video_settings`, one row, first Clean, android, midnight); an owner's make that sends sections merges them
+    into the default in the same transaction, never on a replay, an agent's make or a fallback. A make without a
+    look keeps the request hash it had before. A change request with new lines copies its revision's look. A
+    **look change** (`ChangeLook`) and a **retry** (`Retry`) queue a revision numbered after the latest, the one
+    they start from as its parent and unchanged, with its lines, aspect, captions on or off and voice: a look
+    change of a made revision (review, approved, changes_requested) takes the sections not sent from its look and
+    pins the provider and voice it was spoken with; a retry of a failed revision keeps its look and its pin, or pins
+    the provider and voice that spoke its first scene, recorded as soon as that scene is spoken. A video whose take was deleted is refused (409). On
+    a take whose phone turned, a frame sent is refused (409); one from the default or the source is stored `full`
+    with `fell_back_from`, and the made revision warns. The **look sample** (`Preview`) resolves the look as a make
+    does, or as a look change of `rev`, and draws it with `compose.Still` over the take's frame at its first step,
+    with the line's captions (the revision's first line, else the latest's, else the take's first scene) as its
+    second word starts, the words timed at demotape's 14 characters a second (`captions.SynthesizeWords`, ported):
+    one at a time, refused as busy after 5 s of waiting, timed out after 20 s, its ffmpeg killed when the client
+    goes. It shows the look, not a frame the video is sure to show. `Looks` is the catalog: the presets, Classic
+    included, the backgrounds, the chromes and the default.
   - Access to videos: the owner's (`clientapi/videos.go`, owner tokens only): `GET /videos`, `POST /videos`
-    `{take, title?, aspect?, captions?, voice?}` with an Idempotency-Key, `GET` and `DELETE /videos/{id}`, `POST
+    `{take, title?, aspect?, captions?, voice?, look?}` with an Idempotency-Key, `GET /videos/looks`, `POST
+    /videos/preview` `{take, aspect?, captions?, look?, rev?}` answering `image/jpeg` (busy `rate_limited` with
+    Retry-After 1, too long `timed_out` 504, no ffmpeg `unavailable`), `POST /videos/{id}/revisions/{rev}/look`
+    `{look}` and `POST /videos/{id}/revisions/{rev}/retry`, each with a required Idempotency-Key and answering 201 with the
+    video, `GET` and `DELETE /videos/{id}`, `POST
     /videos/{id}/revisions/{rev}/approve`, `POST /videos/{id}/revisions/{rev}/changes` `{lines?, note?}` with an
     Idempotency-Key (a note alone is kept and starts nothing; changed lines queue a new revision, the other lines'
     clips reused), `GET /videos/{id}/revisions/{rev}/video.mp4` with Range requests and `GET
     .../thumbnail.jpg`, in review, approved or changes_requested; `hypomnema videos list|get|make|request-changes|
-    approve|delete|download`. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
+    approve|delete|download|look|retry|looks|preview`, where `make`, `look` and `preview` send only the look's
+    sections whose flags are given (`--caption-preset --caption-position --chrome --padding --radius --shadow
+    --safe-top --background --background-colors`). The web's "Make again" of a failed revision is a retry. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
     `video_get {video}` (`agentapi/videos.go`), listed and called on the control plane's tools route apart from
     the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
     latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
@@ -1180,21 +1217,34 @@ sequenceDiagram
   - View-only links (issue #745, `clientapi/artifactshares.go`, `orchestration/artifactshares.go`): the owner
     sends an artifact to someone with no account; the link always shows the newest revision (it names the
     artifact, not a revision, as OpenMausBot's published pages and Claude's do) until he revokes it. A link is a row
-    of `artifact_shares` (migration 106: artifact, token, label, created, views, last viewed), as open-webui's
-    `shared_chat`, LibreChat's `SharedLink` and Grafana's public dashboards are; several to one artifact, each
-    labelled for whom it was sent to and revoked alone (Grafana's per-viewer revoke). The token is 32 random bytes
-    in base64url, kept as it is so the link can be copied again (open-webui, LibreChat, Grafana; it shows one
-    artifact whose bytes are in the same database unencrypted). Only the owner makes, lists and revokes links
-    (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has no tool for it). Revoking
-    deletes the row, and deleting the artifact with its chat deletes its links (`ON DELETE CASCADE`); no expiry,
-    password or pause. `GET /api/v1/shares/{token}` is public, as `CreateSession` is: the title, type, file
+    of `artifact_shares` (artifact, token's hash, sealed copy, label, created, views, last viewed, revoked and why),
+    as open-webui's `shared_chat`, LibreChat's `SharedLink` and Grafana's public dashboards are; several to one
+    artifact, each labelled for whom it was sent to and revoked alone (Grafana's per-viewer revoke). The token is 32
+    random bytes in base64url, kept as a credential is (issue #996, [Credentials](#credentials)): its SHA-256 finds
+    the link, and a copy sealed in the vault (a generic secret named after the link, as an owner-made gateway key's
+    value is) lets the owner copy it again; the lists open it. Without a vault's keys no link is made (503): none is
+    kept by its hash alone. A link made before (its token in plaintext until migration `credential_state`) is moved
+    as the control plane starts, before anything is served (`MoveShareTokens`, with `secure_delete` on), so its URL
+    keeps working; then the files are cleared (`ScrubShareTokens`: `VACUUM`, and `wal_checkpoint(TRUNCATE)`, whose
+    busy column must say it was done), so no plaintext is left in the database's files or its log. The migration
+    records what the files owe (`share_token_scrub`), cleared only once they are clear: a stop in between, or a
+    reader holding an older snapshot, leaves it, the start tries again every 30 s, and no link or file of one is served meanwhile
+    (503). Without the vault's keys an old link is neither moved, served, nor read back from its plaintext, which
+    is kept only until a start with the keys seals it, since the owner could never read it again otherwise; the
+    start logs how many wait. Only the owner
+    makes, lists and revokes links (`POST`/`GET /artifacts/{id}/shares`, `DELETE /artifact-shares/{id}`; a Bot has
+    no tool for it). Revoking marks the row with the reason and deletes its sealed copy; the Vault names a link as
+    its copy's user and refuses to delete it. Deleting the artifact with its chat deletes its links
+    (`ON DELETE CASCADE`) and their copies; no expiry, password or pause. `GET /api/v1/shares/{token}` is public, as `CreateSession` is: the title, type, file
     shown and its media type, newest revision, when it was updated and where its files load from,
     `/api/v1/shares/<token>/files/<rev>/<path>` (outside the contract, no sign-in). That route checks the link and
     that `rev` is the newest on every request (OpenMausBot's `server/page-files.ts`), so a revoke takes effect at
     once and a file of a replaced revision answers 404; it mints no frame token and serves as the frame's route
     does (the same headers, a page with `pagePolicy` naming the link's folder). Opening the page itself counts a
-    view and sets the last view (Grafana's request count, Metabase's anonymous view event); reading the link does
-    not, so the viewer's checks are not counted. Every answer under `/api/v1/shares/` and the web's page
+    view (Grafana's request count, Metabase's anonymous view event), counted in memory and written together each
+    minute and as the control plane stops (`writeShareViews`, as Coder's stats batcher flushes on its ticker and as
+    it exits), the last view at most once an hour; the lists add the openings not written yet;
+    reading the link does not, so the viewer's checks are not counted. Every answer under `/api/v1/shares/` and the web's page
     `/s/<token>` carry `X-Robots-Tag: noindex, nofollow` (LibreChat), `Referrer-Policy: no-referrer`,
     `Cache-Control: private, no-store` (LibreChat) and `frame-ancestors 'none'` (Grafana). An address that sends
     five unknown tokens within an hour is locked as a wrong password locks it (`session.go`'s limiter, its own
@@ -3046,16 +3096,68 @@ flowchart LR
 - Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
   CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
   SHA-256 is stored; a revoked token no longer authenticates. A token of kind `bot` is a pi process's own (issue
-  #260, see Bots): made by the supervisor, kept in memory only, never by `tokens add`.
+  #260, see Bots): made by the supervisor, kept in memory only, never by `tokens add`. Revoking a coordinator token
+  ends its children ([Credentials](#credentials)).
 - Users and web sessions (issue #114; [research](docs/research/2026-11-10-web-login.md), each rule from a
   reference): a user is a name and a password kept as bcrypt at cost 10, made on the server; none is shipped. Signing
-  in opens a web session: a row with the SHA-256 of a random secret, good for 30 days after its last use (extended
-  at most once an hour). A session acts as the owner. A new password ends every session of the user. They are kept
+  in opens a web session: a row with the SHA-256 of a random secret, good for 30 days after its last use (extended,
+  with its last use, at most once an hour, in a query that writes neither a revoked session nor one another request
+  just moved). A session acts as the owner. Signing out and a new password revoke the
+  session with the reason (`signed_out`, `password_changed`); it is kept until its end passes and is cleared with
+  the expired ones at the next sign-in. They are kept
   by the domain store `orchestration/userstore` (issue #404), reached through `Service.Users()`; it imports the
   generated queries, the one write helper (`orchestration/internal/storeutil`, which signals event readers after
   a commit that changed a row) and the errors (`orchestration/storeerr`, re-exported by the root), never the root package.
 - Creating a Run or Tasks can carry an idempotency key: the same caller and key with the same request return the first
   result, with another request it is a conflict. The key is kept as a receipt, as node calls are.
+
+<a id="credentials"></a>**Credentials.** Who holds which credential, how it is kept and how it ends (design #995, part A
+issue #996). One lifecycle for every
+kind: issued and shown once, used (its last use written at most once an hour, `bearertoken.TouchEvery`, as Omnara's
+`identitystore/auth_usage_touch.go` and Coder's `httpmw/apikey.go`), then expired or revoked with a reason, never
+back. Every stored kind keeps `revoked_at`, `revoke_reason` and `last_used_at`, and `expires_at` where it has an end
+(migration `credential_state`); a revoked or expired one is refused on every path that looks it up.
+
+| Actor | Credential | Kept as | May | Ends |
+|---|---|---|---|---|
+| Owner | owner Client token (laptop CLI, `hypomnema mcp`); Web session | `client_tokens`, `web_sessions`: SHA-256 | everything | the token when revoked; the session 30 days after its last use, at sign-out or a new password |
+| Coordinator | coordinator Client token | `client_tokens`: SHA-256 | create and change its own Runs, read the rest; never decide an Approval or change a setting | when revoked |
+| Bot (the main Bot too) | Bot token, one a pi process, bound to one chat | memory: SHA-256 | work in that chat with the Connections it was given; never decide an Approval (`clientapi/policy.go`), mint or widen a credential, change a setting | when its pi ends, its coordinator token is revoked, or its chat or Bot is deleted |
+| Routine | the run's Bot token and Run key (`hrk_`) | memory; `routine_runs.key_hash` | as a Bot, without a chat | when the run ends |
+| Worker | its Dispatch's Session key, Gateway key and repository token | `agent_sessions`, `gateway_keys`: SHA-256; the token from the vault, in the offer | the Connections its Run was given | when the Dispatch settles, the coordinator token that created its Run is revoked, or its node is removed |
+| Owner's tools | owner-made Gateway key | `gateway_keys`: SHA-256 and a copy sealed in the vault | the models and endpoints it names | when revoked |
+| Node | Node token (`hyn_`) | `node_tokens`: SHA-256 | take offers and report; not the client API | when revoked or its node is removed |
+| Share viewer | Share link | `artifact_shares`: SHA-256 and a copy sealed in the vault | view one artifact | when the owner revokes it or its chat is deleted |
+| WebSocket | single-use Ticket | memory | open one terminal, browser view, phone view or meeting track | 30–60 s after it is given |
+
+The reasons (`bearertoken.RevokeReason`, short snake_case as Omnara's `machine_deleting`): `owner`,
+`parent_revoked`, `node_removed`, `chat_deleted`, `bot_deleted`, `dispatch_ended`, `process_ended`, `replaced`,
+`control_plane_started`, `usage_only`, `signed_out`, `password_changed`.
+
+Revocation cascades, each in the commit that ends the parent; the gateway's table is written only by its own queries,
+which orchestration calls in its transaction (`orchestration.GatewayKeys`, `modelgateway.Revocations`):
+
+- Revoking a coordinator token ends, with `parent_revoked`, the Gateway keys of the chats whose pi runs under it (a
+  chat's key names it, `gateway_keys.coordinator_token_id`), and the Sessions and Gateway keys of the Dispatches of
+  the Runs it created; then the Bot tokens made under it, which their parent's revocation already refused. As Orca
+  revokes a device's children (`runtime-rpc-mobile-devices.ts`). The migration `credential_state` ends the same way
+  the Sessions and Gateway keys of the Dispatches, running or not, of a coordinator token revoked before it.
+- Removing a node, or starting to remove a provider's machine, ends its Node tokens and the Sessions and Gateway keys
+  of the Dispatches it ran, with `node_removed`, as Omnara revokes a machine's daemon tokens with it
+  (`executionstore/machine_lifecycle_store.go`).
+- Deleting a chat ends its Gateway keys with `chat_deleted` (issue #405), its links' sealed copies, and its pi's Bot
+  token; deleting a Bot ends its Gateway keys with `bot_deleted` and its pi's Bot tokens.
+- A child is not made once its parent ended: a Dispatch's agent session and gateway key are refused, in the
+  transaction that would make them, when the coordinator token that created its Run is revoked or its node removed
+  or being removed (a provider's machine `deleting` or `delete_failed`; no node token is issued for it either, and
+  `MachineRemoved` ends what is left). An offer read before the revocation and sent after it, as after a reconnect,
+  carries no key. A chat's gateway key is refused when the chat or its Bot is gone, or under a revoked coordinator
+  token; one that names no coordinator token keeps the one of the chat's newest key, as when pi's model changes; the daily clean-up keeps that key. A
+  Bot token is refused once its chat or Bot is read as gone, at each use, so the deletion ends it before its
+  clean-up of memory; a read that fails keeps it.
+- Without a cascade, a Dispatch's keys end when it settles (`dispatch_ended`), a chat's key when its pi ends
+  (`process_ended`) or a new one is made (`replaced`), and every chat key as the control plane starts
+  (`control_plane_started`).
 
 The vault (`internal/controlplane/vault`, issue #66, after Omnara's `internal/secrets`) is the secret store: API keys
 and subscription token sets, encrypted at rest. A worker's Claude and git host tokens reach its Dispatch as
@@ -3439,7 +3541,8 @@ capabilities do not exist yet.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
   with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
-  creation and last use (the latest usage row); the keys of a Dispatch or a chat are only counted
+  creation and last use (the later of its last authentication, written at most hourly, and its latest usage row);
+  the keys of a Dispatch or a chat are only counted
   (`live_worker_keys`), and each key's `endpoints` (every kind for a key not limited). `POST /gateway/keys`
   `{name, models?, endpoints?}` answers the value once, `endpoints` left out for every kind and empty for none (the
   page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
@@ -3474,7 +3577,8 @@ capabilities do not exist yet.
   sheet. A row leads with its provider's mark (`components/icons/provider-marks.tsx`, shared with the Web search
   and Audio pages; lobe-icons, MIT): the search provider that answered, a globe for `web/fetch`, ElevenLabs's or
   Soniox's microphone for `audio/*`, the image provider's, else the model's maker. Once a day the gateway deletes the requests older than
-  31 days and every revoked key no request names any more; a live key is never deleted (issue
+  31 days and every revoked key no request names any more, but a chat's newest that names its coordinator token
+  (issue #996); a live key is never deleted (issue
   [#628](https://github.com/kl3inIT/hypomnema/issues/628), as Coder's dbpurge deletes expired API keys).
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key. Each model has a `display_name`

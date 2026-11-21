@@ -62,6 +62,11 @@ func TestVideoRevisionsRecordOnlyNewAudioCallsOnTheRequestersKey(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
+	// The fake maker draws no caption preset: the default look keeps the captions made before the presets (#937).
+	_, err = db.ExecContext(ctx, `UPDATE video_settings SET look = '{"captions":{"preset":"legacy"},`+
+		`"frame":{"chrome":"full"}}'`)
+	require.NoError(t, err)
+
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/v1/text-to-speech/"):

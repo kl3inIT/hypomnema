@@ -80,7 +80,18 @@ VALUES (@id, @key_hash, @dispatch_id, @uses, @now);
 SELECT * FROM agent_sessions WHERE key_hash = @key_hash AND revoked_at IS NULL;
 
 -- name: RevokeAgentSessionsOfDispatch :execrows
-UPDATE agent_sessions SET revoked_at = @now WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL;
+UPDATE agent_sessions SET revoked_at = @now, revoke_reason = @reason
+WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL;
+
+-- name: RevokeAgentSessionsOfNode :exec
+-- The agent sessions of a removed node's Dispatches (issue #996).
+UPDATE agent_sessions SET revoked_at = @now, revoke_reason = @reason
+WHERE revoked_at IS NULL AND dispatch_id IN (SELECT id FROM dispatches WHERE node_id = CAST(@node_id AS TEXT));
+
+-- name: TouchAgentSession :exec
+-- A session's last use, written at most once an hour (issue #996).
+UPDATE agent_sessions SET last_used_at = CAST(@now AS INTEGER)
+WHERE id = @id AND (last_used_at IS NULL OR last_used_at <= CAST(@before AS INTEGER));
 
 -- name: ListDispatchesWithAgentSessions :many
 SELECT DISTINCT dispatch_id FROM agent_sessions WHERE revoked_at IS NULL ORDER BY dispatch_id;
@@ -144,3 +155,15 @@ JOIN runs ON runs.id = tasks.run_id
 JOIN repos ON repos.host = runs.repo_host AND repos.path = runs.repo
 WHERE dispatches.id = @dispatch_id AND repos.ssh_url IS NOT NULL
 ORDER BY repos.name LIMIT 1;
+
+-- name: DispatchCredentialsEnded :one
+-- Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is
+-- revoked, or its node removed or being removed (a provider's machine deleting or failing to be). A key is not made then, in the transaction that would make it, so an offer read
+-- before the revocation and sent after it carries none. A Dispatch not found is not refused here.
+SELECT count(*) FROM dispatches d
+LEFT JOIN nodes n ON n.id = d.node_id
+LEFT JOIN tasks t ON t.id = d.task_id
+LEFT JOIN runs r ON r.id = t.run_id
+LEFT JOIN client_tokens c ON c.id = r.coordinator_token_id
+WHERE d.id = @dispatch_id
+  AND (n.status = 'deleted' OR n.machine_state IN ('deleting', 'delete_failed') OR c.revoked_at IS NOT NULL);

@@ -11,7 +11,7 @@ import (
 )
 
 const getClientToken = `-- name: GetClientToken :one
-SELECT id, name, kind, token_hash, created_at, revoked_at FROM client_tokens WHERE id = ?1
+SELECT id, name, kind, token_hash, created_at, revoked_at, revoke_reason, last_used_at FROM client_tokens WHERE id = ?1
 `
 
 func (q *Queries) GetClientToken(ctx context.Context, id string) (ClientToken, error) {
@@ -24,12 +24,14 @@ func (q *Queries) GetClientToken(ctx context.Context, id string) (ClientToken, e
 		&i.TokenHash,
 		&i.CreatedAt,
 		&i.RevokedAt,
+		&i.RevokeReason,
+		&i.LastUsedAt,
 	)
 	return i, err
 }
 
 const getClientTokenByHash = `-- name: GetClientTokenByHash :one
-SELECT id, name, kind, token_hash, created_at, revoked_at FROM client_tokens WHERE token_hash = ?1
+SELECT id, name, kind, token_hash, created_at, revoked_at, revoke_reason, last_used_at FROM client_tokens WHERE token_hash = ?1
 `
 
 func (q *Queries) GetClientTokenByHash(ctx context.Context, tokenHash string) (ClientToken, error) {
@@ -42,12 +44,14 @@ func (q *Queries) GetClientTokenByHash(ctx context.Context, tokenHash string) (C
 		&i.TokenHash,
 		&i.CreatedAt,
 		&i.RevokedAt,
+		&i.RevokeReason,
+		&i.LastUsedAt,
 	)
 	return i, err
 }
 
 const getClientTokenByName = `-- name: GetClientTokenByName :one
-SELECT id, name, kind, token_hash, created_at, revoked_at FROM client_tokens WHERE name = ?1
+SELECT id, name, kind, token_hash, created_at, revoked_at, revoke_reason, last_used_at FROM client_tokens WHERE name = ?1
 `
 
 func (q *Queries) GetClientTokenByName(ctx context.Context, name string) (ClientToken, error) {
@@ -60,6 +64,8 @@ func (q *Queries) GetClientTokenByName(ctx context.Context, name string) (Client
 		&i.TokenHash,
 		&i.CreatedAt,
 		&i.RevokedAt,
+		&i.RevokeReason,
+		&i.LastUsedAt,
 	)
 	return i, err
 }
@@ -88,7 +94,7 @@ func (q *Queries) InsertClientToken(ctx context.Context, arg InsertClientTokenPa
 }
 
 const listClientTokens = `-- name: ListClientTokens :many
-SELECT id, name, kind, token_hash, created_at, revoked_at FROM client_tokens ORDER BY name
+SELECT id, name, kind, token_hash, created_at, revoked_at, revoke_reason, last_used_at FROM client_tokens ORDER BY name
 `
 
 func (q *Queries) ListClientTokens(ctx context.Context) ([]ClientToken, error) {
@@ -107,6 +113,8 @@ func (q *Queries) ListClientTokens(ctx context.Context) ([]ClientToken, error) {
 			&i.TokenHash,
 			&i.CreatedAt,
 			&i.RevokedAt,
+			&i.RevokeReason,
+			&i.LastUsedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -121,19 +129,56 @@ func (q *Queries) ListClientTokens(ctx context.Context) ([]ClientToken, error) {
 	return items, nil
 }
 
+const revokeAgentSessionsOfCoordinatorToken = `-- name: RevokeAgentSessionsOfCoordinatorToken :exec
+UPDATE agent_sessions SET revoked_at = ?1, revoke_reason = ?2
+WHERE revoked_at IS NULL AND dispatch_id IN (
+    SELECT d.id FROM dispatches d JOIN tasks t ON t.id = d.task_id JOIN runs r ON r.id = t.run_id
+    WHERE r.coordinator_token_id = CAST(?3 AS TEXT))
+`
+
+type RevokeAgentSessionsOfCoordinatorTokenParams struct {
+	Now     sql.NullInt64
+	Reason  sql.NullString
+	TokenID string
+}
+
+// The agent sessions of the Dispatches of the Runs a coordinator token created, as the token is revoked (issue #996).
+func (q *Queries) RevokeAgentSessionsOfCoordinatorToken(ctx context.Context, arg RevokeAgentSessionsOfCoordinatorTokenParams) error {
+	_, err := q.db.ExecContext(ctx, revokeAgentSessionsOfCoordinatorToken, arg.Now, arg.Reason, arg.TokenID)
+	return err
+}
+
 const revokeClientToken = `-- name: RevokeClientToken :execrows
-UPDATE client_tokens SET revoked_at = ?1 WHERE id = ?2 AND revoked_at IS NULL
+UPDATE client_tokens SET revoked_at = ?1, revoke_reason = ?2 WHERE id = ?3 AND revoked_at IS NULL
 `
 
 type RevokeClientTokenParams struct {
-	Now sql.NullInt64
-	ID  string
+	Now    sql.NullInt64
+	Reason sql.NullString
+	ID     string
 }
 
 func (q *Queries) RevokeClientToken(ctx context.Context, arg RevokeClientTokenParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeClientToken, arg.Now, arg.ID)
+	result, err := q.db.ExecContext(ctx, revokeClientToken, arg.Now, arg.Reason, arg.ID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const touchClientToken = `-- name: TouchClientToken :exec
+UPDATE client_tokens SET last_used_at = CAST(?1 AS INTEGER)
+WHERE id = ?2 AND (last_used_at IS NULL OR last_used_at <= CAST(?3 AS INTEGER))
+`
+
+type TouchClientTokenParams struct {
+	Now    int64
+	ID     string
+	Before int64
+}
+
+// A token's last use, written at most once an hour (issue #996), as a node token's is.
+func (q *Queries) TouchClientToken(ctx context.Context, arg TouchClientTokenParams) error {
+	_, err := q.db.ExecContext(ctx, touchClientToken, arg.Now, arg.ID, arg.Before)
+	return err
 }

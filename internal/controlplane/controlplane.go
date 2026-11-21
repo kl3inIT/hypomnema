@@ -291,9 +291,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return err
 	}
 
-	// A deleted chat's gateway keys end in its transaction, written by the gateway (issue #405).
+	// The gateway keys of a deleted chat or Bot, a revoked coordinator token and a removed node end in its
+	// transaction, written by the gateway (issues #405, #996).
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
-		orchestration.WithChatKeys(modelgateway.RevokeDeletedChatKeysTx))
+		orchestration.WithGatewayKeys(modelgateway.Revocations{}))
 	publishBuiltinSkills(ctx, svc, logger)
 
 	// The scheduler runs while the server does; if it fails, the server stops.
@@ -304,6 +305,22 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 	referrers := secretReferrers(svc)
 	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, referrers)
+	svc.WithShareVault(secrets.Copies())
+
+	// A share link made before its token was hashed (issue #996) is moved out of plaintext before anything is
+	// served, so its URL keeps working; without a vault it keeps its plaintext until one can seal it.
+	move, err := svc.MoveShareTokens(ctx)
+	if err != nil {
+		return fmt.Errorf("moving the tokens of share links: %w", err)
+	}
+
+	logShareTokenMove(ctx, logger, move)
+
+	// Then the files are cleared of the old plaintext; until they are, no link is served, and it is tried again.
+	if !scrubShareTokens(ctx, svc, logger) {
+		go retryShareScrub(ctx, svc, logger)
+	}
+
 	// The account each git host token belongs to is read at its host once, so workers commit as it (issue #991).
 	tokens := connections{svc: svc, vault: secrets, identities: &gitIdentities{
 		ways: &connproxy.Transports{
@@ -442,14 +459,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// The ffmpeg videos are made with (issue #818, row 9): a pinned build installed beside the database, in the
 	// background so that serving does not wait for it.
-	ffmpegTools := func(context.Context) (ffmpeg.Tools, error) {
-		return ffmpeg.Tools{}, errors.New("ffmpeg is off on this control plane (HYPOMNEMA_FFMPEG=0)")
-	}
+	ffmpegOff := errors.New("ffmpeg is off on this control plane (HYPOMNEMA_FFMPEG=0)")
+	ffmpegTools := func(context.Context) (ffmpeg.Tools, error) { return ffmpeg.Tools{}, ffmpegOff }
+	ffmpegReady := func() (ffmpeg.Tools, error) { return ffmpeg.Tools{}, ffmpegOff }
 
 	if !cfg.FFmpegOff {
 		installer := ffmpeg.New(ffmpeg.Config{Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "ffmpeg"), Logger: logger})
 		installer.Start(ctx)
-		ffmpegTools = installer.Ensure
+		ffmpegTools, ffmpegReady = installer.Ensure, installer.Ready
 	}
 
 	// The videos made of the takes (issue #818, rows 1, 2, 5 and 6): rows beside the others, files in videos/
@@ -457,7 +474,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	videoSvc, err := videos.New(videos.Config{
 		DB: db, Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "videos"), Takes: phoneTakes,
 		Speech:   videoAudio{speech: voice, gateway: gateway, chats: svc, logger: logger},
-		Settings: gateway.AudioSettings, Tools: ffmpegTools, Logger: logger,
+		Settings: gateway.AudioSettings, Tools: ffmpegTools, Ready: ffmpegReady, Logger: logger,
 	})
 	if err != nil {
 		return err
@@ -548,7 +565,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	sup := coordinator.New(svc, coordinator.Config{
-		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway, chats: svc},
+		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway, chats: svc, coordinator: cfg.CoordinatorToken},
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
 		Updating: func() bool { return selfupdate.Updating(filepath.Dir(cfg.Database.Path)) },
 	})
@@ -742,6 +759,19 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		gateway.PurgeLoop(ctx, logger)
 	}()
 
+	// The openings of share links are written together once a minute, and a last time once the server has stopped
+	// and answered its last request (issue #996).
+	shareViewsCtx, stopShareViews := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopShareViews()
+
+	shareViewsDone := make(chan struct{})
+
+	go func() {
+		defer close(shareViewsDone)
+
+		writeShareViews(shareViewsCtx, svc, logger, shareViewsWriteEvery)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -795,6 +825,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
+	stopShareViews()
 	cancel(nil)
 	<-controlDone
 	<-pprofDone
@@ -810,6 +841,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-keysDone
 	<-purgeDone
 	<-supDone
+	<-shareViewsDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return errors.Join(serveErr, cause)
@@ -1003,4 +1035,87 @@ func builtinSkills() ([]clientapi.BuiltinSkill, error) {
 type channelStore struct {
 	*orchestration.Service
 	*channelstore.Store
+}
+
+// shareScrubEvery is how often clearing the database's files of old share tokens is tried again while a reader
+// holds an older snapshot or the vault is not configured (issue #996).
+const shareScrubEvery = 30 * time.Second
+
+// scrubShareTokens clears the database's files of old share tokens and reports whether nothing is left to clear.
+func scrubShareTokens(ctx context.Context, svc *orchestration.Service, logger *slog.Logger) bool {
+	done, err := svc.ScrubShareTokens(ctx)
+	if err != nil && ctx.Err() == nil {
+		logger.WarnContext(ctx, "clearing old share tokens from the database's files",
+			slog.String("event", "controlplane.share_scrub_failed"), slog.String("error", err.Error()))
+	}
+
+	return done
+}
+
+// retryShareScrub tries scrubShareTokens again until it is done or ctx ends.
+func retryShareScrub(ctx context.Context, svc *orchestration.Service, logger *slog.Logger) {
+	tick := time.NewTicker(shareScrubEvery)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			if scrubShareTokens(ctx, svc, logger) {
+				logger.InfoContext(ctx, "cleared old share tokens from the database's files; links are served",
+					slog.String("event", "controlplane.share_scrub_done"))
+
+				return
+			}
+		}
+	}
+}
+
+// shareViewsWriteEvery is how often the openings of share links counted in memory are written (issue #996), and
+// shareViewsLastWrite how long the last write may take as the control plane stops.
+const (
+	shareViewsWriteEvery = time.Minute
+	shareViewsLastWrite  = 15 * time.Second
+)
+
+// writeShareViews writes the openings of share links every interval, and once more when ctx ends, so none waits for
+// a later opening and the stop loses none, as Coder's stats batcher flushes on its ticker and as it exits
+// (coderd/workspacestats/batcher.go).
+func writeShareViews(ctx context.Context, svc *orchestration.Service, logger *slog.Logger, every time.Duration) {
+	write := func(ctx context.Context) {
+		if err := svc.WriteShareViews(ctx); err != nil {
+			logger.WarnContext(ctx, "writing the views of share links",
+				slog.String("event", "controlplane.share_views_failed"), slog.String("error", err.Error()))
+		}
+	}
+
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			last, cancel := context.WithTimeout(context.WithoutCancel(ctx), shareViewsLastWrite)
+			write(last)
+			cancel()
+
+			return
+		case <-tick.C:
+			write(ctx)
+		}
+	}
+}
+
+// logShareTokenMove says, once as the control plane starts, what MoveShareTokens did (issue #996).
+func logShareTokenMove(ctx context.Context, logger *slog.Logger, move orchestration.ShareTokenMove) {
+	if move.Moved > 0 {
+		logger.InfoContext(ctx, "moved the tokens of share links out of plaintext",
+			slog.String("event", "controlplane.share_tokens_moved"), slog.Int("links", move.Moved))
+	}
+
+	if move.Waiting > 0 {
+		logger.WarnContext(ctx, "share links made before are not served until the vault is configured to seal them",
+			slog.String("event", "controlplane.share_tokens_waiting"), slog.Int("links", move.Waiting))
+	}
 }

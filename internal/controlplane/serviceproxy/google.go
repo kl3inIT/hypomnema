@@ -213,7 +213,10 @@ var googleModelArmor = regexp.MustCompile(`^` + regexp.QuoteMeta(googleModelArmo
 	`[a-z0-9-]+\.` + regexp.QuoteMeta(googleRegionalDNS) + `$`)
 
 // googleWWW is the host Calendar and Drive are on, and where gws reads Discovery documents first.
-const googleWWW = "www.googleapis.com"
+const (
+	googleWWW      = "www.googleapis.com"
+	googleCalendar = "calendar.googleapis.com"
+)
 
 // googleSearchConsole is Search Console's host: a site and a sitemap are each a URL in one segment (issue #617).
 const googleSearchConsole = "searchconsole.googleapis.com"
@@ -296,12 +299,19 @@ func googleTableFrom(d googleDeclaration) googleTable {
 
 		present[id] = true
 
-		for _, p := range append([]string{m.Path}, m.Uploads...) {
-			t.routes = append(t.routes, googleRoute{method: m.Method, host: m.Host, segments: splitPath(p), action: id})
+		hosts := []string{m.Host}
+		if m.API == "calendar" && m.Host == googleWWW {
+			hosts = append(hosts, googleCalendar)
 		}
 
-		if !slices.Contains(t.hosts, m.Host) {
-			t.hosts = append(t.hosts, m.Host)
+		for _, host := range hosts {
+			for _, p := range append([]string{m.Path}, m.Uploads...) {
+				t.routes = append(t.routes, googleRoute{method: m.Method, host: host, segments: splitPath(p), action: id})
+			}
+
+			if !slices.Contains(t.hosts, host) {
+				t.hosts = append(t.hosts, host)
+			}
 		}
 
 		if m.API == "modelarmor" {
@@ -377,9 +387,10 @@ func googleHandReads() map[string][]Route {
 	get := []string{http.MethodGet}
 
 	return map[string][]Route{
-		"gmail.read":    routes("gmail.googleapis.com", get, "/gmail/v1/users/{user}/{rest...}"),
-		"calendar.read": routes(googleWWW, get, "/calendar/v3/{rest...}"),
-		"drive.read":    routes(googleWWW, get, "/drive/v3/{rest...}"),
+		"gmail.read": routes("gmail.googleapis.com", get, "/gmail/v1/users/{user}/{rest...}"),
+		"calendar.read": append(routes(googleWWW, get, "/calendar/v3/{rest...}"),
+			routes(googleCalendar, get, "/calendar/v3/{rest...}")...),
+		"drive.read": routes(googleWWW, get, "/drive/v3/{rest...}"),
 		"docs.read": append(routes("docs.googleapis.com", get, "/v1/documents/{rest...}"),
 			routes("sheets.googleapis.com", get, "/v4/spreadsheets/{rest...}")...),
 		"searchconsole.read": routes(googleSearchConsole, get, "/webmasters/v3/{rest...}"),

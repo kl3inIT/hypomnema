@@ -17,10 +17,10 @@ SELECT * FROM videos ORDER BY created_at DESC, id;
 DELETE FROM videos WHERE id = @id;
 
 -- name: InsertRevision :exec
-INSERT INTO video_revisions (video_id, rev, parent, state, lines, voice, captions, aspect, requested_by, request_id,
-                             request_hash, created_at, updated_at)
-VALUES (@video_id, @rev, @parent, 'queued', @lines, @voice, @captions, @aspect, @requested_by, @request_id,
-        @request_hash, @now, @now);
+INSERT INTO video_revisions (video_id, rev, parent, state, lines, voice, captions, aspect, look, pin_provider,
+                             pin_voice, requested_by, request_id, request_hash, created_at, updated_at)
+VALUES (@video_id, @rev, @parent, 'queued', @lines, @voice, @captions, @aspect, @look, @pin_provider, @pin_voice,
+        @requested_by, @request_id, @request_hash, @now, @now);
 
 -- name: GetRevision :one
 SELECT * FROM video_revisions WHERE video_id = @video_id AND rev = @rev;
@@ -89,3 +89,10 @@ WHERE video_id = @video_id AND rev = @rev AND state IN ('review', 'changes_reque
 -- name: TakesInWork :many
 SELECT DISTINCT v.take_id FROM videos v JOIN video_revisions r ON r.video_id = v.id
 WHERE r.state IN ('queued', 'voicing', 'composing', 'captioning');
+
+-- The look a make that sends none gets (issue #908, row 15): one row, written by the migration.
+-- name: GetVideoSettings :one
+SELECT look FROM video_settings WHERE id = 1;
+
+-- name: SetVideoSettings :exec
+UPDATE video_settings SET look = @look, updated_at = @now WHERE id = 1;
