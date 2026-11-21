@@ -25,6 +25,12 @@
 - **Act without asking** on: anything the owner approved in this conversation, and its obvious follow-ups (tests,
   fixing CI, updating docs, the PR); reading, searching and cloning references into `.tmp/`.
 - When in doubt about scope, do the smaller thing and say what was left out.
+- A worker building an approved issue does not ask the owner to pick between implementation options the plan
+  leaves open, such as how to fix a review finding or which limit or library to use. It picks the option most
+  references take, the one it would recommend, and states the choice and its From in the pull request; the reviewer
+  and the owner correct it after. It still asks before widening the issue's scope, before anything outward-facing or
+  hard to undo, and when no option keeps the issue's goal (pstack
+  `skills/principle-never-block-on-the-human/SKILL.md`: "Proceed, then present"; owner, 2026-11-22, "hỏi hoài").
 
 ## Working rules
 
