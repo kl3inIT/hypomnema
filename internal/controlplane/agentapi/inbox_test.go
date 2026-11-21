@@ -12,6 +12,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -225,4 +226,86 @@ func TestASendForAnItemCarriesItsAttempt(t *testing.T) {
 		"id": td.ID, "evidence": []map[string]string{{"kind": "url", "ref": "https://example.com/sent"}},
 	})
 	assert.Equal(t, inboxstore.Done, done.State)
+}
+
+// Scenario: issue #1004 with #956, and the owner's rule of 2026-11-17 (a Bot never sends a message as him to a
+// client or a boss), held by the tools' access, not by the prompt (owner, 2026-11-21 on #838). The Bot that reads
+// his messages runs in a Routine's run that reads only: it reads his Zalo and keeps the Inbox in the same run, but
+// it has no tool that sends as him; zalo_send and whatsapp_send are neither listed nor run, and nothing is sent or
+// asked. Where an item it adds comes from is the token's, as in the client API: this run, or the owner's Zalo,
+// WhatsApp or Lark chat; never a chat with the owner it names, so what it only infers stays proposed.
+func TestAReadingRoutineKeepsTheInboxButCannotSend(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	for _, integration := range []string{"zalo", "whatsapp"} {
+		_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+			Integration: integration, Label: "me", Secret: "conn-" + integration + "-me",
+		})
+		require.NoError(t, err)
+		_, err = w.svc.SetConnectionChats(ctx, integration, "me", true)
+		require.NoError(t, err)
+	}
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "thu-ky", Connections: orchestration.AllowList{Limited: true, Names: []string{"zalo:me", "whatsapp:me"}},
+	})
+	require.NoError(t, err)
+
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: bot.ID, Name: "read-messages", Kind: routinestore.RoutinePrompt, Prompt: "Read new messages.",
+		EveryMinutes: 60, Access: routinestore.AccessRead,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+
+	run, err := w.svc.RunRoutineNow(ctx, routine.ID)
+	require.NoError(t, err)
+
+	pi, err := w.svc.AddBotToken(ctx, "pi", run.Run.ChatID, bot.ID)
+	require.NoError(t, err)
+
+	listed := toolNames(w.tools(pi))
+	assert.Contains(t, listed, agenttool.ToolZaloMessages)
+
+	for _, tool := range agenttool.InboxTools {
+		assert.Contains(t, listed, tool)
+	}
+
+	for _, tool := range []string{agenttool.ToolZaloSend, agenttool.ToolWhatsAppSend} {
+		assert.NotContains(t, listed, tool)
+
+		_, text, failed := w.use(pi, tool, `{"chat":"g_pmo","text":"Dạ em gửi anh báo giá ạ"}`)
+		assert.True(t, failed, tool)
+		assert.Contains(t, text, agenttool.ReadRunRefusal, tool)
+	}
+
+	assert.Empty(t, w.whatsapp.sent, "nothing is sent as the owner")
+	assert.Empty(t, w.judge.asked, "nor asked to be sent")
+
+	found := w.inbox(pi, agenttool.ToolInboxAdd, map[string]any{"title": "Maybe send Lan the slides"})
+	assert.Equal(t, inboxstore.Proposed, found.State)
+	assert.Equal(t, inboxstore.FromRoutine, found.Source.Kind)
+	assert.Equal(t, run.Run.ID, found.Source.ID)
+
+	zalo := w.inbox(pi, agenttool.ToolInboxAdd, map[string]any{
+		"title":  "Reply to Lan",
+		"source": map[string]any{"kind": inboxstore.FromZalo, "chat": "g_lan", "account": "me"},
+		"quote":  "Anh xem giúp em nhé", "message": map[string]any{"kind": inboxstore.LinkZaloMessage, "ref": "m_1"},
+	})
+	assert.Equal(t, inboxstore.Proposed, zalo.State, "inferred: no why_open")
+	assert.Equal(t, inboxstore.FromZalo, zalo.Source.Kind)
+
+	_, text, failed := w.use(pi, agenttool.ToolInboxAdd,
+		`{"title":"Send the contract","state":"open","source":{"kind":"chat","chat":"`+run.Run.ChatID+`"}}`)
+	assert.True(t, failed, "a run does not add as a chat with the owner: %s", text)
+	assert.Contains(t, text, "comes from this run")
+
+	items, err := w.svc.Inbox().List(ctx, inboxstore.Filter{States: []string{inboxstore.Open}}, "", 0)
+	require.NoError(t, err)
+	assert.Zero(t, items.Total, "nothing it only inferred is open")
 }
