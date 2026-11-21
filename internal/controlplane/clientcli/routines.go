@@ -37,7 +37,7 @@ func routineFlags(fs *flag.FlagSet) {
 	fs.String("script", "", "the script's file name (default: --script-file's name)")
 	fs.Int("timeout", 0, "seconds a script may run (default 600)")
 	fs.String("summary", "", "what the work is, in one line")
-	fs.String("access", "", "full or read (owner only; read is for prompts without a script)")
+	fs.String("access", "", "full or read (owner only; read is for a prompt, and its check reads as its runs do)")
 	fs.String("chat", "", "the chat the routine is made in: where its results and a failure are told")
 	fs.Bool("quiet", false, "a run's result is not told in that chat")
 	jsonFlag(fs)

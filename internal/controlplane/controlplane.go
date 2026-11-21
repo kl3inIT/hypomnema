@@ -622,6 +622,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return err
 	}
 
+	// A Bot reads them with its meetings' tools, to add their actions to the owner's Inbox (issue #1023).
+	agents.WithMeetings(meetingWork)
+
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithRunCoordinator(cfg.CoordinatorToken).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
 		WithHostTokens(tokens).WithGitSSHKey(sshKey).

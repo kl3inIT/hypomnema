@@ -1,6 +1,7 @@
 package agenttool
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -117,6 +118,35 @@ func TestAReadRunKeepsTheInboxAndNoSend(t *testing.T) {
 	}
 
 	for _, tool := range sends {
+		assert.False(t, ReadRunAllows(tool), tool)
+	}
+}
+
+// Scenario: issue #1023, section 5: the Bot that keeps the Inbox reads the owner's meetings in a run that reads
+// only, and that run is given exactly the reads of his accounts, his meetings and its memory, and the Inbox, which
+// writes only in the control plane: no tool of any family that writes outside, sends or acts is allowed.
+func TestAReadRunReadsMeetingsAndNothingThatWrites(t *testing.T) {
+	t.Parallel()
+
+	reads := []string{ToolMeetingList, ToolMeetingGet, ToolMemory, ToolSupersetDashboards, ToolSupersetDashboard,
+		ToolSupersetChartData, ToolSupersetFilterValues, ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia,
+		ToolWhatsAppHistory, ToolZaloChats, ToolZaloMessages, ToolZaloMedia, ToolZaloHistory}
+
+	var allowed []string
+
+	for _, family := range ToolFamilies {
+		for _, tool := range family.Tools {
+			if ReadRunAllows(tool) && !slices.Contains(InboxTools, tool) {
+				allowed = append(allowed, tool)
+			}
+		}
+	}
+
+	assert.ElementsMatch(t, reads, allowed)
+	assert.True(t, ReadRunAllows(ToolAccountRead))
+
+	for _, tool := range []string{ToolZaloSend, ToolWhatsAppSend, ToolSupersetAPI, ToolShowArtifact, ToolRoutines,
+		ToolWebFetch, ToolNodeExec, ToolGenerateImage, ToolAudioSpeak} {
 		assert.False(t, ReadRunAllows(tool), tool)
 	}
 }

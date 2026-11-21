@@ -36,6 +36,7 @@ import (
 //   - request_connection (connectionrequests.go, issue #471, part D): a Bot's
 //     pi in its Bot's main chat only, while there is a Connection to ask for;
 //   - inbox_* (inbox.go, issue #1004): a Bot's pi only, as routines;
+//   - meeting_list, meeting_get (meetings.go, issue #1023): a Bot's pi, and the check script of its read Routine;
 //   - the browser's: a worker and a Bot's pi (issue #536, step 4), each in its
 //     own tab (agent.key: a worker's its Dispatch's, a pi's its chat's);
 //   - node_exec, node_process, node_process_kill (nodes.go, issue #543): a
@@ -63,6 +64,7 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	}
 	if a.readRun {
 		out = append(out, inboxTools(a)...)
+		out = append(out, s.meetingTools(a)...)
 		out = append(out, s.supersetToolList(ctx, a)...)
 		out = append(out, s.messagingToolList(ctx, a, relayMentions)...)
 		return append(out, s.readAccountTools(ctx, a)...)
@@ -81,6 +83,7 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	}
 
 	out = append(out, inboxTools(a)...)
+	out = append(out, s.meetingTools(a)...)
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
 	out = append(out, s.supersetToolList(ctx, a)...)
@@ -222,6 +225,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
 	case isInboxTool(asked.Tool) && keepsInbox(a):
 		s.inboxCall(w, r, a, asked)
+	case slices.Contains(agenttool.MeetingTools, asked.Tool) && s.readsMeetings(a):
+		s.meetingCall(w, r, asked)
 	case slices.Contains(s.gatewayTools(r.Context(), a), asked.Tool):
 		s.gatewayCall(w, r, a, asked)
 	case s.hasBrowser(a):
@@ -248,7 +253,8 @@ func (s *Server) switchesOf(ctx context.Context, a agent) (agenttool.ToolSwitche
 	switch {
 	case a.dispatchID != "":
 		return s.store.ToolSwitchesOfDispatch(ctx, a.dispatchID)
-	case a.chatID != "" && a.bot != "":
+	case a.bot != "":
+		// A Bot's pi in its chat, or the check of its read Routine (#1023).
 		return a.botSwitches, nil
 	default:
 		return agenttool.ToolSwitches{On: []string{"*"}}, nil
@@ -271,6 +277,10 @@ func (a agent) allowsTool(switches agenttool.ToolSwitches, tool string) bool {
 		return false
 	}
 
+	if a.ownerReadOnly && slices.Contains(agenttool.OwnerSendTools, tool) {
+		return false
+	}
+
 	return (tool == agenttool.ToolAccountRead && a.readRun) || switches.Allows(tool)
 }
 
@@ -279,6 +289,12 @@ func (a agent) allowsTool(switches agenttool.ToolSwitches, tool string) bool {
 func (s *Server) switchedOff(w http.ResponseWriter, r *http.Request, a agent, tool string) bool {
 	if a.readRun && !agenttool.ReadRunAllows(tool) {
 		answerTool(w, agenttool.ReadRunRefusal, true)
+
+		return true
+	}
+
+	if a.ownerReadOnly && slices.Contains(agenttool.OwnerSendTools, tool) {
+		answerTool(w, agenttool.OwnerReadOnlyRefusal, true)
 
 		return true
 	}

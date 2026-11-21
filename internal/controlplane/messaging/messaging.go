@@ -141,6 +141,9 @@ type Query struct {
 	Before time.Time
 	// Limit is how many at most; zero is the service's default.
 	Limit int
+	// Offset skips this many of those, in the same order: pages that never skip messages sent at the same time
+	// (issue #1023: WhatsApp keeps seconds, so more than a page can share one Before).
+	Offset int
 }
 
 // Status is where a session is.

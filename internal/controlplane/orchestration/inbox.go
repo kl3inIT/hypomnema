@@ -81,3 +81,26 @@ func (s *Service) InboxAttempt(ctx context.Context, todoID, bot, chatID string) 
 
 	return t.Work.Attempt, nil
 }
+
+// RoutineScriptReads says whether the script of a Routine reads only (issue #1023): by the access its live run
+// started with, so that a change of the Routine meanwhile, the owner's or a Bot's, changes nothing of the run that
+// goes on (review of #1037); by the Routine's own when no run is live.
+func (s *Service) RoutineScriptReads(ctx context.Context, routineID string) (bool, error) {
+	q := store.New(s.db)
+
+	run, err := routinestore.LiveRunTx(ctx, q, routineID)
+	if err != nil {
+		return false, err
+	}
+
+	if run != nil {
+		return run.Access == routinestore.AccessRead, nil
+	}
+
+	r, err := routinestore.GetRoutineTx(ctx, q, routineID)
+	if err != nil {
+		return false, err
+	}
+
+	return r.Access == routinestore.AccessRead, nil
+}

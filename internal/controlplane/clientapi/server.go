@@ -538,6 +538,17 @@ func (s *Server) authorize(next openapi.StrictHandlerFunc, operationID string) o
 				return nil, fmt.Errorf("%w: %s", errForbidden, agenttool.ReadRunRefusal)
 			}
 		}
+		// A read Routine's check script has the rights of its runs, which have none here: it reads through the
+		// agent API's tools (owner, 2026-11-21 on #1023). Its run's access decides, as the run started.
+		if tok.Kind == bearertoken.Bot && tok.Routine != "" {
+			reads, err := s.svc.RoutineScriptReads(ctx, tok.Routine)
+			if err != nil {
+				return nil, err
+			}
+			if reads {
+				return nil, fmt.Errorf("%w: %s", errForbidden, agenttool.ReadRunRefusal)
+			}
+		}
 
 		if err := s.checkPolicy(ctx, p, tok, request); err != nil {
 			return nil, err

@@ -350,6 +350,12 @@ func (s *Service) CloseDevices() {
 	}
 }
 
+// DeviceState is the session's state of a Connection of kind device: a Bot's read of a messaging account that must
+// be linked again keeps the owner's "log in again" item of it (issue #1023).
+func (s *Service) DeviceState(integration, label string) messaging.State {
+	return s.deviceState(integration, label)
+}
+
 // deviceState is the session's state of a Connection of kind device; logged out when none is held.
 func (s *Service) deviceState(integration, label string) messaging.State {
 	s.mu.Lock()

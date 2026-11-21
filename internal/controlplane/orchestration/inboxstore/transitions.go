@@ -766,9 +766,14 @@ func (s *Store) MarkDuplicate(ctx context.Context, c Change, of string) (Todo, e
 // the history keeps them, and nothing is run again (Chatwoot's reopen).
 func (s *Store) Reopen(ctx context.Context, c Change) (Todo, error) {
 	return s.change(ctx, c, EventState,
-		func(_ *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
+		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
 			if !Closed(cur.State) {
 				return nil, fmt.Errorf("%w: to-do %s is %s, not closed", storeerr.ErrConflict, cur.ID, cur.State)
+			}
+
+			// An account's "log in again" item takes its account's key again (signin.go).
+			if err := retake(ctx, q, cur); err != nil {
+				return nil, err
 			}
 
 			next.State = Open

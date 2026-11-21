@@ -1518,6 +1518,24 @@ func (e NodeMachineState) Valid() bool {
 	}
 }
 
+// Defines values for OwnerAccounts.
+const (
+	OwnerAccountsRead OwnerAccounts = "read"
+	OwnerAccountsUse  OwnerAccounts = "use"
+)
+
+// Valid indicates whether the value is a known member of the OwnerAccounts enum.
+func (e OwnerAccounts) Valid() bool {
+	switch e {
+	case OwnerAccountsRead:
+		return true
+	case OwnerAccountsUse:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PhoneSyncStage.
 const (
 	PhoneSyncStageAsking    PhoneSyncStage = "asking"
@@ -3428,6 +3446,9 @@ type Bot struct {
 	// Name What the Bot is called; shown, and changed with a rename.
 	Name string `json:"name"`
 
+	// OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
+	OwnerAccounts *OwnerAccounts `json:"owner_accounts,omitempty"`
+
 	// Persona What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
 	Persona string `json:"persona"`
 
@@ -3496,7 +3517,10 @@ type BotSettings struct {
 	// GuaranteedDispatches The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
 	GuaranteedDispatches *int    `json:"guaranteed_dispatches,omitempty"`
 	Model                *string `json:"model,omitempty"`
-	Persona              *string `json:"persona,omitempty"`
+
+	// OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
+	OwnerAccounts *OwnerAccounts `json:"owner_accounts,omitempty"`
+	Persona       *string        `json:"persona,omitempty"`
 
 	// Preset Full is every family except phone. Report includes memory, artifacts, routines, web and Superset.
 	Preset   *ToolPreset `json:"preset,omitempty"`
@@ -5866,6 +5890,9 @@ type Option struct {
 	AllowsText *bool  `json:"allows_text,omitempty"`
 	Label      string `json:"label"`
 }
+
+// OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
+type OwnerAccounts string
 
 // PhoneSync The last sync from the owner's phone while the session lasts (issue #697): asking (the phone shows a confirmation), sending (confirmed; the phone uploads), importing, done, or failed with its reason. messages were added in chats; skipped counts the chats that could not be read.
 type PhoneSync struct {

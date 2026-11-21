@@ -113,6 +113,10 @@ func (p *Proxy) Relay(ctx context.Context, c Call) (Answer, Action, error) {
 		catalog: catalog, host: c.Host,
 	}
 
+	if err := p.readsOnly(ctx, &s); err != nil {
+		return Answer{}, Action{}, err
+	}
+
 	action, message := p.judge(ctx, req, c.Body, s)
 	if message != "" {
 		return Answer{}, action, &RefusedError{Message: message}
