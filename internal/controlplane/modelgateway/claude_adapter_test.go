@@ -76,7 +76,7 @@ func newClaudeGateway(t *testing.T, backend *httptest.Server, subs modelgateway.
 	modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"),
 		modelgateway.Config{Subscriptions: subs, ClaudeBaseURL: backend.URL}).Register(mux)
 
-	return chatGateway{svc: svc, mux: mux, key: key}
+	return chatGateway{db: db, svc: svc, mux: mux, key: key}
 }
 
 var claudeHello = []string{

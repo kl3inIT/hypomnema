@@ -103,12 +103,21 @@ func Still(ctx context.Context, tools ffmpeg.Tools, in StillInput) error {
 		graph += "[picture];[picture]" + c.frameGraph(1)
 	}
 
+	// The picture becomes the video's pixels, limited-range yuv420p, as the encoder makes them, before the captions
+	// are drawn on it as Burn draws them on the made MP4: libass blends in limited range, and on the PNG's full-range
+	// pixels the box's black came out as 16 (#937).
+	graph += ",scale=out_range=tv,format=yuv420p"
+
 	if in.Captions != "" {
 		if err := stageCaptions(in.Captions, in.Work, tools.FontsDir); err != nil {
 			return err
 		}
 
-		graph += fmt.Sprintf(",setpts=%s/TB,subtitles=filename=captions.ass:fontsdir=fonts", ms(in.CaptionsAtMs))
+		// The picture is put at the moment plus half a millisecond, on a timebase fine enough to hold it: libass is
+		// given the frame's time in whole milliseconds, truncated, so a cue starting at the moment shows, and one
+		// ending there does not. On the PNG's own 1/25 timebase the moment fell to the 40 ms before it (#937).
+		graph += fmt.Sprintf(",settb=1/2000,setpts=%d,subtitles=filename=captions.ass:fontsdir=fonts",
+			2*in.CaptionsAtMs+1)
 	}
 
 	args = append(args, "-filter_complex", graph+"[vout]", "-map", "[vout]", "-frames:v", "1", "-q:v", "3",

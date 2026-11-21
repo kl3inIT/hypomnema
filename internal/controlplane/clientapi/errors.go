@@ -5,11 +5,13 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
@@ -34,6 +36,8 @@ func statusOf(code openapi.ErrorCode) int {
 		return http.StatusServiceUnavailable
 	case openapi.RateLimited:
 		return http.StatusTooManyRequests
+	case openapi.TimedOut:
+		return http.StatusGatewayTimeout
 	default:
 		return http.StatusInternalServerError
 	}
@@ -55,6 +59,10 @@ func codeOf(err error) openapi.ErrorCode {
 	}
 
 	if code, ok := audioCode(err); ok {
+		return code
+	}
+
+	if code, ok := videoCode(err); ok {
 		return code
 	}
 
@@ -93,7 +101,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 
 	if code == openapi.InternalError {
 		s.logger.ErrorContext(r.Context(), "client API request failed",
-			slog.String("event", "clientapi.internal_error"), slog.String("path", r.URL.Path),
+			slog.String("event", "clientapi.internal_error"), slog.String("path", loggedPath(r.URL.Path)),
 			slog.String("error", err.Error()))
 
 		message = "internal error"
@@ -120,6 +128,10 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		w.Header().Set("Retry-After", wait)
 	}
 
+	if errors.Is(err, videos.ErrBusy) {
+		w.Header().Set("Retry-After", "1")
+	}
+
 	writeJSONError(w, statusOf(code), code, message)
 }
 
@@ -143,4 +155,20 @@ func writeJSONError(w http.ResponseWriter, status int, code openapi.ErrorCode, m
 	if err := json.NewEncoder(w).Encode(openapi.Error{Code: code, Message: message}); err != nil {
 		return // The client left; there is no one to tell.
 	}
+}
+
+// loggedPath is a request's path as it may be logged: a share link's token, which opens its artifact to whoever
+// has it, is replaced (issue #996).
+func loggedPath(path string) string {
+	rest, ok := strings.CutPrefix(path, sharesPath)
+	if !ok || rest == "" {
+		return path
+	}
+
+	_, after, found := strings.Cut(rest, "/")
+	if !found {
+		return sharesPath + "<token>"
+	}
+
+	return sharesPath + "<token>/" + after
 }

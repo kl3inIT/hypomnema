@@ -109,7 +109,7 @@ func Render(ctx context.Context, tools ffmpeg.Tools, cues []Cue, look Look, widt
 	}
 
 	if look.Preset == Legacy {
-		return ASS(cues, width, height, Default), nil
+		return positionedASS(cues, width, height, Default, look.Position), nil
 	}
 
 	r, err := newRenderer(look.Preset, width, height)

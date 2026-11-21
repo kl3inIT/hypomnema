@@ -515,8 +515,8 @@ func TestTheOwnerDeletesAChat(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	// The gateway's own revocation, as the control plane wires it (issue #405).
-	w.s.chatKeys = modelgateway.RevokeDeletedChatKeysTx
+	// The gateway's own revocations, as the control plane wires them (issues #405, #996).
+	w.s.gatewayKeys = modelgateway.Revocations{}
 	ctx := t.Context()
 
 	chat, err := w.s.CreateChat(ctx, "", "")

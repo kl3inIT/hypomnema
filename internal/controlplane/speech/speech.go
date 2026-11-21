@@ -354,6 +354,9 @@ type SpeakRequest struct {
 	// Language is Soniox's language for the text; empty: en (OmniRoute's default).
 	Language string
 	Provider string
+	// Pinned asks Provider alone, even when the owner turned it off since, and reads no settings: a video revision
+	// made again with the voice it was spoken with (issue #908, row 4).
+	Pinned bool
 }
 
 // Formats are the audio formats speech is made in, OpenAI's.
@@ -401,7 +404,7 @@ func (s *Service) Transcribe(ctx context.Context, req TranscribeRequest) (Transc
 
 	var out Transcript
 
-	err := s.each(ctx, KindSTT, req.Provider, func(ctx context.Context, r route) error {
+	err := s.each(ctx, KindSTT, req.Provider, false, func(ctx context.Context, r route) error {
 		var (
 			t   Transcript
 			err error
@@ -446,7 +449,7 @@ func (s *Service) Speak(ctx context.Context, req SpeakRequest) (Speech, error) {
 
 	var out Speech
 
-	err := s.each(ctx, KindTTS, req.Provider, func(ctx context.Context, r route) error {
+	err := s.each(ctx, KindTTS, req.Provider, req.Pinned, func(ctx context.Context, r route) error {
 		ctx, cancel := context.WithTimeout(ctx, speechTimeout)
 		defer cancel()
 
@@ -501,22 +504,33 @@ func keyRoute(k Key) route { return route{id: "key:" + k.Name, key: k} }
 // used first, until one answers: a key's own refusal (a limit, no credits, a
 // refused key) rests the key and asks the provider's next key; any other
 // failure goes to the next provider, as web search does (websearch.go,
-// search). answered is told who answered after whose failures.
-func (s *Service) each(ctx context.Context, kind, provider string,
+// search). answered is told who answered after whose failures. A pinned call asks its provider alone and reads
+// no settings.
+func (s *Service) each(ctx context.Context, kind, provider string, pinned bool,
 	ask func(ctx context.Context, r route) error, answered func(provider, model string, failures []Failure),
 ) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 
-	set, err := s.settings(ctx)
-	if err != nil {
-		return err
-	}
-
 	switch {
 	case provider != "" && !slices.Contains(Providers(), provider):
 		return fmt.Errorf("%w: the provider is one of %s", ErrInvalid, strings.Join(Providers(), ", "))
-	case provider != "" && slices.Contains(set.Off, provider):
-		return fmt.Errorf("%w: %s is turned off on this control plane", ErrInvalid, provider)
+	case pinned && provider == "":
+		return fmt.Errorf("%w: a pinned call names its provider", ErrInvalid)
+	}
+
+	set, order := Settings{}, []string{provider}
+
+	if !pinned {
+		var err error
+		if set, err = s.settings(ctx); err != nil {
+			return err
+		}
+
+		if provider != "" && slices.Contains(set.Off, provider) {
+			return fmt.Errorf("%w: %s is turned off on this control plane", ErrInvalid, provider)
+		}
+
+		order = set.Order(kind)
 	}
 
 	keys, err := s.keys(ctx)
@@ -531,7 +545,7 @@ func (s *Service) each(ctx context.Context, kind, provider string,
 		keyed     bool
 	)
 
-	for _, p := range set.Order(kind) {
+	for _, p := range order {
 		if slices.Contains(set.Off, p) || (provider != "" && p != provider) {
 			continue
 		}

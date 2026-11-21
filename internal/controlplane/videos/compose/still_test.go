@@ -2,8 +2,10 @@ package compose
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -162,4 +164,43 @@ func TestAStillIsDrawnAsTheVideo(t *testing.T) {
 
 	assert.Greater(t, white(600), 500, "the cue of 0.2-1.0 s at 0.6 s")
 	assert.Zero(t, white(1500), "no cue at 1.5 s")
+}
+
+// A still at the moment a cue starts shows it, and a still a millisecond before does not (#937, the review of
+// #936): on the PNG's 1/25 timebase a cue starting at 230 ms was missing at 230 ms and shown at 240 ms.
+func TestAStillAtACuesStartShowsIt(t *testing.T) {
+	t.Parallel()
+
+	tools := tools(t)
+	dir := t.TempDir()
+	redGreenTake(t, tools, dir, 3000)
+
+	raw, err := os.ReadFile(filepath.Join("testdata", "captions.ass"))
+	require.NoError(t, err)
+
+	ass := filepath.Join(dir, "at-230.ass")
+	//nolint:gosec // The test's own file.
+	require.NoError(t, os.WriteFile(ass, []byte(strings.Replace(string(raw), "0:00:00.20,0:00:01.00",
+		"0:00:00.23,0:00:00.47", 1)), 0o600))
+
+	white := func(atMs int64) int {
+		px, size := stillOf(t, tools, dir, StillInput{Aspect: Landscape, Captions: ass, CaptionsAtMs: atMs})
+
+		n := 0
+
+		for y := 580; y < size.Height; y++ {
+			for x := range size.Width {
+				if p := pixel(px, size, x, y); p[0] > 220 && p[1] > 220 && p[2] > 220 {
+					n++
+				}
+			}
+		}
+
+		return n
+	}
+
+	assert.Zero(t, white(229), "not yet at 229 ms")
+	assert.Greater(t, white(230), 500, "the cue at its start, 230 ms")
+	assert.Greater(t, white(469), 500, "still at 469 ms")
+	assert.Zero(t, white(470), "gone at its end, 470 ms")
 }

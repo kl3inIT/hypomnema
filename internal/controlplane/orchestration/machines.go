@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -327,7 +328,7 @@ func (s *Service) MachineProvisionFailed(ctx context.Context, nodeID, reason str
 // work and its tokens stop working, and its machine is to be destroyed. It
 // is refused while the node runs Dispatches. Starting again is not an error.
 func (s *Service) BeginMachineRemoval(ctx context.Context, nodeID string) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
+	return s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
 		row, err := q.GetNode(ctx, nodeID)
 		if err != nil {
 			return notFound(err, "node", nodeID)
@@ -353,21 +354,21 @@ func (s *Service) BeginMachineRemoval(ctx context.Context, nodeID string) error 
 			return fmt.Errorf("marking machine %s as deleting: %w", nodeID, err)
 		}
 
-		if err := q.RevokeNodeTokens(ctx, store.RevokeNodeTokensParams{Now: validInt(now), NodeID: nodeID}); err != nil {
-			return fmt.Errorf("revoking the tokens of node %s: %w", nodeID, err)
-		}
-
-		return nil
+		return s.revokeNodeCredentials(ctx, tx, q, nodeID, now)
 	})
 }
 
 // MachineRemoved records that the provider no longer has the machine: the
-// node is removed.
+// node is removed, and whatever credential it or its Dispatches still have
+// ends with it, as BeginMachineRemoval ended them (issue #996).
 func (s *Service) MachineRemoved(ctx context.Context, nodeID string) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
+	return s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
 		n, err := q.FinishMachineDeletion(ctx, store.FinishMachineDeletionParams{Now: now, ID: nodeID})
+		if err := oneRow(n, err, "machine being deleted", nodeID); err != nil {
+			return err
+		}
 
-		return oneRow(n, err, "machine being deleted", nodeID)
+		return s.revokeNodeCredentials(ctx, tx, q, nodeID, now)
 	})
 }
 

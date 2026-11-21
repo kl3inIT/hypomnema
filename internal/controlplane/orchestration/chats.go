@@ -630,6 +630,9 @@ func (s *Service) DeleteChat(ctx context.Context, id string) (Chat, error) {
 		return Chat{}, fmt.Errorf("deleting chat %s: %w", id, err)
 	}
 
+	// A pi's token bound to the chat ends with it (issue #996), once the delete is committed.
+	s.endBotTokens(func(b botToken) bool { return b.chat == id })
+
 	return chat, nil
 }
 
@@ -680,20 +683,31 @@ func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries
 		func(ctx context.Context, id string) error { return routinestore.DetachFromChatTx(ctx, q, id) },
 		q.DetachApprovalsFromChat,
 		func(ctx context.Context, id string) error {
-			if s.chatKeys == nil {
+			if s.gatewayKeys == nil {
 				return nil
 			}
 
-			return s.chatKeys(ctx, tx, id, now)
+			return s.gatewayKeys.RevokeDeletedChatKeysTx(ctx, tx, id, now)
 		},
 		q.DeleteSetupChangesOfChat,
 		func(ctx context.Context, id string) error { return channelstore.DeleteChannelChatOfChatTx(ctx, q, id) },
 		q.ClearMainChat, q.DeleteArtifactsOfChat, q.DeleteChatQueue, q.DeleteChatMessages, q.DeleteChat,
 	}
+
+	// The sealed copies of its links' tokens go with the links its artifacts take (issue #996).
+	shareSecrets, err := q.ListShareSecretsOfChat(ctx, id)
+	if err != nil {
+		return fmt.Errorf("listing the links of chat %s: %w", id, err)
+	}
+
 	for _, step := range steps {
 		if err := step(ctx, id); err != nil {
 			return err
 		}
+	}
+
+	if err := s.deleteShareSecrets(ctx, tx, shareSecrets); err != nil {
+		return err
 	}
 
 	if len(blobs) == 0 {

@@ -526,7 +526,7 @@ func (s *Service) deleteBot(ctx context.Context, chat, id string) error {
 		return fmt.Errorf("%w: the main bot is always there", ErrConflict)
 	}
 
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
+	err := s.writeTx(ctx, func(tx *sql.Tx, q *store.Queries, now int64) error {
 		if err := changeFromChat(ctx, q, chat); err != nil {
 			return err
 		}
@@ -540,7 +540,7 @@ func (s *Service) deleteBot(ctx context.Context, chat, id string) error {
 			return err
 		}
 
-		if err := removeBotRow(ctx, q, row); err != nil {
+		if err := s.removeBotRow(ctx, tx, q, row, now); err != nil {
 			return err
 		}
 
@@ -553,6 +553,8 @@ func (s *Service) deleteBot(ctx context.Context, chat, id string) error {
 	if err != nil {
 		return fmt.Errorf("removing bot %s: %w", id, err)
 	}
+
+	s.endBotTokens(func(b botToken) bool { return b.bot == id })
 
 	return nil
 }
@@ -609,18 +611,27 @@ func (s *Service) ForceDeleteBot(ctx context.Context, id string) ([]Chat, error)
 			return err
 		}
 
-		return removeBotRow(ctx, q, row)
+		return s.removeBotRow(ctx, tx, q, row, now)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("removing bot %s with its chats: %w", id, err)
 	}
 
+	s.endBotTokens(func(b botToken) bool { return b.bot == id })
+
 	return deleted, nil
 }
 
 // removeBotRow removes a Bot's row; the Bots after it move up a place, so the order stays 0 to n-1 (issue #470), as
-// OpenMausBot's fleet is one list a removed bot leaves.
-func removeBotRow(ctx context.Context, q *store.Queries, row store.Bot) error {
+// OpenMausBot's fleet is one list a removed bot leaves. Its gateway keys end in the same transaction (issue #996);
+// its pi's tokens, kept in memory, end after the commit (endBotTokens).
+func (s *Service) removeBotRow(ctx context.Context, tx *sql.Tx, q *store.Queries, row store.Bot, now int64) error {
+	if s.gatewayKeys != nil {
+		if err := s.gatewayKeys.RevokeBotKeysTx(ctx, tx, row.ID, now); err != nil {
+			return err
+		}
+	}
+
 	if err := q.DeleteBot(ctx, row.ID); err != nil {
 		return err
 	}

@@ -774,9 +774,12 @@ paths:
       summary: Make a take into a video, or a new revision of its video (owner only)
       description: >-
         The take must be available and have steps. The take's first make creates its video; a later make adds a
-        revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already
-        made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait
-        in the queue; one more is refused with conflict.
+        revision with the lines of the latest one: a scene's voice already made with the same line, provider, model
+        and voice is reused, not asked again. Its look is the sections sent, each field left out taking the
+        reference default; the sections not sent are the saved default's (GET /videos/looks), which the owner's
+        make updates with the sections it sent. A frame sent for a take whose phone turned is refused with
+        conflict; a frame from the default is made full instead, with fell_back_from and a warning. At most 10
+        revisions wait in the queue; one more is refused with conflict.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -790,6 +793,40 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Video" }
+        default: { $ref: "#/components/responses/Error" }
+  /videos/looks:
+    get:
+      operationId: ListVideoLooks
+      summary: What a video's look is chosen from, and the saved default (owner only; issue #908)
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoLooks" }
+        default: { $ref: "#/components/responses/Error" }
+  /videos/preview:
+    post:
+      operationId: PreviewVideoLook
+      summary: A look sample of a take, as a JPEG (owner only; issue #908)
+      description: >-
+        The chosen look over the take's picture at its first step, drawn as the video is: the same frame,
+        background and captions, the line's second word as it starts. It shows the look; it does not promise the
+        video shows that moment, which may be cut. The look is resolved as a make's, or, with rev, as a look
+        change of that revision. One sample is made at a time: a request that waits more than 5 seconds is
+        rate_limited with Retry-After; one that takes more than 20 seconds is timed_out; without ffmpeg it is
+        unavailable.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VideoPreview" }
+      responses:
+        "200":
+          description: The sample.
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
   /videos/{video_id}:
     parameters:
@@ -849,6 +886,54 @@ paths:
       responses:
         "200":
           description: The video.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Video" }
+        default: { $ref: "#/components/responses/Error" }
+  /videos/{video_id}/revisions/{rev}/look:
+    parameters:
+      - $ref: "#/components/parameters/VideoID"
+      - $ref: "#/components/parameters/VideoRev"
+    post:
+      operationId: ChangeVideoLook
+      summary: Make a revision again in another look (owner only; issue #908)
+      description: >-
+        Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and
+        captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken
+        by the provider and voice this one was, from the voice already made. The revision must be in review,
+        approved or changes_requested, and stays as it is; a video whose take was deleted is refused with
+        conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
+      parameters:
+        - $ref: "#/components/parameters/RequiredIdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VideoLookChange" }
+      responses:
+        "201":
+          description: The video, with the revision queued.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Video" }
+        default: { $ref: "#/components/responses/Error" }
+  /videos/{video_id}/revisions/{rev}/retry:
+    parameters:
+      - $ref: "#/components/parameters/VideoID"
+      - $ref: "#/components/parameters/VideoRev"
+    post:
+      operationId: RetryVideoRevision
+      summary: Make a failed revision again, as it was asked (owner only; issue #937)
+      description: >-
+        Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look,
+        aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it
+        failed is spoken again by the same provider and voice, from the voice already made. Only a failed
+        revision is made again. The Idempotency-Key is required.
+      parameters:
+        - $ref: "#/components/parameters/RequiredIdempotencyKey"
+      responses:
+        "201":
+          description: The video, with the revision queued.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Video" }
@@ -5563,6 +5648,14 @@ components:
       in: query
       description: The seq of the last event already read.
       schema: { type: integer, format: int64, minimum: 0 }
+    RequiredIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Makes the request safe to repeat, and is required where a repeat would add another revision: the same key
+        with the same request returns the first result; with another request it is idempotency_key_conflict.
+      schema: { type: string, minLength: 1, maxLength: 255 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -5597,6 +5690,7 @@ components:
         - unavailable
         - request_too_large
         - rate_limited
+        - timed_out
         - internal_error
     TokenKind:
       type: string
@@ -8043,7 +8137,7 @@ components:
         One make of the video, never changed once made: queued, then voicing, composing and captioning (skipped
         without captions) as the runner makes it, then review; approved or changes_requested by the owner; failed
         at a stage with its cause, interrupted when the control plane stopped while it was made.
-      required: [rev, state, lines, captions, aspect, length_ms, warnings, created_at, updated_at]
+      required: [rev, state, lines, captions, aspect, length_ms, warnings, look, created_at, updated_at]
       properties:
         rev: { type: integer }
         parent: { type: integer, description: The revision it was made from. }
@@ -8067,6 +8161,7 @@ components:
         warnings:
           type: array
           items: { type: string }
+        look: { $ref: "#/components/schemas/VideoLook" }
         progress: { $ref: "#/components/schemas/VideoProgress" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -8120,6 +8215,117 @@ components:
         aspect: { type: string, enum: ["9:16", "16:9"], description: "Absent: 9:16." }
         captions: { type: boolean, description: "Absent: true." }
         voice: { type: string, maxLength: 100, description: "Absent: each provider's set on Settings → Audio." }
+        look: { $ref: "#/components/schemas/VideoLookInput" }
+    VideoLookChange:
+      type: object
+      additionalProperties: false
+      properties:
+        look: { $ref: "#/components/schemas/VideoLookInput" }
+    VideoPreview:
+      type: object
+      additionalProperties: false
+      required: [take]
+      properties:
+        take: { type: string, pattern: "^tk_[0-9a-f]{16}$" }
+        aspect: { type: string, enum: ["9:16", "16:9"], description: "Absent: 9:16." }
+        captions: { type: boolean, description: "Absent: true." }
+        look: { $ref: "#/components/schemas/VideoLookInput" }
+        rev:
+          type: integer
+          minimum: 1
+          description: A revision of the take's video the look starts from, as a look change does; its first line is shown.
+    VideoLookInput:
+      type: object
+      additionalProperties: false
+      description: >-
+        A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or
+        the revision's; each field left out of a sent section takes the reference default.
+      properties:
+        captions: { $ref: "#/components/schemas/VideoCaptionsInput" }
+        frame: { $ref: "#/components/schemas/VideoFrameInput" }
+        background: { $ref: "#/components/schemas/VideoBackground" }
+    VideoCaptionsInput:
+      type: object
+      additionalProperties: false
+      properties:
+        preset: { type: string, minLength: 1, maxLength: 40, description: "A preset's id of GET /videos/looks; absent: clean." }
+        position: { $ref: "#/components/schemas/VideoCaptionPosition" }
+    VideoFrameInput:
+      type: object
+      additionalProperties: false
+      properties:
+        chrome: { $ref: "#/components/schemas/VideoChrome" }
+        padding: { type: integer, minimum: 0, maximum: 400, description: "Absent: 48." }
+        radius: { type: integer, minimum: 0, maximum: 80, description: "Absent: 40 for a device, 14 otherwise." }
+        shadow: { type: boolean, description: "Absent: true." }
+        safe_top: { type: boolean, description: "A status strip of bezel above the picture; absent: false." }
+    VideoLook:
+      type: object
+      description: How a revision is drawn, whole as stored; a revision made before the looks is legacy and full.
+      required: [captions, frame]
+      properties:
+        captions: { $ref: "#/components/schemas/VideoCaptions" }
+        frame: { $ref: "#/components/schemas/VideoFrame" }
+        background: { $ref: "#/components/schemas/VideoBackground" }
+        fell_back_from:
+          $ref: "#/components/schemas/VideoChrome"
+          description: The chrome a frame from the default would have drawn on a take whose phone turned; made full.
+    VideoCaptions:
+      type: object
+      required: [preset, position]
+      properties:
+        preset: { type: string }
+        position: { $ref: "#/components/schemas/VideoCaptionPosition" }
+    VideoFrame:
+      type: object
+      required: [chrome, padding, radius, shadow, safe_top]
+      properties:
+        chrome: { $ref: "#/components/schemas/VideoChrome" }
+        padding: { type: integer }
+        radius: { type: integer }
+        shadow: { type: boolean }
+        safe_top: { type: boolean }
+    VideoBackground:
+      type: object
+      additionalProperties: false
+      description: "One of the backgrounds of GET /videos/looks, or two colors; neither: midnight."
+      properties:
+        preset: { type: string, minLength: 1, maxLength: 40 }
+        colors:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { type: string, pattern: "^#[0-9a-fA-F]{6}$" }
+    VideoCaptionPosition:
+      type: string
+      description: "Where captions sit: the preset's own, or one chosen; absent: preset."
+      enum: [preset, bottom, lower_third, center, top]
+      x-enum-varnames: [PositionPreset, PositionBottom, PositionLowerThird, PositionCenter, PositionTop]
+    VideoChrome:
+      type: string
+      description: "What is drawn around the picture: full is none, the picture filling the video; absent: none."
+      enum: [full, none, android, iphone]
+      x-enum-varnames: [ChromeFull, ChromeNone, ChromeAndroid, ChromeIPhone]
+    VideoLooks:
+      type: object
+      required: [presets, backgrounds, chromes, default]
+      properties:
+        presets:
+          type: array
+          items: { $ref: "#/components/schemas/VideoPreset" }
+        backgrounds:
+          type: array
+          items: { type: string }
+        chromes:
+          type: array
+          items: { $ref: "#/components/schemas/VideoChrome" }
+        default: { $ref: "#/components/schemas/VideoLook" }
+    VideoPreset:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string, description: "What people call it; legacy is Classic, the captions made before the presets." }
     VideoChanges:
       type: object
       additionalProperties: false

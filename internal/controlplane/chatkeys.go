@@ -3,7 +3,9 @@ package controlplane
 import (
 	"context"
 	"errors"
+	"fmt"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
@@ -14,17 +16,31 @@ import (
 type chatKeys struct {
 	gateway *modelgateway.Service
 	chats   *orchestration.Service
+	// coordinator names the coordinator token pi runs under, as botTokens' does.
+	coordinator string
 }
 
 // AddChatKey returns a new key's id and secret for the chat's pi. The key names the chat's Bot, so the owner's
-// usage is told by Bot (issue #626); a chat that cannot be read gives a key with no Bot.
+// usage is told by Bot (issue #626); a chat that cannot be read gives a key with no Bot. It names the coordinator
+// token pi's Bot token is made under, so revoking that token ends the key too, and the gateway makes none under a
+// revoked one, as pi's model changes as at its start (issue #996).
 func (c chatKeys) AddChatKey(ctx context.Context, chatID, model string) (string, string, error) {
 	bot := ""
 	if chat, err := c.chats.GetChat(ctx, chatID); err == nil {
 		bot = chat.Bot
 	}
 
-	k, secret, err := c.gateway.AddChatKey(ctx, chatID, bot, model)
+	parent := ""
+	if c.coordinator != "" {
+		id, err := c.chats.CoordinatorTokenID(ctx, c.coordinator)
+		if err != nil {
+			return "", "", fmt.Errorf("finding the token chat %s's pi runs under: %w", chatID, err)
+		}
+
+		parent = id
+	}
+
+	k, secret, err := c.gateway.AddChatKeyUnder(ctx, parent, chatID, bot, model)
 
 	return k.ID, secret, err
 }
@@ -54,7 +70,7 @@ func (b botTokens) RevokeBotToken(secret string) { b.svc.RevokeBotToken(secret) 
 // RevokeKey ends a pi's key. One already ended is no error: a pi that fails
 // as it starts is stopped, and both its end and its start end the key.
 func (c chatKeys) RevokeKey(ctx context.Context, id string) error {
-	err := c.gateway.RevokeKey(ctx, id)
+	err := c.gateway.RevokeKeyFor(ctx, id, bearertoken.RevokedProcessEnded)
 	if errors.Is(err, modelgateway.ErrConflict) || errors.Is(err, modelgateway.ErrNotFound) {
 		return nil
 	}

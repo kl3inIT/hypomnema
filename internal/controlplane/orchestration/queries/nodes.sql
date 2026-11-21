@@ -73,9 +73,10 @@ UPDATE nodes SET updated_at = @now, unavailable_at = @now WHERE id = @id AND una
 INSERT INTO node_tokens (id, node_id, name, token_hash, created_at) VALUES (@id, @node_id, @name, @token_hash, @now);
 
 -- name: GetLiveNodeTokenByHash :one
--- The token, when it is not revoked and its node has not been removed.
+-- The token, when it is not revoked and its node has not been removed nor is being removed (issue #996).
 SELECT t.* FROM node_tokens t JOIN nodes n ON n.id = t.node_id
-WHERE t.token_hash = @token_hash AND t.revoked_at IS NULL AND n.status <> 'deleted';
+WHERE t.token_hash = @token_hash AND t.revoked_at IS NULL AND n.status <> 'deleted'
+  AND coalesce(n.machine_state, '') NOT IN ('deleting', 'delete_failed');
 
 -- name: GetNodeToken :one
 SELECT * FROM node_tokens WHERE id = @id;
@@ -84,10 +85,10 @@ SELECT * FROM node_tokens WHERE id = @id;
 SELECT * FROM node_tokens WHERE node_id = @node_id ORDER BY created_at, id;
 
 -- name: RevokeNodeToken :execrows
-UPDATE node_tokens SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
+UPDATE node_tokens SET revoked_at = @now, revoke_reason = @reason WHERE id = @id AND revoked_at IS NULL;
 
 -- name: RevokeNodeTokens :exec
-UPDATE node_tokens SET revoked_at = @now WHERE node_id = @node_id AND revoked_at IS NULL;
+UPDATE node_tokens SET revoked_at = @now, revoke_reason = @reason WHERE node_id = @node_id AND revoked_at IS NULL;
 
 -- name: TouchNodeToken :exec
 UPDATE node_tokens SET last_used_at = CAST(@now AS INTEGER)

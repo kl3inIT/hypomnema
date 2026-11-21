@@ -28,24 +28,49 @@ DELETE FROM gateway_models WHERE name = @name;
 
 -- name: InsertGatewayKey :exec
 INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at,
-                          secret_version_id, masked_value)
+                          secret_version_id, masked_value, coordinator_token_id)
 VALUES (@id, @name, @key_hash, @key_prefix, @models, @endpoints, @dispatch_id, @chat_id, @bot_id, @now,
-        @secret_version_id, @masked_value);
+        @secret_version_id, @masked_value, @coordinator_token_id);
 
 -- name: RevokeGatewayKeysOfChat :execrows
-UPDATE gateway_keys SET revoked_at = @now WHERE chat_id = @chat_id AND revoked_at IS NULL;
+UPDATE gateway_keys SET revoked_at = @now, revoke_reason = @reason WHERE chat_id = @chat_id AND revoked_at IS NULL;
 
 -- name: RevokeGatewayKeysOfDeletedChat :exec
 -- A deleted chat's keys (issue #405): revoked and kept, so the usage records stay whole, and they lose the chat, as
 -- its Runs do (issue #484).
-UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, @now), chat_id = NULL
+UPDATE gateway_keys SET revoke_reason = CASE WHEN revoked_at IS NULL THEN @reason ELSE revoke_reason END,
+                        revoked_at = coalesce(revoked_at, @now), chat_id = NULL
 WHERE chat_id = CAST(@chat_id AS TEXT);
 
 -- name: RevokeGatewayChatKeys :execrows
-UPDATE gateway_keys SET revoked_at = @now WHERE chat_id IS NOT NULL AND revoked_at IS NULL;
+UPDATE gateway_keys SET revoked_at = @now, revoke_reason = @reason WHERE chat_id IS NOT NULL AND revoked_at IS NULL;
 
 -- name: RevokeGatewayKeysOfDispatch :execrows
-UPDATE gateway_keys SET revoked_at = @now WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL;
+UPDATE gateway_keys SET revoked_at = @now, revoke_reason = @reason
+WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL;
+
+-- name: RevokeGatewayKeysOfCoordinatorToken :exec
+-- A revoked coordinator token's children (issue #996): the keys of the chats whose pi ran under it, and the keys of
+-- the Dispatches of the Runs it created.
+UPDATE gateway_keys SET revoked_at = @now, revoke_reason = @reason
+WHERE revoked_at IS NULL AND (coordinator_token_id = CAST(@token_id AS TEXT) OR dispatch_id IN (
+    SELECT d.id FROM dispatches d JOIN tasks t ON t.id = d.task_id JOIN runs r ON r.id = t.run_id
+    WHERE r.coordinator_token_id = CAST(@token_id AS TEXT)));
+
+-- name: RevokeGatewayKeysOfNode :exec
+-- The keys of a removed node's Dispatches (issue #996).
+UPDATE gateway_keys SET revoked_at = @now, revoke_reason = @reason
+WHERE revoked_at IS NULL AND dispatch_id IN (SELECT id FROM dispatches WHERE node_id = CAST(@node_id AS TEXT));
+
+-- name: RevokeGatewayKeysOfBot :exec
+-- A deleted Bot's keys (issue #996), kept for the usage they name.
+UPDATE gateway_keys SET revoked_at = @now, revoke_reason = @reason
+WHERE revoked_at IS NULL AND bot_id = CAST(@bot_id AS TEXT);
+
+-- name: TouchGatewayKey :exec
+-- A key's last use, written at most once an hour (issue #996), as a node token's is.
+UPDATE gateway_keys SET last_used_at = CAST(@now AS INTEGER)
+WHERE id = @id AND (last_used_at IS NULL OR last_used_at <= CAST(@before AS INTEGER));
 
 -- name: ListDispatchesWithGatewayKeys :many
 SELECT DISTINCT dispatch_id FROM gateway_keys WHERE dispatch_id IS NOT NULL AND revoked_at IS NULL;
@@ -89,7 +114,7 @@ SELECT key_id, CAST(MAX(created_at) AS INTEGER) AS last_used FROM gateway_usage 
 SELECT created_at FROM gateway_usage WHERE key_id = @key_id ORDER BY created_at DESC LIMIT 1;
 
 -- name: RevokeGatewayKey :execrows
-UPDATE gateway_keys SET revoked_at = @now, secret_version_id = NULL, masked_value = ''
+UPDATE gateway_keys SET revoked_at = @now, revoke_reason = @reason, secret_version_id = NULL, masked_value = ''
 WHERE id = @id AND revoked_at IS NULL;
 
 -- name: InsertGatewayUsage :exec
@@ -372,6 +397,30 @@ VALUES (@position, @find, @replacement, @now);
 DELETE FROM gateway_usage WHERE created_at < @before;
 
 -- name: DeleteUnusedRevokedGatewayKeys :execrows
--- A revoked key no request names (issue #628); a live key is never deleted.
+-- A revoked key no request names (issue #628); a live key is never deleted. The newest key of a chat that names its
+-- coordinator token stays too: a key made again for the chat without one takes that token from it, and is refused
+-- once the token is revoked (issue #996).
 DELETE FROM gateway_keys
-WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id);
+WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id)
+  AND NOT (coordinator_token_id IS NOT NULL AND chat_id IS NOT NULL AND id = (
+      SELECT k.id FROM gateway_keys k WHERE k.chat_id = gateway_keys.chat_id
+      ORDER BY k.created_at DESC, k.rowid DESC LIMIT 1));
+
+-- name: DispatchKeysEnded :one
+-- Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is
+-- revoked, or its node removed or being removed; read in the transaction that would make a key. A Dispatch not found is not refused.
+SELECT count(*) FROM dispatches d
+LEFT JOIN nodes n ON n.id = d.node_id
+LEFT JOIN tasks t ON t.id = d.task_id
+LEFT JOIN runs r ON r.id = t.run_id
+LEFT JOIN client_tokens c ON c.id = r.coordinator_token_id
+WHERE d.id = @dispatch_id
+  AND (n.status = 'deleted' OR n.machine_state IN ('deleting', 'delete_failed') OR c.revoked_at IS NOT NULL);
+
+-- name: CountLiveClientToken :one
+SELECT count(*) FROM client_tokens WHERE id = @id AND revoked_at IS NULL;
+
+-- name: GetChatBotForKey :one
+-- The Bot a chat is with, when the chat and that Bot are there (issue #996): a chat's key is made only then, in the
+-- transaction that makes it, so a key made from a read of the chat before its deletion, or its Bot's, is refused.
+SELECT c.bot_id FROM chats c JOIN bots b ON b.id = c.bot_id WHERE c.id = @chat_id;

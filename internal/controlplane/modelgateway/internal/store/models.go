@@ -25,19 +25,22 @@ type GatewayImageProvider struct {
 }
 
 type GatewayKey struct {
-	ID              string
-	Name            string
-	KeyHash         string
-	Models          string
-	CreatedAt       int64
-	RevokedAt       sql.NullInt64
-	DispatchID      sql.NullString
-	ChatID          sql.NullString
-	KeyPrefix       string
-	BotID           sql.NullString
-	Endpoints       sql.NullString
-	SecretVersionID sql.NullString
-	MaskedValue     string
+	ID                 string
+	Name               string
+	KeyHash            string
+	Models             string
+	CreatedAt          int64
+	RevokedAt          sql.NullInt64
+	DispatchID         sql.NullString
+	ChatID             sql.NullString
+	KeyPrefix          string
+	BotID              sql.NullString
+	Endpoints          sql.NullString
+	SecretVersionID    sql.NullString
+	MaskedValue        string
+	RevokeReason       sql.NullString
+	LastUsedAt         sql.NullInt64
+	CoordinatorTokenID sql.NullString
 }
 
 type GatewayModel struct {

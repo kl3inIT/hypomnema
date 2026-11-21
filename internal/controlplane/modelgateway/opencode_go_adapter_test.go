@@ -108,7 +108,7 @@ func newGoGateway(t *testing.T, backend *goBackend, subs modelgateway.Subscripti
 	modelgateway.NewServer(svc, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"),
 		modelgateway.Config{Subscriptions: subs, OpenCodeGoBaseURL: backend.URL}).Register(mux)
 
-	return chatGateway{svc: svc, mux: mux, key: key}
+	return chatGateway{db: db, svc: svc, mux: mux, key: key}
 }
 
 const askGo = `{"model":"opencode-go/%s","messages":[{"role":"user","content":"hi"}],"stream":true}`

@@ -172,6 +172,8 @@ func TestTheUsageByKeyIsByBotWorkersAndTheOwnersKeys(t *testing.T) {
 		require.Equal(t, http.StatusOK, status, body)
 	}
 
+	g.chat(t, "cht_vmap", "bot_vmap")
+
 	// Each start of the chat's pi has its own key, and the earlier one stops working.
 	for range 2 {
 		_, key, err := g.svc.AddChatKey(ctx, "cht_vmap", "bot_vmap", "")

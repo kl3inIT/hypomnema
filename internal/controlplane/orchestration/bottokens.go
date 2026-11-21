@@ -2,6 +2,8 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -100,6 +102,19 @@ func (s *Service) addBotToken(b botToken) (string, error) {
 	return secret, nil
 }
 
+// endBotTokens ends every Bot token that ends says should, as what it was made for ends (issue #996): its chat or
+// its Bot deleted, its coordinator token revoked. It is called after the commit that ends that.
+func (s *Service) endBotTokens(ends func(botToken) bool) {
+	s.botTokens.mu.Lock()
+	defer s.botTokens.mu.Unlock()
+
+	for hash, b := range s.botTokens.byHash {
+		if ends(b) {
+			delete(s.botTokens.byHash, hash)
+		}
+	}
+}
+
 // RevokeBotToken ends a Bot token. Ending one that was ended is no error.
 func (s *Service) RevokeBotToken(secret string) {
 	s.botTokens.mu.Lock()
@@ -128,10 +143,57 @@ func (s *Service) authenticateBotToken(ctx context.Context, secret string) (Toke
 		return Token{}, fmt.Errorf("%w: token %s is revoked", ErrNotFound, parent.ID)
 	}
 
+	// What it is bound to is read too (issue #996): a chat or a Bot deleted ends it at once, before the deletion
+	// takes it out of memory, and one made from a read of the chat before its deletion does not outlive it.
+	// Only a binding read as gone forgets the token; a read that failed, or a request canceled, keeps it.
+	if err := s.botTokenBound(ctx, b); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			s.botTokens.mu.Lock()
+			delete(s.botTokens.byHash, bearertoken.Hash(secret))
+			s.botTokens.mu.Unlock()
+		}
+
+		return Token{}, err
+	}
+
 	return Token{
 		ID: parent.ID, Name: parent.Name, Kind: bearertoken.Bot, CreatedAt: b.createdAt, Chat: b.chat, Bot: b.bot,
 		Routine: b.routine,
 	}, nil
+}
+
+// botTokenBound refuses a Bot token whose chat or Bot is gone, ErrNotFound: its chat must still be the Bot's, and a
+// Routine's run's Bot must still be there. Another error is a read that failed, which says nothing of the binding.
+func (s *Service) botTokenBound(ctx context.Context, b botToken) error {
+	q := s.read()
+
+	if b.chat != "" {
+		chat, err := q.GetChat(ctx, b.chat)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("%w: chat %s is gone", ErrNotFound, b.chat)
+		}
+
+		if err != nil {
+			return fmt.Errorf("reading chat %s: %w", b.chat, err)
+		}
+
+		if chat.BotID != b.bot {
+			return fmt.Errorf("%w: chat %s is no longer bot %s's", ErrNotFound, b.chat, b.bot)
+		}
+
+		return nil
+	}
+
+	_, err := q.GetBot(ctx, b.bot)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: bot %s is gone", ErrNotFound, b.bot)
+	}
+
+	if err != nil {
+		return fmt.Errorf("reading bot %s: %w", b.bot, err)
+	}
+
+	return nil
 }
 
 // coordinatorTokenNamed returns the coordinator token of that name, which

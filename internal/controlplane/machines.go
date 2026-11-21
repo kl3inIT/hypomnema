@@ -121,7 +121,7 @@ func secretReferrers(svc *orchestration.Service) vault.Referrers {
 			return nil, err
 		}
 
-		var connections, gatewayKeys []string
+		var connections, gatewayKeys, shares []string
 
 		if name, ok := vault.NameFromRef(ref); ok {
 			connections, err = svc.ConnectionsUsingSecret(ctx, name)
@@ -133,9 +133,14 @@ func secretReferrers(svc *orchestration.Service) vault.Referrers {
 			if err != nil {
 				return nil, err
 			}
+
+			shares, err = svc.SharesUsingSecret(ctx, name)
+			if err != nil {
+				return nil, err
+			}
 		}
 
-		return slices.Concat(models, machineProviders, accounts, connections, gatewayKeys), nil
+		return slices.Concat(models, machineProviders, accounts, connections, gatewayKeys, shares), nil
 	}
 }
 

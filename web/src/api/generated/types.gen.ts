@@ -9,7 +9,7 @@ export type Error = {
   message: string;
 };
 
-export type ErrorCode = 'validation_failed' | 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'unavailable' | 'request_too_large' | 'rate_limited' | 'internal_error';
+export type ErrorCode = 'validation_failed' | 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'unavailable' | 'request_too_large' | 'rate_limited' | 'timed_out' | 'internal_error';
 
 export type TokenKind = 'owner' | 'coordinator' | 'bot';
 
@@ -2300,6 +2300,7 @@ export type VideoRevision = {
    */
   note?: string;
   warnings: Array<string>;
+  look: VideoLook;
   progress?: VideoProgress;
   created_at: string;
   updated_at: string;
@@ -2373,6 +2374,124 @@ export type VideoMake = {
    * Absent: each provider's set on Settings → Audio.
    */
   voice?: string;
+  look?: VideoLookInput;
+};
+
+export type VideoLookChange = {
+  look?: VideoLookInput;
+};
+
+export type VideoPreview = {
+  take: string;
+  /**
+   * Absent: 9:16.
+   */
+  aspect?: '9:16' | '16:9';
+  /**
+   * Absent: true.
+   */
+  captions?: boolean;
+  look?: VideoLookInput;
+  /**
+   * A revision of the take's video the look starts from, as a look change does; its first line is shown.
+   */
+  rev?: number;
+};
+
+/**
+ * A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
+ */
+export type VideoLookInput = {
+  captions?: VideoCaptionsInput;
+  frame?: VideoFrameInput;
+  background?: VideoBackground;
+};
+
+export type VideoCaptionsInput = {
+  /**
+   * A preset's id of GET /videos/looks; absent: clean.
+   */
+  preset?: string;
+  position?: VideoCaptionPosition;
+};
+
+export type VideoFrameInput = {
+  chrome?: VideoChrome;
+  /**
+   * Absent: 48.
+   */
+  padding?: number;
+  /**
+   * Absent: 40 for a device, 14 otherwise.
+   */
+  radius?: number;
+  /**
+   * Absent: true.
+   */
+  shadow?: boolean;
+  /**
+   * A status strip of bezel above the picture; absent: false.
+   */
+  safe_top?: boolean;
+};
+
+/**
+ * How a revision is drawn, whole as stored; a revision made before the looks is legacy and full.
+ */
+export type VideoLook = {
+  captions: VideoCaptions;
+  frame: VideoFrame;
+  background?: VideoBackground;
+  fell_back_from?: VideoChrome;
+};
+
+export type VideoCaptions = {
+  preset: string;
+  position: VideoCaptionPosition;
+};
+
+export type VideoFrame = {
+  chrome: VideoChrome;
+  padding: number;
+  radius: number;
+  shadow: boolean;
+  safe_top: boolean;
+};
+
+/**
+ * One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
+ */
+export type VideoBackground = {
+  preset?: string;
+  colors?: [
+    string,
+    string
+  ];
+};
+
+/**
+ * Where captions sit: the preset's own, or one chosen; absent: preset.
+ */
+export type VideoCaptionPosition = 'preset' | 'bottom' | 'lower_third' | 'center' | 'top';
+
+/**
+ * What is drawn around the picture: full is none, the picture filling the video; absent: none.
+ */
+export type VideoChrome = 'full' | 'none' | 'android' | 'iphone';
+
+export type VideoLooks = {
+  presets: Array<VideoPreset>;
+  backgrounds: Array<string>;
+  chromes: Array<VideoChrome>;
+  default: VideoLook;
+};
+
+export type VideoPreset = {
+  id: string;
+  /**
+   * What people call it; legacy is Classic, the captions made before the presets.
+   */
+  name: string;
 };
 
 export type VideoChanges = {
@@ -5373,6 +5492,11 @@ export type QuestionId = string;
 export type After = number;
 
 /**
+ * Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+ */
+export type RequiredIdempotencyKey = string;
+
+/**
  * Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
  */
 export type IdempotencyKey = string;
@@ -6638,6 +6762,56 @@ export type MakeVideoResponses = {
 
 export type MakeVideoResponse = MakeVideoResponses[keyof MakeVideoResponses];
 
+export type ListVideoLooksData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/videos/looks';
+};
+
+export type ListVideoLooksErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListVideoLooksError = ListVideoLooksErrors[keyof ListVideoLooksErrors];
+
+export type ListVideoLooksResponses = {
+  /**
+   * The catalog.
+   */
+  200: VideoLooks;
+};
+
+export type ListVideoLooksResponse = ListVideoLooksResponses[keyof ListVideoLooksResponses];
+
+export type PreviewVideoLookData = {
+  body: VideoPreview;
+  path?: never;
+  query?: never;
+  url: '/videos/preview';
+};
+
+export type PreviewVideoLookErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PreviewVideoLookError = PreviewVideoLookErrors[keyof PreviewVideoLookErrors];
+
+export type PreviewVideoLookResponses = {
+  /**
+   * The sample.
+   */
+  200: Blob | File;
+};
+
+export type PreviewVideoLookResponse = PreviewVideoLookResponses[keyof PreviewVideoLookResponses];
+
 export type DeleteVideoData = {
   body?: never;
   path: {
@@ -6753,6 +6927,74 @@ export type RequestVideoChangesResponses = {
 };
 
 export type RequestVideoChangesResponse = RequestVideoChangesResponses[keyof RequestVideoChangesResponses];
+
+export type ChangeVideoLookData = {
+  body: VideoLookChange;
+  headers: {
+    /**
+     * Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+     */
+    'Idempotency-Key': string;
+  };
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/look';
+};
+
+export type ChangeVideoLookErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ChangeVideoLookError = ChangeVideoLookErrors[keyof ChangeVideoLookErrors];
+
+export type ChangeVideoLookResponses = {
+  /**
+   * The video, with the revision queued.
+   */
+  201: Video;
+};
+
+export type ChangeVideoLookResponse = ChangeVideoLookResponses[keyof ChangeVideoLookResponses];
+
+export type RetryVideoRevisionData = {
+  body?: never;
+  headers: {
+    /**
+     * Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+     */
+    'Idempotency-Key': string;
+  };
+  path: {
+    video_id: string;
+    rev: number;
+  };
+  query?: never;
+  url: '/videos/{video_id}/revisions/{rev}/retry';
+};
+
+export type RetryVideoRevisionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RetryVideoRevisionError = RetryVideoRevisionErrors[keyof RetryVideoRevisionErrors];
+
+export type RetryVideoRevisionResponses = {
+  /**
+   * The video, with the revision queued.
+   */
+  201: Video;
+};
+
+export type RetryVideoRevisionResponse = RetryVideoRevisionResponses[keyof RetryVideoRevisionResponses];
 
 export type ReadVideoFileData = {
   body?: never;

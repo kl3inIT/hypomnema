@@ -113,7 +113,7 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
 	require.Len(t, listed.JSON200.Data, 1, "a worker's key is not listed")
 	assert.Equal(t, "opencode-laptop", listed.JSON200.Data[0].Name)
-	assert.Nil(t, listed.JSON200.Data[0].LastUsedAt)
+	require.NotNil(t, listed.JSON200.Data[0].LastUsedAt, "authenticating is a use, written at most hourly (issue #996)")
 	assert.Equal(t, 1, listed.JSON200.LiveWorkerKeys)
 	assert.NotContains(t, string(listed.Body), secret)
 
@@ -213,6 +213,9 @@ func TestTheOwnerMakesEditsReadsAndRevokesAGatewayKey(t *testing.T) {
 
 	worker, err := gateway.Authenticate(ctx, workerKey)
 	require.NoError(t, err)
+	chatFor(t, db.ExecContext, "cht_1", "")
+	chatFor(t, db.ExecContext, "cht_2", "bot_1")
+
 	chat, _, err := gateway.AddChatKey(ctx, "cht_1", "", "gpt-sol")
 	require.NoError(t, err)
 	bot, _, err := gateway.AddChatKey(ctx, "cht_2", "bot_1", "gpt-sol")

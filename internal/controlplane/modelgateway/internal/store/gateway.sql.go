@@ -237,6 +237,17 @@ func (q *Queries) CountGatewaySearch(ctx context.Context, arg CountGatewaySearch
 	return err
 }
 
+const countLiveClientToken = `-- name: CountLiveClientToken :one
+SELECT count(*) FROM client_tokens WHERE id = ?1 AND revoked_at IS NULL
+`
+
+func (q *Queries) CountLiveClientToken(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countLiveClientToken, id)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteAntigravityRewrites = `-- name: DeleteAntigravityRewrites :exec
 DELETE FROM antigravity_prompt_rewrites
 `
@@ -282,15 +293,39 @@ func (q *Queries) DeleteGatewayUsageBefore(ctx context.Context, before int64) (i
 const deleteUnusedRevokedGatewayKeys = `-- name: DeleteUnusedRevokedGatewayKeys :execrows
 DELETE FROM gateway_keys
 WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id)
+  AND NOT (coordinator_token_id IS NOT NULL AND chat_id IS NOT NULL AND id = (
+      SELECT k.id FROM gateway_keys k WHERE k.chat_id = gateway_keys.chat_id
+      ORDER BY k.created_at DESC, k.rowid DESC LIMIT 1))
 `
 
-// A revoked key no request names (issue #628); a live key is never deleted.
+// A revoked key no request names (issue #628); a live key is never deleted. The newest key of a chat that names its
+// coordinator token stays too: a key made again for the chat without one takes that token from it, and is refused
+// once the token is revoked (issue #996).
 func (q *Queries) DeleteUnusedRevokedGatewayKeys(ctx context.Context) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteUnusedRevokedGatewayKeys)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const dispatchKeysEnded = `-- name: DispatchKeysEnded :one
+SELECT count(*) FROM dispatches d
+LEFT JOIN nodes n ON n.id = d.node_id
+LEFT JOIN tasks t ON t.id = d.task_id
+LEFT JOIN runs r ON r.id = t.run_id
+LEFT JOIN client_tokens c ON c.id = r.coordinator_token_id
+WHERE d.id = ?1
+  AND (n.status = 'deleted' OR n.machine_state IN ('deleting', 'delete_failed') OR c.revoked_at IS NOT NULL)
+`
+
+// Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is
+// revoked, or its node removed or being removed; read in the transaction that would make a key. A Dispatch not found is not refused.
+func (q *Queries) DispatchKeysEnded(ctx context.Context, dispatchID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, dispatchKeysEnded, dispatchID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const gatewayKeyLastUsed = `-- name: GatewayKeyLastUsed :one
@@ -336,8 +371,21 @@ func (q *Queries) GatewayKeysLastUsed(ctx context.Context) ([]GatewayKeysLastUse
 	return items, nil
 }
 
+const getChatBotForKey = `-- name: GetChatBotForKey :one
+SELECT c.bot_id FROM chats c JOIN bots b ON b.id = c.bot_id WHERE c.id = ?1
+`
+
+// The Bot a chat is with, when the chat and that Bot are there (issue #996): a chat's key is made only then, in the
+// transaction that makes it, so a key made from a read of the chat before its deletion, or its Bot's, is refused.
+func (q *Queries) GetChatBotForKey(ctx context.Context, chatID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getChatBotForKey, chatID)
+	var bot_id string
+	err := row.Scan(&bot_id)
+	return bot_id, err
+}
+
 const getGatewayKey = `-- name: GetGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE id = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE id = ?1
 `
 
 func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
@@ -357,12 +405,15 @@ func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, err
 		&i.Endpoints,
 		&i.SecretVersionID,
 		&i.MaskedValue,
+		&i.RevokeReason,
+		&i.LastUsedAt,
+		&i.CoordinatorTokenID,
 	)
 	return i, err
 }
 
 const getGatewayKeyByHash = `-- name: GetGatewayKeyByHash :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE key_hash = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE key_hash = ?1
 `
 
 func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (GatewayKey, error) {
@@ -382,6 +433,9 @@ func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (Gate
 		&i.Endpoints,
 		&i.SecretVersionID,
 		&i.MaskedValue,
+		&i.RevokeReason,
+		&i.LastUsedAt,
+		&i.CoordinatorTokenID,
 	)
 	return i, err
 }
@@ -404,7 +458,7 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 }
 
 const getLatestGatewayKeyOfChat = `-- name: GetLatestGatewayKeyOfChat :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 // The newest key of a chat, working or not (issue #723): a voice message heard before the chat's pi starts is
@@ -426,12 +480,15 @@ func (q *Queries) GetLatestGatewayKeyOfChat(ctx context.Context, chatID sql.Null
 		&i.Endpoints,
 		&i.SecretVersionID,
 		&i.MaskedValue,
+		&i.RevokeReason,
+		&i.LastUsedAt,
+		&i.CoordinatorTokenID,
 	)
 	return i, err
 }
 
 const getLatestGatewayKeyOfDispatch = `-- name: GetLatestGatewayKeyOfDispatch :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE dispatch_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE dispatch_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) GetLatestGatewayKeyOfDispatch(ctx context.Context, dispatchID sql.NullString) (GatewayKey, error) {
@@ -451,12 +508,15 @@ func (q *Queries) GetLatestGatewayKeyOfDispatch(ctx context.Context, dispatchID 
 		&i.Endpoints,
 		&i.SecretVersionID,
 		&i.MaskedValue,
+		&i.RevokeReason,
+		&i.LastUsedAt,
+		&i.CoordinatorTokenID,
 	)
 	return i, err
 }
 
 const getLiveGatewayKeyOfDispatch = `-- name: GetLiveGatewayKeyOfDispatch :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
 ORDER BY created_at DESC, id DESC LIMIT 1
 `
 
@@ -478,12 +538,15 @@ func (q *Queries) GetLiveGatewayKeyOfDispatch(ctx context.Context, dispatchID sq
 		&i.Endpoints,
 		&i.SecretVersionID,
 		&i.MaskedValue,
+		&i.RevokeReason,
+		&i.LastUsedAt,
+		&i.CoordinatorTokenID,
 	)
 	return i, err
 }
 
 const getLiveOwnerGatewayKey = `-- name: GetLiveOwnerGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys WHERE id = ?1 AND revoked_at IS NULL
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE id = ?1 AND revoked_at IS NULL
   AND dispatch_id IS NULL AND chat_id IS NULL AND bot_id IS NULL
 `
 
@@ -504,6 +567,9 @@ func (q *Queries) GetLiveOwnerGatewayKey(ctx context.Context, id string) (Gatewa
 		&i.Endpoints,
 		&i.SecretVersionID,
 		&i.MaskedValue,
+		&i.RevokeReason,
+		&i.LastUsedAt,
+		&i.CoordinatorTokenID,
 	)
 	return i, err
 }
@@ -532,24 +598,25 @@ func (q *Queries) InsertAntigravityRewrite(ctx context.Context, arg InsertAntigr
 
 const insertGatewayKey = `-- name: InsertGatewayKey :exec
 INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, endpoints, dispatch_id, chat_id, bot_id, created_at,
-                          secret_version_id, masked_value)
+                          secret_version_id, masked_value, coordinator_token_id)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-        ?11, ?12)
+        ?11, ?12, ?13)
 `
 
 type InsertGatewayKeyParams struct {
-	ID              string
-	Name            string
-	KeyHash         string
-	KeyPrefix       string
-	Models          string
-	Endpoints       sql.NullString
-	DispatchID      sql.NullString
-	ChatID          sql.NullString
-	BotID           sql.NullString
-	Now             int64
-	SecretVersionID sql.NullString
-	MaskedValue     string
+	ID                 string
+	Name               string
+	KeyHash            string
+	KeyPrefix          string
+	Models             string
+	Endpoints          sql.NullString
+	DispatchID         sql.NullString
+	ChatID             sql.NullString
+	BotID              sql.NullString
+	Now                int64
+	SecretVersionID    sql.NullString
+	MaskedValue        string
+	CoordinatorTokenID sql.NullString
 }
 
 func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyParams) error {
@@ -566,6 +633,7 @@ func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyPara
 		arg.Now,
 		arg.SecretVersionID,
 		arg.MaskedValue,
+		arg.CoordinatorTokenID,
 	)
 	return err
 }
@@ -799,7 +867,7 @@ func (q *Queries) ListGatewayImageProviders(ctx context.Context) ([]GatewayImage
 }
 
 const listGatewayKeys = `-- name: ListGatewayKeys :many
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value FROM gateway_keys ORDER BY name
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys ORDER BY name
 `
 
 func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
@@ -825,6 +893,9 @@ func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 			&i.Endpoints,
 			&i.SecretVersionID,
 			&i.MaskedValue,
+			&i.RevokeReason,
+			&i.LastUsedAt,
+			&i.CoordinatorTokenID,
 		); err != nil {
 			return nil, err
 		}
@@ -1325,11 +1396,16 @@ func (q *Queries) PruneGatewaySearchUsage(ctx context.Context, before string) er
 }
 
 const revokeGatewayChatKeys = `-- name: RevokeGatewayChatKeys :execrows
-UPDATE gateway_keys SET revoked_at = ?1 WHERE chat_id IS NOT NULL AND revoked_at IS NULL
+UPDATE gateway_keys SET revoked_at = ?1, revoke_reason = ?2 WHERE chat_id IS NOT NULL AND revoked_at IS NULL
 `
 
-func (q *Queries) RevokeGatewayChatKeys(ctx context.Context, now sql.NullInt64) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeGatewayChatKeys, now)
+type RevokeGatewayChatKeysParams struct {
+	Now    sql.NullInt64
+	Reason sql.NullString
+}
+
+func (q *Queries) RevokeGatewayChatKeys(ctx context.Context, arg RevokeGatewayChatKeysParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeGatewayChatKeys, arg.Now, arg.Reason)
 	if err != nil {
 		return 0, err
 	}
@@ -1337,46 +1413,87 @@ func (q *Queries) RevokeGatewayChatKeys(ctx context.Context, now sql.NullInt64) 
 }
 
 const revokeGatewayKey = `-- name: RevokeGatewayKey :execrows
-UPDATE gateway_keys SET revoked_at = ?1, secret_version_id = NULL, masked_value = ''
-WHERE id = ?2 AND revoked_at IS NULL
+UPDATE gateway_keys SET revoked_at = ?1, revoke_reason = ?2, secret_version_id = NULL, masked_value = ''
+WHERE id = ?3 AND revoked_at IS NULL
 `
 
 type RevokeGatewayKeyParams struct {
-	Now sql.NullInt64
-	ID  string
+	Now    sql.NullInt64
+	Reason sql.NullString
+	ID     string
 }
 
 func (q *Queries) RevokeGatewayKey(ctx context.Context, arg RevokeGatewayKeyParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeGatewayKey, arg.Now, arg.ID)
+	result, err := q.db.ExecContext(ctx, revokeGatewayKey, arg.Now, arg.Reason, arg.ID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
+const revokeGatewayKeysOfBot = `-- name: RevokeGatewayKeysOfBot :exec
+UPDATE gateway_keys SET revoked_at = ?1, revoke_reason = ?2
+WHERE revoked_at IS NULL AND bot_id = CAST(?3 AS TEXT)
+`
+
+type RevokeGatewayKeysOfBotParams struct {
+	Now    sql.NullInt64
+	Reason sql.NullString
+	BotID  string
+}
+
+// A deleted Bot's keys (issue #996), kept for the usage they name.
+func (q *Queries) RevokeGatewayKeysOfBot(ctx context.Context, arg RevokeGatewayKeysOfBotParams) error {
+	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfBot, arg.Now, arg.Reason, arg.BotID)
+	return err
+}
+
 const revokeGatewayKeysOfChat = `-- name: RevokeGatewayKeysOfChat :execrows
-UPDATE gateway_keys SET revoked_at = ?1 WHERE chat_id = ?2 AND revoked_at IS NULL
+UPDATE gateway_keys SET revoked_at = ?1, revoke_reason = ?2 WHERE chat_id = ?3 AND revoked_at IS NULL
 `
 
 type RevokeGatewayKeysOfChatParams struct {
 	Now    sql.NullInt64
+	Reason sql.NullString
 	ChatID sql.NullString
 }
 
 func (q *Queries) RevokeGatewayKeysOfChat(ctx context.Context, arg RevokeGatewayKeysOfChatParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeGatewayKeysOfChat, arg.Now, arg.ChatID)
+	result, err := q.db.ExecContext(ctx, revokeGatewayKeysOfChat, arg.Now, arg.Reason, arg.ChatID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
+const revokeGatewayKeysOfCoordinatorToken = `-- name: RevokeGatewayKeysOfCoordinatorToken :exec
+UPDATE gateway_keys SET revoked_at = ?1, revoke_reason = ?2
+WHERE revoked_at IS NULL AND (coordinator_token_id = CAST(?3 AS TEXT) OR dispatch_id IN (
+    SELECT d.id FROM dispatches d JOIN tasks t ON t.id = d.task_id JOIN runs r ON r.id = t.run_id
+    WHERE r.coordinator_token_id = CAST(?3 AS TEXT)))
+`
+
+type RevokeGatewayKeysOfCoordinatorTokenParams struct {
+	Now     sql.NullInt64
+	Reason  sql.NullString
+	TokenID string
+}
+
+// A revoked coordinator token's children (issue #996): the keys of the chats whose pi ran under it, and the keys of
+// the Dispatches of the Runs it created.
+func (q *Queries) RevokeGatewayKeysOfCoordinatorToken(ctx context.Context, arg RevokeGatewayKeysOfCoordinatorTokenParams) error {
+	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfCoordinatorToken, arg.Now, arg.Reason, arg.TokenID)
+	return err
+}
+
 const revokeGatewayKeysOfDeletedChat = `-- name: RevokeGatewayKeysOfDeletedChat :exec
-UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, ?1), chat_id = NULL
-WHERE chat_id = CAST(?2 AS TEXT)
+UPDATE gateway_keys SET revoke_reason = CASE WHEN revoked_at IS NULL THEN ?1 ELSE revoke_reason END,
+                        revoked_at = coalesce(revoked_at, ?2), chat_id = NULL
+WHERE chat_id = CAST(?3 AS TEXT)
 `
 
 type RevokeGatewayKeysOfDeletedChatParams struct {
+	Reason sql.NullString
 	Now    sql.NullInt64
 	ChatID string
 }
@@ -1384,25 +1501,44 @@ type RevokeGatewayKeysOfDeletedChatParams struct {
 // A deleted chat's keys (issue #405): revoked and kept, so the usage records stay whole, and they lose the chat, as
 // its Runs do (issue #484).
 func (q *Queries) RevokeGatewayKeysOfDeletedChat(ctx context.Context, arg RevokeGatewayKeysOfDeletedChatParams) error {
-	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfDeletedChat, arg.Now, arg.ChatID)
+	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfDeletedChat, arg.Reason, arg.Now, arg.ChatID)
 	return err
 }
 
 const revokeGatewayKeysOfDispatch = `-- name: RevokeGatewayKeysOfDispatch :execrows
-UPDATE gateway_keys SET revoked_at = ?1 WHERE dispatch_id = ?2 AND revoked_at IS NULL
+UPDATE gateway_keys SET revoked_at = ?1, revoke_reason = ?2
+WHERE dispatch_id = ?3 AND revoked_at IS NULL
 `
 
 type RevokeGatewayKeysOfDispatchParams struct {
 	Now        sql.NullInt64
+	Reason     sql.NullString
 	DispatchID sql.NullString
 }
 
 func (q *Queries) RevokeGatewayKeysOfDispatch(ctx context.Context, arg RevokeGatewayKeysOfDispatchParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, revokeGatewayKeysOfDispatch, arg.Now, arg.DispatchID)
+	result, err := q.db.ExecContext(ctx, revokeGatewayKeysOfDispatch, arg.Now, arg.Reason, arg.DispatchID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const revokeGatewayKeysOfNode = `-- name: RevokeGatewayKeysOfNode :exec
+UPDATE gateway_keys SET revoked_at = ?1, revoke_reason = ?2
+WHERE revoked_at IS NULL AND dispatch_id IN (SELECT id FROM dispatches WHERE node_id = CAST(?3 AS TEXT))
+`
+
+type RevokeGatewayKeysOfNodeParams struct {
+	Now    sql.NullInt64
+	Reason sql.NullString
+	NodeID string
+}
+
+// The keys of a removed node's Dispatches (issue #996).
+func (q *Queries) RevokeGatewayKeysOfNode(ctx context.Context, arg RevokeGatewayKeysOfNodeParams) error {
+	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfNode, arg.Now, arg.Reason, arg.NodeID)
+	return err
 }
 
 const setGatewayAudioOff = `-- name: SetGatewayAudioOff :exec
@@ -1533,11 +1669,28 @@ func (q *Queries) SetGatewaySearchPosition(ctx context.Context, arg SetGatewaySe
 	return err
 }
 
+const touchGatewayKey = `-- name: TouchGatewayKey :exec
+UPDATE gateway_keys SET last_used_at = CAST(?1 AS INTEGER)
+WHERE id = ?2 AND (last_used_at IS NULL OR last_used_at <= CAST(?3 AS INTEGER))
+`
+
+type TouchGatewayKeyParams struct {
+	Now    int64
+	ID     string
+	Before int64
+}
+
+// A key's last use, written at most once an hour (issue #996), as a node token's is.
+func (q *Queries) TouchGatewayKey(ctx context.Context, arg TouchGatewayKeyParams) error {
+	_, err := q.db.ExecContext(ctx, touchGatewayKey, arg.Now, arg.ID, arg.Before)
+	return err
+}
+
 const updateGatewayKey = `-- name: UpdateGatewayKey :one
 UPDATE OR IGNORE gateway_keys
 SET name = coalesce(?1, name), models = coalesce(?2, models),
     endpoints = CASE WHEN CAST(?3 AS BOOLEAN) THEN ?4 ELSE endpoints END
-WHERE id = ?5 RETURNING id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value
+WHERE id = ?5 RETURNING id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id
 `
 
 type UpdateGatewayKeyParams struct {
@@ -1571,6 +1724,9 @@ func (q *Queries) UpdateGatewayKey(ctx context.Context, arg UpdateGatewayKeyPara
 		&i.Endpoints,
 		&i.SecretVersionID,
 		&i.MaskedValue,
+		&i.RevokeReason,
+		&i.LastUsedAt,
+		&i.CoordinatorTokenID,
 	)
 	return i, err
 }

@@ -33,18 +33,28 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 	var upstreamCalls atomic.Int32
 	proxy, err := serviceproxy.New(serviceproxy.Config{
 		Agents: agents, Store: w.svc, Logger: slog.New(slog.DiscardHandler),
-		Token: func(context.Context, string, string) (string, error) { return "lark-owner-token", nil },
+		Token: func(_ context.Context, integration, _ string) (string, error) {
+			return integration + "-owner-token", nil
+		},
 		Upstream: accountTransport(func(req *http.Request) (*http.Response, error) {
 			upstreamCalls.Add(1)
-			assert.Equal(t, "https://open.larksuite.com/open-apis/im/v1/chats", req.URL.String())
-			assert.Equal(t, "Bearer lark-owner-token", req.Header.Get("Authorization"))
+			assert.Contains(t, []string{
+				"https://open.larksuite.com/open-apis/im/v1/chats",
+				"https://open.larksuite.com/open-apis/calendar/v4/calendars/cal_1/events/ev_1",
+				"https://calendar.googleapis.com/calendar/v3/calendars/primary/events",
+			}, req.URL.String())
+			wantToken := "lark-owner-token"
+			if req.URL.Host == "calendar.googleapis.com" {
+				wantToken = "google-owner-token"
+			}
+			assert.Equal(t, "Bearer "+wantToken, req.Header.Get("Authorization"))
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"name":"Private"}`))}, nil
 		}),
 	})
 	require.NoError(t, err)
 	agents.WithRelay(proxy)
 
-	for _, integration := range []string{"lark", "zalo"} {
+	for _, integration := range []string{"lark", "google", "zalo"} {
 		conn := orchestration.Connection{Integration: integration, Label: "me", Secret: "test-" + integration}
 		if integration == "lark" {
 			conn.AppLabel = "test-app"
@@ -56,7 +66,9 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 	}
 
 	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
-		Name: "brief", Connections: orchestration.AllowList{Limited: true, Names: []string{"lark:me", "zalo:me"}},
+		Name: "brief", Connections: orchestration.AllowList{
+			Limited: true, Names: []string{"lark:me", "google:me", "zalo:me"},
+		},
 		Tools: []string{"device_*"},
 	})
 	require.NoError(t, err)
@@ -98,6 +110,15 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 	assert.Contains(t, text, "Private")
 	assert.Contains(t, text, "untrusted data")
 
+	for _, read := range []string{
+		`{"account":"lark:me","host":"open.larksuite.com","method":"GET","path":"/open-apis/calendar/v4/calendars/cal_1/events/ev_1"}`,
+		`{"account":"google:me","host":"calendar.googleapis.com","method":"GET","path":"/calendar/v3/calendars/primary/events"}`,
+	} {
+		_, text, failed = w.use(pi, agenttool.ToolAccountRead, read)
+		require.False(t, failed, text)
+		assert.Contains(t, text, "Private")
+	}
+
 	for _, tool := range []string{agenttool.ToolZaloSend, agenttool.ToolWhatsAppSend, agenttool.ToolWebFetch,
 		"node_exec", "agent_browser_open", "device_tap", agenttool.ToolShowArtifact} {
 		assert.NotContains(t, listed, tool)
@@ -108,6 +129,12 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 
 	for _, args := range []string{
 		`{"account":"lark:me","host":"open.larksuite.com","method":"POST","path":"/open-apis/im/v1/messages","body":{}}`,
+		`{"account":"lark:me","host":"open.larksuite.com","method":"POST","path":"/open-apis/calendar/v4/calendars/cal_1/events","body":{}}`,
+		`{"account":"lark:me","host":"open.larksuite.com","method":"PATCH","path":"/open-apis/calendar/v4/calendars/cal_1/events/ev_1","body":{}}`,
+		`{"account":"lark:me","host":"open.larksuite.com","method":"DELETE","path":"/open-apis/calendar/v4/calendars/cal_1/events/ev_1"}`,
+		`{"account":"google:me","host":"calendar.googleapis.com","method":"POST","path":"/calendar/v3/calendars/primary/events","body":{}}`,
+		`{"account":"google:me","host":"calendar.googleapis.com","method":"PATCH","path":"/calendar/v3/calendars/primary/events/ev_1","body":{}}`,
+		`{"account":"google:me","host":"calendar.googleapis.com","method":"DELETE","path":"/calendar/v3/calendars/primary/events/ev_1"}`,
 		`{"account":"lark:me","host":"open.larksuite.com","method":"GET","path":"/open-apis/im/v1/unlisted"}`,
 		`{"account":"lark:me","host":"example.org","method":"GET","path":"/open-apis/im/v1/chats"}`,
 	} {
@@ -120,7 +147,7 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 	_, text, failed = w.use(pi, agenttool.ToolAccountRead, get)
 	assert.True(t, failed)
 	assert.Contains(t, text, agenttool.ReadRunRefusal)
-	assert.Equal(t, int32(1), upstreamCalls.Load())
+	assert.Equal(t, int32(3), upstreamCalls.Load())
 	assert.Empty(t, w.judge.asked)
 	approvals, err := w.svc.ListApprovals(ctx, orchestration.ApprovalFilter{ChatID: chat})
 	require.NoError(t, err)

@@ -703,6 +703,7 @@ const (
 	NotFound               ErrorCode = "not_found"
 	RateLimited            ErrorCode = "rate_limited"
 	RequestTooLarge        ErrorCode = "request_too_large"
+	TimedOut               ErrorCode = "timed_out"
 	Unauthorized           ErrorCode = "unauthorized"
 	Unavailable            ErrorCode = "unavailable"
 	ValidationFailed       ErrorCode = "validation_failed"
@@ -726,6 +727,8 @@ func (e ErrorCode) Valid() bool {
 	case RateLimited:
 		return true
 	case RequestTooLarge:
+		return true
+	case TimedOut:
 		return true
 	case Unauthorized:
 		return true
@@ -2331,6 +2334,57 @@ func (e TranscriptItemKind) Valid() bool {
 	}
 }
 
+// Defines values for VideoCaptionPosition.
+const (
+	PositionBottom     VideoCaptionPosition = "bottom"
+	PositionCenter     VideoCaptionPosition = "center"
+	PositionLowerThird VideoCaptionPosition = "lower_third"
+	PositionPreset     VideoCaptionPosition = "preset"
+	PositionTop        VideoCaptionPosition = "top"
+)
+
+// Valid indicates whether the value is a known member of the VideoCaptionPosition enum.
+func (e VideoCaptionPosition) Valid() bool {
+	switch e {
+	case PositionBottom:
+		return true
+	case PositionCenter:
+		return true
+	case PositionLowerThird:
+		return true
+	case PositionPreset:
+		return true
+	case PositionTop:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VideoChrome.
+const (
+	ChromeAndroid VideoChrome = "android"
+	ChromeFull    VideoChrome = "full"
+	ChromeIPhone  VideoChrome = "iphone"
+	ChromeNone    VideoChrome = "none"
+)
+
+// Valid indicates whether the value is a known member of the VideoChrome enum.
+func (e VideoChrome) Valid() bool {
+	switch e {
+	case ChromeAndroid:
+		return true
+	case ChromeFull:
+		return true
+	case ChromeIPhone:
+		return true
+	case ChromeNone:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for VideoMakeAspect.
 const (
 	VideoMakeAspectN169 VideoMakeAspect = "16:9"
@@ -2343,6 +2397,24 @@ func (e VideoMakeAspect) Valid() bool {
 	case VideoMakeAspectN169:
 		return true
 	case VideoMakeAspectN916:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VideoPreviewAspect.
+const (
+	VideoPreviewAspectN169 VideoPreviewAspect = "16:9"
+	VideoPreviewAspectN916 VideoPreviewAspect = "9:16"
+)
+
+// Valid indicates whether the value is a known member of the VideoPreviewAspect enum.
+func (e VideoPreviewAspect) Valid() bool {
+	switch e {
+	case VideoPreviewAspectN169:
+		return true
+	case VideoPreviewAspectN916:
 		return true
 	default:
 		return false
@@ -7251,6 +7323,31 @@ type Video struct {
 	Title string `json:"title"`
 }
 
+// VideoBackground One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
+type VideoBackground struct {
+	Colors *[]string `json:"colors,omitempty"`
+	Preset *string   `json:"preset,omitempty"`
+}
+
+// VideoCaptionPosition Where captions sit: the preset's own, or one chosen; absent: preset.
+type VideoCaptionPosition string
+
+// VideoCaptions defines model for VideoCaptions.
+type VideoCaptions struct {
+	// Position Where captions sit: the preset's own, or one chosen; absent: preset.
+	Position VideoCaptionPosition `json:"position"`
+	Preset   string               `json:"preset"`
+}
+
+// VideoCaptionsInput defines model for VideoCaptionsInput.
+type VideoCaptionsInput struct {
+	// Position Where captions sit: the preset's own, or one chosen; absent: preset.
+	Position *VideoCaptionPosition `json:"position,omitempty"`
+
+	// Preset A preset's id of GET /videos/looks; absent: clean.
+	Preset *string `json:"preset,omitempty"`
+}
+
 // VideoChanges defines model for VideoChanges.
 type VideoChanges struct {
 	// Lines Each scene's line, edited; as many as the revision has.
@@ -7258,9 +7355,75 @@ type VideoChanges struct {
 	Note  *string   `json:"note,omitempty"`
 }
 
+// VideoChrome What is drawn around the picture: full is none, the picture filling the video; absent: none.
+type VideoChrome string
+
+// VideoFrame defines model for VideoFrame.
+type VideoFrame struct {
+	// Chrome What is drawn around the picture: full is none, the picture filling the video; absent: none.
+	Chrome  VideoChrome `json:"chrome"`
+	Padding int         `json:"padding"`
+	Radius  int         `json:"radius"`
+	SafeTop bool        `json:"safe_top"`
+	Shadow  bool        `json:"shadow"`
+}
+
+// VideoFrameInput defines model for VideoFrameInput.
+type VideoFrameInput struct {
+	// Chrome What is drawn around the picture: full is none, the picture filling the video; absent: none.
+	Chrome *VideoChrome `json:"chrome,omitempty"`
+
+	// Padding Absent: 48.
+	Padding *int `json:"padding,omitempty"`
+
+	// Radius Absent: 40 for a device, 14 otherwise.
+	Radius *int `json:"radius,omitempty"`
+
+	// SafeTop A status strip of bezel above the picture; absent: false.
+	SafeTop *bool `json:"safe_top,omitempty"`
+
+	// Shadow Absent: true.
+	Shadow *bool `json:"shadow,omitempty"`
+}
+
 // VideoList defines model for VideoList.
 type VideoList struct {
 	Data []Video `json:"data"`
+}
+
+// VideoLook How a revision is drawn, whole as stored; a revision made before the looks is legacy and full.
+type VideoLook struct {
+	// Background One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
+	Background *VideoBackground `json:"background,omitempty"`
+	Captions   VideoCaptions    `json:"captions"`
+
+	// FellBackFrom What is drawn around the picture: full is none, the picture filling the video; absent: none.
+	FellBackFrom *VideoChrome `json:"fell_back_from,omitempty"`
+	Frame        VideoFrame   `json:"frame"`
+}
+
+// VideoLookChange defines model for VideoLookChange.
+type VideoLookChange struct {
+	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
+	Look *VideoLookInput `json:"look,omitempty"`
+}
+
+// VideoLookInput A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
+type VideoLookInput struct {
+	// Background One of the backgrounds of GET /videos/looks, or two colors; neither: midnight.
+	Background *VideoBackground    `json:"background,omitempty"`
+	Captions   *VideoCaptionsInput `json:"captions,omitempty"`
+	Frame      *VideoFrameInput    `json:"frame,omitempty"`
+}
+
+// VideoLooks defines model for VideoLooks.
+type VideoLooks struct {
+	Backgrounds []string      `json:"backgrounds"`
+	Chromes     []VideoChrome `json:"chromes"`
+
+	// Default How a revision is drawn, whole as stored; a revision made before the looks is legacy and full.
+	Default VideoLook     `json:"default"`
+	Presets []VideoPreset `json:"presets"`
 }
 
 // VideoMake defines model for VideoMake.
@@ -7269,8 +7432,11 @@ type VideoMake struct {
 	Aspect *VideoMakeAspect `json:"aspect,omitempty"`
 
 	// Captions Absent: true.
-	Captions *bool  `json:"captions,omitempty"`
-	Take     string `json:"take"`
+	Captions *bool `json:"captions,omitempty"`
+
+	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
+	Look *VideoLookInput `json:"look,omitempty"`
+	Take string          `json:"take"`
 
 	// Title The video's title, on its first make; absent: the take's.
 	Title *string `json:"title,omitempty"`
@@ -7281,6 +7447,33 @@ type VideoMake struct {
 
 // VideoMakeAspect Absent: 9:16.
 type VideoMakeAspect string
+
+// VideoPreset defines model for VideoPreset.
+type VideoPreset struct {
+	Id string `json:"id"`
+
+	// Name What people call it; legacy is Classic, the captions made before the presets.
+	Name string `json:"name"`
+}
+
+// VideoPreview defines model for VideoPreview.
+type VideoPreview struct {
+	// Aspect Absent: 9:16.
+	Aspect *VideoPreviewAspect `json:"aspect,omitempty"`
+
+	// Captions Absent: true.
+	Captions *bool `json:"captions,omitempty"`
+
+	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
+	Look *VideoLookInput `json:"look,omitempty"`
+
+	// Rev A revision of the take's video the look starts from, as a look change does; its first line is shown.
+	Rev  *int   `json:"rev,omitempty"`
+	Take string `json:"take"`
+}
+
+// VideoPreviewAspect Absent: 9:16.
+type VideoPreviewAspect string
 
 // VideoProgress While a revision is voiced, composed or captioned: how many of its scenes that stage has done, as aidemo's job status counts them. Absent in any other state.
 type VideoProgress struct {
@@ -7301,7 +7494,10 @@ type VideoRevision struct {
 
 	// Lines What each scene's voice says, a scene a step of the take (steps said at once are one).
 	Lines []string `json:"lines"`
-	Model *string  `json:"model,omitempty"`
+
+	// Look How a revision is drawn, whole as stored; a revision made before the looks is legacy and full.
+	Look  VideoLook `json:"look"`
+	Model *string   `json:"model,omitempty"`
 
 	// Note What the owner asked for when he asked for changes.
 	Note *string `json:"note,omitempty"`
@@ -7746,6 +7942,9 @@ type QuestionID = string
 
 // QueueID defines model for QueueID.
 type QueueID = int64
+
+// RequiredIdempotencyKey defines model for RequiredIdempotencyKey.
+type RequiredIdempotencyKey = string
 
 // RoutineID defines model for RoutineID.
 type RoutineID = string
@@ -8337,6 +8536,18 @@ type RequestVideoChangesParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ChangeVideoLookParams defines parameters for ChangeVideoLook.
+type ChangeVideoLookParams struct {
+	// IdempotencyKey Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+	IdempotencyKey RequiredIdempotencyKey `json:"Idempotency-Key"`
+}
+
+// RetryVideoRevisionParams defines parameters for RetryVideoRevision.
+type RetryVideoRevisionParams struct {
+	// IdempotencyKey Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+	IdempotencyKey RequiredIdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ReadVideoFileParams defines parameters for ReadVideoFile.
 type ReadVideoFileParams struct {
 	Range *string `json:"Range,omitempty"`
@@ -8657,8 +8868,14 @@ type FollowUpTaskJSONRequestBody = NewFollowUp
 // MakeVideoJSONRequestBody defines body for MakeVideo for application/json ContentType.
 type MakeVideoJSONRequestBody = VideoMake
 
+// PreviewVideoLookJSONRequestBody defines body for PreviewVideoLook for application/json ContentType.
+type PreviewVideoLookJSONRequestBody = VideoPreview
+
 // RequestVideoChangesJSONRequestBody defines body for RequestVideoChanges for application/json ContentType.
 type RequestVideoChangesJSONRequestBody = VideoChanges
+
+// ChangeVideoLookJSONRequestBody defines body for ChangeVideoLook for application/json ContentType.
+type ChangeVideoLookJSONRequestBody = VideoLookChange
 
 // FetchWebJSONRequestBody defines body for FetchWeb for application/json ContentType.
 type FetchWebJSONRequestBody = WebFetchRequest
@@ -11713,7 +11930,7 @@ type ClientInterface interface {
 
 	// MakeVideoWithBody Make a take into a video, or a new revision of its video (owner only)
 	//
-	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. Its look is the sections sent, each field left out taking the reference default; the sections not sent are the saved default's (GET /videos/looks), which the owner's make updates with the sections it sent. A frame sent for a take whose phone turned is refused with conflict; a frame from the default is made full instead, with fell_back_from and a warning. At most 10 revisions wait in the queue; one more is refused with conflict.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -11722,12 +11939,35 @@ type ClientInterface interface {
 
 	// MakeVideo Make a take into a video, or a new revision of its video (owner only)
 	//
-	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. Its look is the sections sent, each field left out taking the reference default; the sections not sent are the saved default's (GET /videos/looks), which the owner's make updates with the sections it sent. A frame sent for a take whose phone turned is refused with conflict; a frame from the default is made full instead, with fell_back_from and a warning. At most 10 revisions wait in the queue; one more is refused with conflict.
 	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with POST /videos (the `MakeVideo` operationId).
 	MakeVideo(ctx context.Context, params *MakeVideoParams, body MakeVideoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListVideoLooks What a video's look is chosen from, and the saved default (owner only; issue
+	//
+	// Corresponds with GET /videos/looks (the `ListVideoLooks` operationId).
+	ListVideoLooks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewVideoLookWithBody A look sample of a take, as a JPEG (owner only; issue
+	//
+	// The chosen look over the take's picture at its first step, drawn as the video is: the same frame, background and captions, the line's second word as it starts. It shows the look; it does not promise the video shows that moment, which may be cut. The look is resolved as a make's, or, with rev, as a look change of that revision. One sample is made at a time: a request that waits more than 5 seconds is rate_limited with Retry-After; one that takes more than 20 seconds is timed_out; without ffmpeg it is unavailable.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
+	PreviewVideoLookWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
+	//
+	// The chosen look over the take's picture at its first step, drawn as the video is: the same frame, background and captions, the line's second word as it starts. It shows the look; it does not promise the video shows that moment, which may be cut. The look is resolved as a make's, or, with rev, as a look change of that revision. One sample is made at a time: a request that waits more than 5 seconds is rate_limited with Retry-After; one that takes more than 20 seconds is timed_out; without ffmpeg it is unavailable.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
+	PreviewVideoLook(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	//
@@ -11765,6 +12005,31 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
 	RequestVideoChanges(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, body RequestVideoChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeVideoLookWithBody Make a revision again in another look (owner only; issue
+	//
+	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/look (the `ChangeVideoLook` operationId).
+	ChangeVideoLookWithBody(ctx context.Context, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeVideoLook Make a revision again in another look (owner only; issue
+	//
+	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/look (the `ChangeVideoLook` operationId).
+	ChangeVideoLook(ctx context.Context, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, body ChangeVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RetryVideoRevision Make a failed revision again, as it was asked (owner only; issue
+	//
+	// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again. The Idempotency-Key is required.
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/retry (the `RetryVideoRevision` operationId).
+	RetryVideoRevision(ctx context.Context, videoId VideoID, rev VideoRev, params *RetryVideoRevisionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReadVideoThumbnail A made revision's first frame, as a JPEG (owner only)
 	//
@@ -18370,7 +18635,7 @@ func (c *Client) ListVideos(ctx context.Context, reqEditors ...RequestEditorFn) 
 
 // MakeVideoWithBody Make a take into a video, or a new revision of its video (owner only)
 //
-// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. Its look is the sections sent, each field left out taking the reference default; the sections not sent are the saved default's (GET /videos/looks), which the owner's make updates with the sections it sent. A frame sent for a take whose phone turned is refused with conflict; a frame from the default is made full instead, with fell_back_from and a warning. At most 10 revisions wait in the queue; one more is refused with conflict.
 //
 // Takes any type of body and a specified content type.
 //
@@ -18389,13 +18654,66 @@ func (c *Client) MakeVideoWithBody(ctx context.Context, params *MakeVideoParams,
 
 // MakeVideo Make a take into a video, or a new revision of its video (owner only)
 //
-// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. Its look is the sections sent, each field left out taking the reference default; the sections not sent are the saved default's (GET /videos/looks), which the owner's make updates with the sections it sent. A frame sent for a take whose phone turned is refused with conflict; a frame from the default is made full instead, with fell_back_from and a warning. At most 10 revisions wait in the queue; one more is refused with conflict.
 //
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with POST /videos (the `MakeVideo` operationId).
 func (c *Client) MakeVideo(ctx context.Context, params *MakeVideoParams, body MakeVideoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewMakeVideoRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListVideoLooks What a video's look is chosen from, and the saved default (owner only; issue
+//
+// Corresponds with GET /videos/looks (the `ListVideoLooks` operationId).
+func (c *Client) ListVideoLooks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListVideoLooksRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewVideoLookWithBody A look sample of a take, as a JPEG (owner only; issue
+//
+// The chosen look over the take's picture at its first step, drawn as the video is: the same frame, background and captions, the line's second word as it starts. It shows the look; it does not promise the video shows that moment, which may be cut. The look is resolved as a make's, or, with rev, as a look change of that revision. One sample is made at a time: a request that waits more than 5 seconds is rate_limited with Retry-After; one that takes more than 20 seconds is timed_out; without ffmpeg it is unavailable.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
+func (c *Client) PreviewVideoLookWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewVideoLookRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
+//
+// The chosen look over the take's picture at its first step, drawn as the video is: the same frame, background and captions, the line's second word as it starts. It shows the look; it does not promise the video shows that moment, which may be cut. The look is resolved as a make's, or, with rev, as a look change of that revision. One sample is made at a time: a request that waits more than 5 seconds is rate_limited with Retry-After; one that takes more than 20 seconds is timed_out; without ffmpeg it is unavailable.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
+func (c *Client) PreviewVideoLook(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewVideoLookRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -18483,6 +18801,61 @@ func (c *Client) RequestVideoChangesWithBody(ctx context.Context, videoId VideoI
 // Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
 func (c *Client) RequestVideoChanges(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, body RequestVideoChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRequestVideoChangesRequest(c.Server, videoId, rev, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeVideoLookWithBody Make a revision again in another look (owner only; issue
+//
+// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/look (the `ChangeVideoLook` operationId).
+func (c *Client) ChangeVideoLookWithBody(ctx context.Context, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeVideoLookRequestWithBody(c.Server, videoId, rev, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeVideoLook Make a revision again in another look (owner only; issue
+//
+// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/look (the `ChangeVideoLook` operationId).
+func (c *Client) ChangeVideoLook(ctx context.Context, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, body ChangeVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeVideoLookRequest(c.Server, videoId, rev, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RetryVideoRevision Make a failed revision again, as it was asked (owner only; issue
+//
+// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again. The Idempotency-Key is required.
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/retry (the `RetryVideoRevision` operationId).
+func (c *Client) RetryVideoRevision(ctx context.Context, videoId VideoID, rev VideoRev, params *RetryVideoRevisionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRetryVideoRevisionRequest(c.Server, videoId, rev, params)
 	if err != nil {
 		return nil, err
 	}
@@ -31553,6 +31926,73 @@ func NewMakeVideoRequestWithBody(server string, params *MakeVideoParams, content
 	return req, nil
 }
 
+// NewListVideoLooksRequest constructs an http.Request for the ListVideoLooks method
+func NewListVideoLooksRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/looks")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPreviewVideoLookRequest calls the generic PreviewVideoLook builder with application/json body
+func NewPreviewVideoLookRequest(server string, body PreviewVideoLookJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPreviewVideoLookRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPreviewVideoLookRequestWithBody constructs an http.Request for the PreviewVideoLook method, with any body, and a specified content type
+func NewPreviewVideoLookRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/preview")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewDeleteVideoRequest constructs an http.Request for the DeleteVideo method
 func NewDeleteVideoRequest(server string, videoId VideoID) (*http.Request, error) {
 	var err error
@@ -31725,6 +32165,127 @@ func NewRequestVideoChangesRequestWithBody(server string, videoId VideoID, rev V
 
 			req.Header.Set("Idempotency-Key", headerParam0)
 		}
+
+	}
+
+	return req, nil
+}
+
+// NewChangeVideoLookRequest calls the generic ChangeVideoLook builder with application/json body
+func NewChangeVideoLookRequest(server string, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, body ChangeVideoLookJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewChangeVideoLookRequestWithBody(server, videoId, rev, params, "application/json", bodyReader)
+}
+
+// NewChangeVideoLookRequestWithBody constructs an http.Request for the ChangeVideoLook method, with any body, and a specified content type
+func NewChangeVideoLookRequestWithBody(server string, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "video_id", videoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "rev", rev, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/%s/revisions/%s/look", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewRetryVideoRevisionRequest constructs an http.Request for the RetryVideoRevision method
+func NewRetryVideoRevisionRequest(server string, videoId VideoID, rev VideoRev, params *RetryVideoRevisionParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "video_id", videoId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "rev", rev, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/%s/revisions/%s/retry", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
 
 	}
 
@@ -35053,7 +35614,7 @@ type ClientWithResponsesInterface interface {
 
 	// MakeVideoWithBodyWithResponse Make a take into a video, or a new revision of its video (owner only)
 	//
-	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. Its look is the sections sent, each field left out taking the reference default; the sections not sent are the saved default's (GET /videos/looks), which the owner's make updates with the sections it sent. A frame sent for a take whose phone turned is refused with conflict; a frame from the default is made full instead, with fell_back_from and a warning. At most 10 revisions wait in the queue; one more is refused with conflict.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -35062,12 +35623,37 @@ type ClientWithResponsesInterface interface {
 
 	// MakeVideoWithResponse Make a take into a video, or a new revision of its video (owner only)
 	//
-	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+	// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. Its look is the sections sent, each field left out taking the reference default; the sections not sent are the saved default's (GET /videos/looks), which the owner's make updates with the sections it sent. A frame sent for a take whose phone turned is refused with conflict; a frame from the default is made full instead, with fell_back_from and a warning. At most 10 revisions wait in the queue; one more is refused with conflict.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /videos (the `MakeVideo` operationId).
 	MakeVideoWithResponse(ctx context.Context, params *MakeVideoParams, body MakeVideoJSONRequestBody, reqEditors ...RequestEditorFn) (*MakeVideoResponse, error)
+
+	// ListVideoLooksWithResponse What a video's look is chosen from, and the saved default (owner only; issue
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos/looks (the `ListVideoLooks` operationId).
+	ListVideoLooksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoLooksResponse, error)
+
+	// PreviewVideoLookWithBodyWithResponse A look sample of a take, as a JPEG (owner only; issue
+	//
+	// The chosen look over the take's picture at its first step, drawn as the video is: the same frame, background and captions, the line's second word as it starts. It shows the look; it does not promise the video shows that moment, which may be cut. The look is resolved as a make's, or, with rev, as a look change of that revision. One sample is made at a time: a request that waits more than 5 seconds is rate_limited with Retry-After; one that takes more than 20 seconds is timed_out; without ffmpeg it is unavailable.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
+	PreviewVideoLookWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewVideoLookResponse, error)
+
+	// PreviewVideoLookWithResponse A look sample of a take, as a JPEG (owner only; issue
+	//
+	// The chosen look over the take's picture at its first step, drawn as the video is: the same frame, background and captions, the line's second word as it starts. It shows the look; it does not promise the video shows that moment, which may be cut. The look is resolved as a make's, or, with rev, as a look change of that revision. One sample is made at a time: a request that waits more than 5 seconds is rate_limited with Retry-After; one that takes more than 20 seconds is timed_out; without ffmpeg it is unavailable.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
+	PreviewVideoLookWithResponse(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewVideoLookResponse, error)
 
 	// DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
 	//
@@ -35111,6 +35697,33 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /videos/{video_id}/revisions/{rev}/changes (the `RequestVideoChanges` operationId).
 	RequestVideoChangesWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *RequestVideoChangesParams, body RequestVideoChangesJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestVideoChangesResponse, error)
+
+	// ChangeVideoLookWithBodyWithResponse Make a revision again in another look (owner only; issue
+	//
+	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/look (the `ChangeVideoLook` operationId).
+	ChangeVideoLookWithBodyWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeVideoLookResponse, error)
+
+	// ChangeVideoLookWithResponse Make a revision again in another look (owner only; issue
+	//
+	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/look (the `ChangeVideoLook` operationId).
+	ChangeVideoLookWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, body ChangeVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeVideoLookResponse, error)
+
+	// RetryVideoRevisionWithResponse Make a failed revision again, as it was asked (owner only; issue
+	//
+	// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again. The Idempotency-Key is required.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /videos/{video_id}/revisions/{rev}/retry (the `RetryVideoRevision` operationId).
+	RetryVideoRevisionWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *RetryVideoRevisionParams, reqEditors ...RequestEditorFn) (*RetryVideoRevisionResponse, error)
 
 	// ReadVideoThumbnailWithResponse A made revision's first frame, as a JPEG (owner only)
 	//
@@ -48237,6 +48850,95 @@ func (r MakeVideoResponse) ContentType() string {
 	return ""
 }
 
+type ListVideoLooksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *VideoLooks
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListVideoLooksResponse) GetJSON200() *VideoLooks {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListVideoLooksResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListVideoLooksResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListVideoLooksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListVideoLooksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListVideoLooksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PreviewVideoLookResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PreviewVideoLookResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PreviewVideoLookResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PreviewVideoLookResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PreviewVideoLookResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PreviewVideoLookResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type DeleteVideoResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -48416,6 +49118,102 @@ func (r RequestVideoChangesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RequestVideoChangesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ChangeVideoLookResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Video
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r ChangeVideoLookResponse) GetJSON201() *Video {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ChangeVideoLookResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ChangeVideoLookResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ChangeVideoLookResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ChangeVideoLookResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ChangeVideoLookResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RetryVideoRevisionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Video
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r RetryVideoRevisionResponse) GetJSON201() *Video {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RetryVideoRevisionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RetryVideoRevisionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RetryVideoRevisionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RetryVideoRevisionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RetryVideoRevisionResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -53975,7 +54773,7 @@ func (c *ClientWithResponses) ListVideosWithResponse(ctx context.Context, reqEdi
 
 // MakeVideoWithBodyWithResponse Make a take into a video, or a new revision of its video (owner only)
 //
-// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. Its look is the sections sent, each field left out taking the reference default; the sections not sent are the saved default's (GET /videos/looks), which the owner's make updates with the sections it sent. A frame sent for a take whose phone turned is refused with conflict; a frame from the default is made full instead, with fell_back_from and a warning. At most 10 revisions wait in the queue; one more is refused with conflict.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -53990,7 +54788,7 @@ func (c *ClientWithResponses) MakeVideoWithBodyWithResponse(ctx context.Context,
 
 // MakeVideoWithResponse Make a take into a video, or a new revision of its video (owner only)
 //
-// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one, as a retry of a failed revision does: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. At most 10 revisions wait in the queue; one more is refused with conflict.
+// The take must be available and have steps. The take's first make creates its video; a later make adds a revision with the lines of the latest one: a scene's voice already made with the same line, provider, model and voice is reused, not asked again. Its look is the sections sent, each field left out taking the reference default; the sections not sent are the saved default's (GET /videos/looks), which the owner's make updates with the sections it sent. A frame sent for a take whose phone turned is refused with conflict; a frame from the default is made full instead, with fell_back_from and a warning. At most 10 revisions wait in the queue; one more is refused with conflict.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -54001,6 +54799,49 @@ func (c *ClientWithResponses) MakeVideoWithResponse(ctx context.Context, params 
 		return nil, err
 	}
 	return ParseMakeVideoResponse(rsp)
+}
+
+// ListVideoLooksWithResponse What a video's look is chosen from, and the saved default (owner only; issue
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos/looks (the `ListVideoLooks` operationId).
+func (c *ClientWithResponses) ListVideoLooksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoLooksResponse, error) {
+	rsp, err := c.ListVideoLooks(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListVideoLooksResponse(rsp)
+}
+
+// PreviewVideoLookWithBodyWithResponse A look sample of a take, as a JPEG (owner only; issue
+//
+// The chosen look over the take's picture at its first step, drawn as the video is: the same frame, background and captions, the line's second word as it starts. It shows the look; it does not promise the video shows that moment, which may be cut. The look is resolved as a make's, or, with rev, as a look change of that revision. One sample is made at a time: a request that waits more than 5 seconds is rate_limited with Retry-After; one that takes more than 20 seconds is timed_out; without ffmpeg it is unavailable.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
+func (c *ClientWithResponses) PreviewVideoLookWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewVideoLookResponse, error) {
+	rsp, err := c.PreviewVideoLookWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewVideoLookResponse(rsp)
+}
+
+// PreviewVideoLookWithResponse A look sample of a take, as a JPEG (owner only; issue
+//
+// The chosen look over the take's picture at its first step, drawn as the video is: the same frame, background and captions, the line's second word as it starts. It shows the look; it does not promise the video shows that moment, which may be cut. The look is resolved as a make's, or, with rev, as a look change of that revision. One sample is made at a time: a request that waits more than 5 seconds is rate_limited with Retry-After; one that takes more than 20 seconds is timed_out; without ffmpeg it is unavailable.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos/preview (the `PreviewVideoLook` operationId).
+func (c *ClientWithResponses) PreviewVideoLookWithResponse(ctx context.Context, body PreviewVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewVideoLookResponse, error) {
+	rsp, err := c.PreviewVideoLook(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewVideoLookResponse(rsp)
 }
 
 // DeleteVideoWithResponse Delete a video, its revisions and their files (owner only)
@@ -54074,6 +54915,51 @@ func (c *ClientWithResponses) RequestVideoChangesWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseRequestVideoChangesResponse(rsp)
+}
+
+// ChangeVideoLookWithBodyWithResponse Make a revision again in another look (owner only; issue
+//
+// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/look (the `ChangeVideoLook` operationId).
+func (c *ClientWithResponses) ChangeVideoLookWithBodyWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeVideoLookResponse, error) {
+	rsp, err := c.ChangeVideoLookWithBody(ctx, videoId, rev, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeVideoLookResponse(rsp)
+}
+
+// ChangeVideoLookWithResponse Make a revision again in another look (owner only; issue
+//
+// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/look (the `ChangeVideoLook` operationId).
+func (c *ClientWithResponses) ChangeVideoLookWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *ChangeVideoLookParams, body ChangeVideoLookJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeVideoLookResponse, error) {
+	rsp, err := c.ChangeVideoLook(ctx, videoId, rev, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeVideoLookResponse(rsp)
+}
+
+// RetryVideoRevisionWithResponse Make a failed revision again, as it was asked (owner only; issue
+//
+// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again. The Idempotency-Key is required.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /videos/{video_id}/revisions/{rev}/retry (the `RetryVideoRevision` operationId).
+func (c *ClientWithResponses) RetryVideoRevisionWithResponse(ctx context.Context, videoId VideoID, rev VideoRev, params *RetryVideoRevisionParams, reqEditors ...RequestEditorFn) (*RetryVideoRevisionResponse, error) {
+	rsp, err := c.RetryVideoRevision(ctx, videoId, rev, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRetryVideoRevisionResponse(rsp)
 }
 
 // ReadVideoThumbnailWithResponse A made revision's first frame, as a JPEG (owner only)
@@ -63219,6 +64105,65 @@ func ParseMakeVideoResponse(rsp *http.Response) (*MakeVideoResponse, error) {
 	return response, nil
 }
 
+// ParseListVideoLooksResponse parses an HTTP response from a ListVideoLooksWithResponse call
+func ParseListVideoLooksResponse(rsp *http.Response) (*ListVideoLooksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListVideoLooksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest VideoLooks
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePreviewVideoLookResponse parses an HTTP response from a PreviewVideoLookWithResponse call
+func ParsePreviewVideoLookResponse(rsp *http.Response) (*PreviewVideoLookResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PreviewVideoLookResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseDeleteVideoResponse parses an HTTP response from a DeleteVideoWithResponse call
 func ParseDeleteVideoResponse(rsp *http.Response) (*DeleteVideoResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -63334,6 +64279,72 @@ func ParseRequestVideoChangesResponse(rsp *http.Response) (*RequestVideoChangesR
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseChangeVideoLookResponse parses an HTTP response from a ChangeVideoLookWithResponse call
+func ParseChangeVideoLookResponse(rsp *http.Response) (*ChangeVideoLookResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ChangeVideoLookResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Video
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRetryVideoRevisionResponse parses an HTTP response from a RetryVideoRevisionWithResponse call
+func ParseRetryVideoRevisionResponse(rsp *http.Response) (*RetryVideoRevisionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RetryVideoRevisionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Video
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -64295,6 +65306,12 @@ type ServerInterface interface {
 	// MakeVideo Make a take into a video, or a new revision of its video (owner only)
 	// (POST /videos)
 	MakeVideo(w http.ResponseWriter, r *http.Request, params MakeVideoParams)
+	// ListVideoLooks What a video's look is chosen from, and the saved default (owner only; issue
+	// (GET /videos/looks)
+	ListVideoLooks(w http.ResponseWriter, r *http.Request)
+	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
+	// (POST /videos/preview)
+	PreviewVideoLook(w http.ResponseWriter, r *http.Request)
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	// (DELETE /videos/{video_id})
 	DeleteVideo(w http.ResponseWriter, r *http.Request, videoId VideoID)
@@ -64307,6 +65324,12 @@ type ServerInterface interface {
 	// RequestVideoChanges Ask for changes to a revision in review (owner only)
 	// (POST /videos/{video_id}/revisions/{rev}/changes)
 	RequestVideoChanges(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev, params RequestVideoChangesParams)
+	// ChangeVideoLook Make a revision again in another look (owner only; issue
+	// (POST /videos/{video_id}/revisions/{rev}/look)
+	ChangeVideoLook(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev, params ChangeVideoLookParams)
+	// RetryVideoRevision Make a failed revision again, as it was asked (owner only; issue
+	// (POST /videos/{video_id}/revisions/{rev}/retry)
+	RetryVideoRevision(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev, params RetryVideoRevisionParams)
 	// ReadVideoThumbnail A made revision's first frame, as a JPEG (owner only)
 	// (GET /videos/{video_id}/revisions/{rev}/thumbnail.jpg)
 	ReadVideoThumbnail(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev)
@@ -73078,6 +74101,34 @@ func (siw *ServerInterfaceWrapper) MakeVideo(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListVideoLooks operation middleware
+func (siw *ServerInterfaceWrapper) ListVideoLooks(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVideoLooks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewVideoLook operation middleware
+func (siw *ServerInterfaceWrapper) PreviewVideoLook(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewVideoLook(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteVideo operation middleware
 func (siw *ServerInterfaceWrapper) DeleteVideo(w http.ResponseWriter, r *http.Request) {
 
@@ -73215,6 +74266,132 @@ func (siw *ServerInterfaceWrapper) RequestVideoChanges(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RequestVideoChanges(w, r, videoId, rev, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangeVideoLook operation middleware
+func (siw *ServerInterfaceWrapper) ChangeVideoLook(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "video_id" -------------
+	var videoId VideoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "video_id", r.PathValue("video_id"), &videoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "video_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "rev" -------------
+	var rev VideoRev
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rev", r.PathValue("rev"), &rev, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rev", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ChangeVideoLookParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey RequiredIdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangeVideoLook(w, r, videoId, rev, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RetryVideoRevision operation middleware
+func (siw *ServerInterfaceWrapper) RetryVideoRevision(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "video_id" -------------
+	var videoId VideoID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "video_id", r.PathValue("video_id"), &videoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "video_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "rev" -------------
+	var rev VideoRev
+
+	err = runtime.BindStyledParameterWithOptions("simple", "rev", r.PathValue("rev"), &rev, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "rev", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RetryVideoRevisionParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey RequiredIdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RetryVideoRevision(w, r, videoId, rev, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -73510,10 +74687,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/takes/{take_id}/archive", wrapper.GetTakeArchive)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos", wrapper.ListVideos)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos", wrapper.MakeVideo)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/looks", wrapper.ListVideoLooks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/preview", wrapper.PreviewVideoLook)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/videos/{video_id}", wrapper.DeleteVideo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/{video_id}", wrapper.GetVideo)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/approve", wrapper.ApproveVideoRevision)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/changes", wrapper.RequestVideoChanges)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/look", wrapper.ChangeVideoLook)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/retry", wrapper.RetryVideoRevision)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/video.mp4", wrapper.ReadVideoFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/thumbnail.jpg", wrapper.ReadVideoThumbnail)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/resume", wrapper.ResumeNode)
@@ -84802,6 +85983,89 @@ func (response MakeVideodefaultJSONResponse) VisitMakeVideoResponse(w http.Respo
 	return err
 }
 
+type ListVideoLooksRequestObject struct {
+}
+
+type ListVideoLooksResponseObject interface {
+	VisitListVideoLooksResponse(w http.ResponseWriter) error
+}
+
+type ListVideoLooks200JSONResponse VideoLooks
+
+func (response ListVideoLooks200JSONResponse) VisitListVideoLooksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVideoLooksdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListVideoLooksdefaultJSONResponse) VisitListVideoLooksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewVideoLookRequestObject struct {
+	Body *PreviewVideoLookJSONRequestBody
+}
+
+type PreviewVideoLookResponseObject interface {
+	VisitPreviewVideoLookResponse(w http.ResponseWriter) error
+}
+
+type PreviewVideoLook200ImagejpegResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response PreviewVideoLook200ImagejpegResponse) VisitPreviewVideoLookResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "image/jpeg")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type PreviewVideoLookdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PreviewVideoLookdefaultJSONResponse) VisitPreviewVideoLookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteVideoRequestObject struct {
 	VideoId VideoID `json:"video_id"`
 }
@@ -84945,6 +86209,89 @@ type RequestVideoChangesdefaultJSONResponse struct {
 }
 
 func (response RequestVideoChangesdefaultJSONResponse) VisitRequestVideoChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangeVideoLookRequestObject struct {
+	VideoId VideoID  `json:"video_id"`
+	Rev     VideoRev `json:"rev"`
+	Params  ChangeVideoLookParams
+	Body    *ChangeVideoLookJSONRequestBody
+}
+
+type ChangeVideoLookResponseObject interface {
+	VisitChangeVideoLookResponse(w http.ResponseWriter) error
+}
+
+type ChangeVideoLook201JSONResponse Video
+
+func (response ChangeVideoLook201JSONResponse) VisitChangeVideoLookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangeVideoLookdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ChangeVideoLookdefaultJSONResponse) VisitChangeVideoLookResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetryVideoRevisionRequestObject struct {
+	VideoId VideoID  `json:"video_id"`
+	Rev     VideoRev `json:"rev"`
+	Params  RetryVideoRevisionParams
+}
+
+type RetryVideoRevisionResponseObject interface {
+	VisitRetryVideoRevisionResponse(w http.ResponseWriter) error
+}
+
+type RetryVideoRevision201JSONResponse Video
+
+func (response RetryVideoRevision201JSONResponse) VisitRetryVideoRevisionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RetryVideoRevisiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RetryVideoRevisiondefaultJSONResponse) VisitRetryVideoRevisionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -85977,6 +87324,12 @@ type StrictServerInterface interface {
 	// MakeVideo Make a take into a video, or a new revision of its video (owner only)
 	// (POST /videos)
 	MakeVideo(ctx context.Context, request MakeVideoRequestObject) (MakeVideoResponseObject, error)
+	// ListVideoLooks What a video's look is chosen from, and the saved default (owner only; issue
+	// (GET /videos/looks)
+	ListVideoLooks(ctx context.Context, request ListVideoLooksRequestObject) (ListVideoLooksResponseObject, error)
+	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
+	// (POST /videos/preview)
+	PreviewVideoLook(ctx context.Context, request PreviewVideoLookRequestObject) (PreviewVideoLookResponseObject, error)
 	// DeleteVideo Delete a video, its revisions and their files (owner only)
 	// (DELETE /videos/{video_id})
 	DeleteVideo(ctx context.Context, request DeleteVideoRequestObject) (DeleteVideoResponseObject, error)
@@ -85989,6 +87342,12 @@ type StrictServerInterface interface {
 	// RequestVideoChanges Ask for changes to a revision in review (owner only)
 	// (POST /videos/{video_id}/revisions/{rev}/changes)
 	RequestVideoChanges(ctx context.Context, request RequestVideoChangesRequestObject) (RequestVideoChangesResponseObject, error)
+	// ChangeVideoLook Make a revision again in another look (owner only; issue
+	// (POST /videos/{video_id}/revisions/{rev}/look)
+	ChangeVideoLook(ctx context.Context, request ChangeVideoLookRequestObject) (ChangeVideoLookResponseObject, error)
+	// RetryVideoRevision Make a failed revision again, as it was asked (owner only; issue
+	// (POST /videos/{video_id}/revisions/{rev}/retry)
+	RetryVideoRevision(ctx context.Context, request RetryVideoRevisionRequestObject) (RetryVideoRevisionResponseObject, error)
 	// ReadVideoThumbnail A made revision's first frame, as a JPEG (owner only)
 	// (GET /videos/{video_id}/revisions/{rev}/thumbnail.jpg)
 	ReadVideoThumbnail(ctx context.Context, request ReadVideoThumbnailRequestObject) (ReadVideoThumbnailResponseObject, error)
@@ -93925,6 +95284,61 @@ func (sh *strictHandler) MakeVideo(w http.ResponseWriter, r *http.Request, param
 	}
 }
 
+// ListVideoLooks operation middleware
+func (sh *strictHandler) ListVideoLooks(w http.ResponseWriter, r *http.Request) {
+	var request ListVideoLooksRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListVideoLooks(ctx, request.(ListVideoLooksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListVideoLooks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListVideoLooksResponseObject); ok {
+		if err := validResponse.VisitListVideoLooksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PreviewVideoLook operation middleware
+func (sh *strictHandler) PreviewVideoLook(w http.ResponseWriter, r *http.Request) {
+	var request PreviewVideoLookRequestObject
+
+	var body PreviewVideoLookJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PreviewVideoLook(ctx, request.(PreviewVideoLookRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PreviewVideoLook")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PreviewVideoLookResponseObject); ok {
+		if err := validResponse.VisitPreviewVideoLookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeleteVideo operation middleware
 func (sh *strictHandler) DeleteVideo(w http.ResponseWriter, r *http.Request, videoId VideoID) {
 	var request DeleteVideoRequestObject
@@ -94032,6 +95446,69 @@ func (sh *strictHandler) RequestVideoChanges(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RequestVideoChangesResponseObject); ok {
 		if err := validResponse.VisitRequestVideoChangesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ChangeVideoLook operation middleware
+func (sh *strictHandler) ChangeVideoLook(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev, params ChangeVideoLookParams) {
+	var request ChangeVideoLookRequestObject
+
+	request.VideoId = videoId
+	request.Rev = rev
+	request.Params = params
+
+	var body ChangeVideoLookJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ChangeVideoLook(ctx, request.(ChangeVideoLookRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ChangeVideoLook")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ChangeVideoLookResponseObject); ok {
+		if err := validResponse.VisitChangeVideoLookResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RetryVideoRevision operation middleware
+func (sh *strictHandler) RetryVideoRevision(w http.ResponseWriter, r *http.Request, videoId VideoID, rev VideoRev, params RetryVideoRevisionParams) {
+	var request RetryVideoRevisionRequestObject
+
+	request.VideoId = videoId
+	request.Rev = rev
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RetryVideoRevision(ctx, request.(RetryVideoRevisionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RetryVideoRevision")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RetryVideoRevisionResponseObject); ok {
+		if err := validResponse.VisitRetryVideoRevisionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
