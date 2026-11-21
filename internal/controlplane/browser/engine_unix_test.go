@@ -419,3 +419,33 @@ func TestAScreenshotToSaveIsSentWholeFromAgentBrowsersFile(t *testing.T) {
 	require.Len(t, answer.Content, 1)
 	assert.Equal(t, "text", answer.Content[0].Type, "without save_to the answer is agent-browser's")
 }
+
+// Scenario (issue #1059, review round 2): the picture is read only from a file
+// in agent-browser's screenshot folder, opened there: a link in that folder to
+// a file elsewhere on this machine is not followed.
+func TestAScreenshotToSaveIsReadOnlyInAgentBrowsersFolder(t *testing.T) {
+	r := newRig(t, Config{})
+	r.touch(t, "shot-bytes", "16")
+
+	shots := filepath.Join(r.home(), ".agent-browser", "tmp", "screenshots")
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere.png")
+	require.NoError(t, os.WriteFile(elsewhere, nil, 0o600))
+	require.NoError(t, os.MkdirAll(shots, 0o700))
+	require.NoError(t, os.Symlink(elsewhere, filepath.Join(shots, "screenshot-1.png")))
+
+	result, err := r.Call(t.Context(), "d-one", agenttool.ToolBrowserScreenshot, json.RawMessage(`{"save_to":"a.png"}`))
+	require.NoError(t, err)
+
+	var answer struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+
+	require.NoError(t, json.Unmarshal(result, &answer))
+	assert.True(t, answer.IsError, "a file out of the folder is not sent")
+	require.Len(t, answer.Content, 1)
+	assert.Contains(t, answer.Content[0].Text, "could not be read")
+}

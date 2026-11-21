@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -132,4 +133,44 @@ func TestAWorkerSavesALargeScreenshotOfTheBrowser(t *testing.T) {
 	saved, err := os.ReadFile(filepath.Join(worktree, "page.png")) //nolint:gosec // the test's own file
 	require.NoError(t, err)
 	assert.Equal(t, page, saved)
+}
+
+// Scenario (issue #1059, review round 2): paths in the worktree that are
+// saved to as they were before the write went beside the name: a name as long
+// as a file's name may be, and a link whose target is relative to a folder
+// reached through another link.
+func TestAWorkerSavesToLongNamesAndLinksThroughAnAlias(t *testing.T) {
+	t.Parallel()
+
+	var picture bytes.Buffer
+	require.NoError(t, jpeg.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 4, 6)), nil))
+
+	cp := &controlPlane{phone: true, result: `{"content":[{"type":"image","data":"` +
+		base64.StdEncoding.EncodeToString(picture.Bytes()) + `","mimeType":"image/jpeg"}],"isError":false}`}
+	srv := httptest.NewServer(cp)
+	t.Cleanup(srv.Close)
+
+	worktree := t.TempDir()
+	dir := t.TempDir()
+	require.NoError(t, bridge.SetAgent(dir, bridge.Agent{URL: srv.URL, Key: dispatchKey, Worktree: worktree}))
+
+	c := newClientIn(t, dir)
+	call := func(id int, saveTo string) string {
+		c.send(map[string]any{"jsonrpc": "2.0", "id": id, "method": "tools/call", "params": map[string]any{
+			"name": "device_screen", "arguments": map[string]any{"save_to": saveTo},
+		}})
+
+		return text(t, c.read())
+	}
+
+	long := strings.Repeat("s", 244) + ".jpg"
+	assert.Equal(t, "Screenshot saved to: "+filepath.Join(worktree, long), call(1, long))
+	assert.FileExists(t, filepath.Join(worktree, long))
+
+	// a is x/y; x/y/link.jpg is ../../inside.jpg, which from x/y is the worktree's own inside.jpg.
+	require.NoError(t, os.MkdirAll(filepath.Join(worktree, "x", "y"), 0o750))
+	require.NoError(t, os.Symlink(filepath.Join("x", "y"), filepath.Join(worktree, "a")))
+	require.NoError(t, os.Symlink(filepath.Join("..", "..", "inside.jpg"), filepath.Join(worktree, "x", "y", "link.jpg")))
+	assert.Equal(t, "Screenshot saved to: "+filepath.Join(worktree, "a", "link.jpg"), call(2, "a/link.jpg"))
+	assert.Len(t, cp.deviceCalls, 2)
 }
