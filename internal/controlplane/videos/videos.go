@@ -213,6 +213,9 @@ type Config struct {
 	Settings func(ctx context.Context) (speech.Settings, error)
 	// Tools gives the installed ffmpeg (ffmpeg.Installer.Ensure).
 	Tools func(ctx context.Context) (ffmpeg.Tools, error)
+	// Ready gives the installed ffmpeg without waiting for an install under way (ffmpeg.Installer.Ready), for the
+	// look sample; nil: Tools.
+	Ready func() (ffmpeg.Tools, error)
 	// Maker makes the files; nil: package compose.
 	Maker Maker
 	// FreeBytes says how much disk is free; nil: the file system's own.

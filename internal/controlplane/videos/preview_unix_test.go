@@ -97,6 +97,23 @@ func TestTheLookSampleKeepsItsLimits(t *testing.T) {
 		assert.Less(t, time.Since(start), 300*time.Millisecond, "busy within the wait, not after the take was read")
 	})
 
+	t.Run("ffmpeg being installed", func(t *testing.T) {
+		t.Parallel()
+
+		// While the first install downloads, Tools waits for it: the sample does not, and does not hold the
+		// sampler meanwhile (review of #1001: it answered 504 after the wait).
+		r := newRig(t)
+		r.svc.cfg.Tools = func(ctx context.Context) (ffmpeg.Tools, error) { <-ctx.Done(); return ffmpeg.Tools{}, ctx.Err() }
+		r.svc.cfg.Ready = func() (ffmpeg.Tools, error) { return ffmpeg.Tools{}, errors.New("not installed yet") }
+		r.svc.cfg.PreviewTimeout = time.Second
+
+		start := time.Now()
+		_, err := r.svc.Preview(t.Context(), PreviewRequest{Take: takeID})
+		require.ErrorIs(t, err, ErrUnavailable)
+		assert.Less(t, time.Since(start), 500*time.Millisecond)
+		assert.Empty(t, r.svc.preview, "the sampler is free")
+	})
+
 	t.Run("no ffmpeg", func(t *testing.T) {
 		t.Parallel()
 

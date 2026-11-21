@@ -442,14 +442,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// The ffmpeg videos are made with (issue #818, row 9): a pinned build installed beside the database, in the
 	// background so that serving does not wait for it.
-	ffmpegTools := func(context.Context) (ffmpeg.Tools, error) {
-		return ffmpeg.Tools{}, errors.New("ffmpeg is off on this control plane (HYPOMNEMA_FFMPEG=0)")
-	}
+	ffmpegOff := errors.New("ffmpeg is off on this control plane (HYPOMNEMA_FFMPEG=0)")
+	ffmpegTools := func(context.Context) (ffmpeg.Tools, error) { return ffmpeg.Tools{}, ffmpegOff }
+	ffmpegReady := func() (ffmpeg.Tools, error) { return ffmpeg.Tools{}, ffmpegOff }
 
 	if !cfg.FFmpegOff {
 		installer := ffmpeg.New(ffmpeg.Config{Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "ffmpeg"), Logger: logger})
 		installer.Start(ctx)
-		ffmpegTools = installer.Ensure
+		ffmpegTools, ffmpegReady = installer.Ensure, installer.Ready
 	}
 
 	// The videos made of the takes (issue #818, rows 1, 2, 5 and 6): rows beside the others, files in videos/
@@ -457,7 +457,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	videoSvc, err := videos.New(videos.Config{
 		DB: db, Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "videos"), Takes: phoneTakes,
 		Speech:   videoAudio{speech: voice, gateway: gateway, chats: svc, logger: logger},
-		Settings: gateway.AudioSettings, Tools: ffmpegTools, Logger: logger,
+		Settings: gateway.AudioSettings, Tools: ffmpegTools, Ready: ffmpegReady, Logger: logger,
 	})
 	if err != nil {
 		return err

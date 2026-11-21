@@ -51,15 +51,21 @@ type PreviewRequest struct {
 	Rev int
 }
 
-// Preview makes a look sample, a JPEG.
+// Preview makes a look sample, a JPEG. What needs no reading is checked first; then, without waiting for an
+// install, that ffmpeg is in place; then it waits at most PreviewWait from the request's start for the one being
+// made, and has PreviewTimeout from there to read the take and draw (review of #1001).
 func (s *Service) Preview(ctx context.Context, req PreviewRequest) ([]byte, error) {
-	p, err := s.planPreview(ctx, req)
-	if err != nil {
+	wait := time.NewTimer(s.cfg.PreviewWait)
+	defer wait.Stop()
+
+	if _, err := checkPreview(req); err != nil {
 		return nil, err
 	}
 
-	wait := time.NewTimer(s.cfg.PreviewWait)
-	defer wait.Stop()
+	tools, err := s.readyTools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: ffmpeg is not installed: %w", ErrUnavailable, err)
+	}
 
 	select {
 	case s.preview <- struct{}{}:
@@ -74,12 +80,55 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) ([]byte, erro
 	limited, cancel := context.WithTimeout(ctx, s.cfg.PreviewTimeout)
 	defer cancel()
 
-	jpeg, err := s.sample(limited, p)
+	jpeg, err := func() ([]byte, error) {
+		p, err := s.planPreview(limited, req)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := limited.Err(); err != nil {
+			return nil, err
+		}
+
+		return s.sample(limited, p, tools)
+	}()
 	if err != nil && ctx.Err() == nil && errors.Is(limited.Err(), context.DeadlineExceeded) {
 		return nil, fmt.Errorf("%w: longer than %s", ErrTimedOut, s.cfg.PreviewTimeout)
 	}
 
 	return jpeg, err
+}
+
+// readyTools is the installed ffmpeg without waiting for an install under way (Config.Ready), else Tools.
+func (s *Service) readyTools(ctx context.Context) (ffmpeg.Tools, error) {
+	if s.cfg.Ready != nil {
+		return s.cfg.Ready()
+	}
+
+	return s.cfg.Tools(ctx)
+}
+
+// checkPreview checks what a sample's request says, with no reading: the take's id, the aspect, the revision and
+// the look's ids and ranges.
+func checkPreview(req PreviewRequest) (PreviewRequest, error) {
+	if req.Aspect == "" {
+		req.Aspect = string(compose.Portrait)
+	}
+
+	switch {
+	case !takeIDs.MatchString(req.Take):
+		return req, fmt.Errorf("%w: take is a take's id, such as tk_0a1b2c3d4e5f6a7b", ErrInvalid)
+	case req.Aspect != string(compose.Portrait) && req.Aspect != string(compose.Landscape):
+		return req, fmt.Errorf("%w: the aspect is 9:16 or 16:9", ErrInvalid)
+	case req.Rev < 0:
+		return req, fmt.Errorf("%w: a revision is a number from 1", ErrInvalid)
+	}
+
+	if _, err := resolveLook(req.Look, DefaultLook()); err != nil {
+		return req, err
+	}
+
+	return req, nil
 }
 
 // previewPlan is what a look sample draws.
@@ -94,20 +143,8 @@ type previewPlan struct {
 // planPreview checks a sample's request and resolves its look as a make, or a look change from Rev, would: with the
 // fallback of a take whose phone turned (row 11).
 func (s *Service) planPreview(ctx context.Context, req PreviewRequest) (previewPlan, error) {
-	if req.Aspect == "" {
-		req.Aspect = string(compose.Portrait)
-	}
-
-	switch {
-	case !takeIDs.MatchString(req.Take):
-		return previewPlan{}, fmt.Errorf("%w: take is a take's id, such as tk_0a1b2c3d4e5f6a7b", ErrInvalid)
-	case req.Aspect != string(compose.Portrait) && req.Aspect != string(compose.Landscape):
-		return previewPlan{}, fmt.Errorf("%w: the aspect is 9:16 or 16:9", ErrInvalid)
-	case req.Rev < 0:
-		return previewPlan{}, fmt.Errorf("%w: a revision is a number from 1", ErrInvalid)
-	}
-
-	if _, err := resolveLook(req.Look, DefaultLook()); err != nil {
+	req, err := checkPreview(req)
+	if err != nil {
 		return previewPlan{}, err
 	}
 
@@ -177,13 +214,8 @@ func (s *Service) previewBase(ctx context.Context, take string, rev int, first s
 // sample draws the look over the take's picture at its first step, with the line's captions at the start of its
 // second word (or its first), the words timed at demotape's 14 characters a second (CaptionStyle.swift:153-180;
 // CaptionBurner.swift:319-337), and no ring.
-func (s *Service) sample(ctx context.Context, p previewPlan) ([]byte, error) {
+func (s *Service) sample(ctx context.Context, p previewPlan, tools ffmpeg.Tools) ([]byte, error) {
 	take, look := p.take, p.look
-
-	tools, err := s.cfg.Tools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("%w: ffmpeg is not installed: %w", ErrUnavailable, err)
-	}
 
 	takeJSON, err := s.cfg.Takes.File(take.ID, "take.json")
 	if err != nil {
