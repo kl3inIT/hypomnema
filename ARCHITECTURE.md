@@ -4062,7 +4062,7 @@ waits on the owner reaches his browsers and the iPhone Home Screen app (iOS 16.4
   `push_outbox` (kind, item id; one per item); one the owner writes himself queues nothing.
 - The sender runs while the control plane serves. It reads the queue at start and after every commit
   (`orchestration.Subscribe`), reads each item's words then (`QueuedPushes`: title naming the Bot, or the Run by its
-  objective; the item's own text cut to 1500 bytes; the page, the item's chat or the start page; the Inbox has no
+  objective; the item's own text cut to 1500 bytes, and cut again to what fits once JSON-encoded (3800 bytes); the page, the item's chat or the start page; the Inbox has no
   page yet), drops one that no longer waits (answered, decided, gone), and sends it to every subscription at once,
   then deletes the row. A push is a Declarative Web Push message (`{web_push: 8030, notification: {title, body,
   navigate, tag}}`), encrypted with `SherClockHolmes/webpush-go`, with TTL 300 s, urgency high, the tag
@@ -4076,7 +4076,10 @@ waits on the owner reaches his browsers and the iPhone Home Screen app (iOS 16.4
 - The VAPID key pair is made on first use and its private half kept in the vault as the secret
   `web-push-vapid-key` (generic); the public half is read from it. The VAPID subject is `HYPOMNEMA_PUBLIC_URL`;
   without an https one the control plane serves no key and drops what is queued. `hypomnema push regenerate-keys`
-  deletes every subscription, then makes a new pair; each device then turns notifications on again. Without the
+  deletes every subscription and keeps a new pair in one transaction (the vault writes in orchestration's,
+  `vault.PutStep`), so a refused write changes nothing; each device then turns notifications on again. Like every
+  vault secret, the owner can read the private key with `secrets show` or the Vault page (recorded), as he can
+  `git-ssh-key`; nothing of Web Push prints or answers it. Without the
   vault's root key the client API answers unavailable.
 
 Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,
@@ -6075,9 +6078,11 @@ Node (`internal/node`):
     `web/src/lib/said.ts`).
   - Notifications (issue #1047, `web/src/features/notifications`): `web/public/sw.js`, a hand-written service
     worker registered at the root from `main.tsx`, shows a push the browser hands it (Safari shows a Declarative
-    Web Push message itself), skips one for the page the owner has focused, opens the push's page on a click
-    (focusing a window on it, else taking an open one, else opening one) and keeps a renewed subscription; it handles
-    no fetch and caches nothing. Settings, Preferences, Notifications turns them on for this browser (permission is
+    Web Push message itself, so there a push for the chat in view still shows), skips one for the chat the owner has
+    focused (only a chat: the test push, which opens Settings, shows there), opens the push's page on a click
+    (focusing a window on it, else taking an open one, else opening one) and keeps a renewed subscription under its
+    new endpoint only while the control plane still lists the old one, deleting the old row; it handles no fetch and
+    caches nothing. Settings, Preferences, Notifications turns them on for this browser (permission is
     asked only from that button), lists the owner's devices with a test push and a remove, and on an iPhone or iPad
     not opened from the Home Screen shows the steps to add it. A chat where something waits offers the same button
     once, until it is on or dismissed ("Not now", kept in local storage).
