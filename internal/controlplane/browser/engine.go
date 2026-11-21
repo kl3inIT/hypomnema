@@ -71,6 +71,8 @@ type command struct {
 	Args  []string
 	Env   []string
 	Stdin string
+	// Limit bounds what is kept of its output; maxResultBytes when it is 0.
+	Limit int
 }
 
 // output is what a run wrote and how it ended.
@@ -235,6 +237,10 @@ func (e *Engine) call(ctx context.Context, agent, tool string, arguments json.Ra
 		return nil, err
 	}
 
+	// A screenshot to be saved on the agent's machine is sent whole (issue #1059); save_to itself is the agent's
+	// side's, and cat.arguments drops it.
+	whole := SendsWhole(tool, arguments)
+
 	arguments, err = cat.arguments(tool, arguments)
 	if err != nil {
 		return nil, err
@@ -263,7 +269,13 @@ func (e *Engine) call(ctx context.Context, agent, tool string, arguments json.Ra
 		}
 	}
 
-	result, err := e.tool(ctx, s, cdp, tool, arguments)
+	var result json.RawMessage
+	if whole {
+		result, err = e.savedShot(ctx, s, cdp, arguments)
+	} else {
+		result, err = e.tool(ctx, s, cdp, tool, arguments)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -551,39 +563,66 @@ func (e *Engine) end(ctx context.Context, name, cdp string) {
 func (e *Engine) tool(
 	ctx context.Context, s *session, cdp, tool string, arguments json.RawMessage,
 ) (json.RawMessage, error) {
+	answer, err := e.answer(ctx, s, cdp, tool, arguments, maxResultBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return answer.result()
+}
+
+// toolAnswer is what an agent is given of agent-browser's answer to a tool, and where a screenshot was saved.
+type toolAnswer struct {
+	Content json.RawMessage `json:"content"`
+	IsError bool            `json:"isError"`
+	// Structured is agent-browser's structuredContent: its command's response, whose data names the file a
+	// screenshot was saved in (cli/src/mcp.rs, tool_result_from_run).
+	Structured struct {
+		Response struct {
+			Data struct {
+				Path string `json:"path"`
+			} `json:"data"`
+		} `json:"response"`
+	} `json:"structuredContent"`
+}
+
+// result is the answer an agent is given: what the tool says and whether it failed. The rest of agent-browser's
+// answer describes the engine itself: how Chrome was launched, and where.
+func (a toolAnswer) result() (json.RawMessage, error) {
+	result, err := json.Marshal(map[string]any{"content": a.Content, "isError": a.IsError})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+
+	return result, nil
+}
+
+// answer runs one MCP tool of agent-browser in a session and reads its answer, of at most limit bytes.
+func (e *Engine) answer(
+	ctx context.Context, s *session, cdp, tool string, arguments json.RawMessage, limit int,
+) (toolAnswer, error) {
 	out, err := run(ctx, command{
 		Path: e.binary, Args: []string{"mcp", "call", tool, "-", "--tools", "core"},
-		Env: e.env(s.name, cdp), Stdin: string(arguments),
+		Env: e.env(s.name, cdp), Stdin: string(arguments), Limit: limit,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: running %s: %w", ErrUnavailable, tool, err)
+		return toolAnswer{}, fmt.Errorf("%w: running %s: %w", ErrUnavailable, tool, err)
 	}
 
 	line := bytes.TrimSpace(out.Stdout)
-	if len(line) > maxResultBytes {
-		return nil, fmt.Errorf("%s answered more than %d MB", tool, maxResultBytes>>20)
+	if len(line) > limit {
+		return toolAnswer{}, fmt.Errorf("%s answered more than %d MB", tool, limit>>20)
 	}
 
 	// 0 is an answer and 1 an answer that reports a failure to the agent; both are the tool's result. 2 is a
 	// call agent-browser did not take (cli/src/mcp.rs, run_mcp_call).
 	if out.Code == 0 || out.Code == 1 {
-		// An agent is given what the tool says and whether it failed. The rest of agent-browser's answer
-		// describes the engine itself: how Chrome was launched, and where.
-		var answer struct {
-			Content json.RawMessage `json:"content"`
-			IsError bool            `json:"isError"`
-		}
-
+		var answer toolAnswer
 		if err := json.Unmarshal(line, &answer); err != nil || len(answer.Content) == 0 {
-			return nil, fmt.Errorf("%w: %s answered what is not a tool's result", ErrUnavailable, tool)
+			return toolAnswer{}, fmt.Errorf("%w: %s answered what is not a tool's result", ErrUnavailable, tool)
 		}
 
-		result, err := json.Marshal(map[string]any{"content": answer.Content, "isError": answer.IsError})
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
-		}
-
-		return result, nil
+		return answer, nil
 	}
 
 	var refused struct {
@@ -593,10 +632,10 @@ func (e *Engine) tool(
 	}
 
 	if json.Unmarshal(line, &refused) == nil && refused.Error.Message != "" {
-		return nil, fmt.Errorf("%w: %s", ErrBadArguments, refused.Error.Message)
+		return toolAnswer{}, fmt.Errorf("%w: %s", ErrBadArguments, refused.Error.Message)
 	}
 
-	return nil, fmt.Errorf("%w: %s ended with code %d: %s", ErrUnavailable, tool, out.Code,
+	return toolAnswer{}, fmt.Errorf("%w: %s ended with code %d: %s", ErrUnavailable, tool, out.Code,
 		lastLine(string(out.Stderr)))
 }
 

@@ -1256,6 +1256,10 @@ func wakeText(e store.Event) string {
 				e.TaskID.String, e.QuestionID.String, e.QuestionID.String)
 		}
 	case EventEscalation:
+		if str("kind") == string(EscalationPullRequest) {
+			return pullRequestWakeText(e, p)
+		}
+
 		return fmt.Sprintf("Escalation (%s) on task %s of run %s: hypomnema tasks show %s --json", str("kind"),
 			e.TaskID.String, e.RunID.String, e.TaskID.String)
 	case EventRunFinished, EventRunCanceled:

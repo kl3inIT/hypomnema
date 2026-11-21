@@ -103,6 +103,10 @@ type Store interface {
 	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key
 	// (issue #625).
 	SSHOfDispatch(ctx context.Context, dispatchID string) (hostKeys string, overSSH bool, err error)
+	// StartBackground and EndBackground keep a Bot's pi's background commands and wake its chat when one ends
+	// (issue #1058).
+	StartBackground(ctx context.Context, chatID, pi, id string) error
+	EndBackground(ctx context.Context, chatID, pi string, e orchestration.BackgroundEnd) (bool, error)
 }
 
 // Token is a Connection's access token and when it ends.
@@ -202,6 +206,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+agenttool.PathTools, s.listTools)
 	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.counted(s.callTool))
 	mux.HandleFunc("GET "+agenttool.PathGitSSHKey, s.gitSSHKeyFor)
+	mux.HandleFunc("POST "+agenttool.PathBackground, s.background)
 }
 
 // agent is who asks: what it is called in the log, and which Connections of
@@ -671,6 +676,12 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 
 // runBrowser runs one of the browser's tools in the agent's own tab.
 func (s *Server) runBrowser(w http.ResponseWriter, r *http.Request, a agent, asked agenttool.BrowserCall) {
+	// A screenshot to be saved on the agent's machine is sent whole, up to 64 MiB, which takes longer than the
+	// server's write timeout over a slow link, as an image generate_image makes does (images.go, issue #1059).
+	if browser.SendsWhole(asked.Tool, asked.Arguments) {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	}
+
 	result, err := s.browser.Call(r.Context(), a.key, asked.Tool, asked.Arguments)
 	if err != nil {
 		s.failBrowser(w, r, err)
@@ -686,7 +697,13 @@ func (s *Server) runBrowser(w http.ResponseWriter, r *http.Request, a agent, ask
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(result)
+
+	// The agent got a cut answer, or none: said here, since the answer can no longer say it.
+	if _, err := w.Write(result); err != nil {
+		s.logger.WarnContext(r.Context(), "the browser's answer could not be written",
+			slog.String("event", "agentapi.browser_answer_failed"), slog.String("agent", a.name),
+			slog.String("tool", asked.Tool), slog.Int("bytes", len(result)), slog.String("error", err.Error()))
+	}
 }
 
 // failBrowser answers an error of the browser: a call the agent made wrongly

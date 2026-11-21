@@ -58,6 +58,7 @@ install -o root -g root -m 0755 "$src/hypomnema" /usr/local/bin/hypomnema
 install -d -o root -g root -m 0755 /usr/local/lib/hypomnema
 install -o root -g root -m 0644 "$src/pi-image-eviction.mts" /usr/local/lib/hypomnema/pi-image-eviction.mts
 install -o root -g root -m 0644 "$src/pi-read-run.mts" /usr/local/lib/hypomnema/pi-read-run.mts
+install -o root -g root -m 0644 "$src/pi-background.mts" /usr/local/lib/hypomnema/pi-background.mts
 install -o coordinator -g coordinator -m 0600 "$src/AGENTS.md" "$home/agent/AGENTS.md"
 
 echo "== tools of the integrations and the documents environment"

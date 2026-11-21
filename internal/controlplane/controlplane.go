@@ -783,6 +783,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		writeShareViews(shareViewsCtx, svc, logger, shareViewsWriteEvery)
 	}()
 
+	// The pull requests that succeeded Tasks left with auto-merge on are followed until they merge (issue #1053).
+	pullRequestsDone := make(chan struct{})
+
+	go func() {
+		defer close(pullRequestsDone)
+
+		followPullRequests(ctx, svc, tokens, logger, followPullRequestsEvery)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -864,6 +873,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-purgeDone
 	<-supDone
 	<-shareViewsDone
+	<-pullRequestsDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return errors.Join(serveErr, cause)

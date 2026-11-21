@@ -55,6 +55,8 @@ A Run has one controller: the Bot of the chat it belongs to. There are two paths
    canceled. A blocked Task has not ended.
 4. In a Bot chat: finish the Run with `hypomnema runs finish <run_id> --json` as soon as every Task has ended, without waiting
    for the owner to press anything, then report to the owner per Task: the outcome, its evidence, and what is left.
+   A Task whose summary says "auto-merge on at <sha>" has ended only once a `pull_request` wake says its pull
+   request merged, was closed, or is not followed (Results, below; issue #1053).
    While the owner has yet to decide on a fix you offered for a
    failed Task, or while its review waits for a next step, leave the Run open: a finished Run takes no new Tasks.
 
@@ -174,8 +176,13 @@ question with `hypomnema questions show <question_id> --json`.
 - Answer when the answer follows from the spec, the objective, the owner's words, or the repository's existing code
   (read it), and say what you based it on: the file, or the owner's words quoted:
   `hypomnema answer <question_id> --text-file <file> --json`, or `hypomnema answer <question_id> <option number> --json`.
-- Forward to the owner a choice none of those settles; anything about secrets or access; and anything irreversible,
-  destructive or outside the Task's repository that the owner has not decided in so many words:
+- Answer, too, a question about an option the Task leaves open, such as how to fix a review finding or which limit
+  or library to use, when the worker recommends one that references back and that stays inside the Task's scope:
+  answer with that option, then tell the owner in your reply what you answered and why. Workers decide these
+  themselves; one that still asks gets the answer from you, not a wait for the owner.
+- Forward to the owner only a question about the Task's scope or goal that none of those settles; anything about
+  secrets, access or money; and anything outward-facing, irreversible, destructive or outside the Task's repository
+  that the owner has not decided in so many words:
   `hypomnema questions forward <question_id> --json`. Then tell the owner
   the question in your reply. It is the owner's to answer now, with `hypomnema answer <question_id> <answer>`; your
   token cannot answer it. The worker keeps waiting.
@@ -194,6 +201,15 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   (`gh pr list --repo <owner/name> --head <branch>`), using the Task's `push_branch` or `hyp/<task_id>` when unset;
   when there is none, send the worker a follow-up (below)
   that names what is missing. `gh pr checks <url>` shows whether the checks ran.
+- A worker that turned auto-merge on finishes without waiting for CI, its summary saying "auto-merge on at
+  <sha>". The control plane follows that pull request, on GitHub and GitLab, until it merges: a conflict or a
+  failed required check is sent to the worker as a follow-up on its succeeded Task, and you are woken with a
+  `pull_request` escalation when it merges, is closed, or such a follow-up was sent or refused. Do not wait for its
+  CI yourself. Until that wake says it merged or was closed, the Task's work has not landed: keep the Run open
+  (step 4 of the Recipe), since a finished Run takes no follow-up. When the wake says the follow-up was refused,
+  create the Task with `"continues"` it names. A repository the control plane holds no token for is not
+  followed: its worker used the node's login and waited for its checks itself, and the wake says so once; read
+  the pull request with the host's CLI before you finish the Run.
 - More work on a succeeded Task, such as a fix after a review or a correction the owner gives, goes to the same
   worker as a follow-up, not to a new Task:
   ```text

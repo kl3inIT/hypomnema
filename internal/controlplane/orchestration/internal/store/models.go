@@ -241,6 +241,13 @@ type Chat struct {
 	TurnAttempts   int64
 }
 
+type ChatBackgroundCommand struct {
+	ChatID    string
+	ID        string
+	Pi        string
+	StartedAt int64
+}
+
 type ChatMessage struct {
 	Seq           int64
 	ChatID        string

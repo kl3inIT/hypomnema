@@ -353,3 +353,26 @@ DELETE FROM restart_boots;
 
 -- name: InsertRestartBoot :exec
 INSERT INTO restart_boots (at) VALUES (@at);
+
+-- name: InsertChatBackground :exec
+-- A command a chat's pi started in the background (issue #1058). The same id again keeps the first row.
+INSERT INTO chat_background_commands (chat_id, id, pi, started_at) VALUES (@chat_id, @id, @pi, @now)
+ON CONFLICT (chat_id, id) DO NOTHING;
+
+-- name: DeleteChatBackground :one
+-- Takes out the row of a command that ended, when the pi that ran it still has it.
+DELETE FROM chat_background_commands WHERE chat_id = @chat_id AND id = @id AND pi = @pi
+RETURNING started_at;
+
+-- name: DeleteLostChatBackground :many
+-- Takes out the rows of the commands a pi had when it stopped.
+DELETE FROM chat_background_commands WHERE chat_id = @chat_id AND pi = @pi
+RETURNING chat_id, id, started_at;
+
+-- name: DeleteAllChatBackground :many
+-- Takes out every row, which a start of the control plane asks, when no pi runs yet.
+DELETE FROM chat_background_commands
+RETURNING chat_id, id, started_at;
+
+-- name: ChatsWithBackground :many
+SELECT DISTINCT chat_id FROM chat_background_commands;

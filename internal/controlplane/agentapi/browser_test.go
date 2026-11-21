@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,10 +22,11 @@ import (
 )
 
 // sharedBrowser stands for the browser: it records who called what and
-// answers with err when it is set.
+// answers with err when it is set, after takes.
 type sharedBrowser struct {
 	calls []string
 	err   error
+	takes time.Duration
 }
 
 func (b *sharedBrowser) Tools(context.Context) ([]browser.Tool, error) {
@@ -37,6 +39,7 @@ func (b *sharedBrowser) Call(
 	_ context.Context, agent, tool string, arguments json.RawMessage,
 ) (json.RawMessage, error) {
 	b.calls = append(b.calls, fmt.Sprintf("%s %s %s", agent, tool, arguments))
+	time.Sleep(b.takes)
 
 	return json.RawMessage(`{"content":[{"type":"text","text":"Example Domain"}],"isError":false}`), b.err
 }
@@ -188,4 +191,22 @@ func TestAControlPlaneWithNoBrowserSaysSo(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, status)
 	assert.Contains(t, answer, "no browser")
 	assert.Empty(t, w.browser.calls)
+}
+
+// Scenario (issue #1059, review round 2): a screenshot to be saved on the
+// agent's machine is sent whole, up to 64 MiB, which over a slow link takes
+// longer than the server gives an answer (30 s on the control plane). It is
+// still answered whole, as an image generate_image makes is.
+func TestAScreenshotToSaveIsAnsweredPastTheWriteTimeout(t *testing.T) {
+	t.Parallel()
+
+	w := newWorldWriting(t, 100*time.Millisecond)
+	w.browser.takes = 300 * time.Millisecond
+
+	key, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	status, answer := w.browse(key, agenttool.ToolBrowserScreenshot, `{"fullPage":true,"save_to":"page.png"}`)
+	require.Equal(t, http.StatusOK, status)
+	assert.JSONEq(t, `{"content":[{"type":"text","text":"Example Domain"}],"isError":false}`, answer)
 }

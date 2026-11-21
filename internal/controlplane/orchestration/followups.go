@@ -71,58 +71,7 @@ func (s *Service) FollowUpTask(ctx context.Context, id string, by Addressee, not
 	fid := s.newID("fup")
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		task, err := q.GetTask(ctx, id)
-		if err != nil {
-			return notFound(err, "task", id)
-		}
-
-		run, err := q.GetRun(ctx, task.RunID)
-		if err != nil {
-			return notFound(err, "run", task.RunID)
-		}
-
-		_, open, err := openConversation(ctx, q, id)
-		if err != nil {
-			return err
-		}
-
-		gated := TaskStatus(task.Status) == TaskBlocked && BlockedReason(task.BlockedReason.String) == BlockedGate
-
-		switch {
-		case RunStatus(run.Status) != RunOpen:
-			return fmt.Errorf("%w: run %s is %s", ErrConflict, run.ID, run.Status)
-		case TaskStatus(task.Status) != TaskSucceeded && !gated:
-			return fmt.Errorf("%w: task %s is %s; only a task that succeeded or waits at a gate takes a follow-up",
-				ErrConflict, id, task.Status)
-		case !open:
-			return fmt.Errorf("%w: the worker of task %s has no open conversation to continue; "+
-				"create a new task with \"continues\": %q, which pushes into its branch and pull request",
-				ErrConflict, id, id)
-		}
-
-		if err := branchFree(ctx, q, pushBranchOf(task), id); err != nil {
-			return err
-		}
-
-		if err := q.InsertFollowUp(ctx, store.InsertFollowUpParams{
-			ID: fid, TaskID: id, Note: note, AskedBy: string(by), Now: now,
-		}); err != nil {
-			return fmt.Errorf("inserting the follow-up of task %s: %w", id, err)
-		}
-
-		if gated {
-			if err := supersedeGates(ctx, q, now, id, fid); err != nil {
-				return err
-			}
-		}
-
-		if err := q.ResetTaskFailures(ctx, store.ResetTaskFailuresParams{Now: now, ID: id}); err != nil {
-			return fmt.Errorf("resetting task %s: %w", id, err)
-		}
-
-		// Its event is task.status from succeeded (or blocked) to ready; the
-		// Dispatch that carries the note names it (dispatch.created).
-		return transitionTask(ctx, q, now, id, TaskReady, BlockedNone, "")
+		return followUpIn(ctx, q, now, id, by, fid, note)
 	})
 	if err != nil {
 		return FollowUp{}, err
@@ -134,6 +83,64 @@ func (s *Service) FollowUpTask(ctx context.Context, id string, by Addressee, not
 	}
 
 	return followUpFromRow(row), nil
+}
+
+// followUpIn keeps follow-up fid of Task id in the transaction of q, as FollowUpTask says, so that another step,
+// such as the escalation of a followed pull request (pullrequests.go), is written with it or not at all. Every
+// refusal comes before its first write.
+func followUpIn(ctx context.Context, q *store.Queries, now int64, id string, by Addressee, fid, note string) error {
+	task, err := q.GetTask(ctx, id)
+	if err != nil {
+		return notFound(err, "task", id)
+	}
+
+	run, err := q.GetRun(ctx, task.RunID)
+	if err != nil {
+		return notFound(err, "run", task.RunID)
+	}
+
+	_, open, err := openConversation(ctx, q, id)
+	if err != nil {
+		return err
+	}
+
+	gated := TaskStatus(task.Status) == TaskBlocked && BlockedReason(task.BlockedReason.String) == BlockedGate
+
+	switch {
+	case RunStatus(run.Status) != RunOpen:
+		return fmt.Errorf("%w: run %s is %s", ErrConflict, run.ID, run.Status)
+	case TaskStatus(task.Status) != TaskSucceeded && !gated:
+		return fmt.Errorf("%w: task %s is %s; only a task that succeeded or waits at a gate takes a follow-up",
+			ErrConflict, id, task.Status)
+	case !open:
+		return fmt.Errorf("%w: the worker of task %s has no open conversation to continue; "+
+			"create a new task with \"continues\": %q, which pushes into its branch and pull request",
+			ErrConflict, id, id)
+	}
+
+	if err := branchFree(ctx, q, pushBranchOf(task), id); err != nil {
+		return err
+	}
+
+	if err := q.InsertFollowUp(ctx, store.InsertFollowUpParams{
+		ID: fid, TaskID: id, Note: note, AskedBy: string(by), Now: now,
+	}); err != nil {
+		return fmt.Errorf("inserting the follow-up of task %s: %w", id, err)
+	}
+
+	if gated {
+		if err := supersedeGates(ctx, q, now, id, fid); err != nil {
+			return err
+		}
+	}
+
+	if err := q.ResetTaskFailures(ctx, store.ResetTaskFailuresParams{Now: now, ID: id}); err != nil {
+		return fmt.Errorf("resetting task %s: %w", id, err)
+	}
+
+	// Its event is task.status from succeeded (or blocked) to ready; the
+	// Dispatch that carries the note names it (dispatch.created).
+	return transitionTask(ctx, q, now, id, TaskReady, BlockedNone, "")
 }
 
 // supersedeGates closes the Task's open Gate as replaced by the follow-up

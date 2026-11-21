@@ -173,6 +173,16 @@ func (s *server) call(ctx context.Context, c toolsmcp.Call) (any, error) {
 		// The phone's tools are named device_* (issue #417) and video_* (issue #817); generate_image's files are read and written here
 		// (issue #492), show_artifact's read here (issue #536); any other tool is one the control plane lists for the worker (issue #536): it knows which
 		// it offers.
+		// A screenshot asked with save_to is written in the worktree (issue #1059).
+		if path, within, ok := toolsmcp.ShotRoute(c.Name); ok && s.agent != nil {
+			dir, err := s.workFolder()
+			if err != nil {
+				return nil, err
+			}
+
+			return s.agent.ShotCall(ctx, path, within, c.Name, c.Arguments, dir)
+		}
+
 		if s.agent != nil && devicetool.Routed(c.Name) {
 			return s.agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, c.Name, c.Arguments)
 		}
