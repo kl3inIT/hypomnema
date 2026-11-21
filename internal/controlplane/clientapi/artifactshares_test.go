@@ -204,6 +204,37 @@ func TestARevokedLinkOrOneOfADeletedChatIsGoneAtOnce(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, got.status, "the artifact went with its chat, and its links with it")
 }
 
+// Scenario (issue #996, review round 3 of #999): the control plane has not yet cleared old links' tokens from the
+// database's files. What a link shows and its files alike answer 503, not 404 or 500; once cleared, both work.
+func TestALinksFilesWaitLikeWhatItShowsWhileTheFilesAreCleared(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _, _, a := sharedPage(t, w)
+
+	laura, err := owner.CreateArtifactShareWithResponse(ctx, a.Id, openapi.NewArtifactShare{Label: "Laura"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, laura.StatusCode(), string(laura.Body))
+
+	sa, got := w.shared(laura.JSON201.Token, "203.0.113.3")
+	require.Equal(t, http.StatusOK, got.status, got.body)
+
+	_, err = w.db.ExecContext(ctx, "INSERT INTO share_token_scrub (id, since) VALUES (1, 0)")
+	require.NoError(t, err)
+
+	_, got = w.shared(laura.JSON201.Token, "203.0.113.3")
+	assert.Equal(t, http.StatusServiceUnavailable, got.status, got.body)
+	file := w.anonymous(http.MethodGet, sa.Files+"app.js", "203.0.113.3")
+	assert.Equal(t, http.StatusServiceUnavailable, file.status, file.body)
+
+	_, err = w.db.ExecContext(ctx, "DELETE FROM share_token_scrub")
+	require.NoError(t, err)
+
+	file = w.anonymous(http.MethodGet, sa.Files+"app.js", "203.0.113.3")
+	assert.Equal(t, http.StatusOK, file.status, file.body)
+}
+
 // Scenario: someone tries tokens. After five unknown ones from one address within an hour, that address is locked,
 // for what a link shows and for its files alike, with Retry-After, even with a link that exists; another address
 // is not, and the lock ends (session.go's lock, LibreChat's per-address limit on its share route).
