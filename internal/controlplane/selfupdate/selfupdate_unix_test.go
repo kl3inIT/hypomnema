@@ -595,3 +595,33 @@ func TestAMarkerOfAnUpdateThatIsGoneIsNoUpdate(t *testing.T) {
 	write(t, marker, "nonsense")
 	assert.False(t, selfupdate.Updating(dir))
 }
+
+// Scenario (issue #1060, review round 1): the control plane answers slowly once the wait has begun. The last
+// question is bounded by what is left of the wait, so the update stops it at the bound, not seconds after.
+func TestTheWaitForTurnsEndsAtItsBoundWhenTheControlPlaneIsSlow(t *testing.T) {
+	t.Parallel()
+
+	log := &events{}
+	o := installWaiting(t, log)
+	o.TurnsWithin = 300 * time.Millisecond
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	serveTurns(t, o.Home, log, func(n int) selfupdate.Turns {
+		if n > 0 {
+			time.Sleep(3 * time.Second)
+		}
+
+		return selfupdate.Turns{ToolCalls: 1}
+	})
+
+	var out strings.Builder
+	o.Out = &out
+
+	started := time.Now()
+
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	assert.Less(t, time.Since(started), 2*time.Second, "the slow answer is not waited for past the bound")
+	assert.Contains(t, out.String(), "still run after 300ms, 1 tool call")
+}
