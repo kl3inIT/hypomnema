@@ -574,3 +574,32 @@ func TestAPinnedRevisionSpeaksALostClipWithItsProvider(t *testing.T) {
 	assert.Equal(t, speech.ProviderSoniox, made.Provider)
 	assert.Equal(t, 2, r.speech.count(speech.ProviderSoniox, "Chạm vào Đăng nhập"), "the lost clip, spoken again")
 }
+
+// A look change and a retry need a request id (row 4; review of #1001): without one, the same request sent twice
+// would queue two revisions.
+func TestALookChangeAndARetryNeedARequestID(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	r.maker.fail = "compose"
+
+	v, _ := r.make(t, "")
+	r.runAll(t)
+
+	_, _, err := r.svc.Retry(t.Context(), v.ID, 1, Owner, "")
+	require.ErrorIs(t, err, ErrInvalid)
+
+	r.maker.fail = ""
+	_, retried, err := r.svc.Retry(t.Context(), v.ID, 1, Owner, "again")
+	require.NoError(t, err)
+	r.runAll(t)
+
+	_, _, err = r.svc.ChangeLook(t.Context(), v.ID, retried.Rev, LookChange{Look: &LookInput{
+		Frame: &FrameInput{Chrome: ptr("full")},
+	}})
+	require.ErrorIs(t, err, ErrInvalid)
+
+	got, err := r.svc.Get(t.Context(), v.ID)
+	require.NoError(t, err)
+	assert.Len(t, got.Revisions, 2, "nothing queued without a request id")
+}
