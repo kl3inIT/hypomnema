@@ -42,10 +42,20 @@ UPDATE bots SET provider = NULL, model = NULL
 WHERE provider = 'opencode-zen'
   AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
 
+-- A Bot's fallbacks are split at their commas, which no fallback has (checkBotFallbacks), never read as JSON: a
+-- model's name may hold a quote or a backslash (review of PR #1000, round 4).
+WITH RECURSIVE parts (id, n, part, rest) AS (
+    SELECT id, 0, NULL, fallbacks || ',' FROM bots WHERE instr(fallbacks, 'opencode-zen/') > 0
+    UNION ALL
+    SELECT id, n + 1, substr(rest, 1, instr(rest, ',') - 1), substr(rest, instr(rest, ',') + 1)
+    FROM parts WHERE rest <> ''
+)
 UPDATE bots
 SET fallbacks = coalesce((
-    SELECT group_concat(value, ',') FROM json_each('["' || replace(bots.fallbacks, ',', '","') || '"]')
-    WHERE substr(value, 1, 13) <> 'opencode-zen/'), '')
+    SELECT group_concat(part, ',') FROM (
+        SELECT part FROM parts
+        WHERE parts.id = bots.id AND n > 0 AND part <> '' AND substr(part, 1, 13) <> 'opencode-zen/'
+        ORDER BY n)), '')
 WHERE instr(fallbacks, 'opencode-zen/') > 0
   AND EXISTS (SELECT 1 FROM providers WHERE name = 'opencode-zen' AND kind = 'opencode_zen');
 

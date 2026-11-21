@@ -24,11 +24,15 @@ ALTER TABLE tasks ADD COLUMN model_unresolved INTEGER NOT NULL DEFAULT 0;
 
 -- +goose Down
 -- The code before reads a Task's model as a bare name and places it at the one provider that offers it to the Task's
--- runtime (checkModel then). A Task the conversion changed gets back the model it had. Any other named with its
--- provider, as Tasks made after the upgrade are, gets its model's own name only where that rule picks the same
--- provider again: among the kinds of the Task's own runtime, else its profile's (main's runtimeProviders), and among
--- every provider for a role Task, whose runtime its role chain picks; where it would not, it keeps the provider, as
--- the code before refuses it either way (review of PR #1000, round 3). A Task left unresolved kept its bare name.
+-- runtime, among that runtime's kinds then, which have no OpenCode Zen (checkModel and runtimeProviders before
+-- issue #1002). A Task the conversion changed gets back the model it had. Any other named with its provider, as
+-- Tasks made after the upgrade are, gets its model's own name only where that rule places it at that same provider,
+-- and keeps the provider wherever it would not (reviews of PR #1000, rounds 3 and 4). The runtime is the Task's own,
+-- else its profile's. A role Task's runtime is its role chain's first entry, written in role routing's YAML, which
+-- SQL cannot read: its model loses its provider only when every runtime that takes the provider's kind would place
+-- the bare name at that provider alone, the chain's runtime among them (it took the provider when the Task was
+-- made), so a bare name never lands elsewhere or nowhere. A provider of a kind the code before has none of (Zen's,
+-- under any name) is kept. A Task left unresolved kept its bare name.
 WITH kinds (runtime, kind) AS (VALUES
     ('claude', 'model_gateway'), ('claude', 'claude_subscription'), ('claude', 'codex_subscription'),
     ('claude', 'antigravity_subscription'), ('claude', 'opencode_go'),
@@ -39,24 +43,32 @@ WITH kinds (runtime, kind) AS (VALUES
     ('omp', 'antigravity_subscription'), ('omp', 'opencode_go'),
     ('opencode', 'model_gateway'), ('opencode', 'claude_subscription'), ('opencode', 'codex_subscription'),
     ('opencode', 'antigravity_subscription'), ('opencode', 'opencode_go')
-), named (id, provider, bare, runtime) AS (
-    SELECT t.id, p.name, substr(t.model, length(p.name) + 2),
+), named (id, provider, kind, bare, runtime) AS (
+    SELECT t.id, p.name, p.kind, substr(t.model, length(p.name) + 2),
            coalesce(nullif(t.runtime, ''), (
                SELECT v.runtime FROM profiles pr JOIN profile_versions v ON v.id = pr.current_version_id
                WHERE pr.name = t.profile))
     FROM tasks t JOIN providers p ON substr(t.model, 1, length(p.name) + 1) = p.name || '/'
     WHERE t.model_unresolved = 0 AND t.id NOT IN (SELECT task_id FROM model_name_changes)
-), fits (id, provider, bare, offers) AS (
-    SELECT n.id, n.provider, n.bare, (
+), runtimes (id, runtime) AS (
+    -- The Task's own or its profile's runtime, else every runtime that takes the provider's kind.
+    SELECT n.id, n.runtime FROM named n WHERE n.runtime IN (SELECT runtime FROM kinds)
+    UNION
+    SELECT n.id, k.runtime FROM named n JOIN kinds k ON k.kind = n.kind
+    WHERE n.runtime IS NULL OR n.runtime NOT IN (SELECT runtime FROM kinds)
+), placed (id, offers) AS (
+    -- The providers offering the bare name to each of those runtimes.
+    SELECT r.id, (
         SELECT group_concat(m.provider) FROM models m JOIN providers p ON p.name = m.provider
-        WHERE m.name = n.bare
-          AND (p.kind IN (SELECT kind FROM kinds WHERE kinds.runtime = n.runtime)
-               OR NOT EXISTS (SELECT 1 FROM kinds WHERE kinds.runtime = n.runtime)))
-    FROM named n
+        WHERE m.name = n.bare AND p.kind IN (SELECT kind FROM kinds WHERE kinds.runtime = r.runtime))
+    FROM runtimes r JOIN named n ON n.id = r.id
 )
 UPDATE tasks
-SET model = (SELECT bare FROM fits WHERE fits.id = tasks.id)
-WHERE id IN (SELECT id FROM fits WHERE offers = provider);
+SET model = (SELECT bare FROM named WHERE named.id = tasks.id)
+WHERE id IN (SELECT id FROM placed)
+  AND NOT EXISTS (
+    SELECT 1 FROM placed pl JOIN named n ON n.id = pl.id
+    WHERE pl.id = tasks.id AND (pl.offers IS NULL OR pl.offers <> n.provider));
 
 UPDATE tasks
 SET model = (SELECT c.model FROM model_name_changes c WHERE c.task_id = tasks.id)

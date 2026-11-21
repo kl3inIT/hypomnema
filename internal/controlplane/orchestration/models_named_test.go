@@ -291,3 +291,63 @@ func TestTheWayBackAfterZenLeavesRowsTheCodeBeforeRuns(t *testing.T) {
 	assert.Zero(t, targets)
 	assert.Equal(t, 1, gatewayModels, "a gateway model with another target keeps it")
 }
+
+// Scenario (review of PR #1000, round 4): the owner served Zen under a provider of their own, custom-zen, beside
+// Zen's, and a role Task named its model custom-zen/only-zen; a Bot's fallbacks hold model names with a quote. Taking
+// the database back to the code before keeps custom-zen/only-zen whole, as the code before would place the bare
+// only-zen nowhere (it has no Zen); a role Task's codex-subscription/gpt-6.2-sol, which every runtime taking the Codex
+// subscription would place there alone, loses its provider; and Zen's way back drops the Zen fallback and keeps the
+// other, quote and all.
+func TestTheWayBackKeepsAProviderTheCodeBeforeCouldNotPlace(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	require.NoError(t, Migrate(ctx, db))
+
+	svc := New(db, &fakeClock{now: t0}, platform.NewID)
+	_, err = svc.ApplyProvider(ctx, "", "name: custom-zen\nkind: opencode_zen\nmodels: [only-zen]\n")
+	require.NoError(t, err)
+	_, err = svc.AddProviderModels(ctx, "codex-subscription", []string{"gpt-6.2-sol"})
+	require.NoError(t, err)
+	_, err = svc.AddProviderModels(ctx, "opencode-zen", []string{`foo"bar`})
+	require.NoError(t, err)
+	_, err = svc.AddProviderModels(ctx, "opencode-go", []string{`we"ird\`})
+	require.NoError(t, err)
+
+	// implementer as a role profile, its chain read from role routing (deploy/profiles).
+	_, _, err = svc.ApplyProfile(ctx, "", "name: implementer\ndescription: d\n")
+	require.NoError(t, err)
+
+	bot, err := svc.PutBot(ctx, Bot{
+		Name: "fallbacks", Provider: "opencode-go", Model: "deepseek-v4-pro",
+		Fallbacks: []string{`opencode-zen/foo"bar`, `opencode-go/we"ird\`},
+	})
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO runs (id, objective, status, created_by, created_at, updated_at) VALUES ('r', 'o', 'open', 'owner', 1, 1)`)
+	require.NoError(t, err)
+
+	made, err := svc.CreateTasks(ctx, "r", []NewTask{
+		{Ref: "custom", Spec: "s", Profile: "implementer", Model: "custom-zen/only-zen"},
+		{Ref: "codex", Spec: "s", Profile: "implementer", Model: "codex-subscription/gpt-6.2-sol"},
+	})
+	require.NoError(t, err)
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.DownTo(ctx, migrationVersion(t, p, modelNamesMigration)-1)
+	require.NoError(t, err, "a fallback with a quote does not stop the way back")
+
+	models := taskModels(t, db)
+	assert.Equal(t, "custom-zen/only-zen", models[made[0].ID], "the code before has no Zen: the provider is kept")
+	assert.Equal(t, "gpt-6.2-sol", models[made[1].ID], "placed at the Codex subscription by any runtime")
+
+	var fallbacks string
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT fallbacks FROM bots WHERE id = ?`, bot.ID).Scan(&fallbacks))
+	assert.Equal(t, `opencode-go/we"ird\`, fallbacks)
+}
