@@ -706,6 +706,22 @@ type Model struct {
 	Name     string
 }
 
+type ModelNameChange struct {
+	TaskID string
+	Model  string
+}
+
+type ModelNameConversion struct {
+	Done int64
+}
+
+type ModelProviderChange struct {
+	Record   string
+	ID       string
+	Model    string
+	Provider string
+}
+
 type Node struct {
 	ID                  string
 	Name                string
@@ -1042,6 +1058,7 @@ type Task struct {
 	PushBranch        sql.NullString
 	StartFrom         sql.NullString
 	PrBase            sql.NullString
+	ModelUnresolved   int64
 }
 
 type TaskDep struct {

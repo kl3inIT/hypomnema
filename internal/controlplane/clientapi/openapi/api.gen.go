@@ -891,6 +891,7 @@ const (
 	GatewayModelSourceCodex       GatewayModelSource = "codex"
 	GatewayModelSourceModelsDev   GatewayModelSource = "models_dev"
 	GatewayModelSourceOpencodeGo  GatewayModelSource = "opencode_go"
+	GatewayModelSourceOpencodeZen GatewayModelSource = "opencode_zen"
 	GatewayModelSourceSet         GatewayModelSource = "set"
 	GatewayModelSourceUnknown     GatewayModelSource = "unknown"
 )
@@ -905,6 +906,8 @@ func (e GatewayModelSource) Valid() bool {
 	case GatewayModelSourceModelsDev:
 		return true
 	case GatewayModelSourceOpencodeGo:
+		return true
+	case GatewayModelSourceOpencodeZen:
 		return true
 	case GatewayModelSourceSet:
 		return true
@@ -1415,8 +1418,9 @@ func (e NewTodoState) Valid() bool {
 
 // Defines values for NewTokenAccountRuntime.
 const (
-	NewTokenAccountRuntimeClaude     NewTokenAccountRuntime = "claude"
-	NewTokenAccountRuntimeOpencodeGo NewTokenAccountRuntime = "opencode_go"
+	NewTokenAccountRuntimeClaude      NewTokenAccountRuntime = "claude"
+	NewTokenAccountRuntimeOpencodeGo  NewTokenAccountRuntime = "opencode_go"
+	NewTokenAccountRuntimeOpencodeZen NewTokenAccountRuntime = "opencode_zen"
 )
 
 // Valid indicates whether the value is a known member of the NewTokenAccountRuntime enum.
@@ -1425,6 +1429,8 @@ func (e NewTokenAccountRuntime) Valid() bool {
 	case NewTokenAccountRuntimeClaude:
 		return true
 	case NewTokenAccountRuntimeOpencodeGo:
+		return true
+	case NewTokenAccountRuntimeOpencodeZen:
 		return true
 	default:
 		return false
@@ -1572,6 +1578,7 @@ const (
 	ProviderKindModelGateway            ProviderKind = "model_gateway"
 	ProviderKindOpenaiCompatible        ProviderKind = "openai_compatible"
 	ProviderKindOpencodeGo              ProviderKind = "opencode_go"
+	ProviderKindOpencodeZen             ProviderKind = "opencode_zen"
 )
 
 // Valid indicates whether the value is a known member of the ProviderKind enum.
@@ -1590,6 +1597,8 @@ func (e ProviderKind) Valid() bool {
 	case ProviderKindOpenaiCompatible:
 		return true
 	case ProviderKindOpencodeGo:
+		return true
+	case ProviderKindOpencodeZen:
 		return true
 	default:
 		return false
@@ -3650,7 +3659,7 @@ type ChatChange struct {
 	// Model The model; empty for its Bot's.
 	Model *string `json:"model,omitempty"`
 
-	// Provider Where the model is found, given with the model; the provider that offers it when empty.
+	// Provider Where the model is found, given with the model, which needs it (issue
 	Provider *string `json:"provider,omitempty"`
 }
 
@@ -4243,7 +4252,7 @@ type GatewayModelEffort string
 type GatewayModelEfforts struct {
 	ModelsDev *[]GatewayModelEffort `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 	Source GatewayModelSource    `json:"source"`
 	Value  *[]GatewayModelEffort `json:"value,omitempty"`
 }
@@ -4252,7 +4261,7 @@ type GatewayModelEfforts struct {
 type GatewayModelInput struct {
 	ModelsDev *[]GatewayModelInputKind `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 	Source GatewayModelSource       `json:"source"`
 	Value  *[]GatewayModelInputKind `json:"value,omitempty"`
 }
@@ -4277,7 +4286,7 @@ type GatewayModelPrice struct {
 type GatewayModelReasoning struct {
 	ModelsDev *bool `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 	Source GatewayModelSource `json:"source"`
 	Value  *bool              `json:"value,omitempty"`
 }
@@ -4291,7 +4300,7 @@ type GatewayModelSettings struct {
 	Reasoning     *bool                    `json:"reasoning,omitempty"`
 }
 
-// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+// GatewayModelSource Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 type GatewayModelSource string
 
 // GatewayModelTarget defines model for GatewayModelTarget.
@@ -4305,7 +4314,7 @@ type GatewayModelTokens struct {
 	// ModelsDev What models.dev gives, when it gives one.
 	ModelsDev *int64 `json:"models_dev,omitempty"`
 
-	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model.
+	// Source Where a value comes from; codex is the window Codex itself gives a Codex subscription's model, antigravity the window or largest output CLIProxyAPI's registry gives an Antigravity subscription's model, opencode_go the one OpenCode Go's model list gives a Go model, opencode_zen the one OpenCode's Console list gives a Zen model.
 	Source GatewayModelSource `json:"source"`
 
 	// Value The number of tokens used; absent when unknown.
@@ -4533,7 +4542,7 @@ type GatewayUsageGroup struct {
 	// Name The model's or the key's name, or the account's label; empty for an account since removed.
 	Name string `json:"name"`
 
-	// Runtime An account's runtime (claude, codex, antigravity, opencode_go).
+	// Runtime An account's runtime (claude, codex, antigravity, opencode_go, opencode_zen).
 	Runtime *string `json:"runtime,omitempty"`
 }
 
@@ -5435,7 +5444,7 @@ type NewChat struct {
 	// Model The chat's own model, chosen on the New chat page (issue
 	Model *string `json:"model,omitempty"`
 
-	// Provider Where the model is found; the provider that offers it when left out.
+	// Provider Where the model is found; required with a model (issue
 	Provider *string `json:"provider,omitempty"`
 	Title    *string `json:"title,omitempty"`
 }
@@ -5588,7 +5597,9 @@ type NewTask struct {
 	DependsOn *[]string `json:"depends_on,omitempty"`
 	Effort    *string   `json:"effort,omitempty"`
 	Kind      *TaskKind `json:"kind,omitempty"`
-	Model     *string   `json:"model,omitempty"`
+
+	// Model The model instead of the profile's, named with its provider as <provider>/<model>, such as opencode-go/deepseek-v4-pro (issue #1002); a name without its provider is refused.
+	Model *string `json:"model,omitempty"`
 
 	// PrBase With start_from, the base of the pull request the Task opens: start_from (the default, stacked) or the Run's base.
 	PrBase *NewTaskPrBase `json:"pr_base,omitempty"`
@@ -5665,14 +5676,14 @@ type NewTokenAccount struct {
 	// Label The account's name for the owner; a token names no e-mail.
 	Label string `json:"label"`
 
-	// Runtime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
+	// Runtime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go (issue #854) or OpenCode Zen (issue #965), whose Console API key is the account.
 	Runtime NewTokenAccountRuntime `json:"runtime"`
 
-	// Token The token `claude setup-token` prints, or the OpenCode Go key, one line.
+	// Token The token `claude setup-token` prints, or the OpenCode Console key, one line.
 	Token *string `json:"token,omitempty"`
 }
 
-// NewTokenAccountRuntime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go, whose Console API key is the account (issue #854).
+// NewTokenAccountRuntime The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go (issue #854) or OpenCode Zen (issue #965), whose Console API key is the account.
 type NewTokenAccountRuntime string
 
 // Node defines model for Node.
@@ -11519,6 +11530,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
 	ListProfileVersions(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
+	//
+	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	//
+	// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
+	RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListProviders The sources of models, with the models each offers
 	//
@@ -17453,6 +17471,23 @@ func (c *Client) SetAgentMemory(ctx context.Context, name Name, body SetAgentMem
 // Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
 func (c *Client) ListProfileVersions(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListProfileVersionsRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
+//
+// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+//
+// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
+func (c *Client) RestoreProfileVersion(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRestoreProfileVersionRequest(c.Server, name, versionId)
 	if err != nil {
 		return nil, err
 	}
@@ -29337,6 +29372,47 @@ func NewListProfileVersionsRequest(server string, name Name) (*http.Request, err
 	return req, nil
 }
 
+// NewRestoreProfileVersionRequest constructs an http.Request for the RestoreProfileVersion method
+func NewRestoreProfileVersionRequest(server string, name Name, versionId string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "version_id", versionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/profiles/%s/versions/%s/restore", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListProvidersRequest constructs an http.Request for the ListProviders method
 func NewListProvidersRequest(server string) (*http.Request, error) {
 	var err error
@@ -35233,6 +35309,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
 	ListProfileVersionsWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*ListProfileVersionsResponse, error)
+
+	// RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
+	//
+	// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
+	RestoreProfileVersionWithResponse(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*RestoreProfileVersionResponse, error)
 
 	// ListProvidersWithResponse The sources of models, with the models each offers
 	//
@@ -46042,6 +46127,61 @@ func (r ListProfileVersionsResponse) ContentType() string {
 	return ""
 }
 
+type RestoreProfileVersionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Profile
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Profile
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RestoreProfileVersionResponse) GetJSON200() *Profile {
+	return r.JSON200
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r RestoreProfileVersionResponse) GetJSON201() *Profile {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RestoreProfileVersionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RestoreProfileVersionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RestoreProfileVersionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RestoreProfileVersionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RestoreProfileVersionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListProvidersResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -53982,6 +54122,21 @@ func (c *ClientWithResponses) ListProfileVersionsWithResponse(ctx context.Contex
 		return nil, err
 	}
 	return ParseListProfileVersionsResponse(rsp)
+}
+
+// RestoreProfileVersionWithResponse Apply one of a profile's versions again; the owner, or the main Bot from its chat
+//
+// Applies that version's own source again, as ApplyProfile does. A model its YAML names without a provider, as versions before issue #1002 were written, runs under the provider that version recorded, never one another version recorded for the same YAML.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /profiles/{name}/versions/{version_id}/restore (the `RestoreProfileVersion` operationId).
+func (c *ClientWithResponses) RestoreProfileVersionWithResponse(ctx context.Context, name Name, versionId string, reqEditors ...RequestEditorFn) (*RestoreProfileVersionResponse, error) {
+	rsp, err := c.RestoreProfileVersion(ctx, name, versionId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRestoreProfileVersionResponse(rsp)
 }
 
 // ListProvidersWithResponse The sources of models, with the models each offers
@@ -62295,6 +62450,46 @@ func ParseListProfileVersionsResponse(rsp *http.Response) (*ListProfileVersionsR
 	return response, nil
 }
 
+// ParseRestoreProfileVersionResponse parses an HTTP response from a RestoreProfileVersionWithResponse call
+func ParseRestoreProfileVersionResponse(rsp *http.Response) (*RestoreProfileVersionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RestoreProfileVersionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Profile
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Profile
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListProvidersResponse parses an HTTP response from a ListProvidersWithResponse call
 func ParseListProvidersResponse(rsp *http.Response) (*ListProvidersResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -65464,6 +65659,9 @@ type ServerInterface interface {
 	// ListProfileVersions A profile's versions, newest first
 	// (GET /profiles/{name}/versions)
 	ListProfileVersions(w http.ResponseWriter, r *http.Request, name Name)
+	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
+	// (POST /profiles/{name}/versions/{version_id}/restore)
+	RestoreProfileVersion(w http.ResponseWriter, r *http.Request, name Name, versionId string)
 	// ListProviders The sources of models, with the models each offers
 	// (GET /providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
@@ -72527,6 +72725,41 @@ func (siw *ServerInterfaceWrapper) ListProfileVersions(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// RestoreProfileVersion operation middleware
+func (siw *ServerInterfaceWrapper) RestoreProfileVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "version_id" -------------
+	var versionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version_id", r.PathValue("version_id"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreProfileVersion(w, r, name, versionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProviders operation middleware
 func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.Request) {
 
@@ -75242,6 +75475,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}", wrapper.ApplyProfile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}/versions", wrapper.ListProfileVersions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/{name}/versions/{version_id}/restore", wrapper.RestoreProfileVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.GetAgentMemory)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.ChangeAgentMemory)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}/memory", wrapper.SetAgentMemory)
@@ -83778,6 +84012,60 @@ func (response ListProfileVersionsdefaultJSONResponse) VisitListProfileVersionsR
 	return err
 }
 
+type RestoreProfileVersionRequestObject struct {
+	Name      Name   `json:"name"`
+	VersionId string `json:"version_id"`
+}
+
+type RestoreProfileVersionResponseObject interface {
+	VisitRestoreProfileVersionResponse(w http.ResponseWriter) error
+}
+
+type RestoreProfileVersion200JSONResponse Profile
+
+func (response RestoreProfileVersion200JSONResponse) VisitRestoreProfileVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreProfileVersion201JSONResponse Profile
+
+func (response RestoreProfileVersion201JSONResponse) VisitRestoreProfileVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreProfileVersiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RestoreProfileVersiondefaultJSONResponse) VisitRestoreProfileVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListProvidersRequestObject struct {
 }
 
@@ -87548,6 +87836,9 @@ type StrictServerInterface interface {
 	// ListProfileVersions A profile's versions, newest first
 	// (GET /profiles/{name}/versions)
 	ListProfileVersions(ctx context.Context, request ListProfileVersionsRequestObject) (ListProfileVersionsResponseObject, error)
+	// RestoreProfileVersion Apply one of a profile's versions again; the owner, or the main Bot from its chat
+	// (POST /profiles/{name}/versions/{version_id}/restore)
+	RestoreProfileVersion(ctx context.Context, request RestoreProfileVersionRequestObject) (RestoreProfileVersionResponseObject, error)
 	// ListProviders The sources of models, with the models each offers
 	// (GET /providers)
 	ListProviders(ctx context.Context, request ListProvidersRequestObject) (ListProvidersResponseObject, error)
@@ -93920,6 +94211,33 @@ func (sh *strictHandler) ListProfileVersions(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListProfileVersionsResponseObject); ok {
 		if err := validResponse.VisitListProfileVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreProfileVersion operation middleware
+func (sh *strictHandler) RestoreProfileVersion(w http.ResponseWriter, r *http.Request, name Name, versionId string) {
+	var request RestoreProfileVersionRequestObject
+
+	request.Name = name
+	request.VersionId = versionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreProfileVersion(ctx, request.(RestoreProfileVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreProfileVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreProfileVersionResponseObject); ok {
+		if err := validResponse.VisitRestoreProfileVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

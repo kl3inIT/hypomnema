@@ -211,7 +211,8 @@ func (s *Service) RemoveAccountLogin(ctx context.Context, id string) error {
 }
 
 // AddTokenAccount records an account whose token the owner pasted (a Claude
-// token, or an OpenCode Go key: OpenCodeGoRuntime), or a Muse account whose
+// token, an OpenCode Go key: OpenCodeGoRuntime, or an OpenCode Zen key:
+// OpenCodeZenRuntime), or a Muse account whose
 // cookie jar a sign-in captured (MuseRuntime). The
 // control plane keeps it and the model gateway serves the account; it is
 // never sent to a node (issue #381). secretRef names the vault's secret for
@@ -222,9 +223,10 @@ func (s *Service) AddTokenAccount(
 	label = strings.TrimSpace(label)
 
 	switch {
-	case runtime != TokenRuntime && runtime != MuseRuntime && runtime != OpenCodeGoRuntime:
-		return Account{}, fmt.Errorf("%w: only a %s, %s or %s account is a secret kept here", ErrInvalid, TokenRuntime,
-			OpenCodeGoRuntime, MuseRuntime)
+	case runtime != TokenRuntime && runtime != MuseRuntime && runtime != OpenCodeGoRuntime &&
+		runtime != OpenCodeZenRuntime:
+		return Account{}, fmt.Errorf("%w: only a %s, %s, %s or %s account is a secret kept here", ErrInvalid,
+			TokenRuntime, OpenCodeGoRuntime, OpenCodeZenRuntime, MuseRuntime)
 	case label == "":
 		return Account{}, fmt.Errorf("%w: an account needs a label", ErrInvalid)
 	}

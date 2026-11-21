@@ -170,6 +170,7 @@ const sourceNames: Record<GatewayModelSource, string> = {
   codex: "From Codex's own list of models",
   antigravity: "From CLIProxyAPI's list of Antigravity's models",
   opencode_go: "From OpenCode Go's model list",
+  opencode_zen: "From OpenCode's Console list of Zen's models",
   unknown: "Not known",
 }
 

@@ -992,7 +992,7 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	assert.NotEmpty(t, models.JSON200.Data)
 
 	body := openapi.Source{Source: "name: reviewer\ndescription: d\nruntime: claude\n" +
-		"model: {name: claude-opus-5-5, effort: max}\nfallbacks: [explorer]\n"}
+		"model: {provider: claude-subscription, name: claude-opus-5-5, effort: max}\nfallbacks: [explorer]\n"}
 
 	refused, err := laptop.ApplyProfileWithResponse(ctx, "reviewer", body)
 	require.NoError(t, err)
@@ -1249,8 +1249,12 @@ func TestTheOwnerChoosesAChatsModel(t *testing.T) {
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
-	sol, high := "gpt-sol", "high"
-	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Model: &sol, Effort: &high})
+	sol, high, gateway := "gpt-sol", "high", "gateway"
+	bare, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Model: &sol})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, bare.StatusCode(), "a model names its provider (issue #1002)")
+
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Provider: &gateway, Model: &sol, Effort: &high})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
 	assert.Equal(t, []string{"gateway", "gpt-sol", "high"},
@@ -1259,7 +1263,7 @@ func TestTheOwnerChoosesAChatsModel(t *testing.T) {
 	id := created.JSON201.Id
 	luna := "gpt-luna"
 
-	changed, err := owner.UpdateChatWithResponse(ctx, id, openapi.ChatChange{Model: &luna})
+	changed, err := owner.UpdateChatWithResponse(ctx, id, openapi.ChatChange{Provider: &gateway, Model: &luna})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, changed.StatusCode(), string(changed.Body))
 	assert.Equal(t, "gpt-luna", val(changed.JSON200.Model))

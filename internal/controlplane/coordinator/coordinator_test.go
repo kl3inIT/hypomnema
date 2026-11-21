@@ -1023,7 +1023,7 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
-	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Provider: "gateway", Model: "gpt-sol", Effort: "high"})
 	require.NoError(t, err)
 
 	effortOnly, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "", orchestration.ChatModel{Effort: "none"})
@@ -1035,7 +1035,8 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 		args, "the Bot's model with the chat's effort")
 	assert.Equal(t, "gpt-sol", model.Model)
 
-	both, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "", orchestration.ChatModel{Model: "gpt-luna", Effort: "low"})
+	both, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "",
+		orchestration.ChatModel{Provider: "gateway", Model: "gpt-luna", Effort: "low"})
 	require.NoError(t, err)
 
 	args, _, model, err = sup.botArgs(ctx, both.ID)
@@ -1085,7 +1086,7 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
-	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Provider: "gateway", Model: "gpt-sol", Effort: "high"})
 	require.NoError(t, err)
 
 	chat, err := svc.CreateChat(ctx, vmapBot.ID, "")
@@ -1099,8 +1100,9 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 	require.True(t, ok)
 	require.Eventually(t, func() bool { return !sup.Working(chat.ID) }, 5*time.Second, 20*time.Millisecond)
 
-	luna, xhigh := "gpt-luna", "xhigh"
-	_, err = svc.SetChatModel(ctx, chat.ID, orchestration.ChatModelChange{Model: &luna, Effort: &xhigh})
+	luna, xhigh, gateway := "gpt-luna", "xhigh", "gateway"
+	_, err = svc.SetChatModel(ctx, chat.ID,
+		orchestration.ChatModelChange{Provider: &gateway, Model: &luna, Effort: &xhigh})
 	require.NoError(t, err)
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "which model now")

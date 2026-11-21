@@ -201,15 +201,16 @@ type (
 	}
 )
 
-// gatewayServedLimits gives the gateway what an Antigravity account (issue #587) or an OpenCode Go key (issue #854)
-// is served each model with, waiting for a list being read no later than the request's one wait (listDeadline,
+// gatewayServedLimits gives the gateway what an Antigravity account (issue #587), an OpenCode Go key (issue #854) or
+// an OpenCode Zen key (issue #965) is served each model with, waiting for a list being read no later than the request's one wait (listDeadline,
 // issue #814).
 func gatewayServedLimits(
 	subs servedLimits,
 ) func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 	return func(ctx context.Context, kind, upstream string) (int64, int64, bool) {
 		switch kind {
-		case orchestration.ProviderAntigravitySubscription, orchestration.ProviderOpenCodeGo:
+		case orchestration.ProviderAntigravitySubscription, orchestration.ProviderOpenCodeGo,
+			orchestration.ProviderOpenCodeZen:
 			return subs.ServedLimits(listDeadline(ctx), subscriptionRuntimes[kind], upstream)
 		default:
 			return 0, 0, false
@@ -217,15 +218,15 @@ func gatewayServedLimits(
 	}
 }
 
-// gatewayServedWire gives the gateway the wire OpenCode Go serves each model on, from its model list (issue #854),
-// waiting as gatewayServedLimits does.
+// gatewayServedWire gives the gateway the wire OpenCode Go (issue #854) or OpenCode Zen (issue #965) serves each
+// model on, from its model list, waiting as gatewayServedLimits does.
 func gatewayServedWire(subs servedWires) func(ctx context.Context, kind, upstream string) (string, bool) {
 	return func(ctx context.Context, kind, upstream string) (string, bool) {
-		if kind != orchestration.ProviderOpenCodeGo {
+		if kind != orchestration.ProviderOpenCodeGo && kind != orchestration.ProviderOpenCodeZen {
 			return "", false
 		}
 
-		return subs.ServedWire(listDeadline(ctx), orchestration.OpenCodeGoRuntime, upstream)
+		return subs.ServedWire(listDeadline(ctx), subscriptionRuntimes[kind], upstream)
 	}
 }
 
@@ -692,6 +693,7 @@ var subscriptionRuntimes = map[string]string{
 	orchestration.ProviderClaudeSubscription:      "claude",
 	orchestration.ProviderAntigravitySubscription: "antigravity",
 	orchestration.ProviderOpenCodeGo:              orchestration.OpenCodeGoRuntime,
+	orchestration.ProviderOpenCodeZen:             orchestration.OpenCodeZenRuntime,
 }
 
 // vendorModelsEvery is how often the subscription providers are given the models their vendors serve, and
@@ -719,7 +721,7 @@ type providerModels interface {
 // rosterRuntimes are the runtimes whose vendor's list is the provider's list, as omp takes Antigravity's roster as
 // authoritative (packages/catalog/src/discovery/antigravity.ts; issue #639), and as OpenClaw, Hermes and pi take
 // OpenCode Go's live /v1/models (issue #854). The others only gain models: Anthropic's list does not name every model
-// it serves (OpenClaw, Hermes), and Codex's is read per account.
+// it serves (OpenClaw, Hermes), and Codex's and OpenCode Zen's are read per account (droppingRuntimes).
 var rosterRuntimes = map[string]bool{"antigravity": true, orchestration.OpenCodeGoRuntime: true}
 
 // vendorModels gives the subscription providers the models their vendors serve, one update at a time: every hour
@@ -749,8 +751,11 @@ const dropAfter = 2
 
 // droppingRuntimes are the runtimes whose providers drop, after dropAfter readings, a model their vendor's lists
 // leave out: Codex, whose requests go only to the accounts whose list has the model (issue #814), so a model no list
-// names would be listed by /v1/models and refused. Claude's list does not name every model it serves.
-var droppingRuntimes = map[string]bool{"codex": true}
+// names would be listed by /v1/models and refused, and OpenCode Zen, whose keys are routed the same way by their
+// workspace's Console list (issue #965). Each model is dropped on its own, so one a Bot or profile still uses keeps
+// only itself and the new ones are added all the same (review of PR #1000). Claude's list does not name every model
+// it serves.
+var droppingRuntimes = map[string]bool{"codex": true, orchestration.OpenCodeZenRuntime: true}
 
 // drops counts, by provider and model, the readings in a row that left a model out; a reading is counted once, by
 // when it was read, however many updates see it.

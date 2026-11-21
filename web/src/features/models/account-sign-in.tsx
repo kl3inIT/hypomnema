@@ -34,7 +34,7 @@ import { said } from "@/lib/said"
 
 import { useRefreshAccounts, useResetAccountLimits } from "./use-models"
 
-export type SignInRuntime = "claude" | "codex" | "antigravity" | "opencode_go"
+export type SignInRuntime = "claude" | "codex" | "antigravity" | "opencode_go" | "opencode_zen"
 
 type Way = "sign-in" | "token" | "file"
 
@@ -95,8 +95,10 @@ export function AccountSignInDialog({
   const formId = useId()
   const refresh = useRefreshAccounts()
   const resetLimits = useResetAccountLimits()
-  // An OpenCode Go account is its Console API key and nothing else (issue #854): the dialog is the token's form.
-  const keyOnly = runtime === "opencode_go"
+  // An OpenCode Go (issue #854) or Zen (issue #965) account is its Console API key and nothing else: the dialog is
+  // the token's form.
+  const keyRuntime = runtime === "opencode_go" || runtime === "opencode_zen" ? runtime : null
+  const keyOnly = keyRuntime !== null
   const firstWay: Way = keyOnly ? "token" : "sign-in"
   const [open, setOpen] = useState(false)
   const [way, setWay] = useState<Way>(firstWay)
@@ -124,7 +126,9 @@ export function AccountSignInDialog({
 
   const begin = useMutation({
     mutationFn: async () => {
-      if (runtime === "opencode_go") throw new Error("An OpenCode Go account is a key to paste.")
+      if (runtime === "opencode_go" || runtime === "opencode_zen") {
+        throw new Error(`An ${name} account is a key to paste.`)
+      }
       return (await beginAccountSignIn({ body: { runtime } })).data
     },
     // Every vendor signs in here with the browser, as 9router, CLIProxyAPI and T3 Code do on the web; Codex's
@@ -151,7 +155,7 @@ export function AccountSignInDialog({
       (
         await addTokenAccount({
           body: {
-            runtime: keyOnly ? "opencode_go" : "claude",
+            runtime: keyRuntime ?? "claude",
             label: input.label,
             token: input.token,
           },
@@ -239,11 +243,13 @@ export function AccountSignInDialog({
           <DialogDescription>
             {way === "file"
               ? "Bring the session Claude Code saved on a machine: its .credentials.json, in ~/.claude or the account's config folder. Hypomnema refreshes it from then on, so that machine may have to sign in again."
-              : keyOnly
-                ? "Paste an API key from OpenCode's Console, of a workspace with a Go subscription. Each key is an account; the gateway moves to the next key when one reaches its limit."
-                : way === "token"
-                  ? "On any machine with Claude Code, run claude setup-token and paste the token it prints. It lasts a year; it calls models but may not show the account's limits."
-                  : `Sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`}
+              : keyRuntime === "opencode_zen"
+                ? "Paste an API key from OpenCode's Console. Each key is an account whose models are paid from its workspace's balance; free models are left out. The gateway moves to the next key when one's balance or budget runs out."
+                : keyOnly
+                  ? "Paste an API key from OpenCode's Console, of a workspace with a Go subscription. Each key is an account; the gateway moves to the next key when one reaches its limit."
+                  : way === "token"
+                    ? "On any machine with Claude Code, run claude setup-token and paste the token it prints. It lasts a year; it calls models but may not show the account's limits."
+                    : `Sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

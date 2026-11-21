@@ -15,7 +15,8 @@ import (
 // A Claude subscription token the control plane keeps (issue #150): the
 // owner pastes the token of `claude setup-token` once and it is a secret of
 // the vault, as OpenClaw's `models auth paste-token` keeps one. An OpenCode Go
-// key is kept the same way (issue #854), one account a key. The model
+// key is kept the same way (issue #854), one account a key, and so is an
+// OpenCode Zen key (issue #965). The model
 // gateway serves the account with it; it never leaves the control plane, and
 // a Claude Code worker gets only its Dispatch's gateway key (issue #381,
 // docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md).

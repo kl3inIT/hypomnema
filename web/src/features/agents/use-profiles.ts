@@ -10,7 +10,7 @@ import {
   listProfileVersionsOptions,
   listProfileVersionsQueryKey,
 } from "@/api/generated/@tanstack/react-query.gen"
-import { applyProfile, deleteProfile } from "@/api/generated/sdk.gen"
+import { applyProfile, deleteProfile, restoreProfileVersion } from "@/api/generated/sdk.gen"
 import { callsOf } from "@/lib/query-keys"
 
 // whileOpen is how often the profiles are read again while a page shows them: whether a worker can start changes
@@ -76,6 +76,18 @@ export function useApplyProfile() {
   return useMutation({
     mutationFn: async ({ name, source }: { name: string; source: string }) =>
       (await applyProfile({ path: { name }, body: { source } })).data,
+    onSuccess: refresh,
+  })
+}
+
+// useRestoreProfileVersion applies one of a profile's versions again by its id, so the server uses that version's own
+// source and the provider it recorded for a model its YAML names without one (issue #1002).
+export function useRestoreProfileVersion() {
+  const refresh = useRefreshProfiles()
+
+  return useMutation({
+    mutationFn: async ({ name, versionId }: { name: string; versionId: string }) =>
+      (await restoreProfileVersion({ path: { name, version_id: versionId } })).data,
     onSuccess: refresh,
   })
 }

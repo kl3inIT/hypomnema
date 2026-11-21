@@ -56,7 +56,9 @@ const (
 	SourceAntigravity Source = "antigravity"
 	// SourceOpenCodeGo is the window or largest output OpenCode Go's model list gives a Go model (issue #854).
 	SourceOpenCodeGo Source = "opencode_go"
-	SourceUnknown    Source = "unknown"
+	// SourceOpenCodeZen is the window or largest output OpenCode's Console list gives a Zen model (issue #965).
+	SourceOpenCodeZen Source = "opencode_zen"
+	SourceUnknown     Source = "unknown"
 )
 
 // codexWindows are the context windows Codex itself gives its models, which a
@@ -160,8 +162,12 @@ func (s *Service) Resolve(ctx context.Context, m Model) (Resolved, error) {
 
 	// What Google serves an Antigravity model with comes before the copied table, as omp takes maxTokens and
 	// maxOutputTokens from fetchAvailableModels (issue #587); a value the model sets still wins.
-	// OpenCode Go's list gives each model's window and largest output too (issue #854).
-	source := map[string]Source{"antigravity_subscription": SourceAntigravity, openCodeGoKind: SourceOpenCodeGo}[kind]
+	// OpenCode Go's list gives each model's window and largest output too (issue #854), and so does the Console list
+	// Zen's models come from (issue #965).
+	source := map[string]Source{
+		"antigravity_subscription": SourceAntigravity, openCodeGoKind: SourceOpenCodeGo,
+		openCodeZenKind: SourceOpenCodeZen,
+	}[kind]
 	if s.served != nil && source != "" {
 		if window, output, ok := s.served(ctx, kind, upstream); ok {
 			if window > 0 && m.Attributes.ContextWindow == nil {

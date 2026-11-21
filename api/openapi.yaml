@@ -3939,6 +3939,32 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProfileList" }
         default: { $ref: "#/components/responses/Error" }
+  /profiles/{name}/versions/{version_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+      - name: version_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 100 }
+    post:
+      operationId: RestoreProfileVersion
+      summary: Apply one of a profile's versions again; the owner, or the main Bot from its chat
+      description: >-
+        Applies that version's own source again, as ApplyProfile does. A model its YAML names
+        without a provider, as versions before issue #1002 were written, runs under the provider
+        that version recorded, never one another version recorded for the same YAML.
+      responses:
+        "200":
+          description: The version equals the current one, which is returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "201":
+          description: A new version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        default: { $ref: "#/components/responses/Error" }
   /profiles/{name}/memory:
     parameters:
       - $ref: "#/components/parameters/Name"
@@ -6029,7 +6055,13 @@ components:
           description: The succeeded Task in this Run a reviewer checks; its vendor is excluded.
         spec: { type: string, minLength: 1, maxLength: 100000 }
         runtime: { type: string, minLength: 1, maxLength: 100 }
-        model: { type: string, minLength: 1, maxLength: 200 }
+        model:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >-
+            The model instead of the profile's, named with its provider as <provider>/<model>, such as
+            opencode-go/deepseek-v4-pro (issue #1002); a name without its provider is refused.
         effort: { type: string, minLength: 1, maxLength: 50 }
         depends_on:
           type: array
@@ -8742,7 +8774,7 @@ components:
           description: The model's or the key's name, or the account's label; empty for an account since removed.
         runtime:
           type: string
-          description: An account's runtime (claude, codex, antigravity, opencode_go).
+          description: An account's runtime (claude, codex, antigravity, opencode_go, opencode_zen).
         counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
     GatewayPerformance:
       type: object
@@ -8925,10 +8957,10 @@ components:
       properties:
         runtime:
           type: string
-          enum: [claude, opencode_go]
+          enum: [claude, opencode_go, opencode_zen]
           description: >-
-            The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go,
-            whose Console API key is the account (issue #854).
+            The kind of subscription: Claude, whose `claude setup-token` gives a token to paste, or OpenCode Go
+            (issue #854) or OpenCode Zen (issue #965), whose Console API key is the account.
         label:
           type: string
           minLength: 1
@@ -8939,7 +8971,7 @@ components:
           minLength: 1
           maxLength: 4096
           writeOnly: true
-          description: The token `claude setup-token` prints, or the OpenCode Go key, one line.
+          description: The token `claude setup-token` prints, or the OpenCode Console key, one line.
     NewAccountImport:
       type: object
       required: [runtime, credentials]
@@ -9141,8 +9173,9 @@ components:
         Where a value comes from; codex is the window Codex itself gives a Codex
         subscription's model, antigravity the window or largest output
         CLIProxyAPI's registry gives an Antigravity subscription's model,
-        opencode_go the one OpenCode Go's model list gives a Go model.
-      enum: [set, models_dev, codex, antigravity, opencode_go, unknown]
+        opencode_go the one OpenCode Go's model list gives a Go model,
+        opencode_zen the one OpenCode's Console list gives a Zen model.
+      enum: [set, models_dev, codex, antigravity, opencode_go, opencode_zen, unknown]
     GatewayModelInputKind:
       type: string
       enum: [text, image]
@@ -10055,6 +10088,7 @@ components:
             - codex_subscription
             - antigravity_subscription
             - opencode_go
+            - opencode_zen
             - model_gateway
         base_url: { type: string }
         api_key_ref:
@@ -10173,7 +10207,7 @@ components:
           description: The id of the Bot the chat talks with; the main Bot when left out.
         provider:
           type: string
-          description: Where the model is found; the provider that offers it when left out.
+          description: Where the model is found; required with a model (issue #1002).
         model:
           type: string
           description: The chat's own model, chosen on the New chat page (issue #369); its Bot's when left out.
@@ -10219,7 +10253,7 @@ components:
       properties:
         provider:
           type: string
-          description: Where the model is found, given with the model; the provider that offers it when empty.
+          description: Where the model is found, given with the model, which needs it (issue #1002).
         model:
           type: string
           description: The model; empty for its Bot's.

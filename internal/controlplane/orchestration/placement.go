@@ -674,6 +674,11 @@ const MuseRuntime = "muse"
 // the vault. No worker runs under it; the model gateway serves the provider of kind ProviderOpenCodeGo with it.
 const OpenCodeGoRuntime = "opencode_go"
 
+// OpenCodeZenRuntime is the runtime of an OpenCode Zen key (issue #965), kept as an OpenCode Go key is. It is a
+// runtime of its own, as 9router and omniroute keep opencode-go and opencode-zen two providers with a key each, so a
+// Go key resting on its monthly limit does not stop Zen and an empty balance does not stop Go.
+const OpenCodeZenRuntime = "opencode_zen"
+
 // runsOnNode reports whether a worker on a node can run under an account:
 // one whose CLI was logged in on that node. An account whose secret the
 // control plane keeps is the gateway's to serve.

@@ -347,9 +347,9 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 	w.gatewayAccount("codex")
 	w.tasks(
 		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
-		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-haiku-5-5"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-subscription/claude-haiku-5-5"},
 		NewTask{Ref: "c", Profile: "reviewer", Spec: "c"},
-		NewTask{Ref: "d", Profile: "implementer", Spec: "d", Model: "gpt-6.1-sol"},
+		NewTask{Ref: "d", Profile: "implementer", Spec: "d", Model: "codex-subscription/gpt-6.1-sol"},
 	)
 
 	created := w.schedule().Created
@@ -366,6 +366,105 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 		"a": {"claude-subscription/claude-opus-5-5", "high", v}, "b": {"claude-subscription/claude-haiku-5-5", "high", v},
 		"d": {"codex-subscription/gpt-6.1-sol", "high", v},
 	}, got, "the gateway's names of the subscription's models (issue #549); a Task's model under its own provider")
+}
+
+// Scenario: OpenCode Zen comes to offer the models a profile and a Task name (issues #965, #1002). The profile keeps
+// the provider it names and the Task the one its model names, so both dispatch where they did before.
+func TestAProviderAddedLaterChangesNoDispatch(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	implementer, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\n"+
+			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
+	require.NoError(t, err)
+
+	_, err = w.s.ApplyProvider(t.Context(), "",
+		"name: opencode-zen\nkind: opencode_zen\nmodels: [claude-opus-5-5, claude-haiku-5-5]\n")
+	require.NoError(t, err)
+
+	w.gatewayAccount("claude")
+	w.tasks(
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-subscription/claude-haiku-5-5"},
+	)
+
+	got := map[string]string{}
+	for _, id := range w.schedule().Created {
+		d := w.dispatchOf(id)
+		assert.Equal(t, implementer.VersionID, d.ProfileVersionID)
+		got[w.task(d.TaskID).Spec] = d.Model
+	}
+
+	assert.Equal(t, map[string]string{
+		"a": "claude-subscription/claude-opus-5-5", "b": "claude-subscription/claude-haiku-5-5",
+	}, got)
+}
+
+// Scenario (review of PR #1000): a Task holds a model the migration could not place, a bare name two providers offer
+// (issue #1002). That Task waits with the reason and the form to write its model in; a Task after it in the same
+// pass is dispatched, and the pass is not undone.
+func TestABareModelHoldsOnlyItsOwnTask(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	_, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\n"+
+			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
+	require.NoError(t, err)
+	_, err = w.s.AddProviderModels(t.Context(), "opencode-go", []string{"claude-haiku-5-5"})
+	require.NoError(t, err)
+
+	w.gatewayAccount("claude")
+	tasks := w.tasks(
+		NewTask{Ref: "held", Profile: "implementer", Spec: "held", Model: "claude-subscription/claude-haiku-5-5"},
+		NewTask{Ref: "next", Profile: "implementer", Spec: "next"},
+	)
+	_, err = w.db.ExecContext(t.Context(), `UPDATE tasks SET model = 'claude-haiku-5-5' WHERE id = ?`, tasks[0].ID)
+	require.NoError(t, err)
+
+	created := w.schedule().Created
+	require.Len(t, created, 1, "the other Task is dispatched")
+	assert.Equal(t, tasks[1].ID, w.dispatchOf(created[0]).TaskID)
+	assert.Contains(t, w.task(tasks[0].ID).WaitingReason,
+		"name it <provider>/<model>, such as claude-subscription/claude-haiku-5-5 or opencode-go/claude-haiku-5-5")
+}
+
+// Scenario (review of PR #1000, round 2): two Tasks from before issue #1002 whose model has a slash and that the
+// migration could not place: opencode-go/twice, which two providers offer, and opencode-go/bar, which none does. Each
+// waits, refused as the code before refused it, and is never dispatched to Go's twice or bar; a third Task of the
+// same pass is dispatched.
+func TestALegacyUnresolvedModelIsNotReadAtItsSlash(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	_, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\n"+
+			"model: {provider: claude-subscription, name: claude-opus-5-5, effort: high}\n")
+	require.NoError(t, err)
+	_, err = w.s.AddProviderModels(t.Context(), "opencode-go", []string{"opencode-go/twice", "twice", "bar"})
+	require.NoError(t, err)
+	_, err = w.s.AddProviderModels(t.Context(), "claude-subscription", []string{"opencode-go/twice"})
+	require.NoError(t, err)
+
+	w.gatewayAccount("claude")
+	w.gatewayAccount(OpenCodeGoRuntime)
+	tasks := w.tasks(
+		NewTask{Ref: "twice", Profile: "implementer", Spec: "twice"},
+		NewTask{Ref: "bar", Profile: "implementer", Spec: "bar"},
+		NewTask{Ref: "next", Profile: "implementer", Spec: "next"},
+	)
+	for id, model := range map[string]string{tasks[0].ID: "opencode-go/twice", tasks[1].ID: "opencode-go/bar"} {
+		_, err = w.db.ExecContext(t.Context(), `UPDATE tasks SET model = ?, model_unresolved = 1 WHERE id = ?`,
+			model, id)
+		require.NoError(t, err)
+	}
+
+	created := w.schedule().Created
+	require.Len(t, created, 1, "only the third Task is dispatched")
+	assert.Equal(t, tasks[2].ID, w.dispatchOf(created[0]).TaskID)
+	assert.Contains(t, w.task(tasks[0].ID).WaitingReason, `model "opencode-go/twice" is named without its provider`)
+	assert.Contains(t, w.task(tasks[1].ID).WaitingReason, `model "opencode-go/bar" is named without its provider`)
 }
 
 // Scenario: a ready Task no node can run. After UnplaceableAfter the owner is

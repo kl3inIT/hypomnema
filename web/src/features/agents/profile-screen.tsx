@@ -22,7 +22,7 @@ import { copyName, draftOf, emptyDraft, runtimeName, savedAgo, type Draft } from
 import { RuntimeMark } from "@/components/icons/runtime-mark"
 import { everyCall } from "@/lib/query-keys"
 import {
-  useApplyProfile,
+  useRestoreProfileVersion,
   useDeleteProfile,
   useModels,
   useProfile,
@@ -141,7 +141,7 @@ export function ProfileScreen({ name }: { name: string }) {
 // removes none. A profile's version is immutable, so restoring one applies its source again.
 function Versions({ profile }: { profile: Profile }) {
   const versions = useProfileVersions(profile.name, true)
-  const apply = useApplyProfile()
+  const restore = useRestoreProfileVersion()
 
   if (versions.error) {
     return <p className="py-6 text-sm text-destructive">The versions could not be read.</p>
@@ -183,7 +183,9 @@ function Versions({ profile }: { profile: Profile }) {
                       title={`Restore version ${v.version}?`}
                       consequence={`Makes a new version of ${profile.name} with this configuration. Version ${profile.version} stays in the list.`}
                       action="Restore"
-                      run={() => apply.mutateAsync({ name: profile.name, source: v.source })}
+                      run={() =>
+                        restore.mutateAsync({ name: profile.name, versionId: v.version_id })
+                      }
                       onDone={() => versions.refetch()}
                       done={`Version ${v.version} restored`}
                     />
