@@ -5371,7 +5371,11 @@ Node (`internal/node`):
   (`~/.cache/golangci-lint` and an absolute `GOLANGCI_LINT_CACHE`), on the affected mount; when `go env` cannot
   name the module cache it trims neither. A directory is trimmed only when its `README` starts with the line Go,
   or golangci-lint, writes in a cache it uses (`cmd/go/internal/cache/default.go:28,47-50`); one of the same shape
-  that no cache wrote is left whole and logged once (`node.cache_unconfirmed`). It removes entries older than five days
+  that no cache wrote is left whole and logged once (`node.cache_unconfirmed`). In it, only what Go writes there is
+  a candidate, as Go's own trim takes (`cmd/go/internal/cache/cache.go:117-119,439-467,598-620`; golangci-lint's
+  copy, `internal/go/cache/cache.go:121-123,446-472`): in a subdirectory `00`..`ff`, a regular file named by 64
+  lowercase hex digits starting with that subdirectory's and `-a` or `-d`, or such a `-d` directory holding one
+  executable; anything else there is never deleted. It removes entries older than five days
   plus one hour in oldest-first order, skips entries that changed after inspection, and remeasures in batches
   until it reaches the target. It checks for an idle node before invoking native
   `pnpm store prune` on the default worker store. It rejects symlinks and cross-mount entries and confines the
@@ -5387,7 +5391,8 @@ Node (`internal/node`):
   If the eligible cleanup cannot make enough room, the warning (`node.disk_blocked`) and admission floor remain,
   and the heartbeats after that trim say so (`disk.blocked`) while the volume stays below its floor; a heartbeat
   that finds it at or above the floor clears that, and so does one during a trim for what the trim found, so a
-  later drop is reported blocked only by a trim that ran after it. The control
+  later drop is reported blocked only by a trim that ran after it (the flag and the count of recoveries are kept
+  under one lock). The control
   plane keeps an alert per node (`nodes.disk_alert` and `disk_alert_until`, migration `node_disk_alert`), as
   Coder's volume monitor (`coderd/agentapi/resources_monitoring.go:213,248-252`): a blocked sample moves it from
   `ok` to `low`, and the owner is told when 30 min (`DiskAlertDebounce`, Coder's debounce) have passed since the
@@ -5395,7 +5400,9 @@ Node (`internal/node`):
   `told`, tells him the node recovered. He is told as a failing Routine tells him: a line in the main Bot's main
   chat and a card through that Bot's Lark Channels (`controlplane/diskalert.go`). The node API keeps a node's
   samples in order with the alerts they make and tells a node's alerts one after another, so a recovery never
-  comes before its drop. The policy does not
+  comes before its drop. While one is told, what waits is the node's latest alert only, told when it differs from
+  the one just told, as client-go's workqueue keeps an item dirty once while it is processed
+  (`util/workqueue/queue.go:210-221,243-264,306-319`). The policy does not
   protect free space on a separate cache or temp volume.
 - The node does not sweep shared `/tmp` or `os.TempDir()`. Dispatch cleanup is limited to its own temporary directory.
 

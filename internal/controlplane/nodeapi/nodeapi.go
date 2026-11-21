@@ -63,8 +63,10 @@ type Server struct {
 	// diskAlert tells the owner a node is still out of disk after trimming, or has recovered (issue #1017); nil
 	// when the control plane wired none.
 	diskAlert func(ctx context.Context, alert orchestration.DiskAlert)
-	// diskReports orders a node's disk reports with the alerts they make, and diskAlerts holds, by node, the alerts
-	// still to tell, the first being told now: one sender a node, so a recovery is never told before its drop.
+	// diskReports orders a node's disk reports with the alerts they make, and diskAlerts holds, by node, at most the
+	// alert being told now and the latest one made since: one sender a node, so a recovery is never told before its
+	// drop, and what waits is the node's latest state, not every change (client-go's workqueue keeps an item dirty
+	// once while it is processed, util/workqueue/queue.go:210-221,243-264,306-319).
 	diskReports sync.Mutex
 	diskAlerts  map[string][]orchestration.DiskAlert
 
@@ -214,6 +216,12 @@ func (s *Server) queueDiskAlert(ctx context.Context, nodeID string, alert orches
 	}
 
 	queued := s.diskAlerts[nodeID]
+	if len(queued) == 2 {
+		queued[1] = alert
+
+		return
+	}
+
 	s.diskAlerts[nodeID] = append(queued, alert)
 
 	if len(queued) == 0 {
@@ -222,7 +230,9 @@ func (s *Server) queueDiskAlert(ctx context.Context, nodeID string, alert orches
 	}
 }
 
-// tellDiskAlerts tells a node's queued alerts one after another, and ends when none is left.
+// tellDiskAlerts tells a node's queued alerts one after another, and ends when none is left. The latest state is
+// told only when it differs from the alert just told: a drop and its recovery that came while the owner was told of
+// the drop before them leave nothing new to tell.
 func (s *Server) tellDiskAlerts(ctx context.Context, nodeID string) {
 	for {
 		s.diskReports.Lock()
@@ -238,7 +248,11 @@ func (s *Server) tellDiskAlerts(ctx context.Context, nodeID string) {
 		s.diskAlert(ctx, queued[0])
 
 		s.diskReports.Lock()
-		s.diskAlerts[nodeID] = s.diskAlerts[nodeID][1:]
+		rest := s.diskAlerts[nodeID][1:]
+		if len(rest) > 0 && rest[0].Recovered == queued[0].Recovered {
+			rest = rest[1:]
+		}
+		s.diskAlerts[nodeID] = rest
 		s.diskReports.Unlock()
 	}
 }
