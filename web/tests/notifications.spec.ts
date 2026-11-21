@@ -129,6 +129,49 @@ test("the owner turns notifications on here, tests and removes the device", asyn
   ])
 })
 
+// pushTo hands the page's real service worker (web/public/sw.js) a push for a page, as the browser does when one
+// arrives, and returns the titles it showed. Showing is recorded instead of drawn.
+async function pushTo(page: Page, path: string, title: string) {
+  const context = page.context()
+  const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
+  await page.evaluate("navigator.serviceWorker.ready")
+  const push = JSON.stringify({
+    web_push: 8030,
+    notification: { title, body: "b", navigate: new URL(path, page.url()).href, tag: title },
+  })
+
+  return worker.evaluate(`(async () => {
+    const shown = []
+    self.registration.showNotification = async (title) => { shown.push(title) }
+    const event = new PushEvent("push", { data: ${JSON.stringify(push)} })
+    let done = Promise.resolve()
+    event.waitUntil = (p) => { done = p }
+    self.dispatchEvent(event)
+    await done
+    return shown
+  })()`) as Promise<string[]>
+}
+
+// Scenario: the owner presses Send a test on the Notifications page, which the test push opens (review of #1050).
+// The push shows although that page has the focus: only a push for the chat he is reading is not shown, as Coder
+// hides one for the chat in view (site/src/serviceWorker.ts:25-79).
+test("a test push shows on the page it opens; a push for the chat in view does not", async ({
+  page,
+}) => {
+  await fakeServer(page, [laptop])
+  await page.goto("/settings/notifications")
+  await page.bringToFront()
+
+  expect(await pushTo(page, "/settings/notifications", "Notifications work")).toEqual([
+    "Notifications work",
+  ])
+
+  await page.goto("/chats/cht_1")
+  await page.bringToFront()
+  expect(await pushTo(page, "/chats/cht_1", "hr asks")).toEqual([])
+  expect(await pushTo(page, "/chats/cht_2", "writer asks")).toEqual(["writer asks"])
+})
+
 test.describe("on an iPhone in Safari", () => {
   test.use({ userAgent: iPhone })
 
