@@ -73,8 +73,8 @@ func TestAPromptOverTheWindowIsRefusedBeforeItIsSent(t *testing.T) {
 // Scenario: a client that keeps sending prompts over the window, as Codex
 // does while it compacts (issue #1052). The first three are refused as
 // overflows, for it to shorten; the fourth ends its turn with a code it does
-// not retry, whose message names the window, and for the cooldown the key
-// sends nothing more to the model, even a prompt that fits.
+// not retry, whose message names the window, and so is every prompt that
+// does not fit for the cooldown. A prompt that fits is sent.
 func TestARunOfOverflowsEndsTheTurn(t *testing.T) {
 	t.Parallel()
 
@@ -88,8 +88,8 @@ func TestARunOfOverflowsEndsTheTurn(t *testing.T) {
 		assert.Equal(t, "context_length_exceeded", code)
 	}
 
-	for _, ask := range []string{asking(20000), asking(10)} {
-		status, _, body := g.respond(t, g.key, ask)
+	for range 2 {
+		status, _, body := g.respond(t, g.key, asking(20000))
 		require.Equal(t, http.StatusBadRequest, status, body)
 		code, message := refusal(t, body)
 		assert.Equal(t, "context_overflow", code)
@@ -97,12 +97,18 @@ func TestARunOfOverflowsEndsTheTurn(t *testing.T) {
 	}
 
 	assert.Zero(t, got.calls())
+
+	// A prompt shortened to fit is sent, cooldown or not (review of PR #1057): only what does not fit is refused.
+	status, _, body := g.respond(t, g.key, asking(10))
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, 1, got.calls())
 }
 
 // Scenario: the provider itself says the prompt did not fit (issue #1052),
-// as the Codex backend answered on 2026-11-19. Four such answers in a row
-// are passed on; the fifth request is not sent. An answer that ends well
-// between them starts the count again.
+// as the Codex backend answered on 2026-11-19. Its answers count with the
+// gateway's own refusals: after four in a row, a prompt that does not fit
+// ends the turn at once, while one that fits is still sent. An answer that
+// ends well between them starts the count again.
 func TestTheProvidersOverflowAnswersCount(t *testing.T) {
 	t.Parallel()
 
@@ -119,7 +125,7 @@ func TestTheProvidersOverflowAnswersCount(t *testing.T) {
 
 		stream(event(`{"type":"response.created","response":{"id":"resp_1"}}`), event(overflowed))(w, r)
 	})
-	g := newCodexGateway(t, backend, &accounts{})
+	g := newCodexGateway(t, backend, &accounts{}).windowed(t)
 
 	for range 3 {
 		status, _, _ := g.respond(t, g.key, asking(10))
@@ -138,9 +144,13 @@ func TestTheProvidersOverflowAnswersCount(t *testing.T) {
 
 	assert.Equal(t, 8, got.calls())
 
-	status, _, body := g.respond(t, g.key, asking(10))
+	status, _, body := g.respond(t, g.key, asking(20000))
 	require.Equal(t, http.StatusBadRequest, status, body)
 	code, _ := refusal(t, body)
-	assert.Equal(t, "context_overflow", code)
-	assert.Equal(t, 8, got.calls(), "the fifth was not sent")
+	assert.Equal(t, "context_overflow", code, "past the limit, not one more overflow to shorten")
+	assert.Equal(t, 8, got.calls())
+
+	status, _, _ = g.respond(t, g.key, asking(10))
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, 9, got.calls(), "a prompt that fits is sent")
 }

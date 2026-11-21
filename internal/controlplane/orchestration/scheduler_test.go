@@ -1524,3 +1524,28 @@ func TestTheOverflowMigrationKeepsTheConversations(t *testing.T) {
 		Scan(&violations))
 	assert.Zero(t, violations)
 }
+
+// mainOutcome is a finished report as main's control plane encoded it, before
+// ContextOverflow (issue #1052).
+type mainOutcome struct {
+	Class    FailureClass
+	ResetsAt *time.Time
+	Result   Result
+	Gate     *Ask
+}
+
+// Scenario: a node repeats a finished report across the control plane's
+// upgrade (review of PR #1057). The report hashes as before, so the receipt
+// kept for it still matches and the repeat is not refused as another call.
+func TestAFinishedReportHashesAsBeforeTheOverflowFlag(t *testing.T) {
+	t.Parallel()
+
+	call := NodeCall{NodeID: "node_a", DispatchID: "dsp_1", Epoch: 2, RequestID: "req_1"}
+	result := Result{Summary: "tests failed", Exit: Exit{Kind: "exited"}}
+
+	before, err := payloadHash("finished", call, mainOutcome{Class: FailureWorkerError, Result: result})
+	require.NoError(t, err)
+	after, err := payloadHash("finished", call, Outcome{Class: FailureWorkerError, Result: result})
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
+}
