@@ -548,3 +548,34 @@ func TestARestoredVersionKeepsTheProviderItRecorded(t *testing.T) {
 		"model: {name: claude-haiku-5-5}\n")
 	require.ErrorContains(t, err, "named without its provider")
 }
+
+// Scenario (review of PR #1000, round 3): a version from before migration 00123, whose YAML still writes the old
+// allowlist of web tools only, as 00123 left it beside the policy it re-expressed (every other family off). Restoring
+// it keeps node_exec off, as the page shows the version, and never widens the policy to the old YAML read anew.
+func TestARestoredVersionKeepsItsMigratedToolPolicy(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	old, _, err := w.s.ApplyProfile(ctx, "", "name: x\ndescription: d\nruntime: claude\n"+
+		"model: {provider: claude-subscription, name: claude-haiku-5-5}\npreset: full\ntools_off: [node_*]\n")
+	require.NoError(t, err)
+
+	// As 00123 left it: the YAML as written then, the policy re-expressed in the columns.
+	written := "name: x\ndescription: d\nruntime: claude\n" +
+		"model: {provider: claude-subscription, name: claude-haiku-5-5}\ntools: [web_search, web_fetch]\n"
+	_, err = w.db.ExecContext(ctx, `UPDATE profile_versions SET source = ?, digest = ? WHERE id = ?`,
+		written, sourceDigest(written), old.VersionID)
+	require.NoError(t, err)
+
+	_, _, err = w.s.ApplyProfile(ctx, "", "name: x\ndescription: d\nruntime: claude\n"+
+		"model: {provider: claude-subscription, name: claude-opus-5-5}\n")
+	require.NoError(t, err)
+
+	restored, _, err := w.s.RestoreProfileVersion(ctx, "", "x", old.VersionID)
+	require.NoError(t, err)
+	assert.Equal(t, "full", restored.Preset)
+	assert.Equal(t, []string{"node_*"}, restored.ToolsOff, "node_exec stays off")
+	assert.Equal(t, "claude-haiku-5-5", restored.Model)
+}

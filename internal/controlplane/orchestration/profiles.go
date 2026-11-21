@@ -325,7 +325,7 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 }
 
 // RestoreProfileVersion applies one of a profile's versions again, as the profile page restores it: its own source,
-// and, for a model that source names without a provider (as versions before issue #1002 were written), the
+// with its tool policy as stored, and, for a model that source names without a provider (as versions before issue #1002 were written), the
 // provider that version recorded, not one another version with the same YAML recorded. With a chat, the new version
 // is the Bot coordinator's from that chat, as applyProfile's.
 func (s *Service) RestoreProfileVersion(ctx context.Context, chat, name, versionID string) (Profile, bool, error) {
@@ -334,7 +334,11 @@ func (s *Service) RestoreProfileVersion(ctx context.Context, chat, name, version
 		return Profile{}, false, fmt.Errorf("%w: version %s of profile %s", ErrNotFound, versionID, name)
 	}
 
-	return s.applyProfileRecorded(ctx, chat, name, row.Source, row.Provider.String)
+	// The version as the page shows it: its tool policy as migration 00123 re-expressed it, never the old allowlist
+	// its YAML still writes, which would now widen it (editableProfileSource; review of PR #1000).
+	source := editableProfileSource(profileFromRow(row))
+
+	return s.applyProfileRecorded(ctx, chat, name, source, row.Provider.String)
 }
 
 // applyProfile is ApplyProfile; with a chat, a new version is the Bot
