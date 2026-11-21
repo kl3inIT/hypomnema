@@ -60,6 +60,16 @@ func (c *restartingControlPlane) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// firstID is the process id the node_exec it was asked named.
+func (c *restartingControlPlane) firstID(t *testing.T) string {
+	t.Helper()
+
+	var exec agenttool.NodeExecArgs
+	require.NoError(t, json.Unmarshal(c.seen()[0].Arguments, &exec))
+
+	return exec.ProcessID
+}
+
 func (c *restartingControlPlane) seen() []agenttool.BrowserCall {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -103,7 +113,8 @@ func TestANodeExecAcrossAControlPlaneRestartAnswersTheCommandsResult(t *testing.
 
 	text, failed := resultText(t, raw)
 	assert.False(t, failed)
-	assert.Contains(t, text, "the control plane restarted while this command ran")
+	assert.Contains(t, text, "the control plane restarted, as when it updates, before node_exec's answer came; "+
+		"node_process on node zm answered for process_id "+cp.firstID(t)+":")
 	assert.Contains(t, text, "exit code 0")
 	assert.Contains(t, text, "built")
 
@@ -145,8 +156,7 @@ func TestANodeExecWhoseControlPlaneStaysAwayNamesItsProcess(t *testing.T) {
 	require.NoError(t, json.Unmarshal(cp.seen()[0].Arguments, &exec))
 
 	assert.Contains(t, err.Error(), "the control plane restarted")
-	assert.Contains(t, err.Error(), "node_process, process_id "+exec.ProcessID)
-	assert.Contains(t, err.Error(), "node zm")
+	assert.Contains(t, err.Error(), "node_process, node zm, process_id "+exec.ProcessID)
 }
 
 // proxiedControlPlane is a control plane behind a proxy, as zm's behind Nginx (issue #1060, review round 1): while
@@ -197,4 +207,20 @@ func TestANodeExecBehindAProxyThatAnswers502IsReadAgain(t *testing.T) {
 
 	require.Len(t, cp.calls, 3)
 	assert.Equal(t, agenttool.ToolNodeProcess, cp.calls[2].Tool)
+}
+
+// A node_process whose control plane stays away names the node and the process to ask again with.
+func TestANodeProcessWhoseControlPlaneStaysAwayNamesItsNode(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(&restartingControlPlane{down: true})
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	_, err := toolsmcp.NewAgent(srv.URL, "key").NodeCall(ctx, agenttool.PathToolsCall, agenttool.ToolNodeProcess,
+		json.RawMessage(`{"node":"zm","process_id":"proc_0123456789ab","wait_seconds":30}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "node_process, node zm, process_id proc_0123456789ab")
 }

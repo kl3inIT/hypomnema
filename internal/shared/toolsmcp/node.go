@@ -33,6 +33,7 @@ const (
 // plane restarts while it runs. Any other tool is ToolCall's.
 func (a *Agent) NodeCall(ctx context.Context, path, tool string, arguments json.RawMessage) (json.RawMessage, error) {
 	ask, reask, lost := arguments, json.RawMessage(nil), func(error) error { return nil }
+	said := func(raw json.RawMessage) json.RawMessage { return raw }
 
 	switch tool {
 	case agenttool.ToolNodeExec:
@@ -61,9 +62,14 @@ func (a *Agent) NodeCall(ctx context.Context, path, tool string, arguments json.
 
 		ask, reask = raw, reread
 		lost = func(err error) error {
-			return fmt.Errorf("the control plane restarted while the command ran, as when it updates, and its result "+
-				"could not be read: %w. It may still run on node %s: read it with node_process, process_id %s", err,
-				args.Node, args.ProcessID)
+			return fmt.Errorf("the control plane restarted, as when it updates, before node_exec's answer came, "+
+				"and its result could not be read: %w. The command may still run: read it with node_process, node %s, "+
+				"process_id %s", err, args.Node, args.ProcessID)
+		}
+		said = func(raw json.RawMessage) json.RawMessage {
+			return withFirstLine(raw, fmt.Sprintf("the control plane restarted, as when it updates, before "+
+				"node_exec's answer came; node_process on node %s answered for process_id %s:", args.Node,
+				args.ProcessID))
 		}
 	case agenttool.ToolNodeProcess:
 		var args agenttool.NodeProcessArgs
@@ -74,7 +80,8 @@ func (a *Agent) NodeCall(ctx context.Context, path, tool string, arguments json.
 		reask = arguments
 		lost = func(err error) error {
 			return fmt.Errorf("the control plane restarted while node_process waited, as when it updates, and "+
-				"could not be asked again: %w. Ask again with node_process, process_id %s", err, args.ProcessID)
+				"could not be asked again: %w. Ask again with node_process, node %s, process_id %s", err, args.Node,
+				args.ProcessID)
 		}
 	}
 
@@ -91,11 +98,7 @@ func (a *Agent) NodeCall(ctx context.Context, path, tool string, arguments json.
 		return nil, lost(err)
 	}
 
-	if tool == agenttool.ToolNodeExec {
-		return restarted(raw), nil
-	}
-
-	return raw, nil
+	return said(raw), nil
 }
 
 // reask asks node_process until the control plane answers and the node is connected again, or ctx ends; its error
@@ -151,8 +154,8 @@ func answerLost(err error) bool {
 	return !errors.As(err, &op) || op.Op != "dial"
 }
 
-// restarted is a node_exec's result read again, with what happened said first.
-func restarted(raw json.RawMessage) json.RawMessage {
+// withFirstLine is a tool result with line said before its text.
+func withFirstLine(raw json.RawMessage, line string) json.RawMessage {
 	var result map[string]any
 	if json.Unmarshal(raw, &result) != nil {
 		return raw
@@ -169,8 +172,7 @@ func restarted(raw json.RawMessage) json.RawMessage {
 	}
 
 	text, _ := first["text"].(string)
-	first["text"] = "the control plane restarted while this command ran, as when it updates; node_process read " +
-		"its result:\n" + text
+	first["text"] = line + "\n" + text
 
 	out, err := json.Marshal(result)
 	if err != nil {
