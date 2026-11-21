@@ -36,6 +36,9 @@ import (
 // output to be read (Coder's exitedProcessReapAge).
 const keepEnded = time.Hour
 
+// listCommandBytes is how much of a command List answers with.
+const listCommandBytes = 1 << 20
+
 // keepEndedMost is how many ended processes are kept at most, the oldest
 // dropped first, as OpenClaw keeps at most 50 finished sessions
 // (src/agents/bash-process-registry.ts MAX_FINISHED_SESSION_COUNT): with

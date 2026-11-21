@@ -225,3 +225,21 @@ func TestANodeProcessWhoseControlPlaneStaysAwayNamesItsNode(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "node_process, node zm, process_id proc_0123456789ab")
 }
+
+// A node_process read again after a proxy's 502 says so first, with the node and the process (issue #1060, review
+// round 2).
+func TestANodeProcessReadAgainNamesItsNode(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(&proxiedControlPlane{})
+	t.Cleanup(srv.Close)
+
+	raw, err := toolsmcp.NewAgent(srv.URL, "key").NodeCall(t.Context(), agenttool.PathToolsCall,
+		agenttool.ToolNodeProcess, json.RawMessage(`{"node":"zm","process_id":"proc_0123456789ab","wait_seconds":30}`))
+	require.NoError(t, err)
+
+	text, _ := resultText(t, raw)
+	assert.Contains(t, text, "on node zm")
+	assert.Contains(t, text, "process_id proc_0123456789ab")
+	assert.Contains(t, text, "built")
+}

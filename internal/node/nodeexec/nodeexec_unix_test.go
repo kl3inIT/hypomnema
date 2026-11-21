@@ -3,6 +3,8 @@
 package nodeexec
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -260,4 +262,90 @@ func TestAnAgentListsItsOwnProcesses(t *testing.T) {
 	assert.Equal(t, 3, *list[1].ExitCode)
 	assert.Positive(t, list[1].StartedAt)
 	assert.Empty(t, m.List("d-dsp_1"))
+}
+
+// The list fits a node's answer whatever the commands were (issue #1060, review round 2): each entry's command is
+// cut short, and every listed process's id, state and start come back. A command of 90,000 `<` is half a megabyte
+// as JSON.
+func TestAListFitsItsAnswerWhateverTheCommands(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	t.Cleanup(m.Close)
+
+	long := "true # " + strings.Repeat("<", 90_000)
+
+	for range nodeproto.ExecListMost {
+		require.Empty(t, m.Run(t.Context(), Request{Agent: "b-cht_a", Command: long}).Error)
+	}
+
+	list := m.List("b-cht_a")
+	require.Len(t, list, nodeproto.ExecListMost)
+
+	for _, p := range list {
+		assert.True(t, nodeproto.IsProcessID(p.ProcessID))
+		require.NotNil(t, p.ExitCode)
+		assert.Positive(t, p.StartedAt)
+		assert.LessOrEqual(t, len(p.Command), listCommandBytes+len("…"))
+		assert.True(t, strings.HasPrefix(p.Command, "true # <<<"))
+	}
+
+	raw, err := json.Marshal(nodeproto.ExecAnswer{Processes: list})
+	require.NoError(t, err)
+	assert.Less(t, len(raw), nodeproto.MaxExecAnswerBytes/10, "far within the answer's bound")
+}
+
+// The newest is listed first even when many started in the same millisecond (issue #1060, review round 2).
+func TestTheListKeepsTheNewestWhenStartsShareAMillisecond(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	t.Cleanup(m.Close)
+
+	at := time.UnixMilli(1_795_000_000_000)
+	m.now = func() time.Time { return at }
+
+	var last string
+
+	for range nodeproto.ExecListMost + 1 {
+		started := m.Start(Request{Agent: "b-cht_a", Command: "sleep 300"})
+		require.Empty(t, started.Error)
+		last = started.ProcessID
+	}
+
+	list := m.List("b-cht_a")
+	require.Len(t, list, nodeproto.ExecListMost)
+	assert.Equal(t, last, list[0].ProcessID)
+}
+
+// The bound of kept ended processes holds when a command ends before it is kept (issue #1060, review round 2): the
+// end's own pruning ran when it was not in the map yet.
+func TestTheBoundHoldsForACommandThatEndedBeforeItWasKept(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	t.Cleanup(m.Close)
+
+	ended := func(n int) *process {
+		code := 0
+		p := &process{key: procKey{id: fmt.Sprintf("proc_%012d", n)}, exitCode: &code, done: make(chan struct{}),
+			endedAt: m.now().Add(time.Duration(n) * time.Millisecond)}
+		p.id = p.key.id
+		close(p.done)
+
+		return p
+	}
+
+	m.mu.Lock()
+	for n := range keepEndedMost {
+		m.procs[ended(n).key] = ended(n)
+	}
+	m.mu.Unlock()
+
+	require.NoError(t, m.keep(ended(keepEndedMost)))
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	assert.Len(t, m.procs, keepEndedMost)
 }
