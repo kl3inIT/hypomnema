@@ -172,6 +172,12 @@ func TestAReadRoutinesCheckReadsAsItsRunAndNothingMore(t *testing.T) {
 	require.False(t, failed, text)
 	assert.Equal(t, []string{"zalo:me:g_pmo"}, sw.whatsapp.asked)
 
+	// Every chat's messages, a page on: the check pages by offset, which never skips messages sent at the same
+	// time (review of #1037, round 2).
+	_, text, failed = sw.use(script, agenttool.ToolZaloMessages, `{"limit":500,"offset":500}`)
+	require.False(t, failed, text)
+	assert.Equal(t, 500, sw.whatsapp.queries[len(sw.whatsapp.queries)-1].Offset)
+
 	_, text, failed = sw.use(script, agenttool.ToolAccountRead, `{"account":"google:me",
 		"host":"gmail.googleapis.com","method":"GET","path":"/gmail/v1/users/me/messages?q=newer_than:1d"}`)
 	require.False(t, failed, text)
