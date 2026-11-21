@@ -28,13 +28,22 @@ const writeRules =
 // your instructions allow" keeps an explorer's or a reviewer's own instruction, which changes nothing.
 // Issue #714, decision 1: merging left the list; the worker turns on the host's auto-merge where the
 // repository waits for its required checks (pullRequest), and never merges directly.
+// Issue #1069: the options a task leaves open, such as how to fix a review finding, are the worker's too, and it
+// presents the choice after making it: pstack skills/principle-never-block-on-the-human/SKILL.md:9-15 ("Proceed,
+// then present", reversible work proceeds, "Product direction comes from the human. Execution should not
+// block"), OpenClaw's "Do freely / Ask first" above. Asking when no option keeps the goal is pstack's product
+// direction (owner, 2026-11-22). Workers had asked the owner four such questions in an hour, each already
+// recommending the option the owner then took.
 "- Decide yourself, within what the task and your instructions allow: how to build it and where the code " +
 	"goes, which tests to add or change, running the repository's checks, committing and pushing your branch, " +
 	"opening or updating this task's pull request and turning on its auto-merge as said below. Never merge it " +
-	"directly. Ask first, with the `ask` tool, and wait for the answer: " +
+	"directly. The options the task leaves open, such as how to fix a review finding or which limit or library " +
+	"to use, are yours too: take the one most references take, or the one you would recommend, say in the pull " +
+	"request which you took and what it is learned from, and do not ask about it. " +
+	"Ask first, with the `ask` tool, and wait for the answer: " +
 	"before changing the task's scope, deploying or changing a server, deleting what your change did " +
-	"not make, or acting outside this directory and this task's pull request. " +
-	"Never use AskUserQuestion; no one reads it.\n" +
+	"not make, or acting outside this directory and this task's pull request, and when no option keeps the " +
+	"task's goal. Never use AskUserQuestion; no one reads it.\n" +
 	"- Do not end your turn on a plan, an offer to continue or a list of next steps when the Task asks for a change.\n" +
 	// Issue #894, this repository's AGENTS.md rule of 2026-11-19 given to every repository: the touched checks
 	// once before pushing, after t3code AGENTS.md:102,111, OpenClaw AGENTS.md:86 and CONTRIBUTING.md:94, Orca
