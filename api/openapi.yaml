@@ -1980,6 +1980,68 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GitSSHKey" }
         default: { $ref: "#/components/responses/Error" }
+  /push/subscriptions:
+    get:
+      operationId: ListPushSubscriptions
+      summary: The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
+      description: >-
+        What waits on the owner (a question for him, a pending Approval, a Connection request, an Inbox to-do that
+        needs him) is pushed to every device listed here (issue #1047). public_key is the VAPID public key a
+        browser subscribes with (its applicationServerKey), made on the first read; its private half is kept in the
+        vault and never returned. Unavailable when the control plane has no https public URL.
+      responses:
+        "200":
+          description: The devices, the oldest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushSubscriptionList" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: PutPushSubscription
+      summary: Keep this browser's push subscription; only the owner
+      description: >-
+        The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again
+        after a reinstall.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewPushSubscription" }
+      responses:
+        "200":
+          description: The device.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PushSubscription" }
+        default: { $ref: "#/components/responses/Error" }
+  /push/subscriptions/{subscription_id}:
+    parameters:
+      - name: subscription_id
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    delete:
+      operationId: DeletePushSubscription
+      summary: Stop pushing to one device; only the owner
+      responses:
+        "204":
+          description: Deleted.
+        default: { $ref: "#/components/responses/Error" }
+  /push/subscriptions/{subscription_id}/test:
+    parameters:
+      - name: subscription_id
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    post:
+      operationId: TestPushSubscription
+      summary: Send a test notification to one device; only the owner
+      description: >-
+        A device the push service no longer knows is deleted and answered not_found.
+      responses:
+        "204":
+          description: The push service took it.
+        default: { $ref: "#/components/responses/Error" }
   /accounts:
     get:
       operationId: ListAccounts
@@ -8063,6 +8125,41 @@ components:
             The SSH host's public keys the owner confirmed, one "<type>
             <base64>" a line; nodes trust the host under them alone.
         created_at: { type: string, format: date-time }
+    PushSubscription:
+      type: object
+      required: [id, endpoint, label, created_at, updated_at]
+      properties:
+        id: { type: string }
+        endpoint:
+          type: string
+          description: The browser's push endpoint, by which a page knows its own device in the list.
+        label: { type: string, description: "What the device is, as the browser named it: \"iPhone · Safari\"." }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PushSubscriptionList:
+      type: object
+      required: [public_key, data]
+      properties:
+        public_key:
+          type: string
+          description: The VAPID public key, unpadded base64url, a browser's applicationServerKey.
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/PushSubscription" }
+    NewPushSubscription:
+      type: object
+      required: [endpoint, keys]
+      additionalProperties: false
+      properties:
+        endpoint: { type: string, minLength: 9, maxLength: 2000, pattern: "^https://" }
+        keys:
+          type: object
+          required: [p256dh, auth]
+          additionalProperties: false
+          properties:
+            p256dh: { type: string, minLength: 1, maxLength: 200 }
+            auth: { type: string, minLength: 1, maxLength: 100 }
+        label: { type: string, maxLength: 100 }
     GitSSHKey:
       type: object
       required: [public_key]

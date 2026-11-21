@@ -23,7 +23,9 @@ import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { PendingConnectionRequests } from "@/features/approvals/connection-request-card"
 import { usePending } from "@/features/approvals/use-approvals"
+import { usePendingConnectionRequests } from "@/features/approvals/use-connection-requests"
 import { useBotName, useMainBot, useRefreshBots } from "@/features/bots/use-bots"
+import { NotificationsPrompt } from "@/features/notifications/notifications-prompt"
 import { useSetupChanges } from "@/features/bots/setup-changes"
 import { useRoutines } from "@/features/routines/use-routines"
 import { OpenArtifactContext, type OpenArtifact } from "@/features/artifacts/open-artifact-context"
@@ -90,6 +92,12 @@ export function ChatBody({
   // What waits above the composer: the Approvals, the questions of this chat's Runs and the Runs themselves.
   const approvals = usePending({ chatId })
   const work = useDockedWork(chatId, wakeCount(view.messages), approvals.data?.length ?? 0)
+  const requests = usePendingConnectionRequests(chatId)
+  // Something here waits on the owner: where notifications are offered once (issue #1047).
+  const waiting =
+    (approvals.data?.length ?? 0) > 0 ||
+    (requests.data?.length ?? 0) > 0 ||
+    work.questions.length > 0
   const main = useMainBot()
   const bot = chat.data?.bot ?? main
   // What the chat's Bot is called, for its replies and the message box; a chat keeps its Bot's id (issue #466).
@@ -226,6 +234,7 @@ export function ChatBody({
             composer, as Orca docks its task list (issue #314). The cards scroll in their own box, so that the
             message box stays on the screen under them. */}
                   <div className="mx-auto mb-3 flex max-h-[50dvh] w-full max-w-(--chat-content-max-width) flex-col gap-3 overflow-y-auto empty:hidden">
+                    <NotificationsPrompt waiting={waiting} />
                     <PendingApprovals chatId={chatId} />
                     <PendingConnectionRequests chatId={chatId} />
                     <DockedQuestions work={work} />

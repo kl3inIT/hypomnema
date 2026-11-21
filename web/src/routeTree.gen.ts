@@ -39,6 +39,7 @@ import { Route as SettingsMachinesRouteImport } from './routes/settings.machines
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsMuseRouteImport } from './routes/settings.muse'
 import { Route as SettingsNotesModelRouteImport } from './routes/settings.notes-model'
+import { Route as SettingsNotificationsRouteImport } from './routes/settings.notifications'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsSharedLinksRouteImport } from './routes/settings.shared-links'
 import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
@@ -203,6 +204,11 @@ const SettingsNotesModelRoute = SettingsNotesModelRouteImport.update({
   path: '/settings/notes-model',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
+  id: '/settings/notifications',
+  path: '/settings/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRepositoriesRoute = SettingsRepositoriesRouteImport.update({
   id: '/settings/repositories',
   path: '/settings/repositories',
@@ -297,6 +303,7 @@ export interface FileRoutesByFullPath {
   '/settings/models': typeof SettingsModelsRoute
   '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/shared-links': typeof SettingsSharedLinksRoute
   '/settings/usage': typeof SettingsUsageRoute
@@ -342,6 +349,7 @@ export interface FileRoutesByTo {
   '/settings/models': typeof SettingsModelsRoute
   '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/shared-links': typeof SettingsSharedLinksRoute
   '/settings/usage': typeof SettingsUsageRoute
@@ -388,6 +396,7 @@ export interface FileRoutesById {
   '/settings/models': typeof SettingsModelsRoute
   '/settings/muse': typeof SettingsMuseRoute
   '/settings/notes-model': typeof SettingsNotesModelRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/shared-links': typeof SettingsSharedLinksRoute
   '/settings/usage': typeof SettingsUsageRoute
@@ -435,6 +444,7 @@ export interface FileRouteTypes {
     | '/settings/models'
     | '/settings/muse'
     | '/settings/notes-model'
+    | '/settings/notifications'
     | '/settings/repositories'
     | '/settings/shared-links'
     | '/settings/usage'
@@ -480,6 +490,7 @@ export interface FileRouteTypes {
     | '/settings/models'
     | '/settings/muse'
     | '/settings/notes-model'
+    | '/settings/notifications'
     | '/settings/repositories'
     | '/settings/shared-links'
     | '/settings/usage'
@@ -525,6 +536,7 @@ export interface FileRouteTypes {
     | '/settings/models'
     | '/settings/muse'
     | '/settings/notes-model'
+    | '/settings/notifications'
     | '/settings/repositories'
     | '/settings/shared-links'
     | '/settings/usage'
@@ -571,6 +583,7 @@ export interface RootRouteChildren {
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsMuseRoute: typeof SettingsMuseRoute
   SettingsNotesModelRoute: typeof SettingsNotesModelRoute
+  SettingsNotificationsRoute: typeof SettingsNotificationsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsSharedLinksRoute: typeof SettingsSharedLinksRoute
   SettingsUsageRoute: typeof SettingsUsageRoute
@@ -801,6 +814,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsNotesModelRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/notifications': {
+      id: '/settings/notifications'
+      path: '/settings/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof SettingsNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/repositories': {
       id: '/settings/repositories'
       path: '/settings/repositories'
@@ -923,6 +943,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsMuseRoute: SettingsMuseRoute,
   SettingsNotesModelRoute: SettingsNotesModelRoute,
+  SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsSharedLinksRoute: SettingsSharedLinksRoute,
   SettingsUsageRoute: SettingsUsageRoute,

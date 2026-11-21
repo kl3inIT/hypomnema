@@ -89,6 +89,8 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 		return o.gatewayCommand(ctx, args[1:])
 	case "machines":
 		return o.machinesCommand(ctx, args[1:])
+	case "push":
+		return o.push(ctx, args[1:])
 	default:
 		return ErrUsage
 	}
