@@ -172,6 +172,27 @@ func (i *Installer) Ensure(ctx context.Context) (Tools, error) {
 	return tools, nil
 }
 
+// Ready is the installed programs, without waiting for an install under way: an error while none has been
+// installed, and when the programs installed are gone from the disk. A request that should not wait for a download,
+// as the look sample, asks it (issue #908, row 14).
+func (i *Installer) Ready() (Tools, error) {
+	i.mu.Lock()
+	tools := i.tools
+	i.mu.Unlock()
+
+	if tools.FFmpeg == "" {
+		return Tools{}, errors.New("ffmpeg is not installed yet")
+	}
+
+	for _, path := range []string{tools.FFmpeg, tools.FFprobe} {
+		if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+			return Tools{}, fmt.Errorf("ffmpeg is gone from %s", filepath.Dir(path))
+		}
+	}
+
+	return tools, nil
+}
+
 // install has the pinned build in place, fetching it unless `current` already names it.
 func (i *Installer) install(ctx context.Context) (Tools, error) {
 	if err := os.MkdirAll(i.cfg.Dir, 0o700); err != nil {
