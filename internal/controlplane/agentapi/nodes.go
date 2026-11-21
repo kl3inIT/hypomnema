@@ -196,6 +196,9 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 		}
 	}
 
+	// A process is the agent's that ran it, a chat's or a worker's (issue #1060), as a phone's last screen is.
+	e.Agent = a.key
+
 	n, connected, err := s.findNode(ctx, nodeRef)
 	if err != nil {
 		answerTool(w, err.Error(), true)

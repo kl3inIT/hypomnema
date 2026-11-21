@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,12 @@ import (
 // keepEnded is how long a background process that ended is kept for its
 // output to be read (Coder's exitedProcessReapAge).
 const keepEnded = time.Hour
+
+// keepEndedMost is how many ended processes are kept at most, the oldest
+// dropped first, as OpenClaw keeps at most 50 finished sessions
+// (src/agents/bash-process-registry.ts MAX_FINISHED_SESSION_COUNT): with
+// ExecOutputBytes each, a few megabytes at most (issue #1060).
+const keepEndedMost = 50
 
 // waitDelay bounds the wait for a killed command's output: a child that
 // keeps the pipe open does not hold the answer up (Coder sets 5 s).
@@ -64,21 +71,30 @@ type Request struct {
 	SudoPassword string
 }
 
-// Manager runs the commands and keeps those in the background.
+// Manager runs the commands and keeps them by their agent and id.
 type Manager struct {
-	mu     sync.Mutex
-	procs  map[string]*process
-	closed bool
-	now    func() time.Time
+	mu    sync.Mutex
+	procs map[procKey]*process
+	// reserved are the ids of commands being started, taken before they start so that no two start under one id.
+	reserved map[procKey]bool
+	closed   bool
+	now      func() time.Time
+}
+
+// procKey is whose a process is and its id: an agent reads and kills its own alone (issue #1060), as Coder keys a
+// process by its chat and id (agent/agentproc/process.go procKey).
+type procKey struct {
+	agent, id string
 }
 
 // New returns a Manager.
 func New() *Manager {
-	return &Manager{procs: map[string]*process{}, now: time.Now}
+	return &Manager{procs: map[procKey]*process{}, reserved: map[procKey]bool{}, now: time.Now}
 }
 
 type process struct {
-	id string
+	key procKey
+	id  string
 	// hide is the sudo password given to the command, taken out of what it answers; "" when none.
 	hide string
 	cmd  *exec.Cmd
@@ -141,11 +157,13 @@ func (m *Manager) Start(req Request) nodeproto.ExecAnswer {
 	return nodeproto.ExecAnswer{ProcessID: p.id, Running: true}
 }
 
-// keep keeps a process that started, by its id, for its output to be asked for; one that started as the node
-// began to stop, or whose id another took meanwhile, is killed.
+// keep keeps a process that started under the id it reserved, for its output to be asked for; one that started as
+// the node began to stop is killed.
 func (m *Manager) keep(p *process) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	delete(m.reserved, p.key)
 
 	if m.closed {
 		p.kill()
@@ -153,23 +171,15 @@ func (m *Manager) keep(p *process) error {
 		return errClosed
 	}
 
-	m.forgetEnded()
-
-	if _, taken := m.procs[p.id]; taken {
-		p.kill()
-
-		return fmt.Errorf("a process %q already runs on this node", p.id)
-	}
-
-	m.procs[p.id] = p
+	m.procs[p.key] = p
 
 	return nil
 }
 
 // Output answers about a background process once it has ended, or after
 // wait while it still runs.
-func (m *Manager) Output(ctx context.Context, _, id string, wait time.Duration) nodeproto.ExecAnswer {
-	p, ok := m.get(id)
+func (m *Manager) Output(ctx context.Context, agent, id string, wait time.Duration) nodeproto.ExecAnswer {
+	p, ok := m.get(procKey{agent: agent, id: id})
 	if !ok {
 		return unknown(id)
 	}
@@ -194,8 +204,8 @@ func (m *Manager) Output(ctx context.Context, _, id string, wait time.Duration) 
 
 // Kill kills a background process and what it started, and answers with
 // what it had written.
-func (m *Manager) Kill(_, id string) nodeproto.ExecAnswer {
-	p, ok := m.get(id)
+func (m *Manager) Kill(agent, id string) nodeproto.ExecAnswer {
+	p, ok := m.get(procKey{agent: agent, id: id})
 	if !ok {
 		return unknown(id)
 	}
@@ -212,7 +222,7 @@ func (m *Manager) Close() {
 	m.mu.Lock()
 	m.closed = true
 	procs := m.procs
-	m.procs = map[string]*process{}
+	m.procs = map[procKey]*process{}
 	m.mu.Unlock()
 
 	for _, p := range procs {
@@ -221,30 +231,53 @@ func (m *Manager) Close() {
 	}
 }
 
-func (m *Manager) get(id string) (*process, bool) {
+func (m *Manager) get(key procKey) (*process, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.forgetEnded()
-	p, ok := m.procs[id]
+	p, ok := m.procs[key]
 
 	return p, ok
 }
 
-// forgetEnded drops the processes that ended more than keepEnded ago. The
-// caller holds m.mu.
+// forgetEnded drops the processes that ended more than keepEnded ago, and the
+// oldest ended past keepEndedMost. The caller holds m.mu.
 func (m *Manager) forgetEnded() {
 	now := m.now()
 
-	for id, p := range m.procs {
+	var ended []*process
+
+	for key, p := range m.procs {
 		p.mu.Lock()
-		ended := p.endedAt
+		at := p.endedAt
 		p.mu.Unlock()
 
-		if !ended.IsZero() && now.Sub(ended) > keepEnded {
-			delete(m.procs, id)
+		switch {
+		case at.IsZero():
+		case now.Sub(at) > keepEnded:
+			delete(m.procs, key)
+		default:
+			ended = append(ended, p)
 		}
 	}
+
+	if len(ended) <= keepEndedMost {
+		return
+	}
+
+	slices.SortFunc(ended, func(a, b *process) int { return a.endedAtTime().Compare(b.endedAtTime()) })
+
+	for _, p := range ended[:len(ended)-keepEndedMost] {
+		delete(m.procs, p.key)
+	}
+}
+
+func (p *process) endedAtTime() time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.endedAt
 }
 
 func unknown(id string) nodeproto.ExecAnswer {
@@ -255,26 +288,55 @@ func unknown(id string) nodeproto.ExecAnswer {
 // start starts a command as `sh -c` in a process group of its own, its
 // output kept, and its sudo given the password when there is one.
 func (m *Manager) start(req Request) (*process, error) {
-	m.mu.Lock()
-	closed := m.closed
-	m.mu.Unlock()
-
-	if closed {
-		return nil, errClosed
+	key, err := m.reserve(req)
+	if err != nil {
+		return nil, err
 	}
 
+	p, err := m.spawn(req, key)
+	if err != nil {
+		m.mu.Lock()
+		delete(m.reserved, key)
+		m.mu.Unlock()
+
+		return nil, err
+	}
+
+	return p, nil
+}
+
+// reserve takes the command's id, the one asked for or a new one, before it starts: a second start under it is
+// refused before it runs anything.
+func (m *Manager) reserve(req Request) (procKey, error) {
 	id := req.ID
-	switch {
-	case id == "":
+	if id == "" {
 		id = newID()
-	case !nodeproto.IsProcessID(id):
-		return nil, fmt.Errorf("the process id %q is not one this node takes", id)
-	default:
-		if _, taken := m.get(id); taken {
-			return nil, fmt.Errorf("a process %q already runs on this node", id)
-		}
+	} else if !nodeproto.IsProcessID(id) {
+		return procKey{}, fmt.Errorf("the process id %q is not one this node takes", id)
 	}
 
+	key := procKey{agent: req.Agent, id: id}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closed {
+		return procKey{}, errClosed
+	}
+
+	m.forgetEnded()
+
+	if _, taken := m.procs[key]; taken || m.reserved[key] {
+		return procKey{}, fmt.Errorf("a process %q already runs on this node", id)
+	}
+
+	m.reserved[key] = true
+
+	return key, nil
+}
+
+// spawn starts the command under key.
+func (m *Manager) spawn(req Request, key procKey) (*process, error) {
 	command := req.Command
 
 	var helper *askpass
@@ -318,7 +380,7 @@ func (m *Manager) start(req Request) (*process, error) {
 		return nil, fmt.Errorf("starting the command: %w", err)
 	}
 
-	p := &process{id: id, cmd: cmd, out: out, done: make(chan struct{})}
+	p := &process{key: key, id: key.id, cmd: cmd, out: out, done: make(chan struct{})}
 	if helper != nil {
 		p.hide = req.SudoPassword
 	}
@@ -346,6 +408,11 @@ func (m *Manager) start(req Request) (*process, error) {
 		p.mu.Unlock()
 
 		close(p.done)
+
+		// An end drops what is past the bounds, as OpenClaw's registry does when a session finishes.
+		m.mu.Lock()
+		m.forgetEnded()
+		m.mu.Unlock()
 	}()
 
 	return p, nil

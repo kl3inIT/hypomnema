@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -181,4 +182,54 @@ func TestAProcessIsReadOnlyByTheAgentThatRanIt(t *testing.T) {
 	assert.Contains(t, m.Kill("b-cht_b", endless.ProcessID).Error, "no process")
 	assert.True(t, m.Output(t.Context(), "b-cht_a", endless.ProcessID, 0).Running, "another's kill leaves it")
 	assert.False(t, m.Kill("b-cht_a", endless.ProcessID).Running)
+}
+
+// At most keepEndedMost ended processes are kept, the oldest dropped first, whether or not anyone asks meanwhile
+// (issue #1060, review round 1).
+func TestEndedProcessesAreKeptUpToABound(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	t.Cleanup(m.Close)
+
+	first := nodeproto.NewProcessID()
+	require.Empty(t, m.Run(t.Context(), Request{ID: first, Command: "true"}).Error)
+
+	for range keepEndedMost + 5 {
+		require.Empty(t, m.Run(t.Context(), Request{Command: "true"}).Error)
+	}
+
+	require.Eventually(t, func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		return len(m.procs) == keepEndedMost
+	}, 10*time.Second, 10*time.Millisecond)
+	assert.Contains(t, m.Output(t.Context(), "", first, 0).Error, "no process", "the oldest went first")
+}
+
+// Starts under one id at once run one command: the id is taken before the command starts.
+func TestOneIDStartsOneCommand(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	t.Cleanup(m.Close)
+
+	marker := filepath.Join(t.TempDir(), "ran")
+	id := nodeproto.NewProcessID()
+
+	var wg sync.WaitGroup
+
+	for range 24 {
+		wg.Go(func() { m.Start(Request{ID: id, Command: "echo x >> " + marker}) })
+	}
+
+	wg.Wait()
+
+	require.Eventually(t, func() bool { return !m.Output(t.Context(), "", id, 0).Running }, 10*time.Second,
+		10*time.Millisecond)
+
+	ran, err := os.ReadFile(marker) //nolint:gosec // G304: the test's own file
+	require.NoError(t, err)
+	assert.Equal(t, "x\n", string(ran))
 }

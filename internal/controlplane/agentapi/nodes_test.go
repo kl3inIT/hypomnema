@@ -180,13 +180,15 @@ func TestABackgroundCommandIsFollowedByItsID(t *testing.T) {
 	_, text, isErr = w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm","process_id":"proc_1","wait_seconds":30}`)
 	assert.False(t, isErr)
 	assert.Equal(t, "exit code 0 (process_id proc_1)\noutput:\nbuilt\n", text)
-	assert.Equal(t, nodeproto.Exec{Action: nodeproto.ExecOutput, ProcessID: "proc_1", WaitSeconds: 30}, m.sent[1])
+	assert.Equal(t, nodeproto.Exec{
+		Agent: "d-dsp_1", Action: nodeproto.ExecOutput, ProcessID: "proc_1", WaitSeconds: 30,
+	}, m.sent[1], "it is read as the worker's")
 
 	killed := -1
 	m.give = nodeproto.ExecAnswer{ProcessID: "proc_1", ExitCode: &killed}
 
 	_, _, _ = w.use(worker, agenttool.ToolNodeProcessKill, `{"node":"zm","process_id":"proc_1"}`)
-	assert.Equal(t, nodeproto.Exec{Action: nodeproto.ExecKill, ProcessID: "proc_1"}, m.sent[2])
+	assert.Equal(t, nodeproto.Exec{Agent: "d-dsp_1", Action: nodeproto.ExecKill, ProcessID: "proc_1"}, m.sent[2])
 
 	m.give = nodeproto.ExecAnswer{TimedOut: true, Output: "half\n", CutBytes: 10}
 
