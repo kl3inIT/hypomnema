@@ -23,6 +23,7 @@ node=/opt/hypomnema-node
 bwrap=/usr/bin/bwrap
 images=/usr/local/lib/hypomnema/pi-image-eviction.mts
 read_files=/usr/local/lib/hypomnema/pi-read-run.mts
+background=/usr/local/lib/hypomnema/pi-background.mts
 
 home="$user_home/.hypomnema-coordinator"
 
@@ -172,6 +173,11 @@ else
     fail "putting bot $bot's skills in place failed"
   fi
   set -- "$@" --skill "$skills"
+  # pi's bash with a background mode (issue #1058): a long command runs on in the box and its end wakes the chat,
+  # so the Bot ends its turn instead of sleeping to poll. A read run has no bash. Without it a Bot would poll again,
+  # so pi does not start.
+  [ -r "$background" ] || fail "pi's background extension $background is not installed (setup-coordinator.sh installs it)"
+  set -- "$@" --extension "$background"
 fi
 
 # pi's extension that keeps a chat full of images under the model gateway's request limit (issue #675): before each

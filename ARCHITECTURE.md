@@ -117,7 +117,7 @@ flowchart TB
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
 (`--provider`, `--model`, `--thinking`),
-and stops it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
+and stops it after 30 min idle by closing its stdin, unless it runs a background command (below); it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt` when pi is idle and are marked delivered once pi accepted them. An owner
 message written while pi works, from the web, the CLI or Lark, or while others still wait, goes into the chat's
 queue (`chat_queue`, issue #497, after OpenMausBot's `server/channel-queue.ts`): off the transcript until the turn
@@ -225,7 +225,28 @@ pi counts an image as about 1,200 tokens whatever its bytes, so every chat's pi 
 on pi's `context` event, before each model call, sends the oldest tool-result images as `[image removed to save
 context]` once the request's images pass 24,000,000 bytes of base64: in batches of 8, kept evicted for the session so
 the cached prefix holds, never the newest 3 tool images nor an image a person sent, and only in the request, not the
-session (Hermes's send-path eviction, `agent/image_eviction_policy.py`; issue #675). On
+session (Hermes's send-path eviction, `agent/image_eviction_policy.py`; issue #675).
+A Bot's bash takes `background: true` (issue #1058): `deploy/coordinator/pi-background.mts`, given to every chat's pi
+but a read run's, replaces pi's `bash` with pi's own plus that flag, as OpenClaw's exec continues the conversation when
+a backgrounded command exits (`tools.exec.notifyOnExit`, on by default, `docs/tools/exec.md:176-182`), opencode's
+shell says "You will be notified when it completes. DO NOT poll" and Claude Code's `run_in_background` re-invokes the
+agent. Before a Bot polled its own `setsid nohup … &` jobs with `sleep 240; cat …log`, a new turn of its whole context
+each time. The command starts in the box in a process group of its own and the tool answers at once with its id
+(`bg_…`) and group, telling the Bot to end its turn if only waiting is left; `timeout` still kills it. The extension
+reports it on `POST /agent/v1/background` with pi's own token (`started`, then `ended` with its exit code or signal,
+the last 2,000 characters of its output, how many it wrote, and its file when the end is only part of it), and a
+command the control plane did not record is not started. All its output goes to an owner-only file of the box's
+`/tmp`, at most 64 MiB, kept only when the wake leaves part of it out (OpenClaw, `exec.md:182-183`). The control
+plane keeps a row per running command (`chat_background_commands`: chat, id, a hash of the pi's token, start; no
+command text, as OpenClaw's `bash-process-durable.ts:83-129`). The end takes the row out and adds one wake-up to the
+chat ("Background command bg_… exited with code 3 after 4m12s:" and the output's end, after
+`bash-tools.exec-notify.ts:245-260`), once: a second report, or one from another pi of the chat, wakes nothing. Like
+every wake-up it waits for a turn that runs and goes with the others as the next prompt (OpenClaw's
+`session-event-batch.ts:34-58`). The box ends its commands with pi (`--unshare-pid`, `--die-with-parent`), so the
+supervisor does not stop an idle pi whose chat has a row, and when a pi exits its own rows become a wake-up saying the
+command was killed because the chat's pi stopped; at the supervisor's start every row left is reported killed by the
+restart (OpenClaw reports what the last Gateway lost, `bash-process-durable.ts:132-161`). A deleted chat takes its
+rows. `node_exec`'s `background` is unchanged: it still answers through `node_process`. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's id and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), a third that removes a deleted chat's `run/<chat>`
