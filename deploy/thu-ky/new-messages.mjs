@@ -89,7 +89,6 @@ export const noReply = (config, ...sender) => matchesAny(config.noReply, ...send
 // dropped says whether a chat is an official account's, an ad's or a newsletter's.
 export const dropped = (config, ...chat) => matchesAny(config.dropChats, ...chat);
 
-const later = (at, since) => at && Date.parse(at) > since.getTime();
 
 // A source's state: mark, the time it was read through; for Zalo and WhatsApp also gaps, the spans of time below
 // the mark not read yet (after, before), the newest first, left by a run that reached its cap.
@@ -98,54 +97,50 @@ const stateOf = (kept, fallback) => (typeof kept === "string" ? { mark: kept } :
 // The pages of the servers' kept messages (messaging/zalo/store.go, whatsapp/store.go), the latest first.
 const pageSize = 500;
 
+// A span of time a source reads, after (exclusive) to before, with where in it a capped run stopped. A run reads
+// its own new span, from the mark to now, and then the spans earlier runs left; past its cap it keeps the rest of
+// a span, with its position, for the next run, so that no message is read twice in one run nor left for good
+// (reviews of #1037, rounds 2 and 3).
+const later = (at, after) => Date.parse(at) > Date.parse(after);
+const iso = (ms) => new Date(ms).toISOString();
+
 // readMessaging counts a Zalo or WhatsApp account's new messages, per chat: not the owner's own, nor a broadcast's,
-// an official account's or a no-reply sender's. It reads every chat's messages, the latest first, by offset, which
-// skips none sent at the same time (WhatsApp keeps seconds), down to the mark, and then the gaps a capped run left;
-// a message is known by its chat and its id. At scanMessages it stops on the message it reached and keeps the rest
-// as a gap, ending one second after that message, to read on from next run (review of #1037, round 2).
+// an official account's or a no-reply sender's. It reads every chat's messages of a span, the latest first, by
+// offset under the span's fixed end, which skips none sent at the same time (WhatsApp keeps seconds), down to the
+// span's start; a message is known by its chat and its id. At scanMessages it stops on the message it reached and
+// keeps the rest of the span, with that offset, to read on from next run.
 async function readMessaging(call, source, st, now, config) {
   const account = source.label ? { account: source.label } : {};
-  const spans = [{ after: st.mark }, ...(st.gaps ?? [])];
+  // The new span ends a second after now, so that its offsets stay put while messages keep arriving.
+  const spans = [{ after: st.mark, before: iso(now.getTime() + 1000), offset: 0 }, ...(st.gaps ?? [])];
   const fresh = new Map();
   const gaps = [];
-  const problems = [];
   for (const span of spans) {
     if (fresh.size >= config.scanMessages) {
-      gaps.push({ after: span.after, before: span.before ?? now.toISOString() });
+      gaps.push(span);
       continue;
     }
-    let offset = 0;
-    let done = false;
-    while (!done) {
+    let offset = span.offset ?? 0;
+    for (let done = false; !done;) {
       const { messages = [] } = await call(`${source.service}_messages`, {
-        ...account, limit: pageSize, offset, ...(span.before ? { before: span.before } : {}),
+        ...account, limit: pageSize, offset, before: span.before,
       });
-      let added = 0;
-      for (const m of messages) {
-        if (Date.parse(m.At) <= Date.parse(span.after)) {
+      for (const [i, m] of messages.entries()) {
+        if (!later(m.At, span.after)) {
           done = true;
           break;
         }
-        const key = `${m.Chat}\u0000${m.ID}`;
-        if (fresh.has(key)) continue;
-        added += 1;
         if (fresh.size >= config.scanMessages) {
-          gaps.push({ after: span.after, before: new Date(Date.parse(m.At) + 1000).toISOString() });
+          gaps.push({ ...span, offset: offset + i });
           done = true;
           break;
         }
-        fresh.set(key, m);
+        fresh.set(`${m.Chat}\u0000${m.ID}`, m);
       }
       offset += messages.length;
       if (messages.length < pageSize) done = true;
-      if (!done && added === 0) {
-        // A whole page already read: the server does not page as it should. Keep the span to read again.
-        gaps.push({ after: span.after, before: span.before ?? now.toISOString() });
-        done = true;
-      }
     }
   }
-  if (gaps.length) problems.push(`more than ${config.scanMessages} new messages; the rest are read next time`);
   const chats = new Map();
   for (const m of fresh.values()) {
     if (m.FromMe || m.Revoked || noReply(config, m.SenderName, m.Sender) || dropped(config, m.ChatName, m.Chat)) {
@@ -163,28 +158,27 @@ async function readMessaging(call, source, st, now, config) {
     from: [...c.from],
     latest: c.latest,
   }));
+  const problems = gaps.length ? [`more than ${config.scanMessages} new messages; the rest are read next time`] : [];
   return { found, state: { mark: now.toISOString(), gaps }, problems };
 }
 
-// readAll calls get on each page of a Lark list until it has no more, or limit items are taken: it says whether
-// it took them all.
-async function readAll(get, path, take, limit) {
+// pages calls get on each page of a Lark list until it has no more, and gives every item.
+async function pages(get, path) {
+  const items = [];
   let token = "";
   for (;;) {
     const data = await get(path + (token ? `&page_token=${encodeURIComponent(token)}` : ""));
-    for (const item of data.items ?? []) {
-      if (!take(item)) return false;
-      if (--limit.left < 0) return false;
-    }
-    if (!data.has_more) return true;
+    items.push(...(data.items ?? []));
+    if (!data.has_more) return items;
     token = data.page_token;
   }
 }
 
 // readLark counts the owner's new Lark messages in his chats, direct ones too (types=p2p,group; larksuite/cli
-// shortcuts/im/im_chat_list.go:283-302): not his own, nor an app's. Every page of chats is read, the most active
-// first, until larkIdleStop chats in a row have nothing new, and every page of a chat's messages since the mark.
-// Past larkChats or larkMessages the source keeps its mark.
+// shortcuts/im/im_chat_list.go:283-302): not his own, nor an app's. For each span it lists every page of his chats,
+// the most active first, and reads every page of each one's messages in the span (start_time, end_time). In the new
+// span, larkIdleStop chats in a row with nothing new end it: the rest were active before. Past larkChats chats or
+// larkMessages messages it keeps the rest of the span, with the chats it read, for the next run.
 async function readLark(call, source, st, now, config) {
   const get = async (path) => {
     const answer = await call("account_read", {
@@ -195,54 +189,57 @@ async function readLark(call, source, st, now, config) {
     }
     return answer.records?.data ?? {};
   };
-  const since = Date.parse(st.mark);
   const me = (await get("/open-apis/authen/v1/user_info")).open_id;
-  const start = Math.floor(since / 1000);
-  const found = [];
-  const chats = { left: config.larkChats };
-  const messages = { left: config.larkMessages };
-  let idle = 0;
-  let readAllMessages = true;
-  const chatsDone = await readAll(get, "/open-apis/im/v1/chats?types=p2p,group&sort_type=ByActiveTimeDesc&page_size=100",
-    (chat) => {
-      if (idle >= config.larkIdleStop) return true;
-      found.push({ chat });
-      return true;
-    }, chats);
-  const out = [];
-  for (const { chat } of found) {
-    if (idle >= config.larkIdleStop) break;
-    if (dropped(config, chat.name, chat.chat_id)) continue;
-    const list = [];
-    const done = await readAll(get,
-      `/open-apis/im/v1/messages?container_id_type=chat&container_id=${chat.chat_id}&start_time=${start}` +
-        `&page_size=50&sort_type=ByCreateTimeDesc`,
-      (m) => {
-        list.push(m);
-        return true;
-      }, messages);
-    if (!done) {
-      readAllMessages = false;
-      break;
+  const spans = [{ after: st.mark, before: now.toISOString(), done: [], fresh: true }, ...(st.gaps ?? [])];
+  const out = new Map();
+  const gaps = [];
+  let chatsRead = 0;
+  let messagesRead = 0;
+  for (const span of spans) {
+    const done = new Set(span.done ?? []);
+    const keep = () => gaps.push({ after: span.after, before: span.before, done: [...done] });
+    if (chatsRead >= config.larkChats || messagesRead >= config.larkMessages) {
+      keep();
+      continue;
     }
-    const after = list.filter((m) => Number(m.create_time) > since);
-    idle = after.length ? 0 : idle + 1;
-    const fresh = after.filter(
-      (m) => !m.deleted && m.sender?.id !== me && !(config.dropLarkApps && m.sender?.sender_type === "app"),
-    );
-    if (fresh.length === 0) continue;
-    out.push({
-      where: `${source.account} chat "${chat.name || chat.chat_id}" (id ${chat.chat_id})`,
-      count: fresh.length,
-      from: [...new Set(fresh.map((m) => m.sender?.id).filter(Boolean))],
-      latest: new Date(Math.max(...fresh.map((m) => Number(m.create_time)))).toISOString(),
-    });
+    const chats = await pages(get, "/open-apis/im/v1/chats?types=p2p,group&sort_type=ByActiveTimeDesc&page_size=100");
+    const since = Date.parse(span.after);
+    const until = Date.parse(span.before);
+    let idle = 0;
+    for (const chat of chats) {
+      if (done.has(chat.chat_id) || dropped(config, chat.name, chat.chat_id)) continue;
+      if (span.fresh && idle >= config.larkIdleStop) break;
+      if (chatsRead >= config.larkChats || messagesRead >= config.larkMessages) {
+        keep();
+        break;
+      }
+      const list = await pages(get,
+        `/open-apis/im/v1/messages?container_id_type=chat&container_id=${chat.chat_id}` +
+          `&start_time=${Math.floor(since / 1000)}&end_time=${Math.ceil(until / 1000)}&page_size=50` +
+          "&sort_type=ByCreateTimeDesc");
+      chatsRead += 1;
+      messagesRead += list.length;
+      done.add(chat.chat_id);
+      const inSpan = list.filter((m) => Number(m.create_time) > since && Number(m.create_time) <= until);
+      idle = inSpan.length ? 0 : idle + 1;
+      const fresh = inSpan.filter(
+        (m) => !m.deleted && m.sender?.id !== me && !(config.dropLarkApps && m.sender?.sender_type === "app"),
+      );
+      if (fresh.length === 0) continue;
+      const entry = out.get(chat.chat_id) ?? {
+        where: `${source.account} chat "${chat.name || chat.chat_id}" (id ${chat.chat_id})`, count: 0,
+        from: new Set(), latest: 0,
+      };
+      entry.count += fresh.length;
+      for (const m of fresh) if (m.sender?.id) entry.from.add(m.sender.id);
+      entry.latest = Math.max(entry.latest, ...fresh.map((m) => Number(m.create_time)));
+      out.set(chat.chat_id, entry);
+    }
   }
-  const complete = readAllMessages && (chatsDone || idle >= config.larkIdleStop);
   return {
-    found: out,
-    state: { mark: complete ? now.toISOString() : st.mark },
-    problems: complete ? [] : [`more than ${config.larkChats} chats or ${config.larkMessages} messages; read again from its last time next run`],
+    found: [...out.values()].map((e) => ({ ...e, from: [...e.from], latest: iso(e.latest) })),
+    state: { mark: now.toISOString(), gaps },
+    problems: gaps.length ? [`more than ${config.larkChats} chats or ${config.larkMessages} messages; the rest are read next time`] : [],
   };
 }
 
@@ -250,7 +247,8 @@ const header = (message, name) =>
   message.payload?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
 
 // readGmail counts the owner's new mail, per thread: not his own, nor a list's, a newsletter's or a no-reply sender's.
-// Every page of the search is read; past perSource mails the source keeps its mark.
+// For each span it lists every page of the search (after:, before:), the newest first, and reads each mail from
+// where the span stopped (skip); past perSource mails it keeps the rest of the span, with that position.
 async function readGmail(call, source, st, now, config) {
   const get = async (path) => {
     const answer = await call("account_read", {
@@ -259,48 +257,57 @@ async function readGmail(call, source, st, now, config) {
     if (answer.status >= 400) throw new Error(`${source.account} could not be read: HTTP ${answer.status}`);
     return answer.records ?? {};
   };
-  const q = `after:${Math.floor(Date.parse(st.mark) / 1000)} -from:me ${config.gmailQuery}`;
-  const ids = [];
-  let token = "";
-  let complete = true;
-  for (;;) {
-    const page = await get(
-      `/gmail/v1/users/me/messages?maxResults=100&q=${encodeURIComponent(q)}` +
-        (token ? `&pageToken=${encodeURIComponent(token)}` : ""),
-    );
-    ids.push(...(page.messages ?? []).map((m) => m.id));
-    if (ids.length > config.perSource || (ids.length === config.perSource && page.nextPageToken)) {
-      complete = false;
-      ids.length = config.perSource;
-      break;
-    }
-    if (!page.nextPageToken) break;
-    token = page.nextPageToken;
-  }
+  const spans = [{ after: st.mark, before: iso(now.getTime() + 1000), skip: 0 }, ...(st.gaps ?? [])];
   const threads = new Map();
-  for (const id of ids) {
-    const m = await get(
-      `/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject` +
-        config.listHeaders.map((h) => `&metadataHeaders=${h}`).join(""),
-    );
-    const from = header(m, "From");
-    if ((m.labelIds ?? []).includes("SENT") || noReply(config, from)) continue;
-    if (config.listHeaders.some((h) => header(m, h) !== "")) continue;
-    const thread = threads.get(m.threadId) ?? { subject: header(m, "Subject"), count: 0, from: new Set(), latest: 0 };
-    thread.count += 1;
-    thread.from.add(from);
-    thread.latest = Math.max(thread.latest, Number(m.internalDate));
-    threads.set(m.threadId, thread);
+  const gaps = [];
+  let read = 0;
+  for (const span of spans) {
+    if (read >= config.perSource) {
+      gaps.push(span);
+      continue;
+    }
+    const q = `after:${Math.floor(Date.parse(span.after) / 1000)} before:${Math.ceil(Date.parse(span.before) / 1000)} ` +
+      `-from:me ${config.gmailQuery}`;
+    const ids = [];
+    let token = "";
+    for (;;) {
+      const page = await get(
+        `/gmail/v1/users/me/messages?maxResults=100&q=${encodeURIComponent(q)}` +
+          (token ? `&pageToken=${encodeURIComponent(token)}` : ""),
+      );
+      ids.push(...(page.messages ?? []).map((m) => m.id));
+      if (!page.nextPageToken) break;
+      token = page.nextPageToken;
+    }
+    for (let i = span.skip ?? 0; i < ids.length; i++) {
+      if (read >= config.perSource) {
+        gaps.push({ ...span, skip: i });
+        break;
+      }
+      read += 1;
+      const m = await get(
+        `/gmail/v1/users/me/messages/${ids[i]}?format=metadata&metadataHeaders=From&metadataHeaders=Subject` +
+          config.listHeaders.map((h) => `&metadataHeaders=${h}`).join(""),
+      );
+      const from = header(m, "From");
+      if ((m.labelIds ?? []).includes("SENT") || noReply(config, from)) continue;
+      if (config.listHeaders.some((h) => header(m, h) !== "")) continue;
+      const thread = threads.get(m.threadId) ?? { subject: header(m, "Subject"), count: 0, from: new Set(), latest: 0 };
+      thread.count += 1;
+      thread.from.add(from);
+      thread.latest = Math.max(thread.latest, Number(m.internalDate));
+      threads.set(m.threadId, thread);
+    }
   }
   return {
     found: [...threads].map(([id, t]) => ({
       where: `${source.account} mail thread "${t.subject}" (thread ${id})`,
       count: t.count,
       from: [...t.from],
-      latest: new Date(t.latest).toISOString(),
+      latest: iso(t.latest),
     })),
-    state: { mark: complete ? now.toISOString() : st.mark },
-    problems: complete ? [] : [`more than ${config.perSource} new mails; read again from its last time next run`],
+    state: { mark: now.toISOString(), gaps },
+    problems: gaps.length ? [`more than ${config.perSource} new mails; the rest are read next time`] : [],
   };
 }
 
@@ -320,9 +327,21 @@ async function readMeetings(call, _source, st, now) {
 
 const readers = { messaging: readMessaging, lark: readLark, gmail: readGmail, meetings: readMeetings };
 
-const lineOf = (f) =>
-  `- ${f.where}` + (f.count ? `: ${f.count} new` : "") + (f.from.length ? ` from ${f.from.join(", ")}` : "") +
-  (f.latest ? `, latest ${f.latest}` : "");
+// lineOf is a conversation's line, at most maxLine bytes: a long list of senders is cut to its first few with how
+// many more, and what is still too long is cut, so that one conversation never keeps the others from the prompt
+// (review of #1037, round 3).
+const maxLine = 600;
+const senders = 8;
+
+function lineOf(f) {
+  const from = f.from.length > senders ? [...f.from.slice(0, senders), `and ${f.from.length - senders} more`] : f.from;
+  const line = `- ${f.where}` + (f.count ? `: ${f.count} new` : "") + (from.length ? ` from ${from.join(", ")}` : "") +
+    (f.latest ? `, latest ${f.latest}` : "");
+  if (Buffer.byteLength(line, "utf8") <= maxLine) return line;
+  let cut = line;
+  while (Buffer.byteLength(cut, "utf8") > maxLine - 3) cut = cut.slice(0, -1);
+  return `${cut}…`;
+}
 
 const intro =
   "New since the last check (the owner's own messages, ads, official accounts, newsletters and no-reply senders " +

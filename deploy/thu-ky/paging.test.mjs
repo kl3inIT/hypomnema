@@ -154,11 +154,17 @@ function gmailWorld(count) {
     const url = new URL(`https://gmail.googleapis.com${args.path}`);
     const id = url.pathname.match(/messages\/([^/]+)$/)?.[1];
     if (id) return { status: 200, records: mails.find((m) => m.id === id) };
+    // The search's after: and before:, in seconds, as Gmail reads them.
+    const q = url.searchParams.get("q") ?? "";
+    const after = Number(q.match(/after:(\d+)/)?.[1] ?? 0) * 1000;
+    const before = Number(q.match(/before:(\d+)/)?.[1] ?? Infinity) * 1000;
+    const found = mails.filter((m) => Number(m.internalDate) > after && Number(m.internalDate) < before);
     const start = Number(url.searchParams.get("pageToken") || 0);
     const size = Number(url.searchParams.get("maxResults"));
     const next = start + size;
     return { status: 200, records: {
-      messages: mails.slice(start, next).map((m) => ({ id: m.id })), ...(next < count ? { nextPageToken: String(next) } : {}),
+      messages: found.slice(start, next).map((m) => ({ id: m.id })),
+      ...(next < found.length ? { nextPageToken: String(next) } : {}),
     } };
   };
   return { tools, call };
