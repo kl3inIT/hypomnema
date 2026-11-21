@@ -251,8 +251,32 @@ type Server = {
   makeKeys: string[]
   changes: Record<string, unknown>[]
   approved: number[]
-  retried: string[]
+  retried: { rev: number; key: string }[]
+  failedRevisions: Revision[]
   studioCalls: string[]
+}
+
+function failedRevision(rev: number, more: Partial<Revision> = {}): Revision {
+  return revision(rev, "failed", {
+    captions: true,
+    aspect: "9:16",
+    failed_stage: "voicing",
+    failed_cause: "scene 1: soniox: the key was refused; elevenlabs: no key",
+    lines: ["Mở giỏ hàng", "Chạm vào Thanh toán"],
+    ...more,
+  })
+}
+
+function failedVideoOf(server: Server) {
+  return {
+    id: failedVideo,
+    take: "tk_00000000000000a4",
+    title: "Checkout",
+    made_by: "d-41",
+    made_by_name: "worker 41",
+    created_at: at(48),
+    revisions: server.failedRevisions,
+  }
 }
 
 function revision(rev: number, state: string, more: Partial<Revision> = {}): Revision {
@@ -279,6 +303,7 @@ async function fakeServer(page: Page): Promise<Server> {
     changes: [],
     approved: [],
     retried: [],
+    failedRevisions: [failedRevision(1)],
     studioCalls: [],
   }
   const video = () => ({
@@ -387,27 +412,23 @@ async function fakeServer(page: Page): Promise<Server> {
 
         return json(video())
       case `POST /videos/${failedVideo}/revisions/1/retry`:
-        server.retried.push(request.headers()["idempotency-key"] ? `${failedVideo}/1` : "no key")
+      case `POST /videos/${failedVideo}/revisions/2/retry`: {
+        // A retry the server answers as it does: the video, its new revision failing again at once. A key used
+        // before for another revision is refused, as the server refuses it (idempotency_key_conflict).
+        const from = Number(path.split("/")[4])
+        const key = request.headers()["idempotency-key"] ?? ""
+        if (server.retried.some((r) => r.key === key && r.rev !== from)) {
+          return json({ code: "idempotency_key_conflict", message: "the request id was used" }, 409)
+        }
+        server.retried.push({ rev: from, key })
+        server.failedRevisions.push(
+          failedRevision(server.failedRevisions.length + 1, { parent: from }),
+        )
 
-        return json({ data: [] }, 201)
+        return json(failedVideoOf(server), 201)
+      }
       case `GET /videos/${failedVideo}`:
-        return json({
-          id: failedVideo,
-          take: "tk_00000000000000a4",
-          title: "Checkout",
-          made_by: "d-41",
-          made_by_name: "worker 41",
-          created_at: at(48),
-          revisions: [
-            revision(1, "failed", {
-              captions: true,
-              aspect: "9:16",
-              failed_stage: "voicing",
-              failed_cause: "scene 1: soniox: the key was refused; elevenlabs: no key",
-              lines: ["Mở giỏ hàng", "Chạm vào Thanh toán"],
-            }),
-          ],
-        })
+        return json(failedVideoOf(server))
       default:
         return json({ data: [] })
     }
@@ -613,9 +634,15 @@ test("a take is made into a video the owner reviews and approves", async ({ page
   await expect(failed.getByRole("button", { name: "Make again" })).toBeVisible()
   await shot(page, "studio-video-failed")
 
-  // Make again makes the failed revision as it was asked, by its own route, not by a new make (#937).
+  // Make again makes the failed revision as it was asked, by its own route, not by a new make (#937). When that
+  // one fails too, Make again of it is another request, with its own key.
   const made = server.made.length
   await failed.getByRole("button", { name: "Make again" }).click()
-  await expect.poll(() => server.retried).toEqual([`${failedVideo}/1`])
+  await expect(failed).toContainText("Revision 2 failed")
+  await failed.getByRole("button", { name: "Make again" }).click()
+  await expect(failed).toContainText("Revision 3 failed")
+  expect(server.retried.map((r) => r.rev)).toEqual([1, 2])
+  expect(server.retried[0]!.key).not.toEqual(server.retried[1]!.key)
+  expect(server.retried.every((r) => r.key !== "")).toBe(true)
   expect(server.made).toHaveLength(made)
 })
