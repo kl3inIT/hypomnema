@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { deflateSync } from "node:zlib"
 
-import { expect, test, type Page, type Route } from "@playwright/test"
+import { expect, test, type Locator, type Page, type Route } from "@playwright/test"
 
 import { shot } from "./shot.js"
 
@@ -811,6 +811,14 @@ const shownHue = (page: Page) =>
     return Array.from(g.getImageData(5, 5, 1, 1).data.slice(0, 3))
   })()`)
 
+// showSample scrolls the dialog until the look sample is at its top, so a picture taken on a phone shows it.
+const showSample = (look: Locator) =>
+  look
+    .getByTestId("look-sample")
+    .evaluate((el) =>
+      (el as unknown as { scrollIntoView: (o: object) => void }).scrollIntoView({ block: "start" }),
+    )
+
 const lookOf = (sample: Sample) => (sample.body as { look?: unknown }).look
 
 // Scenario: the owner makes a take into a video and opens its Look (issue #908, row 16; #938): it starts from the
@@ -864,8 +872,12 @@ test("Make video sends only the look sections changed, with a sample of the late
   await shot(page, "studio-look-sample-busy")
   await look.getByRole("button", { name: "Sunset" }).click()
   await expect(sample.getByRole("alert")).toHaveText(/ffmpeg is not installed/)
+  await showSample(look)
+  await shot(page, "studio-look-sample-unavailable")
   await look.getByRole("button", { name: "Forest" }).click()
   await expect(sample.getByRole("alert")).toHaveText(/took too long/)
+  await showSample(look)
+  await shot(page, "studio-look-sample-timed-out")
   await look.getByRole("button", { name: "Midnight" }).click()
   await expect(sample.getByRole("alert")).toHaveCount(0)
   await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
@@ -907,6 +919,8 @@ test("on a take whose phone turned, the default look is made and a chosen frame 
 
   await look.getByRole("button", { name: "iPhone" }).click()
   await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
+  await showSample(look)
+  await shot(page, "studio-make-turned-default")
   await dialog.getByRole("button", { name: "Make video" }).click()
   await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
   expect(server.made[1]).toEqual({ take: turnedTake, captions: true, aspect: "9:16" })
@@ -914,6 +928,7 @@ test("on a take whose phone turned, the default look is made and a chosen frame 
   server.revisions = [{ ...server.revisions[0]!, state: "review", length_ms: 3000 }]
   const review = page.getByRole("complementary", { name: "Review" })
   await expect(review).toContainText("so the video has no iphone frame", { timeout: 5000 })
+  await shot(page, "studio-make-turned-made")
 })
 
 // Scenario: the owner opens Change look on a made revision. It starts from the revision's look, the sample is drawn
@@ -944,6 +959,8 @@ test("Change look posts only the sections changed and the new revision appears",
     rev: 1,
   })
   await expect(dialog.getByRole("button", { name: "Change look" })).toBeDisabled()
+  await showSample(look)
+  await shot(page, "studio-change-look-start")
 
   await look.getByRole("button", { name: "Your two colours" }).click()
   await expect(look.getByLabel("Top left")).toHaveValue("#1b2140")
@@ -955,7 +972,7 @@ test("Change look posts only the sections changed and the new revision appears",
     .toEqual({ background: { preset: "ocean" } })
   expect(server.samples.at(-1)!.body).toMatchObject({ rev: 1 })
   await expect(look.getByRole("img", { name: "A sample of the look" })).toBeVisible()
-  await look.scrollIntoViewIfNeeded()
+  await showSample(look)
   await shot(page, "studio-change-look")
   await dialog.getByRole("button", { name: "Change look" }).click()
 
