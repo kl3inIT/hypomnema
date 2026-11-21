@@ -467,3 +467,28 @@ func TestAForwardedQuestionAConnectionRequestAndAToDoEachReachTheDeviceOnce(t *t
 		assert.Equal(t, "high", r.header.Get("Urgency"))
 	}
 }
+
+// Scenario: an Approval's title is all characters JSON escapes six bytes each (review of #1050: 750 NULs). Cut to
+// 1500 bytes it still overflows a push once encoded; the push is cut again to fit, and arrives.
+func TestAnItemWhoseWordsGrowWhenEncodedStillArrives(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+	phone := w.subscribe("phone")
+	w.run()
+
+	_, _, err := w.svc.AskApproval(t.Context(), orchestration.NewApproval{
+		Integration: "google", Label: "work", Action: "gmail.send", ActionName: "Send mail", ChatID: w.chat.ID,
+		AskedBy: "pi", Title: "Send " + strings.Repeat("\x00", 750) + `"mail"`, MatchHash: "digest-nul",
+	})
+	require.NoError(t, err)
+	w.sent()
+
+	got := w.push.got("phone")
+	require.Len(t, got, 1)
+
+	p := phone.payload(t, got[0])
+	assert.True(t, strings.HasPrefix(p.Notification.Body, "Send \x00"), "%q", p.Notification.Body)
+	assert.True(t, strings.HasSuffix(p.Notification.Body, "…"), "cut to fit")
+	assert.Equal(t, publicURL+"/chats/"+w.chat.ID, p.Notification.Navigate)
+}
