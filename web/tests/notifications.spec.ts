@@ -172,6 +172,54 @@ test("a test push shows on the page it opens; a push for the chat in view does n
   expect(await pushTo(page, "/chats/cht_2", "writer asks")).toEqual(["writer asks"])
 })
 
+// renew hands the page's service worker the event a push service sends when it changes a subscription's endpoint,
+// with the device list the control plane answers, and returns the calls the worker made.
+async function renew(page: Page, listed: string[]) {
+  const context = page.context()
+  const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
+  await page.evaluate("navigator.serviceWorker.ready")
+  const list = JSON.stringify({
+    public_key: publicKey,
+    data: listed.map((endpoint, i) => ({ id: `psb_${i}`, endpoint, label: "iPhone · Safari" })),
+  })
+
+  return worker.evaluate(`(async () => {
+    const calls = []
+    self.fetch = async (url, init = {}) => {
+      calls.push((init.method || "GET") + " " + new URL(url, location.origin).pathname)
+      return new Response(${JSON.stringify(list)}, { status: 200, headers: { "Content-Type": "application/json" } })
+    }
+    const sub = (endpoint) => ({
+      endpoint,
+      options: { applicationServerKey: new Uint8Array(65).buffer },
+      toJSON: () => ({ endpoint, keys: { p256dh: "BKey", auth: "auth" } }),
+    })
+    const event = new Event("pushsubscriptionchange")
+    Object.defineProperty(event, "oldSubscription", { value: sub("https://push.example/old") })
+    Object.defineProperty(event, "newSubscription", { value: sub("https://push.example/new") })
+    let done = Promise.resolve()
+    event.waitUntil = (p) => { done = p }
+    self.dispatchEvent(event)
+    await done
+    return calls
+  })()`) as Promise<string[]>
+}
+
+// Scenario: the push service gives a device a new endpoint (an iOS reinstall). A device the owner still has is kept
+// under its new endpoint and its old row goes, as Coder's pushsubscriptionchange handler posts the new one and
+// deletes the old (site/src/serviceWorker.ts). One he removed stays removed (review of #1050).
+test("a renewed subscription is kept only for a device the owner still has", async ({ page }) => {
+  await fakeServer(page, [laptop])
+  await page.goto("/settings/notifications")
+
+  expect(await renew(page, ["https://push.example/old"])).toEqual([
+    "GET /api/v1/push/subscriptions",
+    "PUT /api/v1/push/subscriptions",
+    "DELETE /api/v1/push/subscriptions/psb_0",
+  ])
+  expect(await renew(page, [laptop.endpoint])).toEqual(["GET /api/v1/push/subscriptions"])
+})
+
 test.describe("on an iPhone in Safari", () => {
   test.use({ userAgent: iPhone })
 
