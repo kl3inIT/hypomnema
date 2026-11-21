@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
@@ -106,6 +107,21 @@ type ContextUsage struct {
 	Tokens  *int64
 	Window  int64
 	Percent *float64
+}
+
+// piReserveShare and piReserveFloor: pi compacts a chat once fewer than max(15% of the model's window, 16,384)
+// tokens are free, as omp (packages/agent/src/compaction/compaction.ts) and opencode
+// (packages/core/src/session/compaction.ts) reserve (issue #395). pi's own reserve is 16,384 whatever the window.
+const (
+	piReserveShare = 0.15
+	piReserveFloor = 16384
+)
+
+// CompactReserve is the reserve each chat's pi is given for a model with this window (pi's
+// compaction.modelOverrides reserveTokens), and so what the context meter shows pi compacting at, the window less
+// this (issue #1009). It is the one place the reserve is computed: pi's settings and the API both read it.
+func CompactReserve(window int64) int64 {
+	return max(int64(float64(window)*piReserveShare), piReserveFloor)
 }
 
 // SetChatContextUsage keeps pi's last report of the chat's context window (issue #384). The chat's updated_at stays:
@@ -671,6 +687,11 @@ func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries
 	}
 	if open {
 		return fmt.Errorf("%w: chat %s has open Runs; settle them before deleting the chat", ErrConflict, id)
+	}
+
+	// What a Bot was doing in the chat is given back (issue #1004).
+	if err := s.inbox.EndAttemptsTx(ctx, q, now, inboxstore.WorkChat, id, "the chat was deleted"); err != nil {
+		return err
 	}
 
 	blobs, err := q.ListArtifactBlobsOfChat(ctx, id)

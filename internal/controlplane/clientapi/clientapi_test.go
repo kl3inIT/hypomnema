@@ -1110,7 +1110,7 @@ func (f *fakeCoordinator) Compact(_ context.Context, chatID string) error {
 }
 
 // Scenario: the context meter (issue #384). A chat carries pi's last report of its context window, without tokens
-// right after a compaction; the owner, and only the owner, compacts a chat, and a chat whose pi works is refused.
+// right after a compaction, and the reserve its pi keeps free, the one pi's settings give it (#1009); the owner, and only the owner, compacts a chat, and a chat whose pi works is refused.
 func TestTheOwnerCompactsAChat(t *testing.T) {
 	t.Parallel()
 
@@ -1133,8 +1133,9 @@ func TestTheOwnerCompactsAChat(t *testing.T) {
 	got, err := owner.GetChatWithResponse(ctx, id)
 	require.NoError(t, err)
 	require.NotNil(t, got.JSON200.ContextUsage)
-	assert.Equal(t, openapi.ChatContextUsage{ContextWindow: 128000, Tokens: &tokens, Percent: &percent},
-		*got.JSON200.ContextUsage)
+	assert.Equal(t, openapi.ChatContextUsage{
+		ContextWindow: 128000, ReserveTokens: 19200, Tokens: &tokens, Percent: &percent,
+	}, *got.JSON200.ContextUsage, "the reserve is 15% of the window, what pi's settings give it (#1009)")
 
 	compacted, err := owner.CompactChatWithResponse(ctx, id)
 	require.NoError(t, err)
@@ -1148,6 +1149,20 @@ func TestTheOwnerCompactsAChat(t *testing.T) {
 	require.NotNil(t, got.JSON200.ContextUsage)
 	assert.Nil(t, got.JSON200.ContextUsage.Tokens, "unknown until pi's next answer")
 	assert.Nil(t, got.JSON200.ContextUsage.Percent)
+
+	require.NoError(t, w.svc.SetChatContextUsage(ctx, id, orchestration.ContextUsage{Window: 1000000}))
+
+	got, err = owner.GetChatWithResponse(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got.JSON200.ContextUsage)
+	assert.Equal(t, int64(150000), got.JSON200.ContextUsage.ReserveTokens, "pi compacts a 1M window at 850,000")
+
+	require.NoError(t, w.svc.SetChatContextUsage(ctx, id, orchestration.ContextUsage{Window: 64000}))
+
+	got, err = owner.GetChatWithResponse(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got.JSON200.ContextUsage)
+	assert.Equal(t, int64(16384), got.JSON200.ContextUsage.ReserveTokens, "a small window keeps pi's floor")
 
 	w.pi.busy.Store(true)
 

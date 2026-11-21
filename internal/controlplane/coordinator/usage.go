@@ -21,7 +21,7 @@ import (
 // OpenMausBot's "compact now" (POST /api/bots/:id/compact, run as a turn of
 // its own) do; pi's own compaction settings are kept.
 
-// FrameUsage says how full the context window is: {context_window, tokens, percent}.
+// FrameUsage says how full the context window is: {context_window, reserve_tokens, tokens, percent}.
 const FrameUsage = "usage"
 
 // compactTimeout bounds a compaction: a model writes the summary.
@@ -34,6 +34,7 @@ const compactFailedPrefix = "pi's compaction failed: "
 // UsageFrame is the data of a usage frame, the API's ChatContextUsage.
 type UsageFrame struct {
 	ContextWindow int64    `json:"context_window"`
+	ReserveTokens int64    `json:"reserve_tokens"`
 	Tokens        *int64   `json:"tokens,omitempty"`
 	Percent       *float64 `json:"percent,omitempty"`
 }
@@ -95,7 +96,8 @@ func (p *proc) refreshUsage(ctx context.Context) {
 
 		p.usage = &u
 		p.s.publish(p.chatID, Frame{Event: FrameUsage, Data: UsageFrame{
-			ContextWindow: u.Window, Tokens: u.Tokens, Percent: u.Percent,
+			ContextWindow: u.Window, ReserveTokens: orchestration.CompactReserve(u.Window), Tokens: u.Tokens,
+			Percent: u.Percent,
 		}})
 	}()
 }

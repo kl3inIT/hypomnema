@@ -10,8 +10,10 @@ import { formatTokens, meterLine, meterOf } from "./context-meter-state"
 
 afterEach(() => vi.restoreAllMocks())
 
+// reserve_tokens is what the control plane sends for a 128k window: 15 % of it (issue #1009).
 const used = (tokens: number, percent?: number): ChatContextUsage => ({
   context_window: 128000,
+  reserve_tokens: 19200,
   tokens,
   ...(percent !== undefined && { percent }),
 })
@@ -19,7 +21,7 @@ const used = (tokens: number, percent?: number): ChatContextUsage => ({
 describe("the context meter's states (issue #384)", () => {
   it("shows nothing before pi reported a window", () => {
     expect(meterOf(undefined)).toBeNull()
-    expect(meterOf({ context_window: 0 })).toBeNull()
+    expect(meterOf({ context_window: 0, reserve_tokens: 16384 })).toBeNull()
   })
 
   it("is normal below 80 %, amber from 80 % and red from 90 %, by pi's share", () => {
@@ -30,15 +32,25 @@ describe("the context meter's states (issue #384)", () => {
     expect(meterOf(used(64000))).toMatchObject({ percent: 50 })
   })
 
-  it("marks where pi compacts on its own: the window less 16384", () => {
+  // The reserve is the one the server sends, the one pi's settings give the chat's pi (issue #1009), not pi's
+  // 16384 default.
+  it("marks where pi compacts on its own: the window less the reserve pi keeps", () => {
     const m = meterOf(used(51200, 40))
-    expect(m?.autoCompact).toBe(111616)
-    expect(m?.tick).toBeCloseTo(87.2)
-    expect(meterOf({ context_window: 8000, tokens: 10 })?.tick).toBeNull()
+    expect(m?.autoCompact).toBe(108800)
+    expect(m?.tick).toBeCloseTo(85)
+
+    const large = meterOf({ context_window: 1_000_000, reserve_tokens: 150_000, tokens: 848_000 })
+    expect(large).toMatchObject({ autoCompact: 850_000, percent: 85 })
+    expect(large?.tick).toBeCloseTo(85)
+
+    expect(meterOf({ context_window: 64_000, reserve_tokens: 16384 })?.autoCompact).toBe(
+      64_000 - 16384,
+    )
+    expect(meterOf({ context_window: 8000, reserve_tokens: 16384, tokens: 10 })?.tick).toBeNull()
   })
 
   it("says – after a compaction, until pi's next answer", () => {
-    const m = meterOf({ context_window: 128000 })
+    const m = meterOf({ context_window: 128000, reserve_tokens: 19200 })
     expect(m).toMatchObject({ used: null, percent: null, tone: "normal" })
     expect(m && meterLine(m)).toBe("– / 128k")
   })
@@ -76,12 +88,12 @@ test("the meter's card shows the numbers and compacts", async () => {
   expect(ring).toHaveAttribute("data-tone", "critical")
   await user.click(ring)
   expect(await screen.findByText("115k / 128k (90%)")).toBeInTheDocument()
-  expect(screen.getByText("pi compacts on its own at about 111,616 tokens.")).toBeInTheDocument()
+  expect(screen.getByText("pi compacts on its own at about 108,800 tokens.")).toBeInTheDocument()
 
   await user.click(screen.getByRole("button", { name: "Compact" }))
   await vi.waitFor(() => expect(asked).toEqual(["POST /api/v1/chats/cht_1/compact"]))
 
-  rerender(meter({ context_window: 128000 }, true))
+  rerender(meter({ context_window: 128000, reserve_tokens: 19200 }, true))
   expect(screen.getByRole("button", { name: "Compact" })).toBeDisabled()
 })
 
@@ -90,7 +102,7 @@ test("no ring before pi reported, and a dash after a compaction", () => {
   expect(container).toBeEmptyDOMElement()
   unmount()
 
-  render(meter({ context_window: 128000 }))
+  render(meter({ context_window: 128000, reserve_tokens: 19200 }))
   expect(
     screen.getByRole("button", { name: "Context: not measured since it was compacted" }),
   ).toHaveTextContent("–")

@@ -221,6 +221,10 @@ func (l Launcher) carry(ctx context.Context, conn net.Conn, target, integration,
 		header.Set(HeaderRoutineRun, l.RunKey)
 	}
 
+	if l.Todo != "" {
+		header.Set(HeaderTodo, l.Todo)
+	}
+
 	//nolint:bodyclose // The library closes the handshake's body.
 	ws, resp, err := websocket.Dial(ctx, target+"?"+query.Encode(), &websocket.DialOptions{
 		HTTPHeader: header, HTTPClient: l.Client,

@@ -7,9 +7,9 @@ import type { ChatContextUsage } from "@/api/generated/types.gen"
 // shows no meter before the agent reported one (main/pi/rpc/rpc-context-usage.ts), and pi reports no tokens right
 // after a compaction, until its next answer (agent-session.ts getContextUsage).
 
-// compactReserve is what pi keeps free: it compacts on its own once the context passes the window less this
-// (pi settings-defaults.ts reserveTokens, compaction.ts shouldCompact).
-const compactReserve = 16384
+// pi keeps usage.reserve_tokens free: it compacts on its own once the context passes the window less this (pi
+// compaction.ts shouldCompact). The control plane sends the reserve it gives each chat's pi (issue #1009), so the
+// meter never keeps a copy of it.
 
 type MeterTone = "normal" | "warning" | "critical"
 
@@ -29,7 +29,8 @@ export function meterOf(usage: ChatContextUsage | undefined): Meter | null {
   if (!usage || !(usage.context_window > 0)) return null
 
   const window = usage.context_window
-  const autoCompact = window > compactReserve ? window - compactReserve : null
+  const reserve = usage.reserve_tokens
+  const autoCompact = window > reserve ? window - reserve : null
   const tick = autoCompact === null ? null : (autoCompact / window) * 100
 
   if (usage.tokens === undefined) {

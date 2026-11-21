@@ -4309,9 +4309,13 @@ export type Chat = {
  */
 export type ChatContextUsage = {
   /**
-   * The model's context window in tokens; pi compacts on its own at this less 16384.
+   * The model's context window in tokens; pi compacts on its own at this less reserve_tokens.
    */
   context_window: number;
+  /**
+   * The tokens pi keeps free, the reserve the chat's pi is given for this window: max(15% of the window, 16384) (issues #395, #1009). pi compacts on its own once fewer are free.
+   */
+  reserve_tokens: number;
   /**
    * The tokens in pi's context; absent right after a compaction, until pi's next answer.
    */
@@ -5068,7 +5072,10 @@ export type TodoDue = {
   zone?: string;
 };
 
-export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message';
+/**
+ * zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered.
+ */
+export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message' | 'whatsapp_message' | 'zalo_sent' | 'whatsapp_sent' | 'lark_sent';
 
 /**
  * A typed reference, to where an item came from or to what shows it is done.
@@ -5080,12 +5087,20 @@ export type TodoLink = {
    */
   ref: string;
   label?: string;
+  /**
+   * The owner's account a message he sent was sent from; zalo_sent, whatsapp_sent, lark_sent only.
+   */
+  account?: string;
+  /**
+   * The chat a message the owner sent is in, its id at the service; the *_sent kinds only.
+   */
+  chat?: string;
 };
 
 /**
- * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark and zalo, a Bot reading a chat of the owner's own account there.
+ * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there.
  */
-export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo';
+export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo' | 'whatsapp';
 
 export type TodoSource = {
   kind: TodoSourceKind;
@@ -5094,7 +5109,7 @@ export type TodoSource = {
    */
   id?: string;
   /**
-   * The owner's Zalo account the chat is in; zalo only.
+   * The owner's account the chat is in; zalo and whatsapp, and lark when given.
    */
   account?: string;
   /**
@@ -5171,6 +5186,10 @@ export type Todo = {
   title: string;
   notes: string;
   done_when: string;
+  /**
+   * The reply a Bot drafted for the owner to send himself.
+   */
+  draft: string;
   due: TodoDue;
   assignee: TodoAssignee;
   state: TodoState;
@@ -5219,16 +5238,16 @@ export type InboxNeedsYou = {
 };
 
 /**
- * Where a Bot in a Routine's run found it: kind routine, or lark or zalo with the chat's id there (and the Zalo account). The owner's and a chat's come from the token.
+ * Where a Bot in a Routine's run found it: kind routine, or lark, zalo or whatsapp with the chat's id there (and the account). The owner's and a chat's come from the token.
  */
 export type NewTodoSource = {
   kind?: TodoSourceKind;
   /**
-   * The chat's id at Lark or Zalo; lark and zalo only.
+   * The chat's id at Lark, Zalo or WhatsApp; those only.
    */
   id?: string;
   /**
-   * The owner's Zalo account the chat is in.
+   * The owner's account the chat is in; required for zalo and whatsapp.
    */
   account?: string;
   quote?: string;
@@ -5239,6 +5258,7 @@ export type NewTodo = {
   title: string;
   notes?: string;
   done_when?: string;
+  draft?: string;
   due?: TodoDue;
   assignee?: TodoAssignee;
   state?: 'open' | 'proposed';
@@ -5263,6 +5283,7 @@ export type TodoEdit = {
   title?: string;
   notes?: string;
   done_when?: string;
+  draft?: string;
   due?: TodoDue;
   assignee?: TodoAssignee;
 };

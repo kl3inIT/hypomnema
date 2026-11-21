@@ -1,8 +1,8 @@
 -- name: InsertTodo :exec
-INSERT INTO todos (id, title, notes, done_when, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
+INSERT INTO todos (id, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
                    assignee, state, source_kind, source_id, source_account, source_quote, source_ref,
                    created_by_kind, created_by, why_open, idempotency_key, idempotency_hash, created_at, updated_at)
-VALUES (@id, @title, @notes, @done_when, @due_kind, @due_date, @due_zone, @due_at, @overdue_at, @assignee_kind,
+VALUES (@id, @title, @notes, @done_when, @draft, @due_kind, @due_date, @due_zone, @due_at, @overdue_at, @assignee_kind,
         @assignee, @state, @source_kind, @source_id, @source_account, @source_quote, @source_ref, @created_by_kind,
         @created_by, @why_open, @idempotency_key, @idempotency_hash, @now, @now);
 
@@ -16,7 +16,8 @@ SELECT * FROM todos WHERE idempotency_key = @idempotency_key;
 -- The guarded write of every change (docs/conventions.md, "Transitions are guarded writes"): it changes the row only
 -- at the revision and in the state the caller read, and moves the revision on by one.
 UPDATE todos
-SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_when, due_kind = @due_kind,
+SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_when, draft = @draft,
+    due_kind = @due_kind,
     due_date = @due_date, due_zone = @due_zone, due_at = @due_at, overdue_at = @overdue_at,
     assignee_kind = @assignee_kind, assignee = @assignee, state = @state, snoozed_until = @snoozed_until,
     work_attempt = @work_attempt, work_kind = @work_kind, work_id = @work_id, work_bot = @work_bot,
@@ -26,6 +27,18 @@ SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_w
     close_reason = @close_reason, evidence = @evidence, closed_at = @closed_at, duplicate_of = @duplicate_of,
     updated_at = @now
 WHERE id = @id AND revision = @revision AND state = @from_state;
+
+-- name: GetTodoOfApproval :one
+-- The item that waits for an Approval.
+SELECT * FROM todos WHERE approval_id = @approval_id AND state = 'review';
+
+-- name: GetTodoOfAttempt :one
+-- The item a Bot's attempt is on.
+SELECT * FROM todos WHERE work_attempt = @work_attempt AND state IN ('doing', 'review');
+
+-- name: ListTodosOfWork :many
+-- The items a Bot's attempt is on in a chat or a Routine's run, doing or waiting for an Approval.
+SELECT * FROM todos WHERE work_kind = @work_kind AND work_id = @work_id AND state IN ('doing', 'review') ORDER BY id;
 
 -- name: GetTodoChatMessage :one
 -- Who wrote a chat message and in which chat: the owner's message cited as evidence (role owner, no sender).
@@ -63,6 +76,7 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
     AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
+      OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
   AND (CAST(@has_cursor AS INTEGER) = 0
     OR coalesce(t.due_at, 9223372036854775807) > CAST(@cursor_due AS INTEGER)
@@ -88,4 +102,5 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
     AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
+      OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))));

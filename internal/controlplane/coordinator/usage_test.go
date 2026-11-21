@@ -80,6 +80,7 @@ func TestPiReportsItsContextAndCompacts(t *testing.T) {
 	require.NotNil(t, u.Tokens)
 	require.NotNil(t, u.Percent)
 	assert.Equal(t, int64(128000), u.ContextWindow)
+	assert.Equal(t, int64(19200), u.ReserveTokens, "the reserve pi's settings give a 128k window (#1009)")
 	assert.Equal(t, int64(2000), *u.Tokens)
 	assert.InDelta(t, 1.5625, *u.Percent, 0.0001)
 	assert.Equal(t, "2000/128000", usageOf(t, svc, chat.ID))
