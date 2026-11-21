@@ -200,23 +200,26 @@ func (s *Server) reportDisk(ctx context.Context, nodeID string, disk nodeproto.D
 	defer s.diskReports.Unlock()
 
 	alert, err := s.svc.ReportNodeDisk(ctx, nodeID, disk)
-	if alert == nil || s.diskAlert == nil {
-		return err
+	if alert != nil && s.diskAlert != nil {
+		s.queueDiskAlert(ctx, nodeID, *alert)
 	}
 
+	return err
+}
+
+// queueDiskAlert queues an alert of a node for its sender, starting one when none runs. diskReports is held.
+func (s *Server) queueDiskAlert(ctx context.Context, nodeID string, alert orchestration.DiskAlert) {
 	if s.diskAlerts == nil {
 		s.diskAlerts = map[string][]orchestration.DiskAlert{}
 	}
 
 	queued := s.diskAlerts[nodeID]
-	s.diskAlerts[nodeID] = append(queued, *alert)
+	s.diskAlerts[nodeID] = append(queued, alert)
 
 	if len(queued) == 0 {
 		// Told apart from the session, as sending to a channel may take seconds the node's messages do not wait.
 		go s.tellDiskAlerts(context.WithoutCancel(ctx), nodeID)
 	}
-
-	return err
 }
 
 // tellDiskAlerts tells a node's queued alerts one after another, and ends when none is left.
