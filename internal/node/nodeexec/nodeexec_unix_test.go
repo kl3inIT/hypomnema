@@ -233,3 +233,31 @@ func TestOneIDStartsOneCommand(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "x\n", string(ran))
 }
+
+// Scenario (issue #1060, review round 1): a Bot's turn is cut by an update while its command runs, and the id its
+// tools server chose went with it. The continued turn lists its own processes on the node, running first, then the
+// newest, with each one's id, command and exit code, as Coder's process list does; another agent's are not listed.
+func TestAnAgentListsItsOwnProcesses(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	t.Cleanup(m.Close)
+
+	require.Empty(t, m.Run(t.Context(), Request{Agent: "b-cht_a", Command: "exit 3"}).Error)
+	time.Sleep(5 * time.Millisecond)
+
+	running := m.Start(Request{Agent: "b-cht_a", Command: "sleep 300"})
+	require.Empty(t, running.Error)
+	require.Empty(t, m.Run(t.Context(), Request{Agent: "b-cht_b", Command: "true"}).Error)
+
+	list := m.List("b-cht_a")
+	require.Len(t, list, 2)
+	assert.Equal(t, running.ProcessID, list[0].ProcessID, "running first")
+	assert.True(t, list[0].Running)
+	assert.Equal(t, "sleep 300", list[0].Command)
+	assert.Equal(t, "exit 3", list[1].Command)
+	require.NotNil(t, list[1].ExitCode)
+	assert.Equal(t, 3, *list[1].ExitCode)
+	assert.Positive(t, list[1].StartedAt)
+	assert.Empty(t, m.List("d-dsp_1"))
+}

@@ -216,6 +216,9 @@ func (m *Manager) Kill(agent, id string) nodeproto.ExecAnswer {
 	return p.answer(true)
 }
 
+// List is the agent's processes.
+func (m *Manager) List(_ string) []nodeproto.ExecProcess { return nil }
+
 // Close kills the processes still running in the background: they end with
 // the node, as Coder's end with its agent.
 func (m *Manager) Close() {

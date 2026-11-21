@@ -427,7 +427,23 @@ const (
 	ExecOutput = "output"
 	// ExecKill kills a background process and what it started.
 	ExecKill = "kill"
+	// ExecList answers with the agent's processes the node keeps, running first, then the newest (issue #1060).
+	ExecList = "list"
 )
+
+// ExecListMost is how many processes ExecList answers with at most, as Coder's process list
+// (agent/agentproc/api.go handleListProcesses, maxListProcesses).
+const ExecListMost = 10
+
+// ExecProcess is one process ExecList answers with.
+type ExecProcess struct {
+	ProcessID string `json:"process_id"`
+	Command   string `json:"command"`
+	Running   bool   `json:"running,omitempty"`
+	ExitCode  *int   `json:"exit_code,omitempty"`
+	// StartedAt is when it started, in Unix milliseconds.
+	StartedAt int64 `json:"started_at"`
+}
 
 // Exec is one agent's command on a node (issue #543), or a question about
 // one it started in the background. SudoPassword is the node's sudo
@@ -462,6 +478,8 @@ type ExecAnswer struct {
 	Output    string `json:"output,omitempty"`
 	CutBytes  int64  `json:"cut_bytes,omitempty"`
 	Error     string `json:"error,omitempty"`
+	// Processes are ExecList's answer.
+	Processes []ExecProcess `json:"processes,omitempty"`
 }
 
 // DeviceAnswer is a phone tool's result as MCP has it: what the tool says,

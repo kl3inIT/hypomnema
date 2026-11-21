@@ -279,3 +279,36 @@ func TestANodeWhoseSocketIsNotBackAnswersNotConnected(t *testing.T) {
 	assert.True(t, agenttool.IsNodeNotConnected(text), text)
 	assert.Equal(t, `node "zm" is not connected; connected now: zm`, text)
 }
+
+// node_process given no process_id lists the agent's own processes on the node (issue #1060), for a turn the update
+// cut to find the command it ran, as Coder's process list does.
+func TestNodeProcessWithoutAnIDListsTheAgentsProcesses(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	code := 3
+	m := &machines{give: nodeproto.ExecAnswer{Processes: []nodeproto.ExecProcess{
+		{ProcessID: "proc_0123456789ab", Command: "make build", Running: true, StartedAt: 1_795_000_000_000},
+		{ProcessID: "proc_ba9876543210", Command: "exit 3", ExitCode: &code, StartedAt: 1_794_999_000_000},
+	}}}
+	withMachines(w, m)
+
+	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	_, text, isErr := w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm"}`)
+	assert.False(t, isErr)
+	require.Len(t, m.sent, 1)
+	assert.Equal(t, nodeproto.Exec{Agent: "d-dsp_1", Action: nodeproto.ExecList}, m.sent[0])
+	assert.Contains(t, text, "process_id proc_0123456789ab, running, started ")
+	assert.Contains(t, text, ": make build")
+	assert.Contains(t, text, "process_id proc_ba9876543210, exit code 3, started ")
+
+	m.give = nodeproto.ExecAnswer{}
+	_, text, _ = w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm"}`)
+	assert.Equal(t, "no process of yours on this node", text)
+
+	_, text, isErr = w.use(worker, agenttool.ToolNodeProcessKill, `{"node":"zm"}`)
+	assert.True(t, isErr, "a kill names its process")
+	assert.Contains(t, text, "process_id")
+}
