@@ -42,7 +42,13 @@ async function controlPlane(t: TestContext, status = 200) {
   const before = { HOME: process.env.HOME, TMPDIR: process.env.TMPDIR };
   process.env.HOME = join(root, "home");
   process.env.TMPDIR = join(root, "tmp");
-  t.after(() => Object.assign(process.env, before));
+  // An unset variable is deleted again: assigning undefined to process.env stores the string "undefined".
+  t.after(() => {
+    for (const [name, value] of Object.entries(before)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
   return { root, reports, auth, end };
 }
 
