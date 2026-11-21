@@ -81,3 +81,38 @@ func TestABotThatReadsTheOwnersAccountsNeverWritesThroughThem(t *testing.T) {
 	assert.Equal(t, http.StatusOK, gmail.do(http.MethodPost, sendPath, contentType, mailBody).Status,
 		"a Bot that uses his accounts sends on his Allow")
 }
+
+// Scenario: review of #1037, round 3: the Bot's tool opened its connection to Gmail while the Bot used the owner's
+// accounts; the owner then makes it read them only. The next send on that same open connection is refused: what
+// the Bot may do is read at each request, never kept from when the connection opened.
+func TestAnOpenConnectionFollowsTheBotsSettingAtEachRequest(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, 100*time.Millisecond)
+	ctx := t.Context()
+	require.NoError(t, w.svc.SetActionPolicy(ctx, "google", "work", "gmail.send", orchestration.PolicyAllow))
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "Thư ký", Connections: orchestration.AllowList{Limited: true, Names: []string{"google:work"}},
+	})
+	require.NoError(t, err)
+	chat, err := w.svc.CreateChat(ctx, bot.ID, "")
+	require.NoError(t, err)
+	secret, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
+	require.NoError(t, err)
+
+	gmail, refused := w.open(secret, "work", "gmail.googleapis.com", "")
+	require.Zero(t, refused)
+
+	contentType, body := mail("lan@example.com", "Báo giá", "Dạ em gửi ạ.", 1)
+	require.Equal(t, http.StatusOK, gmail.do(http.MethodPost, sendPath, contentType, body).Status, "it uses them")
+
+	bot.OwnerAccounts = orchestration.OwnerAccountsRead
+	_, err = w.svc.PutBot(ctx, bot)
+	require.NoError(t, err)
+
+	got := gmail.do(http.MethodPost, sendPath, contentType, body)
+	assert.Equal(t, http.StatusForbidden, got.Status, "the same connection now only reads")
+	assert.Contains(t, got.message(), agenttool.OwnerReadOnlyRefusal)
+	assert.Len(t, w.service.received(), 1, "only the first send reached Google")
+}
