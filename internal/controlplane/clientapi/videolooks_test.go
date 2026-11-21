@@ -82,12 +82,15 @@ func TestTheLookSampleAnswersItsLimits(t *testing.T) {
 	}
 
 	bad := openapi.ChromeIPhone
-	empty := []string{}
+	empty, none := []string{}, ""
 	for name, b := range map[string]openapi.VideoPreview{
 		"no colors": {Take: body.Take, Look: &openapi.VideoLookInput{Background: &openapi.VideoBackground{
 			Colors: &empty,
 		}}},
 		"a take's id": {Take: "take-1", Look: &openapi.VideoLookInput{Frame: &openapi.VideoFrameInput{Chrome: &bad}}},
+		"no background": {Take: body.Take, Look: &openapi.VideoLookInput{Background: &openapi.VideoBackground{
+			Preset: &none,
+		}}},
 	} {
 		resp, err := owner.PreviewVideoLookWithResponse(ctx, b)
 		require.NoError(t, err)

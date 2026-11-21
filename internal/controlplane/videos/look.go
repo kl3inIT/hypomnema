@@ -163,11 +163,15 @@ func frameOf(in *FrameInput) (compose.Frame, error) {
 	return out, nil
 }
 
-// backgroundOf is the sent background section: a preset, two colors, or midnight when it holds neither. Colors
-// sent empty are refused, not read as none (#937, the review of #936).
+// backgroundOf is the sent background section: a preset, two colors, or midnight when it holds neither. A preset
+// or colors sent empty are refused, not read as none (#937, the reviews of #936 and #1001).
 func backgroundOf(in *BackgroundInput) (*compose.Background, error) {
 	out := &compose.Background{}
 	if in.Preset != nil {
+		if *in.Preset == "" {
+			return nil, fmt.Errorf("%w: a background's preset is one of %v", ErrInvalid, compose.Backgrounds)
+		}
+
 		out.Preset = *in.Preset
 	}
 
