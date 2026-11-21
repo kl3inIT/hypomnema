@@ -862,16 +862,19 @@ func TestAShareLinksLastViewIsWrittenAtMostHourly(t *testing.T) {
 	}
 
 	first := w.clock.now
-	require.NoError(t, w.s.CountArtifactShareView(ctx, sh.ID))
+	w.s.CountArtifactShareView(sh.ID)
+	require.NoError(t, w.s.WriteShareViews(ctx))
 	w.advance(59 * time.Minute)
-	require.NoError(t, w.s.CountArtifactShareView(ctx, sh.ID))
+	w.s.CountArtifactShareView(sh.ID)
+	require.NoError(t, w.s.WriteShareViews(ctx))
 
 	views, last := read()
 	assert.Equal(t, int64(2), views)
 	assert.Equal(t, first.UnixMilli(), last, "not written again within the hour")
 
 	w.advance(2 * time.Minute)
-	require.NoError(t, w.s.CountArtifactShareView(ctx, sh.ID))
+	w.s.CountArtifactShareView(sh.ID)
+	require.NoError(t, w.s.WriteShareViews(ctx))
 
 	views, last = read()
 	assert.Equal(t, int64(3), views)
@@ -879,7 +882,8 @@ func TestAShareLinksLastViewIsWrittenAtMostHourly(t *testing.T) {
 
 	require.NoError(t, w.s.DeleteArtifactShare(ctx, sh.ID))
 	w.advance(2 * time.Hour)
-	require.NoError(t, w.s.CountArtifactShareView(ctx, sh.ID))
+	w.s.CountArtifactShareView(sh.ID)
+	require.NoError(t, w.s.WriteShareViews(ctx))
 
 	views, revokedLast := read()
 	assert.Equal(t, int64(3), views, "a revoked link is not counted")
@@ -976,9 +980,9 @@ func TestABotTokenOutlivesAFailedRead(t *testing.T) {
 	assert.Equal(t, chat.ID, got.Chat)
 }
 
-// Scenario (issue #996, review of #999): a link is opened again and again within a minute. The openings are not
-// written one by one: the first is written at once, the next ones together after a minute, and the lists count
-// them all meanwhile.
+// Scenario (issue #996, reviews of #999): a link is opened again and again. No opening is written by itself: they are
+// written together when the control plane writes them (each minute and as it stops, writeShareViews), and the
+// lists count them all meanwhile.
 func TestAShareLinksViewsAreWrittenTogether(t *testing.T) {
 	t.Parallel()
 
@@ -1000,18 +1004,24 @@ func TestAShareLinksViewsAreWrittenTogether(t *testing.T) {
 	}
 
 	for range 5 {
-		require.NoError(t, w.s.CountArtifactShareView(ctx, sh.ID))
+		w.s.CountArtifactShareView(sh.ID)
 		w.advance(time.Second)
 	}
 
-	assert.Equal(t, int64(1), stored(), "one write for five openings within the minute")
+	assert.Equal(t, int64(0), stored(), "no write for an opening")
 
 	listed, err := w.s.ListArtifactShares(ctx, sh.ArtifactID)
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	assert.Equal(t, int64(5), listed[0].Views, "the list counts the openings not written yet")
 
-	w.advance(time.Minute)
-	require.NoError(t, w.s.CountArtifactShareView(ctx, sh.ID))
-	assert.Equal(t, int64(6), stored(), "written together after the minute")
+	require.NoError(t, w.s.WriteShareViews(ctx))
+	assert.Equal(t, int64(5), stored(), "written together")
+
+	require.NoError(t, w.s.WriteShareViews(ctx))
+	assert.Equal(t, int64(5), stored(), "and not again")
+
+	listed, err = w.s.ListArtifactShares(ctx, sh.ArtifactID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(5), listed[0].Views)
 }

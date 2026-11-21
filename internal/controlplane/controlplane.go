@@ -745,6 +745,19 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		gateway.PurgeLoop(ctx, logger)
 	}()
 
+	// The openings of share links are written together once a minute, and a last time once the server has stopped
+	// and answered its last request (issue #996).
+	shareViewsCtx, stopShareViews := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopShareViews()
+
+	shareViewsDone := make(chan struct{})
+
+	go func() {
+		defer close(shareViewsDone)
+
+		writeShareViews(shareViewsCtx, svc, logger, shareViewsWriteEvery)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -798,6 +811,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
+	stopShareViews()
 	cancel(nil)
 	<-controlDone
 	<-pprofDone
@@ -813,6 +827,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-keysDone
 	<-purgeDone
 	<-supDone
+	<-shareViewsDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return errors.Join(serveErr, cause)
@@ -1039,6 +1054,41 @@ func retryShareScrub(ctx context.Context, svc *orchestration.Service, logger *sl
 
 				return
 			}
+		}
+	}
+}
+
+// shareViewsWriteEvery is how often the openings of share links counted in memory are written (issue #996), and
+// shareViewsLastWrite how long the last write may take as the control plane stops.
+const (
+	shareViewsWriteEvery = time.Minute
+	shareViewsLastWrite  = 15 * time.Second
+)
+
+// writeShareViews writes the openings of share links every interval, and once more when ctx ends, so none waits for
+// a later opening and the stop loses none, as Coder's stats batcher flushes on its ticker and as it exits
+// (coderd/workspacestats/batcher.go).
+func writeShareViews(ctx context.Context, svc *orchestration.Service, logger *slog.Logger, every time.Duration) {
+	write := func(ctx context.Context) {
+		if err := svc.WriteShareViews(ctx); err != nil {
+			logger.WarnContext(ctx, "writing the views of share links",
+				slog.String("event", "controlplane.share_views_failed"), slog.String("error", err.Error()))
+		}
+	}
+
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			last, cancel := context.WithTimeout(context.WithoutCancel(ctx), shareViewsLastWrite)
+			write(last)
+			cancel()
+
+			return
+		case <-tick.C:
+			write(ctx)
 		}
 	}
 }

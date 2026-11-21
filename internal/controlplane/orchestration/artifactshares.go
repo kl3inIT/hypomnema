@@ -426,15 +426,13 @@ func (s *Service) SharedArtifact(ctx context.Context, token string) (SharedArtif
 	}, nil
 }
 
-// shareViewsWriteEvery bounds how often the openings of links are written: a link opened often is no write each
-// time (issue #996), and openings counted since the last write are lost with the process, a count being a count.
-const shareViewsWriteEvery = time.Minute
-
-// shareViews are the openings of links counted since they were last written, kept in memory.
+// shareViews are the openings of links counted since they were last written, kept in memory: a link opened often
+// is no write each time (issue #996). The control plane writes them together once a minute and as it stops
+// (WriteShareViews), as Coder's stats batcher flushes on a ticker and as it exits
+// (coderd/workspacestats/batcher.go); a crash loses the openings of the last minute, a count being a count.
 type shareViews struct {
 	mu      sync.Mutex
 	pending map[string]shareView
-	written time.Time
 }
 
 // shareView is one link's openings since the last write and when the newest was, in milliseconds.
@@ -453,6 +451,17 @@ func (v *shareViews) unwritten(id string) shareView {
 	return v.pending[id]
 }
 
+// take returns the openings not written yet and forgets them.
+func (v *shareViews) take() map[string]shareView {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	batch := v.pending
+	v.pending = map[string]shareView{}
+
+	return batch
+}
+
 // add counts back openings whose write failed.
 func (v *shareViews) add(batch map[string]shareView) {
 	v.mu.Lock()
@@ -466,27 +475,27 @@ func (v *shareViews) add(batch map[string]shareView) {
 	}
 }
 
-// CountArtifactShareView counts one opening of a link's page. Openings are written together at most once a minute,
-// and when the newest was at most once an hour, as a credential's last use is (issue #996).
-func (s *Service) CountArtifactShareView(ctx context.Context, id string) error {
-	now := s.clock.Now()
+// CountArtifactShareView counts one opening of a link's page, in memory until WriteShareViews writes it.
+func (s *Service) CountArtifactShareView(id string) {
+	now := s.clock.Now().UnixMilli()
 	v := s.shareViews
 
 	v.mu.Lock()
+	defer v.mu.Unlock()
+
 	p := v.pending[id]
 	p.count++
-	p.last = now.UnixMilli()
+	p.last = now
 	v.pending[id] = p
+}
 
-	if now.Sub(v.written) < shareViewsWriteEvery {
-		v.mu.Unlock()
-
+// WriteShareViews writes the openings counted since the last write, in one commit, and when each link's newest was
+// at most once an hour, as a credential's last use is (issue #996). Openings whose write fails are kept for the next.
+func (s *Service) WriteShareViews(ctx context.Context) error {
+	batch := s.shareViews.take()
+	if len(batch) == 0 {
 		return nil
 	}
-
-	batch := v.pending
-	v.pending, v.written = map[string]shareView{}, now
-	v.mu.Unlock()
 
 	err := s.write(ctx, func(q *store.Queries, _ int64) error {
 		for linkID, b := range batch {
@@ -500,10 +509,12 @@ func (s *Service) CountArtifactShareView(ctx context.Context, id string) error {
 		return nil
 	})
 	if err != nil {
-		v.add(batch)
+		s.shareViews.add(batch)
+
+		return fmt.Errorf("writing the views of share links: %w", err)
 	}
 
-	return err
+	return nil
 }
 
 // withUnwrittenViews adds to a link its openings not written yet.

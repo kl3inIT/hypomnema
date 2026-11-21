@@ -3,7 +3,6 @@ package clientapi
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -176,11 +175,7 @@ func (s *Server) shareFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.svc.CountArtifactShareView(context.WithoutCancel(r.Context()), sa.ShareID); err != nil {
-		s.logger.ErrorContext(r.Context(), "counting a link's view",
-			slog.String("event", "clientapi.share_view_failed"), slog.String("share_id", sa.ShareID),
-			slog.String("error", err.Error()))
-	}
+	s.svc.CountArtifactShareView(sa.ShareID)
 }
 
 // shareFilesPath is where a link's files load from at a revision, ending in "/".
