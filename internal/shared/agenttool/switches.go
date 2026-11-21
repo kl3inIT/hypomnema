@@ -101,6 +101,10 @@ func ReadRunAllows(tool string) bool {
 	}
 }
 
+// ToolBrowserScreenshot is the browser's screenshot, which takes save_to on
+// the agent's machine (toolsmcp's ShotCall, issue #1059).
+const ToolBrowserScreenshot = "agent_browser_screenshot"
+
 // BrowserTools are the browser's tools an agent is offered, out of
 // agent-browser's `core` set (cli/src/mcp.rs, CORE_PROFILE_TOOLS). Each agent
 // has one tab, which the engine opens and closes, so the tab tools and
@@ -126,7 +130,7 @@ var BrowserTools = []string{
 	"agent_browser_wait_for_selector",
 	"agent_browser_wait_for_text",
 	"agent_browser_wait_for_load",
-	"agent_browser_screenshot",
+	ToolBrowserScreenshot,
 	"agent_browser_get_text",
 	"agent_browser_get_url",
 	"agent_browser_get_title",

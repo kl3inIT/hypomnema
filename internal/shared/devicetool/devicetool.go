@@ -89,6 +89,23 @@ const FocusedField = "focused=true"
 
 const point = `"#N", a number from your last device_screen with boxes, or "x,y" in the screen's pixels`
 
+// SaveTo is the argument of device_screen and of the browser's screenshot that writes the picture to a file in
+// the folder the agent works in and answers with its path, without the picture, as mobile-mcp's
+// mobile_save_screenshot takes saveTo (src/server.ts:1002-1031) and agent-browser's screenshot a path
+// (cli/src/mcp.rs:1068-1084). The agent's own tools server reads it and takes it out of the call
+// (toolsmcp's ShotCall, issue #1059): the control plane, which runs the call on another machine, never sees
+// it, and refuses it, as any argument its tool does not take.
+const SaveTo = "save_to"
+
+// SaveToProperty is SaveTo's entry in a tool's input schema.
+const SaveToProperty = `{"type":"string","description":"a .png, .jpg or .jpeg path in the folder you work in; ` +
+	`the picture is written there and the answer is its path, without the picture"}`
+
+// SaveToHelp is what a screenshot tool's description says of SaveTo (issue #1059): a Bot that wanted its
+// screenshots as files wrote a script of its own to save them, and half its reads of those files failed.
+const SaveToHelp = "To keep the picture as a file, for an artifact or a page, give save_to: it is written " +
+	"there and the answer is its path. Do not write a script of your own to save a screenshot."
+
 // Tools are the tools an agent is offered: the phone's, then filming it (video.go).
 func Tools() []Tool { return append(phoneTools(), videoTools()...) }
 
@@ -96,8 +113,9 @@ func phoneTools() []Tool {
 	return []Tool{
 		tool(Screen, "Take a picture of the phone's screen. Look at it before acting and again after each "+
 			"action. With boxes, what can be tapped is marked by numbered boxes, which device_tap takes by "+
-			"number; that takes a second or two longer.",
-			`{"boxes":{"type":"boolean","description":"mark what can be tapped with numbered boxes"}}`, nil),
+			"number; that takes a second or two longer. "+SaveToHelp,
+			`{"boxes":{"type":"boolean","description":"mark what can be tapped with numbered boxes"},`+
+				`"`+SaveTo+`":`+SaveToProperty+`}`, nil),
 		tool(Layout, "Read the views of the app on the phone's screen as JSON: text, descriptions, ids and "+
 			"centers. Apps drawn by Flutter or a game engine show little here; use device_screen for those.",
 			`{}`, nil),

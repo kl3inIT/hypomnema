@@ -764,7 +764,15 @@ sequenceDiagram
     boxes (Android CLI finds boxes only as it captures, so that is a capture of its own). Either is given to the
     agent as a JPEG of the same pixels at quality 75, as mobile-mcp gives its agent a screenshot (not scaled: the
     picture's pixels are a tap's coordinates); the answer crosses the control plane's public address, Tailscale
-    Funnel, at a few hundred KB/s, and the Home screen's PNG was 690 KB against 38 KB (issue #578); `device_layout` is
+    Funnel, at a few hundred KB/s, and the Home screen's PNG was 690 KB against 38 KB (issue #578). With
+    `save_to`, a `.png`, `.jpg` or `.jpeg` path in the folder the agent works in (a worker's worktree, a Bot's
+    folder), the agent's own tools server (`toolsmcp.ShotCall`, called by `internal/node/workertools` and `hypomnema
+    mcp`) takes it out of the call, writes the picture there in the format its name says, and answers
+    `Screenshot saved to: <path>` without the picture, as mobile-mcp's `mobile_save_screenshot`; a path out of
+    that folder, a link included, is refused before the phone is called, and the write is held in it by `os.Root`.
+    The browser's `agent_browser_screenshot` takes `save_to` the same way, and the control plane drops it from a
+    call that still has it; the control plane's phone refuses it as an argument it does not take (issue #1059);
+    `device_layout` is
     `android layout --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with boxes
     with `android screen resolve`
     and tapped with `adb shell input tap x y`, or `x,y`, or an Android CLI selector (`android input tap`);
@@ -1377,7 +1385,8 @@ sequenceDiagram
     issue #789 the tools' own guidance (the Browser part of issue #704, Routines, the artifacts, the skills of
     `gws`, `lark-cli`, `gh`, `glab` and Superset) is in the "Tools" block, which workers get too (Agent tools,
     below); Tools and the owner keeps the coordinator skill, the owner's own Lark account on his turn, the
-    `MEDIA:` line and where the owner finds the Bot's tab beside the chat. The Research before a design part
+    `MEDIA:` line, where the owner finds the Bot's tab beside the chat, and that one message's tool calls run at
+    the same time (pi's default), so a file is not read in the message whose call makes it (issue #1059). The Research before a design part
     (issue #719, the owner's rule of this repository's `AGENTS.md`, 2026-11-17) says that before the Bot answers
     how others do something or proposes a design or a choice, it has a worker clone and read the code of three or
     four mature projects (or reads them itself), compares them with the paths read, recommends one and marks what

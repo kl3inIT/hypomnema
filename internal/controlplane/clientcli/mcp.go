@@ -61,6 +61,16 @@ func mcpServe(ctx context.Context, e *env, _ *flag.FlagSet) error {
 }
 
 func callAgentTool(ctx context.Context, agent *toolsmcp.Agent, name string, args json.RawMessage) (any, error) {
+	// A screenshot asked with save_to is written in the Bot's folder (issue #1059).
+	if path, within, ok := toolsmcp.ShotRoute(name); ok {
+		dir, err := os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("reading the working folder: %w", err)
+		}
+
+		return agent.ShotCall(ctx, path, within, name, args, dir)
+	}
+
 	switch {
 	case devicetool.Routed(name):
 		return agent.ToolCall(ctx, agenttool.PathDeviceCall, toolsmcp.DeviceCallTimeout, name, args)
