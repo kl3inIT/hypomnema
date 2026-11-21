@@ -168,7 +168,8 @@ func (s *Server) meetingGet(w http.ResponseWriter, r *http.Request, in meetingAr
 	// gives them by when they were said (queries/meetings.sql, ListMeetingLines; meetingstore.AppendLine). The
 	// cursor is a number, so a line that arrives between two pages, however early it was said, is in a later page,
 	// and none is skipped or given twice (review of #1037, round 3).
-	byNumber := slices.SortedFunc(slices.Values(d.Lines), func(a, b meetingstore.Line) int { return cmp.Compare(a.N, b.N) })
+	byNumber := slices.SortedFunc(slices.Values(d.Lines),
+		func(a, b meetingstore.Line) int { return cmp.Compare(a.N, b.N) })
 	from, _ := slices.BinarySearchFunc(byNumber, in.AfterLine+1,
 		func(l meetingstore.Line, n int) int { return cmp.Compare(l.N, n) })
 	upto := min(from+meetingLinesShown, len(byNumber))
