@@ -67,8 +67,11 @@ func (o Options) waitReady(ctx context.Context) error {
 	}
 }
 
-// waitTurns waits until no Bot's turn runs in the control plane, asking its control socket every TurnsEvery, for at
-// most TurnsWithin; then the update goes on. A control plane that does not answer, one from before the socket or one
+// waitTurns waits until no Bot's turn and no agent's tool call runs in the control plane, asking its control socket
+// every TurnsEvery, for at most TurnsWithin; then the update goes on. The tool calls are waited for as OpenClaw's
+// update drains a Gateway's requests in flight before it restarts, for at most 5 minutes, then restarts anyway
+// (src/infra/restart-budget.ts DEFAULT_RESTART_DEFERRAL_TIMEOUT_MS, src/gateway/server-reload-active-work.ts
+// "gateway request(s)"; issue #1060). A control plane that does not answer, one from before the socket or one
 // that is down, is not waited for, as Hermes's updater takes a gateway whose control socket does not answer as one
 // it cannot drain (gateway/control_socket.py, query_gateway_control).
 func (o Options) waitTurns(ctx context.Context) {
@@ -85,26 +88,26 @@ func (o Options) waitTurns(ctx context.Context) {
 	said := false
 
 	for {
-		chats, err := o.turns(ctx)
+		running, err := o.turns(ctx)
 
 		switch {
 		case err != nil:
 			o.printf("not waiting for Bots' turns: the control plane did not say which run: %v\n", err)
 
 			return
-		case len(chats) == 0:
+		case !running.busy():
 			if said {
-				o.printf("no Bot's turn runs now\n")
+				o.printf("no Bot's turn nor tool call runs now\n")
 			}
 
 			return
 		case !time.Now().Before(deadline):
-			o.printf("Bots' turns still run after %s, in chats %s; they are cut, and continue after the update\n",
-				within, strings.Join(chats, ", "))
+			o.printf("Bots' turns or tool calls still run after %s, %s; a turn is cut, and continues after the "+
+				"update\n", within, running)
 
 			return
 		case !said:
-			o.printf("waiting up to %s for Bots' turns to end, in chats %s\n", within, strings.Join(chats, ", "))
+			o.printf("waiting up to %s for Bots' turns and tool calls to end, %s\n", within, running)
 
 			said = true
 		}
@@ -117,20 +120,20 @@ func (o Options) waitTurns(ctx context.Context) {
 	}
 }
 
-// turns asks the control socket which chats' turns run.
-func (o Options) turns(ctx context.Context) ([]string, error) {
+// turns asks the control socket which chats' turns run, and how many tool calls.
+func (o Options) turns(ctx context.Context) (Turns, error) {
 	resp, err := o.ask(ctx, http.MethodGet, PathTurns, nil, 5*time.Second)
 	if err != nil {
-		return nil, err
+		return Turns{}, err
 	}
 	defer resp.Body.Close() //nolint:errcheck // read only
 
 	var t Turns
 	if err := json.NewDecoder(resp.Body).Decode(&t); err != nil {
-		return nil, fmt.Errorf("reading the answer of %s: %w", o.control(), err)
+		return Turns{}, fmt.Errorf("reading the answer of %s: %w", o.control(), err)
 	}
 
-	return t.Chats, nil
+	return t, nil
 }
 
 // begin has the control plane mark the update (PathUpdate). It answers once no pi start is under way, which takes

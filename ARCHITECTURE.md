@@ -4921,8 +4921,12 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     drains a gateway's turns before it stops it): it asks the control plane every second on its control socket,
     `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
     TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
-    `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
-    still running at the bound is cut, and continues when the control plane starts again (above). From before
+    `{"chats": [...], "tool_calls": N}`. It also waits, within the same bound, until no agent's call of the control
+    plane's tools runs (`tool_calls`, a worker's too: the calls on the tools', the browser's and the phone's routes,
+    issue #1060), as OpenClaw's update drains a Gateway's requests in flight for at most 5 minutes before it
+    restarts. A control plane that does not answer is not waited for; a worker's turn is never waited for. A turn
+    still running at the bound is cut, and continues when the control plane starts again (above); a command on a
+    node is read again (`node_exec`, above). From before
     that wait until the release's coordinator is set up, `update install` names its process (pid and start time
     from `/proc`) in `data/updating`, which it removes when it returns. It asks the control plane to write it
     (`POST /update` on the control socket), which does so under the lock each pi start holds from its last look for

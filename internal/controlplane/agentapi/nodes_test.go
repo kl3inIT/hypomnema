@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -184,3 +186,66 @@ func TestABackgroundCommandIsFollowedByItsID(t *testing.T) {
 	assert.Equal(t, "killed: its time ran out\noutput, 10 bytes in the middle left out:\nhalf\n", text)
 }
 
+// blockingMachines is a node whose command runs until it is let go.
+type blockingMachines struct {
+	machines
+
+	running chan struct{}
+	release chan struct{}
+}
+
+func (m *blockingMachines) Exec(ctx context.Context, nodeID string, e nodeproto.Exec) (nodeproto.ExecAnswer, error) {
+	close(m.running)
+	<-m.release
+
+	return m.machines.Exec(ctx, nodeID, e)
+}
+
+// An agent's tool call counts as running until it is answered, for `hypomnema update` to wait for it before it stops
+// the control plane (issue #1060).
+func TestAToolCallCountsWhileItRuns(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	m := &blockingMachines{running: make(chan struct{}), release: make(chan struct{})}
+
+	mux := http.NewServeMux()
+	api := agentapi.New(w.svc, nil, slog.New(slog.DiscardHandler)).
+		WithNodeExec(m, m, func(context.Context, orchestration.Node) (string, error) { return "", nil })
+	api.Register(mux)
+
+	w.srv = httptest.NewServer(mux)
+	t.Cleanup(w.srv.Close)
+
+	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	assert.Zero(t, api.ToolCalls())
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.srv.URL+agenttool.PathToolsCall,
+		strings.NewReader(`{"tool":"node_exec","arguments":{"node":"zm","command":"make"}}`))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+worker)
+
+	answered := make(chan int, 1)
+
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			answered <- 0
+
+			return
+		}
+
+		_ = resp.Body.Close()
+		answered <- resp.StatusCode
+	}()
+
+	<-m.running
+	assert.Equal(t, 1, api.ToolCalls())
+
+	close(m.release)
+	assert.Equal(t, http.StatusOK, <-answered)
+	assert.Eventually(t, func() bool { return api.ToolCalls() == 0 }, 5*time.Second, time.Millisecond,
+		"the call ends once answered")
+}
