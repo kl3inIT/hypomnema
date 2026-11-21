@@ -246,7 +246,7 @@ type rig struct {
 	voices map[string]string
 	// order is the owner's order of the speaking providers; empty: the default.
 	order []string
-	mu     sync.Mutex
+	mu    sync.Mutex
 }
 
 func newRig(t *testing.T) *rig {
