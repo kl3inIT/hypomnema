@@ -3575,14 +3575,12 @@ capabilities do not exist yet.
     limit and the next account are the chat route's.
   - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
     keeps its status and body.
-  - A prompt that cannot fit the model's context window is refused before it is sent (issue #1052, as OmniRoute
-    refuses one): its tokens are its bytes over four, an inline base64 image or file counted as 1,200; one over the
-    window the gateway gives the model is answered 400 `context_length_exceeded`, which Codex reads as an overflow.
-    After more than 3 overflows in a row on one key and model, the gateway's refusals and the provider's
-    `context_length_exceeded` answers alike (LiteLLM's `allowed_fails`), a prompt that does not fit is answered 400
-    `context_overflow` for 5 s (LiteLLM's cooldown); Codex never retries that code, so its turn ends instead of
-    trimming and resending its history. A prompt that fits is always sent, and an answer that ends well clears the
-    run. The runs are in memory, each forgotten 5 s after its last overflow.
+  - A run of answers saying the prompt did not fit the context window ends the client's turn (issue #1052): after
+    more than 3 in a row on one key and model (LiteLLM's `allowed_fails`), the key's requests to the model are
+    answered 400 `context_overflow` without being sent for 5 s (LiteLLM's cooldown). Codex never retries that code,
+    so its turn ends instead of trimming and resending its history. An answer that ends well clears the run; a run
+    is forgotten 5 s after its last overflow, and the runs are in memory. The gateway does not count a prompt's
+    tokens before sending it, as LiteLLM checks a prompt against the window only when asked to.
   - Not served: a model with no such target (400 `model_not_served_here`), an answer that is not a stream (400),
     `/v1/responses/compact`, a WebSocket.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
