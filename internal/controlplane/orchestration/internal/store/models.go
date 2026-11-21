@@ -826,6 +826,23 @@ type Provider struct {
 	UpdatedAt int64
 }
 
+type PushOutbox struct {
+	Seq       int64
+	Kind      string
+	ItemID    string
+	CreatedAt int64
+}
+
+type PushSubscription struct {
+	ID        string
+	Endpoint  string
+	P256dh    string
+	Auth      string
+	Label     string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 type Question struct {
 	ID           string
 	DispatchID   string

@@ -4079,6 +4079,34 @@ capabilities do not exist yet.
   transaction, and Coder removes a deleted user's `api_keys` in the transaction that marks it). Providers are read
   through orchestration and keys through the vault.
 
+Web Push (`internal/controlplane/webpush`, issue #1047, [research](docs/research/2026-11-21-web-push.md)): what
+waits on the owner reaches his browsers and the iPhone Home Screen app (iOS 16.4+) when no tab of the app is open.
+- What pushes, one push per item: a question for the owner (asked to him, or forwarded to him by the coordinator), a
+  pending Approval, a Connection request, and an Inbox to-do a Bot or the system adds that needs him (the needs-you
+  predicate of `/inbox/needs-you`, as the query `TodoNeedsYou`). The item's transaction writes a row in
+  `push_outbox` (kind, item id; one per item); one the owner writes himself queues nothing.
+- The sender runs while the control plane serves. It reads the queue at start and after every commit
+  (`orchestration.Subscribe`), reads each item's words then (`QueuedPushes`: title naming the Bot, or the Run by its
+  objective; the item's own text cut to 1500 bytes, and cut again to what fits once JSON-encoded (3800 bytes); the page, the item's chat or the start page; the Inbox has no
+  page yet), drops one that no longer waits (answered, decided, gone), and sends it to every subscription at once,
+  then deletes the row. A push is a Declarative Web Push message (`{web_push: 8030, notification: {title, body,
+  navigate, tag}}`), encrypted with `SherClockHolmes/webpush-go`, with TTL 300 s, urgency high, the tag
+  `hypomnema-<kind>-<id>` and a Topic hashed from it, so a newer push of the same item replaces a pending one. 429,
+  5xx and no answer are tried three times in all (1 s, 4 s apart); 404 and 410 delete the subscription; any other
+  refusal is logged and dropped.
+- Subscriptions are `push_subscriptions`, one row per browser endpoint with its keys and label, no user column (the
+  owner alone uses the app); a browser subscribing again keeps its row and takes the new keys. The client API's
+  `GET|PUT /push/subscriptions`, `DELETE /push/subscriptions/{id}` and `POST /push/subscriptions/{id}/test` are the
+  owner's alone; the list carries the VAPID public key.
+- The VAPID key pair is made on first use and its private half kept in the vault as the secret
+  `web-push-vapid-key` (generic); the public half is read from it. The VAPID subject is `HYPOMNEMA_PUBLIC_URL`;
+  without an https one the control plane serves no key and drops what is queued. `hypomnema push regenerate-keys`
+  deletes every subscription and keeps a new pair in one transaction (the vault writes in orchestration's,
+  `vault.PutStep`), so a refused write changes nothing; each device then turns notifications on again. Like every
+  vault secret, the owner can read the private key with `secrets show` or the Vault page (recorded), as he can
+  `git-ssh-key`; nothing of Web Push prints or answers it. Without the
+  vault's root key the client API answers unavailable.
+
 Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,
 [research](docs/research/2026-11-13-web-search.md)): one Service the control plane makes as it serves, which the
 model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker and a Bot's pi as
@@ -5031,6 +5059,8 @@ The owner's commands:
   - `secrets keygen [id]` prints a new root key; `secrets add <name> --from-file FILE|-` (with `--kind` and
     `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
+  - `push regenerate-keys` makes new VAPID keys for Web Push and removes every subscribed device in the same step
+    (issue #1047), the step to take when the key may have leaked; it prints how many devices it removed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
     table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
     owner key. `gateway keys set <id>` takes `--name`, `--models` and `--endpoints` (`*` restores every kind);
@@ -6105,6 +6135,16 @@ Node (`internal/node`):
     Machines cards, table, switch and menu, the Task panel as a side panel.
   - A change the owner made in Settings that succeeded says so in a toast (`said` in
     `web/src/lib/said.ts`).
+  - Notifications (issue #1047, `web/src/features/notifications`): `web/public/sw.js`, a hand-written service
+    worker registered at the root from `main.tsx`, shows a push the browser hands it (Safari shows a Declarative
+    Web Push message itself, so there a push for the chat in view still shows), skips one for the chat the owner has
+    focused (only a chat: the test push, which opens Settings, shows there), opens the push's page on a click
+    (focusing a window on it, else taking an open one, else opening one) and keeps a renewed subscription under its
+    new endpoint only while the control plane still lists the old one, deleting the old row; it handles no fetch and
+    caches nothing. Settings, Preferences, Notifications turns them on for this browser (permission is
+    asked only from that button), lists the owner's devices with a test push and a remove, and on an iPhone or iPad
+    not opened from the Home Screen shows the steps to add it. A chat where something waits offers the same button
+    once, until it is on or dismissed ("Not now", kept in local storage).
   - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
     `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
   - What a query read stays fresh for 30 seconds (`web/src/main.tsx`, issue #510; Omnara's and MemoryOS's
@@ -6115,7 +6155,8 @@ Node (`internal/node`):
     they fit on one line, and the marks alone when they do not.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
-    - files as they are, with a year's cache under `assets/`;
+    - files as they are, with a year's cache under `assets/`; the service worker `sw.js` at the root with
+      `Cache-Control: no-cache` (issue #1047);
     - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin; under
       `/s/`, a view-only link's page (issue #745), also `X-Robots-Tag: noindex, nofollow` and `no-store`;
     - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`);
@@ -6244,6 +6285,7 @@ internal/controlplane/videos/captions  cues from a voice's word times and the AS
 internal/controlplane/videos/ffmpeg  the pinned ffmpeg and ffprobe videos are made with, installed at start, and the captions' font; installffmpeg/ installs it for CI
 internal/controlplane/videos/compose  a take made into one MP4: scenes, dead time cut, each scene fitted to its voice, taps' rings, 9:16 or 16:9 (aidemo's compose, ported)
 internal/controlplane/webui    serves the embedded web client
+internal/controlplane/webpush  Web Push: the VAPID key pair in the vault, and the sender that pushes what waits on the owner to his devices
 internal/e2e               tests only: the control plane's node API with the node daemon
 internal/node             package node: configuration, CLI detection, init, check, run with the registry of runtimes, and the systemd unit
 internal/node/bridge      the mailbox between a worker's tools and the Supervisor: questions, answers, the final report

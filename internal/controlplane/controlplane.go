@@ -49,6 +49,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/webpush"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -331,6 +332,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}}
 	go tokens.readIdentities(ctx)
 	sshKey := &gitSSHKey{vault: secrets}
+	// Web Push (issue #1047): what waits on the owner is pushed to his devices, signed with a key kept in the vault.
+	pusher := webpush.New(webpush.Config{
+		Store: svc, Keys: webpush.NewKeys(secrets), PublicURL: cfg.PublicURL, Logger: logger,
+	})
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
 		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp(),
 		integration.Zalo())
@@ -648,6 +653,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithBotTools(agents.BotTools).WithToolUnavailability(agents.ToolUnavailability)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets})
+		api.WithPusher(pusher)
 	}
 	if !cfg.BrowserOff {
 		api.WithBrowser(ownersBrowser{shared})
@@ -819,6 +825,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		shared.Run(ctx)
 	}()
 
+	// What waits on the owner is pushed to his devices once its transaction commits (issue #1047).
+	pushDone := make(chan struct{})
+
+	go func() {
+		defer close(pushDone)
+
+		pusher.Run(ctx)
+	}()
+
 	// `hypomnema update` asks which Bots' turns run before it stops the control plane (issue #716).
 	controlDone := make(chan struct{})
 
@@ -833,6 +848,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	stopShareViews()
 	cancel(nil)
 	<-controlDone
+	<-pushDone
 	<-pprofDone
 	<-browserDone
 	<-meetingsDone
