@@ -44,8 +44,34 @@ SELECT id FROM bots ORDER BY position, created_at, name;
 -- name: SetBotPosition :exec
 UPDATE bots SET position = @position WHERE id = @id;
 
--- name: SetBotPinned :execrows
-UPDATE bots SET pinned = @pinned WHERE id = @id;
+-- name: SetBotDepartment :execrows
+-- The department a Bot is listed in, or none (issue #471).
+UPDATE bots SET department = @department WHERE id = @id;
+
+-- name: InsertDepartment :exec
+-- A new department goes last (issue #471).
+INSERT INTO departments (id, name, position, created_at)
+VALUES (@id, @name, (SELECT coalesce(max(position) + 1, 0) FROM departments), @now);
+
+-- name: ListDepartments :many
+SELECT * FROM departments ORDER BY position, created_at, name;
+
+-- name: GetDepartment :one
+SELECT * FROM departments WHERE id = @id;
+
+-- name: RenameDepartment :execrows
+UPDATE departments SET name = @name WHERE id = @id;
+
+-- name: DeleteDepartment :exec
+-- Its Bots go back to the list of Bots in no department.
+DELETE FROM departments WHERE id = @id;
+
+-- name: CloseDepartmentPosition :exec
+-- The departments after a removed one move up a place, so the order stays 0 to n-1.
+UPDATE departments SET position = position - 1 WHERE position > @position;
+
+-- name: SetDepartmentPosition :exec
+UPDATE departments SET position = @position WHERE id = @id;
 
 -- name: SetBotMemory :exec
 UPDATE bots SET memory = @memory, updated_at = @now WHERE id = @id;

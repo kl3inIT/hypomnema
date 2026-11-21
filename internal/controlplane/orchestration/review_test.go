@@ -193,3 +193,51 @@ func finishReview(world *world, taskID, summary string, evidence []Evidence) {
 	outcome.Result.Evidence = evidence
 	require.NoError(world.t, world.finish(call, outcome))
 }
+
+func TestReviewOfAHeadWithAVerdictIsRefusedInAnyRun(t *testing.T) {
+	t.Parallel()
+
+	// PR #874 got correct and then incorrect on commit 0c6ca51b from two Runs (2026-11-19, issue #953).
+	const head = "0c6ca51b4e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b"
+	world := newWorld(t)
+	ctx := t.Context()
+	first := world.tasks(NewTask{Ref: "review", Profile: "reviewer", Spec: reviewSpec})[0]
+	finishReview(world, first.ID, "Verdict: `correct`, merge it\nHead: `0c6ca51b`\nEvidence: test-verified", nil)
+
+	other, err := world.s.CreateRun(ctx, NewRun{Objective: "Review it again", CreatedBy: "pi"})
+	require.NoError(t, err)
+	_, err = world.s.CreateTasks(ctx, other.ID, []NewTask{{Ref: "again", Profile: "reviewer",
+		Spec: "Review pull request: " + reviewPR + "\nHead: " + head + "\n\nReview the change."}})
+	require.ErrorIs(t, err, ErrConflict)
+	require.ErrorContains(t, err, "already has the verdict correct from Task "+first.ID)
+
+	_, err = world.s.CreateTasks(ctx, other.ID, []NewTask{{Ref: "work", Profile: "implementer",
+		Spec: reviewSpec + "\nHead: " + head}})
+	assert.NoError(t, err, "only a review is refused")
+}
+
+func TestBlockedReviewOfAHeadMayRunAgain(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t)
+	blocked := world.tasks(NewTask{Ref: "review", Profile: "reviewer", Spec: reviewSpec + "\nHead: 0c6ca51b"})[0]
+	finishReview(world, blocked.ID, "Verdict: blocked\nHead: 0c6ca51b\nThe test database would not start.", nil)
+	unread := world.tasks(NewTask{Ref: "again", Profile: "reviewer", Spec: reviewSpec + "\nHead: 0c6ca51b"})[0]
+	finishReview(world, unread.ID, "Verdict: incorrect\nThe change loses data.", nil)
+
+	again := world.tasks(NewTask{Ref: "third", Profile: "reviewer", Spec: reviewSpec + "\nHead: 0c6ca51b"})[0]
+	assert.Equal(t, reviewSpec+"\nHead: 0c6ca51b", again.Spec,
+		"a blocked verdict, or one without its head, is not a verdict on that head")
+}
+
+func TestLaterReviewIsGivenTheReviewedHead(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t)
+	first := world.tasks(NewTask{Ref: "review", Profile: "reviewer", Spec: reviewSpec + "\nHead: 0c6ca51b"})[0]
+	finishReview(world, first.ID, "Verdict: incorrect\nHead: 0c6ca51b\nFindings: [P1] the change loses data", nil)
+
+	later := world.tasks(NewTask{Ref: "later", Profile: "reviewer", Spec: reviewSpec + "\nHead: d45b955b"})[0]
+	assert.Contains(t, later.Spec, "Task "+first.ID+" gave the verdict incorrect at head 0c6ca51b.")
+	assert.Contains(t, later.Spec, "`git diff 0c6ca51b..<head>`")
+}

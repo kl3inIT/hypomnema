@@ -15,12 +15,64 @@ WHERE id = @id;
 -- name: GetChat :one
 SELECT * FROM chats WHERE id = @id;
 
+-- name: GetChatMarks :one
+-- What keeps a chat from being its Bot's main chat (issue #923), as OpenMausBot's main thread is never a routine's
+-- run nor a Slack channel's thread (server/main-thread.ts mainThread, server/index.ts mainThreadTasks). routine: the
+-- chat was opened for a Routine's run (routine_runs), or with a Routine's prompt, which runs pruned later leave
+-- behind (orchestration/routines.go promptNotice). channel: a Lark chat, mapped to a person or a group of a Channel
+-- (channel_chats), a group's (channel_group, which a group's later chats keep after a reset), one someone other
+-- than the owner wrote in (sender_id, migration 00087), or another person's direct chat from before 00087 whose
+-- mapping a /new moved: titled "Lark: <name>", as migration 00138 tells them, with a line of the owner's role that
+-- opens with the label the Channel put on another person's direct message then, "[Lark message from <name>, who is
+-- not the owner. ...]" (channels/channels.go before commit 49050bf6, unchanged since issue #136). The label is asked
+-- too, since the web titles a chat by its first line and the owner may begin one with "Lark: ". The label is
+-- compared to the letter, not with LIKE, so that a % or an _ in the name is no wildcard. ListChats reads the same marks by the same rules.
+SELECT
+    CAST(EXISTS (SELECT 1 FROM routine_runs rr WHERE rr.chat_id = c.id)
+        OR EXISTS (
+            SELECT 1 FROM chat_messages m
+            WHERE m.chat_id = c.id AND m.kind = 'wake' AND m.event_seq IS NULL AND m.to_coordinator = 1
+              AND m.text LIKE 'Routine %'
+        ) AS INTEGER) AS routine,
+    CAST(c.channel_group <> 0
+        OR EXISTS (SELECT 1 FROM channel_chats cc WHERE cc.chat_id = c.id)
+        OR EXISTS (
+            SELECT 1 FROM chat_messages m WHERE m.chat_id = c.id AND m.role = 'owner' AND m.sender_id IS NOT NULL
+        )
+        OR (c.title LIKE 'Lark: %' AND EXISTS (
+            SELECT 1 FROM chat_messages m
+            WHERE m.chat_id = c.id AND m.role = 'owner' AND m.sender_id IS NULL
+              AND substr(m.text, 1, length('[Lark message from ' || substr(c.title, 7) || ', who is not the owner.'))
+                  = '[Lark message from ' || substr(c.title, 7) || ', who is not the owner.'
+        )) AS INTEGER) AS channel
+FROM chats c WHERE c.id = @id;
+
 -- name: ListChats :many
 -- A page of the chats, of one Bot when @bot names one, the most recently active first, each with the start of its
 -- latest line of the owner or its Bot (issue #471): the sidebar's row of a Bot shows its main chat's. A reply of
--- thinking alone has no text and is passed over. The first page (@skip 0) also carries every Bot's main chat and
--- every chat an Approval waits in, whatever their age, so that a Bot's row is whole: a page later on does not.
+-- thinking alone has no text and is passed over. The first page (@skip 0) also carries every Bot's main chat, every
+-- chat an Approval waits in and, of a Bot with no main chat, the chat it opens (issue #923: its latest that is
+-- not a Routine's run), whatever their age, so that a Bot's row is whole: a page later on does not.
+-- Each chat carries the marks GetChatMarks reads, by the same rules.
 SELECT sqlc.embed(chats),
+       CAST(EXISTS (SELECT 1 FROM routine_runs rr WHERE rr.chat_id = chats.id)
+           OR EXISTS (
+               SELECT 1 FROM chat_messages m
+               WHERE m.chat_id = chats.id AND m.kind = 'wake' AND m.event_seq IS NULL AND m.to_coordinator = 1
+                 AND m.text LIKE 'Routine %'
+           ) AS INTEGER) AS routine,
+       CAST(chats.channel_group <> 0
+           OR EXISTS (SELECT 1 FROM channel_chats cc WHERE cc.chat_id = chats.id)
+           OR EXISTS (
+               SELECT 1 FROM chat_messages m
+               WHERE m.chat_id = chats.id AND m.role = 'owner' AND m.sender_id IS NOT NULL
+           )
+           OR (chats.title LIKE 'Lark: %' AND EXISTS (
+               SELECT 1 FROM chat_messages m
+               WHERE m.chat_id = chats.id AND m.role = 'owner' AND m.sender_id IS NULL
+                 AND substr(m.text, 1, length('[Lark message from ' || substr(chats.title, 7) || ', who is not the owner.'))
+                     = '[Lark message from ' || substr(chats.title, 7) || ', who is not the owner.'
+           )) AS INTEGER) AS channel,
        CAST(coalesce((
            SELECT substr(m.text, 1, 400) FROM chat_messages m
            WHERE m.chat_id = chats.id AND m.role IN ('owner', 'coordinator') AND trim(m.text) <> ''
@@ -37,13 +89,27 @@ WHERE (CAST(@bot AS TEXT) = '' OR chats.bot_id = CAST(@bot AS TEXT))
     OR (CAST(@skip AS INTEGER) = 0 AND (
         chats.id IN (SELECT b.main_chat FROM bots b WHERE b.main_chat IS NOT NULL)
         OR chats.id IN (SELECT a.chat_id FROM approvals a WHERE a.status = 'pending' AND a.chat_id IS NOT NULL)
+        OR chats.id IN (
+            SELECT (
+                SELECT l.id FROM chats l
+                WHERE l.bot_id = b.id
+                  AND NOT EXISTS (SELECT 1 FROM routine_runs rr WHERE rr.chat_id = l.id)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM chat_messages m
+                      WHERE m.chat_id = l.id AND m.kind = 'wake' AND m.event_seq IS NULL AND m.to_coordinator = 1
+                        AND m.text LIKE 'Routine %'
+                  )
+                ORDER BY l.updated_at DESC, l.id LIMIT 1
+            )
+            FROM bots b WHERE b.main_chat IS NULL
+        )
     ))
   )
 ORDER BY chats.updated_at DESC, chats.id;
 
 -- name: SetBotMainChat :exec
--- The chat becomes its Bot's main chat (issue #471): the web's New chat, the CLI's --new, or the first message to a
--- Bot that has none.
+-- The chat becomes its Bot's main chat (issue #471): the web's New chat, the CLI's --new, the first message to a
+-- Bot that has none, or the owner's Set as main chat (issue #923).
 UPDATE bots SET main_chat = @chat_id WHERE id = @bot;
 
 -- name: ClearMainChat :exec

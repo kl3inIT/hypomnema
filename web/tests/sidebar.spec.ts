@@ -4,8 +4,9 @@ import { openMenu } from "./menu.js"
 import { shot } from "./shot.js"
 
 // The sidebar's Bots (issue #361), built, against a fake client API: a row a Bot that opens its main chat (issue
-// #471), as OpenMausBot's sidebar with its threads hidden, in the one order the owner sets by dragging, with the pinned Bots under the main one (issue
-// #470). A phone shows them in the drawer behind ≡ (issue #604), in the order, without dragging.
+// #471), as OpenMausBot's sidebar with its threads hidden, in the one order the owner sets by dragging (issue #470),
+// with its departments under the main Bot (issue #471). A phone shows them in the drawer behind ≡ (issue #604), in
+// the order, without dragging.
 
 const ago = (seconds: number) => new Date(Date.now() - seconds * 1000).toISOString()
 
@@ -23,7 +24,6 @@ const bot = (name: string, position: number) => ({
   main: name === "coordinator",
   name,
   position,
-  pinned: false,
   persona: "",
   memory: "",
   memory_limit: 2200,
@@ -76,10 +76,16 @@ const held = {
   created_at: ago(600),
 }
 
-// fakeServer answers as the control plane; the Bots' order and pins are kept across reloads, and every order the
-// page sends is returned.
+// fakeServer answers as the control plane; the Bots' order and departments are kept across reloads, and every order
+// the page sends is returned.
 async function fakeServer(page: Page, list = chats, approvals = [held]) {
-  const listed = ["coordinator", "researcher", "reporter", "writer"].map(bot)
+  const listed: (ReturnType<typeof bot> & { department?: string })[] = [
+    "coordinator",
+    "researcher",
+    "reporter",
+    "writer",
+  ].map(bot)
+  const departments: { id: string; name: string; position: number }[] = []
   const orders: string[][] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -101,10 +107,42 @@ async function fakeServer(page: Page, list = chats, approvals = [held]) {
     }
     const patched = listed.find((b) => path === `/bots/${b.id}`)
     if (patched && request.method() === "PATCH") {
-      patched.pinned = request.postDataJSON().pinned
+      const department: string = request.postDataJSON().department
+      if (department) patched.department = department
+      else delete patched.department
 
       return json(patched)
     }
+    // The server's departments (orchestration/departments.go): a new one goes last with its Bots; a removed one
+    // sends its Bots back to none.
+    if (path === "/departments" && request.method() === "POST") {
+      const body = request.postDataJSON()
+      if (departments.some((d) => d.name === body.name))
+        return json({ message: `another department is named "${body.name}"` }, 409)
+      const made = {
+        id: `dep_${departments.length}`,
+        name: body.name,
+        position: departments.length,
+      }
+      departments.push(made)
+      for (const id of body.bot_ids ?? []) listed.find((b) => b.id === id)!.department = made.id
+
+      return json(made, 201)
+    }
+    const department = departments.find((d) => path === `/departments/${d.id}`)
+    if (department && request.method() === "PATCH") {
+      department.name = request.postDataJSON().name
+
+      return json(department)
+    }
+    if (department && request.method() === "DELETE") {
+      departments.splice(departments.indexOf(department), 1)
+      departments.forEach((d, i) => (d.position = i))
+      for (const b of listed) if (b.department === department.id) delete b.department
+
+      return route.fulfill({ status: 204 })
+    }
+    if (path === "/departments") return json({ data: departments })
 
     const open = list.find((c) => path.startsWith(`/chats/${c.id}`))
     if (open && path.endsWith("/stream")) {
@@ -152,10 +190,16 @@ const botRow = (page: Page, name: string) =>
   bots(page).getByRole("link", { name: new RegExp(`^${name}`) })
 const botNames = (page: Page) =>
   bots(page).getByRole("link", { name: /^(coordinator|researcher|reporter|writer) / })
-const pinnedNames = (page: Page) =>
+const departmentNames = (page: Page, name: string) =>
   bots(page)
-    .getByRole("region", { name: "Pinned" })
+    .getByRole("region", { name })
     .getByRole("link", { name: /^(researcher|reporter|writer) / })
+const actionsOf = async (page: Page, name: string) => {
+  await botRow(page, name).hover()
+  await bots(page)
+    .getByRole("button", { name: `Actions for ${name}` })
+    .click()
+}
 
 // The list is on screen for the picture: a phone shows it in the drawer, below the places.
 async function showList(page: Page) {
@@ -214,40 +258,75 @@ test("the sidebar lists the Bots, each opening its main chat", async ({ page }) 
   await expect(page).toHaveURL(/\/\?bot=writer$/)
 })
 
-// Scenario: the owner pins reporter from its row's menu (issue #470): it moves to the Pinned section under the main
-// Bot, which has no Pin, and stays there after a reload; Unpin puts it back among the others in its place. A phone
-// pins from the same menu, always shown there.
-test("a Bot is pinned and unpinned from its row's menu", async ({ page }) => {
+// Scenario: the owner sorts his Bots into departments (issue #471), as OpenMausBot's "Move to department": from
+// reporter's menu he makes the department VMAP with it, which lists it under the main Bot and stays after a reload;
+// he moves researcher into it from the same menu; a second department with the same name is refused and says why;
+// he folds VMAP, whose header then counts the Bot that needs him; he renames it and deletes it, and its Bots go back
+// to the list in their places. The main Bot's menu has no Move. A phone does the same from the same menus.
+test("Bots are sorted into departments from their row's menu", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/")
   await openMenu(page)
 
-  await botRow(page, "reporter").hover()
-  await bots(page).getByRole("button", { name: "Actions for reporter" }).click()
+  await actionsOf(page, "reporter")
   await expect(page.getByRole("menuitem", { name: "Delete chat" })).toBeVisible()
+  await page.getByRole("menuitem", { name: "Move to department" }).click()
   await shot(page, "sidebar-bot-menu")
-  await page.getByRole("menuitem", { name: "Pin" }).click()
+  await page.getByRole("menuitem", { name: "New department…" }).click()
+  await page.getByRole("textbox", { name: "Name" }).fill("VMAP")
+  await shot(page, "sidebar-new-department")
+  await page.getByRole("button", { name: "Make" }).click()
 
-  await expect(pinnedNames(page)).toHaveText([/reporter/])
+  await expect(departmentNames(page, "VMAP")).toHaveText([/reporter/])
   await expect(botNames(page)).toHaveText([/coordinator/, /reporter/, /researcher/, /writer/])
-  await showList(page)
-  // The picture shows the rows at rest, not one the pointer was left on after the menu closed.
-  await page.mouse.move(0, 0)
-  await shot(page, "sidebar-pinned")
 
   await page.reload()
   await openMenu(page)
-  await expect(pinnedNames(page)).toHaveText([/reporter/])
-  // The main Bot's menu holds its main chat's Delete, and no Pin.
-  await botRow(page, "coordinator").hover()
-  await bots(page).getByRole("button", { name: "Actions for coordinator" }).click()
+  await expect(departmentNames(page, "VMAP")).toHaveText([/reporter/])
+
+  await actionsOf(page, "researcher")
+  await page.getByRole("menuitem", { name: "Move to department" }).click()
+  await page.getByRole("menuitem", { name: "VMAP" }).click()
+  await expect(departmentNames(page, "VMAP")).toHaveText([/researcher/, /reporter/])
+  await showList(page)
+  await page.mouse.move(0, 0)
+  await shot(page, "sidebar-department")
+
+  await actionsOf(page, "writer")
+  await page.getByRole("menuitem", { name: "Move to department" }).click()
+  await page.getByRole("menuitem", { name: "New department…" }).click()
+  await page.getByRole("textbox", { name: "Name" }).fill("VMAP")
+  await page.getByRole("button", { name: "Make" }).click()
+  await expect(page.getByRole("dialog", { name: "New department" })).toContainText(
+    "another department is named",
+  )
+  await page.getByRole("button", { name: "Cancel" }).click()
+
+  // The main Bot's menu holds its main chat's Delete, and no Move.
+  await actionsOf(page, "coordinator")
   await expect(page.getByRole("menuitem")).toHaveText(["Delete"])
   await page.keyboard.press("Escape")
 
-  await botRow(page, "reporter").hover()
-  await bots(page).getByRole("button", { name: "Actions for reporter" }).click()
-  await page.getByRole("menuitem", { name: "Unpin" }).click()
-  await expect(bots(page).getByRole("region", { name: "Pinned" })).toHaveCount(0)
+  await bots(page).getByRole("button", { name: "Collapse VMAP" }).click()
+  await expect(departmentNames(page, "VMAP")).toHaveCount(0)
+  await expect(bots(page).getByTestId("department-needs-you")).toHaveText(/1/)
+  await showList(page)
+  await page.mouse.move(0, 0)
+  await shot(page, "sidebar-department-folded")
+  await bots(page).getByRole("button", { name: "Expand VMAP" }).click()
+
+  await bots(page).getByRole("region", { name: "VMAP" }).hover()
+  await bots(page).getByRole("button", { name: "Actions for department VMAP" }).click()
+  await page.getByRole("menuitem", { name: "Rename…" }).click()
+  await page.getByRole("textbox", { name: "Name" }).fill("Maps")
+  await page.getByRole("button", { name: "Rename" }).click()
+  await expect(departmentNames(page, "Maps")).toHaveText([/researcher/, /reporter/])
+
+  await bots(page).getByRole("region", { name: "Maps" }).hover()
+  await bots(page).getByRole("button", { name: "Actions for department Maps" }).click()
+  await page.getByRole("menuitem", { name: "Delete department" }).click()
+  await page.getByRole("button", { name: "Delete" }).click()
+  await expect(bots(page).getByRole("region", { name: "Maps" })).toHaveCount(0)
   await expect(botNames(page)).toHaveText([/coordinator/, /researcher/, /reporter/, /writer/])
 })
 
