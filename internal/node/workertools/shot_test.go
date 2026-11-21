@@ -100,3 +100,36 @@ func TestAWorkerSavesThePhonesScreenInItsWorktree(t *testing.T) {
 		assert.NotContains(t, entry.Name(), ".partial", "no half-written file is left")
 	}
 }
+
+// Scenario (issue #1059, review round 1): a worker keeps a full page of the
+// browser as a file. save_to goes on to the control plane, which sends the
+// picture agent-browser saved whole (internal/controlplane/browser), and the
+// answer, larger than one with an image for the agent to see, is written in
+// the worktree.
+func TestAWorkerSavesALargeScreenshotOfTheBrowser(t *testing.T) {
+	t.Parallel()
+
+	page := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 20<<20)...)
+	cp := &controlPlane{result: `{"content":[{"type":"image","data":"` + base64.StdEncoding.EncodeToString(page) +
+		`","mimeType":"image/png"}],"isError":false}`}
+	srv := httptest.NewServer(cp)
+	t.Cleanup(srv.Close)
+
+	worktree := t.TempDir()
+	dir := t.TempDir()
+	require.NoError(t, bridge.SetAgent(dir, bridge.Agent{URL: srv.URL, Key: dispatchKey, Worktree: worktree}))
+
+	c := newClientIn(t, dir)
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{
+		"name": "agent_browser_screenshot", "arguments": map[string]any{"fullPage": true, "save_to": "page.png"},
+	}})
+	assert.Equal(t, "Screenshot saved to: "+filepath.Join(worktree, "page.png"), text(t, c.read()))
+
+	require.Len(t, cp.calls, 1)
+	assert.JSONEq(t, `{"fullPage":true,"save_to":"page.png"}`, string(cp.calls[0].Arguments),
+		"the control plane is told to send the whole picture")
+
+	saved, err := os.ReadFile(filepath.Join(worktree, "page.png")) //nolint:gosec // the test's own file
+	require.NoError(t, err)
+	assert.Equal(t, page, saved)
+}
