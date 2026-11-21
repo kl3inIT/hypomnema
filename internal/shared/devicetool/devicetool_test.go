@@ -77,6 +77,8 @@ func TestACallIsReadOrRefused(t *testing.T) {
 		{Logcat, `{"level":"X"}`},
 		{Screen, `[1]`},
 		{Screen, `{"target":"#1"}`},
+		// The agent's own tools server takes save_to out (issue #1059); the control plane never takes it.
+		{Screen, `{"save_to":"a.png"}`},
 		{Tap, `{"target":"#1","force":true}`},
 	}
 

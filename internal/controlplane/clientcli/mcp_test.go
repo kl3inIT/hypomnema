@@ -61,6 +61,14 @@ func (g *gatewayAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if call.Tool == agenttool.ToolBrowserScreenshot {
+			shot := base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\npage"))
+			_, _ = io.WriteString(w, `{"content":[{"type":"text","text":"/srv/engine/shot.png"},`+
+				`{"type":"image","data":"`+shot+`","mimeType":"image/png"}],"isError":false}`)
+
+			return
+		}
+
 		if call.Tool == agenttool.ToolAudioSpeak {
 			spoken := base64.StdEncoding.EncodeToString([]byte("ID3 hello"))
 			_, _ = io.WriteString(w, `{"content":[{"type":"text","text":"Spoken by soniox with tts-rt-v2."},`+
@@ -291,6 +299,14 @@ func TestABotsPiUsesTheGatewaysToolsThroughMCP(t *testing.T) {
 	saved, err = os.ReadFile(filepath.Join(work, filepath.FromSlash(media))) //nolint:gosec // the test's own file
 	require.NoError(t, err)
 	assert.Equal(t, "ID3 hello", string(saved))
+
+	// A screenshot asked with save_to is written in the Bot's folder, and the answer is its path (issue #1059).
+	assert.Equal(t, "Screenshot saved to: "+filepath.Join(work, "shots", "page.png"),
+		m.text(21, agenttool.ToolBrowserScreenshot, map[string]any{"save_to": "shots/page.png"}))
+
+	saved, err = os.ReadFile(filepath.Join(work, "shots", "page.png")) //nolint:gosec // the test's own file
+	require.NoError(t, err)
+	assert.Equal(t, "\x89PNG\r\n\x1a\npage", string(saved))
 
 	outside := filepath.Join(t.TempDir(), "fox.png")
 	answer = m.text(5, "generate_image", map[string]any{"prompt": "a fox", "path": outside})
