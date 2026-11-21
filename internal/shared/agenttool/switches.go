@@ -82,7 +82,15 @@ const (
 	ReadRunRefusal  = "This run reads only; do not try another way."
 )
 
+// ReadRunAllows says whether a Routine's run that reads only (issue #956) may use a tool: it reads the owner's
+// accounts and keeps the owner's to-dos in the Inbox (issue #1004), which writes only in the control plane, never
+// outward. Every tool that acts as the owner outside, such as zalo_send and whatsapp_send, stays refused: a Bot
+// that reads his messages never sends one as him (owner, 2026-11-17 and 2026-11-21 on #838).
 func ReadRunAllows(tool string) bool {
+	if slices.Contains(InboxTools, tool) {
+		return true
+	}
+
 	switch tool {
 	case ToolAccountRead, ToolMemory, ToolSupersetDashboards, ToolSupersetDashboard, ToolSupersetChartData,
 		ToolSupersetFilterValues, ToolWhatsAppChats, ToolWhatsAppMessages, ToolWhatsAppMedia, ToolWhatsAppHistory,

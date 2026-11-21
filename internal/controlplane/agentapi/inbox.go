@@ -393,11 +393,16 @@ func (s *Server) inboxAdd(ctx context.Context, c inboxCaller, in inboxArgs) (any
 	}
 
 	// Where it came from is the token's: this chat, or this Routine's run, which may name the owner's chat at a
-	// messaging service instead (clientapi's newSource).
+	// messaging service instead, and nothing else (clientapi's newSource): a run naming a chat with the owner would
+	// open what it only infers.
 	switch {
 	case in.Source != nil && c.work.Kind != inboxstore.WorkRun:
 		return nil, fmt.Errorf("%w: only a Routine's run adds a to-do from the owner's Zalo, WhatsApp or Lark chat; "+
 			"in this chat it comes from this chat", orchestration.ErrForbidden)
+	case in.Source != nil && in.Source.Kind != inboxstore.FromZalo && in.Source.Kind != inboxstore.FromWhatsApp &&
+		in.Source.Kind != inboxstore.FromLark:
+		return nil, fmt.Errorf("%w: a to-do this Routine's run adds comes from this run, or from the owner's Zalo, "+
+			"WhatsApp or Lark chat it names, not from %q", orchestration.ErrForbidden, in.Source.Kind)
 	case in.Source != nil:
 		n.Source.Kind, n.Source.ID, n.Source.Account = in.Source.Kind, in.Source.Chat, in.Source.Account
 	case c.work.Kind == inboxstore.WorkRun:

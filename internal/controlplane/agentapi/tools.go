@@ -60,6 +60,7 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 		out = append(out, t)
 	}
 	if a.readRun {
+		out = append(out, inboxTools(a)...)
 		out = append(out, s.supersetToolList(ctx, a)...)
 		out = append(out, s.messagingToolList(ctx, a, relayMentions)...)
 		return append(out, s.readAccountTools(ctx, a)...)
