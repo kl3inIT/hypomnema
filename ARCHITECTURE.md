@@ -4100,6 +4100,34 @@ capabilities do not exist yet.
   transaction, and Coder removes a deleted user's `api_keys` in the transaction that marks it). Providers are read
   through orchestration and keys through the vault.
 
+Web Push (`internal/controlplane/webpush`, issue #1047, [research](docs/research/2026-11-21-web-push.md)): what
+waits on the owner reaches his browsers and the iPhone Home Screen app (iOS 16.4+) when no tab of the app is open.
+- What pushes, one push per item: a question for the owner (asked to him, or forwarded to him by the coordinator), a
+  pending Approval, a Connection request, and an Inbox to-do a Bot or the system adds that needs him (the needs-you
+  predicate of `/inbox/needs-you`, as the query `TodoNeedsYou`). The item's transaction writes a row in
+  `push_outbox` (kind, item id; one per item); one the owner writes himself queues nothing.
+- The sender runs while the control plane serves. It reads the queue at start and after every commit
+  (`orchestration.Subscribe`), reads each item's words then (`QueuedPushes`: title naming the Bot, or the Run by its
+  objective; the item's own text cut to 1500 bytes, and cut again to what fits once JSON-encoded (3800 bytes); the page, the item's chat or the start page; the Inbox has no
+  page yet), drops one that no longer waits (answered, decided, gone), and sends it to every subscription at once,
+  then deletes the row. A push is a Declarative Web Push message (`{web_push: 8030, notification: {title, body,
+  navigate, tag}}`), encrypted with `SherClockHolmes/webpush-go`, with TTL 300 s, urgency high, the tag
+  `hypomnema-<kind>-<id>` and a Topic hashed from it, so a newer push of the same item replaces a pending one. 429,
+  5xx and no answer are tried three times in all (1 s, 4 s apart); 404 and 410 delete the subscription; any other
+  refusal is logged and dropped.
+- Subscriptions are `push_subscriptions`, one row per browser endpoint with its keys and label, no user column (the
+  owner alone uses the app); a browser subscribing again keeps its row and takes the new keys. The client API's
+  `GET|PUT /push/subscriptions`, `DELETE /push/subscriptions/{id}` and `POST /push/subscriptions/{id}/test` are the
+  owner's alone; the list carries the VAPID public key.
+- The VAPID key pair is made on first use and its private half kept in the vault as the secret
+  `web-push-vapid-key` (generic); the public half is read from it. The VAPID subject is `HYPOMNEMA_PUBLIC_URL`;
+  without an https one the control plane serves no key and drops what is queued. `hypomnema push regenerate-keys`
+  deletes every subscription and keeps a new pair in one transaction (the vault writes in orchestration's,
+  `vault.PutStep`), so a refused write changes nothing; each device then turns notifications on again. Like every
+  vault secret, the owner can read the private key with `secrets show` or the Vault page (recorded), as he can
+  `git-ssh-key`; nothing of Web Push prints or answers it. Without the
+  vault's root key the client API answers unavailable.
+
 Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,
 [research](docs/research/2026-11-13-web-search.md)): one Service the control plane makes as it serves, which the
 model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker and a Bot's pi as
@@ -5052,6 +5080,8 @@ The owner's commands:
   - `secrets keygen [id]` prints a new root key; `secrets add <name> --from-file FILE|-` (with `--kind` and
     `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
+  - `push regenerate-keys` makes new VAPID keys for Web Push and removes every subscribed device in the same step
+    (issue #1047), the step to take when the key may have leaked; it prints how many devices it removed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
     table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
     owner key. `gateway keys set <id>` takes `--name`, `--models` and `--endpoints` (`*` restores every kind);
@@ -5136,6 +5166,27 @@ The owner's commands:
   nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. The skill's files hold no source comments, since a coordinator turn reads them whole;
   each rule's source is in `docs/role-routing.md` (issue #1051).
+  A worker that turned auto-merge on finishes without waiting for CI, its summary saying "auto-merge on at
+  <sha>", and the control plane follows its pull request (issue #1053, `orchestration/pullrequests.go`, after
+  pstack's watcher, `shipping.md:8-9` and `scripts/watch-pr/policy.ts:59-140`): once a minute
+  (`followPullRequests`, pstack's 60 s, `cli.ts:110`) it lists the succeeded, non-review Tasks of open Runs whose
+  last Dispatch's summary says so and names one pull request, and reads each at its host with the token of its
+  repository's Connection, by the Connection's route (`githost.ReadRequest`): on GitHub one GraphQL query for its
+  state, `mergeable`, head and the status check rollup of its last commit with `isRequired`, a check counted by
+  its newest run and failed in gh's fail and cancel buckets (cli/cli `api/query_builder.go:279-310`,
+  `pkg/cmd/pr/checks/aggregate.go:38-120`); on GitLab the merge request's state, `has_conflicts`, `sha` and head
+  pipeline. A conflict, before a failed required check (pstack's `babysit.md:8`), sends the worker a follow-up on
+  its succeeded Task, asked by the coordinator, to fix it, push, turn auto-merge on again and finish; merged,
+  closed, and a follow-up sent or refused each write one `escalation` event of kind `pull_request` on that
+  Dispatch (`state`, `pull_request`, `head`, `reason`, `follow_up` or `follow_up_refused`), which wakes the Run's
+  chat and marks the report settled; a follow-up's new Dispatch reports again. The follow-up and its escalation
+  are written in one transaction, which first reads again that the Run is open, the Task succeeded, its last
+  Dispatch is the one read and the report is not settled; GitHub's checks are read page by page, 100 a page, as gh
+  does (`pkg/cmd/pr/checks/checks.go:257-300`). A repository without a token is not read: its Dispatch's
+  worker, given no token, used the node's login and was told to wait for the required checks itself, as before
+  #1053, and the pass writes one escalation in state `unfollowed` for it (review round 2, the coordinator's
+  choice). The coordinator keeps the Run open until that wake says the pull request merged, was closed or is not
+  followed.
   A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
   in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
   A head gets one verdict (issue #953, after pstack's "a verdict covers a patch",
@@ -5428,7 +5479,9 @@ Node (`internal/node`):
         cause is on the base, or when the repository's rules ask, with only the affected checks rerun (OpenClaw,
         oh-my-opencode); CI waited for with one blocking command, never a polling loop (Orca, Coder, Hermes,
         oh-my-opencode, t3code), and not at all when the spec says a review comes first, since the coordinator's
-        review step waits for CI itself (owner, 2026-11-19);
+        review step waits for CI itself (owner, 2026-11-19), or once auto-merge is on with the repository's token,
+        as the control plane follows it (issue #1053); otherwise only when the Task needs CI's result or the merge
+        steps say to (without the token, below);
       - for a worker that writes, that only its diff's failures get a commit: a red check outside the diff that is
         also red on the base, or green on one rerun, is a flake, rerun once and given an issue, which the worker
         opens or comments on without asking; and that a bug fix commits a test failing without the fix before the
@@ -5458,13 +5511,21 @@ Node (`internal/node`):
          `only_allow_merge_if_pipeline_succeeds`. When one fails the pull request stays open, the summary's first
          line says what the repository lacks, and no Gate is opened only to ask to merge;
       2. a draft stays open; a conflict (`DIRTY`, `has_conflicts`) is resolved by merging the base, keeping both
-         sides' intent, rerunning the checks the merge affects and pushing; on GitLab the merge request must have a
-         pipeline;
+         sides' intent, rerunning the checks the merge affects and pushing; what the repository's instructions ask
+         right before a merge (such as merging the base and numbering a migration after its last, this
+         repository's `make migration-fix`) is done and pushed before auto-merge lands the head (issue #1053); on
+         GitLab the merge request must have a pipeline;
       3. `gh pr merge <url> --auto --merge --match-head-commit <sha>` or
          `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
-      4. waiting for the required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`),
-         fixing the red ones its diff causes and rerunning a flake once, then `finish`, saying whether it merged or
-         that auto-merge is on;
+      4. with the repository's token in the offer, reading the request back (`gh pr view <url> --json
+         state,mergedAt`), since a requested auto-merge is not
+         a merge, then `finish` at once, saying whether it merged or "auto-merge on at <sha>", without waiting for
+         the checks: the control plane follows the pull request to merged and sends a follow-up when it goes red
+         or conflicts (issue #1053, after pstack's `shipping.md:8-9`); without auto-merge the worker waits for the
+         required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`) only when the Task
+         needs their result; without the token (the node's own login, which the control plane cannot read the
+         request with), waiting for the required checks with that command, fixing the red ones its diff causes and
+         rerunning a flake once, then `finish`, as before #1053;
     - `Task (<profile>):` and the Task's spec;
     - the recovery note, a follow-up ("You called `finish` on this task before, and more is asked of it now (this
       replaces the answer to any question you asked at `finish`): …", then to
@@ -6126,6 +6187,16 @@ Node (`internal/node`):
     Machines cards, table, switch and menu, the Task panel as a side panel.
   - A change the owner made in Settings that succeeded says so in a toast (`said` in
     `web/src/lib/said.ts`).
+  - Notifications (issue #1047, `web/src/features/notifications`): `web/public/sw.js`, a hand-written service
+    worker registered at the root from `main.tsx`, shows a push the browser hands it (Safari shows a Declarative
+    Web Push message itself, so there a push for the chat in view still shows), skips one for the chat the owner has
+    focused (only a chat: the test push, which opens Settings, shows there), opens the push's page on a click
+    (focusing a window on it, else taking an open one, else opening one) and keeps a renewed subscription under its
+    new endpoint only while the control plane still lists the old one, deleting the old row; it handles no fetch and
+    caches nothing. Settings, Preferences, Notifications turns them on for this browser (permission is
+    asked only from that button), lists the owner's devices with a test push and a remove, and on an iPhone or iPad
+    not opened from the Home Screen shows the steps to add it. A chat where something waits offers the same button
+    once, until it is on or dismissed ("Not now", kept in local storage).
   - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
     `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
   - What a query read stays fresh for 30 seconds (`web/src/main.tsx`, issue #510; Omnara's and MemoryOS's
@@ -6136,7 +6207,8 @@ Node (`internal/node`):
     they fit on one line, and the marks alone when they do not.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
-    - files as they are, with a year's cache under `assets/`;
+    - files as they are, with a year's cache under `assets/`; the service worker `sw.js` at the root with
+      `Cache-Control: no-cache` (issue #1047);
     - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin; under
       `/s/`, a view-only link's page (issue #745), also `X-Robots-Tag: noindex, nofollow` and `no-store`;
     - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`);
@@ -6265,6 +6337,7 @@ internal/controlplane/videos/captions  cues from a voice's word times and the AS
 internal/controlplane/videos/ffmpeg  the pinned ffmpeg and ffprobe videos are made with, installed at start, and the captions' font; installffmpeg/ installs it for CI
 internal/controlplane/videos/compose  a take made into one MP4: scenes, dead time cut, each scene fitted to its voice, taps' rings, 9:16 or 16:9 (aidemo's compose, ported)
 internal/controlplane/webui    serves the embedded web client
+internal/controlplane/webpush  Web Push: the VAPID key pair in the vault, and the sender that pushes what waits on the owner to his devices
 internal/e2e               tests only: the control plane's node API with the node daemon
 internal/node             package node: configuration, CLI detection, init, check, run with the registry of runtimes, and the systemd unit
 internal/node/bridge      the mailbox between a worker's tools and the Supervisor: questions, answers, the final report

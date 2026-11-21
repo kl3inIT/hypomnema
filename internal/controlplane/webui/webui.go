@@ -28,6 +28,10 @@ var contentSecurityPolicy = strings.Join([]string{
 	"frame-ancestors 'none'",
 }, "; ")
 
+// serviceWorker is the web client's service worker (web/public/sw.js, issue #1047), served at the root so that its
+// scope is the whole app. It handles pushes and their clicks only and caches nothing.
+const serviceWorker = "sw.js"
+
 // sharedPage starts the path of a view-only link's page, /s/<token>.
 const sharedPage = "/s/"
 
@@ -89,8 +93,13 @@ func serve(assets fs.FS) http.Handler {
 		case hidden(name) || isReserved(name):
 			http.NotFound(w, r)
 		case isFile(assets, name):
-			if strings.HasPrefix(name, "assets/") {
+			switch {
+			case strings.HasPrefix(name, "assets/"):
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			case name == serviceWorker:
+				// The browser asks again before each use, so a new worker is taken at once: OpenClaw serves its
+				// sw.js no-cache, never immutable (src/gateway/control-ui-conditional.http.test.ts:326).
+				w.Header().Set("Cache-Control", "no-cache")
 			}
 
 			if contentType, ok := contentTypes[path.Ext(name)]; ok {

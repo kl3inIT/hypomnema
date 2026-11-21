@@ -73,6 +73,7 @@ const escalations: Record<string, string> = {
   account_cooling: "waits for its account to cool down",
   fallback: "runs on a fallback agent",
   repeated_failure: "keeps failing for the same reason",
+  pull_request: "has news of its pull request",
 }
 
 // The ends a wake-up reports that a Task may come back from, as t3code's notification outcomes.

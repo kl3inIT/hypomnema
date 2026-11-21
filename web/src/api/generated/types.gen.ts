@@ -2168,6 +2168,37 @@ export type Repo = {
   created_at: string;
 };
 
+export type PushSubscription = {
+  id: string;
+  /**
+   * The browser's push endpoint, by which a page knows its own device in the list.
+   */
+  endpoint: string;
+  /**
+   * What the device is, as the browser named it: "iPhone · Safari".
+   */
+  label: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PushSubscriptionList = {
+  /**
+   * The VAPID public key, unpadded base64url, a browser's applicationServerKey.
+   */
+  public_key: string;
+  data: Array<PushSubscription>;
+};
+
+export type NewPushSubscription = {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  label?: string;
+};
+
 export type GitSshKey = {
   /**
    * The public key in the authorized_keys form, to add to the git host.
@@ -8561,6 +8592,110 @@ export type GetGitSshKeyResponses = {
 };
 
 export type GetGitSshKeyResponse = GetGitSshKeyResponses[keyof GetGitSshKeyResponses];
+
+export type ListPushSubscriptionsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/push/subscriptions';
+};
+
+export type ListPushSubscriptionsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListPushSubscriptionsError = ListPushSubscriptionsErrors[keyof ListPushSubscriptionsErrors];
+
+export type ListPushSubscriptionsResponses = {
+  /**
+   * The devices, the oldest first.
+   */
+  200: PushSubscriptionList;
+};
+
+export type ListPushSubscriptionsResponse = ListPushSubscriptionsResponses[keyof ListPushSubscriptionsResponses];
+
+export type PutPushSubscriptionData = {
+  body: NewPushSubscription;
+  path?: never;
+  query?: never;
+  url: '/push/subscriptions';
+};
+
+export type PutPushSubscriptionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutPushSubscriptionError = PutPushSubscriptionErrors[keyof PutPushSubscriptionErrors];
+
+export type PutPushSubscriptionResponses = {
+  /**
+   * The device.
+   */
+  200: PushSubscription;
+};
+
+export type PutPushSubscriptionResponse = PutPushSubscriptionResponses[keyof PutPushSubscriptionResponses];
+
+export type DeletePushSubscriptionData = {
+  body?: never;
+  path: {
+    subscription_id: string;
+  };
+  query?: never;
+  url: '/push/subscriptions/{subscription_id}';
+};
+
+export type DeletePushSubscriptionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeletePushSubscriptionError = DeletePushSubscriptionErrors[keyof DeletePushSubscriptionErrors];
+
+export type DeletePushSubscriptionResponses = {
+  /**
+   * Deleted.
+   */
+  204: void;
+};
+
+export type DeletePushSubscriptionResponse = DeletePushSubscriptionResponses[keyof DeletePushSubscriptionResponses];
+
+export type TestPushSubscriptionData = {
+  body?: never;
+  path: {
+    subscription_id: string;
+  };
+  query?: never;
+  url: '/push/subscriptions/{subscription_id}/test';
+};
+
+export type TestPushSubscriptionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type TestPushSubscriptionError = TestPushSubscriptionErrors[keyof TestPushSubscriptionErrors];
+
+export type TestPushSubscriptionResponses = {
+  /**
+   * The push service took it.
+   */
+  204: void;
+};
+
+export type TestPushSubscriptionResponse = TestPushSubscriptionResponses[keyof TestPushSubscriptionResponses];
 
 export type ListAccountsData = {
   body?: never;

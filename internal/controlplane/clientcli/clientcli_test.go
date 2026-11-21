@@ -959,6 +959,16 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 	assert.Contains(t, out, "it\n  is never a merge condition")
 	assert.Contains(t, out, "For a bug fix, ask for a test that fails without the fix, committed before the fix",
 		"a disputed finding is settled by a test (issue #952)")
+	for _, want := range []string{
+		"The control plane follows that pull request, on GitHub and GitLab, until it merges",
+		"Do not wait for its\n  CI yourself.",
+		"keep the Run open\n  (step 4 of the Recipe), since a finished Run takes no follow-up",
+		"has ended only once a `pull_request` wake says its pull\n   request merged, was closed, or is not followed",
+		"A repository the control plane holds no token for is not\n  followed",
+	} {
+		assert.Contains(t, out, want, "the control plane follows a PR left with auto-merge on, and the Run stays "+
+			"open until it lands (issue #1053)")
+	}
 
 	_, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "nothing")
 	require.ErrorIs(t, err, ErrUsage)

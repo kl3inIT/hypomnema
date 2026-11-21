@@ -50,9 +50,15 @@ const writeRules =
 	// .agents/skills/work-with-pr/SKILL.md:199-212 and t3code AGENTS.md:159. Not waiting when a review comes first
 	// has no reference of its own: the coordinator's review step waits for CI itself
 	// (internal/controlplane/clientcli/skills/hypomnema-coordinator/references/review.md; owner, 2026-11-19).
-	"- Wait for CI with one command that blocks until it ends (the host's watch command, as in the merge steps " +
-	"below when they are given), never with a polling loop. When the task says a review comes first, do not wait for " +
-	"CI: report the pushed commit and finish; the coordinator follows CI.\n" +
+	// Issue #1053: once auto-merge is on, the host lands the head when it is ready, so the worker does not wait
+	// either: pstack arms --auto on a verified head and reads the PR back (skills/poteto-mode/playbooks/shipping.md:8),
+	// and a watcher, not the step that armed it, follows it to merged (shipping.md:9); here the control plane's
+	// (orchestration/pullrequests.go). One rule says when to wait; the merge steps below say whether Hypomnema
+	// follows an auto-merge, which it does only with the repository's token (review round 2), and give the command.
+	"- Wait for CI only when the task needs its result or the merge steps below say to. When the task says a " +
+	"review comes first, do not wait: report the pushed commit and finish; the coordinator follows CI. When you " +
+	"wait, use one command that blocks until it ends (the host's watch command, as in the merge steps below when " +
+	"they are given), never a polling loop.\n" +
 	// Issue #952: a flake earns one fresh build and only the diff's own failures get a commit, after pstack
 	// skills/poteto-mode/playbooks/babysit.md:8; the flaky test is fixed in its own change, after
 	// playbooks/autonomous-run.md:9. The issue is the owner's allowance (owner, 2026-11-19).
@@ -225,15 +231,25 @@ func openCommand(kind, base, branch string) string {
 // (evaluation.py:718-723; bors_toml.ex:157-158); no gate is opened only to ask
 // to merge. A conflict is resolved keeping both sides' intent and checked
 // again, after t3code's prompt (pullRequestDetail.logic.ts:1172-1189), by
-// merging the base, as this repository's AGENTS.md does. The worker stays
-// until the required checks are green, as OpenClaw's agent stays "until
-// verified merge" (landing.md:82), and no longer.
+// merging the base, as this repository's AGENTS.md does. What the
+// repository's instructions ask right before a merge is done before
+// auto-merge is turned on, since it lands whatever head is ready (issue
+// #1053; this repository's AGENTS.md runs `make migration-fix` there, #954).
+// Once auto-merge is on, the worker reads the request back, as a requested
+// auto-merge is not a merge, and finishes without waiting for the checks:
+// pstack arms --auto on a verified head and reads it back
+// (skills/poteto-mode/playbooks/shipping.md:8), and a watcher follows it to
+// merged (shipping.md:9), here the control plane, which sends a follow-up
+// when it goes red or conflicts (issue #1053, orchestration/pullrequests.go). Before #1053 the worker stayed
+// until the checks were green, after OpenClaw's "until verified merge"
+// (landing.md:82). Without auto-merge it waits only when the task needs the
+// checks' result.
 //
 // The offer names the repository by its path, with its host apart
 // (orchestration's Offer); it is read as worktree.SourceOf reads it, so a
 // GitLab subgroup and a company's host are kept. An offer without a host is
 // one of before hosts existed, on github.com.
-func autoMerge(kind, host, path, base, branch string) string {
+func autoMerge(kind, host, path, base, branch string, followed bool) string {
 	if host == "" {
 		host = githost.GitHubHost
 	}
@@ -274,7 +290,9 @@ func autoMerge(kind, host, path, base, branch string) string {
 
 	fmt.Fprintf(&b, "2. Read the pull request with `%s`. A draft (%s) is left open. On a conflict (%s), merge %s "+
 		"into your branch, resolve it keeping the intent of both sides, rerun the checks the merge affects and "+
-		"push; if you cannot tell what one side meant, ask.", m.View, m.Draft, m.Conflict, base)
+		"push; if you cannot tell what one side meant, ask. Then do what the repository's instructions ask right "+
+		"before a merge, such as merging %s and numbering a migration after its last, and push that too.",
+		m.View, m.Draft, m.Conflict, base, base)
 
 	if m.Before != "" {
 		fmt.Fprintf(&b, " Before step 3, check that %s.", m.Before)
@@ -286,11 +304,27 @@ func autoMerge(kind, host, path, base, branch string) string {
 		b.WriteString("; " + m.Method)
 	}
 
-	// Issue #952: a red check outside the diff is a flake (writeRules), after pstack babysit.md:8.
-	fmt.Fprintf(&b, ".\n4. Wait for the required checks with `%s`; fix a red one your diff causes and push, "+
-		"rerun a flake once as the rules say, and do step 2 again if a conflict appears. Once they are green, call "+
-		"`finish` without waiting longer, saying whether the pull request merged (`%s`) or that auto-merge is on.\n",
-		strings.ReplaceAll(m.Watch, "<branch>", branch), m.Merged)
+	watch := strings.ReplaceAll(m.Watch, "<branch>", branch)
+
+	if !followed {
+		// Without the repository's token the worker uses the node's own login, which the control plane cannot
+		// read the request with: the worker stays until the checks are green, as before #1053, after OpenClaw's
+		// "until verified merge" (landing.md:82); a red check outside the diff is a flake (writeRules), after
+		// pstack babysit.md:8 (issue #1053, review round 2; coordinator's choice).
+		fmt.Fprintf(&b, ".\n4. Wait for the required checks with `%s`; fix a red one your diff causes and push, "+
+			"rerun a flake once as the rules say, and do step 2 again if a conflict appears. Once they are green, "+
+			"call `finish` without waiting longer, saying whether the pull request merged (`%s`) or that its checks "+
+			"are green with auto-merge on.\n", watch, m.Merged)
+
+		return b.String()
+	}
+
+	fmt.Fprintf(&b, ".\n4. Read the pull request back with `%s`, since a requested auto-merge is not a merge, "+
+		"then call `finish` at once, without waiting for the checks, saying that it merged or \"auto-merge on at "+
+		"<sha>\". The control plane follows the pull request from there and sends you a follow-up if a check goes "+
+		"red or a conflict appears.\nWhen auto-merge is not turned on, wait for the required checks with `%s` "+
+		"only when the task needs their result.\n",
+		m.Merged, watch)
 
 	return b.String()
 }
@@ -419,7 +453,7 @@ func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 			"commit your work and %s, which updates that pull request. Do not open a new one. Find it with `%s`; "+
 			"if none is open, open one with `%s`.\n",
 			push, publish, listCommand(o.RepoKind, push), openCommand(o.RepoKind, base, push))
-		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, push))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, push, o.RepoToken != ""))
 	default:
 		publish := "push the branch"
 		if canPublish(o) {
@@ -428,7 +462,7 @@ func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 
 		fmt.Fprintf(&b, "Commit your work, %s, and open a pull request with `%s`.\n",
 			publish, openCommand(o.RepoKind, base, own))
-		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, own))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, own, o.RepoToken != ""))
 	}
 
 	return b.String()
