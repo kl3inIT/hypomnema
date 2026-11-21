@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webpush"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -353,4 +354,116 @@ func TestTheVAPIDKeyIsMadeOnceAndKeptSealed(t *testing.T) {
 	_, again, err := w.keys.Pair(ctx)
 	require.NoError(t, err)
 	assert.NotEqual(t, public, again, "the next read is the new pair")
+}
+
+// worker puts one Task of a Run from the chat on a node and has its worker ask the coordinator, as the client API's
+// tests drive a Dispatch (clientapi_test.go, askFromAWorker).
+func (w *world) workerAsks(text string) string {
+	w.t.Helper()
+	ctx := w.t.Context()
+
+	node, _, err := w.svc.AddNode(ctx, "box", 0)
+	require.NoError(w.t, err)
+	require.NoError(w.t, w.svc.NodeHello(ctx, node.ID, orchestration.Hello{
+		WorktreeRoot: "/srv/wt", Runtimes: []orchestration.RuntimeInfo{{Runtime: "claude"}},
+		System: orchestration.SystemInfo{CPUs: 8, MemoryBytes: 16 << 30},
+	}))
+	_, err = w.svc.AddTokenAccount(ctx, "claude", "personal", func(id string) string { return "vault:" + id })
+	require.NoError(w.t, err)
+
+	run, err := w.svc.CreateRun(ctx, orchestration.NewRun{
+		Objective: "draft the release notes", CreatedBy: "pi", ChatID: w.chat.ID, Bot: orchestration.DefaultBotID,
+	})
+	require.NoError(w.t, err)
+	_, err = w.svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{{Ref: "a", Spec: "work"}})
+	require.NoError(w.t, err)
+
+	scheduled, err := w.svc.Schedule(ctx)
+	require.NoError(w.t, err)
+	require.Len(w.t, scheduled.Created, 1)
+
+	call := orchestration.NodeCall{NodeID: node.ID, DispatchID: scheduled.Created[0], RequestID: "req_1"}
+	accepted, err := w.svc.AcceptDispatch(ctx, call)
+	require.NoError(w.t, err)
+
+	call.Epoch, call.RequestID = accepted.Epoch, "req_2"
+	require.NoError(w.t, w.svc.ReportStarted(ctx, call, "pid:1@1", "sess_1"))
+
+	call.RequestID = "req_3"
+	id, err := w.svc.AskQuestion(ctx, call, orchestration.Ask{Text: text, To: orchestration.AddressCoordinator})
+	require.NoError(w.t, err)
+
+	return id
+}
+
+// Scenario: the other three kinds of what waits on the owner each reach his phone once, after their commit, with
+// the Bot, the item's own words and its page: a question the coordinator forwards to him, a Bot's request for a
+// Connection and a to-do a Bot proposes from his WhatsApp. A question the coordinator keeps pushes nothing.
+func TestAForwardedQuestionAConnectionRequestAndAToDoEachReachTheDeviceOnce(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+	ctx := t.Context()
+	phone := w.subscribe("phone")
+	w.run()
+
+	bot, err := w.svc.GetBot(ctx, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	question := w.workerAsks("Ship the notes as they are, or wait for the changelog?")
+	w.sent()
+	assert.Empty(t, w.push.got("phone"), "a question for the coordinator waits on no one yet")
+
+	require.NoError(t, w.svc.ForwardQuestion(ctx, question))
+	w.sent()
+
+	for _, c := range []orchestration.Connection{
+		{Integration: "google", Label: "work", Secret: "s-work"},
+		{Integration: "google", Label: "team", Secret: "s-team"},
+	} {
+		_, err := w.svc.SaveServiceConnection(ctx, c)
+		require.NoError(t, err)
+		_, err = w.svc.SetConnectionChats(ctx, c.Integration, c.Label, true)
+		require.NoError(t, err)
+	}
+
+	hr, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "hr", Persona: "people",
+		Connections: orchestration.AllowList{Limited: true, Names: []string{"google:work"}}})
+	require.NoError(t, err)
+	main, _, err := w.svc.OpenMainChat(ctx, hr.ID, "", "", orchestration.ChatModel{})
+	require.NoError(t, err)
+
+	request, err := w.svc.RequestConnection(ctx, hr.ID, main.ID, "google:team", "to read the team's calendar")
+	require.NoError(t, err)
+	w.sent()
+
+	todo, err := w.svc.Inbox().Create(ctx, inboxstore.Actor{Kind: inboxstore.Bot, ID: hr.ID}, inboxstore.NewTodo{
+		Title: "Reply to Lan about the contract", State: inboxstore.Proposed,
+		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
+		Source: inboxstore.Source{Kind: inboxstore.FromWhatsApp, ID: "8490@s.whatsapp.net", Account: "main",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "3EB0"}},
+	})
+	require.NoError(t, err)
+	w.sent()
+
+	got := w.push.got("phone")
+	require.Len(t, got, 3, "one push for each item, none for the question kept by the coordinator")
+
+	want := []struct{ title, body, navigate, tag string }{
+		{bot.Name + " asks", "Ship the notes as they are, or wait for the changelog?", "/chats/" + w.chat.ID,
+			"question-" + question},
+		{"hr asks for a connection", "google:team: to read the team's calendar", "/chats/" + main.ID,
+			"connection_request-" + request.ID},
+		{"hr added a to-do", "Reply to Lan about the contract", "/", "todo-" + todo.ID},
+	}
+
+	for i, r := range got {
+		p := phone.payload(t, r)
+		assert.Equal(t, want[i].title, p.Notification.Title)
+		assert.Equal(t, want[i].body, p.Notification.Body)
+		assert.Equal(t, publicURL+want[i].navigate, p.Notification.Navigate)
+		assert.Equal(t, "hypomnema-"+want[i].tag, p.Notification.Tag)
+		assert.Equal(t, "300", r.header.Get("TTL"))
+		assert.Equal(t, "high", r.header.Get("Urgency"))
+	}
 }
