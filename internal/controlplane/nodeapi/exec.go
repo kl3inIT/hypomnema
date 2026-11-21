@@ -46,7 +46,7 @@ func (s *Server) Exec(ctx context.Context, nodeID string, e nodeproto.Exec) (nod
 	s.mu.Unlock()
 
 	if sess == nil {
-		return nodeproto.ExecAnswer{}, fmt.Errorf("%w: the machine is offline", orchestration.ErrUnavailable)
+		return nodeproto.ExecAnswer{}, fmt.Errorf("%w: %w", orchestration.ErrUnavailable, orchestration.ErrNodeOffline)
 	}
 
 	defer func() {

@@ -259,7 +259,7 @@ func TestANodeWhoseSocketIsNotBackAnswersNotConnected(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	m := &machines{fail: fmt.Errorf("%w: the machine is offline", orchestration.ErrUnavailable)}
+	m := &machines{fail: fmt.Errorf("%w: %w", orchestration.ErrUnavailable, orchestration.ErrNodeOffline)}
 	withMachines(w, m)
 
 	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)

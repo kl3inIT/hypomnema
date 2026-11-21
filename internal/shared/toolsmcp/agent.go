@@ -116,6 +116,14 @@ func (a *Agent) doWithin(ctx context.Context, method, path string, body any, lim
 			return nil, errors.New(refused.Message)
 		}
 
+		// A proxy in front of the control plane answers so, without the control plane's message, while it
+		// restarts, as Nginx does when its upstream closes or refuses the connection (issue #1060): the answer did
+		// not arrive.
+		if resp.StatusCode == http.StatusBadGateway || resp.StatusCode == http.StatusServiceUnavailable ||
+			resp.StatusCode == http.StatusGatewayTimeout {
+			return nil, unreachable{fmt.Errorf("the control plane answered %d", resp.StatusCode)}
+		}
+
 		return nil, fmt.Errorf("the control plane answered %d", resp.StatusCode)
 	}
 

@@ -196,7 +196,7 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 		}
 	}
 
-	n, err := s.findNode(ctx, nodeRef)
+	n, connected, err := s.findNode(ctx, nodeRef)
 	if err != nil {
 		answerTool(w, err.Error(), true)
 
@@ -219,6 +219,14 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 
 	got, err := s.exec.link.Exec(ctx, n.ID, e)
 	if err != nil {
+		// A node listed as connected whose socket is not back yet, as right after a restart of the control plane,
+		// is answered as one not connected, for the tools server to ask again (issue #1060).
+		if errors.Is(err, orchestration.ErrNodeOffline) {
+			answerTool(w, agenttool.NodeNotConnected(nodeRef, connected), true)
+
+			return
+		}
+
 		answerTool(w, err.Error(), true)
 
 		return
@@ -228,12 +236,12 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 	answerTool(w, text, failed)
 }
 
-// findNode is the node named, by name or id; one that is not connected is
-// refused with the names of those that are.
-func (s *Server) findNode(ctx context.Context, ref string) (orchestration.Node, error) {
+// findNode is the node named, by name or id, and the names of those connected; one that is not connected is
+// refused with them.
+func (s *Server) findNode(ctx context.Context, ref string) (orchestration.Node, string, error) {
 	nodes, err := s.exec.nodes.ListNodes(ctx)
 	if err != nil {
-		return orchestration.Node{}, errors.New("the nodes could not be listed")
+		return orchestration.Node{}, "", errors.New("the nodes could not be listed")
 	}
 
 	var connected []string
@@ -247,14 +255,15 @@ func (s *Server) findNode(ctx context.Context, ref string) (orchestration.Node, 
 	slices.Sort(connected)
 
 	i := slices.IndexFunc(nodes, func(n orchestration.Node) bool { return n.Name == ref || n.ID == ref })
+	names := strings.Join(connected, ", ")
 
 	switch {
 	case i < 0:
-		return orchestration.Node{}, fmt.Errorf("no node %q; connected now: %s", ref, strings.Join(connected, ", "))
+		return orchestration.Node{}, names, fmt.Errorf("no node %q; connected now: %s", ref, names)
 	case !nodes[i].Connected:
-		return orchestration.Node{}, errors.New(agenttool.NodeNotConnected(ref, strings.Join(connected, ", ")))
+		return orchestration.Node{}, names, errors.New(agenttool.NodeNotConnected(ref, names))
 	default:
-		return nodes[i], nil
+		return nodes[i], names, nil
 	}
 }
 
