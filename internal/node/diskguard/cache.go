@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -37,6 +38,17 @@ type Caches struct {
 	UserHome     string
 	WorkerPath   func() string
 	Logger       *slog.Logger
+
+	// measure stands for Policy.Measure of the worktree root when set: a test's free space, which a real volume
+	// cannot be made to show.
+	measure func(ctx context.Context) (nodeproto.DiskSpace, int64)
+}
+
+func (c Caches) space(ctx context.Context) (nodeproto.DiskSpace, int64) {
+	if c.measure != nil {
+		return c.measure(ctx)
+	}
+	return c.Policy.Measure(ctx, c.WorktreeRoot)
 }
 
 func (c Caches) worktreeVolume() string {
@@ -53,7 +65,7 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) (blocked bool)
 		return false
 	}
 
-	space, _ := c.Policy.Measure(ctx, c.WorktreeRoot)
+	space, _ := c.space(ctx)
 	if space.FreeBytes == nil || *space.FreeBytes >= space.TrimBytes {
 		return false
 	}
@@ -62,7 +74,7 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) (blocked bool)
 		if !RealDir(volume) || ctx.Err() != nil {
 			return false
 		}
-		space, target := c.Policy.Measure(ctx, c.WorktreeRoot)
+		space, target := c.space(ctx)
 		return space.FreeBytes != nil && *space.FreeBytes < target &&
 			SameVolume(volume, c.worktreeVolume())
 	}
@@ -100,7 +112,7 @@ func (c Caches) Trim(ctx context.Context, whileIdle func(func())) (blocked bool)
 	}
 	trim(youngCacheAge)
 
-	current, _ := c.Policy.Measure(ctx, c.WorktreeRoot)
+	current, _ := c.space(ctx)
 	if ctx.Err() != nil || current.AllowsWork() {
 		return false
 	}

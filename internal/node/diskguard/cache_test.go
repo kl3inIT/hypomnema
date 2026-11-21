@@ -15,6 +15,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
 func TestMain(tests *testing.M) {
@@ -321,4 +323,34 @@ func TestTrimTakesYoungEntriesOfGoAndLintCachesOnlyWhileStillLow(t *testing.T) {
 	for _, path := range recent {
 		assert.FileExists(t, path)
 	}
+}
+
+// Issue #1017, review round 1: the 2-hour pass runs only while the volume is still below its trim threshold after
+// the 5-day pass and the pnpm prune; above it, even short of the target, it deletes nothing.
+func TestYoungPassWaitsForTheTrimThresholdNotTheTarget(t *testing.T) {
+	home := realTempDir(t)
+	build := filepath.Join(home, "go-build")
+	t.Setenv("GOCACHE", build)
+	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOLANGCI_LINT_CACHE", "")
+	old := writeCacheEntry(t, build, 0, goCacheAge+time.Hour)
+	young := writeCacheEntry(t, build, 1, 24*time.Hour)
+	const floor, threshold, target = 50, 100, 200
+	free := int64(10)
+	caches := Caches{
+		WorktreeRoot: home, UserHome: home, Logger: slog.New(slog.DiscardHandler),
+		measure: func(context.Context) (nodeproto.DiskSpace, int64) {
+			measured := free
+			return nodeproto.DiskSpace{FreeBytes: &measured, FloorBytes: floor, TrimBytes: threshold}, target
+		},
+	}
+	pruned := false
+	assert.False(t, caches.Trim(t.Context(), func(prune func()) {
+		pruned = true
+		free = (threshold + target) / 2
+	}))
+	require.True(t, pruned, "the volume still needed room after the 5-day pass")
+	assert.NoFileExists(t, old)
+	assert.FileExists(t, young, "above the trim threshold the 2-hour pass deletes nothing")
 }
