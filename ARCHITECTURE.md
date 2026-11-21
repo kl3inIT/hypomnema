@@ -1915,12 +1915,14 @@ flowchart LR
   (`tasks.model_unresolved`): it is read whole, never at a slash it has, and refused when the Task is dispatched, as
   the code before refused it; such a Task waits with the reason (the form to write the model in) and the owner is
   told, and the other Tasks of the scheduler's pass go on. The way back restores each changed model and gives every
-  other Task named with its provider, one made after the upgrade too, its model's own name, which the code before
-  resolves. A profile version, a Bot or a chat with a model and no provider is left as it is, as the code before ran
+  other Task named with its provider, one made after the upgrade too, its model's own name where the code before
+  would place that name at the same provider (among its runtime's kinds then, or every provider for a role Task),
+  and keeps the provider where it would not. A profile version, a Bot or a chat with a model and no provider is left as it is, as the code before ran
   it; an edit that leaves that model alone (a Bot's persona, a chat's effort, an undone setup change) is accepted and
   gives it the one provider that offers it, as the code before did (`keptModel`); a new model needs its provider.
   A profile version is restored by its id (`POST /profiles/{name}/versions/{version_id}/restore`, the profile page's
-  Restore): its own source, with the provider that version recorded for a model the source names without one; the
+  Restore): its own source as the page shows it, with its tool policy as migration 00123 re-expressed it (never the
+  old allowlist its YAML still writes), and the provider that version recorded for a model the source names without one; the
   same YAML under another provider is a new version. A name with an empty part (`opencode-go/`, `/`) is refused. The gateway itself already takes only `<provider>/<model>` or a name of its own
   table, and every worker and Bot is given those names. A Codex profile that names no provider still runs under an account its node holds. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
@@ -3798,7 +3800,10 @@ capabilities do not exist yet.
   - Not built: the "Extra Usage" balance, a per-model wire for pi's `models.json` (pi speaks chat to a
     Go model), moving the `ocg/*` models off 9Router on zm (#670).
 - `opencode-zen` (kind `opencode_zen`, issue #965, seeded by its migration unless the owner already named a provider
-  `opencode-zen`, which is then left as it is: Zen is served under a provider of kind `opencode_zen` the owner names;
+  `opencode-zen`, which is then left as it is: Zen is served under a provider of kind `opencode_zen` the owner names.
+  Its way back leaves the code before rows it runs: a Task's Zen model is taken off, a profile version, Bot or chat on
+  Zen keeps no model, a Bot's Zen fallbacks and the gateway's Zen targets go (a gateway model with no other target
+  with them), and Zen's accounts stay;
   [research](docs/research/2026-11-20-opencode-zen-provider.md)) serves OpenCode Zen, OpenCode's models paid from the
   workspace's balance, as `opencode-zen/<model>` under the Zen keys the owner added as accounts (above). It is
   OpenCode Go's adapter with Zen's kind, runtime and root:
