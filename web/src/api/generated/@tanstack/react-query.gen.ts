@@ -1079,7 +1079,7 @@ export const requestVideoChangesMutation = (options?: Partial<Options<RequestVid
 /**
  * Make a revision again in another look (owner only; issue
  *
- * Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is.
+ * Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
  */
 export const changeVideoLookMutation = (options?: Partial<Options<ChangeVideoLookData>>): UseMutationOptions<ChangeVideoLookResponse, ChangeVideoLookError, Options<ChangeVideoLookData>> => {
   const mutationOptions: UseMutationOptions<ChangeVideoLookResponse, ChangeVideoLookError, Options<ChangeVideoLookData>> = {
@@ -1098,7 +1098,7 @@ export const changeVideoLookMutation = (options?: Partial<Options<ChangeVideoLoo
 /**
  * Make a failed revision again, as it was asked (owner only; issue
  *
- * Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again.
+ * Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again. The Idempotency-Key is required.
  */
 export const retryVideoRevisionMutation = (options?: Partial<Options<RetryVideoRevisionData>>): UseMutationOptions<RetryVideoRevisionResponse, RetryVideoRevisionError, Options<RetryVideoRevisionData>> => {
   const mutationOptions: UseMutationOptions<RetryVideoRevisionResponse, RetryVideoRevisionError, Options<RetryVideoRevisionData>> = {

@@ -5440,6 +5440,11 @@ export type QuestionId = string;
 export type After = number;
 
 /**
+ * Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+ */
+export type RequiredIdempotencyKey = string;
+
+/**
  * Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
  */
 export type IdempotencyKey = string;
@@ -6873,11 +6878,11 @@ export type RequestVideoChangesResponse = RequestVideoChangesResponses[keyof Req
 
 export type ChangeVideoLookData = {
   body: VideoLookChange;
-  headers?: {
+  headers: {
     /**
-     * Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+     * Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
      */
-    'Idempotency-Key'?: string;
+    'Idempotency-Key': string;
   };
   path: {
     video_id: string;
@@ -6907,11 +6912,11 @@ export type ChangeVideoLookResponse = ChangeVideoLookResponses[keyof ChangeVideo
 
 export type RetryVideoRevisionData = {
   body?: never;
-  headers?: {
+  headers: {
     /**
-     * Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+     * Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
      */
-    'Idempotency-Key'?: string;
+    'Idempotency-Key': string;
   };
   path: {
     video_id: string;

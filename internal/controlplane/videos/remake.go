@@ -45,8 +45,8 @@ func (s *Service) ChangeLook(ctx context.Context, id string, rev int, req LookCh
 		return Video{}, Revision{}, err
 	}
 
-	if len(req.RequestID) > MaxRequestID {
-		return Video{}, Revision{}, fmt.Errorf("%w: a request id is at most %d bytes", ErrInvalid, MaxRequestID)
+	if err := checkRequestID(req.RequestID); err != nil {
+		return Video{}, Revision{}, err
 	}
 
 	hash := requestHash("look", id, strconv.Itoa(rev), req.Look.canonical())
@@ -84,8 +84,8 @@ func (s *Service) Retry(ctx context.Context, id string, rev int, by, requestID s
 		by = Owner
 	}
 
-	if len(requestID) > MaxRequestID {
-		return Video{}, Revision{}, fmt.Errorf("%w: a request id is at most %d bytes", ErrInvalid, MaxRequestID)
+	if err := checkRequestID(requestID); err != nil {
+		return Video{}, Revision{}, err
 	}
 
 	hash := requestHash("retry", id, strconv.Itoa(rev))
@@ -108,6 +108,19 @@ func (s *Service) Retry(ctx context.Context, id string, rev int, by, requestID s
 
 		return out, nil
 	})
+}
+
+// checkRequestID refuses a look change or a retry without a request id (row 4): sent twice, it would queue two
+// revisions.
+func checkRequestID(id string) error {
+	switch {
+	case id == "":
+		return fmt.Errorf("%w: a look change or a retry needs a request id (an Idempotency-Key)", ErrInvalid)
+	case len(id) > MaxRequestID:
+		return fmt.Errorf("%w: a request id is at most %d bytes", ErrInvalid, MaxRequestID)
+	}
+
+	return nil
 }
 
 // remake queues a revision made from revision rev, as plan says from it and the take; the lines, voice, captions

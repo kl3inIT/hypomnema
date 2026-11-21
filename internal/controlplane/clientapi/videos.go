@@ -296,7 +296,7 @@ func (s *Server) ChangeVideoLook(ctx context.Context, req openapi.ChangeVideoLoo
 	}
 
 	v, _, err := s.videos.ChangeLook(ctx, req.VideoId, req.Rev, videos.LookChange{
-		Look: lookInput(req.Body.Look), By: videos.Owner, RequestID: val(req.Params.IdempotencyKey),
+		Look: lookInput(req.Body.Look), By: videos.Owner, RequestID: req.Params.IdempotencyKey,
 	})
 	if err != nil {
 		return nil, videoError(err)
@@ -312,7 +312,7 @@ func (s *Server) RetryVideoRevision(ctx context.Context, req openapi.RetryVideoR
 		return nil, errNoVideos
 	}
 
-	v, _, err := s.videos.Retry(ctx, req.VideoId, req.Rev, videos.Owner, val(req.Params.IdempotencyKey))
+	v, _, err := s.videos.Retry(ctx, req.VideoId, req.Rev, videos.Owner, req.Params.IdempotencyKey)
 	if err != nil {
 		return nil, videoError(err)
 	}

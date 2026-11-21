@@ -1028,7 +1028,7 @@ sequenceDiagram
     `{take, title?, aspect?, captions?, voice?, look?}` with an Idempotency-Key, `GET /videos/looks`, `POST
     /videos/preview` `{take, aspect?, captions?, look?, rev?}` answering `image/jpeg` (busy `rate_limited` with
     Retry-After 1, too long `timed_out` 504, no ffmpeg `unavailable`), `POST /videos/{id}/revisions/{rev}/look`
-    `{look}` and `POST /videos/{id}/revisions/{rev}/retry`, each with an Idempotency-Key and answering 201 with the
+    `{look}` and `POST /videos/{id}/revisions/{rev}/retry`, each with a required Idempotency-Key and answering 201 with the
     video, `GET` and `DELETE /videos/{id}`, `POST
     /videos/{id}/revisions/{rev}/approve`, `POST /videos/{id}/revisions/{rev}/changes` `{lines?, note?}` with an
     Idempotency-Key (a note alone is kept and starts nothing; changed lines queue a new revision, the other lines'

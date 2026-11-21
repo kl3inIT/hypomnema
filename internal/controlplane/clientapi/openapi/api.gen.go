@@ -7888,6 +7888,9 @@ type QuestionID = string
 // QueueID defines model for QueueID.
 type QueueID = int64
 
+// RequiredIdempotencyKey defines model for RequiredIdempotencyKey.
+type RequiredIdempotencyKey = string
+
 // RoutineID defines model for RoutineID.
 type RoutineID = string
 
@@ -8480,14 +8483,14 @@ type RequestVideoChangesParams struct {
 
 // ChangeVideoLookParams defines parameters for ChangeVideoLook.
 type ChangeVideoLookParams struct {
-	// IdempotencyKey Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
-	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+	// IdempotencyKey Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+	IdempotencyKey RequiredIdempotencyKey `json:"Idempotency-Key"`
 }
 
 // RetryVideoRevisionParams defines parameters for RetryVideoRevision.
 type RetryVideoRevisionParams struct {
-	// IdempotencyKey Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
-	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+	// IdempotencyKey Makes the request safe to repeat, and is required where a repeat would add another revision: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
+	IdempotencyKey RequiredIdempotencyKey `json:"Idempotency-Key"`
 }
 
 // ReadVideoFileParams defines parameters for ReadVideoFile.
@@ -11868,7 +11871,7 @@ type ClientInterface interface {
 
 	// ChangeVideoLookWithBody Make a revision again in another look (owner only; issue
 	//
-	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is.
+	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -11877,7 +11880,7 @@ type ClientInterface interface {
 
 	// ChangeVideoLook Make a revision again in another look (owner only; issue
 	//
-	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is.
+	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -11886,7 +11889,7 @@ type ClientInterface interface {
 
 	// RetryVideoRevision Make a failed revision again, as it was asked (owner only; issue
 	//
-	// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again.
+	// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again. The Idempotency-Key is required.
 	//
 	// Corresponds with POST /videos/{video_id}/revisions/{rev}/retry (the `RetryVideoRevision` operationId).
 	RetryVideoRevision(ctx context.Context, videoId VideoID, rev VideoRev, params *RetryVideoRevisionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -18510,7 +18513,7 @@ func (c *Client) RequestVideoChanges(ctx context.Context, videoId VideoID, rev V
 
 // ChangeVideoLookWithBody Make a revision again in another look (owner only; issue
 //
-// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is.
+// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
 //
 // Takes any type of body and a specified content type.
 //
@@ -18529,7 +18532,7 @@ func (c *Client) ChangeVideoLookWithBody(ctx context.Context, videoId VideoID, r
 
 // ChangeVideoLook Make a revision again in another look (owner only; issue
 //
-// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is.
+// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -18548,7 +18551,7 @@ func (c *Client) ChangeVideoLook(ctx context.Context, videoId VideoID, rev Video
 
 // RetryVideoRevision Make a failed revision again, as it was asked (owner only; issue
 //
-// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again.
+// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again. The Idempotency-Key is required.
 //
 // Corresponds with POST /videos/{video_id}/revisions/{rev}/retry (the `RetryVideoRevision` operationId).
 func (c *Client) RetryVideoRevision(ctx context.Context, videoId VideoID, rev VideoRev, params *RetryVideoRevisionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -31692,16 +31695,14 @@ func NewChangeVideoLookRequestWithBody(server string, videoId VideoID, rev Video
 
 	if params != nil {
 
-		if params.IdempotencyKey != nil {
-			var headerParam0 string
+		var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", *params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
-			if err != nil {
-				return nil, err
-			}
-
-			req.Header.Set("Idempotency-Key", headerParam0)
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
 		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
 
 	}
 
@@ -31748,16 +31749,14 @@ func NewRetryVideoRevisionRequest(server string, videoId VideoID, rev VideoRev, 
 
 	if params != nil {
 
-		if params.IdempotencyKey != nil {
-			var headerParam0 string
+		var headerParam0 string
 
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", *params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
-			if err != nil {
-				return nil, err
-			}
-
-			req.Header.Set("Idempotency-Key", headerParam0)
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
 		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
 
 	}
 
@@ -35093,7 +35092,7 @@ type ClientWithResponsesInterface interface {
 
 	// ChangeVideoLookWithBodyWithResponse Make a revision again in another look (owner only; issue
 	//
-	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is.
+	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -35102,7 +35101,7 @@ type ClientWithResponsesInterface interface {
 
 	// ChangeVideoLookWithResponse Make a revision again in another look (owner only; issue
 	//
-	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is.
+	// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -35111,7 +35110,7 @@ type ClientWithResponsesInterface interface {
 
 	// RetryVideoRevisionWithResponse Make a failed revision again, as it was asked (owner only; issue
 	//
-	// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again.
+	// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again. The Idempotency-Key is required.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -53891,7 +53890,7 @@ func (c *ClientWithResponses) RequestVideoChangesWithResponse(ctx context.Contex
 
 // ChangeVideoLookWithBodyWithResponse Make a revision again in another look (owner only; issue
 //
-// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is.
+// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -53906,7 +53905,7 @@ func (c *ClientWithResponses) ChangeVideoLookWithBodyWithResponse(ctx context.Co
 
 // ChangeVideoLookWithResponse Make a revision again in another look (owner only; issue
 //
-// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is.
+// Queues a new revision, numbered after the latest, with this one as its parent: its lines, aspect and captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken by the provider and voice this one was, from the voice already made. The revision must be in review, approved or changes_requested, and stays as it is; a video whose take was deleted is refused with conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -53921,7 +53920,7 @@ func (c *ClientWithResponses) ChangeVideoLookWithResponse(ctx context.Context, v
 
 // RetryVideoRevisionWithResponse Make a failed revision again, as it was asked (owner only; issue
 //
-// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again.
+// Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look, aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it failed is spoken again by the same provider and voice, from the voice already made. Only a failed revision is made again. The Idempotency-Key is required.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -72928,23 +72927,27 @@ func (siw *ServerInterfaceWrapper) ChangeVideoLook(w http.ResponseWriter, r *htt
 
 	headers := r.Header
 
-	// ------------- Optional header parameter "Idempotency-Key" -------------
+	// ------------- Required header parameter "Idempotency-Key" -------------
 	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
-		var IdempotencyKey IdempotencyKey
+		var IdempotencyKey RequiredIdempotencyKey
 		n := len(valueList)
 		if n != 1 {
 			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
 		if err != nil {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
 			return
 		}
 
-		params.IdempotencyKey = &IdempotencyKey
+		params.IdempotencyKey = IdempotencyKey
 
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -72987,23 +72990,27 @@ func (siw *ServerInterfaceWrapper) RetryVideoRevision(w http.ResponseWriter, r *
 
 	headers := r.Header
 
-	// ------------- Optional header parameter "Idempotency-Key" -------------
+	// ------------- Required header parameter "Idempotency-Key" -------------
 	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
-		var IdempotencyKey IdempotencyKey
+		var IdempotencyKey RequiredIdempotencyKey
 		n := len(valueList)
 		if n != 1 {
 			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
 			return
 		}
 
-		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
 		if err != nil {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
 			return
 		}
 
-		params.IdempotencyKey = &IdempotencyKey
+		params.IdempotencyKey = IdempotencyKey
 
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

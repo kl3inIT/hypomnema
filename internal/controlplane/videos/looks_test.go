@@ -229,14 +229,14 @@ func TestATurnedTakeFallsBackOrRefusesAFrame(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict)
 
 	// A look change of the fallen-back revision keeps its frame, fallback included, when no frame is sent.
-	_, changed, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{Look: &LookInput{
+	_, changed, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{RequestID: "id-1", Look: &LookInput{
 		Captions: &CaptionsInput{Preset: ptr("bold")},
 	}})
 	require.NoError(t, err)
 	assert.Equal(t, compose.ChromeFull, changed.Look.Frame.Chrome)
 	assert.Equal(t, compose.ChromeAndroid, changed.Look.FellBackFrom)
 
-	_, _, err = r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{Look: &LookInput{
+	_, _, err = r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{RequestID: "id-2", Look: &LookInput{
 		Frame: &FrameInput{Chrome: ptr("iphone")},
 	}})
 	require.ErrorIs(t, err, ErrConflict)
@@ -315,11 +315,11 @@ func TestAChangedLookIsANewRevisionOfTheOneViewed(t *testing.T) {
 	require.ErrorIs(t, err, ErrIdempotency)
 
 	// full and none are kept apart.
-	_, full, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{Look: &LookInput{
+	_, full, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{RequestID: "id-3", Look: &LookInput{
 		Frame: &FrameInput{Chrome: ptr("full")},
 	}})
 	require.NoError(t, err)
-	_, none, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{Look: &LookInput{
+	_, none, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{RequestID: "id-4", Look: &LookInput{
 		Frame: &FrameInput{Chrome: ptr("none")},
 	}})
 	require.NoError(t, err)
@@ -327,16 +327,16 @@ func TestAChangedLookIsANewRevisionOfTheOneViewed(t *testing.T) {
 	assert.Equal(t, compose.ChromeNone, none.Look.Frame.Chrome)
 
 	// Only a made revision's look is changed.
-	_, _, err = r.svc.ChangeLook(t.Context(), v.ID, 4, LookChange{})
+	_, _, err = r.svc.ChangeLook(t.Context(), v.ID, 4, LookChange{RequestID: "id-5"})
 	require.ErrorIs(t, err, ErrConflict, "a queued one")
 
-	_, _, err = r.svc.ChangeLook(t.Context(), v.ID, 9, LookChange{})
+	_, _, err = r.svc.ChangeLook(t.Context(), v.ID, 9, LookChange{RequestID: "id-6"})
 	require.ErrorIs(t, err, ErrNotFound)
 
 	// A video whose take was deleted.
 	r.takes.take.ID = "tk_00000000000000ff"
 
-	_, _, err = r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{})
+	_, _, err = r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{RequestID: "id-7"})
 	require.ErrorIs(t, err, ErrConflict)
 	assert.Contains(t, err.Error(), "the take was deleted")
 }
@@ -370,7 +370,7 @@ func TestAChangedLookReusesTheVoice(t *testing.T) {
 
 	r.svc.cfg.Settings = nil // A pinned revision never reads them.
 
-	_, rev, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{Look: &LookInput{
+	_, rev, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{RequestID: "id-8", Look: &LookInput{
 		Captions: &CaptionsInput{Preset: ptr(captions.Legacy)}, Frame: &FrameInput{Chrome: ptr("none")},
 	}})
 	require.NoError(t, err)
@@ -442,7 +442,7 @@ func TestARetryMakesTheFailedRevisionAsItWas(t *testing.T) {
 	assert.Equal(t, "Linh", made.UsedVoice)
 	assert.Len(t, r.speech.spoken, spoken, "no new speech")
 
-	_, _, err = r.svc.Retry(t.Context(), v.ID, 4, Owner, "")
+	_, _, err = r.svc.Retry(t.Context(), v.ID, 4, Owner, "id-9")
 	require.ErrorIs(t, err, ErrConflict, "only a failed revision is made again")
 }
 
@@ -528,7 +528,7 @@ func TestARetryAfterAFailedSceneKeepsTheFirstScenesVoice(t *testing.T) {
 	r.order = []string{speech.ProviderElevenLabs, speech.ProviderSoniox}
 	r.mu.Unlock()
 
-	_, rev, err := r.svc.Retry(t.Context(), v.ID, 1, Owner, "")
+	_, rev, err := r.svc.Retry(t.Context(), v.ID, 1, Owner, "id-10")
 	require.NoError(t, err)
 	r.runAll(t)
 
@@ -563,7 +563,7 @@ func TestAPinnedRevisionSpeaksALostClipWithItsProvider(t *testing.T) {
 	r.speech.off = []string{speech.ProviderSoniox}
 	r.speech.mu.Unlock()
 
-	_, rev, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{Look: &LookInput{
+	_, rev, err := r.svc.ChangeLook(t.Context(), v.ID, 1, LookChange{RequestID: "id-11", Look: &LookInput{
 		Frame: &FrameInput{Chrome: ptr("full")},
 	}})
 	require.NoError(t, err)

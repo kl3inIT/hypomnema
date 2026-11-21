@@ -130,3 +130,23 @@ func TestTheLookSampleAnswersItsLimits(t *testing.T) {
 	assert.Equal(t, openapi.ChromeAndroid, looks.JSON200.Default.Frame.Chrome)
 	assert.Equal(t, []openapi.VideoPreset{{Id: "legacy", Name: "Classic"}}, looks.JSON200.Presets)
 }
+
+// A look change and a retry are refused without an Idempotency-Key (#908, row 4; review of #1001): the contract
+// requires it, before the videos are asked.
+func TestALookChangeAndARetryNeedAnIdempotencyKey(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	w.srv.WithVideos(&lookVideos{})
+	owner, _ := w.token("owner", bearertoken.Owner)
+
+	look, err := owner.ChangeVideoLookWithResponse(ctx, "vid_abc", 1, &openapi.ChangeVideoLookParams{},
+		openapi.VideoLookChange{})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, look.StatusCode(), string(look.Body))
+
+	retry, err := owner.RetryVideoRevisionWithResponse(ctx, "vid_abc", 1, &openapi.RetryVideoRevisionParams{})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, retry.StatusCode(), string(retry.Body))
+}

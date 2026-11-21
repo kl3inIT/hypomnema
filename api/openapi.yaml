@@ -902,9 +902,9 @@ paths:
         captions on or off, the sections of the look sent, and this revision's look for the others. It is spoken
         by the provider and voice this one was, from the voice already made. The revision must be in review,
         approved or changes_requested, and stays as it is; a video whose take was deleted is refused with
-        conflict, as a frame sent for a take whose phone turned is.
+        conflict, as a frame sent for a take whose phone turned is. The Idempotency-Key is required.
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequiredIdempotencyKey"
       requestBody:
         required: true
         content:
@@ -928,9 +928,9 @@ paths:
         Queues a new revision, numbered after the latest, with the failed one as its parent: its lines, look,
         aspect, captions and voice, never the latest lines or the saved default. A revision voiced before it
         failed is spoken again by the same provider and voice, from the voice already made. Only a failed
-        revision is made again.
+        revision is made again. The Idempotency-Key is required.
       parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequiredIdempotencyKey"
       responses:
         "201":
           description: The video, with the revision queued.
@@ -5535,6 +5535,14 @@ components:
       in: query
       description: The seq of the last event already read.
       schema: { type: integer, format: int64, minimum: 0 }
+    RequiredIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Makes the request safe to repeat, and is required where a repeat would add another revision: the same key
+        with the same request returns the first result; with another request it is idempotency_key_conflict.
+      schema: { type: string, minLength: 1, maxLength: 255 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header

@@ -380,7 +380,8 @@ func TestAWorkerMakesAVideoTheOwnerApproves(t *testing.T) {
 			{http.MethodGet, "/studio/items", ""},
 			{http.MethodGet, "/takes/" + r.take + "/thumbnail.jpg", ""},
 		} {
-			status, _, _ := r.api(token, c.method, c.path, c.body, nil)
+			// A request as the owner would send it, its Idempotency-Key included: refused for who sends it.
+			status, _, _ := r.api(token, c.method, c.path, c.body, http.Header{"Idempotency-Key": {"k1"}})
 			assert.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, status, "%s %s", c.method, c.path)
 		}
 	}

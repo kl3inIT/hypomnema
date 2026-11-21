@@ -268,7 +268,7 @@ func videosLook(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return fmt.Errorf("%w: give the parts of the look to change, such as --caption-preset or --chrome", ErrUsage)
 	}
 
-	resp, err := e.api.ChangeVideoLookWithResponse(ctx, id, rev, &openapi.ChangeVideoLookParams{IdempotencyKey: key(fs)},
+	resp, err := e.api.ChangeVideoLookWithResponse(ctx, id, rev, &openapi.ChangeVideoLookParams{IdempotencyKey: *key(fs)},
 		openapi.VideoLookChange{Look: look})
 	if err != nil {
 		return fmt.Errorf("changing the look of %s r%d: %w", id, rev, err)
@@ -290,7 +290,7 @@ func videosRetry(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	resp, err := e.api.RetryVideoRevisionWithResponse(ctx, id, rev,
-		&openapi.RetryVideoRevisionParams{IdempotencyKey: key(fs)})
+		&openapi.RetryVideoRevisionParams{IdempotencyKey: *key(fs)})
 	if err != nil {
 		return fmt.Errorf("making %s r%d again: %w", id, rev, err)
 	}
