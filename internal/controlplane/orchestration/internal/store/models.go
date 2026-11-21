@@ -935,6 +935,7 @@ type RoutineRun struct {
 	Error     string
 	ChatID    sql.NullString
 	KeyHash   sql.NullString
+	Access    string
 }
 
 type Run struct {

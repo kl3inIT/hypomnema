@@ -24,6 +24,7 @@
 package routinestore
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -211,6 +212,9 @@ type RoutineRun struct {
 	Error  string
 	// ChatID is a prompt run's chat.
 	ChatID string
+	// Access is the Routine's when the run started: a read run's check and chat read only for the whole run,
+	// whatever the Routine is changed to meanwhile (issue #1023, review of #1037).
+	Access string
 }
 
 // RoutineSpec is what a Routine is made or changed with.
@@ -385,7 +389,7 @@ func routineRunFromRow(r store.RoutineRun) RoutineRun {
 	out := RoutineRun{
 		ID: r.ID, RoutineID: r.RoutineID, StartedBy: r.StartedBy, State: RunState(r.State),
 		StartedAt: storeutil.Millis(r.StartedAt), EndedAt: storeutil.OptionalMillis(r.EndedAt),
-		Output: r.Output, Error: r.Error, ChatID: r.ChatID.String,
+		Output: r.Output, Error: r.Error, ChatID: r.ChatID.String, Access: r.Access,
 	}
 
 	if r.ExitCode.Valid {
@@ -1015,7 +1019,7 @@ func LiveRunTx(ctx context.Context, q *store.Queries, routineID string) (*Routin
 func StartRunTx(ctx context.Context, q *store.Queries, now int64, r Routine, id, by, chatID string,
 ) (StartedRun, error) {
 	if err := q.InsertRoutineRun(ctx, store.InsertRoutineRunParams{
-		ID: id, RoutineID: r.ID, StartedBy: by, Now: now, ChatID: nullString(chatID),
+		ID: id, RoutineID: r.ID, StartedBy: by, Now: now, ChatID: nullString(chatID), Access: cmp.Or(r.Access, AccessFull),
 	}); err != nil {
 		return StartedRun{}, fmt.Errorf("recording a run of routine %s: %w", r.ID, err)
 	}

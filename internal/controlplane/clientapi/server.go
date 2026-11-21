@@ -32,7 +32,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/meetings"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
@@ -540,13 +539,13 @@ func (s *Server) authorize(next openapi.StrictHandlerFunc, operationID string) o
 			}
 		}
 		// A read Routine's check script has the rights of its runs, which have none here: it reads through the
-		// agent API's tools (owner, 2026-11-21 on #1023).
+		// agent API's tools (owner, 2026-11-21 on #1023). Its run's access decides, as the run started.
 		if tok.Kind == bearertoken.Bot && tok.Routine != "" {
-			r, err := s.svc.Routines().GetRoutine(ctx, tok.Routine)
+			reads, err := s.svc.RoutineScriptReads(ctx, tok.Routine)
 			if err != nil {
 				return nil, err
 			}
-			if r.Access == routinestore.AccessRead {
+			if reads {
 				return nil, fmt.Errorf("%w: %s", errForbidden, agenttool.ReadRunRefusal)
 			}
 		}
