@@ -170,7 +170,7 @@ func (c Caches) defaultCaches(ctx context.Context, named []string) []cacheRoot {
 		named = append(named, filepath.Clean(lint))
 	}
 	for _, path := range named {
-		if path == roots[0].path || path == roots[1].path || !RealDir(path) {
+		if path == roots[0].path || path == roots[1].path {
 			continue
 		}
 		if _, said := unconfirmedCaches.LoadOrStore(path, true); !said {
