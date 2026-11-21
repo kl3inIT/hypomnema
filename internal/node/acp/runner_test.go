@@ -556,3 +556,37 @@ func TestOmpAndOpencodeFindTheirSkills(t *testing.T) {
 		})
 	}
 }
+
+// Scenario: the offer carries the gateway's sizes of the model (issue #1019). omp's models.yml and opencode's
+// configuration name them instead of the defaults; without them the defaults stay.
+func TestTheModelsSizesFromTheOfferReachOmpAndOpencode(t *testing.T) {
+	t.Parallel()
+
+	sized := launch{URL: "https://hypomnema.example/v1", Model: "claude-sonnet", ContextWindow: 1000000, MaxOutput: 64000}
+
+	sized.Dir = t.TempDir()
+	_, _, err := prepareOmp(sized)
+	require.NoError(t, err)
+
+	models, err := os.ReadFile(filepath.Join(sized.Dir, "agent", "models.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(models), "contextWindow: 1000000")
+	assert.Contains(t, string(models), "maxTokens: 64000")
+
+	sized.Dir = t.TempDir()
+	_, _, err = prepareOpencode(sized)
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(filepath.Join(sized.Dir, "opencode.json"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"context": 1000000`)
+	assert.Contains(t, string(raw), `"output": 64000`)
+
+	unsized := launch{Dir: t.TempDir(), URL: "https://hypomnema.example/v1", Model: "claude-sonnet"}
+	_, _, err = prepareOmp(unsized)
+	require.NoError(t, err)
+
+	models, err = os.ReadFile(filepath.Join(unsized.Dir, "agent", "models.yml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(models), "contextWindow: 128000", "the default without the gateway's size")
+}

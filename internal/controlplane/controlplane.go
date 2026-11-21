@@ -386,6 +386,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Credential).WithModelKeys(workerKeys.Key).
+		WithModelSizes(workerKeys.Sizes).
 		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithRuntimeTools(agenttool.RuntimeTools).
 		WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)

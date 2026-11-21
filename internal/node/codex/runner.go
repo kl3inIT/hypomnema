@@ -97,6 +97,20 @@ func (rt *CodexRuntime) argv(o nodeproto.Offer, dir, session string) []string {
 		"-c", tools + ".command=" + quote(rt.Exe),
 		"-c", tools + ".args=" + string(args),
 		"-c", tools + ".tool_timeout_sec=" + strconv.Itoa(int(toolTimeout.Seconds())),
+		// No subagents, plugins or apps: a worker starts no other agent, as a Claude Code worker has Task and Agent
+		// denied, and its tools are Hypomnema's (issue #1019), as OpenClaw's bounded turns turn them off
+		// (extensions/codex/src/app-server/bounded-turn.ts) and t3code's codex exec turns off plugins and apps.
+		"-c", "agents.enabled=false",
+		"-c", "features.multi_agent=false",
+		"-c", "features.multi_agent_v2=false",
+		"-c", "features.plugins=false",
+		"-c", "features.apps=false",
+	}
+
+	// The model's window as the gateway knows it (issue #1019): for a model it does not know Codex assumes 272,000
+	// tokens (models-manager/src/model_info.rs), too large for a smaller one, which then fails before compacting.
+	if o.ModelContextWindow > 0 {
+		argv = append(argv, "-c", "model_context_window="+strconv.FormatInt(o.ModelContextWindow, 10))
 	}
 
 	if o.Model != "" {

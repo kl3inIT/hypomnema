@@ -245,7 +245,9 @@ func TestACodexWorkerRunsThroughTheGateway(t *testing.T) {
 
 	g := newRig(t, "success")
 	r := newReporter()
-	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(""), r))
+	d := g.dispatch("")
+	d.Offer.ModelContextWindow = 200000
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
 	r.wait(t)
 
 	assert.Equal(t, []string{"shim 0199-thread"}, r.started)
@@ -272,6 +274,9 @@ func TestACodexWorkerRunsThroughTheGateway(t *testing.T) {
 		`model="gpt-sol"`,
 		`model_reasoning_effort="xhigh"`,
 		`mcp_servers.hypomnema.args=["mcp","--dir",`,
+		"agents.enabled=false", "features.multi_agent=false", "features.multi_agent_v2=false",
+		"features.plugins=false", "features.apps=false",
+		"model_context_window=200000",
 	} {
 		assert.Contains(t, argv, want)
 	}

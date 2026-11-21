@@ -45,12 +45,17 @@ func TestAnOfferCarriesTheGatewaysKeyUntilTheDispatchSettles(t *testing.T) {
 	keys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
 	mux := http.NewServeMux()
-	nodeapi.New(svc, logger).WithModelKeys(keys.Key).Register(mux)
+	nodeapi.New(svc, logger).WithModelKeys(keys.Key).WithModelSizes(keys.Sizes).Register(mux)
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
 	_, err = svc.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	require.NoError(t, err)
+	_, err = gateway.ApplyModel(ctx, "name: gpt-sol\ntargets: [{provider: codex-subscription, model: gpt-6.1-sol}]\n")
+	require.NoError(t, err)
+	window, output := int64(400_000), int64(64_000)
+	_, err = gateway.SetAttributes(ctx, "gpt-sol", modelgateway.Attributes{ContextWindow: &window, MaxOutput: &output})
 	require.NoError(t, err)
 	_, _, err = svc.ApplyProfile(ctx, "",
 		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
@@ -122,11 +127,14 @@ func TestAnOfferCarriesTheGatewaysKeyUntilTheDispatchSettles(t *testing.T) {
 
 	own := offers["under its own account"]
 	assert.Empty(t, own.ModelKey)
+	assert.Zero(t, own.ModelContextWindow, "sizes go with the gateway's models only")
 
 	through := offers["through the gateway"]
 	assert.Equal(t, orchestration.GatewayAccountRef, through.AccountRef)
 	assert.Equal(t, "codex", through.Runtime)
 	require.NotEmpty(t, through.ModelKey)
+	assert.Equal(t, window, through.ModelContextWindow, "the gateway's window goes with the offer (issue #1019)")
+	assert.Equal(t, output, through.ModelMaxOutput)
 
 	key, err := gateway.Authenticate(ctx, through.ModelKey)
 	require.NoError(t, err)

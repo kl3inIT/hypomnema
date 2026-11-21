@@ -220,6 +220,10 @@ type Offer struct {
 	// ModelAPI is the wire a worker that can choose one speaks to the gateway for the model: "anthropic-messages"
 	// for a Claude subscription's, "openai-responses" for a Codex subscription's, empty for chat (issue #549).
 	ModelAPI string `json:"model_api,omitempty"`
+	// ModelContextWindow and ModelMaxOutput are the gateway's sizes of the model, in tokens, when it knows them
+	// (issue #1019). Orchestration never fills them: the node API does, as it sends the offer.
+	ModelContextWindow int64 `json:"model_context_window,omitempty"`
+	ModelMaxOutput     int64 `json:"model_max_output,omitempty"`
 	// Uses are the Connections the Run's workers may use; AgentKey is this
 	// Dispatch's own key to ask for their tokens. Orchestration never fills
 	// the key: the node API does, as it sends the offer.

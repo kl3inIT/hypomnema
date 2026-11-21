@@ -3486,7 +3486,9 @@ capabilities do not exist yet.
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
   Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it, and
-  the Claude Code runner, which has no other credential since issue #381.
+  the Claude Code runner, which has no other credential since issue #381. The offer also carries the model's
+  context window and largest output as the gateway resolves them (`model_context_window`, `model_max_output`,
+  issue #1019), absent when it knows neither; each runner tells its CLI, below.
 - A chat's pi gets a key of its own too (issue #204, after Omnigent, whose pi asks the process that started it):
   - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the chat's model
     (its own, or its Bot's; issue #369), or for every model when neither names one, and made again for the new model
@@ -5204,7 +5206,11 @@ Node (`internal/node`):
   `wire_api = "responses"`, `supports_standalone_web_search = true` so that Codex offers its `web.run` search, which
   the gateway answers on `/v1/alpha/search` (codex-rs `ext/web-search/src/extension.rs`; OpenClaw sets it the same
   way), the key read from the environment variable `HYPOMNEMA_MODEL_KEY`) and the tools server
-  (`ask`, `finish`), the model and the effort, and the prompt on standard input. `CODEX_HOME` is
+  (`ask`, `finish`), the model and the effort, and the prompt on standard input. It starts no subagent and has no
+  plugins or apps (`agents.enabled`, `features.multi_agent`, `features.multi_agent_v2`, `features.plugins`,
+  `features.apps` false, as OpenClaw's bounded turns and t3code's `codex exec`), and is told the model's window
+  (`model_context_window`) when the offer carries it; for a model it does not know Codex assumes 272,000 tokens
+  (issue #1019). `CODEX_HOME` is
   `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
   or else what `turn.failed` said. A stop kills the process.
@@ -5217,7 +5223,8 @@ Node (`internal/node`):
   which writes Settings → Connect a tool's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
   the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
   opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
-  out of its tools. Neither is given an image model. Each keeps its own default for MCP tools (owner, 2026-11-21,
+  out of its tools. Neither is given an image model. The model's context window and largest output are the
+  offer's when it carries them (issue #1019), else `agentconfig`'s defaults (128000, 16384). Each keeps its own default for MCP tools (owner, 2026-11-21,
   issue #1015; [research](docs/research/2026-11-21-code-mode.md)): opencode's code mode, its `execute` tool
   calling the tools server's tools from code, and omp's `tools.xdev`, the rarely used ones reached as `xd://`
   devices; until then `execute` was denied and `xdev` off, which made them plain tools. A turn is `initialize`, `session/new` with the tools server as an
@@ -5250,9 +5257,12 @@ Node (`internal/node`):
     `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
     key, `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` asks for the one-hour cache for the main conversation (subagents keep
     five minutes), and `ANTHROPIC_DEFAULT_OPUS|SONNET|HAIKU_MODEL` are the Dispatch's model, the only one its key
-    may use; its `CLAUDE_CONFIG_DIR` is `accounts/gateway/claude`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
+    may use; `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is the model's window when the offer carries it (issue #1019, as
+    t3code and OpenClaw); its `CLAUDE_CONFIG_DIR` is `accounts/gateway/claude`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
     (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, as OpenMausBot's bots): it is kept per working folder, a worker's is a new
-    worktree per Task, and the agent's memory is the control plane's (issue #21).
+    worktree per Task, and the agent's memory is the control plane's (issue #21). Its git instructions and status
+    snapshot are off (`CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1`, issue #1019, as OpenClaw): the snapshot is rebuilt
+    when a session resumes and would rewrite the cached prefix of each follow-up.
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The Supervisor reads the journal from a
     saved offset, so a new daemon adopts a running worker and handles no line twice. A stop sends an interrupt
