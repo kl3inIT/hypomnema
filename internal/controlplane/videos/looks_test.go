@@ -98,17 +98,19 @@ func TestAMakeResolvesItsLook(t *testing.T) {
 	assert.Equal(t, compose.DefaultFrame(compose.ChromeNone), rev.Look.Frame, "aidemo's frame: no chrome, radius 14")
 
 	for name, bad := range map[string]*LookInput{
-		"preset":       {Captions: &CaptionsInput{Preset: ptr("comic")}},
-		"position":     {Captions: &CaptionsInput{Position: ptr("left")}},
-		"chrome":       {Frame: &FrameInput{Chrome: ptr("mac")}},
-		"padding":      {Frame: &FrameInput{Padding: ptr(401)}},
-		"radius":       {Frame: &FrameInput{Radius: ptr(-1)}},
-		"background":   {Background: &BackgroundInput{Preset: ptr("plaid")}},
-		"one color":    {Background: &BackgroundInput{Colors: &[]string{"#000000"}}},
-		"no colors":    {Background: &BackgroundInput{Colors: &[]string{}}},
-		"not hex":      {Background: &BackgroundInput{Colors: &[]string{"#000000", "red"}}},
-		"both":         {Background: &BackgroundInput{Preset: ptr("ocean"), Colors: &[]string{"#000000", "#ffffff"}}},
-		"empty chrome": {Frame: &FrameInput{Chrome: ptr("")}},
+		"preset":           {Captions: &CaptionsInput{Preset: ptr("comic")}},
+		"position":         {Captions: &CaptionsInput{Position: ptr("left")}},
+		"chrome":           {Frame: &FrameInput{Chrome: ptr("mac")}},
+		"padding":          {Frame: &FrameInput{Padding: ptr(401)}},
+		"radius":           {Frame: &FrameInput{Radius: ptr(-1)}},
+		"background":       {Background: &BackgroundInput{Preset: ptr("plaid")}},
+		"one color":        {Background: &BackgroundInput{Colors: &[]string{"#000000"}}},
+		"no colors":        {Background: &BackgroundInput{Colors: &[]string{}}},
+		"not hex":          {Background: &BackgroundInput{Colors: &[]string{"#000000", "red"}}},
+		"both":             {Background: &BackgroundInput{Preset: ptr("ocean"), Colors: &[]string{"#000000", "#ffffff"}}},
+		"empty chrome":     {Frame: &FrameInput{Chrome: ptr("")}},
+		"empty background": {Background: &BackgroundInput{Preset: ptr("")}},
+		"empty preset":     {Captions: &CaptionsInput{Preset: ptr("")}},
 	} {
 		_, _, err := r.ownerMake(t, "", bad)
 		require.ErrorIs(t, err, ErrInvalid, name)
