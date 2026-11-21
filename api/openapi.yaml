@@ -836,11 +836,11 @@ paths:
         The tracks the owner uploaded, a look's music chosen from them; none is bundled, and a video has no music
         until a look names a track. used_bytes is what the library's files hold, against quota_bytes (5 GB). A
         track is uploaded by POST /api/v1/videos/music?name=<its name>, outside this contract, its body the file
-        as it is with its Content-Length (application/octet-stream): at most 64 MB (else 413; 411 without a
-        Content-Length), one upload at a time (429 with Retry-After), refused with 507 insufficient_storage before
-        its body is read when the quota or the disk cannot hold it, and with 400 when it is not exactly one audio
-        stream of mp3, m4a with AAC, wav, flac or ogg with Vorbis or Opus, does not decode whole, decodes to less
-        than 10 seconds or more than 20 minutes, or is silent. It answers 201 with the VideoMusicTrack, its
+        as it is with its Content-Length, sent as application/octet-stream (else 400): at most 64 MB (else 413; 411
+        without a Content-Length), one upload at a time (429 with Retry-After), refused with 507
+        insufficient_storage before its body is read when the quota or the disk cannot hold it, and with 400 when
+        it is not exactly one audio stream, and no video, of mp3, m4a or mp4 with AAC, wav, flac or ogg with Vorbis
+        or Opus, does not decode whole, decodes to less than 10 seconds or more than 20 minutes, or is silent. It answers 201 with the VideoMusicTrack, its
         length_ms the decoded length.
       responses:
         "200":

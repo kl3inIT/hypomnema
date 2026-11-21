@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
@@ -20,12 +21,22 @@ import (
 // musicUploadPath is where a track is uploaded.
 const musicUploadPath = BasePath + "/videos/music"
 
+// octetStream is the type a track's upload is sent as.
+const octetStream = "application/octet-stream"
+
 // musicBusyRetry is the Retry-After of an upload while another is received.
 const musicBusyRetry = "5"
 
-// uploadMusic receives a track: the owner's only, its Content-Length required and at most videos.MaxMusicBytes; the
-// service refuses a second upload and one the quota or the disk cannot hold before it reads the body.
+// uploadMusic receives a track: the owner's only, sent as application/octet-stream as a meeting's recording is
+// (api/openapi.yaml, UploadMeeting), so that a page of another origin cannot send one as a simple request with the
+// session's cookie; its Content-Length required and at most videos.MaxMusicBytes; the service refuses a second upload
+// and one the quota or the disk cannot hold before it reads the body.
 func (s *Server) uploadMusic(w http.ResponseWriter, r *http.Request) {
+	// The connection is closed after the answer: Go's server otherwise reads a body the handler left unread, a chunked
+	// one or one under 256 KB, before it answers a refusal, so a refusal would wait for the whole upload (net/http's
+	// chunkWriter.writeHeader skips that read once the answer says Connection: close).
+	w.Header().Set("Connection", "close")
+
 	tok, _, err := s.authenticate(r.Context(), r)
 	if err != nil {
 		s.writeError(w, r, err)
@@ -41,6 +52,13 @@ func (s *Server) uploadMusic(w http.ResponseWriter, r *http.Request) {
 
 	if s.videos == nil {
 		s.writeError(w, r, errNoVideos)
+
+		return
+	}
+
+	if kind, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || kind != octetStream {
+		writeJSONError(w, http.StatusBadRequest, openapi.ValidationFailed,
+			fmt.Sprintf("header Content-Type is %s, not %q", octetStream, r.Header.Get("Content-Type")))
 
 		return
 	}
