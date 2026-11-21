@@ -6125,6 +6125,18 @@ Node (`internal/node`):
 - In development, `pnpm dev` forwards `/api`, `/livez` and `/readyz` to the control plane (`HYPOMNEMA_API_URL`,
   default `http://127.0.0.1:8080`).
 
+## Orca plugin
+
+- `orca/` (issue #1061): an Orca plugin, another client of the client API, made from Orca's `worker-panel`
+  template; installed from this folder (`orca plugin install`), how in [its README](orca/README.md). Its worker
+  (`src/worker.ts`) follows `GET /events/stream` as the Work page does (`use-work.ts`) and lists what waits for the
+  owner by the Work page's "you" rule, ported to `src/waiting.ts` because Orca loads only a plugin's own files
+  (`web/src/features/work/orca-waiting.test.ts` keeps the two the same). It counts them in Orca's status bar, notifies
+  each new one once (the keys notified are kept in the plugin's storage), and its panel answers questions with
+  `POST /questions/{id}/answer`. It uses a dedicated owner token, kept in Orca's secrets; the server's URL is a
+  setting of the plugin. CI does not run its tests: `orca plugin test orca` and `orca plugin validate orca` do, on a
+  machine with Orca.
+
 ## Where it runs
 
 Since 2026-11-09, on the owner's tailnet (Tailscale). Since 2026-11-10 the control plane is also reachable from
