@@ -68,6 +68,23 @@ ALTER TABLE web_sessions ADD COLUMN revoked_at INTEGER;
 ALTER TABLE web_sessions ADD COLUMN revoke_reason TEXT;
 ALTER TABLE web_sessions ADD COLUMN last_used_at INTEGER;
 
+-- A coordinator token revoked before this migration left its children working: the agent sessions and gateway keys
+-- of the Dispatches of the Runs it created, finished or still running. They end now, with the reason a revocation
+-- gives them from here on (orchestration.Service.RevokeToken).
+UPDATE agent_sessions
+SET revoked_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), revoke_reason = 'parent_revoked'
+WHERE revoked_at IS NULL AND dispatch_id IN (
+    SELECT d.id FROM dispatches d JOIN tasks t ON t.id = d.task_id JOIN runs r ON r.id = t.run_id
+    JOIN client_tokens c ON c.id = r.coordinator_token_id
+    WHERE c.revoked_at IS NOT NULL);
+
+UPDATE gateway_keys
+SET revoked_at = CAST(unixepoch('subsec') * 1000 AS INTEGER), revoke_reason = 'parent_revoked'
+WHERE revoked_at IS NULL AND dispatch_id IN (
+    SELECT d.id FROM dispatches d JOIN tasks t ON t.id = d.task_id JOIN runs r ON r.id = t.run_id
+    JOIN client_tokens c ON c.id = r.coordinator_token_id
+    WHERE c.revoked_at IS NOT NULL);
+
 -- +goose Down
 DROP TABLE share_token_scrub;
 
