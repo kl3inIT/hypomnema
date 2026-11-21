@@ -35,7 +35,9 @@ func TestClassicTakesThePositionChosen(t *testing.T) {
 	t.Parallel()
 
 	cues := []Cue{{Index: 1, StartMs: 0, EndMs: 1000, Text: "Mở ứng dụng",
-		Words: []Word{{Word: "Mở", Start: 0, End: 0.3}, {Word: "ứng", Start: 0.3, End: 0.6}, {Word: "dụng", Start: 0.6, End: 1}}}}
+		Words: []Word{
+			{Word: "Mở", Start: 0, End: 0.3}, {Word: "ứng", Start: 0.3, End: 0.6}, {Word: "dụng", Start: 0.6, End: 1},
+		}}}
 	render := func(p Position) string {
 		ass, err := Render(t.Context(), ffmpeg.Tools{}, cues, Look{Preset: Legacy, Position: p}, 720, 1280,
 			[]compose.Ring{})
