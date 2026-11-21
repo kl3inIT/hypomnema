@@ -703,7 +703,7 @@ func (q *Queries) ListMeetingWords(ctx context.Context) ([]string, error) {
 }
 
 const listMeetings = `-- name: ListMeetings :many
-SELECT m.id, m.title, m.titled, m.language, m.people, m.terms, m.file_name, m.media_type, m.size, m.duration_ms, m.state, m.failure, m.attempts, m.provider, m.model, m.created_at, m.updated_at, m.source, m.kind, n.state AS notes_state, n.summary AS notes_summary,
+SELECT m.id, m.title, m.titled, m.language, m.people, m.terms, m.file_name, m.media_type, m.size, m.duration_ms, m.state, m.failure, m.attempts, m.provider, m.model, m.created_at, m.updated_at, m.source, m.kind, n.state AS notes_state, n.summary AS notes_summary, n.written_at AS notes_written_at,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action') AS actions,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action' AND i.done = 0)
            AS open_actions
@@ -722,29 +722,30 @@ type ListMeetingsParams struct {
 }
 
 type ListMeetingsRow struct {
-	ID           string
-	Title        string
-	Titled       int64
-	Language     string
-	People       string
-	Terms        string
-	FileName     string
-	MediaType    string
-	Size         int64
-	DurationMs   int64
-	State        string
-	Failure      string
-	Attempts     int64
-	Provider     string
-	Model        string
-	CreatedAt    int64
-	UpdatedAt    int64
-	Source       string
-	Kind         string
-	NotesState   string
-	NotesSummary string
-	Actions      int64
-	OpenActions  int64
+	ID             string
+	Title          string
+	Titled         int64
+	Language       string
+	People         string
+	Terms          string
+	FileName       string
+	MediaType      string
+	Size           int64
+	DurationMs     int64
+	State          string
+	Failure        string
+	Attempts       int64
+	Provider       string
+	Model          string
+	CreatedAt      int64
+	UpdatedAt      int64
+	Source         string
+	Kind           string
+	NotesState     string
+	NotesSummary   string
+	NotesWrittenAt sql.NullInt64
+	Actions        int64
+	OpenActions    int64
 }
 
 // The newest first; with a query, those whose title or a line holds it.
@@ -779,6 +780,7 @@ func (q *Queries) ListMeetings(ctx context.Context, arg ListMeetingsParams) ([]L
 			&i.Kind,
 			&i.NotesState,
 			&i.NotesSummary,
+			&i.NotesWrittenAt,
 			&i.Actions,
 			&i.OpenActions,
 		); err != nil {
