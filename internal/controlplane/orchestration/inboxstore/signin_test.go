@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
 
 // Scenario: issue #1023, section 6: the Thư ký Bot's reads of the owner's Lark are refused twice for its sign-in,
@@ -73,4 +74,52 @@ func TestOneSignInItemPerBrokenAccount(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, added)
 	assert.NotEqual(t, next.ID, last.ID)
+}
+
+// Scenario: review of #1037, round 2: the owner reopens an old "Log in again: lark:me" item. While another one is
+// open for the account, the reopen is refused: never two open items for one account. With none open, the reopened
+// item takes the account's key again: the next refusal keeps it, and the next read that works closes it.
+func TestAReopenedSignInItemTakesItsAccountsKeyAgain(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	kai := bot(w.kai)
+	owner := inboxstore.Actor{Kind: inboxstore.Owner}
+
+	old, _, err := w.inbox.SignInFailed(ctx, kai, "lark:me", "rrn_1", "HTTP 401 from open.larksuite.com")
+	require.NoError(t, err)
+	closed, _, err := w.inbox.SignInWorks(ctx, kai, "lark:me", "rrn_2", "lark:me was read")
+	require.NoError(t, err)
+	current, added, err := w.inbox.SignInFailed(ctx, kai, "lark:me", "rrn_3", "HTTP 401 from open.larksuite.com")
+	require.NoError(t, err)
+	require.True(t, added)
+
+	_, err = w.inbox.Reopen(ctx, inboxstore.Change{Actor: owner, ID: old.ID, Revision: closed.Revision})
+	require.ErrorIs(t, err, storeerr.ErrConflict, "another item of the account is open")
+
+	open, err := w.inbox.List(ctx, inboxstore.Filter{States: []string{inboxstore.Open}}, "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, []string{current.ID}, idsOf(open.Items))
+
+	done, _, err := w.inbox.SignInWorks(ctx, kai, "lark:me", "rrn_4", "lark:me was read")
+	require.NoError(t, err)
+
+	reopened, err := w.inbox.Reopen(ctx, inboxstore.Change{Actor: owner, ID: old.ID, Revision: closed.Revision})
+	require.NoError(t, err, "none is open now")
+	assert.Equal(t, inboxstore.Open, reopened.State)
+	_ = done
+
+	kept, added, err := w.inbox.SignInFailed(ctx, kai, "lark:me", "rrn_5", "HTTP 401 from open.larksuite.com")
+	require.NoError(t, err)
+	assert.False(t, added, "the reopened item holds the account's key")
+	assert.Equal(t, old.ID, kept.ID)
+
+	_, closedNow, err := w.inbox.SignInWorks(ctx, kai, "lark:me", "rrn_6", "lark:me was read")
+	require.NoError(t, err)
+	assert.True(t, closedNow)
+
+	open, err = w.inbox.List(ctx, inboxstore.Filter{States: []string{inboxstore.Open}}, "", 0)
+	require.NoError(t, err)
+	assert.Empty(t, open.Items)
 }
