@@ -86,3 +86,22 @@ test('opens the pull request of a stalled review, else the Task on the web', asy
   assert.deepEqual(view.refusals, [])
   await view.unmount()
 })
+
+// Scenario: the Task was canceled before the answer reached the server: the panel says so, not "Already answered".
+test('says a question was canceled when the answer came too late', async () => {
+  const host = mockHost({
+    requests: {
+      'inbox.get': () => live,
+      'inbox.answer': () => ({
+        outcome: 'canceled',
+        message: 'conflict: question q1 was canceled (task_canceled)'
+      })
+    }
+  })
+  const view = await mount(panel, { host })
+
+  await view.press({ text: 'Public' })
+  assert.ok(view.find({ text: 'Canceled: conflict: question q1 was canceled (task_canceled)' }))
+  assert.equal(view.find({ text: /Already answered/ }), null)
+  await view.unmount()
+})
