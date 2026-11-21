@@ -96,7 +96,7 @@ func (s *Server) readAccount(w http.ResponseWriter, r *http.Request, a agent, ca
 		return
 	}
 
-	s.accountReadSignIn(r.Context(), a, in.Account, in.Host, result.Status)
+	s.accountReadSignIn(r.Context(), a, in.Account, in.Host, result.Status, result.Body)
 
 	if !json.Valid(result.Body) {
 		answerTool(w, fmt.Sprintf("HTTP %d: the service did not return JSON records.", result.Status), true)

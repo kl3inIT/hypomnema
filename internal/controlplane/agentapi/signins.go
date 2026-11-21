@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -83,14 +84,35 @@ func (s *Server) runOf(ctx context.Context, a agent) (string, error) {
 }
 
 // accountReadSignIn reads an answer of account_read for the account's sign-in: 401 and 403 are refusals of it,
-// as the service proxy answers 403 when the account's token cannot be had; another answer under 400 says it works.
-func (s *Server) accountReadSignIn(ctx context.Context, a agent, account, host string, status int) {
+// as the service proxy answers 403 when the account's token cannot be had. Only a read that really worked says it
+// works: under 400, its body JSON records, with no error of the service in them (Lark's nonzero `code`, an `error`
+// object); any other answer says nothing of the sign-in (review of #1037, round 1).
+func (s *Server) accountReadSignIn(ctx context.Context, a agent, account, host string, status int, body []byte) {
 	switch {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		s.signInRead(ctx, a, account, false, fmt.Sprintf("HTTP %d from %s", status, host))
-	case status < http.StatusBadRequest:
+	case status < http.StatusBadRequest && readRecords(body):
 		s.signInRead(ctx, a, account, true, "")
 	}
+}
+
+// readRecords says whether a service's answer is records and no error: valid JSON, and, for an object, no nonzero
+// `code` (Lark's way to fail with HTTP 200) and no `error` (Google's).
+func readRecords(body []byte) bool {
+	if !json.Valid(body) {
+		return false
+	}
+
+	var answer struct {
+		Code  *json.Number    `json:"code"`
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(body, &answer) != nil {
+		// Not an object (an array of records): nothing in it says it failed.
+		return true
+	}
+
+	return (answer.Code == nil || answer.Code.String() == "0") && len(answer.Error) == 0
 }
 
 // messagingSignIn reads a read of a messaging account's chats or messages for its sign-in: an account the service
