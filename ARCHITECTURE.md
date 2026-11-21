@@ -970,8 +970,8 @@ sequenceDiagram
     one yet: the library, the look's section and the runner are part 2): its file, its decoded length and a gain
     of −20 to +10 dB. Without music the mux's command is as before, stream for stream. `compose.Measure` decodes a
     file's first audio stream strictly (`-xerror`, optionally bounded by `-t`) through ebur128, read from ffmpeg's
-    stdout (`-progress pipe:1`, capped at 32 MB, refused unless it ends with `progress=end`, its stdout closed at the context's deadline
-    even while a child of ffmpeg holds it): integrated LUFS, the
+    stdout (`-progress pipe:1`, capped at 32 MB, refused unless it ends with `progress=end`, ffmpeg run in a process group of its own that is
+    killed whole at the context's deadline, its stdout closed then even while a child holds it): integrated LUFS, the
     largest true peak (linear; `TPdB` is 20·log10 of it) and the decoded length. With music, the voice's chain is
     written as `voice.wav` and measured; its gain is min(−16 − I, −1.5 − TP) (Kinocut, Apache-2.0,
     `third_party/kinocut`). The bed (`bed.go`, Kinocut's loop) is the track made stereo 44.1 kHz float, cut at the
