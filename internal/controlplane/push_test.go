@@ -64,3 +64,44 @@ func TestRegeneratingTheVAPIDKeysRemovesEveryDevice(t *testing.T) {
 	require.Error(t, run(noVault, "push", "regenerate-keys"))
 	require.ErrorIs(t, run(cfg, "push"), ErrUsage)
 }
+
+// Scenario: making the new key fails (review of #1050: the vault's write is refused). Nothing changes: the devices
+// stay subscribed with the key they were made with, which the control plane still signs with, so the owner loses no
+// notification for a failed command (Coder's RegenerateVAPIDKeys deletes and stores in one transaction,
+// coderd/webpush/webpush.go:534).
+func TestAFailedRegenerationKeepsTheKeyAndTheDevices(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	path := sqlitetest.Migrated(t, orchestration.Migrate)
+	cfg := vaultConfig(t, path, "k1", keygen(t, "k1"))
+
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: path})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, nil)
+
+	// A secret of another kind under the key's name: the vault refuses a VAPID key in it.
+	_, err = secrets.Create(ctx, vault.NewSecret{
+		Name: "web-push-vapid-key", Kind: vault.KindOAuthTokenSet, Payload: vault.Payload{vault.KeyRefreshToken: "r"},
+	})
+	require.NoError(t, err)
+
+	_, err = svc.SavePushSubscription(ctx, orchestration.NewPushSubscription{
+		Endpoint: "https://web.push.apple.com/a", P256dh: "k", Auth: "a",
+	})
+	require.NoError(t, err)
+
+	var out bytes.Buffer
+	require.Error(t, Command(ctx, cfg, append([]string{"push"}, "regenerate-keys"), strings.NewReader(""), &out))
+
+	subs, err := svc.ListPushSubscriptions(ctx)
+	require.NoError(t, err)
+	assert.Len(t, subs, 1, "the devices stay when the key cannot be made")
+
+	kept, err := secrets.Get(ctx, "web-push-vapid-key")
+	require.NoError(t, err)
+	assert.Equal(t, 1, kept.Version)
+}
