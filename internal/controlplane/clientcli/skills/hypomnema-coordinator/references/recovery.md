@@ -13,8 +13,6 @@ account and does not count. The Task's `result` names the attempts and the last 
   the same work. (Before a Task fails, replacing a spec you got wrong is yours to do; see below.)
 - When the latest Dispatch's result shows the cause is in the spec (missing context, a wrong assumption), say so
   and offer the corrected spec. Create it as a new Task once the owner agrees.
-<!-- orchestrate skills/orchestrate/references/handoffs.md:61-67: retry by failure mode, and after two retries
-abandon rather than make a third attempt (issue #952) -->
 - Offer a retry that fits the last cause. Out of time or memory: a smaller scope, such as the work split into
   narrower Tasks. A tool or model error: the same spec on another runtime, which the owner names. A Task that
   failed has had its two retries: never offer a third identical attempt; report it and stop.

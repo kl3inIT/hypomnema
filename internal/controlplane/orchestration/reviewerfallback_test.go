@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,25 +33,41 @@ func TestDeploymentProfilesDoNotPinModels(t *testing.T) {
 	}
 }
 
-// Scenario (issue #952): the reviewer's sample blocks only on what it proved at the head, holds the change to
-// the spec alone and names its evidence level; its sources stay in comments, out of the instruction.
-func TestTheReviewerSampleBlocksOnlyOnProof(t *testing.T) {
+// Scenario (issues #952, #1051): the reviewer's sample is the one home of the review rules. It blocks only on a P0 or
+// P1 it proved at the head, that supported use with the default configuration reaches and that breaks the spec's
+// intent; it holds the change to the spec alone, newly blocks from a second round only on the diff since the
+// reviewed head and names its evidence level. Each rule is stated once, and its source comment names the reference
+// it is learned from, out of the instruction.
+func TestTheReviewerSampleBlocksOnlyOnBugsSupportedUseReaches(t *testing.T) {
 	t.Parallel()
 
-	var sample profileSource
-	require.NoError(t, decodeStrict(deployProfile(t, "reviewer.yaml"), &sample))
+	raw := deployProfile(t, "reviewer.yaml")
 
-	for _, want := range []string{
-		"The spec is the whole bar",
-		"A P0 or P1, and so an incorrect verdict, needs proof at the head commit",
-		"A problem the base already has does not block unless the change copies it or newly reaches it.",
-		"blocked (you could not run it; never a pass)",
-		"Verify only that its cited code exists",
+	var sample profileSource
+	require.NoError(t, decodeStrict(raw, &sample))
+
+	for rule, from := range map[string]string{
+		"The spec is the whole bar":                                     "pstack skills/poteto-mode/worker.md:4",
+		"An owner's condition in the spec is that condition as written": "pstack skills/poteto-mode/worker.md:4",
+		"P0 blocks release or operation for every input":                "Codex codex-rs/prompts/templates/review/rubric.md:56",
+		"P2 and P3 never block.":                                        "omp packages/coding-agent/src/prompts/agents/reviewer.md:88-93",
+		"A P0 or P1 blocks, and so makes the verdict incorrect, only when all three hold: it has proof at the head commit": "pstack skills/poteto-mode/playbooks/autopilot-full.md:16",
+		"documented, supported use with the default configuration reaches its trigger":                                     "Codex codex-rs/prompts/templates/review/rubric.md:14,17,18",
+		"and it breaks the spec's intent":                                                                "skills/interrogate/SKILL.md:19-23",
+		"is P2 at most: list it as a follow-up that names its precondition":                              "rubric.md:14,17,18 (criteria 3, 6, 7) and :27",
+		"A problem the base already has does not block unless the change copies it or newly reaches it.": "pstack skills/poteto-mode/playbooks/autopilot-full.md:16",
+		"a new blocking finding must be in the diff since that head":                                     "omp packages/coding-agent/src/prompts/agents/reviewer.md:73",
+		"Run the checks and tests that touch the diff, and each finding's repro":                         "pstack skills/interrogate/SKILL.md:19-23",
+		"blocked: you could not run it, never a pass":                                                    "orchestrate skills/orchestrate/prompts/verifier.md:38-61",
+		"Verify only that its cited code exists":                                                         "oh-my-opencode packages/senpi-task/src/agents/builtin/plan-reviewer.ts:120-151",
 	} {
-		assert.Contains(t, sample.Instruction, want)
+		assert.Equal(t, 1, strings.Count(sample.Instruction, rule), rule)
+		assert.Contains(t, raw, from, rule)
 	}
 
 	assert.NotContains(t, sample.Instruction, "pstack", "sources are comments")
+	assert.Equal(t, strings.Count(sample.Instruction, "\n"), strings.Count(raw, "\n# Line "),
+		"each line of the instruction has its source comment")
 }
 
 // Scenario (issue #756, split of PR #786): the gateway now ends a Codex worker's turn with a usage limit when every

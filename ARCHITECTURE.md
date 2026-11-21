@@ -2106,15 +2106,17 @@ flowchart LR
   Migration 00115 (issue #718) makes the next version from that one (`pfv_seed8_reviewer`, where
   `pfv_seed7_reviewer` is still current) and keeps its text: the reviewer also checks out the pull request, runs the
   repository's checks for what it touched and says which it could not run and why; `reviewer-codex.yaml` carries
-  this text. The role sample `deploy/profiles/reviewer.yaml` (issue #952, after Cursor's pstack and orchestrate)
-  holds a review to its spec alone, with no check or round above it; makes a finding P0 or P1, and so the verdict
-  `incorrect`, only with proof at the head commit (a command run and its output, or a spec, contract or doc line
-  the change makes wrong), a problem the base already has blocking only when the change copies or newly reaches
-  it and the rest listed as follow-ups; names the head commit the verdict covers, an evidence level (`ran-live`,
-  `test-verified`, `typecheck-only`, `blocked`, never a pass, or `failed`) and an `Execution` list of what it ran;
-  checks a plan only for its cited code and whether it can be carried out; and returns `blocked` in place of
-  `correct` or `incorrect` when it could not run what the verdict needs, saying what stopped it (`review_stall`
-  shows it as `unknown`). No migration seeds it: a reviewer gets it when the owner applies the file.
+  this text. The role sample `deploy/profiles/reviewer.yaml` (issues #952 and #1051, after Cursor's pstack and
+  orchestrate, omp and Codex) is the one home of the reviewer's rules, with their sources: the spec alone is the bar; P0 to P3
+  as omp and Codex define them, P2 and P3 never blocking; a P0 or P1 makes the verdict `incorrect` only with proof
+  at the head commit, a trigger that documented use with the default configuration reaches, and a break of the
+  spec's intent, the rest listed as follow-ups; from a second round, only what the diff since the reviewed head
+  adds may newly block; it runs the checks that touch the diff, answers CodeRabbit's Critical and Major findings,
+  and starts its summary with `Verdict:`, `Head:`, `Evidence:` (`ran-live`, `test-verified`, `typecheck-only`,
+  `blocked`, never a pass, or `failed`), the merge state and the checks, then an `Execution` list; `blocked` when
+  it could not run what the verdict needs (`review_stall` shows it as `unknown`). The coordinator's `review`
+  reference links to it and keeps only what the coordinator does; its sources are in `docs/role-routing.md`. No
+  migration seeds it: a reviewer gets it when the owner applies the file.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
   requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
@@ -5086,13 +5088,14 @@ The owner's commands:
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
   follow-up to its worker, not a new Task. The `planner` researches in one session; the `reviewer` checks plans
   before owner approval and `broad` or `narrow` changes from another vendor. A `quick` change needs green CI only.
-  A first PR review receives the pull request and spec, not the report or transcript, and is told to block only on
-  a P0 or P1 proved at the head and to give its `Head:` and evidence level in the summary (issue #952, after
-  pstack's `autopilot-full.md:16` and orchestrate's `verifier.md:23,41-61`); a P0 or P1 without proof is a
-  follow-up, and an `incorrect` verdict with none proved is handled as `blocked`: never a pass nor a fix round,
-  one new review once its cause is gone, then the owner told (orchestrate's `handoffs.md:137`). From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
-  effort `medium`, and the whole change again only for new behavior, a redesign or a large new diff; a clean merge
-  of the base or a wording-only change needs green CI only (pstack's `autopilot-full.md:5,14`). Before a review,
+  A first PR review receives the pull request and spec, not the report or transcript; an owner's acceptance
+  condition goes into the spec word for word, as one line, never restated as a property to hunt, and the spec does
+  not restate the reviewer's rules, which the `reviewer` profile holds (issue #1051, after pstack's `worker.md:4`).
+  An `incorrect` verdict with no finding that blocks by those rules is handled as `blocked`: never a pass nor a
+  fix round, one new review once its cause is gone, then the owner told (orchestrate's `handoffs.md:137`). From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
+  effort `medium`, and the whole change again only for new behavior, a redesign or a large new diff; a head whose
+  only change is a clean merge of the base, a `make migration-fix` rename or wording needs green CI only (pstack's
+  `autopilot-full.md:5,14` and `shipping.md:7`; the rename is inference, issue #1051). Before a review,
   a red check gets one rerun of its failed jobs, noted in the report; one green on the rerun, or failing outside
   the diff and also red on the base, is a flake: the review goes on, and the author opens an issue, with no fix
   in the pull request (pstack's `babysit.md:8`). A bug fix's spec asks for the failing test committed before the fix
@@ -5104,12 +5107,13 @@ The owner's commands:
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
   `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
-  and the owner told the verdict and findings, without adding a Task; a review first reads
-  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
-  so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
+  and the owner told the verdict and findings, without adding a Task; the reviewer first reads
+  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1
+  of its own) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
   permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
   nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
-  reported, not replaced.
+  reported, not replaced. The skill's files hold no source comments, since a coordinator turn reads them whole;
+  each rule's source is in `docs/role-routing.md` (issue #1051).
   A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
   in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
   A head gets one verdict (issue #953, after pstack's "a verdict covers a patch",
