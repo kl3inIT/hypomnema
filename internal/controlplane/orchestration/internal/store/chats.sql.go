@@ -990,6 +990,7 @@ WHERE (CAST(?1 AS TEXT) = '' OR chats.bot_id = CAST(?1 AS TEXT))
     OR (CAST(?2 AS INTEGER) = 0 AND (
         chats.id IN (SELECT b.main_chat FROM bots b WHERE b.main_chat IS NOT NULL)
         OR chats.id IN (SELECT a.chat_id FROM approvals a WHERE a.status = 'pending' AND a.chat_id IS NOT NULL)
+        OR chats.id IN (SELECT r.chat_id FROM connection_requests r WHERE r.state = 'pending')
         OR chats.id IN (
             SELECT (
                 SELECT l.id FROM chats l
@@ -1025,9 +1026,9 @@ type ListChatsRow struct {
 // A page of the chats, of one Bot when @bot names one, the most recently active first, each with the start of its
 // latest line of the owner or its Bot (issue #471): the sidebar's row of a Bot shows its main chat's. A reply of
 // thinking alone has no text and is passed over. The first page (@skip 0) also carries every Bot's main chat, every
-// chat an Approval waits in and, of a Bot with no main chat, the chat it opens (issue #923: its latest that is
-// not a Routine's run), whatever their age, so that a Bot's row is whole: a page later on does not.
-// Each chat carries the marks GetChatMarks reads, by the same rules.
+// chat an Approval or a Connection request (issue #471, part D) waits in and, of a Bot with no main chat, the chat
+// it opens (issue #923: its latest that is not a Routine's run), whatever their age, so that a Bot's row is whole: a
+// page later on does not. Each chat carries the marks GetChatMarks reads, by the same rules.
 func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListChatsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listChats, arg.Bot, arg.Skip, arg.Lim)
 	if err != nil {

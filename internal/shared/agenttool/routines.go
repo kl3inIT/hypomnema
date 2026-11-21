@@ -11,6 +11,19 @@ package agenttool
 // (internal/shared/toolsmcp/routine.go), as show_artifact's reads its path.
 const ToolRoutines = "routines"
 
+// ToolRequestConnection is a Bot's ask for a Connection it was not given (issue #471, part D, the grant card): the
+// owner answers on a card in its main chat, with Always for this Bot or Decline. Only a Bot's pi in its main chat
+// gets it, with the names of the Connections it may ask for, as OpenMausBot's bot is told which apps it was assigned
+// and asks for one with COMPOSIO_MANAGE_CONNECTIONS (server/cloud-connections-prompt.ts); it returns at once, as
+// t3code's t3_environment_link returns pending (apps/server/src/mcp/toolkits/orchestrator/tools.ts).
+const ToolRequestConnection = "request_connection"
+
+// RequestConnectionCall is the arguments of a request_connection call.
+type RequestConnectionCall struct {
+	Use    string `json:"use"`
+	Reason string `json:"reason"`
+}
+
 // The actions of ToolRoutines.
 const (
 	RoutinesList = "list"

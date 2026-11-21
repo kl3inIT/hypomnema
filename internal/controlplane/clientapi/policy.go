@@ -191,8 +191,11 @@ var policies = map[string]policy{
 	"ListSupersetFilterValues": {long: true},
 	"RelaySupersetRequest":     {long: true},
 
-	"ListApprovals":           {scope: scopeOwner},
-	"DecideApproval":          {scope: scopeOwner},
+	"ListApprovals":  {scope: scopeOwner},
+	"DecideApproval": {scope: scopeOwner},
+	// A Bot's requests for a Connection (issue #471, part D): only the owner answers them (connectionrequests.go).
+	"ListConnectionRequests":  {scope: scopeOwner},
+	"DecideConnectionRequest": {scope: scopeOwner},
 	"ListRepos":               {},
 	"PutRepo":                 {scope: scopeOwner},
 	"DeleteRepo":              {scope: scopeOwner},

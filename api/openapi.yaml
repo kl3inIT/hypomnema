@@ -1813,6 +1813,53 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Approval" }
         default: { $ref: "#/components/responses/Error" }
+  /connection-requests:
+    get:
+      operationId: ListConnectionRequests
+      summary: The requests Bots made for a Connection they were not given; only the owner
+      description: >-
+        A Bot whose Connections list is limited asks, from its pi in its main chat, for one outside it that is
+        switched on for chats (issue #471, part D). The owner answers each on a card.
+      parameters:
+        - name: state
+          in: query
+          schema: { $ref: "#/components/schemas/ConnectionRequestState" }
+        - name: chat_id
+          in: query
+          schema: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: The requests, the newest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionRequestList" }
+        default: { $ref: "#/components/responses/Error" }
+  /connection-requests/{request_id}/decision:
+    parameters:
+      - name: request_id
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    post:
+      operationId: DecideConnectionRequest
+      summary: Answer a Bot's request for a Connection; only the owner
+      description: >-
+        The first answer wins; the same answer again returns the request, a contrary one is a conflict. grant
+        checks again that the Connection is on for chats and not the owner's own account, that the Bot's list is
+        limited and that the chat is still its main chat, then adds the Connection to the Bot's list; when a check
+        fails the request is stale and nothing is granted. Either answer leaves a line in the chat that wakes the Bot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectionRequestDecision" }
+      responses:
+        "200":
+          description: The request as answered.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionRequest" }
+        default: { $ref: "#/components/responses/Error" }
   /secrets:
     get:
       operationId: ListSecrets
@@ -7841,6 +7888,44 @@ components:
             the Run or the chat that asked; approve_routine, for a request a Routine's run made, stops asking
             for the action in that Routine's later runs too, until its prompt, script or schedule changes or the
             owner takes it back; reject refuses it.
+    ConnectionRequestState:
+      type: string
+      description: stale is a grant whose checks failed; it granted nothing.
+      enum: [pending, granted, declined, stale]
+    ConnectionRequest:
+      type: object
+      description: >-
+        A Bot's request for a Connection it was not given (issue #471, part D). It is not an Approval.
+      required: [id, bot, chat_id, integration, label, reason, state, created_at]
+      properties:
+        id: { type: string }
+        bot: { type: string, description: The id of the Bot that asked. }
+        chat_id: { type: string, description: "The Bot's main chat, where it asked." }
+        integration: { type: string }
+        label: { type: string }
+        reason: { type: string, description: "Why the Bot needs it, in its words." }
+        state: { $ref: "#/components/schemas/ConnectionRequestState" }
+        why:
+          type: string
+          description: Of a grant that made the request stale just now, the check that failed.
+        created_at: { type: string, format: date-time }
+        decided_at: { type: string, format: date-time }
+    ConnectionRequestList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ConnectionRequest" }
+    ConnectionRequestDecision:
+      type: object
+      required: [decision]
+      additionalProperties: false
+      properties:
+        decision:
+          type: string
+          enum: [grant, decline]
+          description: grant adds the Connection to the Bot's list, always for this Bot; decline refuses it.
     ConnectionUse:
       type: object
       description: What changes; what is absent stays.
