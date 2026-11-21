@@ -397,9 +397,14 @@ VALUES (@position, @find, @replacement, @now);
 DELETE FROM gateway_usage WHERE created_at < @before;
 
 -- name: DeleteUnusedRevokedGatewayKeys :execrows
--- A revoked key no request names (issue #628); a live key is never deleted.
+-- A revoked key no request names (issue #628); a live key is never deleted. The newest key of a chat that names its
+-- coordinator token stays too: a key made again for the chat without one takes that token from it, and is refused
+-- once the token is revoked (issue #996).
 DELETE FROM gateway_keys
-WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id);
+WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id)
+  AND NOT (coordinator_token_id IS NOT NULL AND chat_id IS NOT NULL AND id = (
+      SELECT k.id FROM gateway_keys k WHERE k.chat_id = gateway_keys.chat_id
+      ORDER BY k.created_at DESC, k.rowid DESC LIMIT 1));
 
 -- name: DispatchKeysEnded :one
 -- Whether what a Dispatch's keys hang from has ended (issue #996): the coordinator token that created its Run is

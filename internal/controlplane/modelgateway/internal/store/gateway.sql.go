@@ -293,9 +293,14 @@ func (q *Queries) DeleteGatewayUsageBefore(ctx context.Context, before int64) (i
 const deleteUnusedRevokedGatewayKeys = `-- name: DeleteUnusedRevokedGatewayKeys :execrows
 DELETE FROM gateway_keys
 WHERE revoked_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM gateway_usage u WHERE u.key_id = gateway_keys.id)
+  AND NOT (coordinator_token_id IS NOT NULL AND chat_id IS NOT NULL AND id = (
+      SELECT k.id FROM gateway_keys k WHERE k.chat_id = gateway_keys.chat_id
+      ORDER BY k.created_at DESC, k.rowid DESC LIMIT 1))
 `
 
-// A revoked key no request names (issue #628); a live key is never deleted.
+// A revoked key no request names (issue #628); a live key is never deleted. The newest key of a chat that names its
+// coordinator token stays too: a key made again for the chat without one takes that token from it, and is refused
+// once the token is revoked (issue #996).
 func (q *Queries) DeleteUnusedRevokedGatewayKeys(ctx context.Context) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteUnusedRevokedGatewayKeys)
 	if err != nil {
