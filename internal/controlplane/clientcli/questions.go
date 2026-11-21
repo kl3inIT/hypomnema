@@ -100,7 +100,12 @@ func answer(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return err
 	}
 
-	resp, err := e.api.AnswerQuestionWithResponse(ctx, q.Id, ParseAnswer(q.Options, text))
+	payload, err := ParseAnswer(q.Options, text)
+	if err != nil {
+		return err
+	}
+
+	resp, err := e.api.AnswerQuestionWithResponse(ctx, q.Id, payload)
 	if err != nil {
 		return fmt.Errorf("answering: %w", err)
 	}
@@ -112,20 +117,35 @@ func answer(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() { e.printf("question %s is %s\n", resp.JSON200.Id, resp.JSON200.Status) })
 }
 
-// ParseAnswer reads an answer as typed: an option's number or its label (any
-// case) picks it; any other text is the answer's text.
-func ParseAnswer(options []openapi.Option, text string) openapi.Answer {
-	pick := func(i int) openapi.Answer { return openapi.Answer{Option: &i} }
+// ParseAnswer accepts an option number or label, or sends free text through
+// the first option that allows it. Questions without options accept text alone.
+func ParseAnswer(options []openapi.Option, text string) (openapi.Answer, error) {
+	if len(options) == 0 {
+		return openapi.Answer{Text: &text}, nil
+	}
 
-	if n, err := strconv.Atoi(strings.TrimSpace(text)); err == nil && len(options) > 0 {
-		return pick(n - 1)
+	typed := strings.TrimSpace(text)
+
+	if n, err := strconv.Atoi(typed); err == nil {
+		return openapi.Answer{Option: new(n - 1)}, nil
 	}
 
 	for i, opt := range options {
-		if strings.EqualFold(strings.TrimSpace(text), opt.Label) {
-			return pick(i)
+		if strings.EqualFold(typed, opt.Label) {
+			return openapi.Answer{Option: &i}, nil
 		}
 	}
 
-	return openapi.Answer{Text: &text}
+	for i, opt := range options {
+		if val(opt.AllowsText) {
+			return openapi.Answer{Option: &i, Text: &text}, nil
+		}
+	}
+
+	var choices strings.Builder
+	for i, opt := range options {
+		fmt.Fprintf(&choices, "\n  %d. %s", i+1, opt.Label)
+	}
+
+	return openapi.Answer{}, fmt.Errorf("%w: pick one of the following options:%s", ErrUsage, choices.String())
 }
