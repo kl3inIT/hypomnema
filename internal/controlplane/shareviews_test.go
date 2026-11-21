@@ -2,7 +2,6 @@ package controlplane
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -56,7 +55,7 @@ func TestTheViewsOfALinkAreWrittenWithoutALaterOpeningAndAsItStops(t *testing.T)
 		return views
 	}
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := slog.New(slog.DiscardHandler)
 	loopCtx, stop := context.WithCancel(ctx)
 	done := make(chan struct{})
 

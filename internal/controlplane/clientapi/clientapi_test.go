@@ -3,7 +3,6 @@ package clientapi
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -34,8 +33,8 @@ import (
 type world struct {
 	t   *testing.T
 	svc *orchestration.Service
-	// db is the control plane's database, for a test that puts it in a state no request makes.
-	db *sql.DB
+	// exec runs a statement on the control plane's database, for a test that puts it in a state no request makes.
+	exec func(query string)
 	// srv is the server under test, for a test that wires more into it.
 	srv *Server
 	url string
@@ -93,7 +92,14 @@ func newWorldAt(t *testing.T, clock platform.Clock) *world {
 		}
 	})
 
-	return &world{t: t, svc: svc, db: db, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi}
+	exec := func(query string) {
+		_, err := db.ExecContext(t.Context(), query)
+		require.NoError(t, err)
+	}
+
+	return &world{
+		t: t, svc: svc, exec: exec, srv: srv, url: hs.URL, mux: mux, stop: stop, workers: map[string]*worker{}, pi: pi,
+	}
 }
 
 // token adds a token and returns a client that sends it.

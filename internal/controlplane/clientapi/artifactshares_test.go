@@ -220,16 +220,14 @@ func TestALinksFilesWaitLikeWhatItShowsWhileTheFilesAreCleared(t *testing.T) {
 	sa, got := w.shared(laura.JSON201.Token, "203.0.113.3")
 	require.Equal(t, http.StatusOK, got.status, got.body)
 
-	_, err = w.db.ExecContext(ctx, "INSERT INTO share_token_scrub (id, since) VALUES (1, 0)")
-	require.NoError(t, err)
+	w.exec("INSERT INTO share_token_scrub (id, since) VALUES (1, 0)")
 
 	_, got = w.shared(laura.JSON201.Token, "203.0.113.3")
 	assert.Equal(t, http.StatusServiceUnavailable, got.status, got.body)
 	file := w.anonymous(http.MethodGet, sa.Files+"app.js", "203.0.113.3")
 	assert.Equal(t, http.StatusServiceUnavailable, file.status, file.body)
 
-	_, err = w.db.ExecContext(ctx, "DELETE FROM share_token_scrub")
-	require.NoError(t, err)
+	w.exec("DELETE FROM share_token_scrub")
 
 	file = w.anonymous(http.MethodGet, sa.Files+"app.js", "203.0.113.3")
 	assert.Equal(t, http.StatusOK, file.status, file.body)
