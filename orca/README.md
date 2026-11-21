@@ -52,10 +52,21 @@ orca plugin validate orca --json
 orca plugin dev watch orca        # loads this folder into Orca and follows its logs
 ```
 
+Some Orca packages lack the typings `orca plugin types` copies: on Linux, 1.4.247 and 1.4.248 fail with `ENOENT:
+... resources/plugins/declarative/orca.d.ts`. The same files are in Orca's source at the release's tag, and
+`tools/types-from-source.mjs` writes them as `orca plugin types` does:
+
+```sh
+git clone --depth 1 --branch v1.4.248 https://github.com/stablyai/orca "$TMPDIR/orca-src"
+node orca/tools/types-from-source.mjs "$TMPDIR/orca-src"
+npx tsc -p orca
+```
+
 `src/waiting.ts` is the web's rule for what waits for the owner (`web/src/features/work/work-state.ts`), copied
 because Orca refuses an import outside the plugin; `web/src/features/work/orca-waiting.test.ts` runs both on the
-same fixtures, so change them together. `.oxfmtrc.json` formats as Orca's own examples are formatted
-(`pnpm --dir web exec oxfmt -c ../orca/.oxfmtrc.json ../orca`).
+same fixtures, so change them together. The web's Vitest compiles that file with the web's own tsconfig, as
+`orca/tsconfig.json` extends typings a clean checkout does not have. `.oxfmtrc.json` formats as Orca's own
+examples are formatted (`pnpm --dir web exec oxfmt -c ../orca/.oxfmtrc.json ../orca`).
 
 ## Notices
 

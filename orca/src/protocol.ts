@@ -13,7 +13,7 @@ export type InboxState = {
 // How an answer went: sent, refused because the question was answered or canceled meanwhile, or not sent.
 export type AnswerResult =
   | { outcome: 'answered' }
-  | { outcome: 'taken' | 'failed'; message: string }
+  | { outcome: 'taken' | 'canceled' | 'failed'; message: string }
 
 declare module 'orca' {
   interface PluginRequests {

@@ -40,6 +40,10 @@ export class ControlPlane {
     return page.data
   }
 
+  async question(questionId: string): Promise<Question> {
+    return (await this.call('GET', `/questions/${encodeURIComponent(questionId)}`)) as Question
+  }
+
   async answer(questionId: string, answer: Answer): Promise<Question> {
     return (await this.call(
       'POST',
@@ -58,7 +62,7 @@ export class ControlPlane {
     signal: AbortSignal,
     opened?: () => void
   ) {
-    const res = await fetch(`${this.base}/events/stream?after=${after}`, {
+    const res = await this.fetch(`${this.base}/events/stream?after=${after}`, {
       headers: { ...this.headers(), Accept: 'text/event-stream', 'Last-Event-ID': String(after) },
       signal
     })
@@ -91,6 +95,22 @@ export class ControlPlane {
     }
   }
 
+  // fetch is the global fetch with the token taken out of what it throws: Node's fetch repeats a header value it
+  // refuses ("Bearer <token>" is an invalid header value), and the error reaches the panel and the log.
+  private async fetch(url: string, init: RequestInit): Promise<Response> {
+    try {
+      return await fetch(url, init)
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') throw e
+
+      throw new Error(this.redact(describe(e)))
+    }
+  }
+
+  private redact(text: string): string {
+    return text.split(this.token).join('[token]')
+  }
+
   private headers(): Record<string, string> {
     return { Authorization: `Bearer ${this.token}` }
   }
@@ -101,7 +121,7 @@ export class ControlPlane {
     body?: unknown,
     signal?: AbortSignal
   ): Promise<unknown> {
-    const res = await fetch(`${this.base}${path}`, {
+    const res = await this.fetch(`${this.base}${path}`, {
       method,
       headers:
         body === undefined
@@ -126,4 +146,12 @@ async function apiError(res: Response): Promise<ApiError> {
     body?.code ?? 'unavailable',
     body?.message ?? `HTTP ${res.status}`
   )
+}
+
+// describe is an error's message with its cause's: Node's fetch says only "fetch failed" and keeps the reason in
+// its cause.
+function describe(e: unknown): string {
+  if (!(e instanceof Error)) return String(e)
+
+  return e.cause instanceof Error ? `${e.message}: ${e.cause.message}` : e.message
 }

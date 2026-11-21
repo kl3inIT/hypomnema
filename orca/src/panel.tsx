@@ -83,6 +83,8 @@ async function answer(item: Item, option?: number): Promise<void> {
       update(outcomes, ({ [q.id]: _, ...rest }) => rest)
     } else if (result.outcome === 'taken') {
       note(q.id, { tone: 'warning', text: `Already answered: ${result.message}` })
+    } else if (result.outcome === 'canceled') {
+      note(q.id, { tone: 'warning', text: `Canceled: ${result.message}` })
     } else {
       note(q.id, { tone: 'danger', text: `Not sent: ${result.message}` })
     }
