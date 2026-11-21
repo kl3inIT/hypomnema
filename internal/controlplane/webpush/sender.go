@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -318,7 +319,9 @@ func (s *Sender) deliver(ctx context.Context, msg message, sub orchestration.Pus
 func (s *Sender) post(ctx context.Context, msg message, sub orchestration.PushSubscription,
 	private, public string,
 ) (int, error) {
-	resp, err := webpush.SendNotificationWithContext(ctx, msg.payload, &webpush.Subscription{
+	// webpush-go pads the message in place (bytes.NewBuffer(message), then pad), and one message goes to every
+	// browser at once: each send takes its own copy, as Coder's webpushSend clones it (coderd/webpush/webpush.go).
+	resp, err := webpush.SendNotificationWithContext(ctx, slices.Clone(msg.payload), &webpush.Subscription{
 		Endpoint: sub.Endpoint, Keys: webpush.Keys{Auth: sub.Auth, P256dh: sub.P256dh},
 	}, &webpush.Options{
 		HTTPClient: s.client, Subscriber: s.publicURL, VAPIDPublicKey: public, VAPIDPrivateKey: private,
