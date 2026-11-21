@@ -60,6 +60,8 @@ type secretaryWorld struct {
 	bot     orchestration.Bot
 	routine routinestore.Routine
 	lark    atomic.Int32
+	// larkBody is what each Lark read answers, with lark's status.
+	larkBody atomic.Pointer[string]
 	sent    atomic.Int32
 }
 
@@ -69,6 +71,7 @@ func newSecretaryWorld(t *testing.T) *secretaryWorld {
 	ctx := t.Context()
 	sw := &secretaryWorld{}
 	sw.lark.Store(http.StatusOK)
+	sw.larkBody.Store(new(`{"code":0,"data":{"items":[]}}`))
 
 	var agents *agentapi.Server
 	sw.world = newWorldWith(t, 0, func(api *agentapi.Server) { agents = api.WithMeetings(recordedMeetings{}) })
@@ -78,15 +81,15 @@ func newSecretaryWorld(t *testing.T) *secretaryWorld {
 			return integration + "-owner-token", nil
 		},
 		Upstream: accountTransport(func(req *http.Request) (*http.Response, error) {
-			status := http.StatusOK
+			status, body := http.StatusOK, `{"items":[]}`
 			switch {
 			case req.URL.Host == "open.larksuite.com":
-				status = int(sw.lark.Load())
+				status, body = int(sw.lark.Load()), *sw.larkBody.Load()
 			case req.Method == http.MethodPost:
 				sw.sent.Add(1)
 			}
 
-			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(`{"items":[]}`))}, nil
+			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
 		}),
 	})
 	require.NoError(t, err)
@@ -282,6 +285,20 @@ func TestOneLogInAgainItemPerBrokenAccount(t *testing.T) {
 	assert.Equal(t, first, open[0].Source.ID)
 
 	sw.lark.Store(http.StatusOK)
+
+	// A 200 that is no read (Lark's error code in its body, a page, broken JSON) keeps the item open (review of
+	// #1037, round 1).
+	for _, body := range []string{`{"code":99991663,"msg":"Invalid access token for authorization."}`,
+		`<html><body>Sign in</body></html>`, `{"code":0,"data":`} {
+		sw.larkBody.Store(&body)
+		_, _, _ = sw.use(script, agenttool.ToolAccountRead, read)
+
+		still := items(inboxstore.Open)
+		require.Len(t, still, 1, "a 200 answering %s is no read that works", body)
+		assert.Equal(t, open[0].ID, still[0].ID)
+	}
+
+	sw.larkBody.Store(new(`{"code":0,"data":{"items":[]}}`))
 
 	_, text, failed := sw.use(script, agenttool.ToolAccountRead, read)
 	require.False(t, failed, text)
