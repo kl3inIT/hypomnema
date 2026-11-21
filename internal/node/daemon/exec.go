@@ -23,6 +23,7 @@ type Commands interface {
 	Start(req nodeexec.Request) nodeproto.ExecAnswer
 	Output(ctx context.Context, agent, id string, wait time.Duration) nodeproto.ExecAnswer
 	Kill(agent, id string) nodeproto.ExecAnswer
+	List(agent string) []nodeproto.ExecProcess
 }
 
 // answerExec answers an exec. It does not hold up the socket: a command runs
@@ -71,6 +72,8 @@ func (d *Daemon) exec(ctx context.Context, e nodeproto.Exec) nodeproto.ExecAnswe
 		return d.cfg.Commands.Start(req)
 	case nodeproto.ExecOutput:
 		return d.cfg.Commands.Output(ctx, e.Agent, e.ProcessID, time.Duration(e.WaitSeconds)*time.Second)
+	case nodeproto.ExecList:
+		return nodeproto.ExecAnswer{Processes: d.cfg.Commands.List(e.Agent)}
 	case nodeproto.ExecKill:
 		return d.cfg.Commands.Kill(e.Agent, e.ProcessID)
 	default:

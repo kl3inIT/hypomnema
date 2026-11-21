@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -88,14 +89,17 @@ func nodeToolList() []agenttool.BrowserTool {
 	processSchema, err := json.Marshal(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"node":       node,
-			"process_id": map[string]any{"type": "string", "description": "As node_exec answered it."},
+			"node": node,
+			"process_id": map[string]any{
+				"type": "string", "description": "As node_exec answered it; left out, your commands on the node " +
+					"are listed.",
+			},
 			"wait_seconds": map[string]any{
 				"type": "integer", "minimum": 0, "maximum": int(nodeproto.ExecWaitMax.Seconds()),
 				"description": "Wait up to this long for it to end before answering; 0 answers at once.",
 			},
 		},
-		"required": []string{"node", "process_id"},
+		"required": []string{"node"},
 	})
 	if err != nil {
 		return nil
@@ -125,7 +129,7 @@ func nodeToolList() []agenttool.BrowserTool {
 				"that takes longer than five minutes runs in the background (background: true): read it with " +
 				"node_process and stop it with node_process_kill. It ends if the node restarts, as when it " +
 				"updates; a restart of the control plane does not end it, and its result is read again for " +
-				"you. Commands run one per call with no state kept between them: cd or export in one does " +
+				"you (if the restart cut your turn, node_process without a process_id lists it). Commands run one per call with no state kept between them: cd or export in one does " +
 				"not carry to the next.",
 			InputSchema: execSchema,
 		},
@@ -133,7 +137,9 @@ func nodeToolList() []agenttool.BrowserTool {
 			Name: agenttool.ToolNodeProcess,
 			Description: "Say what a command node_exec started in the background has come to: still running, " +
 				"or its exit code, with its output so far. Use it to follow such a command instead of starting it " +
-				"again. An ended one is kept for an hour.",
+				"again. An ended one is kept for an hour. Without a process_id it lists your commands on the node " +
+				"(the last 10, running first, with their ids): use that to find one a restart of the control " +
+				"plane cut your turn off from, before running it again.",
 			InputSchema: processSchema,
 		},
 		{
@@ -181,7 +187,8 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 		}
 	default:
 		var args agenttool.NodeProcessArgs
-		if json.Unmarshal(orEmpty(asked.Arguments), &args) != nil || args.ProcessID == "" {
+		if json.Unmarshal(orEmpty(asked.Arguments), &args) != nil ||
+			(args.ProcessID == "" && asked.Tool != agenttool.ToolNodeProcess) {
 			answerTool(w, asked.Tool+" takes {node, process_id}", true)
 
 			return
@@ -190,7 +197,12 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 		nodeRef = args.Node
 		e = nodeproto.Exec{Action: nodeproto.ExecKill, ProcessID: args.ProcessID}
 
-		if asked.Tool == agenttool.ToolNodeProcess {
+		switch {
+		case asked.Tool == agenttool.ToolNodeProcess && args.ProcessID == "":
+			// The agent's own commands on the node, for a turn a restart cut to find the one it ran (issue
+			// #1060), as Coder's process list (agent/agentproc/api.go handleListProcesses).
+			e.Action = nodeproto.ExecList
+		case asked.Tool == agenttool.ToolNodeProcess:
 			e.Action = nodeproto.ExecOutput
 			e.WaitSeconds = clampSeconds(args.WaitSeconds, 0, nodeproto.ExecWaitMax.Seconds())
 		}
@@ -235,8 +247,39 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 		return
 	}
 
+	if e.Action == nodeproto.ExecList && got.Error == "" {
+		answerTool(w, listText(got.Processes), false)
+
+		return
+	}
+
 	text, failed := execText(got)
 	answerTool(w, text, failed)
+}
+
+// listText is ExecList's answer as the agent reads it: a line a process.
+func listText(processes []nodeproto.ExecProcess) string {
+	if len(processes) == 0 {
+		return "no process of yours on this node"
+	}
+
+	var b strings.Builder
+
+	for i, p := range processes {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+
+		state := "running"
+		if !p.Running && p.ExitCode != nil {
+			state = "exit code " + strconv.Itoa(*p.ExitCode)
+		}
+
+		fmt.Fprintf(&b, "process_id %s, %s, started %s: %s", p.ProcessID, state,
+			time.UnixMilli(p.StartedAt).UTC().Format(time.RFC3339), p.Command)
+	}
+
+	return b.String()
 }
 
 // findNode is the node named, by name or id, and the names of those connected; one that is not connected is

@@ -16,6 +16,7 @@
 package nodeexec
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -95,6 +96,9 @@ func New() *Manager {
 type process struct {
 	key procKey
 	id  string
+	// command is the agent's, as it asked; startedAt is when it started.
+	command   string
+	startedAt time.Time
 	// hide is the sudo password given to the command, taken out of what it answers; "" when none.
 	hide string
 	cmd  *exec.Cmd
@@ -216,8 +220,57 @@ func (m *Manager) Kill(agent, id string) nodeproto.ExecAnswer {
 	return p.answer(true)
 }
 
-// List is the agent's processes.
-func (m *Manager) List(_ string) []nodeproto.ExecProcess { return nil }
+// List is the agent's processes the node keeps, running first, then the newest, at most ExecListMost, as Coder
+// lists a chat's processes (agent/agentproc/api.go handleListProcesses).
+func (m *Manager) List(agent string) []nodeproto.ExecProcess {
+	m.mu.Lock()
+	m.forgetEnded()
+
+	var own []*process
+
+	for key, p := range m.procs {
+		if key.agent == agent {
+			own = append(own, p)
+		}
+	}
+	m.mu.Unlock()
+
+	out := make([]nodeproto.ExecProcess, 0, len(own))
+
+	for _, p := range own {
+		out = append(out, p.listed())
+	}
+
+	slices.SortFunc(out, func(a, b nodeproto.ExecProcess) int {
+		if a.Running != b.Running {
+			if a.Running {
+				return -1
+			}
+
+			return 1
+		}
+
+		return cmp.Compare(b.StartedAt, a.StartedAt)
+	})
+
+	return out[:min(len(out), nodeproto.ExecListMost)]
+}
+
+// listed is the process as List answers it; its command with the sudo password hidden.
+func (p *process) listed() nodeproto.ExecProcess {
+	command := p.command
+	if p.hide != "" {
+		command = strings.ReplaceAll(command, p.hide, hidden)
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return nodeproto.ExecProcess{
+		ProcessID: p.id, Command: command, Running: p.exitCode == nil, ExitCode: p.exitCode,
+		StartedAt: p.startedAt.UnixMilli(),
+	}
+}
 
 // Close kills the processes still running in the background: they end with
 // the node, as Coder's end with its agent.
@@ -383,7 +436,7 @@ func (m *Manager) spawn(req Request, key procKey) (*process, error) {
 		return nil, fmt.Errorf("starting the command: %w", err)
 	}
 
-	p := &process{key: key, id: key.id, cmd: cmd, out: out, done: make(chan struct{})}
+	p := &process{key: key, id: key.id, command: req.Command, startedAt: m.now(), cmd: cmd, out: out, done: make(chan struct{})}
 	if helper != nil {
 		p.hide = req.SudoPassword
 	}
