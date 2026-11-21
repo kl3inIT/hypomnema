@@ -471,3 +471,42 @@ func TestOnlyGoCacheEntriesAreDeletedFromACacheShapedDirectory(t *testing.T) {
 		assert.FileExists(t, path, "data under a name Go does not write survives")
 	}
 }
+
+// defaultCacheDir points the worker's user cache directory into home and returns where a tool keeps its cache there
+// by default, as Go and golangci-lint find it (os.UserCacheDir: $XDG_CACHE_HOME, else ~/.cache, on Linux;
+// ~/Library/Caches on macOS).
+func defaultCacheDir(t *testing.T, home, tool string) string {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	dir, err := os.UserCacheDir()
+	require.NoError(t, err)
+	return filepath.Join(dir, tool)
+}
+
+// Fix round 5 of #1017: a cache is trimmed only at its tool's default place for the worker's user. A GOCACHE or
+// GOLANGCI_LINT_CACHE naming any other directory, even one holding the cache's README and entries of its shape, is
+// left whole.
+func TestCacheOutsideItsDefaultPlaceIsNeverTrimmed(t *testing.T) {
+	home := realTempDir(t)
+	build := defaultCacheDir(t, home, "go-build")
+	data := filepath.Join(home, "data")
+	lintData := filepath.Join(home, "lint-data")
+	markCache(t, build, testGoReadme)
+	markCache(t, data, testGoReadme)
+	markCache(t, lintData, testLintReadme)
+	t.Setenv("GOCACHE", data)
+	t.Setenv("GOMODCACHE", filepath.Join(home, "modules"))
+	t.Setenv("GOENV", "off")
+	t.Setenv("GOLANGCI_LINT_CACHE", lintData)
+	trimmed := writeCacheEntry(t, build, 0, 30*24*time.Hour)
+	kept := []string{writeCacheEntry(t, data, 1, 30*24*time.Hour), writeCacheEntry(t, lintData, 2, 30*24*time.Hour)}
+	caches := Caches{
+		Policy: Policy{FloorBytes: 1<<63 - 1}, WorktreeRoot: home, UserHome: home, Logger: slog.New(slog.DiscardHandler),
+	}
+	caches.Trim(t.Context(), func(func()) {})
+	assert.NoFileExists(t, trimmed, "Go's cache at its default place is trimmed")
+	for _, path := range kept {
+		assert.FileExists(t, path, "a cache named by the environment elsewhere is left whole")
+	}
+}
