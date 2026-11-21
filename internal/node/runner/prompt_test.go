@@ -223,6 +223,13 @@ func TestPromptPutsTheTaskAfterTheRules(t *testing.T) {
 		"deploying or changing a server", "merging is not asked: auto-merge is turned on (issue #714)")
 	assert.Contains(t, p, "turning on its auto-merge as said below. Never merge it directly.")
 	assert.NotContains(t, p, "When a decision is not yours to make")
+	// The options a task leaves open are the worker's, said in its pull request, not asked (issue #1069); it asks
+	// only when no option keeps the goal.
+	assert.Contains(t, p, "The options the task leaves open, such as how to fix a review finding or which limit "+
+		"or library to use, are yours too: take the one most references take, or the one you would recommend, say "+
+		"in the pull request which you took and what it is learned from, and do not ask about it.")
+	assert.Contains(t, p, "acting outside this directory and this task's pull request, and when no option keeps "+
+		"the task's goal.")
 
 	order := []string{
 		"Rules:", "For this kind of task:", "Memory of your agent", "Work only in this directory",

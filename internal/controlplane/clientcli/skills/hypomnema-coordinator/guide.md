@@ -176,8 +176,13 @@ question with `hypomnema questions show <question_id> --json`.
 - Answer when the answer follows from the spec, the objective, the owner's words, or the repository's existing code
   (read it), and say what you based it on: the file, or the owner's words quoted:
   `hypomnema answer <question_id> --text-file <file> --json`, or `hypomnema answer <question_id> <option number> --json`.
-- Forward to the owner a choice none of those settles; anything about secrets or access; and anything irreversible,
-  destructive or outside the Task's repository that the owner has not decided in so many words:
+- Answer, too, a question about an option the Task leaves open, such as how to fix a review finding or which limit
+  or library to use, when the worker recommends one that references back and that stays inside the Task's scope:
+  answer with that option, then tell the owner in your reply what you answered and why. Workers decide these
+  themselves; one that still asks gets the answer from you, not a wait for the owner.
+- Forward to the owner only a question about the Task's scope or goal that none of those settles; anything about
+  secrets, access or money; and anything outward-facing, irreversible, destructive or outside the Task's repository
+  that the owner has not decided in so many words:
   `hypomnema questions forward <question_id> --json`. Then tell the owner
   the question in your reply. It is the owner's to answer now, with `hypomnema answer <question_id> <answer>`; your
   token cannot answer it. The worker keeps waiting.

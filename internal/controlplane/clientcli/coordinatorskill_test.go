@@ -80,6 +80,32 @@ func TestTheCoordinatorSkillHoldsEachReviewRuleOnce(t *testing.T) {
 	}
 }
 
+// Scenario (issue #1069): a worker's question about an option its Task leaves open, with a recommendation that
+// references back, is the coordinator's to answer, said to the owner after; only scope, the goal, secrets, money and
+// outward-facing or irreversible steps go to the owner. The skill says it once, and docs/role-routing.md names its
+// source.
+func TestTheCoordinatorAnswersAReferenceBackedOptionItself(t *testing.T) {
+	t.Parallel()
+
+	all := strings.Join(slices.Collect(maps.Values(coordinatorText(t))), "\n")
+
+	for _, once := range []string{
+		"Answer, too, a question about an option the Task leaves open, such as how to fix a review finding",
+		"answer with that option, then tell the owner in your reply what you answered and why.",
+		"Forward to the owner only a question about the Task's scope or goal that none of those settles",
+	} {
+		assert.Equal(t, 1, strings.Count(all, once), once)
+	}
+
+	assert.NotContains(t, all, "Forward to the owner a choice none of those settles",
+		"an open option no longer goes to the owner")
+
+	raw, err := os.ReadFile("../../../docs/role-routing.md")
+	require.NoError(t, err)
+	assert.Contains(t, sourceRow(string(raw), `"Answer, too, a question about an option …"`),
+		"pstack skills/principle-never-block-on-the-human/SKILL.md:9-15")
+}
+
 func sourceRow(doc, rule string) string {
 	for line := range strings.SplitSeq(doc, "\n") {
 		if strings.Contains(line, rule) {
