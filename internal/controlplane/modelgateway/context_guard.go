@@ -34,7 +34,8 @@ import (
 // router_utils/cooldown_handlers.py:800-803), for DEFAULT_COOLDOWN_TIME_SECONDS
 // (5; constants.py:164). Counted are the gateway's own refusals and the
 // provider's overflow answers on one key and model; an answer that ends well
-// clears them. Past the limit the refusal is a 400 whose code Codex does not
+// clears them; a prompt that fits is always sent. Past the limit the refusal
+// of a prompt that does not fit is a 400 whose code Codex does not
 // read as an overflow, which it never retries (protocol/src/error.rs:492-521),
 // so its turn ends; its message names the context window, for the node to
 // tell why (internal/shared/contextwindow).
@@ -65,10 +66,11 @@ func promptEstimate(raw []byte) int64 {
 	return int64(size/4) + int64(len(media))*mediaTokens
 }
 
-// overflowRun is a key's run of overflows on one model: how many in a row, and when the run went past the limit.
+// overflowRun is a key's run of overflows on one model: how many in a row, the last one, and when the run went past
+// the limit.
 type overflowRun struct {
-	count   int
-	tripped time.Time
+	count         int
+	last, tripped time.Time
 }
 
 // overflows are the runs of overflows the gateway is following, by key and model; they live while it runs.
@@ -79,29 +81,20 @@ type overflows struct {
 
 func newOverflows() *overflows { return &overflows{runs: map[[2]string]*overflowRun{}} }
 
-// ended reports whether a key's requests to a model are refused at now: its run went past the limit less than
-// overflowCooldown ago. A run whose cooldown is over starts again.
-func (o *overflows) ended(key, model string, now time.Time) bool {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-
-	run := o.runs[[2]string{key, model}]
-	switch {
-	case run == nil || run.tripped.IsZero():
-		return false
-	case now.Before(run.tripped.Add(overflowCooldown)):
-		return true
-	default:
-		delete(o.runs, [2]string{key, model})
-
-		return false
-	}
-}
-
-// add counts an overflow at now, and reports whether the run is past the limit.
+// add counts an overflow at now, and reports whether the run is past the limit. A run is forgotten overflowCooldown
+// after its last overflow, as LiteLLM's count of failures lives for the cooldown
+// (router_utils/cooldown_handlers.py:800-802), and overflowCooldown after it went past the limit, as LiteLLM's
+// cooldown ends: a Dispatch's key is revoked when it ends and never comes back, so only recent runs are kept.
 func (o *overflows) add(key, model string, now time.Time) bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	for k, run := range o.runs {
+		if !now.Before(run.last.Add(overflowCooldown)) ||
+			(!run.tripped.IsZero() && !now.Before(run.tripped.Add(overflowCooldown))) {
+			delete(o.runs, k)
+		}
+	}
 
 	run := o.runs[[2]string{key, model}]
 	if run == nil {
@@ -110,6 +103,8 @@ func (o *overflows) add(key, model string, now time.Time) bool {
 	}
 
 	run.count++
+	run.last = now
+
 	if run.count > allowedOverflows && run.tripped.IsZero() {
 		run.tripped = now
 	}
@@ -125,19 +120,12 @@ func (o *overflows) clear(key, model string) {
 	delete(o.runs, [2]string{key, model})
 }
 
-// refuseOverflow answers a request that must not be sent: its key's run of overflows on the model went past the
-// limit, or the prompt does not fit the model's window. It reports whether it answered.
+// refuseOverflow answers a request whose prompt does not fit the model's window, and reports whether it did. A
+// prompt that fits is always sent: a client shortens its prompt after an overflow (review of PR #1057).
 func (s *Server) refuseOverflow(w http.ResponseWriter, r *http.Request, key Key, model Model, raw []byte) bool {
-	now := s.svc.clock.Now()
 	window := s.contextWindow(r, model)
-
-	if s.overflows.ended(key.ID, model.Name, now) {
-		s.endOverflow(w, r, key, model, window)
-
-		return true
-	}
-
 	estimate := promptEstimate(raw)
+
 	if window <= 0 || estimate <= window {
 		return false
 	}
@@ -146,7 +134,7 @@ func (s *Server) refuseOverflow(w http.ResponseWriter, r *http.Request, key Key,
 		slog.String("event", "modelgateway.context_overflow"), slog.String("key_id", key.ID),
 		slog.String("model", model.Name), slog.Int64("estimated_tokens", estimate), slog.Int64("window", window))
 
-	if s.overflows.add(key.ID, model.Name, now) {
+	if s.overflows.add(key.ID, model.Name, s.svc.clock.Now()) {
 		s.endOverflow(w, r, key, model, window)
 
 		return true
@@ -159,20 +147,16 @@ func (s *Server) refuseOverflow(w http.ResponseWriter, r *http.Request, key Key,
 	return true
 }
 
-// endOverflow ends the client's turn: it sent more than allowedOverflows prompts in a row that did not fit.
+// endOverflow ends the client's turn: more than allowedOverflows prompts in a row did not fit.
 func (s *Server) endOverflow(w http.ResponseWriter, r *http.Request, key Key, model Model, window int64) {
 	s.logger.WarnContext(r.Context(), "a client's prompts keep overflowing its model's context window",
 		slog.String("event", "modelgateway.context_overflow_ended"), slog.String("key_id", key.ID),
 		slog.String("model", model.Name))
 
-	limit := "its context window"
-	if window > 0 {
-		limit = fmt.Sprintf("its context window of %d tokens", window)
-	}
-
 	writeError(w, http.StatusBadRequest, typeInvalidRequest, codeContextOverflow, fmt.Sprintf(
-		"More than %d prompts in a row to %s did not fit %s; the gateway sends no more for %s. "+
-			"Start a new conversation.", allowedOverflows, model.Name, limit, overflowCooldown))
+		"The prompt exceeds the context window of %s (%d tokens), as more than %d before it did; for %s the gateway "+
+			"sends no prompt that does not fit. Start a new conversation.",
+		model.Name, window, allowedOverflows, overflowCooldown))
 }
 
 // noteOverflow follows a key's run of overflows once the provider answered: an answer that ended well clears it,

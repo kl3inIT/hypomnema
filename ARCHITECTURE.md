@@ -3578,10 +3578,11 @@ capabilities do not exist yet.
   - A prompt that cannot fit the model's context window is refused before it is sent (issue #1052, as OmniRoute
     refuses one): its tokens are its bytes over four, an inline base64 image or file counted as 1,200; one over the
     window the gateway gives the model is answered 400 `context_length_exceeded`, which Codex reads as an overflow.
-    More than 3 overflows in a row on one key and model, the gateway's refusals and the provider's
-    `context_length_exceeded` answers alike (LiteLLM's `allowed_fails`), and the key's requests to the model are
-    answered 400 `context_overflow` for 5 s (LiteLLM's cooldown); Codex never retries that code, so its turn ends
-    instead of trimming and resending its history. An answer that ends well clears the run. The runs are in memory.
+    After more than 3 overflows in a row on one key and model, the gateway's refusals and the provider's
+    `context_length_exceeded` answers alike (LiteLLM's `allowed_fails`), a prompt that does not fit is answered 400
+    `context_overflow` for 5 s (LiteLLM's cooldown); Codex never retries that code, so its turn ends instead of
+    trimming and resending its history. A prompt that fits is always sent, and an answer that ends well clears the
+    run. The runs are in memory, each forgotten 5 s after its last overflow.
   - Not served: a model with no such target (400 `model_not_served_here`), an answer that is not a stream (400),
     `/v1/responses/compact`, a WebSocket.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
@@ -5249,7 +5250,7 @@ Node (`internal/node`):
   `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
   or else what `turn.failed` said; a failure whose text says the prompt did not fit the context window
-  (`internal/shared/contextwindow`, OmniRoute's strong overflow phrases) is reported as one, and the next Dispatch
+  (`internal/shared/contextwindow`, omp's providers' overflow phrases) is reported as one, and the next Dispatch
   starts a new thread (issue #1052). A stop kills the process.
 - omp and opencode workers (`internal/node/acp`; [research](docs/research/2026-11-10-acp-omp-opencode.md)) share one
   runtime that speaks the Agent Client Protocol, and their model comes from the gateway too. Each is an entry of a

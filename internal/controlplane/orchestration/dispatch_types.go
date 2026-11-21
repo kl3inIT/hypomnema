@@ -222,8 +222,9 @@ type Outcome struct {
 	// Gate: the worker ended to wait for this decision.
 	Gate *Ask
 	// ContextOverflow: the worker_error was the CLI's session outgrowing the model's context window; the
-	// Conversation is closed so the next Dispatch starts a new session (issue #1052).
-	ContextOverflow bool
+	// Conversation is closed so the next Dispatch starts a new session (issue #1052). Left out of the JSON when
+	// false, so a report hashes as before it (payloadHash) and a node's repeat across the upgrade matches its receipt.
+	ContextOverflow bool `json:",omitempty"`
 }
 
 // Accepted is the reply to AcceptDispatch and ReattachDispatch.
