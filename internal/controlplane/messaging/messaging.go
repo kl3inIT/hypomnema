@@ -133,6 +133,8 @@ type Media struct {
 type Query struct {
 	// Chat keeps one chat's messages; empty is every chat.
 	Chat string
+	// ID keeps the message of that id, the service's own (issue #1004: the owner's message given as evidence).
+	ID string
 	// Search keeps the messages whose text, caption, file name, chat or sender has these words.
 	Search string
 	// Before keeps the messages sent before it, to page back; zero is now.

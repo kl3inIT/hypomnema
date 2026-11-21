@@ -48,6 +48,7 @@ import { clock } from "@/features/takes/take-state"
 import { errorText } from "@/lib/server-error"
 import { cn } from "@/lib/utils"
 
+import { ChangeLook } from "./change-look"
 import {
   latest,
   made,
@@ -68,7 +69,7 @@ import {
 // (src/mcp/jobs.ts:64-67); a failure says the stage and why, with "Make again", which adds a revision made as the
 // failed one was asked: its lines, look and voice (POST /videos/{id}/revisions/{rev}/retry, #937). Once made, the player, and beside it or under it the review: each scene's line, editable,
 // and a note; Approve, or Request changes, which queues a revision with the lines changed, reusing the voice of each
-// line kept, or keeps the note alone for the agent.
+// line kept, or keeps the note alone for the agent; and Change look, which makes it again in another look (#938).
 export function VideoView({
   id,
   onClose,
@@ -418,6 +419,9 @@ function Made({
             {rev.parent !== undefined && (
               <span className="text-xs text-muted-foreground">from revision {rev.parent}</span>
             )}
+            <div className="ms-auto">
+              <ChangeLook video={video} rev={rev} onChanged={onChanged} />
+            </div>
           </div>
           {rev.note && (
             <p className="border-b px-3 py-2 text-sm">

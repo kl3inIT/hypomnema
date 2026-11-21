@@ -118,16 +118,25 @@ const (
 	// (messaging/zalo/store.go, zl_messages).
 	FromLark = "lark"
 	FromZalo = "zalo"
+	// FromWhatsApp: a chat of the owner's own WhatsApp (issue #1004), named by its account and chat as Zalo's is
+	// (messaging/whatsapp/store.go, wa_messages); Ref a LinkWhatsAppMessage.
+	FromWhatsApp = "whatsapp"
 )
 
 // sourceMessage is the kind of Link a source at a messaging service names its message by.
-var sourceMessage = map[string]string{FromLark: LinkLarkMessage, FromZalo: LinkZaloMessage}
+var sourceMessage = map[string]string{
+	FromLark: LinkLarkMessage, FromZalo: LinkZaloMessage, FromWhatsApp: LinkWhatsAppMessage,
+}
+
+// fromMessaging says whether a source is a chat of the owner's own account at a messaging service.
+func fromMessaging(kind string) bool { return sourceMessage[kind] != "" }
 
 // Source is where a to-do came from, with the words it came from and a typed reference to them.
 type Source struct {
 	Kind string
 	ID   string
-	// Account is the owner's account at Zalo the chat is in; set for FromZalo only.
+	// Account is the owner's Connection (its label) the chat is in: set for FromZalo and FromWhatsApp, whose stores
+	// key a message by account, chat and id; optional for FromLark; empty for any other.
 	Account string
 	Quote   string
 	Ref     *Link
@@ -156,20 +165,51 @@ const (
 	LinkRun         = "run"
 	LinkPullRequest = "pull_request"
 	LinkMeetingLine = "meeting_line"
-	// LinkLarkMessage and LinkZaloMessage are a message at Lark or Zalo; Ref is its id there.
-	LinkLarkMessage = "lark_message"
-	LinkZaloMessage = "zalo_message"
+	// LinkLarkMessage, LinkZaloMessage and LinkWhatsAppMessage are a message at Lark, Zalo or WhatsApp; Ref is its
+	// id there.
+	LinkLarkMessage     = "lark_message"
+	LinkZaloMessage     = "zalo_message"
+	LinkWhatsAppMessage = "whatsapp_message"
+	// LinkZaloSent, LinkWhatsAppSent and LinkLarkSent are a message the owner sent himself in a chat of his own
+	// account there (issue #1004): Account the Connection, Chat the chat and Ref the message's id. It is the
+	// evidence a Bot gives when it records for the owner that he answered (Done), checked against what the server
+	// keeps of that account or what its API returns (Sent).
+	LinkZaloSent     = "zalo_sent"
+	LinkWhatsAppSent = "whatsapp_sent"
+	LinkLarkSent     = "lark_sent"
 )
 
 var linkKinds = []string{
 	LinkURL, LinkChatMessage, LinkMail, LinkRun, LinkPullRequest, LinkMeetingLine, LinkLarkMessage, LinkZaloMessage,
+	LinkWhatsAppMessage, LinkZaloSent, LinkWhatsAppSent, LinkLarkSent,
 }
 
-// Link is a typed reference: evidence that a to-do is done, or where it came from.
+// sentService is the source kind, the messaging service, of a Link to a message the owner sent.
+var sentService = map[string]string{LinkZaloSent: FromZalo, LinkWhatsAppSent: FromWhatsApp, LinkLarkSent: FromLark}
+
+// Link is a typed reference: evidence that a to-do is done, or where it came from. Account and Chat are set for a
+// message the owner sent (LinkZaloSent, LinkWhatsAppSent, LinkLarkSent) only.
 type Link struct {
-	Kind  string `json:"kind"`
-	Ref   string `json:"ref"`
-	Label string `json:"label,omitempty"`
+	Kind    string `json:"kind"`
+	Ref     string `json:"ref"`
+	Label   string `json:"label,omitempty"`
+	Account string `json:"account,omitempty"`
+	Chat    string `json:"chat,omitempty"`
+}
+
+// SentMessage is a message of a chat of the owner's own account, as the server keeps it or its service's API
+// returns it.
+type SentMessage struct {
+	Chat string
+	At   time.Time
+	// FromMe says the owner sent it himself.
+	FromMe bool
+}
+
+// Sent reads a message of a chat of the owner's own account at a messaging service (FromZalo, FromWhatsApp,
+// FromLark) by its Connection's label, the chat and the message's id: storeerr.ErrNotFound when there is none.
+type Sent interface {
+	SentMessage(ctx context.Context, service, account, chat, id string) (SentMessage, error)
 }
 
 // The kinds of Work.
@@ -202,6 +242,7 @@ const (
 const (
 	MaxTitle    = 300
 	MaxNotes    = 20_000
+	MaxDraft    = 20_000
 	MaxDoneWhen = 1_000
 	MaxName     = 100
 	MaxQuote    = 2_000
@@ -224,6 +265,9 @@ type Todo struct {
 	Title    string
 	Notes    string
 	DoneWhen string
+	// Draft is the reply a Bot drafted for the owner to send himself (issue #1004): a Bot never sends to a client or
+	// a boss.
+	Draft    string
 	Due      Due
 	Assignee Assignee
 	State    string
@@ -282,6 +326,16 @@ type Store struct {
 	newID func(prefix string) string
 	// signal wakes the orchestration's event readers after each commit.
 	signal func()
+	// sent reads the messages the owner sent in his own accounts' chats, the evidence that he answered; nil reads
+	// none.
+	sent Sent
+}
+
+// WithSent lets the store check a message the owner sent, given as evidence that he answered (issue #1004).
+func (s *Store) WithSent(sent Sent) *Store {
+	s.sent = sent
+
+	return s
 }
 
 // New returns the Store over the orchestration database. signal is the root's, called after each commit as for
@@ -310,7 +364,13 @@ type NewTodo struct {
 	Title    string
 	Notes    string
 	DoneWhen string
-	Due      Due
+	// Draft is left out of the request's hash when empty, so a key used before drafts existed (issue #1004) still
+	// returns its item.
+	Draft string `json:",omitempty"`
+	Due   Due
+	// DueIn, with no Due, makes the item due a while after it is first added: the day to chase a person (issue
+	// #1004, section 6). The moment is taken when the item is made, so a retry with the same key is the same request.
+	DueIn    *DueIn `json:",omitempty"`
 	Assignee Assignee
 	// State is Open or Proposed.
 	State  string
@@ -320,6 +380,12 @@ type NewTodo struct {
 	WhyOpen string
 	// IdempotencyKey, when given, makes a retried create return the first item.
 	IdempotencyKey string
+}
+
+// DueIn is a due a while after an item is added, in a time zone.
+type DueIn struct {
+	After time.Duration
+	Zone  string
 }
 
 // Create adds a to-do. The owner adds open items by hand; a Bot adds open items in a chat with the owner (Source
@@ -343,9 +409,25 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		return Todo{}, err
 	}
 
+	if err := checkDraft(n.Draft); err != nil {
+		return Todo{}, err
+	}
+
 	due, err := dueRow(n.Due)
 	if err != nil {
 		return Todo{}, err
+	}
+
+	if n.DueIn != nil {
+		_, zoneErr := time.LoadLocation(n.DueIn.Zone)
+
+		switch {
+		case due.kind != DueNone || n.DueIn.After <= 0:
+			return Todo{}, fmt.Errorf("%w: a due a while after the item is added replaces a due, and is later",
+				storeerr.ErrInvalid)
+		case zoneErr != nil || n.DueIn.Zone == "" || n.DueIn.Zone == "Local":
+			return Todo{}, fmt.Errorf("%w: %q is not an IANA time zone", storeerr.ErrInvalid, n.DueIn.Zone)
+		}
 	}
 
 	if err := checkSource(n.Source); err != nil {
@@ -389,9 +471,16 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
+		if n.DueIn != nil {
+			if due, err = dueRow(Due{Kind: DueInstant, At: time.UnixMilli(now).Add(n.DueIn.After),
+				Zone: n.DueIn.Zone}); err != nil {
+				return err
+			}
+		}
+
 		id := s.newID("tdo")
 		if err := q.InsertTodo(ctx, store.InsertTodoParams{
-			ID: id, Title: n.Title, Notes: n.Notes, DoneWhen: n.DoneWhen,
+			ID: id, Title: n.Title, Notes: n.Notes, DoneWhen: n.DoneWhen, Draft: n.Draft,
 			DueKind: due.kind, DueDate: due.date, DueZone: due.zone, DueAt: due.at, OverdueAt: due.overdueAt,
 			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, State: n.State,
 			SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
@@ -429,12 +518,12 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 // ones when it says why (WhyOpen) and gives the quote and the reference to the message.
 func mayCreate(actor Actor, n NewTodo) error {
 	state, source := n.State, n.Source.Kind
-	found := source == FromRoutine || source == FromLark || source == FromZalo
+	found := source == FromRoutine || fromMessaging(source)
 
 	switch {
 	case state != Open && state != Proposed:
 		return fmt.Errorf("%w: a to-do starts open or proposed", storeerr.ErrInvalid)
-	case !slices.Contains([]string{ByHand, FromChat, FromRoutine, FromLark, FromZalo}, source):
+	case !slices.Contains([]string{ByHand, FromChat, FromRoutine, FromLark, FromZalo, FromWhatsApp}, source):
 		return fmt.Errorf("%w: unknown source %q", storeerr.ErrInvalid, source)
 	case n.WhyOpen != "" && n.WhyOpen != AskedDirectly && n.WhyOpen != Promised:
 		return fmt.Errorf("%w: why a to-do opens is %s or %s, not %q", storeerr.ErrInvalid, AskedDirectly, Promised,
@@ -489,10 +578,12 @@ func checkSource(src Source) error {
 		return fmt.Errorf("%w: a to-do written by hand names no chat or run", storeerr.ErrInvalid)
 	case src.Kind != ByHand && (src.ID == "" || len(src.ID) > MaxID):
 		return fmt.Errorf("%w: a to-do from a %s names it", storeerr.ErrInvalid, src.Kind)
-	case src.Kind == FromZalo && (src.Account == "" || len(src.Account) > MaxID):
-		return fmt.Errorf("%w: a to-do from Zalo names the owner's account the chat is in", storeerr.ErrInvalid)
-	case src.Kind != FromZalo && src.Account != "":
-		return fmt.Errorf("%w: only a to-do from Zalo names an account", storeerr.ErrInvalid)
+	case (src.Kind == FromZalo || src.Kind == FromWhatsApp) && src.Account == "":
+		return fmt.Errorf("%w: a to-do from %s names the owner's account the chat is in", storeerr.ErrInvalid, src.Kind)
+	case len(src.Account) > MaxID:
+		return fmt.Errorf("%w: an account is at most %d characters", storeerr.ErrInvalid, MaxID)
+	case !fromMessaging(src.Kind) && src.Account != "":
+		return fmt.Errorf("%w: only a to-do from Lark, Zalo or WhatsApp names an account", storeerr.ErrInvalid)
 	case utf8.RuneCountInString(src.Quote) > MaxQuote:
 		return fmt.Errorf("%w: a quote is at most %d characters", storeerr.ErrInvalid, MaxQuote)
 	case sourceMessage[src.Kind] != "" && (src.Ref == nil || src.Ref.Kind != sourceMessage[src.Kind]):
@@ -514,6 +605,19 @@ func checkLink(l Link) error {
 		return fmt.Errorf("%w: a link's reference is 1 to %d characters", storeerr.ErrInvalid, MaxRef)
 	case utf8.RuneCountInString(l.Label) > MaxLabel:
 		return fmt.Errorf("%w: a link's label is at most %d characters", storeerr.ErrInvalid, MaxLabel)
+	case sentService[l.Kind] != "" && (l.Account == "" || l.Chat == "" || len(l.Account) > MaxID ||
+		len(l.Chat) > MaxID):
+		return fmt.Errorf("%w: a %s names the owner's account and the chat it was sent in", storeerr.ErrInvalid, l.Kind)
+	case sentService[l.Kind] == "" && (l.Account != "" || l.Chat != ""):
+		return fmt.Errorf("%w: only a message the owner sent names an account and a chat", storeerr.ErrInvalid)
+	}
+
+	return nil
+}
+
+func checkDraft(draft string) error {
+	if utf8.RuneCountInString(draft) > MaxDraft {
+		return fmt.Errorf("%w: a draft is at most %d characters", storeerr.ErrInvalid, MaxDraft)
 	}
 
 	return nil
@@ -804,7 +908,8 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 }
 
 // NeedsYou is how many distinct to-dos need the owner at now: not closed, not snoozed, and proposed but not stale,
-// or in review with a pending Approval, or his own and overdue. List's NeedsYou filter is the same predicate.
+// or in review with a pending Approval, or his own and overdue, or his own with a reply drafted for him to send
+// (issue #1004). List's NeedsYou filter is the same predicate.
 func (s *Store) NeedsYou(ctx context.Context, now time.Time) (int, error) {
 	n, err := store.New(s.db).CountTodos(ctx, store.CountTodosParams{
 		AnyState: 1, Now: now.UnixMilli(), NeedsYou: 1, StaleBefore: now.Add(-StaleAfter).UnixMilli(),
@@ -922,7 +1027,7 @@ func stale(r store.Todo, now time.Time) bool {
 // fromRow is a stored to-do, read at now.
 func fromRow(r store.Todo, now time.Time) (Todo, error) {
 	t := Todo{
-		ID: r.ID, Revision: int(r.Revision), Title: r.Title, Notes: r.Notes, DoneWhen: r.DoneWhen,
+		ID: r.ID, Revision: int(r.Revision), Title: r.Title, Notes: r.Notes, DoneWhen: r.DoneWhen, Draft: r.Draft,
 		Due:          Due{Kind: r.DueKind, Date: r.DueDate.String, Zone: r.DueZone.String},
 		Assignee:     Assignee{Kind: r.AssigneeKind, Name: r.Assignee},
 		State:        r.State,

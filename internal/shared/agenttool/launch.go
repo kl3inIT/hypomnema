@@ -123,6 +123,10 @@ const (
 // script makes: on the tunnel's opening and on the client API.
 const HeaderRoutineRun = "Hypomnema-Routine-Run"
 
+// HeaderTodo names, on a tunnel's opening, the Inbox item a Bot's pi works on, from EnvTodo (issue #1004): an
+// Approval asked through the tunnel waits as that item's, which goes to review until the owner answers.
+const HeaderTodo = "Hypomnema-Todo"
+
 // RoutineRunKey reads the key of the Routine's run this process runs in, or
 // "" outside one.
 func RoutineRunKey() string {
@@ -162,6 +166,8 @@ const (
 	// presents the key is that run's, so what the script asks the owner to
 	// approve belongs to the run.
 	EnvRoutineRun = "HYPOMNEMA_ROUTINE_RUN_FILE"
+	// EnvTodo is the id of the Inbox item a Bot's command is run for: HYPOMNEMA_TODO=tdo_… before the command.
+	EnvTodo = "HYPOMNEMA_TODO"
 )
 
 // accountFlag names the account to act as when the agent may use several of
@@ -283,7 +289,9 @@ type Launcher struct {
 	Chat string
 	// RunKey is the key of the Routine's run whose script runs the tool;
 	// empty otherwise.
-	RunKey          string
+	RunKey string
+	// Todo is the Inbox item the tool is run for (EnvTodo), sent on each tunnel's opening (HeaderTodo).
+	Todo            string
 	OwnsReplacement replacementOwner
 	Client          *http.Client
 	Stdin           io.Reader
@@ -295,8 +303,8 @@ type Launcher struct {
 func FromEnv() Launcher {
 	return Launcher{
 		URL: os.Getenv(EnvURL), Key: os.Getenv(EnvKey), ToolsHome: os.Getenv(EnvTools), Chat: os.Getenv(EnvChat),
-		RunKey: RoutineRunKey(),
-		Stdin:  os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+		RunKey: RoutineRunKey(), Todo: strings.TrimSpace(os.Getenv(EnvTodo)),
+		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 	}
 }
 

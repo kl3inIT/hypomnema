@@ -190,6 +190,8 @@ func (m messagingService) tools(labels []string, relayMentions bool) []agenttool
 		"text":     map[string]any{"type": "string", "description": "The message, or the file's caption."},
 		"path":     map[string]any{"type": "string", "description": "A file in the folder you work in."},
 		"reply_to": map[string]any{"type": "string", "description": "The id of the message it answers."},
+		"todo": map[string]any{"type": "string", "description": "The Inbox item you are doing that this " +
+			"send is for: it waits in review until the owner answers."},
 	}
 
 	if m.tags && relayMentions {
@@ -568,6 +570,24 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 
 	ctx := r.Context()
 
+	// The Inbox item it is sent for: its Approval records the item's attempt (issue #1004).
+	attempt := ""
+
+	if todo := strings.TrimSpace(in.Todo); todo != "" {
+		var err error
+		if attempt, err = s.store.InboxAttempt(ctx, todo, a.bot, a.chatID); err != nil {
+			if errors.Is(err, orchestration.ErrConflict) {
+				answerTool(w, err.Error()+"; nothing was sent", true)
+
+				return
+			}
+
+			s.answerErr(w, r, err)
+
+			return
+		}
+	}
+
 	name := s.messagingChatName(ctx, m, label, in.Chat)
 	fields := []orchestration.Field{{Label: "Chat", Value: name}}
 
@@ -605,7 +625,7 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 		// Off his turn only what he approved once runs, on that approval (issue #748).
 		approved, err := s.store.ApprovedOnce(ctx, orchestration.NewApproval{
 			Integration: m.integration, Label: label, Action: m.integration + ".send", ChatID: a.chatID,
-			MatchHash: hex.EncodeToString(hash[:]),
+			MatchHash: hex.EncodeToString(hash[:]), AttemptID: attempt,
 		})
 		if err != nil {
 			s.answerErr(w, r, err)
@@ -623,7 +643,7 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 	err := s.judge.Judge(ctx, serviceproxy.Act{
 		Caller:      a.proxyCaller(),
 		Integration: m.integration, Label: label, ChatID: a.chatID, Action: m.integration + ".send",
-		Subject: name, Fields: fields, Hash: hex.EncodeToString(hash[:]),
+		Subject: name, Fields: fields, Hash: hex.EncodeToString(hash[:]), AttemptID: attempt,
 	})
 
 	var refused *serviceproxy.RefusedError

@@ -1,6 +1,7 @@
 package inboxstore_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -364,16 +365,21 @@ func TestTransitions(t *testing.T) {
 				DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand})
 		}, nil, inboxstore.Done},
 		{"bot records for the owner", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.Done(t.Context(), by(bot(w.lan), w.fromChat(t)), inboxstore.Closing{
+			return w.inbox.Done(t.Context(), by(bot(w.kai), w.fromChat(t)), inboxstore.Closing{
 				DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand,
 				Evidence: w.said,
 			})
 		}, nil, inboxstore.Done},
 		{"bot records for the owner without his message", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.Done(t.Context(), by(bot(w.lan), w.fromChat(t)), inboxstore.Closing{
+			return w.inbox.Done(t.Context(), by(bot(w.kai), w.fromChat(t)), inboxstore.Closing{
 				DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand, Evidence: prLink,
 			})
 		}, storeerr.ErrInvalid, ""},
+		{"another bot records for the owner an item the first added", func(t *testing.T, w *world) (inboxstore.Todo, error) {
+			return w.inbox.Done(t.Context(), by(bot(w.lan), w.fromChat(t)), inboxstore.Closing{
+				DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand, Evidence: w.said,
+			})
+		}, storeerr.ErrForbidden, ""},
 		{"closed by AI is refused for now", func(t *testing.T, w *world) (inboxstore.Todo, error) {
 			return w.inbox.Done(t.Context(), by(owner, w.open(t)), inboxstore.Closing{
 				DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByAI})
@@ -383,13 +389,16 @@ func TestTransitions(t *testing.T) {
 			return w.inbox.Drop(t.Context(), by(owner, w.doing(t)), "No longer needed.", nil)
 		}, nil, inboxstore.Dropped},
 		{"bot drops for the owner", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.Drop(t.Context(), by(bot(w.lan), w.fromChat(t)), "He said drop it.", w.said)
+			return w.inbox.Drop(t.Context(), by(bot(w.kai), w.fromChat(t)), "He said drop it.", w.said)
 		}, nil, inboxstore.Dropped},
+		{"another bot drops an item the first added", func(t *testing.T, w *world) (inboxstore.Todo, error) {
+			return w.inbox.Drop(t.Context(), by(bot(w.lan), w.fromChat(t)), "He said drop it.", w.said)
+		}, storeerr.ErrForbidden, ""},
 		{"drop without a reason", func(t *testing.T, w *world) (inboxstore.Todo, error) {
 			return w.inbox.Drop(t.Context(), by(owner, w.open(t)), " ", nil)
 		}, storeerr.ErrInvalid, ""},
 		{"bot drops without the owner's message", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.Drop(t.Context(), by(bot(w.lan), w.fromChat(t)), "Not needed.", nil)
+			return w.inbox.Drop(t.Context(), by(bot(w.kai), w.fromChat(t)), "Not needed.", nil)
 		}, storeerr.ErrInvalid, ""},
 		// proposed/open → duplicate: the owner.
 		{"owner marks open duplicate", func(t *testing.T, w *world) (inboxstore.Todo, error) {
@@ -462,8 +471,13 @@ func TestTransitions(t *testing.T) {
 		}, storeerr.ErrForbidden, ""},
 		{"bot reassigns its item", func(t *testing.T, w *world) (inboxstore.Todo, error) {
 			return w.inbox.Edit(t.Context(), by(bot(w.kai), w.open(t)), inboxstore.Edit{
-				Assignee: &inboxstore.Assignee{Kind: inboxstore.Me}})
+				Assignee: &inboxstore.Assignee{Kind: inboxstore.Person, Name: "Lan"}})
 		}, storeerr.ErrForbidden, ""},
+		// A Bot hands its item back to the owner with the reply it drafted (issue #1004).
+		{"bot hands its item back to the owner", func(t *testing.T, w *world) (inboxstore.Todo, error) {
+			return w.inbox.Edit(t.Context(), by(bot(w.kai), w.open(t)), inboxstore.Edit{
+				Assignee: &inboxstore.Assignee{Kind: inboxstore.Me}})
+		}, nil, inboxstore.Open},
 	}
 
 	for _, tc := range cases {
@@ -999,11 +1013,11 @@ func TestABotRecordsForTheOwnerOnlyWithHisMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	for name, evidence := range cases {
-		_, err := w.inbox.Done(ctx, by(bot(w.lan), item), inboxstore.Closing{
+		_, err := w.inbox.Done(ctx, by(bot(w.kai), item), inboxstore.Closing{
 			DoneBy: inboxstore.Assignee{Kind: inboxstore.Me}, How: inboxstore.ClosedByHand, Evidence: evidence})
 		require.ErrorIs(t, err, storeerr.ErrInvalid, "done with %s", name)
 
-		_, err = w.inbox.Drop(ctx, by(bot(w.lan), item), "He said drop it.", evidence)
+		_, err = w.inbox.Drop(ctx, by(bot(w.kai), item), "He said drop it.", evidence)
 		require.ErrorIs(t, err, storeerr.ErrInvalid, "dropped with %s", name)
 	}
 
@@ -1279,8 +1293,8 @@ func TestAZaloSourceNamesItsAccount(t *testing.T) {
 
 	for name, src := range map[string]inboxstore.Source{
 		"zalo without its account": {Kind: inboxstore.FromZalo, ID: "g_789", Ref: ref},
-		"lark with an account": {Kind: inboxstore.FromLark, ID: "oc_1", Account: "84901234567",
-			Ref: &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_1"}},
+		"whatsapp without its account": {Kind: inboxstore.FromWhatsApp, ID: "84901@s.whatsapp.net",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "3EB0"}},
 		"a routine with an account": {Kind: inboxstore.FromRoutine, ID: "rrn_1", Account: "84901234567"},
 	} {
 		_, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Answer Linh", State: inboxstore.Proposed,
@@ -1420,4 +1434,178 @@ func TestAnUntouchedProposalGoesStale(t *testing.T) {
 	_, err = w.inbox.Accept(ctx, by(owner, got))
 	require.NoError(t, err)
 	assert.Contains(t, listed(inboxstore.Filter{}), untouched.ID)
+}
+
+// sentMessages is what the server keeps of the owner's own accounts: messages by service, account, chat and id.
+type sentMessages map[string]inboxstore.SentMessage
+
+func (m sentMessages) SentMessage(_ context.Context, service, account, chat, id string,
+) (inboxstore.SentMessage, error) {
+	got, ok := m[service+"/"+account+"/"+chat+"/"+id]
+	if !ok {
+		return inboxstore.SentMessage{}, storeerr.ErrNotFound
+	}
+
+	return got, nil
+}
+
+// replyTo is "Reply to Lan", a reply owed in Lan's chat at a messaging service, found by kai in a Routine's run.
+func (w *world) replyTo(t *testing.T, service string) inboxstore.Todo {
+	t.Helper()
+
+	kind := map[string]string{inboxstore.FromZalo: inboxstore.LinkZaloMessage,
+		inboxstore.FromWhatsApp: inboxstore.LinkWhatsAppMessage}[service]
+
+	td, err := w.inbox.Create(t.Context(), bot(w.kai), inboxstore.NewTodo{
+		Title: "Reply to Lan", State: inboxstore.Open, WhyOpen: inboxstore.AskedDirectly, Assignee: me,
+		Source: inboxstore.Source{Kind: service, ID: "lan", Account: "main", Quote: "Anh xem giúp em?",
+			Ref: &inboxstore.Link{Kind: kind, Ref: "asked"}},
+	})
+	require.NoError(t, err)
+
+	return td
+}
+
+// Scenario: issue #1004, section 4. A reply owed in a Zalo or WhatsApp chat closes when kai records for the owner
+// the message he sent in that chat after the item was made, with that message as its evidence; the message of
+// someone else, one in another chat or of another account, one older than the item, or one the server does not
+// keep is refused and writes nothing. Without a way to read what he sent, nothing is closed so.
+func TestTheOwnersSentMessageClosesTheReply(t *testing.T) {
+	t.Parallel()
+
+	for _, service := range []string{inboxstore.FromZalo, inboxstore.FromWhatsApp} {
+		t.Run(service, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			w := newWorld(t)
+			sentKind := map[string]string{inboxstore.FromZalo: inboxstore.LinkZaloSent,
+				inboxstore.FromWhatsApp: inboxstore.LinkWhatsAppSent}[service]
+			sent := func(account, chat, id string) []inboxstore.Link {
+				return []inboxstore.Link{{Kind: sentKind, Ref: id, Account: account, Chat: chat}}
+			}
+			closing := func(evidence []inboxstore.Link) inboxstore.Closing {
+				return inboxstore.Closing{DoneBy: me, How: inboxstore.ClosedByBot, Evidence: evidence}
+			}
+
+			item := w.replyTo(t, service)
+
+			_, err := w.inbox.Done(ctx, by(bot(w.kai), item), closing(sent("main", "lan", "mine")))
+			require.ErrorIs(t, err, storeerr.ErrUnavailable, "no store of what he sent")
+
+			later, earlier := t0.Add(time.Minute), t0.Add(-time.Minute)
+			w.inbox.WithSent(sentMessages{
+				service + "/main/lan/mine":   {Chat: "lan", At: later, FromMe: true},
+				service + "/main/lan/hers":   {Chat: "lan", At: later},
+				service + "/main/lan/before": {Chat: "lan", At: earlier, FromMe: true},
+				service + "/main/hoa/mine":   {Chat: "hoa", At: later, FromMe: true},
+				service + "/work/lan/mine":   {Chat: "lan", At: later, FromMe: true},
+			})
+
+			for name, evidence := range map[string][]inboxstore.Link{
+				"Lan's own message":              sent("main", "lan", "hers"),
+				"his message from before":        sent("main", "lan", "before"),
+				"his message in another chat":    sent("main", "hoa", "mine"),
+				"his message of another account": sent("work", "lan", "mine"),
+				"a message the server lacks":     sent("main", "lan", "gone"),
+			} {
+				_, err := w.inbox.Done(ctx, by(bot(w.kai), item), closing(evidence))
+				require.ErrorIs(t, err, storeerr.ErrInvalid, name)
+			}
+
+			w.unchanged(t, item)
+
+			done, err := w.inbox.Done(ctx, by(bot(w.kai), item), closing(sent("main", "lan", "mine")))
+			require.NoError(t, err)
+			assert.Equal(t, inboxstore.Done, done.State)
+			assert.Equal(t, &me, done.DoneBy, "the owner answered; kai recorded it")
+			assert.Equal(t, sent("main", "lan", "mine"), done.Evidence)
+
+			other := w.replyTo(t, service)
+			_, err = w.inbox.Done(ctx, by(bot(w.lan), other), closing(sent("main", "lan", "mine")))
+			require.ErrorIs(t, err, storeerr.ErrForbidden, "another Bot does not close kai's item")
+		})
+	}
+}
+
+// Scenario: issue #1004, section 3. kai drafts the reply on its item and hands it back to the owner: the item, his
+// own, needs him with its draft even before it is due; a Bot gives an item to no one else.
+func TestADraftHandedBackNeedsTheOwner(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	item := w.open(t)
+
+	n, err := w.inbox.NeedsYou(ctx, t0)
+	require.NoError(t, err)
+	require.Zero(t, n)
+
+	draft := "Dạ em gửi anh hợp đồng ạ."
+	got, err := w.inbox.Edit(ctx, by(bot(w.kai), item), inboxstore.Edit{Draft: &draft, Assignee: &me})
+	require.NoError(t, err)
+	assert.Equal(t, draft, got.Draft)
+	assert.Equal(t, me, got.Assignee)
+
+	n, err = w.inbox.NeedsYou(ctx, t0)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	page, err := w.inbox.List(ctx, inboxstore.Filter{NeedsYou: true}, "", 0)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, draft, page.Items[0].Draft)
+
+	_, err = w.inbox.Edit(ctx, by(bot(w.kai), got), inboxstore.Edit{Draft: &draft,
+		Assignee: &inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.lan}})
+	require.ErrorIs(t, err, storeerr.ErrForbidden)
+}
+
+// Scenario: issue #1004, section 4, for Lark, whose source names its account only optionally. The owner's sent
+// message is evidence only in the item's own account: a Lark item without one is never closed by a lark_sent,
+// whatever account it names, since another Connection in the same group could show it; an item with its account
+// closes only with that account's message.
+func TestALarkReplyClosesOnlyWithItsOwnAccountsMessage(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	later := t0.Add(time.Minute)
+	w.inbox.WithSent(sentMessages{
+		inboxstore.FromLark + "/me/oc_pmo/mine":   {Chat: "oc_pmo", At: later, FromMe: true},
+		inboxstore.FromLark + "/work/oc_pmo/mine": {Chat: "oc_pmo", At: later, FromMe: true},
+	})
+
+	reply := func(account string) inboxstore.Todo {
+		td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{
+			Title: "Reply to the PMO group", State: inboxstore.Open, WhyOpen: inboxstore.AskedDirectly, Assignee: me,
+			Source: inboxstore.Source{Kind: inboxstore.FromLark, ID: "oc_pmo", Account: account,
+				Quote: "@Đạt check giúp?", Ref: &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_asked"}},
+		})
+		require.NoError(t, err)
+
+		return td
+	}
+	closing := func(account string) inboxstore.Closing {
+		return inboxstore.Closing{DoneBy: me, How: inboxstore.ClosedByBot, Evidence: []inboxstore.Link{
+			{Kind: inboxstore.LinkLarkSent, Ref: "mine", Account: account, Chat: "oc_pmo"},
+		}}
+	}
+
+	unbound := reply("")
+	for _, account := range []string{"me", "work"} {
+		_, err := w.inbox.Done(ctx, by(bot(w.kai), unbound), closing(account))
+		require.ErrorIs(t, err, storeerr.ErrInvalid, "an item without its account is not closed by %s's message",
+			account)
+	}
+
+	w.unchanged(t, unbound)
+
+	bound := reply("me")
+	_, err := w.inbox.Done(ctx, by(bot(w.kai), bound), closing("work"))
+	require.ErrorIs(t, err, storeerr.ErrInvalid, "another Connection's message")
+
+	done, err := w.inbox.Done(ctx, by(bot(w.kai), bound), closing("me"))
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Done, done.State)
 }

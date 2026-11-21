@@ -650,3 +650,27 @@ func TestOnlyAZaloJPEGXLLinkIsTurnedToJPG(t *testing.T) {
 		assert.Equal(t, want, jpgURL(in), in)
 	}
 }
+
+// A kept message is found by its chat and id (issue #1004: the owner's message given as evidence), and only in its
+// chat.
+func TestTheMirrorFindsAMessageByItsID(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+	at := time.UnixMilli(1_700_000_000_750)
+
+	for _, id := range []string{"m1", "m2"} {
+		_, err := svc.mirror.keep(ctx, kept{account: "100", chat: "g1", chatKind: "group", id: id, at: at,
+			text: "hello " + id, fromMe: id == "m2"})
+		require.NoError(t, err)
+	}
+
+	found, err := svc.mirror.messages(ctx, "100", messaging.Query{Chat: "g1", ID: "m2"})
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	assert.Equal(t, "m2", found[0].ID)
+	assert.True(t, found[0].FromMe)
+
+	found, err = svc.mirror.messages(ctx, "100", messaging.Query{Chat: "g2", ID: "m2"})
+	require.NoError(t, err)
+	assert.Empty(t, found)
+}

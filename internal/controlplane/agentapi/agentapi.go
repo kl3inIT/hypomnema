@@ -52,6 +52,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
@@ -92,6 +93,12 @@ type Store interface {
 	GrantableConnections(ctx context.Context, bot orchestration.Bot) ([]orchestration.Connection, error)
 	IsMainChat(ctx context.Context, botID, chatID string) (bool, error)
 	RequestConnection(ctx context.Context, botID, chatID, use, reason string) (orchestration.ConnectionRequest, error)
+	// Inbox keeps the owner's to-dos, for a Bot's pi's inbox tools (issue #1004); InboxWorkOf is where a pi works
+	// on them, its chat or the Routine's run the chat was opened for, and InboxAttempt its attempt at the item it
+	// names, which an Approval it asks records.
+	Inbox() *inboxstore.Store
+	InboxWorkOf(ctx context.Context, chatID string) (inboxstore.Work, error)
+	InboxAttempt(ctx context.Context, todoID, bot, chatID string) (string, error)
 	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key
 	// (issue #625).
 	SSHOfDispatch(ctx context.Context, dispatchID string) (hostKeys string, overSSH bool, err error)
@@ -220,6 +227,7 @@ func (a agent) hasAgentTools() bool { return a.owner || a.dispatchID != "" || a.
 func (a agent) proxyCaller() serviceproxy.Caller {
 	return serviceproxy.Caller{
 		Name: a.name, DispatchID: a.dispatchID, Coordinator: a.coordinator, ChatID: a.chatID, ReadRun: a.readRun,
+		Bot: a.bot,
 	}
 }
 

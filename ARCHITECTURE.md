@@ -1071,9 +1071,19 @@ sequenceDiagram
     the take is filmed. `/studio/takes/:id` and `/studio/videos/:id` open a take's and a video's tab on a page of
     their own. A take's tab has Make video (voice, captions, 9:16 or 16:9, an Idempotency-Key), and Video once it
     has one; in a pane the video opens as a `video` tab beside the take's. A video's tab follows the revision being
-    made, stage by stage and scene by scene, a failure with its stage, its cause and Make again; a made revision
-    plays with its lines editable and a note, Approve and Request changes, a switch between revisions and the MP4's
-    download.
+    made, stage by stage and scene by scene, a failure with its stage, its cause and Make again (the retry route); a
+    made revision plays with its lines editable and a note, Approve and Request changes, Change look, a switch
+    between revisions and the MP4's download. Make video and Change look have a Look section (#908 part 4, #938;
+    `look-section.tsx`, `look-state.ts`, `use-look.ts`, `change-look.tsx`): the caption style and position, the
+    frame (full, plain, Android, iPhone, shadow, status strip) and a background, a swatch for each of autodemo's
+    templates painted by a port of its `background()` (`backgrounds.ts`, MIT) or two colours; padding and radius
+    are only in the API and the CLI. The fields start from `GET /videos/looks`' default or the revision's look, and
+    only the sections that differ from where they started are sent, to `POST /videos`, `POST
+    /videos/{id}/revisions/{rev}/look` and the look sample alike, so a section left alone stays the default's or the
+    source's (a default frame on a turned take falls back to full; a frame sent is refused with its 409 shown). The
+    look sample (`POST /videos/preview`, with `rev` for Change look) is a query keyed by its body: a change aborts
+    the sample being drawn and only the latest answer is shown; a refusal (429, 503, 504) shows the server's
+    message. Change look is disabled until a section changed.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -4402,19 +4412,21 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143 and 00144; issues #838, #845 and #966, parts 1 and 2 of the
-Inbox): the store of the to-dos that have to happen, whoever does them, its state machine, its client API and its
-CLI.
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148 and 00151; issues #838, #845, #966 and
+#1004, parts 1 to 3 of the Inbox): the store of the to-dos that have to happen, whoever does them, its state machine,
+its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
-  notes (≤ 20,000), done_when (≤ 1,000); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
+  notes (≤ 20,000), done_when (≤ 1,000), `draft` (≤ 20,000, the reply a Bot drafted for the owner to send
+  himself; issue #1004); due as `due_kind` `none`, `unknown`, `date` (`due_date` and the owner's
   `due_zone`) or `instant` (`due_at` and its zone), with `due_at` and `overdue_at` derived for order and the overdue
   test (a date's first moment and the next day's in its zone, the moment the clocks change where a zone skips
   midnight, never shown as a time); `assignee_kind` `me`,
   `person` (a name ≤ 100), `bot` (an existing Bot's id) or `unknown`; `state` `proposed`, `open`, `doing`, `review`,
   `done`, `dropped`, `duplicate`; `snoozed_until` (proposed or open only); the source (`owner`, `chat` with its chat,
-  `routine` with its run, `lark` or `zalo` with the chat's id at the service and its message as a `lark_message` or
-  `zalo_message` reference, and for `zalo` the owner's account the chat is in (`source_account`), as the Zalo store
-  keys a message by account, chat and id; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt
+  `routine` with its run, `lark`, `zalo` or `whatsapp` with the chat's id at the service and its message as a
+  `lark_message`, `zalo_message` or `whatsapp_message` reference, and for `zalo` and `whatsapp` the owner's account
+  (its Connection's label) the chat is in (`source_account`, optional for `lark`), as their stores key a message by
+  account, chat and id; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt
   while doing or review (`work_attempt`, its own id given by `Start`; `work_kind` `chat` or `run` and `work_id`,
   where it works, which may hold attempts at other items too; `work_bot`, the Bot that started it, and
   `work_started_at`); `approval_id` while review, the Approval linked, which was pending and asked by the item's
@@ -4422,8 +4434,10 @@ CLI.
   `ApprovalApproved` or `ApprovalEnded`; the close
   (`done_by_kind`/`done_by` apart from `recorded_by_kind`/`recorded_by`, `closed_how`, `close_reason`, `evidence`
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
-  `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `closed_at`); `duplicate_of`; `why_open`
-  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00144); a create's idempotency key,
+  `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
+  `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`;
+  `closed_at`); `duplicate_of`; `why_open`
+  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); a create's idempotency key,
   unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed` or `linked_approval`, the revision it made, JSON of the fields before and after, and the
@@ -4442,12 +4456,28 @@ CLI.
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
   owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message
   as evidence (a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source
-  chat, its attempt chat, or the chat the Bot acts in, which the caller takes from the Bot's session); `closed_how`
+  chat, its attempt chat, or the chat the Bot acts in, which the caller takes from the Bot's session; or, to close
+  it done, a `zalo_sent`, `whatsapp_sent` or `lark_sent` in the item's own source chat and account (an item without
+  its account, which `lark` allows, is never closed so), which the store
+  reads before the write through `Store.WithSent` and accepts only when it exists, he sent it himself and it is
+  later than the item: the control plane's `inboxSent` reads a Zalo or WhatsApp one from the server's store of that
+  account (`messaging.Query.ID`) and a Lark one from Lark's API with his own sign-in, `GET
+  /open-apis/im/v1/messages/:id` and `GET /open-apis/authen/v1/user_info`, since the server keeps none of his Lark
+  messages); a Bot closes or drops no item that is another Bot's (given to another, or added by another and not
+  given to it); `closed_how`
   `ai` and `time` are refused; nothing in review is closed while it waits; a doing or review item is given to
   another only once its attempt ended (released, closed or its Approval answered); a duplicate's target exists, is
   not the item nor a duplicate, and the item is the target of none;
   the owner reopens a closed item, which clears its close; only the owner snoozes, to a time to come; the owner
-  edits any item not closed, a Bot only those it added or is given, never their assignee. Every mutation names its
+  edits any item not closed, a Bot only those it added or is given, and changes their assignee only to give the item
+  back to the owner (`me`). The system's transitions run in the transaction of what causes them
+  (`LinkApprovalTx`, `ApprovalAnsweredTx`, `EndAttemptsTx`): `AskApproval` recording a new Approval with an
+  `AttemptID` puts the item of that attempt in review; `DecideApproval` puts it back to doing, or open with the
+  reason when rejected; `ExpireApproval` and a Routine's run ending (`FinishRoutineRun`, which refuses what the run
+  still asked) open it again; a chat deleted (`deleteChatTx`) or a Routine's run ended gives back to open what a Bot
+  was doing there, and an item there in review, its Approval ended as one nobody answered when still pending. A
+  second Approval of an attempt whose item already waits for another is refused in its own write (a conflict the
+  Bot is told), so no Approval waits that no item waits for. Every mutation names its
   actor, the revision it read and, for a Bot on a doing or review item, its attempt's id; a stale revision or
   another attempt's id is a conflict and writes nothing, and a Bot other than the attempt's is forbidden. Leaving doing or review clears the attempt, and any change
   of state the snooze. A create retried with its idempotency key and the same request (actor and every field)
@@ -4456,7 +4486,8 @@ CLI.
   item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
   created, pages of at most 200 with a cursor and the filter's total, read in one transaction with the page; `NeedsYou(now)`, the distinct items not closed nor snoozed that are proposed, in
-  review with a pending Approval, or the owner's own and overdue, the same predicate as `List`'s needs-you filter.
+  review with a pending Approval, or the owner's own and overdue or with a draft, the same predicate as `List`'s
+  needs-you filter.
   A stale proposal, proposed and untouched (at revision 1, no event after `created`) for `StaleAfter` (3 days, a
   constant), is left out of `List` unless asked for (`WithStale`), never counted by `NeedsYou` nor listed by the
   needs-you filter, and shown with `Stale`; it is neither accepted nor deleted, and any change makes it fresh.
@@ -4477,8 +4508,30 @@ CLI.
   [--due <date|date time|none|unknown> --tz <zone>] [--who me|unknown|bot:<id>|<name>] [--notes …] [--done-when …]`,
   `edit`, `accept`, `done [--evidence url] [--reason …]`, `drop <id> "<reason>"`, `duplicate <id> <of>`,
   `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision.
-- Not built: the Bot tools and the wiring of Approvals to `LinkApproval`/`ApprovalApproved`/`ApprovalEnded`, the
-  web page and the morning brief (later parts of #838).
+- Bot tools (`agentapi/inbox.go`, the family `inbox` of `agenttool/switches.go`, in the `full` preset only; issue
+  #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`), `inbox_start`,
+  `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, for a Bot's pi only. Who acts and
+  where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
+  the chat was opened for while it is live); each call reads the item and writes at the revision read (or the one
+  given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. A Routine's
+  run adds from the run, or from the owner's Zalo, WhatsApp or Lark chat it names, never as a chat with the owner.
+  An item given to a person without a due is due 48 hours after it is first added (`NewTodo.DueIn`, counted by the
+  store, so a retry with the same key is the same request; an empty draft stays out of the request's hash), the day
+  to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included. A Routine's run that reads
+  only (#956) gets the family too (`agenttool.ReadRunAllows`), which writes only in the Inbox, and still no tool
+  that sends as the owner: `zalo_send` and `whatsapp_send` are refused there by the agent API, and every write
+  through the service proxy (a Lark message, a mail) by its read-only check; so the Bot that reads his messages
+  cannot send one as him (owner, 2026-11-17 and 2026-11-21 on #838). A Bot in a chat with the owner, or in a
+  Routine's run with full access, with WhatsApp or Zalo on, still sends: on his turn, or with his Approval of that
+  message. The family's line of
+  the "Tools" block carries the Bots' rules (two items per ask, draft and hand back, never send to a client or a
+  boss, close with evidence, the owner's item only with his message). An Approval names the item a Bot works on:
+  `whatsapp_send` and `zalo_send` take `todo`, and a command run with `HYPOMNEMA_TODO=<id>` sends it on its
+  tunnel's opening (`agenttool.HeaderTodo`); the agent API or the proxy turn it into the item's current attempt
+  (`orchestration.InboxAttempt`, refused unless the Bot is doing the item in that chat or run), which
+  `NewApproval.AttemptID` records.
+- Not built: the system closing a reply from the messages as they arrive (the Bot of part 4 records it), the web
+  page, the morning brief and the "Thư ký" Bot (later parts of #838).
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;

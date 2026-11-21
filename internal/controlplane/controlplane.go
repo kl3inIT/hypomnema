@@ -532,6 +532,20 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// client API's Superset routes; the proxy is made after the agent API it asks who an agent is.
 	agents.WithRelay(proxy)
 	agents.WithMessaging(integrations).WithJudge(proxy)
+	// The Inbox checks the message the owner sent that a Bot gives as evidence that he answered (issue #1004).
+	svc.Inbox().WithSent(inboxSent{
+		messages: integrations.Messages,
+		larkToken: func(ctx context.Context, label string) (string, error) {
+			if !integrations.Has(larkIntegration) {
+				return tokens.Of(ctx, larkIntegration, label)
+			}
+
+			token, err := integrations.Token(ctx, larkIntegration, label)
+
+			return token.AccessToken, err
+		},
+		larkURL: "https://" + serviceproxy.LarkHost, client: &http.Client{Timeout: 30 * time.Second},
+	})
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		ChatFallbacks: svc.ChatFallbacks,
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,

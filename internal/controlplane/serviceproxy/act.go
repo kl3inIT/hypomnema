@@ -29,6 +29,8 @@ type Act struct {
 	Fields []orchestration.Field
 	// Hash is the digest of everything the act does, so that the same act asked again is the same Approval.
 	Hash string
+	// AttemptID is the attempt at an Inbox item the act is made in (issue #1004), which its Approval records.
+	AttemptID string
 }
 
 // Judge answers an act: nil when it may be done now, a *RefusedError with what the caller is told otherwise.
@@ -43,7 +45,10 @@ func (p *Proxy) Judge(ctx context.Context, a Act) error {
 		return fmt.Errorf("%w: %s has no action %s", orchestration.ErrInvalid, a.Integration, a.Action)
 	}
 
-	s := session{caller: a.Caller, integration: a.Integration, label: a.Label, chatID: a.ChatID, catalog: catalog}
+	s := session{
+		caller: a.Caller, integration: a.Integration, label: a.Label, chatID: a.ChatID, catalog: catalog,
+		attempt: a.AttemptID,
+	}
 
 	title := action.Name
 	if a.Subject != "" {
