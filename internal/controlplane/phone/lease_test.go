@@ -387,6 +387,35 @@ func TestStartAndStopAreRetriedSafely(t *testing.T) {
 	assert.Equal(t, second, f.Take)
 }
 
+// Scenario: an agent stops a take it said no line on (issue #1028). The stop, and a stop retried, say the take
+// has no steps and cannot be made into a video, and how to film one that can; the take is kept. A take with a
+// step is stopped without it.
+func TestAStopWithNoStepsSaysTheTakeCannotBeMadeIntoAVideo(t *testing.T) {
+	t.Parallel()
+
+	r := newFilmRig(t)
+	silent := r.start(t, alice, "a1")
+
+	for _, attempt := range []string{"stop", "stop retried"} {
+		text, failed := r.call(t, alice, devicetool.VideoStop, `{"take":"`+silent+`"}`)
+		assert.False(t, failed, attempt)
+		assert.Contains(t, text, "no steps, so it cannot be made into a video", attempt)
+		assert.Contains(t, text, "video_say right before each action", attempt)
+	}
+
+	stored, err := r.takes.Get(silent)
+	require.NoError(t, err, "the take is kept")
+	assert.Empty(t, stored.Steps)
+
+	said := r.start(t, alice, "a2")
+	_, failed := r.call(t, alice, devicetool.VideoSay, `{"take":"`+said+`","text":"Tap Sign in"}`)
+	require.False(t, failed)
+
+	text, failed := r.call(t, alice, devicetool.VideoStop, `{"take":"`+said+`"}`)
+	assert.False(t, failed)
+	assert.NotContains(t, text, "no steps")
+}
+
 // Scenario: a Bot's pi films in one turn, and the chat's next turn calls the
 // phone. The second turn cannot use the first's take: it was ended as the
 // first turn's work, and a line said on it is refused.
