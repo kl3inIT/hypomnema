@@ -1,10 +1,15 @@
 package modelgateway_test
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -41,39 +46,101 @@ func slowStream(first, rest time.Duration) http.HandlerFunc {
 // Scenario (issue #856): a streamed answer whose first chunk takes 60 ms and whose rest takes 120 ms more. Its
 // time to first token is when the first chunk reached the client, not the whole call, and its tokens a second
 // count only the time after it. A whole answer has no time to first token, and no tokens a second.
+//
+// The stream runs in a synctest bubble, on its fake clock, over an in-memory network: the times are exact, and a
+// loaded runner that pauses the gateway between two chunks cannot shift them (issue #1018).
 func TestTheTimeToFirstTokenIsMeasuredOnAStreamOnly(t *testing.T) {
 	t.Parallel()
 
-	upstream, _ := provider(t, slowStream(60*time.Millisecond, 120*time.Millisecond))
-	g := newChatGateway(t, modelgateway.Config{}, upstream)
+	synctest.Test(t, func(t *testing.T) {
+		upstream, network := pipeProvider(t, slowStream(60*time.Millisecond, 120*time.Millisecond))
+		g := newChatGateway(t, modelgateway.Config{}, upstream)
+		g.server.DialProviders(t, network.dial)
 
-	status, _, _ := g.call(t, g.key, `{"model":"gpt","stream":true,"messages":[]}`)
-	require.Equal(t, http.StatusOK, status)
+		status, _, _ := g.call(t, g.key, `{"model":"gpt","stream":true,"messages":[]}`)
+		require.Equal(t, http.StatusOK, status)
 
-	u := g.lastUsage(t)
-	require.NotNil(t, u.TTFT)
-	assert.GreaterOrEqual(t, *u.TTFT, 60*time.Millisecond)
-	// The stub sleeps 120 ms after its first chunk, but the gateway stamps TTFT when it sees that chunk, a little
-	// after the stub wrote it; under -race the gap can be a few ms short. Half the sleep is a wide margin.
-	assert.Greater(t, u.Duration-*u.TTFT, 60*time.Millisecond, "the first token comes before the end")
+		u := g.lastUsage(t)
+		require.NotNil(t, u.TTFT)
+		assert.Equal(t, 60*time.Millisecond, *u.TTFT, "when the first chunk came")
+		assert.Equal(t, 180*time.Millisecond, u.Duration, "when the last chunk came")
 
-	tps, ok := u.TokensPerSecond()
-	require.True(t, ok)
-	gen := (u.Duration - *u.TTFT).Milliseconds()
-	assert.InDelta(t, 7/(float64(gen)/1000), tps, 0.001)
+		tps, ok := u.TokensPerSecond()
+		require.True(t, ok)
+		assert.InDelta(t, 7/0.12, tps, 0.001, "7 tokens over the 120 ms after the first chunk")
+	})
 
 	plainUpstream, _ := provider(t, plain(http.StatusOK, answer))
 	whole := newChatGateway(t, modelgateway.Config{}, plainUpstream)
 
-	status, _, _ = whole.call(t, whole.key, `{"model":"gpt","messages":[]}`)
+	status, _, _ := whole.call(t, whole.key, `{"model":"gpt","messages":[]}`)
 	require.Equal(t, http.StatusOK, status)
 
 	w := whole.lastUsage(t)
 	assert.Nil(t, w.TTFT, "not set equal to the whole call")
 
-	_, ok = w.TokensPerSecond()
+	_, ok := w.TokensPerSecond()
 	assert.False(t, ok)
 }
+
+// pipeProvider is provider on an in-memory network, for a test in a synctest bubble: a read on a loopback socket
+// is not durably blocking, so the bubble's clock would never move, while a read on a net.Pipe is (the "I/O"
+// section of go.dev/blog/synctest). The gateway reaches it through the network's dial.
+func pipeProvider(t *testing.T, handle http.HandlerFunc) (*httptest.Server, *pipeNetwork) {
+	t.Helper()
+
+	network := &pipeNetwork{conns: make(chan net.Conn), closed: make(chan struct{})}
+
+	srv := httptest.NewUnstartedServer(providerHandler(&seen{}, handle))
+	require.NoError(t, srv.Listener.Close())
+	srv.Listener = network
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	return srv, network
+}
+
+// pipeNetwork is a listener whose every dial is a new net.Pipe.
+type pipeNetwork struct {
+	conns  chan net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (n *pipeNetwork) dial(ctx context.Context, _, _ string) (net.Conn, error) {
+	server, client := net.Pipe()
+
+	select {
+	case n.conns <- server:
+		return client, nil
+	case <-n.closed:
+		return nil, net.ErrClosed
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (n *pipeNetwork) Accept() (net.Conn, error) {
+	select {
+	case c := <-n.conns:
+		return c, nil
+	case <-n.closed:
+		return nil, net.ErrClosed
+	}
+}
+
+func (n *pipeNetwork) Close() error {
+	n.once.Do(func() { close(n.closed) })
+
+	return nil
+}
+
+func (n *pipeNetwork) Addr() net.Addr { return pipeAddr{} }
+
+type pipeAddr struct{}
+
+func (pipeAddr) Network() string { return "pipe" }
+func (pipeAddr) String() string  { return "provider.test" }
 
 // Tokens a second leave out the time to first token, as OmniRoute's generationThroughput.ts, and skip a request
 // whose counts were estimated or whose generation took no time.
