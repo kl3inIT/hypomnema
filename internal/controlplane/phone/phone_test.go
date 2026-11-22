@@ -97,9 +97,17 @@ type fakeMachines struct {
 	connect bool
 	stopped []string
 	stopErr error
+	// stopHold, when set, keeps a stop from answering until it is closed; stopEntered is told when one began.
+	stopHold    chan struct{}
+	stopEntered chan struct{}
 }
 
 func (m *fakeMachines) Stop(_ context.Context, nodeID string) (orchestration.Node, error) {
+	if m.stopHold != nil {
+		m.stopEntered <- struct{}{}
+		<-m.stopHold
+	}
+
 	if m.stopErr != nil {
 		return orchestration.Node{}, m.stopErr
 	}

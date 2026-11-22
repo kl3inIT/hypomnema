@@ -3,6 +3,7 @@ package agentapi_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -317,13 +318,16 @@ func TestNodeProcessWithoutAnIDListsTheAgentsProcesses(t *testing.T) {
 }
 
 // phoneMachine is the phone's node, its machine stopped because the phone was idle, beside the nodes of machines:
-// starting it connects its node, unless it never wakes.
+// starting it connects its node after helloAfter, unless it never wakes; it fails after startDelay with startErr.
 type phoneMachine struct {
 	machines
 
-	never   bool
-	online  atomic.Bool
-	started atomic.Int32
+	never      bool
+	helloAfter time.Duration
+	startDelay time.Duration
+	startErr   error
+	online     atomic.Bool
+	started    atomic.Int32
 }
 
 func (m *phoneMachine) ListNodes(ctx context.Context) ([]orchestration.Node, error) {
@@ -350,9 +354,14 @@ func (m *phoneMachine) DeviceState(string) (nodeproto.DeviceState, bool) {
 
 func (m *phoneMachine) Start(_ context.Context, nodeID string) (orchestration.Node, error) {
 	m.started.Add(1)
+	time.Sleep(m.startDelay)
+
+	if m.startErr != nil {
+		return orchestration.Node{}, m.startErr
+	}
 
 	if !m.never {
-		m.online.Store(true)
+		time.AfterFunc(m.helloAfter, func() { m.online.Store(true) })
 	}
 
 	return orchestration.Node{ID: nodeID}, nil
@@ -370,19 +379,20 @@ func (m *phoneMachine) Exec(ctx context.Context, nodeID string, e nodeproto.Exec
 	return m.machines.Exec(ctx, nodeID, e)
 }
 
-// withPhoneMachine serves the world's agent API with the node tools and the phone, as the control plane wires them.
-func withPhoneMachine(w *world, m *phoneMachine) {
+// phoneWorld is a world whose agent API has the node tools and the phone, wired as the control plane wires them, on
+// a server that ends an answer not written within writeTimeout, as the control plane's does (platform/http.go); the
+// phone waits wakeWithin for its machine's hello.
+func phoneWorld(t *testing.T, m *phoneMachine, writeTimeout, wakeWithin time.Duration) *world {
+	t.Helper()
+
 	shared := phone.New(phone.Config{
-		Nodes: m, Link: m, Machines: m, WakeWithin: 300 * time.Millisecond, Poll: 5 * time.Millisecond,
+		Nodes: m, Link: m, Machines: m, WakeWithin: wakeWithin, Poll: 5 * time.Millisecond,
 	})
 
-	mux := http.NewServeMux()
-	agentapi.New(w.svc, nil, slog.New(slog.DiscardHandler)).
-		WithNodeExec(m, m, func(context.Context, orchestration.Node) (string, error) { return "", nil }).
-		WithNodeUse(shared).Register(mux)
-
-	w.srv = httptest.NewServer(mux)
-	w.t.Cleanup(w.srv.Close)
+	return newWorldWith(t, writeTimeout, func(api *agentapi.Server) {
+		api.WithNodeExec(m, m, func(context.Context, orchestration.Node) (string, error) { return "", nil }).
+			WithNodeUse(shared)
+	})
 }
 
 // Scenario: a Bot runs a command on the phone's node, whose machine the control plane stopped because the phone was
@@ -391,10 +401,9 @@ func withPhoneMachine(w *world, m *phoneMachine) {
 func TestACommandStartsThePhonesStoppedMachine(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
 	code := 0
 	m := &phoneMachine{machines: machines{give: nodeproto.ExecAnswer{ExitCode: &code, Output: "emulator-5554\n"}}}
-	withPhoneMachine(w, m)
+	w := phoneWorld(t, m, 0, 300*time.Millisecond)
 
 	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
 	require.NoError(t, err)
@@ -412,14 +421,13 @@ func TestACommandStartsThePhonesStoppedMachine(t *testing.T) {
 	assert.Equal(t, int32(1), m.started.Load(), "only the phone's machine is started")
 }
 
-// A phone's machine that does not wake in time is answered with why it was stopped and how it starts, never as a
-// node not connected, which would leave an agent waiting for it (issue #1083: a Bot waited 5 and 9 hours).
+// A phone's machine that does not wake is answered with why it was stopped and how it starts, never as a node not
+// connected, which would leave an agent waiting for it (issue #1083: a Bot waited 5 and 9 hours).
 func TestAPhonesMachineThatDoesNotWakeSaysWhy(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
 	m := &phoneMachine{never: true}
-	withPhoneMachine(w, m)
+	w := phoneWorld(t, m, 0, 300*time.Millisecond)
 
 	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
 	require.NoError(t, err)
@@ -427,7 +435,85 @@ func TestAPhonesMachineThatDoesNotWakeSaysWhy(t *testing.T) {
 	_, text, isErr := w.use(worker, agenttool.ToolNodeProcess, `{"node":"phone","process_id":"proc_0123456789ab"}`)
 	assert.True(t, isErr)
 	assert.False(t, agenttool.IsNodeNotConnected(text), text)
-	assert.Contains(t, text, "stopped its machine because the phone was idle")
+	assert.Contains(t, text, "the phone was idle")
 	assert.Contains(t, text, "device_screen")
 	assert.Empty(t, m.sent)
+}
+
+// A wake that takes longer than the server's write timeout still answers the agent (review of PR #1085, round 1):
+// the command's result, once the node said hello late, and why the machine is stopped, when the provider refuses to
+// start it late. Without it the answer is lost, and the tools server reads that as a restart of the control plane.
+func TestAWakeLongerThanTheWriteTimeoutStillAnswers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a late hello", func(t *testing.T) {
+		t.Parallel()
+
+		code := 0
+		m := &phoneMachine{
+			machines:   machines{give: nodeproto.ExecAnswer{ExitCode: &code, Output: "up\n"}},
+			helloAfter: 400 * time.Millisecond,
+		}
+		w := phoneWorld(t, m, 100*time.Millisecond, 5*time.Second)
+
+		worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+		require.NoError(t, err)
+
+		status, text, isErr := w.use(worker, agenttool.ToolNodeExec, `{"node":"phone","command":"uptime"}`)
+		require.Equal(t, http.StatusOK, status, text)
+		assert.False(t, isErr, text)
+		assert.Equal(t, "exit code 0\noutput:\nup\n", text)
+		require.Len(t, m.sent, 1, "the command was sent once")
+	})
+
+	t.Run("a late refusal", func(t *testing.T) {
+		t.Parallel()
+
+		m := &phoneMachine{startDelay: 400 * time.Millisecond, startErr: errors.New("InsufficientInstanceCapacity")}
+		w := phoneWorld(t, m, 100*time.Millisecond, 5*time.Second)
+
+		worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+		require.NoError(t, err)
+
+		status, text, isErr := w.use(worker, agenttool.ToolNodeExec, `{"node":"phone","command":"uptime"}`)
+		require.Equal(t, http.StatusOK, status, text)
+		assert.True(t, isErr)
+		assert.Contains(t, text, "InsufficientInstanceCapacity")
+		assert.Contains(t, text, "device_screen")
+		assert.Empty(t, m.sent)
+	})
+}
+
+// slowMachines is a node whose command answers after a while.
+type slowMachines struct {
+	machines
+
+	after time.Duration
+}
+
+func (m *slowMachines) Exec(ctx context.Context, nodeID string, e nodeproto.Exec) (nodeproto.ExecAnswer, error) {
+	time.Sleep(m.after)
+
+	return m.machines.Exec(ctx, nodeID, e)
+}
+
+// A command that runs longer than the server's write timeout, on any node, still answers the agent (review of PR
+// #1085, round 1), as a phone call's answer does: commands run up to five minutes and the server's timeout is 30
+// seconds.
+func TestACommandLongerThanTheWriteTimeoutStillAnswers(t *testing.T) {
+	t.Parallel()
+
+	code := 0
+	m := &slowMachines{machines: machines{give: nodeproto.ExecAnswer{ExitCode: &code}}, after: 400 * time.Millisecond}
+	w := newWorldWith(t, 100*time.Millisecond, func(api *agentapi.Server) {
+		api.WithNodeExec(m, m, func(context.Context, orchestration.Node) (string, error) { return "", nil })
+	})
+
+	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	status, text, isErr := w.use(worker, agenttool.ToolNodeExec, `{"node":"zm","command":"make"}`)
+	require.Equal(t, http.StatusOK, status, text)
+	assert.False(t, isErr, text)
+	assert.Equal(t, "exit code 0\nno output", text)
 }

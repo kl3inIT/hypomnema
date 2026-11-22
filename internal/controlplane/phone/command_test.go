@@ -49,7 +49,7 @@ func TestACommandThatCannotWakeThePhoneSaysWhy(t *testing.T) {
 
 	_, _, err := p.Use(t.Context(), "n-phone")
 	require.ErrorIs(t, err, ErrUnavailable)
-	assert.Contains(t, err.Error(), "stopped its machine because the phone was idle")
+	assert.Contains(t, err.Error(), "the phone was idle")
 	assert.Contains(t, err.Error(), "the phone is waking")
 	assert.Contains(t, err.Error(), "device_screen")
 	assert.NotContains(t, err.Error(), "not connected")
@@ -83,4 +83,54 @@ func TestACommandInFlightKeepsTheMachineOn(t *testing.T) {
 	c.pass(time.Second)
 	p.Sweep(t.Context())
 	assert.Equal(t, []string{"n-phone"}, machines.stopped)
+}
+
+// A command that comes while a sweep is stopping the machine is refused with why, and does not run on a machine about
+// to go off; the stop goes on (review of PR #1085, round 1).
+func TestACommandComingWhileTheMachineStopsIsRefused(t *testing.T) {
+	t.Parallel()
+
+	p, _, machines, c := idleRig(t)
+	machines.stopHold, machines.stopEntered = make(chan struct{}), make(chan struct{}, 1)
+
+	p.Sweep(t.Context())
+	c.pass(MachineIdle)
+
+	swept := make(chan struct{})
+
+	go func() {
+		defer close(swept)
+
+		p.Sweep(t.Context())
+	}()
+
+	<-machines.stopEntered
+
+	_, _, err := p.Use(t.Context(), "n-phone")
+	require.ErrorIs(t, err, ErrUnavailable)
+	assert.Contains(t, err.Error(), "being stopped")
+	assert.Contains(t, err.Error(), "device_screen")
+	assert.NotContains(t, err.Error(), "not connected")
+
+	close(machines.stopHold)
+	<-swept
+	assert.Equal(t, []string{"n-phone"}, machines.stopped)
+}
+
+// A machine whose stop is on its record is started for a command even while its node's socket is still open, as it
+// is for a while after the provider was asked to stop it: its power, not its socket, says it is off.
+func TestAStoppedMachineWhoseSocketIsStillOpenIsWoken(t *testing.T) {
+	t.Parallel()
+
+	link := newLink()
+	link.connect("n-phone")
+
+	machines := &fakeMachines{link: link, connect: true}
+	p := newPhone(link, machines, phoneNode(orchestration.MachineStopped))
+
+	done, woken, err := p.Use(t.Context(), "n-phone")
+	require.NoError(t, err)
+	assert.True(t, woken)
+	assert.Equal(t, []string{"n-phone"}, machines.started)
+	done()
 }
