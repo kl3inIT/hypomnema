@@ -22,7 +22,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { errorText } from "@/lib/server-error"
 
 import { LookSection } from "./look-section"
-import { fieldsOf, sentLook, type LookFields } from "./look-state"
+import { fieldsOf, sampleOf, sentLook, type LookFields } from "./look-state"
 import { useVideoLooks } from "./use-look"
 
 // ChangeLook makes a made revision again in another look (issue #908, rows 4 and 16; #938): its Look starts from the
@@ -97,14 +97,15 @@ export function ChangeLook({
                 looks={looks.data}
                 value={fields}
                 onChange={setLook}
+                music={rev.look.music}
                 captions={rev.captions}
-                sample={{
+                sample={sampleOf({
                   take: video.take,
                   aspect: rev.aspect,
                   captions: rev.captions,
                   rev: rev.rev,
                   ...(sent ? { look: sent } : {}),
-                }}
+                })}
                 open={open}
               />
             ) : (

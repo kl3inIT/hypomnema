@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest"
 
 import type { VideoLook } from "@/api/generated/types.gen"
 
-import { fieldsOf, sentLook } from "./look-state"
+import { fieldsOf, sampleOf, sentLook } from "./look-state"
 
 // The saved default as the server starts it: Clean, an Android frame, midnight (videos/look.go, DefaultLook).
 const saved: VideoLook = {
@@ -45,6 +45,70 @@ describe("the sections a look sends", () => {
     const now = { ...start, background: { colors: ["#112233", "#445566"] as [string, string] } }
 
     expect(sentLook(start, now)).toEqual({ background: { colors: ["#112233", "#445566"] } })
+  })
+})
+
+describe("the music a look sends (issue #910, row 15)", () => {
+  const withMusic: VideoLook = {
+    ...saved,
+    music: { track: "mus_0123456789abcdef", name: "Lo-fi", length_ms: 95_000, gain_db: -6 },
+  }
+
+  test("left alone, it is not sent, so the server takes the default's or the source's", () => {
+    const start = fieldsOf(withMusic)
+    const now = { ...start, frame: { ...start.frame, shadow: false } }
+
+    expect(sentLook(start, now)).toEqual({
+      frame: { chrome: "android", shadow: false, safe_top: false },
+    })
+  })
+
+  test("a track chosen is sent with its gain, since a section without its track is refused", () => {
+    const start = fieldsOf(saved)
+    const now = { ...start, music: { ...start.music, track: "mus_0123456789abcdef" } }
+
+    expect(sentLook(start, now)).toEqual({
+      music: { track: "mus_0123456789abcdef", gain_db: 0 },
+    })
+  })
+
+  test("a gain moved alone is sent with its track", () => {
+    const start = fieldsOf(withMusic)
+    const now = { ...start, music: { ...start.music, gain_db: 3 } }
+
+    expect(sentLook(start, now)).toEqual({ music: { track: "mus_0123456789abcdef", gain_db: 3 } })
+  })
+
+  test("no music chosen in place of a track is sent as none", () => {
+    const start = fieldsOf(withMusic)
+    const now = { ...start, music: { ...start.music, track: "none" } }
+
+    expect(sentLook(start, now)).toEqual({ music: { track: "none", gain_db: -6 } })
+  })
+
+  test("a look without music, or whose track fell back, starts from none", () => {
+    expect(fieldsOf(saved).music).toEqual({ track: "none", gain_db: 0 })
+    const fellBack: VideoLook = {
+      ...saved,
+      music: {
+        track: "none",
+        gain_db: 0,
+        fell_back_from: { track: "mus_0123456789abcdef", name: "Lo-fi", length_ms: 95_000 },
+      },
+    }
+    expect(fieldsOf(fellBack).music).toEqual({ track: "none", gain_db: 0 })
+  })
+
+  test("the look sample is asked without the music, which does not change the picture", () => {
+    const take = "tk_0123456789abcdef"
+    const music = { track: "mus_0123456789abcdef", gain_db: 0 }
+
+    expect(sampleOf({ take, look: { music } })).toEqual({ take })
+    expect(sampleOf({ take, rev: 1, look: { music, background: { preset: "ocean" } } })).toEqual({
+      take,
+      rev: 1,
+      look: { background: { preset: "ocean" } },
+    })
   })
 })
 

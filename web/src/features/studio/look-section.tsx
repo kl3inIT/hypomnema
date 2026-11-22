@@ -1,7 +1,7 @@
-import { Captions, Frame, ImageIcon, Palette } from "lucide-react"
+import { Captions, Frame, ImageIcon, Music, Palette } from "lucide-react"
 import { useEffect, useId, useRef, type ReactNode } from "react"
 
-import type { VideoChrome, VideoLooks, VideoPreview } from "@/api/generated/types.gen"
+import type { VideoChrome, VideoLooks, VideoMusic, VideoPreview } from "@/api/generated/types.gen"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import {
   Select,
@@ -25,17 +25,20 @@ import {
   positions,
   type LookFields,
 } from "./look-state"
+import { MusicGroup } from "./music-group"
 import { useLookSample } from "./use-look"
 
 // LookSection is the Look of Make video and Change look (issue #908, row 16; #938): the look sample, then the
 // caption style and where it sits, the frame around the phone's picture, and the background, each a group with its
 // header as Cap's editor sidebar groups its controls (apps/desktop-gpui/src/editor_tabs.rs, editor_sidebar.rs;
 // AGPLv3, layout only). The fields start from the default or the source revision; the sample and the request carry
-// only the sections changed (look-state.ts). Padding and radius are only in the API and the CLI.
+// only the sections changed (look-state.ts). Padding and radius are only in the API and the CLI. Last, the music laid
+// under the voice (#910, row 18; music-group.tsx).
 export function LookSection({
   looks,
   value,
   onChange,
+  music,
   captions,
   sample,
   open,
@@ -43,6 +46,8 @@ export function LookSection({
   looks: VideoLooks
   value: LookFields
   onChange: (next: LookFields) => void
+  // music: the stored music of the look the fields start from, the default's or the revision's.
+  music: VideoMusic | undefined
   // captions: the revision has captions; off, their style is not chosen.
   captions: boolean
   // sample: the look sample's request, its look the sections changed.
@@ -218,6 +223,14 @@ export function LookSection({
               ))}
             </div>
           )}
+        </Group>
+        <Group icon={<Music />} title="Music">
+          <MusicGroup
+            music={value.music}
+            stored={music}
+            onMusic={(next) => onChange({ ...value, music: next })}
+            enabled={open}
+          />
         </Group>
       </div>
     </section>
