@@ -173,7 +173,8 @@ and the web and the CLI write to. `POST /chats` (the web's New chat, `hypomnema 
 becomes its Bot's main chat in the same write, as OpenClaw's `/new` starts a new session (`/new` typed in a web
 chat does the same for that chat's Bot and opens the new chat; `hypomnema chat /new` is `--new`); `POST /chats/main`
 returns the Bot's main chat, making one when it has none, read and made in one write so that the web and the CLI
-at once end in one. The web's first message to a Bot with no main chat goes through it with the id its page chose
+at once end in one. The web's first message to a Bot with no main chat, or sent before the page has read the Bots
+(issue #1055), goes through it with the id its page chose
 (and its title and model, used only when the chat is made): a main chat the CLI made meanwhile is answered instead
 (200, its own id), the message goes there, and files put under the page's id are refused rather than lost. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
 never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (Runs and

@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { AvatarName } from "@/components/agent-avatar"
-import { botNameOf, pickedBotOf } from "@/features/bots/bots-state"
+import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import { AppSidebar } from "@/features/shell/app-shell"
 import { MenuButton, PageHeader } from "@/components/page-header"
@@ -51,20 +51,20 @@ function NewChat({ initialBot }: { initialBot?: string }) {
   const [saved] = useState(() => readDraft(newChatDraft))
   const listed = useBots().data
   const bots = listed ?? []
+  const main = mainBotOf(listed)
   const [picked, setPicked] = useState(initialBot ?? saved.bot ?? "")
   const choice = bots.length > 1
   // Until the Bots are read, the one picked stands, so that the files of the draft do not move meanwhile.
-  const bot = pickedBotOf(listed, picked)
+  // A Bot is picked by its id (issue #466); one the list does not have, a draft's from before, is the main Bot.
+  const bot = !listed || bots.some((b) => b.id === picked) ? picked : main
   const [chatId] = useState(() => saved.chat ?? newChatId())
   const attachments = useAttachments(chatId, bot, { files: saved.files, bot: saved.bot ?? bot })
   const [model, setModel] = useDraftChoice(bot)
 
-  // A message sent before the Bots are read names the Bot picked once they are (issue #1055).
-  const start = useStartChat(
-    chatId,
-    (read) => (read.length > 1 ? pickedBotOf(read, picked) : undefined),
-    model,
-    (chat) => navigate({ to: "/chats/$chatId", params: { chatId: chat.id } }),
+  // Before the Bots are read, the one picked is named: whether there is a choice is not known yet (issue #1055).
+  const named = listed ? (choice ? bot : undefined) : bot || undefined
+  const start = useStartChat(chatId, named, model, (chat) =>
+    navigate({ to: "/chats/$chatId", params: { chatId: chat.id } }),
   )
 
   return (
