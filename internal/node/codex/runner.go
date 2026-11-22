@@ -41,6 +41,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
+	"github.com/kl3inIT/hypomnema/internal/shared/contextwindow"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -294,6 +295,10 @@ func (t *turn) Outcome(ex nodeproto.Exit) nodeproto.Finished {
 	default:
 		f.Class = "worker_error"
 		f.Summary = strings.TrimSpace("stopped without finish: " + t.failure)
+		// Codex compacts on its own and ends the turn only when that did not help; its message says to start a new
+		// thread (codex-rs/protocol/src/error.rs:146-149), as OpenClaw tells the user to /new
+		// (src/shared/assistant-error-format.ts:38) (issue #1052).
+		f.ContextOverflow = contextwindow.Exceeded(t.failure)
 	}
 
 	return f
