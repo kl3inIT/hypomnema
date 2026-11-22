@@ -85,6 +85,8 @@ type Server struct {
 	imageRests  *imageRests
 	// speech serves /v1/audio/*; nil when the control plane gave none.
 	speech *speech.Service
+	// overflows are the keys' runs of prompts that did not fit their model (issue #1052).
+	overflows *overflows
 }
 
 // NewServer returns the gateway's HTTP API over a Service.
@@ -135,6 +137,7 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 		web:            cfg.Web,
 		imageClient:    &http.Client{Transport: imageTransport},
 		imageRests:     newImageRests(),
+		overflows:      newOverflows(),
 		speech:         cfg.Speech,
 	}
 }

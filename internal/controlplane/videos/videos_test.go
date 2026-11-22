@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -509,6 +510,9 @@ func TestARestartInterruptsEachStage(t *testing.T) {
 }
 
 // Each failure fails the revision at its stage and leaves no MP4.
+//
+// Each case runs in a synctest bubble, on its fake clock: the 50 ms of the timeout pass only while Compose waits,
+// as the stages before it take no time there. On the wall clock a loaded runner spent them in voicing (#1006).
 func TestAFailureLeavesNoMP4(t *testing.T) {
 	t.Parallel()
 
@@ -533,20 +537,22 @@ func TestAFailureLeavesNoMP4(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := newRig(t)
-			c.set(r)
+			synctest.Test(t, func(t *testing.T) {
+				r := newRig(t)
+				c.set(r)
 
-			v, _ := r.make(t, "")
-			r.runAll(t)
+				v, _ := r.make(t, "")
+				r.runAll(t)
 
-			got := r.revision(t, v.ID, 1)
-			assert.Equal(t, Failed, got.State)
-			assert.Equal(t, c.stage, got.FailedStage)
-			assert.Contains(t, got.FailedCause, c.cause)
-			r.noFiles(t, v.ID, 1)
+				got := r.revision(t, v.ID, 1)
+				assert.Equal(t, Failed, got.State)
+				assert.Equal(t, c.stage, got.FailedStage)
+				assert.Contains(t, got.FailedCause, c.cause)
+				r.noFiles(t, v.ID, 1)
 
-			_, err := r.svc.File(t.Context(), v.ID, 1)
-			require.ErrorIs(t, err, ErrNotFound)
+				_, err := r.svc.File(t.Context(), v.ID, 1)
+				require.ErrorIs(t, err, ErrNotFound)
+			})
 		})
 	}
 }
