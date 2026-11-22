@@ -201,10 +201,13 @@ func TestInterruptedFetchRecoversGitLocks(t *testing.T) {
 		t.Skip("automatic ownership verification requires procfs")
 	}
 	maker, src, root := mirrorProcessFixture(t)
-	maker.GitTimeout, maker.GitGrace = 400*time.Millisecond, 200*time.Millisecond
+	// Only the fetch meant to be interrupted has the short limit: the Ensure after it runs unbounded, as a slow
+	// runner may take longer than the limit to add a worktree (issue #1048).
+	bounded := maker
+	bounded.GitTimeout, bounded.GitGrace = 400*time.Millisecond, 200*time.Millisecond
 	interrupted := src
 	interrupted.Env = []string{"MIRROR_TEST_ACTION=stale"}
-	err := maker.Ensure(t.Context(), interrupted, "main", "stale", filepath.Join(root.Name(), "wt", "stale"))
+	err := bounded.Ensure(t.Context(), interrupted, "main", "stale", filepath.Join(root.Name(), "wt", "stale"))
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	mirror := maker.mirrorPath(src.Repo)
 	assert.NoFileExists(t, filepath.Join(mirror, "refs/remotes/origin/main.lock"))
@@ -300,9 +303,11 @@ func TestInterruptedCloneIsNotPublished(t *testing.T) {
 	require.NoError(t, err)
 	other.URL = src.URL
 	other.Env = []string{"MIRROR_TEST_ACTION=clone-stall"}
-	maker.GitTimeout, maker.GitGrace = 400*time.Millisecond, 150*time.Millisecond
+	// The clone after the stalled one runs unbounded, as in TestInterruptedFetchRecoversGitLocks (issue #1048).
+	bounded := maker
+	bounded.GitTimeout, bounded.GitGrace = 400*time.Millisecond, 150*time.Millisecond
 	path := filepath.Join(root.Name(), "wt", "clone")
-	err = maker.Ensure(t.Context(), other, "main", "clone", path)
+	err = bounded.Ensure(t.Context(), other, "main", "clone", path)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.NoDirExists(t, maker.mirrorPath(other.Repo))
 	other.Env = nil

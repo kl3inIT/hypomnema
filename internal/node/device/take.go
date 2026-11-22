@@ -87,6 +87,9 @@ type take struct {
 	opened   int
 	q        *takeQueue
 	done     chan struct{}
+	// writerReleases is set when the take was ended on the stream's relay (low disk): its writer, not the relay,
+	// then saves it last and lets the stream go, so a slow disk holds up no view (issue #1025).
+	writerReleases bool
 
 	saveMu sync.Mutex
 }
@@ -299,31 +302,25 @@ func (t *take) cut(now time.Time) {
 
 // feed gives a take a packet of the stream as it arrives, before the views
 // get it, and says whether a key frame is to be asked for: a segment waits
-// for one.
+// for one. It writes nothing itself: a take it ends for low disk is saved, and
+// the stream let go, by the take's writer before it reports the take finished
+// (issue #1025).
 func (m *Manager) feed(p packet) bool {
 	f := &m.film
 
 	f.mu.Lock()
-	ask, ended := m.feedLocked(p)
-	f.mu.Unlock()
+	defer f.mu.Unlock()
 
-	if ended != nil {
-		go func() {
-			m.save(ended)
-			m.streamOff()
-		}()
-	}
-
-	return ask
+	return m.feedLocked(p)
 }
 
-// feedLocked is feed under filming.mu; it answers the take it ended, if any.
-func (m *Manager) feedLocked(p packet) (bool, *take) {
+// feedLocked is feed under filming.mu.
+func (m *Manager) feedLocked(p packet) bool {
 	f := &m.film
 
 	t := f.cur
 	if t == nil || t.ended {
-		return false, nil
+		return false
 	}
 
 	if p.Config {
@@ -335,22 +332,23 @@ func (m *Manager) feedLocked(p packet) (bool, *take) {
 
 		t.config = p.Data
 
-		return false, nil
+		return false
 	}
 
 	if t.paused || t.seg == nil {
-		return false, nil
+		return false
 	}
 
 	if !t.seg.started {
 		if !p.Key || t.config == nil {
-			return true, nil
+			return true
 		}
 
 		if !m.freeEnough(t.dir) {
+			t.writerReleases = true
 			m.endLocked(t, devicetool.EndedDiskLow, "less than 400 MB of disk was free for a new segment")
 
-			return false, t
+			return false
 		}
 
 		t.seg.started, t.seg.origin = true, m.now()
@@ -359,7 +357,7 @@ func (m *Manager) feedLocked(p packet) (bool, *take) {
 
 	t.q.push(takeItem{kind: itemFrame, number: t.seg.number, p: p})
 
-	return false, nil
+	return false
 }
 
 // streamRestarted closes the take's segment when the stream starts again:
@@ -684,6 +682,15 @@ func (m *Manager) writeTake(t *take) {
 			}
 		case itemFinish:
 			m.finish(t)
+
+			m.film.mu.Lock()
+			release := t.writerReleases
+			m.film.mu.Unlock()
+
+			if release {
+				m.streamOff()
+			}
+
 			close(t.done)
 
 			return
