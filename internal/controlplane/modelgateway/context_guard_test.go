@@ -189,3 +189,29 @@ func TestARunOfAnswersThatDoNotEndEndsTheTurn(t *testing.T) {
 		})
 	}
 }
+
+// Scenario: review round 3 of PR #1057 (issue #1052). The provider ends each
+// stream on an error Codex retries on its own, up to five times
+// (codex-rs/codex-api/src/sse/responses_error.rs:73-91,
+// model-provider-info/src/lib.rs:74): a truncated answer like any other.
+// After four in a row the fifth request is not sent.
+func TestReviewRound3RetryableTruncation(t *testing.T) {
+	t.Parallel()
+
+	const overloaded = `{"type":"response.failed","response":{"error":{"code":"server_error","message":"overloaded"}}}`
+
+	var well atomic.Bool
+	backend, got := failing(t, overloaded, &well)
+	g := newCodexGateway(t, backend, &accounts{})
+
+	for range 4 {
+		status, _, _ := g.respond(t, g.key, asking(10))
+		require.Equal(t, http.StatusOK, status)
+	}
+
+	status, _, body := g.respond(t, g.key, asking(10))
+	require.Equal(t, http.StatusBadRequest, status, body)
+	code, _ := refusal(t, body)
+	assert.Equal(t, "context_overflow", code)
+	assert.Equal(t, 4, got.calls(), "the fifth was not sent")
+}
