@@ -31,6 +31,8 @@ func (s *Service) RoutineRunOf(ctx context.Context, tok Token) (string, error) {
 	)
 
 	switch {
+	case tok.RoutineRun != "":
+		return tok.RoutineRun, nil
 	case tok.Routine != "":
 		run, err = routinestore.LiveRunTx(ctx, q, tok.Routine)
 	case tok.Chat != "":
@@ -80,4 +82,16 @@ func (s *Service) InboxAttempt(ctx context.Context, todoID, bot, chatID string) 
 	}
 
 	return t.Work.Attempt, nil
+}
+
+// RoutineScriptReads says whether the script of a Routine's run reads only (issue #1023): by the access the run
+// started with, its own snapshot, so that a change of the Routine meanwhile, the owner's or a Bot's, changes nothing
+// of the run that goes on, and nothing of its token (reviews of #1037). A run that is not there is an error.
+func (s *Service) RoutineScriptReads(ctx context.Context, runID string) (bool, error) {
+	run, err := s.routines.GetRoutineRun(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+
+	return run.Access == routinestore.AccessRead, nil
 }

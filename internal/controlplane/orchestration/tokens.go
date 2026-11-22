@@ -38,6 +38,9 @@ type Token struct {
 	// Routine is the Routine whose script's run a Bot token is made for
 	// (issue #211); such a token has no chat. Empty for a pi's.
 	Routine string
+	// RoutineRun is that run: the token works only while the run is live, and what it may do is the run's own
+	// snapshot (issue #1023, reviews of #1037).
+	RoutineRun string
 }
 
 // AddToken records a client token and returns it with its secret, which is

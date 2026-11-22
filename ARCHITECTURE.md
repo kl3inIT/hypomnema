@@ -1010,9 +1010,8 @@ sequenceDiagram
     instant shows (libass is given whole milliseconds, truncated; #937). Tests compare the PNG with goldens Chromium drew from aidemo's frame HTML and autodemo's
     `background()` (`compose/testdata/frames`), and check in the made video that the hole shows the picture and
     only the hole does, where a ring lands, and that a turned take is refused.
-    Compose lays a music track under the voice when `Input.Music` names one (#910 part 1, #1039; nothing passes
-    one yet: the library, the look's section and the runner are part 2): its file, its decoded length and a gain
-    of −20 to +10 dB. Without music the mux's command is as before, stream for stream. `compose.Measure` decodes a
+    Compose lays a music track under the voice when `Input.Music` names one (#910 part 1, #1039; the runner passes
+    the track a revision's look names, below): its file, its decoded length and a gain of −20 to +10 dB. Without music the mux's command is as before, stream for stream. `compose.Measure` decodes a
     file's first audio stream strictly (`-xerror`, optionally bounded by `-t`) through ebur128, read from ffmpeg's
     stdout (`-progress pipe:1`, capped at 32 MB, refused unless it ends with `progress=end`, ffmpeg run in a process group of its own that is
     killed whole at the context's deadline, its stdout closed then even while a child holds it): integrated LUFS, the
@@ -1105,7 +1104,33 @@ sequenceDiagram
     second word starts, the words timed at demotape's 14 characters a second (`captions.SynthesizeWords`, ported):
     one at a time, refused as busy after 5 s of waiting, timed out after 20 s, its ffmpeg killed when the client
     goes. It shows the look, not a frame the video is sure to show. `Looks` is the catalog: the presets, Classic
-    included, the backgrounds, the chromes and the default.
+    included, the backgrounds, the chromes and the default, whose `music` is its only trace of the library.
+  - The music library and a look's music (#910 part 2, #1040; `videos/music.go`, migration `video_music`). The owner
+    uploads tracks; none is bundled and nothing has music until a look names a track. A track is a row of
+    `video_music` (id `mus_…`, name, file, media type, decoded length, bytes) and an immutable file
+    `videos/music/<id>.<ext>` (`videos.MusicDir(database)`). An upload is received one at a time; it is refused
+    before its body is read when the library's files plus it pass the 5 GB quota (owner, 2026-11-21) or the disk
+    has less than 400 MB plus it free, or its free disk cannot be read; it is streamed into `<id>.*.part` there,
+    synced, refused when under 400 MB is left after it, typed by ffprobe (`compose.ProbeFile`: exactly one audio
+    stream and no video, a cover picture, chapters and other data streams aside; mp3 `audio/mpeg`, an ISO base
+    media file whose major or a compatible brand is an M4A or MP4 one (M4A, M4B, mp41, mp42, isom, iso2-iso6; the MP4
+    Registration Authority's), and whose major brand is no 3GPP or 3GPP2 one (3gp*, 3g2*), with AAC `audio/mp4`, wav with PCM `audio/wav`, flac `audio/flac`, ogg
+    with Vorbis or Opus `audio/ogg`; ALAC, QuickTime's MOV and the rest refused) and decoded whole by `compose.Measure` (`-t 1201`, 60 s at
+    most): its length is the decoded length, 10 s to 20 minutes, and silence (−70 LUFS or no peak) is refused.
+    Then it is renamed, the folder synced and the row inserted. A full disk anywhere, ENOSPC from a file or
+    SQLite's SQLITE_FULL (`sqlite.IsFull`), is `ErrDiskLow`; whatever fails removes the file. At start, inside
+    `videos.New`, so before the API and the runner, the folder loses its `*.part` and its files with no row; a row
+    with no file is listed `missing`. A delete, under the lock a make takes and in one transaction, is refused
+    (409) while a revision queued or being made names the track, and sets the saved default's music to none only
+    when it names this track; the file is removed after the commit, and one whose remove failed counts in the
+    quota until the next start removes it. A look's `music` is a snapshot, `{track, name, length_ms, gain_db}`
+    (gain −20 to +10 dB, 0 when left out), absent for none. A music section sent must carry its `track` (`none` or
+    an id); a sent track deleted is refused (409). A track taken from the default or the source (a make, a look
+    change without music, a retry, changed lines) that was deleted is stored as `{track: "none", fell_back_from:
+    {track, name, length_ms}}`, checked while the revision is queued under that lock, and the made revision warns.
+    The made revisions of a deleted track keep its name and length. The runner gives compose the track's file and
+    length and the look's gain, with the Service's free-disk function for the bed's check. Agents' `video_make` is
+    unchanged: their videos take the default's music.
   - Access to videos: the owner's (`clientapi/videos.go`, owner tokens only): `GET /videos`, `POST /videos`
     `{take, title?, aspect?, captions?, voice?, look?}` with an Idempotency-Key, `GET /videos/looks`, `POST
     /videos/preview` `{take, aspect?, captions?, look?, rev?}` answering `image/jpeg` (busy `rate_limited` with
@@ -1118,7 +1143,18 @@ sequenceDiagram
     .../thumbnail.jpg`, in review, approved or changes_requested; `hypomnema videos list|get|make|request-changes|
     approve|delete|download|look|retry|looks|preview`, where `make`, `look` and `preview` send only the look's
     sections whose flags are given (`--caption-preset --caption-position --chrome --padding --radius --shadow
-    --safe-top --background --background-colors`). The web's "Make again" of a failed revision is a retry. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
+    --safe-top --background --background-colors`, and `--music <id|none>` with `--music-gain <dB>` on `make` and
+    `look`; `--music-gain` alone is refused). The music library (#910): `GET /videos/music` `{tracks, used_bytes,
+    quota_bytes}`, `GET /videos/music/{id}/audio` with its stored type, `nosniff` and Range requests, `DELETE
+    /videos/music/{id}` (204, 404, 409), and the upload `POST /api/v1/videos/music?name=…` on a route of its own
+    outside the contract's validator (which reads a whole body first), described in `ListVideoMusic`: owner only
+    (401/403), sent as `application/octet-stream` as a meeting's recording is (400 otherwise, so a page of another
+    origin cannot send one as a simple request with the session's cookie), its Content-Length required (411) and at
+    most 64 MB (413), then the service's busy (429, Retry-After 5), quota and disk (507 `insufficient_storage`)
+    checks, all before a byte of the body is read, and 201 with the track. Its answers say `Connection: close`, so
+    Go's server answers a refusal at once instead of first reading a body left unread (a chunked one, or one under
+    256 KB); `hypomnema videos music add|list|rm`. The web's "Make again" of a failed revision is a
+    retry. An agent (a worker or a Bot's pi) has `video_make {take, request_id?}` and
     `video_get {video}` (`agentapi/videos.go`), listed and called on the control plane's tools route apart from
     the phone and its lease, for the takes it filmed only: the video's id, state, length, lines and the owner's
     latest note, never a file or a link. Settings → Gateway → Audio has a voice for videos for each provider
@@ -1447,7 +1483,12 @@ sequenceDiagram
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
     script keep. When the Bot cannot be read pi does not start.
   - A Bot's pi has the tools `memory`, `show_artifact` and `routines` (issue #536), `web_search`, `web_fetch`,
-    `generate_image`, `audio_transcribe` and `audio_speak` (issue #723), and Superset's `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
+    `generate_image`, `audio_transcribe` and `audio_speak` (issue #723), the Inbox's `inbox_*` (issue #1004), the
+    meetings' `meeting_list` and `meeting_get` (issue #1023: the meetings recorded, changed or whose notes became
+    ready since a time (`Notes.WrittenAt`, which the list loads), and one with its notes, actions and up to 400 lines
+    of transcript after a line number, which only grows, so a live transcript pages without a line skipped or given
+    twice; reads only, also in a read run and its check), and Superset's
+    `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
     server (issues #492, #536, see "An agent's tools"), and the shared browser's and the phone's (issue #536,
     step 4), which its pi mounts through pi's own MCP (below, the box). Those are relayed by the control plane
     over the same HTTP the other tools use, so the box needs nothing more. Until
@@ -1898,9 +1939,20 @@ flowchart LR
     Hermes's `script` with a `prompt`): its limit is the script's, the Bot's turn has its hour. What runs is set
     whole: a prompt, a script, or both. A Bot with Routines is not removed.
   - **Access** ([issue #956](https://github.com/kl3inIT/hypomnema/issues/956), migration 00142). `full` is the
-    default, with the usual tool and approval rules. Only the owner may mark a prompt without a script `read`, in
-    the Routine panel or with `hypomnema routines set <name> --access read`. A Bot's later change to the work or
-    schedule clears that grant. The wake-up in each run's new chat records the access then; it is still no owner
+    default, with the usual tool and approval rules. Only the owner may mark a prompt `read`, in the Routine panel
+    or with `hypomnema routines set <name> --access read`; a script alone is never `read`. A Bot's later change to the
+    work or schedule clears that grant. A `read` prompt may have a check script (owner, 2026-11-21 on #1023, after
+    Hermes's pre-run script, `cron/scheduler.py:2232-2250`; until then a `read` prompt had none): it reads with the
+    rights of the Routine's read run and nothing more, through the token any Routine's script has, which the agent
+    API then takes as a read run's (`agentapi` `authenticate`: the Bot's own accounts, user Connections included,
+    only their reads, the meetings' and the messaging reads, never the Inbox, the memory or a send) and the client
+    API refuses whole, as it refuses a read run's pi. The woken run's prompt keeps the read-only notice and treats
+    what the check printed as records. A run is one snapshot of its Routine when it starts (`routine_runs.access`,
+    `prompt`, `script`, `script_text`, `timeout_seconds`): the launch (`ClaimRoutineScript`), the wake
+    (`WakeRoutineRun`) and every check of the run's token (`orchestration.RoutineScriptReads`) read only that copy,
+    so the owner's switch or a Bot's edit meanwhile changes nothing of the run that goes on. A script's token is
+    bound to its run (`Token.RoutineRun`) and stops working when the run ends, in the run's own transaction, before
+    it is revoked (reviews of #1037). The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
     the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
     `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
@@ -2879,7 +2931,9 @@ flowchart LR
       `limit`) read the mirror, the latest first, for the owner only.
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
-      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image of the
+      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages` (as `zalo_messages`, with `offset` beside
+      `before` and `limit`: pages that never skip messages sent in the same second, issue #1023),
+      `whatsapp_media` (an image as an image of the
       type its bytes say when a model views it, JPEG, PNG, GIF or WebP, else its path with a line saying it was
       omitted, as OpenClaw's `sanitizeContentBlocksImages` does, [issue #760](https://github.com/kl3inIT/hypomnema/issues/760); a voice note
       with its transcript after its path, see "Incoming voice" under "An agent's tools") and `whatsapp_history`.
@@ -4715,8 +4769,35 @@ its client API, its CLI and the Bots' tools.
   tunnel's opening (`agenttool.HeaderTodo`); the agent API or the proxy turn it into the item's current attempt
   (`orchestration.InboxAttempt`, refused unless the Bot is doing the item in that chat or run), which
   `NewApproval.AttemptID` records.
-- Not built: the system closing a reply from the messages as they arrive (the Bot of part 4 records it), the web
-  page, the morning brief and the "Thư ký" Bot (later parts of #838).
+- "Log in again" items (`inboxstore/signin.go`, `agentapi/signins.go`; issue #1023, section 6, the owner's plan of
+  2026-11-21, which no reference has in this form): a read of one of the owner's accounts in a Routine's read run
+  (its pi or its check) of a Bot that keeps the Inbox (its switches allow `inbox_add`) says whether the account's
+  sign-in works. `account_read` answered 401 or 403 (the proxy answers 403 when the account's token cannot be had),
+  or a Zalo or WhatsApp account whose session must be linked again (`integration.Service.DeviceState`), adds the one
+  open item "Log in again: <account>", given to the owner, from that run, with the refusal as its quote, or keeps
+  the one that is open, unchanged (`SignInFailed`). A read of that account that works closes it, done by him, closed
+  by the Bot, with the run as evidence (`SignInWorks`). The item holds the account's key (`idempotency_key`
+  `hypomnema:signin:<account>`, which is unique) while it is open and lets it go for one of its own when it closes,
+  also when the owner closed it, so the next refusal adds a new one; reopened, it takes the account's key again, and
+  the reopen is refused while another item of the account is open: one open item per account, never one per failure.
+  `account_read` closes it only after a read under 400 whose body is JSON records without the service's error (a
+  nonzero Lark `code`, a Google `error`).
+- A Bot that only reads the owner's own accounts (`bots.owner_accounts` `read`, `hypomnema bots set
+  --owner-accounts read`; issue #1023, the owner's choice of 2026-11-21 on #1037): every write and send through his
+  Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, never asked, in every chat and Routine of
+  the Bot and by the workers of its Runs, whatever his answers or grants say; reads stay. The agent API carries it
+  on the agent (`ownerReadOnly`: no `zalo_send` or `whatsapp_send`), and the service proxy refuses every action of
+  such a Connection that is not a read (`readsOnly`, `serviceproxy.Caller.OwnerReadOnly`), reading the caller again
+  at each request of an open connection, so the owner's change applies from the next request. Only the owner makes a
+  Bot use them again: a change from the main Bot's chat is forbidden, `UpdateBot`, which a Bot's change uses, never
+  writes it (`SetBotOwnerAccounts`), and an undo, of a change or of a removal, puts back `read` from the copy it
+  kept (`botSettings.OwnerAccounts`) and never `use`.
+- The "Thư ký" Bot (issue #1023, part 4): its prompt, switches, model and Routines are set by the owner with
+  `deploy/thu-ky/setup.sh` (`hypomnema bots set`, `routines set`), not seeded by a migration. `triage` reads only,
+  every 15 minutes, behind its check `new-messages.mjs`; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark
+  chat with the Bot.
+- Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
+  of #838).
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;
@@ -5031,14 +5112,36 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     marker (`hermes_cli/update_lock.py` `read_live_update`); a control plane that finds a marker whose process runs
     starts no pi, so none starts while the old control plane stops nor in the new one before
     `setup-coordinator.sh` has put pi in place. A marker whose process is gone is no update.
-  - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
-    binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
-    migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for
-    `/readyz`. A control plane that does not become ready is stopped and its old binary and database put back and
-    started. Once it is ready, the release's `deploy/coordinator` files, built into the binary
+  - `update install`: stops the unit and backs up the database with the videos' music library as a pair (#910):
+    into `data/.predeploy-<time>.part/` it copies the database and its WAL files and hard-links every regular file
+    of `data/videos/music/` into `videos-music/` (copying across file systems, under a temporary name renamed in
+    place; an absent folder is backed up empty), syncs them, gives them to the control plane's user, and only then
+    renames the folder to `data/predeploy-<time>/`; a backup that fails is removed and the unit started again. The
+    update runs as root over the user's files, and the user owns the control plane's folder, so may rename `data/`
+    itself or anything in it while the update runs: `update install` opens `data/` once, as an `os.Root`, and the
+    backup, the prune and the rollback all go through that handle (`selfupdate/backup_unix.go`), so nothing outside
+    the folder it opened is read, written, renamed or removed, whatever is put at its name meanwhile. The `.part`
+    folder and the music folder it writes into are opened too and written through their handles, and a name is
+    checked to still be the folder opened before it is published, renamed or removed: a `.part` replaced meanwhile
+    is not published. A music folder (or a folder above it) that is a symlink is refused, anything in it that is not
+    a regular file is left out, and a file is checked again once opened or linked. It keeps the binary as `bin/hypomnema.previous` and puts the new one in place, runs
+    `hypomnema migrate` as the user (the migration stays an explicit step, `docs/conventions.md`), starts the unit
+    and waits up to a minute for `/readyz`. A control plane that does not become ready is stopped and its old
+    binary and database put back (copied, or, when the disk has no room for a second copy, the backup's file moved
+    into place within `data/`), every regular file of the backup's music missing from the music folder linked back
+    the same way (a name the folder has, of any kind, left as it is), and started: a failure putting the database or
+    the music back is reported and never keeps the unit stopped. Once it is ready, the release's `deploy/coordinator` files, built into the binary
     (`deploy/coordinator/files.go`), are written to a root-owned folder and its `setup-coordinator.sh` run, so the
-    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's. Then the five
-    newest `data/predeploy-*` folders are kept and the others removed (issue #335).
+    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's. Whatever the
+    outcome once the backup is published (ready, rolled back, the binary not placed, the coordinator not set up,
+    the data folder's sync failing),
+    the five newest `data/predeploy-*` folders are kept and the others removed, with any stale `.predeploy-*.part`
+    (issue #335). A deleted track's bytes stay while a kept backup links it; an unchanged track is one inode
+    across backups. Restoring a backup by hand: stop the service, then restore the music into an empty folder,
+    `rm -rf data/videos/music && cp -al data/predeploy-X/videos-music data/videos/music` (`cp -a` over the live
+    folder fails on files that already share an inode); the next start removes a newer track's file whose row the
+    older database lacks. The updater backs up `Home/data/hypomnema.db` and its music only: a control plane whose
+    database is elsewhere (`HYPOMNEMA_DATABASE_PATH`) gets neither backed up, as before.
   - A release whose `update install` failed is written to `/var/lib/hypomnema-update/blocked` and not tried again
     until a newer release is out; one that installs removes the file, and removing it by hand retries the release
     (issue #349, after OpenMausBot's `update-runner.sh` STATE/blocked). Before, the timer stopped the control plane

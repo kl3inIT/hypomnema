@@ -1,10 +1,11 @@
 -- name: InsertBot :exec
 -- A new Bot goes last in the order (issue #470).
 INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, tools, tools_off, connections,
-                  workers, tool_display, position, connection_scopes, guaranteed_dispatches, preset, created_at, updated_at, fallbacks)
+                  workers, tool_display, position, connection_scopes, guaranteed_dispatches, preset, created_at, updated_at, fallbacks,
+                  owner_accounts)
 VALUES (@id, @name, @provider, @model, @effort, @persona, @skills, @skills_off, @tools, @tools_off, @connections,
         @workers, @tool_display, (SELECT coalesce(max(position) + 1, 0) FROM bots), @connection_scopes,
-        @guaranteed_dispatches, @preset, @now, @now, @fallbacks);
+        @guaranteed_dispatches, @preset, @now, @now, @fallbacks, @owner_accounts);
 
 -- name: UpdateBot :exec
 -- A Bot's settings; its name and memory stay.
@@ -13,6 +14,11 @@ UPDATE bots SET provider = @provider, model = @model, effort = @effort, persona 
     connection_scopes = @connection_scopes, guaranteed_dispatches = @guaranteed_dispatches, preset = @preset, updated_at = @now,
     fallbacks = @fallbacks
 WHERE id = @id;
+
+-- name: SetBotOwnerAccounts :exec
+-- What a Bot may do with the owner's own accounts (issue #1023); only the owner sets it, so UpdateBot, which a
+-- Bot's change and its undo use, never does.
+UPDATE bots SET owner_accounts = @owner_accounts, updated_at = @now WHERE id = @id;
 
 -- name: RenameBot :execrows
 UPDATE bots SET name = @name, updated_at = @now WHERE id = @id;

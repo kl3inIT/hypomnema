@@ -408,3 +408,77 @@ func TestABotKeepsWhatItsChatsShowOfItsTools(t *testing.T) {
 	_, err = w.s.ChatToolDisplay(ctx, "cht_nobody")
 	require.ErrorIs(t, err, ErrNotFound)
 }
+
+// Scenario: issue #1023 with the owner's choice of 2026-11-21 (review of #1037, round 2): the owner makes the Thư
+// ký Bot read his accounts only. The main Bot, from its chat, cannot make it use them again; its other changes and
+// their undo leave the setting as the owner set it.
+func TestOnlyTheOwnerChangesWhatABotDoesWithHisAccounts(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	secretary, err := w.s.PutBot(ctx, Bot{Name: "Thư ký", OwnerAccounts: OwnerAccountsRead})
+	require.NoError(t, err)
+	assert.True(t, secretary.ReadsOwnerAccountsOnly())
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	use := secretary
+	use.OwnerAccounts = OwnerAccountsUse
+	_, err = w.s.PutBotFromChat(ctx, chat.ID, use)
+	require.ErrorIs(t, err, ErrForbidden, "the main Bot never lets a Bot act as the owner")
+
+	persona := secretary
+	persona.Persona = "You keep the owner's Inbox."
+	_, err = w.s.PutBotFromChat(ctx, chat.ID, persona)
+	require.NoError(t, err)
+
+	changes, err := w.s.ListSetupChanges(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, changes, 1)
+	_, err = w.s.UndoSetupChange(ctx, changes[0].ID)
+	require.NoError(t, err)
+
+	after, err := w.s.GetBot(ctx, secretary.ID)
+	require.NoError(t, err)
+	assert.True(t, after.ReadsOwnerAccountsOnly(), "a change and its undo keep the owner's setting")
+
+	use = after
+	use.OwnerAccounts = OwnerAccountsUse
+	owner, err := w.s.PutBot(ctx, use)
+	require.NoError(t, err)
+	assert.False(t, owner.ReadsOwnerAccountsOnly(), "the owner changes it")
+}
+
+// Scenario: review of #1037, round 3: the main Bot removes the Thư ký Bot, which only reads the owner's accounts,
+// from its chat, and the owner undoes it: the Bot comes back reading only, as it was. A Bot the main Bot makes
+// reading only stays so.
+func TestAnUndoneRemovalKeepsWhatABotDoesWithTheOwnersAccounts(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	secretary, err := w.s.PutBot(ctx, Bot{Name: "Thư ký", OwnerAccounts: OwnerAccountsRead})
+	require.NoError(t, err)
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	require.NoError(t, w.s.DeleteBotFromChat(ctx, chat.ID, secretary.ID))
+
+	changes, err := w.s.ListSetupChanges(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, changes, 1)
+	_, err = w.s.UndoSetupChange(ctx, changes[0].ID)
+	require.NoError(t, err)
+
+	back, err := w.s.GetBot(ctx, secretary.ID)
+	require.NoError(t, err)
+	assert.True(t, back.ReadsOwnerAccountsOnly(), "it comes back reading only")
+
+	made, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "Thư ký 2", OwnerAccounts: OwnerAccountsRead})
+	require.NoError(t, err)
+	assert.True(t, made.ReadsOwnerAccountsOnly())
+}

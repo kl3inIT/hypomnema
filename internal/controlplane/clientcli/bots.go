@@ -1,6 +1,7 @@
 package clientcli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -84,6 +85,7 @@ func printBot(e *env, b *openapi.Bot) {
 
 	e.printf("tool calls shown: %s\n", b.ToolDisplay)
 	e.printf("guaranteed workers: %d\n", b.GuaranteedDispatches)
+	e.printf("owner's accounts: %s\n", cmp.Or(string(val(b.OwnerAccounts)), "use"))
 
 	if b.Persona != "" {
 		e.printf("\n%s\n", b.Persona)
@@ -399,6 +401,12 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		case "tool-display":
 			d := openapi.ToolDisplay(v)
 			set.ToolDisplay = &d
+		case "owner-accounts":
+			o := openapi.OwnerAccounts(v)
+			if !o.Valid() {
+				failed = fmt.Errorf("owner-accounts must be use or read")
+			}
+			set.OwnerAccounts = &o
 		case "guarantee":
 			n, _ := strconv.Atoi(v) // the flag set parsed it as a number
 			set.GuaranteedDispatches = &n

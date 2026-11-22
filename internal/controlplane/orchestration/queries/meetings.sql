@@ -41,7 +41,7 @@ SELECT * FROM meeting_notes WHERE meeting_id = @meeting_id;
 
 -- name: ListMeetings :many
 -- The newest first; with a query, those whose title or a line holds it.
-SELECT m.*, n.state AS notes_state, n.summary AS notes_summary,
+SELECT m.*, n.state AS notes_state, n.summary AS notes_summary, n.written_at AS notes_written_at,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action') AS actions,
        (SELECT count(*) FROM meeting_items i WHERE i.meeting_id = m.id AND i.kind = 'action' AND i.done = 0)
            AS open_actions

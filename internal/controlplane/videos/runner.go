@@ -264,6 +264,18 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 		in.Screen = compose.Size{Width: take.Screen.Width, Height: take.Screen.Height}
 	}
 
+	// The music its look names is laid under the voice (issue #910, row 14); the track is in the library, as a track
+	// named by a revision being made is not deleted.
+	if m := rev.Look.Music; m != nil && m.Track != musicNone {
+		track, err := store.New(s.db).GetMusic(ctx, m.Track)
+		if err != nil {
+			return nil, 0, at(Composing, fmt.Errorf("reading music track %s: %w", m.Track, err))
+		}
+
+		in.Music = &compose.Music{File: filepath.Join(s.musicDir, track.File), LengthMs: track.LengthMs, GainDB: m.GainDB}
+		in.FreeBytes = s.cfg.FreeBytes
+	}
+
 	made, err := s.cfg.Maker.Compose(ctx, tools, in)
 	if err != nil {
 		return nil, 0, at(Composing, err)
@@ -311,6 +323,10 @@ func (s *Service) build(ctx context.Context, source AudioSource, rev Revision, d
 	warnings := made.Warnings
 	if rev.Look.FellBackFrom != "" {
 		warnings = append(warnings, fellBackWarning(rev.Look.FellBackFrom))
+	}
+
+	if m := rev.Look.Music; m != nil && m.FellBackFrom != nil {
+		warnings = append(warnings, musicFellBackWarning(m.FellBackFrom))
 	}
 
 	return warnings, made.LengthMs, nil

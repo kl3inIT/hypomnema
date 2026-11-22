@@ -671,6 +671,22 @@ func (q *Queries) ListTodosOfWork(ctx context.Context, arg ListTodosOfWorkParams
 	return items, nil
 }
 
+const setTodoIdempotencyKey = `-- name: SetTodoIdempotencyKey :exec
+UPDATE todos SET idempotency_key = ?1 WHERE id = ?2
+`
+
+type SetTodoIdempotencyKeyParams struct {
+	IdempotencyKey sql.NullString
+	ID             string
+}
+
+// An account's "log in again" item lets the account's key go when it closes, for one of its own, and takes it again
+// when it is reopened (issue #1023), so that the account has one open item.
+func (q *Queries) SetTodoIdempotencyKey(ctx context.Context, arg SetTodoIdempotencyKeyParams) error {
+	_, err := q.db.ExecContext(ctx, setTodoIdempotencyKey, arg.IdempotencyKey, arg.ID)
+	return err
+}
+
 const updateTodo = `-- name: UpdateTodo :execrows
 UPDATE todos
 SET revision = revision + 1, title = ?1, notes = ?2, done_when = ?3, draft = ?4,

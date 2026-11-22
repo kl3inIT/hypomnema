@@ -78,6 +78,9 @@ type botSettings struct {
 	// GuaranteedDispatches is left out for the default, so a Bot's revision from before it was a setting stays the
 	// same. It keeps the key it was recorded under while it was the Bot's limit (until 2026-11-17, issue #731).
 	GuaranteedDispatches int `json:"max_dispatches,omitempty"`
+	// OwnerAccounts is kept only when the Bot reads the owner's accounts only (issue #1023): an undo puts that
+	// back, and a Bot that uses them keeps the revision it had before it was a setting.
+	OwnerAccounts string `json:"owner_accounts,omitempty"`
 }
 
 func settingsOfBot(b Bot) botSettings {
@@ -92,7 +95,16 @@ func settingsOfBot(b Bot) botSettings {
 		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff,
 		Connections: b.Connections, Workers: b.Workers,
 		ToolDisplay: display, Scopes: b.Scopes, GuaranteedDispatches: b.GuaranteedDispatches,
+		OwnerAccounts: ownerAccountsKept(b.OwnerAccounts),
 	}
+}
+
+func ownerAccountsKept(o string) string {
+	if o == OwnerAccountsRead {
+		return o
+	}
+
+	return ""
 }
 
 // bot is the Bot of id with these settings. A record made before a Bot's settings kept its name gives it its id
@@ -109,6 +121,7 @@ func (b botSettings) bot(id string) Bot {
 		SkillsOff: b.SkillsOff, Preset: b.Preset, Tools: b.Tools, ToolsOff: b.ToolsOff,
 		Connections: b.Connections, Workers: b.Workers,
 		ToolDisplay: b.ToolDisplay, Scopes: b.Scopes, GuaranteedDispatches: b.GuaranteedDispatches,
+		OwnerAccounts: b.OwnerAccounts,
 	}
 }
 

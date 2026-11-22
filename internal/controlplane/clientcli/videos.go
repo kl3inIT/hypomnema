@@ -1,6 +1,7 @@
 package clientcli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -217,11 +218,33 @@ func lookArg(fs *flag.FlagSet) (*openapi.VideoLookInput, error) {
 		}
 	}
 
-	if look.Captions == nil && look.Frame == nil && look.Background == nil {
+	if set["music-gain"] && !set["music"] {
+		return nil, fmt.Errorf("%w: -music-gain needs -music", ErrUsage)
+	}
+
+	if set["music"] {
+		look.Music = &openapi.VideoMusicInput{Track: str(fs, "music")}
+		if set["music-gain"] {
+			gain, err := strconv.ParseFloat(str(fs, "music-gain"), 64)
+			if err != nil {
+				return nil, fmt.Errorf("%w: -music-gain is a number of dB", ErrUsage)
+			}
+
+			look.Music.GainDb = &gain
+		}
+	}
+
+	if look.Captions == nil && look.Frame == nil && look.Background == nil && look.Music == nil {
 		return nil, nil //nolint:nilnil // No flag is no look, and no error.
 	}
 
 	return &look, nil
+}
+
+// musicFlags are the flags of a look's music (issue #910): sent together, as the music section needs its track.
+func musicFlags(fs *flag.FlagSet) {
+	fs.String("music", "", "the music laid under the voice: a track's id from `videos music list`, or none")
+	fs.Float64("music-gain", 0, "move the music from its level 3 LU under the voice, -20 to 10 dB; needs -music")
 }
 
 // ref is a pointer to v, its zero value too: a flag given is sent as it is.
@@ -248,6 +271,27 @@ func lookLine(l openapi.VideoLook) string {
 		}
 	}
 
+	if l.Music != nil {
+		line += ", " + musicLine(*l.Music)
+	}
+
+	return line
+}
+
+// musicLine is a look's music in a few words: the track's name and gain, or why it has none.
+func musicLine(m openapi.VideoMusic) string {
+	switch {
+	case m.FellBackFrom != nil:
+		return fmt.Sprintf("no music (%q was deleted)", m.FellBackFrom.Name)
+	case m.Track == "none":
+		return "no music"
+	}
+
+	line := "music " + cmp.Or(val(m.Name), m.Track)
+	if m.GainDb != 0 {
+		line += fmt.Sprintf(" %+g dB", m.GainDb)
+	}
+
 	return line
 }
 
@@ -265,7 +309,8 @@ func videosLook(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	if look == nil {
-		return fmt.Errorf("%w: give the parts of the look to change, such as --caption-preset or --chrome", ErrUsage)
+		return fmt.Errorf("%w: give the parts of the look to change, such as --caption-preset, --chrome or --music",
+			ErrUsage)
 	}
 
 	resp, err := e.api.ChangeVideoLookWithResponse(ctx, id, rev, &openapi.ChangeVideoLookParams{IdempotencyKey: *key(fs)},

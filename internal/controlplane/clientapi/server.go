@@ -349,6 +349,10 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	// A view-only link's files (issue #745), checked against the link on every request, as a frame's are.
 	mux.HandleFunc(sharesPath+"{token}/files/{rev}/{path...}", s.shareFiles)
 
+	// A track of the videos' music library (issue #910, row 6a): checked before its body is read, which the
+	// contract's validator would read whole first.
+	mux.HandleFunc("POST "+musicUploadPath, s.uploadMusic)
+
 	contract := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := bodyLimit(r)
 		if limit > maxBodyBytes {
@@ -537,6 +541,17 @@ func (s *Server) authorize(next openapi.StrictHandlerFunc, operationID string) o
 				return nil, err
 			}
 			if read {
+				return nil, fmt.Errorf("%w: %s", errForbidden, agenttool.ReadRunRefusal)
+			}
+		}
+		// A read Routine's check script has the rights of its runs, which have none here: it reads through the
+		// agent API's tools (owner, 2026-11-21 on #1023). Its run's access decides, as the run started.
+		if tok.Kind == bearertoken.Bot && tok.Routine != "" {
+			reads, err := s.svc.RoutineScriptReads(ctx, tok.RoutineRun)
+			if err != nil {
+				return nil, err
+			}
+			if reads {
 				return nil, fmt.Errorf("%w: %s", errForbidden, agenttool.ReadRunRefusal)
 			}
 		}

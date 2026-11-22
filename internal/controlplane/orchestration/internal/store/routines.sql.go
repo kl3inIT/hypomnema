@@ -402,7 +402,7 @@ func (q *Queries) GetRoutineByName(ctx context.Context, arg GetRoutineByNamePara
 }
 
 const getRoutineRun = `-- name: GetRoutineRun :one
-SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash FROM routine_runs WHERE id = ?1
+SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash, access, prompt, script, script_text, timeout_seconds FROM routine_runs WHERE id = ?1
 `
 
 func (q *Queries) GetRoutineRun(ctx context.Context, id string) (RoutineRun, error) {
@@ -420,6 +420,11 @@ func (q *Queries) GetRoutineRun(ctx context.Context, id string) (RoutineRun, err
 		&i.Error,
 		&i.ChatID,
 		&i.KeyHash,
+		&i.Access,
+		&i.Prompt,
+		&i.Script,
+		&i.ScriptText,
+		&i.TimeoutSeconds,
 	)
 	return i, err
 }
@@ -506,18 +511,26 @@ func (q *Queries) InsertRoutinePrompt(ctx context.Context, arg InsertRoutineProm
 }
 
 const insertRoutineRun = `-- name: InsertRoutineRun :exec
-INSERT INTO routine_runs (id, routine_id, started_by, state, started_at, chat_id)
-VALUES (?1, ?2, ?3, 'running', ?4, ?5)
+INSERT INTO routine_runs (id, routine_id, started_by, state, started_at, chat_id, access, prompt, script, script_text,
+                          timeout_seconds)
+VALUES (?1, ?2, ?3, 'running', ?4, ?5, ?6, ?7, ?8, ?9,
+        ?10)
 `
 
 type InsertRoutineRunParams struct {
-	ID        string
-	RoutineID string
-	StartedBy string
-	Now       int64
-	ChatID    sql.NullString
+	ID             string
+	RoutineID      string
+	StartedBy      string
+	Now            int64
+	ChatID         sql.NullString
+	Access         string
+	Prompt         string
+	Script         string
+	ScriptText     string
+	TimeoutSeconds int64
 }
 
+// The run keeps a copy of what its Routine was when it started: its access, its prompt and its script (#1023).
 func (q *Queries) InsertRoutineRun(ctx context.Context, arg InsertRoutineRunParams) error {
 	_, err := q.db.ExecContext(ctx, insertRoutineRun,
 		arg.ID,
@@ -525,6 +538,11 @@ func (q *Queries) InsertRoutineRun(ctx context.Context, arg InsertRoutineRunPara
 		arg.StartedBy,
 		arg.Now,
 		arg.ChatID,
+		arg.Access,
+		arg.Prompt,
+		arg.Script,
+		arg.ScriptText,
+		arg.TimeoutSeconds,
 	)
 	return err
 }
@@ -583,7 +601,7 @@ func (q *Queries) ListDecidedApprovalsOfRoutineRun(ctx context.Context, routineR
 }
 
 const listLiveRoutineRuns = `-- name: ListLiveRoutineRuns :many
-SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash FROM routine_runs WHERE state IN ('running', 'waiting') ORDER BY started_at, id
+SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash, access, prompt, script, script_text, timeout_seconds FROM routine_runs WHERE state IN ('running', 'waiting') ORDER BY started_at, id
 `
 
 func (q *Queries) ListLiveRoutineRuns(ctx context.Context) ([]RoutineRun, error) {
@@ -607,6 +625,11 @@ func (q *Queries) ListLiveRoutineRuns(ctx context.Context) ([]RoutineRun, error)
 			&i.Error,
 			&i.ChatID,
 			&i.KeyHash,
+			&i.Access,
+			&i.Prompt,
+			&i.Script,
+			&i.ScriptText,
+			&i.TimeoutSeconds,
 		); err != nil {
 			return nil, err
 		}
@@ -660,7 +683,7 @@ func (q *Queries) ListRoutineGrants(ctx context.Context, routineID string) ([]Ro
 }
 
 const listRoutineRuns = `-- name: ListRoutineRuns :many
-SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash FROM routine_runs WHERE routine_id = ?1 ORDER BY started_at DESC, id DESC LIMIT ?3 OFFSET ?2
+SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash, access, prompt, script, script_text, timeout_seconds FROM routine_runs WHERE routine_id = ?1 ORDER BY started_at DESC, id DESC LIMIT ?3 OFFSET ?2
 `
 
 type ListRoutineRunsParams struct {
@@ -691,6 +714,11 @@ func (q *Queries) ListRoutineRuns(ctx context.Context, arg ListRoutineRunsParams
 			&i.Error,
 			&i.ChatID,
 			&i.KeyHash,
+			&i.Access,
+			&i.Prompt,
+			&i.Script,
+			&i.ScriptText,
+			&i.TimeoutSeconds,
 		); err != nil {
 			return nil, err
 		}
@@ -771,7 +799,7 @@ func (q *Queries) ListRoutines(ctx context.Context, arg ListRoutinesParams) ([]R
 }
 
 const liveRoutineRunOfChat = `-- name: LiveRoutineRunOfChat :one
-SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash FROM routine_runs WHERE chat_id = ?1 AND state IN ('running', 'waiting')
+SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash, access, prompt, script, script_text, timeout_seconds FROM routine_runs WHERE chat_id = ?1 AND state IN ('running', 'waiting')
 `
 
 // The live run a chat was opened for; a chat is one run's.
@@ -790,12 +818,17 @@ func (q *Queries) LiveRoutineRunOfChat(ctx context.Context, chatID sql.NullStrin
 		&i.Error,
 		&i.ChatID,
 		&i.KeyHash,
+		&i.Access,
+		&i.Prompt,
+		&i.Script,
+		&i.ScriptText,
+		&i.TimeoutSeconds,
 	)
 	return i, err
 }
 
 const liveRoutineRunOfKey = `-- name: LiveRoutineRunOfKey :one
-SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash FROM routine_runs WHERE key_hash = ?1 AND state IN ('running', 'waiting')
+SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash, access, prompt, script, script_text, timeout_seconds FROM routine_runs WHERE key_hash = ?1 AND state IN ('running', 'waiting')
 `
 
 // The live run whose launcher was given the key with this digest.
@@ -814,12 +847,17 @@ func (q *Queries) LiveRoutineRunOfKey(ctx context.Context, keyHash sql.NullStrin
 		&i.Error,
 		&i.ChatID,
 		&i.KeyHash,
+		&i.Access,
+		&i.Prompt,
+		&i.Script,
+		&i.ScriptText,
+		&i.TimeoutSeconds,
 	)
 	return i, err
 }
 
 const liveRunOfRoutine = `-- name: LiveRunOfRoutine :one
-SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash FROM routine_runs WHERE routine_id = ?1 AND state IN ('running', 'waiting')
+SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash, access, prompt, script, script_text, timeout_seconds FROM routine_runs WHERE routine_id = ?1 AND state IN ('running', 'waiting')
 `
 
 // The run of a Routine that is still going or waits for the owner; there is at most one.
@@ -838,6 +876,11 @@ func (q *Queries) LiveRunOfRoutine(ctx context.Context, routineID string) (Routi
 		&i.Error,
 		&i.ChatID,
 		&i.KeyHash,
+		&i.Access,
+		&i.Prompt,
+		&i.Script,
+		&i.ScriptText,
+		&i.TimeoutSeconds,
 	)
 	return i, err
 }
@@ -874,7 +917,7 @@ func (q *Queries) ResumeRoutineRun(ctx context.Context, id string) (int64, error
 }
 
 const routineRunOfChat = `-- name: RoutineRunOfChat :one
-SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash FROM routine_runs WHERE chat_id = ?1 ORDER BY started_at DESC LIMIT 1
+SELECT id, routine_id, started_by, state, started_at, ended_at, exit_code, output, error, chat_id, key_hash, access, prompt, script, script_text, timeout_seconds FROM routine_runs WHERE chat_id = ?1 ORDER BY started_at DESC LIMIT 1
 `
 
 // The run a chat was opened for, live or ended.
@@ -893,6 +936,11 @@ func (q *Queries) RoutineRunOfChat(ctx context.Context, chatID sql.NullString) (
 		&i.Error,
 		&i.ChatID,
 		&i.KeyHash,
+		&i.Access,
+		&i.Prompt,
+		&i.Script,
+		&i.ScriptText,
+		&i.TimeoutSeconds,
 	)
 	return i, err
 }

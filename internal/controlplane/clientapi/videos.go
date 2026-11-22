@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -36,6 +37,10 @@ type Videos interface {
 	Retry(ctx context.Context, id string, rev int, by, requestID string) (videos.Video, videos.Revision, error)
 	Preview(ctx context.Context, req videos.PreviewRequest) ([]byte, error)
 	Looks(ctx context.Context) (videos.Catalog, error)
+	Music(ctx context.Context) (videos.Library, error)
+	UploadMusic(ctx context.Context, name string, size int64, body io.Reader) (videos.Track, error)
+	MusicAudio(ctx context.Context, id string) (string, string, error)
+	DeleteMusic(ctx context.Context, id string) error
 }
 
 // WithVideos sets the videos the owner reads. Without them the routes answer
@@ -131,6 +136,8 @@ func lookOf(l videos.Look) openapi.VideoLook {
 		out.FellBackFrom = ptr(openapi.VideoChrome(l.FellBackFrom))
 	}
 
+	out.Music = musicLookOf(l.Music)
+
 	return out
 }
 
@@ -165,6 +172,8 @@ func lookInput(in *openapi.VideoLookInput) *videos.LookInput {
 			out.Background.Colors = &colors
 		}
 	}
+
+	out.Music = musicInput(in.Music)
 
 	return out
 }

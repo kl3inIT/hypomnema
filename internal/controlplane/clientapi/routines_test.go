@@ -175,6 +175,8 @@ func TestBotTokensActOnTheirOwnBotsRoutinesOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, launched.StatusCode(), "a run's key is not a pi's")
 
+	_, err = w.svc.RunRoutineNow(ctx, made.JSON200.Id) // a script's token is its live run's (#1023)
+	require.NoError(t, err)
 	secret, err := w.svc.AddRoutineToken(ctx, "pi-coordinator", made.JSON200.Id)
 	require.NoError(t, err)
 
@@ -205,4 +207,132 @@ func TestBotTokensActOnTheirOwnBotsRoutinesOnly(t *testing.T) {
 		openapi.RoutineLaunchRequest{Bot: orchestration.DefaultBotID})
 	require.NoError(t, err)
 	assert.NotEqual(t, http.StatusForbidden, launched.StatusCode(), "the launcher's token asks; no run has started")
+}
+
+// Scenario: issue #1023, with the owner's decision of 2026-11-21: the owner marks read the Thư ký Bot's prompt
+// Routine whose check script counts the new messages first. The check's token, the one any Routine's script has,
+// has the rights of the read run's pi in the client API, which are none: it makes no Run and writes no Inbox item,
+// and reads the owner's accounts only through the agent API's read tools. A Bot that changes the check takes the
+// grant back, as it does for a prompt.
+func TestAReadRoutineMayHaveACheckThatHasNoRightsHere(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+	_, _ = w.token("pi-coordinator", bearertoken.Coordinator)
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	pi := w.piToken("pi-coordinator", chat.ID, orchestration.DefaultBotID)
+
+	prompt, script, text, minutes := "Triage the new messages.", "new-messages.mjs", "#!/usr/bin/env node\n", 15
+	spec := openapi.RoutineSettings{Kind: openapi.Prompt, Prompt: &prompt, Script: &script, ScriptText: &text,
+		EveryMinutes: &minutes}
+	made, err := pi.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "triage", spec)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, made.StatusCode(), string(made.Body))
+
+	read, err := owner.PatchRoutineWithResponse(ctx, made.JSON200.Id,
+		openapi.PatchRoutineJSONRequestBody{Access: openapi.Read})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, read.StatusCode(), string(read.Body))
+	assert.Equal(t, openapi.Read, read.JSON200.Access)
+
+	_, err = w.svc.RunRoutineNow(ctx, made.JSON200.Id) // a script's token is its live run's (#1023)
+	require.NoError(t, err)
+	secret, err := w.svc.AddRoutineToken(ctx, "pi-coordinator", made.JSON200.Id)
+	require.NoError(t, err)
+	check := w.client(secret)
+
+	work, err := check.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "script work"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, work.StatusCode(), string(work.Body))
+
+	todo, err := check.CreateTodoWithResponse(ctx, &openapi.CreateTodoParams{}, openapi.NewTodo{Title: "Reply to Lan"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, todo.StatusCode(), string(todo.Body))
+	assert.Contains(t, string(todo.Body), "reads only")
+
+	changed := "#!/usr/bin/env node\nconsole.log('wake')\n"
+	spec.ScriptText = &changed
+	updated, err := pi.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "triage", spec)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, updated.StatusCode(), string(updated.Body))
+	assert.Equal(t, openapi.Full, updated.JSON200.Access, "a Bot's change of the check takes the grant back")
+
+	script2 := "sync.sh"
+	alone := openapi.RoutineSettings{Kind: openapi.Script, Script: &script2, ScriptText: &text, EveryMinutes: &minutes,
+		Access: new(openapi.Read)}
+	refused, err := owner.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "sync", alone)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, refused.StatusCode(), "a script alone is never read: %s", refused.Body)
+}
+
+// Scenario: review of #1037, round 2: while the check of a read Routine runs, the owner switches the Routine to
+// full and a Bot edits it. The check's token keeps the rights of its run, which are none in the client API.
+func TestAReadChecksTokenKeepsItsRunsAccess(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+	_, _ = w.token("pi-coordinator", bearertoken.Coordinator)
+
+	prompt, script, text, minutes, read := "Triage.", "new-messages.mjs", "#!/usr/bin/env node\n", 15, openapi.Read
+	made, err := owner.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "triage", openapi.RoutineSettings{
+		Kind: openapi.Prompt, Prompt: &prompt, Script: &script, ScriptText: &text, EveryMinutes: &minutes,
+		Access: &read,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, made.StatusCode(), string(made.Body))
+
+	_, err = w.svc.RunRoutineNow(ctx, made.JSON200.Id)
+	require.NoError(t, err)
+	secret, err := w.svc.AddRoutineToken(ctx, "pi-coordinator", made.JSON200.Id)
+	require.NoError(t, err)
+	check := w.client(secret)
+
+	full, err := owner.PatchRoutineWithResponse(ctx, made.JSON200.Id,
+		openapi.PatchRoutineJSONRequestBody{Access: openapi.Full})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, full.StatusCode(), string(full.Body))
+
+	work, err := check.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "script work"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, work.StatusCode(), "the run reads only as it started: %s", work.Body)
+
+	todo, err := check.CreateTodoWithResponse(ctx, &openapi.CreateTodoParams{}, openapi.NewTodo{Title: "Reply to Lan"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, todo.StatusCode(), string(todo.Body))
+}
+
+// Scenario: issue #1023 with the owner's choice of 2026-11-21 (review of #1037, round 2): the owner makes the Thư
+// ký Bot read his own accounts only; the main Bot, from its chat, cannot make it use them again.
+func TestOnlyTheOwnerSetsWhatABotDoesWithHisAccounts(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+	_, _ = w.token("pi-coordinator", bearertoken.Coordinator)
+
+	read, use := openapi.OwnerAccountsRead, openapi.OwnerAccountsUse
+	made, err := owner.CreateBotWithResponse(ctx, openapi.NewBot{Name: "Thư ký",
+		Settings: &openapi.BotSettings{OwnerAccounts: &read}})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, made.StatusCode(), string(made.Body))
+	require.NotNil(t, made.JSON201.OwnerAccounts)
+	assert.Equal(t, read, *made.JSON201.OwnerAccounts)
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	main := w.piToken("pi-coordinator", chat.ID, orchestration.DefaultBotID)
+
+	changed, err := main.PutBotWithResponse(ctx, made.JSON201.Id, openapi.BotSettings{OwnerAccounts: &use})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, changed.StatusCode(), string(changed.Body))
+
+	got, err := owner.GetBotWithResponse(ctx, made.JSON201.Id)
+	require.NoError(t, err)
+	assert.Equal(t, read, *got.JSON200.OwnerAccounts)
 }

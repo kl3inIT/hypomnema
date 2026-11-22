@@ -484,6 +484,8 @@ var commands = []command{
 				"slug separated by commas, such as prod=8,9; label= for none, label=all for every one")
 			fs.String("tool-display", "", "what its chats show of its tool calls: off (none), on (each tool's name) "+
 				"or full (arguments, output and time as well)")
+			fs.String("owner-accounts", "", "what it may do with the owner's own accounts (owner only): use, or read, "+
+				"which refuses every write and send through his Lark sign-in, Google, Zalo and WhatsApp")
 			fs.Int("guarantee", 0, "its guaranteed share of the room, in workers across every node: 1 to 64 (4 for a "+
 				"new bot); it may use more when the others leave room free")
 			jsonFlag(fs)
@@ -869,6 +871,7 @@ var commands = []command{
 			fs.Bool("no-captions", false, "make it without captions")
 			fs.String("voice", "", "the voice to speak with (default each provider's, from `audio voice`)")
 			lookFlags(fs)
+			musicFlags(fs)
 			fs.String("key", "", "idempotency key; repeat a make whose result was lost with the same key")
 			jsonFlag(fs)
 		},
@@ -879,6 +882,7 @@ var commands = []command{
 		summary: "make a made revision again in another look, with its voice; only the flagged parts change (owner)",
 		flags: func(fs *flag.FlagSet) {
 			lookFlags(fs)
+			musicFlags(fs)
 			fs.String("key", "", "idempotency key; repeat a request whose result was lost with the same key")
 			jsonFlag(fs)
 		},
@@ -931,6 +935,24 @@ var commands = []command{
 		name: "videos delete", args: "<video_id>", min: 1, max: 1,
 		summary: "delete a video, its revisions and their files; refused while one is being made (owner)",
 		flags:   jsonFlag, run: videosDelete,
+	},
+	{
+		name: "videos music list", summary: "the music library a video's music is chosen from, with its quota (owner)",
+		flags: jsonFlag, run: videosMusicList,
+	},
+	{
+		name: "videos music add", args: "<file>", min: 1, max: 1, long: true,
+		summary: "upload a track to the music library: mp3, m4a, wav, flac or ogg, 10 s to 20 min, at most 64 MB (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("name", "", "the track's name (default the file's name without its extension)")
+			jsonFlag(fs)
+		},
+		run: videosMusicAdd,
+	},
+	{
+		name: "videos music rm", args: "<music_id>", min: 1, max: 1,
+		summary: "delete a track of the music library; refused while a revision being made has it (owner)",
+		flags:   jsonFlag, run: videosMusicRemove,
 	},
 	{
 		name: "videos download", args: "<video_id> <rev>", min: 2, max: 2,

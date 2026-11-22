@@ -50,6 +50,10 @@ func (p *Proxy) Judge(ctx context.Context, a Act) error {
 		attempt: a.AttemptID,
 	}
 
+	if err := p.readsOnly(ctx, &s); err != nil {
+		return err
+	}
+
 	title := action.Name
 	if a.Subject != "" {
 		title += ": " + clipTitle(a.Subject)

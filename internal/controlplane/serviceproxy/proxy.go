@@ -72,6 +72,10 @@ type Caller struct {
 	ReadRun bool
 	// Bot is the Bot of a pi's own token, by whose attempt at an Inbox item a request may be made (issue #1004).
 	Bot string
+	// OwnerReadOnly says the caller's Bot only reads the owner's own accounts (orchestration.Bot.OwnerAccounts,
+	// issue #1023): through his Lark sign-in, his Google, his Zalo and his WhatsApp, only reads run, whatever the
+	// owner's answers or grants say.
+	OwnerReadOnly bool
 }
 
 // Agents says who a request's credential belongs to and what it may use: the
@@ -207,9 +211,35 @@ type session struct {
 	attempt string
 	host    string
 	catalog Catalog
+	// ownerReadOnly says the session is of a Bot that only reads the owner's accounts, on one of them (readsOnly).
+	ownerReadOnly bool
 }
 
 func (s session) connection() string { return orchestration.Use(s.integration, s.label) }
+
+// readsOnly marks a session whose caller's Bot only reads the owner's own accounts when its Connection is one of
+// them: a user Connection (his Lark sign-in, his Zalo, his WhatsApp) or his Google (issue #1023, the owner's choice
+// of 2026-11-21 on #1037). decide then refuses every action that is not a read, at once, never asking.
+func (p *Proxy) readsOnly(ctx context.Context, s *session) error {
+	if !s.caller.OwnerReadOnly {
+		return nil
+	}
+
+	if s.integration == "google" {
+		s.ownerReadOnly = true
+
+		return nil
+	}
+
+	conn, err := p.cfg.Store.ConnectionOf(ctx, s.integration, s.label)
+	if err != nil {
+		return err
+	}
+
+	s.ownerReadOnly = conn.User()
+
+	return nil
+}
 
 // tunnel carries one connection of a tool to one host of an Integration, for an agent or the owner.
 func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +273,14 @@ func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.catalog = catalog
+
+	if err := p.readsOnly(r.Context(), &s); err != nil && !errors.Is(err, orchestration.ErrNotFound) {
+		p.cfg.Logger.ErrorContext(r.Context(), "the proxy could not read a connection",
+			slog.String("event", "serviceproxy.failed"), slog.String("error", err.Error()))
+		refuse(w, http.StatusInternalServerError, "the control plane could not answer; try again")
+
+		return
+	}
 
 	may, err := p.cfg.Agents.May(r.Context(), r, s.integration, s.label)
 	if err != nil {
@@ -393,6 +431,23 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 		return Action{}, "Refused: " + reason + ". The request was not run"
 	}
 
+	// On an open connection, who the agent is and what its Bot may do with the owner's accounts are read again at
+	// each request, never kept from when the connection opened (review of #1037): a token that ended refuses, and
+	// a Bot the owner made read his accounts only reads them from the next request on.
+	if s.opened != nil {
+		caller, err := p.cfg.Agents.Caller(s.opened)
+		if err != nil {
+			return Action{}, "Refused: this agent's credential no longer works. The request was not run"
+		}
+
+		s.caller.ReadRun, s.caller.OwnerReadOnly = caller.ReadRun, caller.OwnerReadOnly
+		s.ownerReadOnly = false
+
+		if err := p.readsOnly(ctx, &s); err != nil {
+			return Action{}, "the control plane could not decide this request; it was not run. Try again"
+		}
+	}
+
 	action, verdict, message, err := p.decideRequest(ctx, req, body, s)
 	if err != nil {
 		// Every error refuses.
@@ -419,6 +474,13 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func(Action) asking,
 ) (governing Action, verdict, message string, err error) {
 	all := append([]Action{action}, action.With...)
+	if s.ownerReadOnly {
+		for _, named := range all {
+			if named.Kind != Reads && !named.Plumbing {
+				return named, "owner-read-only", agenttool.OwnerReadOnlyRefusal, nil
+			}
+		}
+	}
 	if s.caller.ReadRun {
 		if !readRunIntegration(s.integration) && s.integration != SupersetID {
 			return action, "read-only", agenttool.ReadRunRefusal, nil

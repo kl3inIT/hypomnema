@@ -220,6 +220,8 @@ type Config struct {
 	Maker Maker
 	// FreeBytes says how much disk is free; nil: the file system's own.
 	FreeBytes func(path string) (uint64, error)
+	// MusicFS is the music library's file operations; its fields left nil are the os package's.
+	MusicFS MusicFS
 	// Timeout bounds one revision; zero: MakeTimeout.
 	Timeout time.Duration
 	// PreviewWait is how long a look sample waits for the one being made; zero: PreviewWait.
@@ -242,6 +244,11 @@ type Service struct {
 	progress map[string]Progress
 	// preview is held while a look sample is made: one at a time.
 	preview chan struct{}
+	// upload is held while a track is received: one at a time (issue #910, row 6a).
+	upload chan struct{}
+	// musicDir is the music library's folder; fs its file operations, which tests replace.
+	musicDir string
+	fs       MusicFS
 }
 
 // New returns a Service.
@@ -278,10 +285,18 @@ func New(cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("making the videos' folder: %w", err)
 	}
 
-	return &Service{
+	s := &Service{
 		cfg: cfg, db: cfg.DB, wake: make(chan struct{}, 1), progress: map[string]Progress{},
-		preview: make(chan struct{}, 1),
-	}, nil
+		preview: make(chan struct{}, 1), upload: make(chan struct{}, 1), musicDir: filepath.Join(cfg.Dir, musicFolder),
+		fs: cfg.MusicFS.withDefaults(),
+	}
+
+	// The music folder is swept before the Service answers anything or makes anything (issue #910, row 6d).
+	if err := s.sweepMusic(context.Background()); err != nil {
+		return nil, err
+	}
+
+	return s, nil
 }
 
 var (
@@ -435,6 +450,10 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		}
 
 		if look, err = fitTake(look, req.Look != nil && req.Look.Frame != nil, take, req.Aspect); err != nil {
+			return err
+		}
+
+		if look, err = fitMusic(ctx, q, look, req.Look != nil && req.Look.Music != nil); err != nil {
 			return err
 		}
 
@@ -807,10 +826,16 @@ func (s *Service) RequestChanges(ctx context.Context, id string, rev int, req Ch
 
 		queued = true
 
-		// The new revision is drawn as the one it changes: its look is copied as stored (row 2).
+		// The new revision is drawn as the one it changes: its look is copied as stored (row 2), its music fallen
+		// back to none if its track was deleted (issue #910, row 16).
+		look, err := fitStoredMusic(ctx, q, r.Look)
+		if err != nil {
+			return err
+		}
+
 		return s.insertRevision(ctx, q, now, id, newRevision{
 			parent: sql.NullInt64{Int64: int64(rev), Valid: true}, lines: req.Lines, voice: r.Voice,
-			captions: r.Captions != 0, aspect: r.Aspect, look: r.Look, by: req.By, requestID: req.RequestID, hash: hash,
+			captions: r.Captions != 0, aspect: r.Aspect, look: look, by: req.By, requestID: req.RequestID, hash: hash,
 		})
 	})
 	if err != nil {

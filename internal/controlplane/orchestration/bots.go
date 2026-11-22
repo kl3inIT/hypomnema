@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -82,6 +83,11 @@ type Bot struct {
 	Scopes map[string]ConnectionScope
 	// ToolDisplay is what its chats show of its tool calls; empty is ToolsOn.
 	ToolDisplay ToolDisplay
+	// OwnerAccounts is what it may do with the owner's own accounts (issue #1023, the owner's choice of 2026-11-21
+	// on #1037): OwnerAccountsUse, as every Bot until then, or OwnerAccountsRead, by which every write and send
+	// through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine
+	// of the Bot, whatever his approvals say; reads stay. Only the owner changes it.
+	OwnerAccounts string
 	// GuaranteedDispatches is the Bot's guaranteed share of the room, in
 	// Dispatches across every node (issue #731; called its limit, max_dispatches,
 	// until 2026-11-17): a first claim on room as it frees, not a cap; 0 is
@@ -99,9 +105,19 @@ type Bot struct {
 	UpdatedAt time.Time
 }
 
+// What a Bot may do with the owner's own accounts (Bot.OwnerAccounts).
+const (
+	OwnerAccountsUse  = "use"
+	OwnerAccountsRead = "read"
+)
+
+// ReadsOwnerAccountsOnly says the Bot only reads the owner's own accounts (Bot.OwnerAccounts).
+func (b Bot) ReadsOwnerAccountsOnly() bool { return b.OwnerAccounts == OwnerAccountsRead }
+
 func botFromRow(r store.Bot) Bot {
 	return Bot{
-		ID: r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
+		OwnerAccounts: r.OwnerAccounts,
+		ID:            r.ID, Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
 		Fallbacks: splitNames(r.Fallbacks),
 		Persona:   r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
 		Preset: r.Preset, Tools: splitNames(r.Tools), ToolsOff: splitNames(r.ToolsOff),
@@ -154,6 +170,14 @@ func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
 		return Bot{}, fmt.Errorf("%w: a bot is guaranteed 1 to %d workers", ErrInvalid, MaxDispatchesLimit)
 	}
 
+	if b.OwnerAccounts == "" {
+		b.OwnerAccounts = OwnerAccountsUse
+	}
+
+	if b.OwnerAccounts != OwnerAccountsUse && b.OwnerAccounts != OwnerAccountsRead {
+		return Bot{}, fmt.Errorf("%w: a bot uses or reads the owner's accounts", ErrInvalid)
+	}
+
 	if b.ID == "" {
 		name, err := botName(b.Name)
 		if err != nil {
@@ -185,6 +209,19 @@ func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
 
 		if err := updateBot(ctx, q, now, b); err != nil {
 			return err
+		}
+
+		// Only the owner changes what a Bot may do with his own accounts, like a Routine's access (routinestore).
+		if b.OwnerAccounts != stored.OwnerAccounts {
+			if chat != "" {
+				return fmt.Errorf("%w: only the owner changes what a bot may do with his own accounts", ErrForbidden)
+			}
+
+			if err := q.SetBotOwnerAccounts(ctx, store.SetBotOwnerAccountsParams{
+				OwnerAccounts: b.OwnerAccounts, Now: now, ID: b.ID,
+			}); err != nil {
+				return fmt.Errorf("setting what bot %s may do with the owner's accounts: %w", b.ID, err)
+			}
 		}
 
 		if chat == "" || botRevision(stored) == botRevision(b) {
@@ -419,6 +456,7 @@ func insertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
 		Connections: b.Connections.stored(), Workers: b.Workers.stored(),
 		ToolDisplay: string(b.ToolDisplay), ConnectionScopes: storedScopes(b.Scopes),
 		GuaranteedDispatches: storedLimit(b.GuaranteedDispatches), Now: now,
+		OwnerAccounts: cmp.Or(b.OwnerAccounts, OwnerAccountsUse),
 	})
 	if err != nil {
 		return fmt.Errorf("%w: another bot is named %q: %w", ErrConflict, b.Name, err)
@@ -457,6 +495,16 @@ func restoreBot(ctx context.Context, q *store.Queries, now int64, b Bot, removed
 
 	if err := updateBot(ctx, q, now, b); err != nil {
 		return err
+	}
+
+	// An undo puts back that a Bot read the owner's accounts only; it never makes one use them again, which only the
+	// owner does (issue #1023).
+	if b.OwnerAccounts == OwnerAccountsRead {
+		if err := q.SetBotOwnerAccounts(ctx, store.SetBotOwnerAccountsParams{
+			OwnerAccounts: OwnerAccountsRead, Now: now, ID: b.ID,
+		}); err != nil {
+			return fmt.Errorf("putting back what bot %s may do with the owner's accounts: %w", b.ID, err)
+		}
 	}
 
 	row, err := q.GetBot(ctx, b.ID)
