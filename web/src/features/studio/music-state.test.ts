@@ -5,7 +5,7 @@ import type { VideoMusicTrack } from "@/api/generated/types.gen"
 import { amount, goneOf, refusalOf, trackName, uploadTrack } from "./music-state"
 
 const track: VideoMusicTrack = {
-  id: "mus_0123456789abcdef",
+  id: "mus_0123456789abcdefghijklmnop",
   name: "Lo-fi",
   media_type: "audio/mpeg",
   length_ms: 95_000,
@@ -89,10 +89,15 @@ describe("a track's name", () => {
 // with the name the look kept; a track the library has, or none, is not.
 describe("a track gone from the library", () => {
   test("is the look's track the library has no more, with the name it kept", () => {
-    const stored = { track: "mus_00000000000000d1", name: "Old", length_ms: 30_000, gain_db: 0 }
+    const stored = {
+      track: "mus_000000000000000000000000d1",
+      name: "Old",
+      length_ms: 30_000,
+      gain_db: 0,
+    }
 
-    expect(goneOf("mus_00000000000000d1", [track], stored)).toEqual({
-      track: "mus_00000000000000d1",
+    expect(goneOf("mus_000000000000000000000000d1", [track], stored)).toEqual({
+      track: "mus_000000000000000000000000d1",
       name: "Old",
       length_ms: 30_000,
     })
@@ -101,7 +106,7 @@ describe("a track gone from the library", () => {
   test("is not a track the library has, none, or a library not read yet", () => {
     expect(goneOf(track.id, [track], undefined)).toBeUndefined()
     expect(goneOf("none", [], undefined)).toBeUndefined()
-    expect(goneOf("mus_00000000000000d1", undefined, undefined)).toBeUndefined()
+    expect(goneOf("mus_000000000000000000000000d1", undefined, undefined)).toBeUndefined()
   })
 })
 

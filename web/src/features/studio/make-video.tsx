@@ -31,7 +31,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { errorText } from "@/lib/server-error"
 
 import { LookSection } from "./look-section"
-import { fieldsOf, sampleOf, sentLook, type LookFields } from "./look-state"
+import { editsOf, fieldsOf, sampleOf, sentLook, withEdits, type LookEdits } from "./look-state"
 import { useVideoLooks } from "./use-look"
 
 type Aspect = NonNullable<VideoMake["aspect"]>
@@ -41,9 +41,11 @@ type Aspect = NonNullable<VideoMake["aspect"]>
 // Audio. The take's first make creates its video, a later one adds a revision with the latest lines. The request
 // carries an idempotency key made when the dialog opens, so a make sent twice queues one revision
 // (docs/conventions.md). Once queued, the video opens. Its Look (#908, row 16) starts from the saved default, and
-// the make sends only the sections the owner changed: the server takes the others from the default (#938). A take
-// that cannot be made, one with no steps (#1028), has the button disabled, described by the line saying why, as
-// Request changes is disabled with its line (./video-view.tsx); the dialog and its look sample never open.
+// the make sends only the sections the owner changed: the server takes the others from the default (#938). Each
+// section the owner edited is kept apart, so one left alone follows the default when it is read again, as after a
+// track's delete (#1082). A take that cannot be made, one with no steps (#1028), has the button disabled, described
+// by the line saying why, as Request changes is disabled with its line (./video-view.tsx); the dialog and its look
+// sample never open.
 export function MakeVideo({
   take,
   again,
@@ -64,11 +66,11 @@ export function MakeVideo({
   const [captions, setCaptions] = useState(true)
   const [aspect, setAspect] = useState<Aspect>("9:16")
   const [key, setKey] = useState(() => crypto.randomUUID())
-  // look: the Look's fields as the owner set them; none, the saved default's (#938).
-  const [look, setLook] = useState<LookFields>()
+  // edits: the Look's sections the owner set; the others are the saved default's (#938, #1082).
+  const [edits, setEdits] = useState<LookEdits>({})
   const looks = useVideoLooks(open)
   const start = looks.data && fieldsOf(looks.data.default)
-  const fields = look ?? start
+  const fields = start && withEdits(start, edits)
   const sent = start && fields && sentLook(start, fields)
   const make = useMutation({
     ...makeVideoMutation(),
@@ -86,7 +88,7 @@ export function MakeVideo({
     setOpen(next)
     if (next) {
       setKey(crypto.randomUUID())
-      setLook(undefined)
+      setEdits({})
       make.reset()
     }
   }
@@ -180,7 +182,7 @@ export function MakeVideo({
               <LookSection
                 looks={looks.data}
                 value={fields}
-                onChange={setLook}
+                onChange={(next) => setEdits((was) => editsOf(was, fields, next))}
                 music={looks.data.default.music}
                 captions={captions}
                 sample={sampleOf({ take, aspect, captions, ...(sent ? { look: sent } : {}) })}

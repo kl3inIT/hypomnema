@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest"
 
 import type { VideoLook } from "@/api/generated/types.gen"
 
-import { fieldsOf, sampleOf, sentLook } from "./look-state"
+import { editsOf, fieldsOf, sampleOf, sentLook, withEdits } from "./look-state"
 
 // The saved default as the server starts it: Clean, an Android frame, midnight (videos/look.go, DefaultLook).
 const saved: VideoLook = {
@@ -51,7 +51,12 @@ describe("the sections a look sends", () => {
 describe("the music a look sends (issue #910, row 15)", () => {
   const withMusic: VideoLook = {
     ...saved,
-    music: { track: "mus_0123456789abcdef", name: "Lo-fi", length_ms: 95_000, gain_db: -6 },
+    music: {
+      track: "mus_0123456789abcdefghijklmnop",
+      name: "Lo-fi",
+      length_ms: 95_000,
+      gain_db: -6,
+    },
   }
 
   test("left alone, it is not sent, so the server takes the default's or the source's", () => {
@@ -65,10 +70,10 @@ describe("the music a look sends (issue #910, row 15)", () => {
 
   test("a track chosen is sent with its gain, since a section without its track is refused", () => {
     const start = fieldsOf(saved)
-    const now = { ...start, music: { ...start.music, track: "mus_0123456789abcdef" } }
+    const now = { ...start, music: { ...start.music, track: "mus_0123456789abcdefghijklmnop" } }
 
     expect(sentLook(start, now)).toEqual({
-      music: { track: "mus_0123456789abcdef", gain_db: 0 },
+      music: { track: "mus_0123456789abcdefghijklmnop", gain_db: 0 },
     })
   })
 
@@ -76,7 +81,9 @@ describe("the music a look sends (issue #910, row 15)", () => {
     const start = fieldsOf(withMusic)
     const now = { ...start, music: { ...start.music, gain_db: 3 } }
 
-    expect(sentLook(start, now)).toEqual({ music: { track: "mus_0123456789abcdef", gain_db: 3 } })
+    expect(sentLook(start, now)).toEqual({
+      music: { track: "mus_0123456789abcdefghijklmnop", gain_db: 3 },
+    })
   })
 
   test("no music chosen in place of a track is sent as none", () => {
@@ -93,7 +100,11 @@ describe("the music a look sends (issue #910, row 15)", () => {
       music: {
         track: "none",
         gain_db: 0,
-        fell_back_from: { track: "mus_0123456789abcdef", name: "Lo-fi", length_ms: 95_000 },
+        fell_back_from: {
+          track: "mus_0123456789abcdefghijklmnop",
+          name: "Lo-fi",
+          length_ms: 95_000,
+        },
       },
     }
     expect(fieldsOf(fellBack).music).toEqual({ track: "none", gain_db: 0 })
@@ -101,13 +112,52 @@ describe("the music a look sends (issue #910, row 15)", () => {
 
   test("the look sample is asked without the music, which does not change the picture", () => {
     const take = "tk_0123456789abcdef"
-    const music = { track: "mus_0123456789abcdef", gain_db: 0 }
+    const music = { track: "mus_0123456789abcdefghijklmnop", gain_db: 0 }
 
     expect(sampleOf({ take, look: { music } })).toEqual({ take })
     expect(sampleOf({ take, rev: 1, look: { music, background: { preset: "ocean" } } })).toEqual({
       take,
       rev: 1,
       look: { background: { preset: "ocean" } },
+    })
+  })
+})
+
+describe("the sections the owner edited (#1082)", () => {
+  const lofi = "mus_0123456789abcdefghijklmnop"
+  const withLofi: VideoLook = {
+    ...saved,
+    music: { track: lofi, name: "Lo-fi", length_ms: 95_000, gain_db: 0 },
+  }
+
+  test("a section left alone follows a start read again: its deleted track is not sent", () => {
+    const before = fieldsOf(withLofi)
+    const edits = editsOf({}, before, { ...before, background: { preset: "ocean" } })
+    // The default's track was deleted meanwhile: the default read again has no music.
+    const after = fieldsOf(saved)
+
+    expect(withEdits(after, edits).music).toEqual({ track: "none", gain_db: 0 })
+    expect(sentLook(after, withEdits(after, edits))).toEqual({ background: { preset: "ocean" } })
+  })
+
+  test("a section the owner edited stays as edited, set back too", () => {
+    const start = fieldsOf(withLofi)
+    const ocean = editsOf({}, start, { ...start, background: { preset: "ocean" } })
+    const back = editsOf(ocean, withEdits(start, ocean), start)
+
+    expect(back).toEqual({ background: { preset: "midnight" } })
+    expect(sentLook(start, withEdits(start, back))).toBeUndefined()
+  })
+
+  test("an edit of one section keeps the others edited before", () => {
+    const start = fieldsOf(withLofi)
+    const music = editsOf({}, start, { ...start, music: { track: "none", gain_db: 0 } })
+    const now = withEdits(start, music)
+    const both = editsOf(music, now, { ...now, frame: { ...now.frame, shadow: false } })
+
+    expect(both).toEqual({
+      music: { track: "none", gain_db: 0 },
+      frame: { chrome: "android", shadow: false, safe_top: false },
     })
   })
 })

@@ -47,6 +47,28 @@ export function fieldsOf(look: VideoLook): LookFields {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 
+const sections = ["captions", "frame", "background", "music"] as const
+
+// LookEdits are the sections the owner edited, each whole, kept apart from the fields they started from (#1082, from
+// the review of #1078): where the start can be read again while the dialog is open, as Make video's saved default,
+// a section left alone follows the new start rather than staying the old one. Its music would otherwise stay a
+// track deleted meanwhile, which a make sent with any other section changed would carry, and the server refuse.
+export type LookEdits = Partial<LookFields>
+
+// withEdits are the fields shown: the start's, with each section the owner edited in its place.
+export const withEdits = (start: LookFields, edits: LookEdits): LookFields => ({
+  ...start,
+  ...edits,
+})
+
+// editsOf are the edits after the owner changed the fields shown, now, to next: each section that differs joins them.
+export function editsOf(edits: LookEdits, now: LookFields, next: LookFields): LookEdits {
+  const out = { ...edits }
+  for (const k of sections) if (!same(now[k], next[k])) Object.assign(out, { [k]: next[k] })
+
+  return out
+}
+
 // sentLook is the sections changed from the start, or undefined when none was: a request then carries no look.
 export function sentLook(start: LookFields, now: LookFields): VideoLookInput | undefined {
   const out: VideoLookInput = {}
