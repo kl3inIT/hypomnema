@@ -71,6 +71,7 @@ func run() error {
 	env := map[string]string{
 		"HYPOMNEMA_DATABASE_PATH":       filepath.Join(dir, "hypomnema.db"),
 		"HYPOMNEMA_HTTP_ADDR":           Addr,
+		"HYPOMNEMA_PUBLIC_URL":          "https://browser-tests.example",
 		"HYPOMNEMA_BROWSER":             "0",
 		"HYPOMNEMA_FFMPEG":              "0",
 		"HYPOMNEMA_VAULT_KEYS":          key,

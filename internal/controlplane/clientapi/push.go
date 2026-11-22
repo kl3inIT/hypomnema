@@ -75,6 +75,7 @@ func (s *Server) PutPushSubscription(ctx context.Context, req openapi.PutPushSub
 
 	sub, err := s.svc.SavePushSubscription(ctx, orchestration.NewPushSubscription{
 		Endpoint: b.Endpoint, P256dh: b.Keys.P256dh, Auth: b.Keys.Auth, Label: val(b.Label),
+		PreviousEndpoint: val(b.PreviousEndpoint),
 	})
 	if err != nil {
 		return nil, err

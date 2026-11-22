@@ -57,10 +57,11 @@ type NewPushSubscription struct {
 	P256dh   string
 	Auth     string
 	Label    string
+	// PreviousEndpoint makes the write a renewal of an existing device.
+	PreviousEndpoint string
 }
 
-// SavePushSubscription keeps a browser's subscription; the same browser again keeps its row and gets its new keys,
-// as Coder's upsert on the endpoint does after a reinstall (coderd/database/queries/notifications.sql:198-209).
+// SavePushSubscription registers a browser or renews the device at PreviousEndpoint.
 func (s *Service) SavePushSubscription(ctx context.Context, n NewPushSubscription) (PushSubscription, error) {
 	n.Label = strings.TrimSpace(n.Label)
 
@@ -76,6 +77,33 @@ func (s *Service) SavePushSubscription(ctx context.Context, n NewPushSubscriptio
 	var out PushSubscription
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		if n.PreviousEndpoint != "" {
+			label, err := q.DeletePreviousPushSubscriptionForMerge(ctx, store.DeletePreviousPushSubscriptionForMergeParams{
+				PreviousEndpoint: n.PreviousEndpoint, Endpoint: n.Endpoint,
+			})
+			switch {
+			case err == nil:
+				// Settings already registered the replacement. The upsert below keeps its id.
+				n.Label = label
+			case errors.Is(err, sql.ErrNoRows):
+				row, err := q.RenewPushSubscription(ctx, store.RenewPushSubscriptionParams{
+					PreviousEndpoint: n.PreviousEndpoint, Endpoint: n.Endpoint, P256dh: n.P256dh, Auth: n.Auth, Now: now,
+				})
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("%w: previous push subscription is gone", ErrNotFound)
+				}
+				if err != nil {
+					return fmt.Errorf("renewing the push subscription: %w", err)
+				}
+
+				out = pushSubscriptionFromRow(row)
+
+				return nil
+			default:
+				return fmt.Errorf("removing the previous push subscription: %w", err)
+			}
+		}
+
 		row, err := q.UpsertPushSubscription(ctx, store.UpsertPushSubscriptionParams{
 			ID: s.newID("psb"), Endpoint: n.Endpoint, P256dh: n.P256dh, Auth: n.Auth, Label: n.Label, Now: now,
 		})

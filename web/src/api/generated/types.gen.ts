@@ -2192,10 +2192,17 @@ export type PushSubscriptionList = {
 
 export type NewPushSubscription = {
   endpoint: string;
+  /**
+   * The device's existing endpoint, supplied by the service worker when renewing.
+   */
+  previous_endpoint?: string;
   keys: {
     p256dh: string;
     auth: string;
   };
+  /**
+   * The device's label when registering.
+   */
   label?: string;
 };
 

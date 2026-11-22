@@ -2173,7 +2173,7 @@ export const listPushSubscriptionsOptions = (options?: Options<ListPushSubscript
 /**
  * Keep this browser's push subscription; only the owner
  *
- * The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall.
+ * The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
  */
 export const putPushSubscriptionMutation = (options?: Partial<Options<PutPushSubscriptionData>>): UseMutationOptions<PutPushSubscriptionResponse, PutPushSubscriptionError, Options<PutPushSubscriptionData>> => {
   const mutationOptions: UseMutationOptions<PutPushSubscriptionResponse, PutPushSubscriptionError, Options<PutPushSubscriptionData>> = {
