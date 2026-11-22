@@ -299,7 +299,9 @@ func (t *take) cut(now time.Time) {
 
 // feed gives a take a packet of the stream as it arrives, before the views
 // get it, and says whether a key frame is to be asked for: a segment waits
-// for one.
+// for one. A take it ends for low disk is saved before it answers, as StopTake
+// saves one: a save left to a goroutine could still write take.json after the
+// writer finished the take (issue #1025).
 func (m *Manager) feed(p packet) bool {
 	f := &m.film
 
@@ -308,10 +310,8 @@ func (m *Manager) feed(p packet) bool {
 	f.mu.Unlock()
 
 	if ended != nil {
-		go func() {
-			m.save(ended)
-			m.streamOff()
-		}()
+		m.save(ended)
+		m.streamOff()
 	}
 
 	return ask
