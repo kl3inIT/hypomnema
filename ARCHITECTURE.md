@@ -69,8 +69,10 @@ the Bot's id and the Routine's id appended to it; unset, a script Routine's run 
 `HYPOMNEMA_CHAT_RM_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm`) removes a
 deleted chat's files of pi for the chat's id appended to it (issue #484); unset, they stay and the deletion says so.
 `HYPOMNEMA_BACKGROUND_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-background`) runs a
-Bot's background commands as systemd user units of the coordinator (issue #1084, below); unset, a background command is
-refused and says so.
+Bot's background commands as systemd user units of the coordinator (issue #1084, below); unset, it is
+`HYPOMNEMA_COORDINATOR_COMMAND` with `hypomnema-background` in place of a final `.../hypomnema-pi`, the launcher
+`setup-coordinator.sh` installs beside it, so an update needs no new line in the env; with neither, a background
+command is refused and says so.
 `HYPOMNEMA_PPROF_ADDR` (unset by default) serves Go's profiles (`net/http/pprof`, under `/debug/pprof/`) on a
 listener and mux of their own, never on `HYPOMNEMA_HTTP_ADDR` (issue #586, as Coder's `--pprof-address`); only a
 loopback `host:port` such as `127.0.0.1:6060` is taken, anything else stops the start. A profiler that cannot
@@ -243,10 +245,12 @@ token, pi's shell prefix before the command), and the supervisor runs it as a tr
 coordinator user, outside the control plane's cgroup, as OpenClaw keeps a durable command across Gateway restarts
 (`docs/tools/exec.md:94-100`, `docs/gateway/background-process.md:140-235`, `src/agents/bash-process-systemd.ts`).
 It does so through a root-owned launcher, `deploy/coordinator/hypomnema-background`, run as the coordinator
-(`HYPOMNEMA_BACKGROUND_COMMAND`): `start` writes the command to `run/<chat>/background/<id>.sh` and starts
+(`HYPOMNEMA_BACKGROUND_COMMAND`, by default beside `hypomnema-pi`): `start` writes the command to
+`run/<chat>/background/<id>.sh` and starts
 `hypomnema-bg-<chat>-<id>.service` with OpenClaw's properties (`Type=exec`, `RemainAfterExit=yes`,
 `KillMode=control-group`, `TimeoutStopSec=5s`, `RuntimeMaxSec` its deadline, output appended to
-`run/<chat>/background/<id>.log`), running it with bash in a bubblewrap box like a Routine's script's (the Bot's
+`run/<chat>/background/<id>.log`), running it as pi's bash does, `<shell> -c <command>` in pi's shell (its
+`shellPath`, else `/bin/bash`), in a bubblewrap box like a Routine's script's (the Bot's
 directory read-write, the tools read-only, a private `/tmp`) with no token: pi's ends with pi, as OpenClaw's durable
 commands launch without the Gateway's credentials (`exec.md:94`). `ExitType=cgroup` is left out: the box's PID
 namespace ends what the command started when its shell ends. It starts only in the Bot's directory or below; pi never
@@ -269,9 +273,10 @@ code 3 after 4m12s:" and the output's end, after `bash-tools.exec-notify.ts:245-
 once, and only then is the unit let go of (`cleanup`: stop and reset-failed, OpenClaw's order,
 `bash-process-durable.ts:445-449`), with its file unless the wake named it. A command whose unit is gone (the machine
 restarted) is reported lost with its output's file (OpenClaw's missing unit, `bash-process-durable.ts:420-425`); a unit
-no row names (its chat was deleted, or the control plane stopped between a wake and the let-go) is let go of. An ended
-command's file is removed 3 hours after it ended (OpenClaw keeps an ended command's log at most 3 hours,
-`bash-process-registry.ts:24-26`). Like every wake-up it waits for a turn that runs and goes with the others as the
+no row names (its chat was deleted, or the control plane stopped between a wake and the let-go) is let go of; the pass
+lists the units again while the last list had any, so the last command of a deleted chat is stopped too. Every 10
+minutes, and at each start, the pass prunes every chat's files of commands that ended more than 3 hours ago (`prune`;
+OpenClaw keeps an ended command's log at most 3 hours, `bash-process-registry.ts:24-26`). Like every wake-up it waits for a turn that runs and goes with the others as the
 next prompt (OpenClaw's `session-event-batch.ts:34-58`). A pi is stopped when idle whatever its chat runs, and a
 command is its chat's: the next pi of the chat stops it or is woken by it. A turn a restart cut is told that a command
 its bash was running stopped with the restart and that a background one goes on (`cutturns.go`). A deleted chat takes
