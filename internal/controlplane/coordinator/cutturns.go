@@ -27,11 +27,15 @@ const (
 // continuedPrompt is what pi is given for ContinuedText, after Hermes's auto-continue note
 // (session_auto_continue.py _auto_continue_note): pi's session holds the request and what the cut turn had done. A
 // command the cut turn ran on a node goes on there, and its id went with the cut turn's tools server: node_process
-// lists the chat's own (issue #1060, Coder's process list).
+// lists the chat's own (issue #1060, Coder's process list). A command of pi's own bash ended with pi, unless it ran
+// with background, whose unit outlives the restart and whose end wakes the chat (issue #1084): the notice says which,
+// as #1060's says what became of a node's command, and as OpenClaw tells which commands a restart stopped and which
+// go on (docs/gateway/background-process.md:58).
 const continuedPrompt = "The control plane restarted for an update and cut your previous turn before it could " +
 	"finish. Some of the work may already be complete; check the current state before redoing anything, then " +
-	"finish the task. A command you ran on a node may still run there or have ended: list yours with " +
-	"node_process given only the node before running it again."
+	"finish the task. A command your bash was running was stopped with the restart and gave no result; a command " +
+	"you started with background: true goes on, and its end wakes you. A command you ran on a node may still run " +
+	"there or have ended: list yours with node_process given only the node before running it again."
 
 // turnStarted marks the chat's turn in the store as p's. The write outlives the request that runs it: a turn that
 // starts as the control plane stops is still marked.

@@ -92,6 +92,11 @@ type Config struct {
 	// [sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm]; empty: a
 	// deleted chat's files there stay, and the deletion says so.
 	ChatRmCommand []string
+	// BackgroundCommand runs a Bot's background commands as systemd user units of the coordinator user (issue
+	// #1084), with the launcher's arguments appended, from HYPOMNEMA_BACKGROUND_COMMAND as a JSON array, such as
+	// [sudo -n -u coordinator /usr/local/bin/hypomnema-background]; empty: a background command is refused,
+	// saying so.
+	BackgroundCommand []string
 	// Node runs the Zalo bridge (issue #657), from HYPOMNEMA_NODE; empty is the machine's Node the coordinator's
 	// setup installs (zalo.DefaultNode).
 	Node string
@@ -229,6 +234,12 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if raw := env.String(envPrefix+"_CHAT_RM_COMMAND", ""); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.ChatRmCommand); err != nil || len(cfg.ChatRmCommand) == 0 {
 			cmdErr = errors.Join(cmdErr, fmt.Errorf("%s_CHAT_RM_COMMAND is not a JSON array of strings", envPrefix))
+		}
+	}
+
+	if raw := env.String(envPrefix+"_BACKGROUND_COMMAND", ""); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cfg.BackgroundCommand); err != nil || len(cfg.BackgroundCommand) == 0 {
+			cmdErr = errors.Join(cmdErr, fmt.Errorf("%s_BACKGROUND_COMMAND is not a JSON array of strings", envPrefix))
 		}
 	}
 
@@ -574,8 +585,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	sup := coordinator.New(svc, coordinator.Config{
 		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway, chats: svc, coordinator: cfg.CoordinatorToken},
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
-		Updating: func() bool { return selfupdate.Updating(filepath.Dir(cfg.Database.Path)) },
+		Updating:   func() bool { return selfupdate.Updating(filepath.Dir(cfg.Database.Path)) },
+		Background: cfg.BackgroundCommand,
 	})
+	agents.WithBackground(sup)
 
 	// Every worker's and every Bot's pi's web tools, generate_image and speech tools (issues #354, #492, #723), each
 	// call recorded on its Dispatch's key or on the key of the chat's running pi; before anything is served.

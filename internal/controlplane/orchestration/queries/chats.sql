@@ -360,19 +360,10 @@ INSERT INTO chat_background_commands (chat_id, id, pi, started_at) VALUES (@chat
 ON CONFLICT (chat_id, id) DO NOTHING;
 
 -- name: DeleteChatBackground :one
--- Takes out the row of a command that ended, when the pi that ran it still has it.
-DELETE FROM chat_background_commands WHERE chat_id = @chat_id AND id = @id AND pi = @pi
+-- Takes out the row of a command that ended or was lost (issue #1084: a command is its chat's, whichever pi runs).
+DELETE FROM chat_background_commands WHERE chat_id = @chat_id AND id = @id
 RETURNING started_at;
 
--- name: DeleteLostChatBackground :many
--- Takes out the rows of the commands a pi had when it stopped.
-DELETE FROM chat_background_commands WHERE chat_id = @chat_id AND pi = @pi
-RETURNING chat_id, id, started_at;
-
--- name: DeleteAllChatBackground :many
--- Takes out every row, which a start of the control plane asks, when no pi runs yet.
-DELETE FROM chat_background_commands
-RETURNING chat_id, id, started_at;
-
--- name: ChatsWithBackground :many
-SELECT DISTINCT chat_id FROM chat_background_commands;
+-- name: ListChatBackground :many
+-- The commands that run, which the coordinator finds again among the units of the machine (issue #1084).
+SELECT chat_id, id, started_at FROM chat_background_commands ORDER BY started_at, chat_id, id;

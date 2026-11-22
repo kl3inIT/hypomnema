@@ -1,0 +1,254 @@
+#!/bin/sh
+# Runs a Bot's background command as a systemd user unit of the coordinator user (issue #1084), so that a restart of
+# the control plane, whose service stops every process of its cgroup (KillMode=control-group), pi's included, leaves
+# it running. OpenClaw keeps a durable command across Gateway restarts the same way: a transient systemd user
+# service, outside the Gateway's cgroup, that the Gateway finds again by its unit's name when it is back
+# (docs/tools/exec.md:94-100, docs/gateway/background-process.md:140-235, src/agents/bash-process-systemd.ts).
+#
+# Installed root-owned as /usr/local/bin/hypomnema-background; the control plane's user runs it as the coordinator
+# user through the sudoers rule limited to the launchers. It is the control plane that runs it, never pi: a box that
+# could reach the user manager could start a command outside any box. It accepts only these, each with ids of the
+# shapes the control plane makes:
+#
+#   start <chat> <bot> <id> <timeout seconds> <cwd>   the command's text on stdin; prints its output file
+#   list                                              the units' state, as `systemctl show` prints it
+#   read <chat> <id>                                  its output file, its size in bytes, then its last 8,000 bytes
+#   stop <chat> <id>                                  stops it: SIGTERM to all it runs, SIGKILL 5 s later
+#   cleanup <chat> <id> keep|drop                     lets the ended unit go, with its output file unless keep
+#
+# The command runs in a bubblewrap box, as a Routine's script does (hypomnema-routine): its own PID namespace, the
+# system and the tools read-only, of the coordinator's home only the Bot's directory, read-write. It gets no token:
+# pi's ends with pi, and OpenClaw's durable commands launch without the Gateway's credentials, which end when it
+# restarts (docs/tools/exec.md:94). Its output goes to a file in the chat's run folder, which pi's box reads.
+set -eu
+umask 077
+
+# Where things are. The test of the launcher (internal/controlplane/coordinator/background_linux_test.go) runs this
+# file with these lines changed to a directory of its own.
+user_home=/home/coordinator
+node=/opt/hypomnema-node
+bwrap=/usr/bin/bwrap
+systemd_run=/usr/bin/systemd-run
+systemctl=/usr/bin/systemctl
+prefix=hypomnema-bg
+
+home="$user_home/.hypomnema-coordinator"
+
+fail() {
+  echo "hypomnema-background: $*" >&2
+  exit 1
+}
+
+usage() {
+  echo "usage: hypomnema-background start <chat> <bot> <id> <timeout seconds> <cwd> | list | read <chat> <id>" \
+    "| stop <chat> <id> | cleanup <chat> <id> keep|drop" >&2
+  exit 2
+}
+
+chat_id() {
+  case "$1" in
+    cht_*) ;;
+    *) usage ;;
+  esac
+  case "$1" in
+    *[!A-Za-z0-9_]*) usage ;;
+  esac
+}
+
+command_id() {
+  case "$1" in
+    bg_*) ;;
+    *) usage ;;
+  esac
+  case "$1" in
+    *[!a-z0-9_]*) usage ;;
+  esac
+}
+
+# The user manager of the coordinator, which lingers (setup-coordinator.sh): sudo passes no environment, so its
+# address is set here (OpenClaw needs XDG_RUNTIME_DIR or DBUS_SESSION_BUS_ADDRESS, bash-process-systemd.ts:15-17).
+XDG_RUNTIME_DIR="/run/user/$(id -u)"
+DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+LANG=C.UTF-8
+export XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS LANG
+[ -S "$XDG_RUNTIME_DIR/bus" ] ||
+  fail "the coordinator's systemd user manager is not running (setup-coordinator.sh lets the coordinator linger)"
+
+# A command's unit is named by its chat and its own id, which is how the control plane finds it again.
+unit() { echo "$prefix-$1-$2.service"; }
+
+[ $# -ge 1 ] || usage
+action=$1
+shift
+
+case "$action" in
+  list)
+    [ $# -eq 0 ] || usage
+    # A unit that ended stays until cleanup: RemainAfterExit keeps a success, and a failure stays failed.
+    exec "$systemctl" --user --no-ask-password show \
+      --property=Id,ActiveState,SubState,ExecMainCode,ExecMainStatus,Result \
+      --property=ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic -- "$prefix-*"
+    ;;
+  start)
+    [ $# -eq 5 ] || usage
+    ;;
+  read | stop)
+    [ $# -eq 2 ] || usage
+    ;;
+  cleanup)
+    [ $# -eq 3 ] || usage
+    case "$3" in
+      keep | drop) ;;
+      *) usage ;;
+    esac
+    ;;
+  *) usage ;;
+esac
+
+chat=$1
+if [ "$action" = start ]; then id=$3; else id=$2; fi
+chat_id "$chat"
+command_id "$id"
+bg="$home/run/$chat/background"
+log="$bg/$id.log"
+name=$(unit "$chat" "$id")
+
+# prune takes out the output files of the chat's commands that ended more than 3 hours ago, which their wake named:
+# OpenClaw keeps an ended command's log for its retention, at most 3 hours (src/agents/bash-process-registry.ts:
+# 24-26). A file whose unit is still there is kept.
+prune() {
+  [ -d "$bg" ] || return 0
+  for f in "$bg"/bg_*.log; do
+    [ -e "$f" ] || continue
+    [ -n "$(find "$f" -maxdepth 0 -mmin +180)" ] || continue
+    old=${f##*/}
+    old=${old%.log}
+    state=$("$systemctl" --user show --property=LoadState --value -- "$(unit "$chat" "$old")" 2> /dev/null || true)
+    [ "$state" = loaded ] && continue
+    rm -f "$f" "$bg/$old.sh"
+  done
+  return 0
+}
+
+case "$action" in
+  read)
+    echo "$log"
+    if [ -f "$log" ]; then
+      wc -c < "$log" | tr -d ' '
+      tail -c 8000 "$log"
+    else
+      echo 0
+    fi
+    exit 0
+    ;;
+  stop)
+    # The whole cgroup gets SIGTERM, and SIGKILL after TimeoutStopSec (OpenClaw's process kill, background-process.md:
+    # 165). A unit already gone is not an error: it ended.
+    "$systemctl" --user --no-ask-password stop -- "$name" 2> /dev/null || true
+    exit 0
+    ;;
+  cleanup)
+    # OpenClaw's cleanup: stop, then reset-failed, each fine when the unit is gone (bash-process-systemd.ts:176-186).
+    "$systemctl" --user --no-ask-password stop -- "$name" 2> /dev/null || true
+    "$systemctl" --user --no-ask-password reset-failed -- "$name" 2> /dev/null || true
+    rm -f "$bg/$id.sh"
+    [ "$3" = keep ] || rm -f "$log"
+    prune
+    exit 0
+    ;;
+esac
+
+# start.
+bot=$2
+timeout=$4
+cwd=$5
+case "$bot" in
+  "" | [!a-z]* | *[!a-z0-9_-]*) usage ;;
+esac
+case "$timeout" in
+  "" | 0 | *[!0-9]*) usage ;;
+esac
+[ "${#timeout}" -le 7 ] || usage
+
+[ -x "$bwrap" ] || fail "bubblewrap is not installed (setup-coordinator.sh installs it); a command runs only in its box"
+
+# The Bot's own directory, as hypomnema-pi made it: pi has run in this chat, so it is there. The box binds its real
+# path, which is where pi works.
+[ -e "$home/bots/$bot" ] || fail "bot $bot has no directory"
+dir=$(cd "$home/bots/$bot" && pwd -P)
+
+# The command starts where pi's bash would, in the Bot's directory or below it; nothing else of the home is in the
+# box. A path systemd would read as a variable or a specifier is refused (OpenClaw escapes `$`,
+# bash-process-systemd.ts:111).
+case "$cwd" in
+  "$dir" | "$dir"/*) ;;
+  *) fail "a background command starts in the Bot's directory, $dir, or below it, not $cwd" ;;
+esac
+case "$cwd" in
+  *'$'* | *%* | *\\* | */../* | */.. | *'
+'*) fail "a background command's directory is a plain path" ;;
+esac
+
+# The command's text is a file of the chat's run folder, read-only in its box; the box runs it with bash, as pi's
+# bash does. stdin is that text and nothing else.
+mkdir -p "$bg"
+prune
+script="$bg/$id.sh"
+[ ! -e "$script" ] || fail "background command $id of chat $chat was started already"
+cat > "$script"
+: > "$log"
+
+# The documents environment, as hypomnema-pi and hypomnema-routine give it (issues #401, #507).
+docs="$home/tools/envs/documents"
+docs_path=""
+generation=$(sed -n 's/^.*"generation": *"\([^"]*\)".*$/\1/p' "$docs/active.json" 2> /dev/null || true)
+case "$generation" in
+  gen-*[!0-9a-f]* | gen-) ;;
+  gen-*)
+    if [ -x "$docs/$generation/venv/bin/python" ]; then
+      docs_path="$docs/$generation/venv/bin:"
+    fi
+    ;;
+esac
+
+# The unit, with OpenClaw's properties (bash-process-systemd.ts:78-93): its output appended to its file, its deadline
+# as RuntimeMaxSec, and the whole cgroup stopped by `stop` with SIGKILL 5 s after SIGTERM (KILL_GRACE_MS of
+# pi-background.mts; OpenClaw waits 10 s). ExitType=cgroup is left out: the box's PID namespace ends what the command
+# started when its shell ends, and systemd before 250 does not have it. RemainAfterExit keeps a unit that exited 0
+# until the control plane has read it.
+#
+# The box, as hypomnema-routine's: its own PID, IPC and UTS namespaces. Read-only: the system, the resolver, the CPU
+# list Node reads, Node, the integrations' tools, the documents environment (under the tools), the skills every Bot
+# gets, and the command's file. A private /tmp, /var/tmp, /proc and /dev, and an empty home with no token.
+# Read-write: the Bot's directory.
+if ! "$systemd_run" --user --quiet --no-ask-password --unit="$name" \
+  --description="Hypomnema background command $id of chat $chat" \
+  --property=Type=exec --property=RemainAfterExit=yes --property=KillMode=control-group \
+  --property=TimeoutStopSec=5s --property=LimitCORE=0 --property=StandardInput=null \
+  --property=StandardOutput="append:$log" --property=StandardError=inherit \
+  --property=RuntimeMaxSec="${timeout}s" \
+  -- /usr/bin/env -i \
+  HOME="$user_home" USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
+  PATH="$docs_path$home/tools/bin:$node/bin:/usr/local/bin:/usr/bin:/bin" \
+  HYPOMNEMA_CHAT_ID="$chat" HYPOMNEMA_BOT="$bot" HYPOMNEMA_BACKGROUND="$id" HYPOMNEMA_TOOLS_HOME="$home" \
+  "$bwrap" \
+  --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try \
+  --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --symlink usr/sbin /sbin --ro-bind /etc /etc \
+  --ro-bind-try /run/systemd/resolve /run/systemd/resolve \
+  --ro-bind-try /sys/devices/system/cpu/possible /sys/devices/system/cpu/possible \
+  --ro-bind-try /sys/devices/system/cpu/online /sys/devices/system/cpu/online \
+  --proc /proc --dev /dev --tmpfs /tmp --tmpfs /var/tmp \
+  --ro-bind "$node" "$node" \
+  --tmpfs "$user_home" \
+  --ro-bind-try "$user_home/.agents/skills" "$user_home/.agents/skills" \
+  --ro-bind-try "$home/tools" "$home/tools" \
+  --ro-bind-try "$home/skills" "$home/skills" \
+  --ro-bind "$script" "$script" \
+  --bind "$dir" "$dir" \
+  --chdir "$cwd" \
+  -- /bin/bash "$script" < /dev/null; then
+  rm -f "$script" "$log"
+  fail "systemd could not start background command $id"
+fi
+echo "$log"

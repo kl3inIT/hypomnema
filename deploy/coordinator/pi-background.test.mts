@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -8,27 +8,34 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { test, type TestContext } from "node:test";
 
-import { DEFAULT_TIMEOUT_SECONDS, Output, startBackground, TAIL_CHARS } from "./pi-background.mts";
+import { DEFAULT_TIMEOUT_SECONDS, startBackground, stopBackground } from "./pi-background.mts";
 
-type Report = Record<string, unknown>;
+type Request = Record<string, unknown>;
 
-/** A control plane that records the reports and answers each with status; HOME and TMPDIR point at a box of its own. */
+/**
+ * A control plane that records the requests and answers a start with an id and a file, a stop with stopped, or every
+ * one with status and a message; HOME points at a box of its own.
+ */
 async function controlPlane(t: TestContext, status = 200) {
   const root = mkdtempSync(join(tmpdir(), "pi-background-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const reports: Report[] = [];
+  const requests: Request[] = [];
   const auth: string[] = [];
-  let ended: (r: Report) => void = () => {};
-  const end = new Promise<Report>((r) => (ended = r));
   const server = createServer(async (req: IncomingMessage, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = JSON.parse(Buffer.concat(chunks).toString());
     assert.equal(req.url, "/agent/v1/background");
-    reports.push(body);
+    requests.push(body);
     auth.push(String(req.headers.authorization));
-    res.writeHead(status, { "Content-Type": "application/json" }).end(status === 200 ? '{"ok":true}' : '{"message":"no"}');
-    if (body.kind === "ended") ended(body);
+    if (status !== 200) {
+      res.writeHead(status, { "Content-Type": "application/json" }).end('{"message":"no background commands here"}');
+      return;
+    }
+    const answer = body.kind === "start"
+      ? { id: "bg_0123456789ab", output_file: "/run/bg_0123456789ab.log", timeout_seconds: body.timeout_seconds }
+      : { id: body.id, stopped: true };
+    res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(answer));
   });
   server.listen(0, "127.0.0.1");
   t.after(() => server.close());
@@ -38,118 +45,46 @@ async function controlPlane(t: TestContext, status = 200) {
   mkdirSync(join(root, "home", ".hypomnema"), { recursive: true });
   writeFileSync(join(root, "home", ".hypomnema", "client.json"),
     JSON.stringify({ url: `http://127.0.0.1:${address.port}/`, token: "hyp_bot_v1_pi" }));
-  mkdirSync(join(root, "tmp"));
-  const before = { HOME: process.env.HOME, TMPDIR: process.env.TMPDIR };
+  const before = process.env.HOME;
   process.env.HOME = join(root, "home");
-  process.env.TMPDIR = join(root, "tmp");
   // An unset variable is deleted again: assigning undefined to process.env stores the string "undefined".
   t.after(() => {
-    for (const [name, value] of Object.entries(before)) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
+    if (before === undefined) delete process.env.HOME;
+    else process.env.HOME = before;
   });
-  return { root, reports, auth, end };
+  return { root, requests, auth };
 }
 
-test("a background command that ends is reported once, with its exit code and output", async (t) => {
+test("a background command is started by the control plane, with pi's own token", async (t) => {
   const cp = await controlPlane(t);
-  const { id } = await startBackground("echo made; echo warned >&2; exit 3", cp.root);
+  const started = await startBackground("make all", "/bots/maps", { commandPrefix: "set -e" });
 
-  assert.deepEqual(cp.reports, [{ kind: "started", id }], "it was recorded before it ran");
-  const end = await cp.end;
-  assert.deepEqual(end, { kind: "ended", id, exit_code: 3, output: "made\nwarned\n", output_chars: 12 });
-  assert.deepEqual(cp.auth, ["Bearer hyp_bot_v1_pi", "Bearer hyp_bot_v1_pi"], "pi's own token reports");
-  assert.equal(existsSync(join(cp.root, "tmp", `pi-background-${id}.log`)), false,
-    "a file whose output the wake has whole is not kept");
+  assert.deepEqual(cp.requests, [{ kind: "start", command: "set -e\nmake all", cwd: "/bots/maps", timeout_seconds: 1800 }]);
+  assert.deepEqual(cp.auth, ["Bearer hyp_bot_v1_pi"]);
+  assert.deepEqual(started, { id: "bg_0123456789ab", outputFile: "/run/bg_0123456789ab.log", timeoutSeconds: 1800 });
 });
 
-test("a long output's wake has its last characters and its file", async (t) => {
-  const cp = await controlPlane(t);
-  const { id } = await startBackground("i=0; while [ $i -lt 600 ]; do printf 'line %03d\\n' $i; i=$((i+1)); done", cp.root);
-
-  const end = await cp.end;
-  const all = Array.from({ length: 600 }, (_, i) => `line ${String(i).padStart(3, "0")}\n`).join("");
-  assert.equal(end.exit_code, 0);
-  assert.equal(end.output, all.slice(all.length - TAIL_CHARS));
-  assert.equal(end.output_chars, all.length);
-  assert.equal(end.output_file, join(cp.root, "tmp", `pi-background-${id}.log`));
-  assert.equal(end.dropped, false);
-  assert.equal(readFileSync(String(end.output_file), "utf8"), all);
-});
-
-test("a command killed in the background is reported killed", async (t) => {
-  const cp = await controlPlane(t);
-  const { pid } = await startBackground("echo up; sleep 30", cp.root);
-  await new Promise((r) => setTimeout(r, 200));
-  process.kill(-pid, "SIGTERM");
-
-  const end = await cp.end;
-  assert.equal(end.signal, "SIGTERM");
-  assert.equal(end.exit_code, undefined);
-});
-
-test("a background command has OpenClaw's deadline of 1,800 s unless it asks for another", async (t) => {
+test("a background command has OpenClaw's deadline of 1,800 s unless it asks for another, in whole seconds", async (t) => {
   const cp = await controlPlane(t);
   assert.equal(DEFAULT_TIMEOUT_SECONDS, 1800);
 
-  const started = await startBackground("sleep 30", cp.root);
-  assert.equal(started.timeoutSeconds, 1800);
-  process.kill(-started.pid, "SIGKILL");
-  await cp.end;
+  assert.equal((await startBackground("sleep 30", "/w", { timeout: 0.2 })).timeoutSeconds, 1);
+  assert.equal((await startBackground("sleep 30", "/w", { timeout: 86400 })).timeoutSeconds, 86400);
+  await assert.rejects(startBackground("sleep 30", "/w", { timeout: -1 }), /Invalid timeout/);
+  assert.equal(cp.requests.length, 2, "an invalid timeout is refused before asking");
 });
 
-test("its timeout kills it, and the wake says its time ran out", async (t) => {
+test("a command the control plane refuses fails with its message", async (t) => {
+  await controlPlane(t, 503);
+
+  await assert.rejects(startBackground("make", "/w"), /answered 503: no background commands here/);
+});
+
+test("background_stop asks the control plane to stop a command by its id", async (t) => {
   const cp = await controlPlane(t);
-  const started = await startBackground("sleep 30", cp.root, { timeout: 0.2 });
-  assert.equal(started.timeoutSeconds, 0.2);
 
-  const end = await cp.end;
-  assert.equal(end.signal, "SIGTERM");
-  assert.equal(end.timed_out, true);
-});
-
-test("a command that ignores SIGTERM is killed when its time runs out", async (t) => {
-  const cp = await controlPlane(t);
-  await startBackground("trap '' TERM; sleep 30", cp.root, { timeout: 0.2, killGraceMs: 200 });
-
-  const end = await cp.end;
-  assert.equal(end.signal, "SIGKILL", "SIGKILL follows SIGTERM after the grace");
-  assert.equal(end.timed_out, true);
-});
-
-test("output a child writes after the end was reported does not end pi", async (t) => {
-  const cp = await controlPlane(t);
-  await startBackground("(sleep 0.5; echo late) & echo early", cp.root, { pipeGraceMs: 100 });
-
-  const end = await cp.end;
-  assert.equal(end.exit_code, 0);
-  assert.equal(end.output, "early\n");
-  // Writing to the closed file would throw in this process, failing the test.
-  await new Promise((r) => setTimeout(r, 1000));
-});
-
-test("a character split between two reads is kept whole", (t) => {
-  const dir = mkdtempSync(join(tmpdir(), "pi-background-utf8-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const output = new Output(join(dir, "out.log"));
-
-  output.write(Buffer.from([0xc3]));
-  output.write(Buffer.from([0xa9]));
-  output.close();
-
-  assert.equal(output.tail, "é");
-  assert.equal(output.chars, 1);
-  assert.equal(readFileSync(join(dir, "out.log"), "utf8"), "é");
-});
-
-test("a command the control plane does not record is not started", async (t) => {
-  const cp = await controlPlane(t, 403);
-  const marker = join(cp.root, "ran");
-
-  await assert.rejects(startBackground(`touch ${marker}`, cp.root), /answered 403/);
-  await new Promise((r) => setTimeout(r, 200));
-  assert.equal(existsSync(marker), false);
+  assert.equal(await stopBackground("bg_0123456789ab"), true);
+  assert.deepEqual(cp.requests, [{ kind: "stop", id: "bg_0123456789ab" }]);
 });
 
 /** Runs the pinned pi with the extension and a model that calls bash once with call; returns the model's requests. */
@@ -212,23 +147,28 @@ function toolResult(request: string): string {
   return JSON.stringify(JSON.parse(request).messages.find((m: { role: string }) => m.role === "tool").content);
 }
 
-test("pinned pi declares bash with background and runs a call of it in the background", { timeout: 20_000 }, async (t) => {
-  const cp = await controlPlane(t);
-  const requests = await piCallingBash(t, { command: "echo from-pi", background: true });
+test("pinned pi declares bash with background and background_stop, and starts a call in the background",
+  { timeout: 20_000 }, async (t) => {
+    const cp = await controlPlane(t);
+    const requests = await piCallingBash(t, { command: "echo from-pi", background: true });
 
-  const tools = JSON.parse(requests[0]).tools as { function: { name: string; description: string; parameters: any } }[];
-  const bash = tools.find((tool) => tool.function.name === "bash");
-  assert.ok(bash, "bash is declared");
-  assert.equal(bash.function.parameters.properties.background.type, "boolean");
-  assert.ok(bash.function.parameters.properties.command, "pi's own parameters stay");
-  assert.match(bash.function.description, /Do not sleep, poll its log/);
+    const tools = JSON.parse(requests[0]).tools as { function: { name: string; description: string; parameters: any } }[];
+    const bash = tools.find((tool) => tool.function.name === "bash");
+    assert.ok(bash, "bash is declared");
+    assert.equal(bash.function.parameters.properties.background.type, "boolean");
+    assert.ok(bash.function.parameters.properties.command, "pi's own parameters stay");
+    assert.match(bash.function.description, /Do not sleep, poll its log/);
+    assert.match(bash.function.description, /a restart of the control plane does not stop it/);
+    const stop = tools.find((tool) => tool.function.name === "background_stop");
+    assert.ok(stop, "background_stop is declared");
+    assert.equal(stop.function.parameters.properties.id.type, "string");
 
-  assert.match(toolResult(requests[1]), /Started in the background as bg_[0-9a-f]{12}/);
-  assert.match(toolResult(requests[1]), /it is killed if it runs longer than 30m/);
-  const end = await cp.end;
-  assert.equal(end.exit_code, 0);
-  assert.equal(end.output, "from-pi\n");
-});
+    assert.equal(cp.requests.length, 1);
+    assert.equal(cp.requests[0].command, "echo from-pi");
+    assert.match(toolResult(requests[1]), /Started in the background as bg_0123456789ab/);
+    assert.match(toolResult(requests[1]), /it is killed if it runs longer than 30m/);
+    assert.match(toolResult(requests[1]), /Its output goes to \/run\/bg_0123456789ab.log/);
+  });
 
 test("bash keeps pi's shell settings, in the foreground and in the background", { timeout: 30_000 }, async (t) => {
   const settings = { shellCommandPrefix: "echo configured-prefix" };
@@ -238,5 +178,5 @@ test("bash keeps pi's shell settings, in the foreground and in the background", 
 
   const cp = await controlPlane(t);
   await piCallingBash(t, { command: "echo body", background: true }, settings);
-  assert.equal((await cp.end).output, "configured-prefix\nbody\n");
+  assert.equal(cp.requests[0].command, "echo configured-prefix\necho body");
 });

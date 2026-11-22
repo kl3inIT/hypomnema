@@ -108,10 +108,6 @@ type Store interface {
 	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key
 	// (issue #625).
 	SSHOfDispatch(ctx context.Context, dispatchID string) (hostKeys string, overSSH bool, err error)
-	// StartBackground and EndBackground keep a Bot's pi's background commands and wake its chat when one ends
-	// (issue #1058).
-	StartBackground(ctx context.Context, chatID, pi, id string) error
-	EndBackground(ctx context.Context, chatID, pi string, e orchestration.BackgroundEnd) (bool, error)
 }
 
 // Token is a Connection's access token and when it ends.
@@ -167,7 +163,9 @@ type Server struct {
 	gitSSHKey GitSSHKey
 	// meetings is what the meetings' tools read (issue #1023, meetings.go); nil when the control plane gave none.
 	meetings Meetings
-	logger   *slog.Logger
+	// bg runs a Bot's background commands (issue #1084, background.go); nil when the control plane gave none.
+	bg     Background
+	logger *slog.Logger
 	// calls is how many tool calls run now (ToolCalls).
 	calls atomic.Int64
 }

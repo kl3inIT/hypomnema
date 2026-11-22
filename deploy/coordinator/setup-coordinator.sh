@@ -4,7 +4,8 @@
 #   sudo sh setup-coordinator.sh <control plane user> <this directory, with the hypomnema binary added>
 #
 # It creates the coordinator user, installs Node and pi for it, the root-owned launchers (hypomnema-pi for a chat,
-# hypomnema-routine for a Routine's script, issue #211, hypomnema-chat-rm for a deleted chat's files, issue #484) and a
+# hypomnema-routine for a Routine's script, issue #211, hypomnema-chat-rm for a deleted chat's files, issue #484,
+# hypomnema-background for a Bot's background command, issue #1084) and a
 # sudoers rule that lets the control plane's user run, as the coordinator, only those launchers and the helper of the
 # Bots' folders (issue #255: `hypomnema files serve` with its root, which reads a Bot's folder and, for the owner, changes it, issue #297), a coordinator token in a
 # file of mode 0600, and the coordinator skill. The launchers read the token's address and run their setup with it;
@@ -37,6 +38,13 @@ echo "== the box"
 # Each Bot's pi runs in a bubblewrap box (issue #260): bubblewrap, and the AppArmor profile Ubuntu needs for it.
 sh "$src/setup-box.sh" coordinator
 
+echo "== the coordinator's user manager"
+# A Bot's background command runs as a systemd user unit of the coordinator (issue #1084, hypomnema-background), so
+# that a restart of the control plane, which stops every process of its service, leaves it running, as OpenClaw's
+# durable commands are units of the Gateway user's manager (docs/gateway/background-process.md:150-160). The
+# coordinator never logs in, so its manager runs only while it lingers; OpenClaw leaves lingering to its user.
+loginctl enable-linger coordinator
+
 echo "== node and pi"
 if [ ! -x /opt/hypomnema-node/bin/node ]; then
   cp -a "$node_src" /opt/hypomnema-node
@@ -53,6 +61,7 @@ echo "== launcher, binary, instructions"
 install -o root -g root -m 0755 "$src/hypomnema-pi" /usr/local/bin/hypomnema-pi
 install -o root -g root -m 0755 "$src/hypomnema-routine" /usr/local/bin/hypomnema-routine
 install -o root -g root -m 0755 "$src/hypomnema-chat-rm" /usr/local/bin/hypomnema-chat-rm
+install -o root -g root -m 0755 "$src/hypomnema-background" /usr/local/bin/hypomnema-background
 install -o root -g root -m 0755 "$src/hypomnema" /usr/local/bin/hypomnema
 # pi's image extension (issue #675), which hypomnema-pi gives every chat's pi with --extension.
 install -d -o root -g root -m 0755 /usr/local/lib/hypomnema
@@ -72,8 +81,8 @@ sudo -u coordinator -H /usr/local/bin/hypomnema tool install --dir "$home"
 echo "== sudoers"
 rule=/etc/sudoers.d/hypomnema-coordinator
 {
-  printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema-pi, /usr/local/bin/hypomnema-routine, %s\n' \
-    "$cp_user" /usr/local/bin/hypomnema-chat-rm
+  printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema-pi, /usr/local/bin/hypomnema-routine, %s, %s\n' \
+    "$cp_user" /usr/local/bin/hypomnema-chat-rm /usr/local/bin/hypomnema-background
   printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema files serve --root %s/bots\n' "$cp_user" "$home"
 } > "$rule.new"
 chmod 0440 "$rule.new"
@@ -99,3 +108,4 @@ echo "the Files panel reads the Bots' folders with HYPOMNEMA_BOT_FILES_COMMAND='
 echo "done: add HYPOMNEMA_COORDINATOR_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-pi\"]' to the control plane's env and restart it"
 echo "for script routines also add HYPOMNEMA_ROUTINE_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-routine\"]'"
 echo "for a deleted chat's files to go also add HYPOMNEMA_CHAT_RM_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-chat-rm\"]'"
+echo "for a Bot's background commands to outlast a restart (issue #1084) also add HYPOMNEMA_BACKGROUND_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-background\"]'"
