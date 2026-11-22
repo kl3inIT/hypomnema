@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -274,26 +275,32 @@ func TestAnOldAnswerInAContinuedThreadIsNotTheNewOne(t *testing.T) {
 
 // A prompt that stays in the composer is sent once more, then fails; it
 // never reached Muse.
+//
+// It runs in a synctest bubble, on its fake clock: on the wall clock a poll
+// that a loaded -race runner paused from before the resend (20 ms) to past
+// the failure (60 ms) went straight to the failure, with one click (#984).
 func TestASendThatFailsIsTriedOnceMoreThenFails(t *testing.T) {
 	t.Parallel()
 
-	m := site()
-	m.composerSticks = true
+	synctest.Test(t, func(t *testing.T) {
+		m := site()
+		m.composerSticks = true
 
-	var clicks int
+		var clicks int
 
-	page := &fakePage{answer: func(script string) (any, error) {
-		if script == clickSend {
-			clicks++
-		}
+		page := &fakePage{answer: func(script string) (any, error) {
+			if script == clickSend {
+				clicks++
+			}
 
-		return m.eval(script)
-	}}
+			return m.eval(script)
+		}}
 
-	_, sent, err := newDriver(page).ask(t.Context(), "hello", "", deadline())
-	require.ErrorIs(t, err, ErrSendFailed)
-	assert.False(t, sent)
-	assert.Equal(t, 2, clicks, "Send is clicked once more, and no more")
+		_, sent, err := newDriver(page).ask(t.Context(), "hello", "", deadline())
+		require.ErrorIs(t, err, ErrSendFailed)
+		assert.False(t, sent)
+		assert.Equal(t, 2, clicks, "Send is clicked once more, and no more")
+	})
 }
 
 // A Stop that never ends meets the total deadline; the result is unknown.
