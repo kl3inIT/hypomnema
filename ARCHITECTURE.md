@@ -68,6 +68,9 @@ sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's id and the Routine's id appended to it; unset, a script Routine's run fails and says so.
 `HYPOMNEMA_CHAT_RM_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm`) removes a
 deleted chat's files of pi for the chat's id appended to it (issue #484); unset, they stay and the deletion says so.
+`HYPOMNEMA_BACKGROUND_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-background`) runs a
+Bot's background commands as systemd user units of the coordinator (issue #1084, below); unset, a background command is
+refused and says so.
 `HYPOMNEMA_PPROF_ADDR` (unset by default) serves Go's profiles (`net/http/pprof`, under `/debug/pprof/`) on a
 listener and mux of their own, never on `HYPOMNEMA_HTTP_ADDR` (issue #586, as Coder's `--pprof-address`); only a
 loopback `host:port` such as `127.0.0.1:6060` is taken, anything else stops the start. A profiler that cannot
@@ -117,7 +120,7 @@ flowchart TB
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
 (`--provider`, `--model`, `--thinking`),
-and stops it after 30 min idle by closing its stdin, unless it runs a background command (below); it starts again with the same session id. pi's own retries are off. Owner
+and stops it after 30 min idle by closing its stdin, whatever background commands its chat runs (below); it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt` when pi is idle and are marked delivered once pi accepted them. An owner
 message written while pi works, from the web, the CLI or Lark, or while others still wait, goes into the chat's
 queue (`chat_queue`, issue #497, after OpenMausBot's `server/channel-queue.ts`): off the transcript until the turn
@@ -233,27 +236,52 @@ but a read run's, replaces pi's `bash` with pi's own plus that flag, as OpenClaw
 a backgrounded command exits (`tools.exec.notifyOnExit`, on by default, `src/config/schema.help.runtime.ts:467-470`, `docs/tools/exec.md:171-173`), opencode's
 shell says "You will be notified when it completes. DO NOT poll" and Claude Code's `run_in_background` re-invokes the
 agent. Before a Bot polled its own `setsid nohup … &` jobs with `sleep 240; cat …log`, a new turn of its whole context
-each time. The command starts in the box in a process group of its own and the tool answers at once with its id
-(`bg_…`), group and deadline, telling the Bot to end its turn if only waiting is left. Its deadline is OpenClaw's 1,800 s unless the call gives a `timeout` (`exec.md:192`); then the group gets SIGTERM and, 5 s later, SIGKILL, as OpenClaw stops a process (`src/process/supervisor/released-processes.ts:97-125`), and the wake says the time ran out, with OpenClaw's advice on retrying (`bash-tools.exec-output.ts:117-118`). So every command ends and wakes the chat, and no pi is kept for one forever. Output a child writes after the end was reported is let go of. The extension
-reports it on `POST /agent/v1/background` with pi's own token (`started`, then `ended` with its exit code or signal,
-the last 2,000 characters of its output, how many it wrote, and its file when the end is only part of it), and a
-command the control plane did not record is not started. All its output goes to an owner-only file of the box's
-`/tmp`, at most 64 MiB, kept only when the wake leaves part of it out: OpenClaw's file for a Gateway-host command (`exec.md:174`); keeping it in the box is this extension's choice, where the plan said `node_exec`'s 32 KB head and tail. The control
-plane keeps a row per running command (`chat_background_commands`: chat, id, a hash of the pi's token, start; no
-command text, as OpenClaw's `bash-process-durable.ts:83-129`). The end takes the row out and adds one wake-up to the
-chat ("Background command bg_… exited with code 3 after 4m12s:" and the output's end, after
-`bash-tools.exec-notify.ts:245-260`), once: a second report, or one from another pi of the chat, wakes nothing. Like
-every wake-up it waits for a turn that runs and goes with the others as the next prompt (OpenClaw's
-`session-event-batch.ts:34-58`). The box ends its commands with pi (`--unshare-pid`, `--die-with-parent`), so the
-supervisor does not stop an idle pi whose chat has a row, and when a pi exits its own rows become a wake-up saying the
-command was killed because the chat's pi stopped; at the supervisor's start every row left is reported killed by the
-restart (OpenClaw reports what the last Gateway lost, `bash-process-durable.ts:132-161, 200-225`). A deleted chat takes its
-rows. `node_exec`'s `background` is unchanged: it still answers through `node_process`. On
+each time. Since issue #1084 the command is not pi's child: every restart of the control plane stops its service's
+whole cgroup (`KillMode=control-group`, kept so that no pi is orphaned) and every pi with it, and with them the jobs a
+Bot ran. The extension asks `POST /agent/v1/background` (`{kind: "start", command, cwd, timeout_seconds}`, pi's own
+token, pi's shell prefix before the command), and the supervisor runs it as a transient systemd user unit of the
+coordinator user, outside the control plane's cgroup, as OpenClaw keeps a durable command across Gateway restarts
+(`docs/tools/exec.md:94-100`, `docs/gateway/background-process.md:140-235`, `src/agents/bash-process-systemd.ts`).
+It does so through a root-owned launcher, `deploy/coordinator/hypomnema-background`, run as the coordinator
+(`HYPOMNEMA_BACKGROUND_COMMAND`): `start` writes the command to `run/<chat>/background/<id>.sh` and starts
+`hypomnema-bg-<chat>-<id>.service` with OpenClaw's properties (`Type=exec`, `RemainAfterExit=yes`,
+`KillMode=control-group`, `TimeoutStopSec=5s`, `RuntimeMaxSec` its deadline, output appended to
+`run/<chat>/background/<id>.log`), running it with bash in a bubblewrap box like a Routine's script's (the Bot's
+directory read-write, the tools read-only, a private `/tmp`) with no token: pi's ends with pi, as OpenClaw's durable
+commands launch without the Gateway's credentials (`exec.md:94`). `ExitType=cgroup` is left out: the box's PID
+namespace ends what the command started when its shell ends. It starts only in the Bot's directory or below; pi never
+reaches the user manager, which would let a command out of every box. The coordinator lingers
+(`loginctl enable-linger`, `setup-coordinator.sh`), so its manager runs without a login. The tool answers at once
+with the command's id (`bg_…`), its deadline and its output file, which pi's box reads (the run folder is bound
+read-only), telling the Bot to end its turn if only waiting is left; `background_stop {id}` stops one (`stop`: SIGTERM
+to the whole unit, SIGKILL 5 s later), as OpenClaw's `process kill` does. Its deadline is OpenClaw's 1,800 s unless the
+call gives a `timeout` (`exec.md:192`). A control plane without the launcher refuses the call, saying so, as OpenClaw
+never falls back to a command a restart would end. The control plane keeps a row per running command
+(`chat_background_commands`: chat, id, a hash of the pi's token, start; no command text, as OpenClaw's
+`bash-process-durable.ts:83-129`), written before the unit starts and taken out when it cannot start. The supervisor's
+pass observes the units every 5 s while a row is there, and once after each start of the control plane (`list`: the
+units' `systemctl show`), as OpenClaw's registry observes its durable units (`bash-process-registry.ts:809-814`), so
+the first pass after a restart finds every command again by its unit's name. A unit that ended wakes its chat with
+how it ended (its exit code, the signal, or that its timeout ran out, with OpenClaw's advice on retrying,
+`bash-tools.exec-output.ts:117-118`), how long it ran by the unit's own clock, and the last 2,000 characters of its
+output (`read`: the last 8,000 bytes), with its file when that is only its end ("Background command bg_… exited with
+code 3 after 4m12s:" and the output's end, after `bash-tools.exec-notify.ts:245-260`); the row goes in the same write,
+once, and only then is the unit let go of (`cleanup`: stop and reset-failed, OpenClaw's order,
+`bash-process-durable.ts:445-449`), with its file unless the wake named it. A command whose unit is gone (the machine
+restarted) is reported lost with its output's file (OpenClaw's missing unit, `bash-process-durable.ts:420-425`); a unit
+no row names (its chat was deleted, or the control plane stopped between a wake and the let-go) is let go of. An ended
+command's file is removed 3 hours after it ended (OpenClaw keeps an ended command's log at most 3 hours,
+`bash-process-registry.ts:24-26`). Like every wake-up it waits for a turn that runs and goes with the others as the
+next prompt (OpenClaw's `session-event-batch.ts:34-58`). A pi is stopped when idle whatever its chat runs, and a
+command is its chat's: the next pi of the chat stops it or is woken by it. A turn a restart cut is told that a command
+its bash was running stopped with the restart and that a background one goes on (`cutturns.go`). A deleted chat takes
+its rows. `node_exec`'s `background` is unchanged: it still answers through `node_process`. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's id and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), a third that removes a deleted chat's `run/<chat>`
 and `sessions/<chat>` (`hypomnema-chat-rm`, accepting only a chat id of the shape the control plane makes; issue
-#484), one sudoers rule limited to the three, the instructions
+#484), a fourth that runs a Bot's background commands as systemd user units (`hypomnema-background`, issue #1084,
+above), one sudoers rule limited to the four, the instructions
 every Bot gets, pi's version with its lockfile (`package.json`, which Dependabot updates; the setup installs it with
 `npm ci`), and the setup script the owner runs with sudo. Each pi, and each Routine's script, runs in a bubblewrap box
 with a token of its own (issues #260 and #211, see Bots).
