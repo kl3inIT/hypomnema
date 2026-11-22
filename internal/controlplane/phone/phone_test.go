@@ -3,6 +3,7 @@ package phone
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -27,11 +28,14 @@ type fakeLink struct {
 	entered chan string
 	// devices is the phone's state each node said.
 	devices map[string]nodeproto.DeviceState
+	// hellos are the nodes that said hello since their machine was started.
+	hellos map[string]bool
 }
 
 func newLink() *fakeLink {
 	return &fakeLink{
 		online: map[string]bool{}, entered: make(chan string, 8), devices: map[string]nodeproto.DeviceState{},
+		hellos: map[string]bool{},
 	}
 }
 
@@ -65,6 +69,22 @@ func (l *fakeLink) connect(id string) {
 	l.online[id] = true
 }
 
+// hello is a node that says hello again, its machine started: connected, and on in the registry (fakeNodes).
+func (l *fakeLink) hello(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.online[id] = true
+	l.hellos[id] = true
+}
+
+func (l *fakeLink) helloed(id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.hellos[id]
+}
+
 func (l *fakeLink) DeviceCall(ctx context.Context, nodeID, agent, tool string, _ json.RawMessage,
 ) (nodeproto.DeviceAnswer, error) {
 	l.mu.Lock()
@@ -85,9 +105,26 @@ func (l *fakeLink) DeviceCall(ctx context.Context, nodeID, agent, tool string, _
 	return nodeproto.DeviceAnswer{Content: []nodeproto.DeviceContent{{Type: "text", Text: "done for " + agent}}}, nil
 }
 
-type fakeNodes struct{ nodes []orchestration.Node }
+// fakeNodes lists the nodes; a node that said hello on link since its machine was started is listed with its machine
+// on, as the registry records a hello (NodeHello clears `starting`).
+type fakeNodes struct {
+	nodes []orchestration.Node
+	link  *fakeLink
+}
 
-func (f *fakeNodes) ListNodes(context.Context) ([]orchestration.Node, error) { return f.nodes, nil }
+func (f *fakeNodes) ListNodes(context.Context) ([]orchestration.Node, error) {
+	out := slices.Clone(f.nodes)
+
+	for i, n := range out {
+		if f.link != nil && f.link.helloed(n.ID) && n.Machine != nil {
+			m := *n.Machine
+			m.Power = ""
+			out[i].Machine = &m
+		}
+	}
+
+	return out, nil
+}
 
 // fakeMachines starts a machine: its node connects after a while, or never.
 // It stops one, or fails to with stopErr.
@@ -123,7 +160,7 @@ func (m *fakeMachines) Start(_ context.Context, nodeID string) (orchestration.No
 	if m.connect {
 		go func() {
 			time.Sleep(20 * time.Millisecond)
-			m.link.connect(nodeID)
+			m.link.hello(nodeID)
 		}()
 	}
 
@@ -139,7 +176,7 @@ func phoneNode(power orchestration.MachinePower) orchestration.Node {
 
 func newPhone(link *fakeLink, machines Machines, nodes ...orchestration.Node) *Phone {
 	return New(Config{
-		Nodes: &fakeNodes{nodes: nodes}, Link: link, Machines: machines,
+		Nodes: &fakeNodes{nodes: nodes, link: link}, Link: link, Machines: machines,
 		WakeWithin: 300 * time.Millisecond, Poll: 5 * time.Millisecond,
 	})
 }

@@ -333,11 +333,15 @@ type phoneMachine struct {
 func (m *phoneMachine) ListNodes(ctx context.Context) ([]orchestration.Node, error) {
 	nodes, err := m.machines.ListNodes(ctx)
 
+	// Its hello after the start is recorded as the registry records one: its machine is on.
+	power := orchestration.MachineStopped
+	if m.online.Load() {
+		power = ""
+	}
+
 	return append(nodes, orchestration.Node{
 		ID: "nod_phone", Name: "phone", Device: nodeproto.DeviceAndroid,
-		Machine: &orchestration.Machine{
-			ResourceID: "i-0123", State: orchestration.MachineReady, Power: orchestration.MachineStopped,
-		},
+		Machine: &orchestration.Machine{ResourceID: "i-0123", State: orchestration.MachineReady, Power: power},
 	}), err
 }
 

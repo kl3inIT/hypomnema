@@ -135,3 +135,29 @@ func TestAStoppedMachineWhoseSocketIsStillOpenIsWoken(t *testing.T) {
 	assert.Equal(t, []string{"n-phone"}, machines.started)
 	done()
 }
+
+// A machine being started whose node's socket from before its stop is still open is not taken for one that came
+// back: the command waits for the node's hello after the start, and without it is refused with how to start the
+// machine, never sent on the old socket (review of PR #1085, round 2).
+func TestAStartingMachinesOldSocketIsNotItsHello(t *testing.T) {
+	t.Parallel()
+
+	link := newLink()
+	link.connect("n-phone")
+
+	machines := &fakeMachines{link: link}
+	p := newPhone(link, machines, phoneNode(orchestration.MachineStarting))
+
+	_, woken, err := p.Use(t.Context(), "n-phone")
+	require.ErrorIs(t, err, ErrUnavailable, "woken: %v", woken)
+	assert.Contains(t, err.Error(), "the phone is waking")
+	assert.Contains(t, err.Error(), "device_screen")
+
+	// Its hello since the start comes while the next command waits for it.
+	time.AfterFunc(50*time.Millisecond, func() { link.hello("n-phone") })
+
+	done, woken, err := p.Use(t.Context(), "n-phone")
+	require.NoError(t, err)
+	assert.True(t, woken, "its hello since the start is waited for")
+	done()
+}
