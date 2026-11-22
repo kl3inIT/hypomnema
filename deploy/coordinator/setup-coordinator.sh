@@ -108,4 +108,4 @@ echo "the Files panel reads the Bots' folders with HYPOMNEMA_BOT_FILES_COMMAND='
 echo "done: add HYPOMNEMA_COORDINATOR_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-pi\"]' to the control plane's env and restart it"
 echo "for script routines also add HYPOMNEMA_ROUTINE_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-routine\"]'"
 echo "for a deleted chat's files to go also add HYPOMNEMA_CHAT_RM_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-chat-rm\"]'"
-echo "for a Bot's background commands to outlast a restart (issue #1084) also add HYPOMNEMA_BACKGROUND_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-background\"]'"
+echo "a Bot's background commands (issue #1084) run through /usr/local/bin/hypomnema-background, beside hypomnema-pi in HYPOMNEMA_COORDINATOR_COMMAND; HYPOMNEMA_BACKGROUND_COMMAND names another launcher"

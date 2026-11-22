@@ -94,8 +94,10 @@ type Config struct {
 	ChatRmCommand []string
 	// BackgroundCommand runs a Bot's background commands as systemd user units of the coordinator user (issue
 	// #1084), with the launcher's arguments appended, from HYPOMNEMA_BACKGROUND_COMMAND as a JSON array, such as
-	// [sudo -n -u coordinator /usr/local/bin/hypomnema-background]; empty: a background command is refused,
-	// saying so.
+	// [sudo -n -u coordinator /usr/local/bin/hypomnema-background]. Unset, it is the coordinator's launcher's
+	// command with hypomnema-background beside hypomnema-pi, which setup-coordinator.sh installs together under one
+	// sudoers rule, so an update needs no new line in the env (backgroundBeside). Empty: a background command is
+	// refused, saying so.
 	BackgroundCommand []string
 	// Node runs the Zalo bridge (issue #657), from HYPOMNEMA_NODE; empty is the machine's Node the coordinator's
 	// setup installs (zalo.DefaultNode).
@@ -241,6 +243,8 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		if err := json.Unmarshal([]byte(raw), &cfg.BackgroundCommand); err != nil || len(cfg.BackgroundCommand) == 0 {
 			cmdErr = errors.Join(cmdErr, fmt.Errorf("%s_BACKGROUND_COMMAND is not a JSON array of strings", envPrefix))
 		}
+	} else {
+		cfg.BackgroundCommand = backgroundBeside(cfg.CoordinatorCommand)
 	}
 
 	cfg.Node = env.String(envPrefix+"_NODE", "")
@@ -1167,4 +1171,19 @@ func logShareTokenMove(ctx context.Context, logger *slog.Logger, move orchestrat
 		logger.WarnContext(ctx, "share links made before are not served until the vault is configured to seal them",
 			slog.String("event", "controlplane.share_tokens_waiting"), slog.Int("links", move.Waiting))
 	}
+}
+
+// backgroundBeside is the background launcher's command for the coordinator's launcher's: the same command, such as
+// sudo -n -u coordinator, with /usr/local/bin/hypomnema-background in place of /usr/local/bin/hypomnema-pi, the two
+// launchers setup-coordinator.sh installs side by side and lets the control plane's user run (issue #1084). Nil when
+// the coordinator's command is not that launcher, as in tests that play pi.
+func backgroundBeside(coordinator []string) []string {
+	if len(coordinator) == 0 || filepath.Base(coordinator[len(coordinator)-1]) != "hypomnema-pi" {
+		return nil
+	}
+
+	out := append([]string{}, coordinator...)
+	out[len(out)-1] = filepath.Join(filepath.Dir(coordinator[len(coordinator)-1]), "hypomnema-background")
+
+	return out
 }
