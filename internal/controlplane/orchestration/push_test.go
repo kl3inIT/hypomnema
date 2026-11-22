@@ -176,3 +176,60 @@ func TestAPushSubscriptionIsOneRowPerBrowser(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 }
+
+func TestSavePushSubscriptionRenewsAnExistingDevice(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name           string
+		registeredNext bool
+		removePrevious bool
+	}{
+		{name: "next endpoint already registered", registeredNext: true},
+		{name: "previous endpoint was removed", registeredNext: true, removePrevious: true},
+		{name: "next endpoint is new"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t)
+			ctx := t.Context()
+
+			old, err := w.s.SavePushSubscription(ctx, NewPushSubscription{
+				Endpoint: "https://push.example/old", P256dh: "old-key", Auth: "old-auth", Label: "iPhone · Safari",
+			})
+			require.NoError(t, err)
+
+			renewal := NewPushSubscription{
+				PreviousEndpoint: old.Endpoint, Endpoint: "https://push.example/new",
+				P256dh: "renewed-key", Auth: "renewed-auth",
+			}
+			kept := old
+			if tc.registeredNext {
+				kept, err = w.s.SavePushSubscription(ctx, NewPushSubscription{
+					Endpoint: renewal.Endpoint, P256dh: "registered-key", Auth: "registered-auth", Label: "New label",
+				})
+				require.NoError(t, err)
+			}
+
+			if tc.removePrevious {
+				require.NoError(t, w.s.DeletePushSubscription(ctx, old.ID))
+			}
+
+			got, err := w.s.SavePushSubscription(ctx, renewal)
+			if tc.removePrevious {
+				require.ErrorIs(t, err, ErrNotFound)
+			} else {
+				require.NoError(t, err)
+				kept.Endpoint = renewal.Endpoint
+				kept.Label = old.Label
+				kept.P256dh = renewal.P256dh
+				kept.Auth = renewal.Auth
+				kept.UpdatedAt = got.UpdatedAt
+				assert.Equal(t, kept, got)
+			}
+
+			all, err := w.s.ListPushSubscriptions(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, []PushSubscription{kept}, all)
+		})
+	}
+}
