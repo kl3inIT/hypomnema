@@ -47,10 +47,22 @@ const bot = (id: string, position: number, mainChat?: string) => ({
 
 type Call = { call: string; body: unknown }
 
+// gate is a promise opened by hand: what waits on it goes on once the test opens it.
+function gate() {
+  let open = () => {}
+  const opened = new Promise<void>((done) => (open = done))
+
+  return { opened, open: () => open() }
+}
+
 // fakeServer answers as the control plane: coordinator's main chat is cht_1, beside an older chat of it (cht_old) and
 // a Routine's run (cht_run); writer has none until something makes it. POST /chats/main answers writer's main chat,
-// the CLI's (cht_cli) when cliFirst says the CLI wrote first.
-async function fakeServer(page: Page, { cliFirst = false } = {}) {
+// the CLI's (cht_cli) when cliFirst says the CLI wrote first. The Bots are answered once botsAfter settles, as on a
+// slow network (issue #1055).
+async function fakeServer(
+  page: Page,
+  { cliFirst = false, botsAfter }: { cliFirst?: boolean; botsAfter?: Promise<void> } = {},
+) {
   const calls: Call[] = []
   const chats = [
     chat("cht_1", "Fix the header", "coordinator"),
@@ -115,6 +127,8 @@ async function fakeServer(page: Page, { cliFirst = false } = {}) {
       case "/chats":
         return json({ data: chats })
       case "/bots":
+        await botsAfter
+
         return json({ data: bots })
       case "/events/stream":
         return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
@@ -130,30 +144,36 @@ async function fakeServer(page: Page, { cliFirst = false } = {}) {
 
 // Scenario: the page is open on writer, which has no main chat, when the CLI writes to writer first and makes its
 // main chat. The page's first message asks for writer's main chat with the id it chose, gets the CLI's, and goes
-// there: no second chat is made.
+// there: no second chat is made. The message is sent before the Bots are read (issue #1055): the page waits for them
+// to know that writer has no main chat.
 test("the first message to a Bot with no main chat goes to the one made meanwhile", async ({
   page,
 }) => {
-  const calls = await fakeServer(page, { cliFirst: true })
+  const sent = gate()
+  const calls = await fakeServer(page, { cliFirst: true, botsAfter: sent.opened })
   await page.goto("/?bot=writer")
 
   await page.getByRole("textbox", { name: "Message" }).fill("draft the release notes")
   await page.keyboard.press("Enter")
+  sent.open()
 
   await expect(page).toHaveURL(/\/chats\/cht_cli$/)
   expect(calls.map((c) => c.call)).toEqual(["POST /chats/main", "POST /chats/cht_cli/messages"])
   expect(calls[0]!.body).toMatchObject({ bot: "writer", title: "draft the release notes" })
 })
 
-// Scenario: a Bot with no main chat and nothing made meanwhile: the first message makes it under the page's id.
+// Scenario: a Bot with no main chat and nothing made meanwhile: the first message, sent before the Bots are read,
+// makes it under the page's id.
 test("the first message to a Bot with no main chat makes it under the page's id", async ({
   page,
 }) => {
-  const calls = await fakeServer(page)
+  const sent = gate()
+  const calls = await fakeServer(page, { botsAfter: sent.opened })
   await page.goto("/?bot=writer")
 
   await page.getByRole("textbox", { name: "Message" }).fill("draft the release notes")
   await page.keyboard.press("Enter")
+  sent.open()
 
   await expect(page).toHaveURL(/\/chats\/cht_\w+$/)
   const made = (calls[0]!.body as { id: string }).id
