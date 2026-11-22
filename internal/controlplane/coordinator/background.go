@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,10 +44,20 @@ const (
 	DefaultBackgroundTimeout = 1800
 	// maxBackgroundTimeout is the longest deadline, in seconds: pi's bash's own (core/tools/bash.ts:21-24).
 	maxBackgroundTimeout = 2_147_483
-	// maxBackgroundCommand bounds a command's text. The launcher's read gives the output's last 8,000 bytes: 2,000
-	// characters are at most 8,000 bytes of UTF-8.
-	maxBackgroundCommand = 128 << 10
+	// maxBackgroundCommand bounds a command's text, which pi's shell is given as one argument, as pi's bash gives it:
+	// Linux takes at most 128 KiB in one (MAX_ARG_STRLEN). The launcher's read gives the output's last 8,000 bytes:
+	// 2,000 characters are at most 8,000 bytes of UTF-8.
+	maxBackgroundCommand = 120 << 10
+	// backgroundPruneEvery is how often the output files of every chat's ended commands are pruned, which the
+	// launcher does past OpenClaw's 3 hours (bash-process-registry.ts:24-26), whether a chat runs another command or
+	// not.
+	backgroundPruneEvery = 10 * time.Minute
+	// defaultBackgroundShell runs a command when pi names no shell: pi's own default on Linux (getShellConfig).
+	defaultBackgroundShell = "/bin/bash"
 )
+
+// plainPath is a shell's path as the launcher takes it.
+var plainPath = regexp.MustCompile(`^/[A-Za-z0-9._/+-]{1,255}$`)
 
 // errNoBackground refuses a command when no launcher is configured: OpenClaw never falls back to a command that a
 // restart would end (docs/tools/exec.md:94).
@@ -62,8 +73,13 @@ type background struct {
 	mu   sync.Mutex
 	run  backgroundRunner
 	last time.Time
-	// listed says the units were listed once since the start, which lets go of those no row names.
+	// listed says the units were listed once since the start, which lets go of those no row names; seen is how many
+	// units the last list had, so that the units left when the last rows went, as with a deleted chat, are listed
+	// and let go of too.
 	listed bool
+	seen   int
+	// pruned is when the ended commands' files were last pruned.
+	pruned time.Time
 }
 
 // backgroundLauncher runs command, the launcher's, as the control plane's other launchers are run (chatfiles.go).
@@ -120,6 +136,16 @@ func (s *Supervisor) StartBackground(ctx context.Context, chatID, bot, pi string
 			orchestration.ErrInvalid)
 	}
 
+	shell := in.Shell
+	if shell == "" {
+		shell = defaultBackgroundShell
+	}
+
+	if !plainPath.MatchString(shell) || strings.Contains(shell, "/../") {
+		return agenttool.BackgroundAnswer{}, fmt.Errorf("%w: a background command's shell is a plain absolute path",
+			orchestration.ErrInvalid)
+	}
+
 	id := newBackgroundID()
 
 	// The unit outlives the request: a pi that ends while it starts leaves a command that still wakes its chat.
@@ -132,7 +158,7 @@ func (s *Supervisor) StartBackground(ctx context.Context, chatID, bot, pi string
 		return agenttool.BackgroundAnswer{}, err
 	}
 
-	out, err := s.bg.run(ctx, []string{"start", chatID, bot, id, strconv.Itoa(timeout), in.Cwd}, in.Command)
+	out, err := s.bg.run(ctx, []string{"start", chatID, bot, id, strconv.Itoa(timeout), in.Cwd, shell}, in.Command)
 	if err != nil {
 		if ferr := s.svc.ForgetBackground(ctx, chatID, id); ferr != nil {
 			err = errors.Join(err, ferr)
@@ -202,8 +228,8 @@ func (s *Supervisor) StopBackground(ctx context.Context, chatID, id string) (boo
 }
 
 // observeBackground wakes the chats whose commands ended, reports lost those whose unit is gone and lets go of the
-// units no row names. It lists the units at most every backgroundEvery, and only while a command runs, or once after
-// a start.
+// units no row names. It lists the units at most every backgroundEvery, and only while a command runs, once after a
+// start, or while the last list had units. Every backgroundPruneEvery it prunes the ended commands' files.
 func (s *Supervisor) observeBackground(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
@@ -224,6 +250,13 @@ func (s *Supervisor) observeBackground(ctx context.Context) {
 
 	s.bg.last = time.Now()
 
+	if time.Since(s.bg.pruned) >= backgroundPruneEvery {
+		s.bg.pruned = s.bg.last
+		if _, err := s.bg.run(ctx, []string{"prune"}, ""); err != nil {
+			s.backgroundFailed(ctx, "pruning background output files failed", "", err)
+		}
+	}
+
 	rows, err := s.svc.BackgroundCommands(ctx)
 	if err != nil {
 		s.backgroundFailed(ctx, "listing background commands failed", "", err)
@@ -231,7 +264,7 @@ func (s *Supervisor) observeBackground(ctx context.Context) {
 		return
 	}
 
-	if len(rows) == 0 && s.bg.listed {
+	if len(rows) == 0 && s.bg.listed && s.bg.seen == 0 {
 		return
 	}
 
@@ -244,6 +277,7 @@ func (s *Supervisor) observeBackground(ctx context.Context) {
 
 	s.bg.listed = true
 	units := parseUnits(out)
+	s.bg.seen = len(units)
 
 	for _, r := range rows {
 		u, ok := units[unitKey{r.ChatID, r.ID}]

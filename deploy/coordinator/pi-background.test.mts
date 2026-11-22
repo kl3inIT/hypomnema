@@ -59,7 +59,9 @@ test("a background command is started by the control plane, with pi's own token"
   const cp = await controlPlane(t);
   const started = await startBackground("make all", "/bots/maps", { commandPrefix: "set -e" });
 
-  assert.deepEqual(cp.requests, [{ kind: "start", command: "set -e\nmake all", cwd: "/bots/maps", timeout_seconds: 1800 }]);
+  assert.deepEqual(cp.requests, [{
+    kind: "start", command: "set -e\nmake all", cwd: "/bots/maps", timeout_seconds: 1800, shell: "/bin/bash",
+  }], "pi's default shell on Linux");
   assert.deepEqual(cp.auth, ["Bearer hyp_bot_v1_pi"]);
   assert.deepEqual(started, { id: "bg_0123456789ab", outputFile: "/run/bg_0123456789ab.log", timeoutSeconds: 1800 });
 });
@@ -179,4 +181,20 @@ test("bash keeps pi's shell settings, in the foreground and in the background", 
   const cp = await controlPlane(t);
   await piCallingBash(t, { command: "echo body", background: true }, settings);
   assert.equal(cp.requests[0].command, "echo configured-prefix\necho body");
+});
+
+test("bash runs in pi's own shell, in the foreground and in the background", { timeout: 30_000 }, async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-background-shell-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const shellPath = join(dir, "marked-shell");
+  writeFileSync(shellPath, '#!/bin/sh\necho marked-shell\nexec /bin/sh "$@"\n', { mode: 0o755 });
+  const settings = { shellPath };
+
+  const foreground = await piCallingBash(t, { command: "echo body" }, settings);
+  assert.match(toolResult(foreground[1]), /marked-shell\\nbody/);
+
+  const cp = await controlPlane(t);
+  await piCallingBash(t, { command: "echo body", background: true }, settings);
+  assert.equal(cp.requests[0].shell, shellPath, "the control plane is told pi's shell");
+  assert.equal(cp.requests[0].command, "echo body");
 });

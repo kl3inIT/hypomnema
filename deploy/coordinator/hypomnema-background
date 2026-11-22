@@ -10,11 +10,12 @@
 # could reach the user manager could start a command outside any box. It accepts only these, each with ids of the
 # shapes the control plane makes:
 #
-#   start <chat> <bot> <id> <timeout seconds> <cwd>   the command's text on stdin; prints its output file
-#   list                                              the units' state, as `systemctl show` prints it
-#   read <chat> <id>                                  its output file, its size in bytes, then its last 8,000 bytes
-#   stop <chat> <id>                                  stops it: SIGTERM to all it runs, SIGKILL 5 s later
-#   cleanup <chat> <id> keep|drop                     lets the ended unit go, with its output file unless keep
+#   start <chat> <bot> <id> <timeout seconds> <cwd> <shell>   the command's text on stdin; prints its output file
+#   list                                    the units' state, as `systemctl show` prints it
+#   read <chat> <id>                        its output file, its size in bytes, then its last 8,000 bytes
+#   stop <chat> <id>                        stops it: SIGTERM to all it runs, SIGKILL 5 s later
+#   cleanup <chat> <id> keep|drop           lets the ended unit go, with its output file unless keep
+#   prune                                   removes the output files of every chat's commands that ended 3 hours ago
 #
 # The command runs in a bubblewrap box, as a Routine's script does (hypomnema-routine): its own PID namespace, the
 # system and the tools read-only, of the coordinator's home only the Bot's directory, read-write. It gets no token:
@@ -40,8 +41,8 @@ fail() {
 }
 
 usage() {
-  echo "usage: hypomnema-background start <chat> <bot> <id> <timeout seconds> <cwd> | list | read <chat> <id>" \
-    "| stop <chat> <id> | cleanup <chat> <id> keep|drop" >&2
+  echo "usage: hypomnema-background start <chat> <bot> <id> <timeout seconds> <cwd> <shell> | list" \
+    "| read <chat> <id> | stop <chat> <id> | cleanup <chat> <id> keep|drop | prune" >&2
   exit 2
 }
 
@@ -77,6 +78,24 @@ export XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS LANG
 # A command's unit is named by its chat and its own id, which is how the control plane finds it again.
 unit() { echo "$prefix-$1-$2.service"; }
 
+# prune takes out the output files in the background folder of chat $1 of the commands that ended more than 3 hours
+# ago, which their wake named: OpenClaw keeps an ended command's log for its retention, at most 3 hours
+# (src/agents/bash-process-registry.ts:24-26). A file whose unit is still there is kept.
+prune() {
+  folder="$home/run/$1/background"
+  [ -d "$folder" ] || return 0
+  for f in "$folder"/bg_*.log; do
+    [ -e "$f" ] || continue
+    [ -n "$(find "$f" -maxdepth 0 -mmin +180)" ] || continue
+    old=${f##*/}
+    old=${old%.log}
+    state=$("$systemctl" --user show --property=LoadState --value -- "$(unit "$1" "$old")" 2> /dev/null || true)
+    [ "$state" = loaded ] && continue
+    rm -f "$f" "$folder/$old.sh" "$folder/$old.run"
+  done
+  return 0
+}
+
 [ $# -ge 1 ] || usage
 action=$1
 shift
@@ -89,8 +108,23 @@ case "$action" in
       --property=Id,ActiveState,SubState,ExecMainCode,ExecMainStatus,Result \
       --property=ExecMainStartTimestampMonotonic,ExecMainExitTimestampMonotonic -- "$prefix-*"
     ;;
+  prune)
+    # Every chat's, which the control plane asks every 10 minutes: a chat that runs no other command still loses its
+    # old files.
+    [ $# -eq 0 ] || usage
+    for folder in "$home"/run/cht_*/background; do
+      [ -d "$folder" ] || continue
+      c=${folder%/background}
+      c=${c##*/}
+      case "$c" in
+        *[!A-Za-z0-9_]*) continue ;;
+      esac
+      prune "$c"
+    done
+    exit 0
+    ;;
   start)
-    [ $# -eq 5 ] || usage
+    [ $# -eq 6 ] || usage
     ;;
   read | stop)
     [ $# -eq 2 ] || usage
@@ -113,23 +147,6 @@ bg="$home/run/$chat/background"
 log="$bg/$id.log"
 name=$(unit "$chat" "$id")
 
-# prune takes out the output files of the chat's commands that ended more than 3 hours ago, which their wake named:
-# OpenClaw keeps an ended command's log for its retention, at most 3 hours (src/agents/bash-process-registry.ts:
-# 24-26). A file whose unit is still there is kept.
-prune() {
-  [ -d "$bg" ] || return 0
-  for f in "$bg"/bg_*.log; do
-    [ -e "$f" ] || continue
-    [ -n "$(find "$f" -maxdepth 0 -mmin +180)" ] || continue
-    old=${f##*/}
-    old=${old%.log}
-    state=$("$systemctl" --user show --property=LoadState --value -- "$(unit "$chat" "$old")" 2> /dev/null || true)
-    [ "$state" = loaded ] && continue
-    rm -f "$f" "$bg/$old.sh"
-  done
-  return 0
-}
-
 case "$action" in
   read)
     echo "$log"
@@ -151,9 +168,9 @@ case "$action" in
     # OpenClaw's cleanup: stop, then reset-failed, each fine when the unit is gone (bash-process-systemd.ts:176-186).
     "$systemctl" --user --no-ask-password stop -- "$name" 2> /dev/null || true
     "$systemctl" --user --no-ask-password reset-failed -- "$name" 2> /dev/null || true
-    rm -f "$bg/$id.sh"
+    rm -f "$bg/$id.sh" "$bg/$id.run"
     [ "$3" = keep ] || rm -f "$log"
-    prune
+    prune "$chat"
     exit 0
     ;;
 esac
@@ -162,6 +179,7 @@ esac
 bot=$2
 timeout=$4
 cwd=$5
+shell=$6
 case "$bot" in
   "" | [!a-z]* | *[!a-z0-9_-]*) usage ;;
 esac
@@ -169,6 +187,15 @@ case "$timeout" in
   "" | 0 | *[!0-9]*) usage ;;
 esac
 [ "${#timeout}" -le 7 ] || usage
+# pi's shell (its shellPath setting, else bash), which runs the command as pi's bash does: <shell> -c <command>
+# (pi's getShellConfig). A plain absolute path, as the box has it.
+case "$shell" in
+  /*) ;;
+  *) fail "a background command's shell is an absolute path, not $shell" ;;
+esac
+case "$shell" in
+  *[!A-Za-z0-9._/+-]* | */../* | */..) fail "a background command's shell is a plain path" ;;
+esac
 
 [ -x "$bwrap" ] || fail "bubblewrap is not installed (setup-coordinator.sh installs it); a command runs only in its box"
 
@@ -189,13 +216,16 @@ case "$cwd" in
 '*) fail "a background command's directory is a plain path" ;;
 esac
 
-# The command's text is a file of the chat's run folder, read-only in its box; the box runs it with bash, as pi's
-# bash does. stdin is that text and nothing else.
+# The command's text is a file of the chat's run folder, read-only in its box. The box runs a second file that gives
+# that text to pi's shell as pi's bash does, `<shell> -c <command>`, so no `$` of the command reaches systemd, which
+# would read it as a variable. stdin is the text and nothing else.
 mkdir -p "$bg"
-prune
+prune "$chat"
 script="$bg/$id.sh"
+runner="$bg/$id.run"
 [ ! -e "$script" ] || fail "background command $id of chat $chat was started already"
 cat > "$script"
+printf '#!/bin/sh\nexec %s -c "$(cat %s)"\n' "$shell" "$script" > "$runner"
 : > "$log"
 
 # The documents environment, as hypomnema-pi and hypomnema-routine give it (issues #401, #507).
@@ -219,7 +249,7 @@ esac
 #
 # The box, as hypomnema-routine's: its own PID, IPC and UTS namespaces. Read-only: the system, the resolver, the CPU
 # list Node reads, Node, the integrations' tools, the documents environment (under the tools), the skills every Bot
-# gets, and the command's file. A private /tmp, /var/tmp, /proc and /dev, and an empty home with no token.
+# gets, and the command's files. A private /tmp, /var/tmp, /proc and /dev, and an empty home with no token.
 # Read-write: the Bot's directory.
 if ! "$systemd_run" --user --quiet --no-ask-password --unit="$name" \
   --description="Hypomnema background command $id of chat $chat" \
@@ -245,10 +275,11 @@ if ! "$systemd_run" --user --quiet --no-ask-password --unit="$name" \
   --ro-bind-try "$home/tools" "$home/tools" \
   --ro-bind-try "$home/skills" "$home/skills" \
   --ro-bind "$script" "$script" \
+  --ro-bind "$runner" "$runner" \
   --bind "$dir" "$dir" \
   --chdir "$cwd" \
-  -- /bin/bash "$script" < /dev/null; then
-  rm -f "$script" "$log"
+  -- /bin/sh "$runner" < /dev/null; then
+  rm -f "$script" "$runner" "$log"
   fail "systemd could not start background command $id"
 fi
 echo "$log"

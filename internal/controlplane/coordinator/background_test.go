@@ -138,7 +138,7 @@ func TestABackgroundCommandOutlivesARestartAndItsEndWakesTheChat(t *testing.T) {
 	assert.Equal(t, "/run/"+chat.ID+"/background/"+started.ID+".log", started.OutputFile)
 	assert.Equal(t, DefaultBackgroundTimeout, started.TimeoutSeconds)
 	assert.Equal(t, []string{"start " + chat.ID + " " + orchestration.DefaultBotID + " " + started.ID +
-		" 1800 /bots/main"}, units.called())
+		" 1800 /bots/main /bin/bash"}, units.called(), "with pi's default shell when it names none")
 
 	// The control plane restarts: a new supervisor on the same store, the unit still running.
 	after := New(svc, Config{})
@@ -240,6 +240,76 @@ func TestWithoutALauncherTheCommandsLeftAreReportedLostOnce(t *testing.T) {
 	assert.Contains(t, got[0], "ended with no result: the control plane restarted, which stopped it")
 }
 
+// Scenario (issue #1084, review round 1): a chat deleted while its last command runs takes its row; the next pass
+// still lists the units, since the last list had one, and lets go of the command's unit, then stops listing.
+func TestADeletedChatsLastBackgroundCommandIsLetGo(t *testing.T) {
+	t.Parallel()
+
+	svc, sup, units := backgroundWorld(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	started, err := sup.StartBackground(ctx, chat.ID, orchestration.DefaultBotID, "pi",
+		agenttool.BackgroundRequest{Command: "watch.sh", Cwd: "/bots/main"})
+	require.NoError(t, err)
+
+	observe(t, sup)
+	assert.NotContains(t, units.called(), "cleanup "+chat.ID+" "+started.ID+" keep", "it runs")
+
+	_, err = svc.DeleteChat(ctx, chat.ID)
+	require.NoError(t, err)
+
+	observe(t, sup)
+	assert.Contains(t, units.called(), "cleanup "+chat.ID+" "+started.ID+" keep", "its unit is let go of")
+
+	observe(t, sup)
+	before := len(units.called())
+	observe(t, sup)
+	assert.Len(t, units.called(), before, "with no unit left, nothing is listed")
+}
+
+// Scenario (issue #1084, review round 1): the ended commands' files of every chat are pruned when the supervisor
+// starts and every 10 minutes after, whether a command runs or not.
+func TestBackgroundFilesArePrunedEveryTenMinutes(t *testing.T) {
+	t.Parallel()
+
+	_, sup, units := backgroundWorld(t)
+
+	observe(t, sup)
+	observe(t, sup)
+	assert.Equal(t, []string{"prune", "list"}, units.called())
+
+	sup.bg.pruned = time.Now().Add(-backgroundPruneEvery)
+	observe(t, sup)
+	assert.Equal(t, []string{"prune", "list", "prune"}, units.called())
+}
+
+// Scenario (issue #1084, review round 1): pi's own shell runs the command; one that is not a plain absolute path is
+// refused.
+func TestABackgroundCommandRunsInPisShell(t *testing.T) {
+	t.Parallel()
+
+	svc, sup, units := backgroundWorld(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	started, err := sup.StartBackground(ctx, chat.ID, orchestration.DefaultBotID, "pi",
+		agenttool.BackgroundRequest{Command: "make", Cwd: "/bots/main", Shell: "/usr/bin/zsh"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"start " + chat.ID + " " + orchestration.DefaultBotID + " " + started.ID +
+		" 1800 /bots/main /usr/bin/zsh"}, units.called())
+
+	for _, shell := range []string{"zsh", "/bin/sh -x", "/usr/../bin/sh", "/bin/$SHELL"} {
+		_, err := sup.StartBackground(ctx, chat.ID, orchestration.DefaultBotID, "pi",
+			agenttool.BackgroundRequest{Command: "make", Cwd: "/bots/main", Shell: shell})
+		require.ErrorIs(t, err, orchestration.ErrInvalid, shell)
+	}
+}
+
 // Scenario (issue #1084): with nothing running the units are listed once, after the start, and not again.
 func TestNoBackgroundCommandListsTheUnitsOnceAfterTheStart(t *testing.T) {
 	t.Parallel()
@@ -250,7 +320,7 @@ func TestNoBackgroundCommandListsTheUnitsOnceAfterTheStart(t *testing.T) {
 	observe(t, sup)
 	observe(t, sup)
 
-	assert.Equal(t, []string{"list"}, units.called())
+	assert.Equal(t, []string{"prune", "list"}, units.called())
 }
 
 // Scenario (issue #1084): a command that cannot start leaves no row and says why; a request out of bounds is refused

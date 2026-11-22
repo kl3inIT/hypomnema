@@ -16,10 +16,12 @@ const (
 type BackgroundRequest struct {
 	Kind string `json:"kind"`
 	// Command is the script to start, pi's shell prefix included; Cwd is where it starts, the Bot's directory or
-	// below; TimeoutSeconds is its deadline, the default when zero.
+	// below; TimeoutSeconds is its deadline, the default when zero; Shell is pi's shell, which runs it with -c as
+	// pi's bash does, /bin/bash when empty.
 	Command        string `json:"command,omitempty"`
 	Cwd            string `json:"cwd,omitempty"`
 	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	Shell          string `json:"shell,omitempty"`
 	// ID is the command to stop.
 	ID string `json:"id,omitempty"`
 }

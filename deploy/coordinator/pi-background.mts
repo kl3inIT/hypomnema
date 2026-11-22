@@ -20,6 +20,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   createBashToolDefinition,
+  getShellConfig,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -87,15 +88,23 @@ function deadline(timeout: number | undefined): number {
   return Math.ceil(timeout);
 }
 
-/** Asks the control plane to start one command in the background, with pi's shell prefix before it. */
+/**
+ * Asks the control plane to start one command in the background, with pi's shell prefix before it and in pi's shell,
+ * which runs it with -c as pi's bash does (getShellConfig: shellPath, else /bin/bash). A shell pi names by a bare
+ * name is left to the control plane's default.
+ */
 export async function startBackground(
   command: string,
   cwd: string,
-  options: { timeout?: number; commandPrefix?: string } = {},
+  options: { timeout?: number; commandPrefix?: string; shellPath?: string } = {},
 ): Promise<{ id: string; outputFile: string; timeoutSeconds: number }> {
   const timeoutSeconds = deadline(options.timeout);
   const script = options.commandPrefix ? `${options.commandPrefix}\n${command}` : command;
-  const got = await ask({ kind: "start", command: script, cwd, timeout_seconds: timeoutSeconds });
+  const { shell } = getShellConfig(options.shellPath);
+  const got = await ask({
+    kind: "start", command: script, cwd, timeout_seconds: timeoutSeconds,
+    ...(shell.startsWith("/") ? { shell } : {}),
+  });
   return { id: got.id, outputFile: got.output_file ?? "", timeoutSeconds: got.timeout_seconds ?? timeoutSeconds };
 }
 
@@ -137,9 +146,7 @@ export default function background(pi: ExtensionAPI) {
       const { background: inBackground, ...rest } = input as { command: string; timeout?: number; background?: boolean };
       if (!inBackground) return createBashToolDefinition(cwd, shell()).execute(id, rest, signal, update, ctx);
 
-      const started = await startBackground(rest.command, ctx?.cwd || cwd, {
-        timeout: rest.timeout, commandPrefix: shell().commandPrefix,
-      });
+      const started = await startBackground(rest.command, ctx?.cwd || cwd, { timeout: rest.timeout, ...shell() });
       return text(
         `Started in the background as ${started.id}; it is killed if it runs longer than ` +
           `${duration(started.timeoutSeconds)}, and a restart of the control plane does not stop it. Its output goes ` +

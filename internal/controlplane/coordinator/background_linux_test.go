@@ -44,7 +44,7 @@ exec "$@"
 `
 
 type launcherWorld struct {
-	launcher, prefix, dir string
+	launcher, prefix, dir, home string
 }
 
 func newLauncherWorld(t *testing.T) *launcherWorld {
@@ -104,7 +104,7 @@ func newLauncherWorld(t *testing.T) *launcherWorld {
 		}
 	})
 
-	return &launcherWorld{launcher: launcher, prefix: prefix, dir: dir}
+	return &launcherWorld{launcher: launcher, prefix: prefix, dir: dir, home: home}
 }
 
 func (w *launcherWorld) active(t *testing.T, chatID, id string) string {
@@ -211,4 +211,85 @@ func TestTheLauncherStartsOnlyInTheBotsDirectory(t *testing.T) {
 	rows, err := svc.BackgroundCommands(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, rows)
+}
+
+// Scenario (issue #1084, review round 1): a chat deleted while its last command runs does not leave the command
+// running: the next pass lets go of its unit.
+func TestADeletedChatsLaunchedCommandIsStopped(t *testing.T) {
+	t.Parallel()
+
+	w := newLauncherWorld(t)
+	svc, _ := newStore(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	sup := New(svc, Config{Background: []string{w.launcher}})
+	started, err := sup.StartBackground(ctx, chat.ID, orchestration.DefaultBotID, "pi",
+		agenttool.BackgroundRequest{Command: "sleep 300", Cwd: w.dir})
+	require.NoError(t, err)
+
+	observe(t, sup)
+	assert.Equal(t, "active", w.active(t, chat.ID, started.ID))
+
+	_, err = svc.DeleteChat(ctx, chat.ID)
+	require.NoError(t, err)
+
+	observe(t, sup)
+	assert.Equal(t, "inactive", w.active(t, chat.ID, started.ID), "its unit was stopped and let go of")
+}
+
+// Scenario (issue #1084, review round 1): the file of a command that ended more than 3 hours ago, which its wake
+// named, is pruned by the supervisor's pass even when its chat runs no other command; a newer one stays.
+func TestAnEndedCommandsFileIsPrunedAfterThreeHours(t *testing.T) {
+	t.Parallel()
+
+	w := newLauncherWorld(t)
+	svc, _ := newStore(t)
+
+	chat, err := svc.CreateChat(t.Context(), "", "")
+	require.NoError(t, err)
+
+	folder := filepath.Join(w.home, "run", chat.ID, "background")
+	require.NoError(t, os.MkdirAll(folder, 0o700))
+
+	old, recent := filepath.Join(folder, "bg_aaaaaa.log"), filepath.Join(folder, "bg_bbbbbb.log")
+	for _, f := range []string{old, recent} {
+		require.NoError(t, os.WriteFile(f, []byte("output\n"), 0o600))
+	}
+
+	fourHoursAgo := time.Now().Add(-4 * time.Hour)
+	require.NoError(t, os.Chtimes(old, fourHoursAgo, fourHoursAgo))
+
+	observe(t, New(svc, Config{Background: []string{w.launcher}}))
+
+	assert.NoFileExists(t, old)
+	assert.FileExists(t, recent)
+}
+
+// Scenario (issue #1084, review round 1): the command runs in the shell pi names, given it with -c as pi's bash
+// gives it.
+func TestALaunchedCommandRunsInPisShell(t *testing.T) {
+	t.Parallel()
+
+	w := newLauncherWorld(t)
+	svc, _ := newStore(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	sup := New(svc, Config{Background: []string{w.launcher}})
+	started, err := sup.StartBackground(ctx, chat.ID, orchestration.DefaultBotID, "pi",
+		agenttool.BackgroundRequest{Command: `echo "shell: $0"`, Cwd: w.dir, Shell: "/bin/sh"})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		observe(t, sup)
+
+		return len(wakes(t, svc, chat.ID)) > 0
+	}, 30*time.Second, 200*time.Millisecond)
+	assert.Regexp(t, `^Background command `+started.ID+` exited with code 0 after \d+s:\nshell: /bin/sh$`,
+		wakes(t, svc, chat.ID)[0])
 }
