@@ -217,7 +217,7 @@ func TestTheMusicIsDuckedUnderTheClips(t *testing.T) {
 	track := sineTrack(t, tools, filepath.Join(dir, "music.wav"), musicHz, 0.25, 30)
 
 	ducked := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000}, "ducked")
-	control := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000, noDuck: true}, "control")
+	control := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000, NoDuck: true}, "control")
 	quieter := composeWith(t, tools, dir, voices, &Music{File: track, LengthMs: 30000, GainDB: -6}, "quieter")
 	require.NotNil(t, ducked.Music)
 	require.NotNil(t, control.Music)
@@ -593,7 +593,7 @@ func TestAShortVideoFadesOverItsLengthAndTheBedNeedsDisk(t *testing.T) {
 		return made{res, out, work}, err
 	}
 
-	short, err := compose("short", need, Music{File: track, LengthMs: 12000, noDuck: true})
+	short, err := compose("short", need, Music{File: track, LengthMs: 12000, NoDuck: true})
 	require.NoError(t, err, "exactly the disk the bed needs is enough")
 	require.NotNil(t, short.Music)
 	require.InDelta(t, lengthMs, short.LengthMs, frameMs+1)

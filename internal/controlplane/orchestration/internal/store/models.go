@@ -1180,6 +1180,16 @@ type Video struct {
 	CreatedAt  int64
 }
 
+type VideoMusic struct {
+	ID        string
+	Name      string
+	File      string
+	MediaType string
+	LengthMs  int64
+	Bytes     int64
+	CreatedAt int64
+}
+
 type VideoRevision struct {
 	VideoID     string
 	Rev         int64

@@ -477,7 +477,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	// The videos made of the takes (issue #818, rows 1, 2, 5 and 6): rows beside the others, files in videos/
 	// beside the database, one runner making them one at a time.
-	videoSvc, err := videos.New(videos.Config{
+	// New sweeps the music folder once, before anything is served; no request's context is there yet.
+	videoSvc, err := videos.New(videos.Config{ //nolint:contextcheck // As above.
 		DB: db, Dir: filepath.Join(filepath.Dir(cfg.Database.Path), "videos"), Takes: phoneTakes,
 		Speech:   videoAudio{speech: voice, gateway: gateway, chats: svc, logger: logger},
 		Settings: gateway.AudioSettings, Tools: ffmpegTools, Ready: ffmpegReady, Logger: logger,

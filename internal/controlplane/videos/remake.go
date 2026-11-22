@@ -51,7 +51,8 @@ func (s *Service) ChangeLook(ctx context.Context, id string, rev int, req LookCh
 
 	hash := requestHash("look", id, strconv.Itoa(rev), req.Look.canonical())
 
-	return s.remake(ctx, id, rev, req.By, req.RequestID, hash, func(src store.VideoRevision, take devicetool.Take,
+	return s.remake(ctx, id, rev, req.By, req.RequestID, hash, func(q *store.Queries, src store.VideoRevision,
+		take devicetool.Take,
 	) (newRevision, error) {
 		if src.State != Review && src.State != Approved && src.State != ChangesRequested {
 			return newRevision{}, fmt.Errorf("%w: revision %d is %s; the look is changed of a made one", ErrConflict,
@@ -69,6 +70,10 @@ func (s *Service) ChangeLook(ctx context.Context, id string, rev int, req LookCh
 		}
 
 		if look, err = fitTake(look, req.Look.Frame != nil, take, src.Aspect); err != nil {
+			return newRevision{}, err
+		}
+
+		if look, err = fitMusic(ctx, q, look, req.Look.Music != nil); err != nil {
 			return newRevision{}, err
 		}
 
@@ -90,14 +95,21 @@ func (s *Service) Retry(ctx context.Context, id string, rev int, by, requestID s
 
 	hash := requestHash("retry", id, strconv.Itoa(rev))
 
-	return s.remake(ctx, id, rev, by, requestID, hash, func(src store.VideoRevision, _ devicetool.Take,
+	return s.remake(ctx, id, rev, by, requestID, hash, func(q *store.Queries, src store.VideoRevision,
+		_ devicetool.Take,
 	) (newRevision, error) {
 		if src.State != Failed {
 			return newRevision{}, fmt.Errorf("%w: revision %d is %s; only a failed one is made again", ErrConflict,
 				rev, src.State)
 		}
 
-		out := newRevision{look: src.Look}
+		// Its look as stored, its music fallen back to none if its track was deleted (issue #910, row 16).
+		look, err := fitStoredMusic(ctx, q, src.Look)
+		if err != nil {
+			return newRevision{}, err
+		}
+
+		out := newRevision{look: look}
 
 		switch {
 		case src.PinProvider != "":
@@ -126,7 +138,7 @@ func checkRequestID(id string) error {
 // remake queues a revision made from revision rev, as plan says from it and the take; the lines, voice, captions
 // and aspect are rev's.
 func (s *Service) remake(ctx context.Context, id string, rev int, by, requestID, hash string,
-	plan func(src store.VideoRevision, take devicetool.Take) (newRevision, error),
+	plan func(q *store.Queries, src store.VideoRevision, take devicetool.Take) (newRevision, error),
 ) (Video, Revision, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,7 +171,7 @@ func (s *Service) remake(ctx context.Context, id string, rev int, by, requestID,
 			return err
 		}
 
-		r, err := plan(src, take)
+		r, err := plan(q, src, take)
 		if err != nil {
 			return err
 		}

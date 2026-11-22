@@ -828,6 +828,65 @@ paths:
             image/jpeg:
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
+  /videos/music:
+    get:
+      operationId: ListVideoMusic
+      summary: The owner's music library for videos, the newest track first (owner only; issue #910)
+      description: >-
+        The tracks the owner uploaded, a look's music chosen from them; none is bundled, and a video has no music
+        until a look names a track. used_bytes is what the library's files hold, against quota_bytes (5 GB). A
+        track is uploaded by POST /api/v1/videos/music?name=<its name>, outside this contract, its body the file
+        as it is with its Content-Length, sent as application/octet-stream (else 400): at most 64 MB (else 413; 411
+        without a Content-Length), one upload at a time (429 with Retry-After), refused with 507
+        insufficient_storage before its body is read when the quota or the disk cannot hold it, and with 400 when
+        it is not exactly one audio stream, and no video, of mp3, m4a or mp4 with AAC, wav, flac or ogg with Vorbis
+        or Opus, does not decode whole, decodes to less than 10 seconds or more than 20 minutes, or is silent. It answers 201 with the VideoMusicTrack, its
+        length_ms the decoded length.
+      responses:
+        "200":
+          description: The library.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoMusicLibrary" }
+        default: { $ref: "#/components/responses/Error" }
+  /videos/music/{music_id}:
+    parameters:
+      - $ref: "#/components/parameters/MusicID"
+    delete:
+      operationId: DeleteVideoMusic
+      summary: Delete a track of the music library (owner only; issue #910)
+      description: >-
+        Refused with conflict while a revision queued or being made has it. The revisions made with it keep its
+        name and length in their looks; a retry or a look change that takes it from one of them is made without
+        music, with fell_back_from and a warning. When the saved default's music is this track, it becomes none.
+      responses:
+        "204":
+          description: Deleted.
+        default: { $ref: "#/components/responses/Error" }
+  /videos/music/{music_id}/audio:
+    parameters:
+      - $ref: "#/components/parameters/MusicID"
+    get:
+      operationId: ReadVideoMusicAudio
+      summary: A track's file, to play (owner only; issue #910)
+      description: Served as the type it was uploaded as (media_type), never sniffed, with Range requests (206).
+      parameters:
+        - name: Range
+          in: header
+          required: false
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: The track.
+          content:
+            audio/*:
+              schema: { type: string, format: binary }
+        "206":
+          description: The part of the track asked for.
+          content:
+            audio/*:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
   /videos/{video_id}:
     parameters:
       - $ref: "#/components/parameters/VideoID"
@@ -5688,6 +5747,11 @@ components:
       in: path
       required: true
       schema: { type: string, pattern: "^vid_[0-9a-z]{1,40}$" }
+    MusicID:
+      name: music_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^mus_[0-9a-z]{26}$" }
     VideoRev:
       name: rev
       in: path
@@ -5800,6 +5864,7 @@ components:
         - request_too_large
         - rate_limited
         - timed_out
+        - insufficient_storage
         - internal_error
     TokenKind:
       type: string
@@ -8426,6 +8491,22 @@ components:
         captions: { $ref: "#/components/schemas/VideoCaptionsInput" }
         frame: { $ref: "#/components/schemas/VideoFrameInput" }
         background: { $ref: "#/components/schemas/VideoBackground" }
+        music: { $ref: "#/components/schemas/VideoMusicInput" }
+    VideoMusicInput:
+      type: object
+      additionalProperties: false
+      description: >-
+        The music sent (issue #910): its track is required, none or a track's id of GET /videos/music; a track
+        deleted is refused with conflict.
+      required: [track]
+      properties:
+        track: { type: string, pattern: "^(none|mus_[0-9a-z]{26})$" }
+        gain_db:
+          type: number
+          format: double
+          minimum: -20
+          maximum: 10
+          description: "Moves the track from its level 3 LU under the voice; absent: 0."
     VideoCaptionsInput:
       type: object
       additionalProperties: false
@@ -8452,6 +8533,48 @@ components:
         fell_back_from:
           $ref: "#/components/schemas/VideoChrome"
           description: The chrome a frame from the default would have drawn on a take whose phone turned; made full.
+        music: { $ref: "#/components/schemas/VideoMusic" }
+    VideoMusic:
+      type: object
+      description: >-
+        The music a revision is made with, as a snapshot of the track when it was chosen; absent: none. A track
+        taken from the default or another revision that was deleted is none, with fell_back_from.
+      required: [track, gain_db]
+      properties:
+        track: { type: string, description: "A track's id, or none." }
+        name: { type: string, description: The track's name when it was chosen; it stays after the track is deleted. }
+        length_ms: { type: integer, format: int64, description: The track's decoded length. }
+        gain_db: { type: number, format: double }
+        fell_back_from: { $ref: "#/components/schemas/VideoMusicSnapshot" }
+    VideoMusicSnapshot:
+      type: object
+      description: A track a look named.
+      required: [track, name, length_ms]
+      properties:
+        track: { type: string }
+        name: { type: string }
+        length_ms: { type: integer, format: int64 }
+    VideoMusicLibrary:
+      type: object
+      required: [tracks, used_bytes, quota_bytes]
+      properties:
+        tracks:
+          type: array
+          items: { $ref: "#/components/schemas/VideoMusicTrack" }
+        used_bytes: { type: integer, format: int64, description: What the library's files hold. }
+        quota_bytes: { type: integer, format: int64 }
+    VideoMusicTrack:
+      type: object
+      description: A track of the owner's music library (issue #910).
+      required: [id, name, media_type, length_ms, bytes, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        media_type: { type: string, description: "audio/mpeg, audio/mp4, audio/wav, audio/flac or audio/ogg." }
+        length_ms: { type: integer, format: int64, description: Its decoded length. }
+        bytes: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        missing: { type: boolean, description: "Its file is not there, as after restoring an older backup." }
     VideoCaptions:
       type: object
       required: [preset, position]

@@ -69,8 +69,11 @@ type Music struct {
 	// GainDB moves the bed from its level 3 LU under the voice, from MinMusicGainDB to MaxMusicGainDB.
 	GainDB float64
 
-	// noDuck and noLimiter leave out the duck and the limiter: the tests' controls.
-	noDuck, noLimiter bool
+	// NoDuck leaves out the duck: the control a test of a whole revision renders beside it (issue #910, PR 2's
+	// check 11); the runner never sets it.
+	NoDuck bool
+	// noLimiter leaves out the limiter: the tests' control.
+	noLimiter bool
 }
 
 // MusicResult is the levels a mix was made at and measured at: the voice's and the bed's loudness before their
@@ -215,7 +218,7 @@ func (c *composer) muxMusic(ctx context.Context, video, voice, bed string, total
 	fade := min(fadeOutMs, totalMs)
 	bedChain := fmt.Sprintf("[2:a]volume=%.3fdB", levels.BedGainDB)
 
-	if !c.in.Music.noDuck {
+	if !c.in.Music.NoDuck {
 		bedChain += fmt.Sprintf(",asetnsamples=n=256,volume='%s':eval=frame", duckGain(duckSpans(c.result.Scenes)))
 	}
 

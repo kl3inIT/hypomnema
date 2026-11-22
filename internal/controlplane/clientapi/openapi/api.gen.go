@@ -740,6 +740,7 @@ const (
 	Conflict               ErrorCode = "conflict"
 	Forbidden              ErrorCode = "forbidden"
 	IdempotencyKeyConflict ErrorCode = "idempotency_key_conflict"
+	InsufficientStorage    ErrorCode = "insufficient_storage"
 	InternalError          ErrorCode = "internal_error"
 	InvalidRequest         ErrorCode = "invalid_request"
 	NotFound               ErrorCode = "not_found"
@@ -759,6 +760,8 @@ func (e ErrorCode) Valid() bool {
 	case Forbidden:
 		return true
 	case IdempotencyKeyConflict:
+		return true
+	case InsufficientStorage:
 		return true
 	case InternalError:
 		return true
@@ -7570,6 +7573,9 @@ type VideoLook struct {
 	// FellBackFrom What is drawn around the picture: full is none, the picture filling the video; absent: none.
 	FellBackFrom *VideoChrome `json:"fell_back_from,omitempty"`
 	Frame        VideoFrame   `json:"frame"`
+
+	// Music The music a revision is made with, as a snapshot of the track when it was chosen; absent: none. A track taken from the default or another revision that was deleted is none, with fell_back_from.
+	Music *VideoMusic `json:"music,omitempty"`
 }
 
 // VideoLookChange defines model for VideoLookChange.
@@ -7584,6 +7590,9 @@ type VideoLookInput struct {
 	Background *VideoBackground    `json:"background,omitempty"`
 	Captions   *VideoCaptionsInput `json:"captions,omitempty"`
 	Frame      *VideoFrameInput    `json:"frame,omitempty"`
+
+	// Music The music sent (issue #910): its track is required, none or a track's id of GET /videos/music; a track deleted is refused with conflict.
+	Music *VideoMusicInput `json:"music,omitempty"`
 }
 
 // VideoLooks defines model for VideoLooks.
@@ -7617,6 +7626,62 @@ type VideoMake struct {
 
 // VideoMakeAspect Absent: 9:16.
 type VideoMakeAspect string
+
+// VideoMusic The music a revision is made with, as a snapshot of the track when it was chosen; absent: none. A track taken from the default or another revision that was deleted is none, with fell_back_from.
+type VideoMusic struct {
+	// FellBackFrom A track a look named.
+	FellBackFrom *VideoMusicSnapshot `json:"fell_back_from,omitempty"`
+	GainDb       float64             `json:"gain_db"`
+
+	// LengthMs The track's decoded length.
+	LengthMs *int64 `json:"length_ms,omitempty"`
+
+	// Name The track's name when it was chosen; it stays after the track is deleted.
+	Name *string `json:"name,omitempty"`
+
+	// Track A track's id, or none.
+	Track string `json:"track"`
+}
+
+// VideoMusicInput The music sent (issue #910): its track is required, none or a track's id of GET /videos/music; a track deleted is refused with conflict.
+type VideoMusicInput struct {
+	// GainDb Moves the track from its level 3 LU under the voice; absent: 0.
+	GainDb *float64 `json:"gain_db,omitempty"`
+	Track  string   `json:"track"`
+}
+
+// VideoMusicLibrary defines model for VideoMusicLibrary.
+type VideoMusicLibrary struct {
+	QuotaBytes int64             `json:"quota_bytes"`
+	Tracks     []VideoMusicTrack `json:"tracks"`
+
+	// UsedBytes What the library's files hold.
+	UsedBytes int64 `json:"used_bytes"`
+}
+
+// VideoMusicSnapshot A track a look named.
+type VideoMusicSnapshot struct {
+	LengthMs int64  `json:"length_ms"`
+	Name     string `json:"name"`
+	Track    string `json:"track"`
+}
+
+// VideoMusicTrack A track of the owner's music library (issue
+type VideoMusicTrack struct {
+	Bytes     int64     `json:"bytes"`
+	CreatedAt time.Time `json:"created_at"`
+	Id        string    `json:"id"`
+
+	// LengthMs Its decoded length.
+	LengthMs int64 `json:"length_ms"`
+
+	// MediaType audio/mpeg, audio/mp4, audio/wav, audio/flac or audio/ogg.
+	MediaType string `json:"media_type"`
+
+	// Missing Its file is not there, as after restoring an older backup.
+	Missing *bool  `json:"missing,omitempty"`
+	Name    string `json:"name"`
+}
 
 // VideoPreset defines model for VideoPreset.
 type VideoPreset struct {
@@ -8097,6 +8162,9 @@ type MemoryOfAgent = string
 
 // MemoryOfBot defines model for MemoryOfBot.
 type MemoryOfBot = string
+
+// MusicID defines model for MusicID.
+type MusicID = string
 
 // Name defines model for Name.
 type Name = string
@@ -8704,6 +8772,11 @@ type ListTasksParams struct {
 type MakeVideoParams struct {
 	// IdempotencyKey Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ReadVideoMusicAudioParams defines parameters for ReadVideoMusicAudio.
+type ReadVideoMusicAudioParams struct {
+	Range *string `json:"Range,omitempty"`
 }
 
 // RequestVideoChangesParams defines parameters for RequestVideoChanges.
@@ -12194,6 +12267,27 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /videos/looks (the `ListVideoLooks` operationId).
 	ListVideoLooks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListVideoMusic The owner's music library for videos, the newest track first (owner only; issue
+	//
+	// The tracks the owner uploaded, a look's music chosen from them; none is bundled, and a video has no music until a look names a track. used_bytes is what the library's files hold, against quota_bytes (5 GB). A track is uploaded by POST /api/v1/videos/music?name=<its name>, outside this contract, its body the file as it is with its Content-Length, sent as application/octet-stream (else 400): at most 64 MB (else 413; 411 without a Content-Length), one upload at a time (429 with Retry-After), refused with 507 insufficient_storage before its body is read when the quota or the disk cannot hold it, and with 400 when it is not exactly one audio stream, and no video, of mp3, m4a or mp4 with AAC, wav, flac or ogg with Vorbis or Opus, does not decode whole, decodes to less than 10 seconds or more than 20 minutes, or is silent. It answers 201 with the VideoMusicTrack, its length_ms the decoded length.
+	//
+	// Corresponds with GET /videos/music (the `ListVideoMusic` operationId).
+	ListVideoMusic(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteVideoMusic Delete a track of the music library (owner only; issue
+	//
+	// Refused with conflict while a revision queued or being made has it. The revisions made with it keep its name and length in their looks; a retry or a look change that takes it from one of them is made without music, with fell_back_from and a warning. When the saved default's music is this track, it becomes none.
+	//
+	// Corresponds with DELETE /videos/music/{music_id} (the `DeleteVideoMusic` operationId).
+	DeleteVideoMusic(ctx context.Context, musicId MusicID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadVideoMusicAudio A track's file, to play (owner only; issue
+	//
+	// Served as the type it was uploaded as (media_type), never sniffed, with Range requests (206).
+	//
+	// Corresponds with GET /videos/music/{music_id}/audio (the `ReadVideoMusicAudio` operationId).
+	ReadVideoMusicAudio(ctx context.Context, musicId MusicID, params *ReadVideoMusicAudioParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PreviewVideoLookWithBody A look sample of a take, as a JPEG (owner only; issue
 	//
@@ -19062,6 +19156,57 @@ func (c *Client) MakeVideo(ctx context.Context, params *MakeVideoParams, body Ma
 // Corresponds with GET /videos/looks (the `ListVideoLooks` operationId).
 func (c *Client) ListVideoLooks(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListVideoLooksRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListVideoMusic The owner's music library for videos, the newest track first (owner only; issue
+//
+// The tracks the owner uploaded, a look's music chosen from them; none is bundled, and a video has no music until a look names a track. used_bytes is what the library's files hold, against quota_bytes (5 GB). A track is uploaded by POST /api/v1/videos/music?name=<its name>, outside this contract, its body the file as it is with its Content-Length, sent as application/octet-stream (else 400): at most 64 MB (else 413; 411 without a Content-Length), one upload at a time (429 with Retry-After), refused with 507 insufficient_storage before its body is read when the quota or the disk cannot hold it, and with 400 when it is not exactly one audio stream, and no video, of mp3, m4a or mp4 with AAC, wav, flac or ogg with Vorbis or Opus, does not decode whole, decodes to less than 10 seconds or more than 20 minutes, or is silent. It answers 201 with the VideoMusicTrack, its length_ms the decoded length.
+//
+// Corresponds with GET /videos/music (the `ListVideoMusic` operationId).
+func (c *Client) ListVideoMusic(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListVideoMusicRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteVideoMusic Delete a track of the music library (owner only; issue
+//
+// Refused with conflict while a revision queued or being made has it. The revisions made with it keep its name and length in their looks; a retry or a look change that takes it from one of them is made without music, with fell_back_from and a warning. When the saved default's music is this track, it becomes none.
+//
+// Corresponds with DELETE /videos/music/{music_id} (the `DeleteVideoMusic` operationId).
+func (c *Client) DeleteVideoMusic(ctx context.Context, musicId MusicID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteVideoMusicRequest(c.Server, musicId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReadVideoMusicAudio A track's file, to play (owner only; issue
+//
+// Served as the type it was uploaded as (media_type), never sniffed, with Range requests (206).
+//
+// Corresponds with GET /videos/music/{music_id}/audio (the `ReadVideoMusicAudio` operationId).
+func (c *Client) ReadVideoMusicAudio(ctx context.Context, musicId MusicID, params *ReadVideoMusicAudioParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadVideoMusicAudioRequest(c.Server, musicId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -32587,6 +32732,116 @@ func NewListVideoLooksRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListVideoMusicRequest constructs an http.Request for the ListVideoMusic method
+func NewListVideoMusicRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/music")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteVideoMusicRequest constructs an http.Request for the DeleteVideoMusic method
+func NewDeleteVideoMusicRequest(server string, musicId MusicID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "music_id", musicId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/music/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReadVideoMusicAudioRequest constructs an http.Request for the ReadVideoMusicAudio method
+func NewReadVideoMusicAudioRequest(server string, musicId MusicID, params *ReadVideoMusicAudioParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "music_id", musicId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/videos/music/%s/audio", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.Range != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Range", *params.Range, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Range", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
 // NewPreviewVideoLookRequest calls the generic PreviewVideoLook builder with application/json body
 func NewPreviewVideoLookRequest(server string, body PreviewVideoLookJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -36340,6 +36595,33 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /videos/looks (the `ListVideoLooks` operationId).
 	ListVideoLooksWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoLooksResponse, error)
+
+	// ListVideoMusicWithResponse The owner's music library for videos, the newest track first (owner only; issue
+	//
+	// The tracks the owner uploaded, a look's music chosen from them; none is bundled, and a video has no music until a look names a track. used_bytes is what the library's files hold, against quota_bytes (5 GB). A track is uploaded by POST /api/v1/videos/music?name=<its name>, outside this contract, its body the file as it is with its Content-Length, sent as application/octet-stream (else 400): at most 64 MB (else 413; 411 without a Content-Length), one upload at a time (429 with Retry-After), refused with 507 insufficient_storage before its body is read when the quota or the disk cannot hold it, and with 400 when it is not exactly one audio stream, and no video, of mp3, m4a or mp4 with AAC, wav, flac or ogg with Vorbis or Opus, does not decode whole, decodes to less than 10 seconds or more than 20 minutes, or is silent. It answers 201 with the VideoMusicTrack, its length_ms the decoded length.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos/music (the `ListVideoMusic` operationId).
+	ListVideoMusicWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoMusicResponse, error)
+
+	// DeleteVideoMusicWithResponse Delete a track of the music library (owner only; issue
+	//
+	// Refused with conflict while a revision queued or being made has it. The revisions made with it keep its name and length in their looks; a retry or a look change that takes it from one of them is made without music, with fell_back_from and a warning. When the saved default's music is this track, it becomes none.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /videos/music/{music_id} (the `DeleteVideoMusic` operationId).
+	DeleteVideoMusicWithResponse(ctx context.Context, musicId MusicID, reqEditors ...RequestEditorFn) (*DeleteVideoMusicResponse, error)
+
+	// ReadVideoMusicAudioWithResponse A track's file, to play (owner only; issue
+	//
+	// Served as the type it was uploaded as (media_type), never sniffed, with Range requests (206).
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /videos/music/{music_id}/audio (the `ReadVideoMusicAudio` operationId).
+	ReadVideoMusicAudioWithResponse(ctx context.Context, musicId MusicID, params *ReadVideoMusicAudioParams, reqEditors ...RequestEditorFn) (*ReadVideoMusicAudioResponse, error)
 
 	// PreviewVideoLookWithBodyWithResponse A look sample of a take, as a JPEG (owner only; issue
 	//
@@ -49876,6 +50158,136 @@ func (r ListVideoLooksResponse) ContentType() string {
 	return ""
 }
 
+type ListVideoMusicResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *VideoMusicLibrary
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListVideoMusicResponse) GetJSON200() *VideoMusicLibrary {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListVideoMusicResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListVideoMusicResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListVideoMusicResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListVideoMusicResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListVideoMusicResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteVideoMusicResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteVideoMusicResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteVideoMusicResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteVideoMusicResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteVideoMusicResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteVideoMusicResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReadVideoMusicAudioResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ReadVideoMusicAudioResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReadVideoMusicAudioResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadVideoMusicAudioResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadVideoMusicAudioResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReadVideoMusicAudioResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type PreviewVideoLookResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -55908,6 +56320,51 @@ func (c *ClientWithResponses) ListVideoLooksWithResponse(ctx context.Context, re
 		return nil, err
 	}
 	return ParseListVideoLooksResponse(rsp)
+}
+
+// ListVideoMusicWithResponse The owner's music library for videos, the newest track first (owner only; issue
+//
+// The tracks the owner uploaded, a look's music chosen from them; none is bundled, and a video has no music until a look names a track. used_bytes is what the library's files hold, against quota_bytes (5 GB). A track is uploaded by POST /api/v1/videos/music?name=<its name>, outside this contract, its body the file as it is with its Content-Length, sent as application/octet-stream (else 400): at most 64 MB (else 413; 411 without a Content-Length), one upload at a time (429 with Retry-After), refused with 507 insufficient_storage before its body is read when the quota or the disk cannot hold it, and with 400 when it is not exactly one audio stream, and no video, of mp3, m4a or mp4 with AAC, wav, flac or ogg with Vorbis or Opus, does not decode whole, decodes to less than 10 seconds or more than 20 minutes, or is silent. It answers 201 with the VideoMusicTrack, its length_ms the decoded length.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos/music (the `ListVideoMusic` operationId).
+func (c *ClientWithResponses) ListVideoMusicWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListVideoMusicResponse, error) {
+	rsp, err := c.ListVideoMusic(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListVideoMusicResponse(rsp)
+}
+
+// DeleteVideoMusicWithResponse Delete a track of the music library (owner only; issue
+//
+// Refused with conflict while a revision queued or being made has it. The revisions made with it keep its name and length in their looks; a retry or a look change that takes it from one of them is made without music, with fell_back_from and a warning. When the saved default's music is this track, it becomes none.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /videos/music/{music_id} (the `DeleteVideoMusic` operationId).
+func (c *ClientWithResponses) DeleteVideoMusicWithResponse(ctx context.Context, musicId MusicID, reqEditors ...RequestEditorFn) (*DeleteVideoMusicResponse, error) {
+	rsp, err := c.DeleteVideoMusic(ctx, musicId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteVideoMusicResponse(rsp)
+}
+
+// ReadVideoMusicAudioWithResponse A track's file, to play (owner only; issue
+//
+// Served as the type it was uploaded as (media_type), never sniffed, with Range requests (206).
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /videos/music/{music_id}/audio (the `ReadVideoMusicAudio` operationId).
+func (c *ClientWithResponses) ReadVideoMusicAudioWithResponse(ctx context.Context, musicId MusicID, params *ReadVideoMusicAudioParams, reqEditors ...RequestEditorFn) (*ReadVideoMusicAudioResponse, error) {
+	rsp, err := c.ReadVideoMusicAudio(ctx, musicId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadVideoMusicAudioResponse(rsp)
 }
 
 // PreviewVideoLookWithBodyWithResponse A look sample of a take, as a JPEG (owner only; issue
@@ -65424,6 +65881,94 @@ func ParseListVideoLooksResponse(rsp *http.Response) (*ListVideoLooksResponse, e
 	return response, nil
 }
 
+// ParseListVideoMusicResponse parses an HTTP response from a ListVideoMusicWithResponse call
+func ParseListVideoMusicResponse(rsp *http.Response) (*ListVideoMusicResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListVideoMusicResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest VideoMusicLibrary
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteVideoMusicResponse parses an HTTP response from a DeleteVideoMusicWithResponse call
+func ParseDeleteVideoMusicResponse(rsp *http.Response) (*DeleteVideoMusicResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteVideoMusicResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReadVideoMusicAudioResponse parses an HTTP response from a ReadVideoMusicAudioWithResponse call
+func ParseReadVideoMusicAudioResponse(rsp *http.Response) (*ReadVideoMusicAudioResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadVideoMusicAudioResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParsePreviewVideoLookResponse parses an HTTP response from a PreviewVideoLookWithResponse call
 func ParsePreviewVideoLookResponse(rsp *http.Response) (*PreviewVideoLookResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -66613,6 +67158,15 @@ type ServerInterface interface {
 	// ListVideoLooks What a video's look is chosen from, and the saved default (owner only; issue
 	// (GET /videos/looks)
 	ListVideoLooks(w http.ResponseWriter, r *http.Request)
+	// ListVideoMusic The owner's music library for videos, the newest track first (owner only; issue
+	// (GET /videos/music)
+	ListVideoMusic(w http.ResponseWriter, r *http.Request)
+	// DeleteVideoMusic Delete a track of the music library (owner only; issue
+	// (DELETE /videos/music/{music_id})
+	DeleteVideoMusic(w http.ResponseWriter, r *http.Request, musicId MusicID)
+	// ReadVideoMusicAudio A track's file, to play (owner only; issue
+	// (GET /videos/music/{music_id}/audio)
+	ReadVideoMusicAudio(w http.ResponseWriter, r *http.Request, musicId MusicID, params ReadVideoMusicAudioParams)
 	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
 	// (POST /videos/preview)
 	PreviewVideoLook(w http.ResponseWriter, r *http.Request)
@@ -75571,6 +76125,96 @@ func (siw *ServerInterfaceWrapper) ListVideoLooks(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListVideoMusic operation middleware
+func (siw *ServerInterfaceWrapper) ListVideoMusic(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVideoMusic(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteVideoMusic operation middleware
+func (siw *ServerInterfaceWrapper) DeleteVideoMusic(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "music_id" -------------
+	var musicId MusicID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "music_id", r.PathValue("music_id"), &musicId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "music_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteVideoMusic(w, r, musicId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadVideoMusicAudio operation middleware
+func (siw *ServerInterfaceWrapper) ReadVideoMusicAudio(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "music_id" -------------
+	var musicId MusicID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "music_id", r.PathValue("music_id"), &musicId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "music_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReadVideoMusicAudioParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Range")]; found {
+		var Range string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Range", valueList[0], &Range, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Range", Err: err})
+			return
+		}
+
+		params.Range = &Range
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadVideoMusicAudio(w, r, musicId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PreviewVideoLook operation middleware
 func (siw *ServerInterfaceWrapper) PreviewVideoLook(w http.ResponseWriter, r *http.Request) {
 
@@ -76145,6 +76789,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos", wrapper.MakeVideo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/looks", wrapper.ListVideoLooks)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/preview", wrapper.PreviewVideoLook)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/music", wrapper.ListVideoMusic)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/videos/music/{music_id}", wrapper.DeleteVideoMusic)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/music/{music_id}/audio", wrapper.ReadVideoMusicAudio)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/videos/{video_id}", wrapper.DeleteVideo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/videos/{video_id}", wrapper.GetVideo)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/videos/{video_id}/revisions/{rev}/approve", wrapper.ApproveVideoRevision)
@@ -87705,6 +88352,145 @@ func (response ListVideoLooksdefaultJSONResponse) VisitListVideoLooksResponse(w 
 	return err
 }
 
+type ListVideoMusicRequestObject struct {
+}
+
+type ListVideoMusicResponseObject interface {
+	VisitListVideoMusicResponse(w http.ResponseWriter) error
+}
+
+type ListVideoMusic200JSONResponse VideoMusicLibrary
+
+func (response ListVideoMusic200JSONResponse) VisitListVideoMusicResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVideoMusicdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListVideoMusicdefaultJSONResponse) VisitListVideoMusicResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteVideoMusicRequestObject struct {
+	MusicId MusicID `json:"music_id"`
+}
+
+type DeleteVideoMusicResponseObject interface {
+	VisitDeleteVideoMusicResponse(w http.ResponseWriter) error
+}
+
+type DeleteVideoMusic204Response struct {
+}
+
+func (response DeleteVideoMusic204Response) VisitDeleteVideoMusicResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteVideoMusicdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteVideoMusicdefaultJSONResponse) VisitDeleteVideoMusicResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadVideoMusicAudioRequestObject struct {
+	MusicId MusicID `json:"music_id"`
+	Params  ReadVideoMusicAudioParams
+}
+
+type ReadVideoMusicAudioResponseObject interface {
+	VisitReadVideoMusicAudioResponse(w http.ResponseWriter) error
+}
+
+type ReadVideoMusicAudio200AudioResponse struct {
+	Body          io.Reader
+	ContentType   string
+	ContentLength int64
+}
+
+func (response ReadVideoMusicAudio200AudioResponse) VisitReadVideoMusicAudioResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadVideoMusicAudio206AudioResponse struct {
+	Body          io.Reader
+	ContentType   string
+	ContentLength int64
+}
+
+func (response ReadVideoMusicAudio206AudioResponse) VisitReadVideoMusicAudioResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(206)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type ReadVideoMusicAudiodefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ReadVideoMusicAudiodefaultJSONResponse) VisitReadVideoMusicAudioResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PreviewVideoLookRequestObject struct {
 	Body *PreviewVideoLookJSONRequestBody
 }
@@ -89029,6 +89815,15 @@ type StrictServerInterface interface {
 	// ListVideoLooks What a video's look is chosen from, and the saved default (owner only; issue
 	// (GET /videos/looks)
 	ListVideoLooks(ctx context.Context, request ListVideoLooksRequestObject) (ListVideoLooksResponseObject, error)
+	// ListVideoMusic The owner's music library for videos, the newest track first (owner only; issue
+	// (GET /videos/music)
+	ListVideoMusic(ctx context.Context, request ListVideoMusicRequestObject) (ListVideoMusicResponseObject, error)
+	// DeleteVideoMusic Delete a track of the music library (owner only; issue
+	// (DELETE /videos/music/{music_id})
+	DeleteVideoMusic(ctx context.Context, request DeleteVideoMusicRequestObject) (DeleteVideoMusicResponseObject, error)
+	// ReadVideoMusicAudio A track's file, to play (owner only; issue
+	// (GET /videos/music/{music_id}/audio)
+	ReadVideoMusicAudio(ctx context.Context, request ReadVideoMusicAudioRequestObject) (ReadVideoMusicAudioResponseObject, error)
 	// PreviewVideoLook A look sample of a take, as a JPEG (owner only; issue
 	// (POST /videos/preview)
 	PreviewVideoLook(ctx context.Context, request PreviewVideoLookRequestObject) (PreviewVideoLookResponseObject, error)
@@ -97169,6 +97964,83 @@ func (sh *strictHandler) ListVideoLooks(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListVideoLooksResponseObject); ok {
 		if err := validResponse.VisitListVideoLooksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListVideoMusic operation middleware
+func (sh *strictHandler) ListVideoMusic(w http.ResponseWriter, r *http.Request) {
+	var request ListVideoMusicRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListVideoMusic(ctx, request.(ListVideoMusicRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListVideoMusic")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListVideoMusicResponseObject); ok {
+		if err := validResponse.VisitListVideoMusicResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteVideoMusic operation middleware
+func (sh *strictHandler) DeleteVideoMusic(w http.ResponseWriter, r *http.Request, musicId MusicID) {
+	var request DeleteVideoMusicRequestObject
+
+	request.MusicId = musicId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteVideoMusic(ctx, request.(DeleteVideoMusicRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteVideoMusic")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteVideoMusicResponseObject); ok {
+		if err := validResponse.VisitDeleteVideoMusicResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadVideoMusicAudio operation middleware
+func (sh *strictHandler) ReadVideoMusicAudio(w http.ResponseWriter, r *http.Request, musicId MusicID, params ReadVideoMusicAudioParams) {
+	var request ReadVideoMusicAudioRequestObject
+
+	request.MusicId = musicId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadVideoMusicAudio(ctx, request.(ReadVideoMusicAudioRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadVideoMusicAudio")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadVideoMusicAudioResponseObject); ok {
+		if err := validResponse.VisitReadVideoMusicAudioResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

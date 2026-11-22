@@ -96,3 +96,23 @@ SELECT look FROM video_settings WHERE id = 1;
 
 -- name: SetVideoSettings :exec
 UPDATE video_settings SET look = @look, updated_at = @now WHERE id = 1;
+
+-- The owner's music library (issue #910, rows 6a and 6d).
+-- name: InsertMusic :exec
+INSERT INTO video_music (id, name, file, media_type, length_ms, bytes, created_at)
+VALUES (@id, @name, @file, @media_type, @length_ms, @bytes, @now);
+
+-- name: GetMusic :one
+SELECT * FROM video_music WHERE id = @id;
+
+-- name: ListMusic :many
+SELECT * FROM video_music ORDER BY created_at DESC, id;
+
+-- name: DeleteMusic :execrows
+DELETE FROM video_music WHERE id = @id;
+
+-- The revisions queued or being made whose look names a track: the track may not be deleted then.
+-- name: CountMakingWithMusic :one
+SELECT COUNT(*) FROM video_revisions
+WHERE state IN ('queued', 'voicing', 'composing', 'captioning')
+  AND json_extract(look, '$.music.track') = CAST(@track AS TEXT);
