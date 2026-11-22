@@ -159,6 +159,43 @@ func (q *Queries) ListPushSubscriptions(ctx context.Context) ([]PushSubscription
 	return items, nil
 }
 
+const renewPushSubscription = `-- name: RenewPushSubscription :one
+UPDATE push_subscriptions
+SET endpoint = ?1, p256dh = ?2, auth = ?3, updated_at = ?4
+WHERE endpoint = ?5
+RETURNING id, endpoint, p256dh, auth, label, created_at, updated_at
+`
+
+type RenewPushSubscriptionParams struct {
+	Endpoint         string
+	P256dh           string
+	Auth             string
+	Now              int64
+	PreviousEndpoint string
+}
+
+// Match the old endpoint and change it in one write. The id stays usable by a concurrent removal.
+func (q *Queries) RenewPushSubscription(ctx context.Context, arg RenewPushSubscriptionParams) (PushSubscription, error) {
+	row := q.db.QueryRowContext(ctx, renewPushSubscription,
+		arg.Endpoint,
+		arg.P256dh,
+		arg.Auth,
+		arg.Now,
+		arg.PreviousEndpoint,
+	)
+	var i PushSubscription
+	err := row.Scan(
+		&i.ID,
+		&i.Endpoint,
+		&i.P256dh,
+		&i.Auth,
+		&i.Label,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const todoNeedsYou = `-- name: TodoNeedsYou :one
 SELECT count(*) FROM todos t
 WHERE t.id = ?1
@@ -206,8 +243,7 @@ type UpsertPushSubscriptionParams struct {
 
 // Web Push (issue #1047; migration push_subscriptions): the owner's browsers and what waits to be pushed to them.
 // A browser subscribing again keeps its row and gets its new keys, as Coder's InsertWebpushSubscription
-// (coderd/database/queries/notifications.sql:198-209), and its new label when it gives one: the service worker
-// renewing a subscription gives none.
+// (coderd/database/queries/notifications.sql:198-209), and its new label when it gives one.
 func (q *Queries) UpsertPushSubscription(ctx context.Context, arg UpsertPushSubscriptionParams) (PushSubscription, error) {
 	row := q.db.QueryRowContext(ctx, upsertPushSubscription,
 		arg.ID,

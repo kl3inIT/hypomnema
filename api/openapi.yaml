@@ -2060,7 +2060,8 @@ paths:
       summary: Keep this browser's push subscription; only the owner
       description: >-
         The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again
-        after a reinstall.
+        after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label.
+        If that endpoint is no longer registered, return 404.
       requestBody:
         required: true
         content:
@@ -8217,6 +8218,12 @@ components:
       additionalProperties: false
       properties:
         endpoint: { type: string, minLength: 9, maxLength: 2000, pattern: "^https://" }
+        previous_endpoint:
+          type: string
+          minLength: 9
+          maxLength: 2000
+          pattern: "^https://"
+          description: The device's existing endpoint, supplied by the service worker when renewing.
         keys:
           type: object
           required: [p256dh, auth]
@@ -8224,7 +8231,7 @@ components:
           properties:
             p256dh: { type: string, minLength: 1, maxLength: 200 }
             auth: { type: string, minLength: 1, maxLength: 100 }
-        label: { type: string, maxLength: 100 }
+        label: { type: string, maxLength: 100, description: The device's label when registering. }
     GitSSHKey:
       type: object
       required: [public_key]

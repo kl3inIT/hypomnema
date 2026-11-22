@@ -4207,7 +4207,10 @@ waits on the owner reaches his browsers and the iPhone Home Screen app (iOS 16.4
 - Subscriptions are `push_subscriptions`, one row per browser endpoint with its keys and label, no user column (the
   owner alone uses the app); a browser subscribing again keeps its row and takes the new keys. The client API's
   `GET|PUT /push/subscriptions`, `DELETE /push/subscriptions/{id}` and `POST /push/subscriptions/{id}/test` are the
-  owner's alone; the list carries the VAPID public key.
+  owner's alone; the list carries the VAPID public key. A PUT with `previous_endpoint` renews the matching row
+  in one write, replacing its endpoint and keys while keeping its id and label. If the supplied previous endpoint
+  is no longer registered, the PUT returns 404. Removing by id still removes the device if it renewed before the
+  DELETE (issue #1063).
 - The VAPID key pair is made on first use and its private half kept in the vault as the secret
   `web-push-vapid-key` (generic); the public half is read from it. The VAPID subject is `HYPOMNEMA_PUBLIC_URL`;
   without an https one the control plane serves no key and drops what is queued. `hypomnema push regenerate-keys`
@@ -6362,8 +6365,8 @@ Node (`internal/node`):
     worker registered at the root from `main.tsx`, shows a push the browser hands it (Safari shows a Declarative
     Web Push message itself, so there a push for the chat in view still shows), skips one for the chat the owner has
     focused (only a chat: the test push, which opens Settings, shows there), opens the push's page on a click
-    (focusing a window on it, else taking an open one, else opening one) and keeps a renewed subscription under its
-    new endpoint only while the control plane still lists the old one, deleting the old row; it handles no fetch and
+    (focusing a window on it, else taking an open one, else opening one) and sends the old endpoint with the
+    renewed subscription so the control plane can update the device in place; it handles no fetch and
     caches nothing. Settings, Preferences, Notifications turns them on for this browser (permission is
     asked only from that button), lists the owner's devices with a test push and a remove, and on an iPhone or iPad
     not opened from the Home Screen shows the steps to add it. A chat where something waits offers the same button

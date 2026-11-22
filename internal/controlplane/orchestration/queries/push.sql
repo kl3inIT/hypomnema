@@ -2,13 +2,19 @@
 
 -- name: UpsertPushSubscription :one
 -- A browser subscribing again keeps its row and gets its new keys, as Coder's InsertWebpushSubscription
--- (coderd/database/queries/notifications.sql:198-209), and its new label when it gives one: the service worker
--- renewing a subscription gives none.
+-- (coderd/database/queries/notifications.sql:198-209), and its new label when it gives one.
 INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, label, created_at, updated_at)
 VALUES (@id, @endpoint, @p256dh, @auth, @label, @now, @now)
 ON CONFLICT (endpoint) DO UPDATE
     SET p256dh = excluded.p256dh, auth = excluded.auth, updated_at = excluded.updated_at,
         label = CASE WHEN excluded.label = '' THEN push_subscriptions.label ELSE excluded.label END
+RETURNING *;
+
+-- name: RenewPushSubscription :one
+-- Match the old endpoint and change it in one write. The id stays usable by a concurrent removal.
+UPDATE push_subscriptions
+SET endpoint = @endpoint, p256dh = @p256dh, auth = @auth, updated_at = @now
+WHERE endpoint = @previous_endpoint
 RETURNING *;
 
 -- name: ListPushSubscriptions :many
