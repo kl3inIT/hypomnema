@@ -3,10 +3,10 @@ import { useRef } from "react"
 
 import "@/api/client"
 import { createChat, openMainChat, sendChatMessage } from "@/api/generated/sdk.gen"
-import type { Chat, ChatAttachment } from "@/api/generated/types.gen"
-import { listChatsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
+import type { Bot, Chat, ChatAttachment } from "@/api/generated/types.gen"
+import { listBotsOptions, listChatsQueryKey } from "@/api/generated/@tanstack/react-query.gen"
 import { mainBotOf } from "@/features/bots/bots-state"
-import { useBots, useRefreshBots } from "@/features/bots/use-bots"
+import { useRefreshBots } from "@/features/bots/use-bots"
 import { everyCall } from "@/lib/query-keys"
 
 import type { ChatChoice } from "./chat-model-state"
@@ -22,22 +22,25 @@ import type { ChatChoice } from "./chat-model-state"
 // the former main chat stays as it was. To a Bot with none, the first message asks for the Bot's main chat with the
 // page's id (POST /chats/main), so that a main chat the CLI made meanwhile takes it instead of a second chat; the
 // main chat keeps its own model, and files put under the page's id cannot go to it: the page says so and nothing is
-// sent.
+// sent. Which of the two is decided on the Bots read: a message sent before they are waits for them (issue #1055),
+// since without them it would make a chat with the server's first Bot and pass over the main chat. botOf is the Bot
+// named, out of those read; undefined leaves it to the server.
 export function useStartChat(
   id: string,
-  bot: string | undefined,
+  botOf: (bots: Bot[]) => string | undefined,
   choice: ChatChoice,
   onStarted: (chat: Chat) => Promise<void> | void,
 ) {
   const queryClient = useQueryClient()
   const refreshBots = useRefreshBots()
-  const bots = useBots().data
   const made = useRef<Chat | null>(null)
 
   return useMutation({
     mutationFn: async ({ text, files }: { text: string; files: ChatAttachment[] }) => {
       if (!made.current) {
-        const target = bots?.find((b) => b.id === (bot || mainBotOf(bots)))
+        const bots = (await queryClient.ensureQueryData(listBotsOptions())).data
+        const bot = botOf(bots)
+        const target = bots.find((b) => b.id === (bot || mainBotOf(bots)))
         const body = {
           id,
           title: text.split("\n")[0]?.slice(0, 80),

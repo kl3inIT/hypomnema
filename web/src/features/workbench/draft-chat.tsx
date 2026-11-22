@@ -33,7 +33,12 @@ export function DraftChat({
   const name = useBotName(of)
   const attachments = useAttachments(chatId, of, saved)
   const [model, setModel] = useDraftChoice(of)
-  const start = useStartChat(chatId, bot || undefined, model, (chat: Chat) => onStarted(chat.id))
+  const start = useStartChat(
+    chatId,
+    () => bot || undefined,
+    model,
+    (chat: Chat) => onStarted(chat.id),
+  )
 
   return (
     <AttachDrop
