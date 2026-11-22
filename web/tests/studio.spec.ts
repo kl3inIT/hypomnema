@@ -1496,6 +1496,8 @@ test.describe("the Music group", () => {
     await expect(group.getByRole("slider")).toBeDisabled()
     await showGroup(group)
     await shot(page, "studio-music-deleted")
+    await group.getByRole("slider").scrollIntoViewIfNeeded()
+    await shot(page, "studio-music-deleted-level")
 
     await radio(group, "Lo-fi buổi sáng").click()
     await expect(radio(group, "Mưa \\(deleted\\)")).toHaveCount(0)
