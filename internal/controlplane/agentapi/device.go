@@ -160,7 +160,7 @@ func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(result) //nolint:gosec // The tool's result as JSON, not a page.
+	_, _ = w.Write(result)
 }
 
 // caller is the agent as the phone knows it: its key, its name, and the

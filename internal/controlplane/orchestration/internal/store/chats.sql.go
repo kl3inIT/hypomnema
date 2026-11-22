@@ -95,6 +95,33 @@ func (q *Queries) ChatWokenAfter(ctx context.Context, chatID string) (int64, err
 	return woken, err
 }
 
+const chatsWithBackground = `-- name: ChatsWithBackground :many
+SELECT DISTINCT chat_id FROM chat_background_commands
+`
+
+func (q *Queries) ChatsWithBackground(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, chatsWithBackground)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var chat_id string
+		if err := rows.Scan(&chat_id); err != nil {
+			return nil, err
+		}
+		items = append(items, chat_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const chatsWithQueue = `-- name: ChatsWithQueue :many
 SELECT DISTINCT chat_id FROM chat_queue
 `
@@ -270,6 +297,41 @@ func (q *Queries) CutChatTurns(ctx context.Context) ([]CutChatTurnsRow, error) {
 	return items, nil
 }
 
+const deleteAllChatBackground = `-- name: DeleteAllChatBackground :many
+DELETE FROM chat_background_commands
+RETURNING chat_id, id, started_at
+`
+
+type DeleteAllChatBackgroundRow struct {
+	ChatID    string
+	ID        string
+	StartedAt int64
+}
+
+// Takes out every row, which a start of the control plane asks, when no pi runs yet.
+func (q *Queries) DeleteAllChatBackground(ctx context.Context) ([]DeleteAllChatBackgroundRow, error) {
+	rows, err := q.db.QueryContext(ctx, deleteAllChatBackground)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DeleteAllChatBackgroundRow{}
+	for rows.Next() {
+		var i DeleteAllChatBackgroundRow
+		if err := rows.Scan(&i.ChatID, &i.ID, &i.StartedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteArtifactsOfChat = `-- name: DeleteArtifactsOfChat :exec
 DELETE FROM artifacts WHERE chat_id = ?1
 `
@@ -287,6 +349,25 @@ DELETE FROM chats WHERE id = ?1
 func (q *Queries) DeleteChat(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, deleteChat, id)
 	return err
+}
+
+const deleteChatBackground = `-- name: DeleteChatBackground :one
+DELETE FROM chat_background_commands WHERE chat_id = ?1 AND id = ?2 AND pi = ?3
+RETURNING started_at
+`
+
+type DeleteChatBackgroundParams struct {
+	ChatID string
+	ID     string
+	Pi     string
+}
+
+// Takes out the row of a command that ended, when the pi that ran it still has it.
+func (q *Queries) DeleteChatBackground(ctx context.Context, arg DeleteChatBackgroundParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, deleteChatBackground, arg.ChatID, arg.ID, arg.Pi)
+	var started_at int64
+	err := row.Scan(&started_at)
+	return started_at, err
 }
 
 const deleteChatMessages = `-- name: DeleteChatMessages :exec
@@ -322,6 +403,46 @@ func (q *Queries) DeleteChatQueued(ctx context.Context, arg DeleteChatQueuedPara
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const deleteLostChatBackground = `-- name: DeleteLostChatBackground :many
+DELETE FROM chat_background_commands WHERE chat_id = ?1 AND pi = ?2
+RETURNING chat_id, id, started_at
+`
+
+type DeleteLostChatBackgroundParams struct {
+	ChatID string
+	Pi     string
+}
+
+type DeleteLostChatBackgroundRow struct {
+	ChatID    string
+	ID        string
+	StartedAt int64
+}
+
+// Takes out the rows of the commands a pi had when it stopped.
+func (q *Queries) DeleteLostChatBackground(ctx context.Context, arg DeleteLostChatBackgroundParams) ([]DeleteLostChatBackgroundRow, error) {
+	rows, err := q.db.QueryContext(ctx, deleteLostChatBackground, arg.ChatID, arg.Pi)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []DeleteLostChatBackgroundRow{}
+	for rows.Next() {
+		var i DeleteLostChatBackgroundRow
+		if err := rows.Scan(&i.ChatID, &i.ID, &i.StartedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const deleteRestartBoots = `-- name: DeleteRestartBoots :exec
@@ -507,6 +628,29 @@ func (q *Queries) InsertChatApproval(ctx context.Context, arg InsertChatApproval
 		arg.ChatID,
 		arg.Text,
 		arg.ApprovalID,
+		arg.Now,
+	)
+	return err
+}
+
+const insertChatBackground = `-- name: InsertChatBackground :exec
+INSERT INTO chat_background_commands (chat_id, id, pi, started_at) VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (chat_id, id) DO NOTHING
+`
+
+type InsertChatBackgroundParams struct {
+	ChatID string
+	ID     string
+	Pi     string
+	Now    int64
+}
+
+// A command a chat's pi started in the background (issue #1058). The same id again keeps the first row.
+func (q *Queries) InsertChatBackground(ctx context.Context, arg InsertChatBackgroundParams) error {
+	_, err := q.db.ExecContext(ctx, insertChatBackground,
+		arg.ChatID,
+		arg.ID,
+		arg.Pi,
 		arg.Now,
 	)
 	return err

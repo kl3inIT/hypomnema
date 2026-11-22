@@ -89,6 +89,26 @@ const FocusedField = "focused=true"
 
 const point = `"#N", a number from your last device_screen with boxes, or "x,y" in the screen's pixels`
 
+// SaveTo is the argument of device_screen and of the browser's screenshot that writes the picture to a file in
+// the folder the agent works in and answers with its path, without the picture, as mobile-mcp's
+// mobile_save_screenshot takes saveTo (src/server.ts:1002-1031) and agent-browser's screenshot a path
+// (cli/src/mcp.rs:1068-1084). The agent's own tools server reads it and writes the file (toolsmcp's ShotCall,
+// issue #1059). It takes it out of device_screen's call: the control plane's phone refuses it, as any argument its
+// tool does not take. The browser's control plane is given it, to send the picture whole from the file the
+// browser saved, and never passes it to the browser (internal/controlplane/browser, shot.go).
+const SaveTo = "save_to"
+
+// SaveToProperty is SaveTo's entry in a tool's input schema.
+const SaveToProperty = `{"type":"string","description":"a .png, .jpg or .jpeg path in the folder you work in; ` +
+	`the picture is written there and the answer is its path, without the picture"}`
+
+// SaveToHelp is what a screenshot tool's description says of SaveTo. Its first sentence is what mobile-mcp's
+// mobile_save_screenshot says ("Save a screenshot of the mobile device to a file", src/server.ts:1005); not to
+// write a script is the approved plan of issue #1059 (owner, 2026-11-22), since a Bot that wanted its
+// screenshots as files wrote a script of its own to save them, and half its reads of those files failed.
+const SaveToHelp = "To keep the picture as a file, for an artifact or a page, give save_to: it is written " +
+	"there and the answer is its path. Do not write a script of your own to save a screenshot."
+
 // Tools are the tools an agent is offered: the phone's, then filming it (video.go).
 func Tools() []Tool { return append(phoneTools(), videoTools()...) }
 
@@ -96,8 +116,9 @@ func phoneTools() []Tool {
 	return []Tool{
 		tool(Screen, "Take a picture of the phone's screen. Look at it before acting and again after each "+
 			"action. With boxes, what can be tapped is marked by numbered boxes, which device_tap takes by "+
-			"number; that takes a second or two longer.",
-			`{"boxes":{"type":"boolean","description":"mark what can be tapped with numbered boxes"}}`, nil),
+			"number; that takes a second or two longer. "+SaveToHelp,
+			`{"boxes":{"type":"boolean","description":"mark what can be tapped with numbered boxes"},`+
+				`"`+SaveTo+`":`+SaveToProperty+`}`, nil),
 		tool(Layout, "Read the views of the app on the phone's screen as JSON: text, descriptions, ids and "+
 			"centers. Apps drawn by Flutter or a game engine show little here; use device_screen for those.",
 			`{}`, nil),

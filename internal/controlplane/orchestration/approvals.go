@@ -206,6 +206,11 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 			return fmt.Errorf("recording the approval: %w", err)
 		}
 
+		// The owner's browsers are told once it is committed (issue #1047).
+		if err := queuePush(ctx, q, now, PushApproval, id); err != nil {
+			return err
+		}
+
 		// The item whose attempt asked waits for the owner too, in review (issue #1004).
 		if n.AttemptID != "" {
 			if err := s.inbox.LinkApprovalTx(ctx, q, now, id, n.AttemptID); err != nil {

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -88,14 +89,17 @@ func nodeToolList() []agenttool.BrowserTool {
 	processSchema, err := json.Marshal(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"node":       node,
-			"process_id": map[string]any{"type": "string", "description": "As node_exec answered it."},
+			"node": node,
+			"process_id": map[string]any{
+				"type": "string", "description": "As node_exec answered it; left out, your commands on the node " +
+					"are listed.",
+			},
 			"wait_seconds": map[string]any{
 				"type": "integer", "minimum": 0, "maximum": int(nodeproto.ExecWaitMax.Seconds()),
 				"description": "Wait up to this long for it to end before answering; 0 answers at once.",
 			},
 		},
-		"required": []string{"node", "process_id"},
+		"required": []string{"node"},
 	})
 	if err != nil {
 		return nil
@@ -124,7 +128,8 @@ func nodeToolList() []agenttool.BrowserTool {
 				"is never shown to you. Nothing waits for input: use -y and non-interactive flags. A command " +
 				"that takes longer than five minutes runs in the background (background: true): read it with " +
 				"node_process and stop it with node_process_kill. It ends if the node restarts, as when it " +
-				"updates. Commands run one per call with no state kept between them: cd or export in one does " +
+				"updates; a restart of the control plane does not end it, and its result is read again for " +
+				"you (if the restart cut your turn, node_process without a process_id lists it). Commands run one per call with no state kept between them: cd or export in one does " +
 				"not carry to the next.",
 			InputSchema: execSchema,
 		},
@@ -132,7 +137,9 @@ func nodeToolList() []agenttool.BrowserTool {
 			Name: agenttool.ToolNodeProcess,
 			Description: "Say what a command node_exec started in the background has come to: still running, " +
 				"or its exit code, with its output so far. Use it to follow such a command instead of starting it " +
-				"again. An ended one is kept for an hour.",
+				"again. An ended one is kept for an hour. Without a process_id it lists your commands on the node " +
+				"(the last 10, running first, with their ids): use that to find one a restart of the control " +
+				"plane cut your turn off from, before running it again.",
 			InputSchema: processSchema,
 		},
 		{
@@ -161,8 +168,16 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 			return
 		}
 
+		// A process id its tools server chose names the command on the node, for its result to be read again
+		// when this answer is lost (issue #1060); one of another shape is the node's to make.
+		if args.ProcessID != "" && !nodeproto.IsProcessID(args.ProcessID) {
+			answerTool(w, "node_exec's process_id is the tools server's, as proc_ and hex", true)
+
+			return
+		}
+
 		nodeRef = args.Node
-		e = nodeproto.Exec{Action: nodeproto.ExecRun, Command: args.Command, Cwd: args.Cwd}
+		e = nodeproto.Exec{Action: nodeproto.ExecRun, Command: args.Command, Cwd: args.Cwd, ProcessID: args.ProcessID}
 
 		if args.Background {
 			e.Action = nodeproto.ExecStart
@@ -172,7 +187,8 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 		}
 	default:
 		var args agenttool.NodeProcessArgs
-		if json.Unmarshal(orEmpty(asked.Arguments), &args) != nil || args.ProcessID == "" {
+		if json.Unmarshal(orEmpty(asked.Arguments), &args) != nil ||
+			(args.ProcessID == "" && asked.Tool != agenttool.ToolNodeProcess) {
 			answerTool(w, asked.Tool+" takes {node, process_id}", true)
 
 			return
@@ -181,13 +197,21 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 		nodeRef = args.Node
 		e = nodeproto.Exec{Action: nodeproto.ExecKill, ProcessID: args.ProcessID}
 
-		if asked.Tool == agenttool.ToolNodeProcess {
+		switch {
+		case asked.Tool == agenttool.ToolNodeProcess && args.ProcessID == "":
+			// The agent's own commands on the node, for a turn a restart cut to find the one it ran (issue
+			// #1060), as Coder's process list (agent/agentproc/api.go handleListProcesses).
+			e.Action = nodeproto.ExecList
+		case asked.Tool == agenttool.ToolNodeProcess:
 			e.Action = nodeproto.ExecOutput
 			e.WaitSeconds = clampSeconds(args.WaitSeconds, 0, nodeproto.ExecWaitMax.Seconds())
 		}
 	}
 
-	n, err := s.findNode(ctx, nodeRef)
+	// A process is the agent's that ran it, a chat's or a worker's (issue #1060), as a phone's last screen is.
+	e.Agent = a.key
+
+	n, connected, err := s.findNode(ctx, nodeRef)
 	if err != nil {
 		answerTool(w, err.Error(), true)
 
@@ -210,7 +234,21 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 
 	got, err := s.exec.link.Exec(ctx, n.ID, e)
 	if err != nil {
+		// A node listed as connected whose socket is not back yet, as right after a restart of the control plane,
+		// is answered as one not connected, for the tools server to ask again (issue #1060).
+		if errors.Is(err, orchestration.ErrNodeOffline) {
+			answerTool(w, agenttool.NodeNotConnected(nodeRef, connected), true)
+
+			return
+		}
+
 		answerTool(w, err.Error(), true)
+
+		return
+	}
+
+	if e.Action == nodeproto.ExecList && got.Error == "" {
+		answerTool(w, listText(got.Processes), false)
 
 		return
 	}
@@ -219,12 +257,37 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 	answerTool(w, text, failed)
 }
 
-// findNode is the node named, by name or id; one that is not connected is
-// refused with the names of those that are.
-func (s *Server) findNode(ctx context.Context, ref string) (orchestration.Node, error) {
+// listText is ExecList's answer as the agent reads it: a line a process.
+func listText(processes []nodeproto.ExecProcess) string {
+	if len(processes) == 0 {
+		return "no process of yours on this node"
+	}
+
+	var b strings.Builder
+
+	for i, p := range processes {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+
+		state := "running"
+		if !p.Running && p.ExitCode != nil {
+			state = "exit code " + strconv.Itoa(*p.ExitCode)
+		}
+
+		fmt.Fprintf(&b, "process_id %s, %s, started %s: %s", p.ProcessID, state,
+			time.UnixMilli(p.StartedAt).UTC().Format(time.RFC3339), p.Command)
+	}
+
+	return b.String()
+}
+
+// findNode is the node named, by name or id, and the names of those connected; one that is not connected is
+// refused with them.
+func (s *Server) findNode(ctx context.Context, ref string) (orchestration.Node, string, error) {
 	nodes, err := s.exec.nodes.ListNodes(ctx)
 	if err != nil {
-		return orchestration.Node{}, errors.New("the nodes could not be listed")
+		return orchestration.Node{}, "", errors.New("the nodes could not be listed")
 	}
 
 	var connected []string
@@ -238,15 +301,15 @@ func (s *Server) findNode(ctx context.Context, ref string) (orchestration.Node, 
 	slices.Sort(connected)
 
 	i := slices.IndexFunc(nodes, func(n orchestration.Node) bool { return n.Name == ref || n.ID == ref })
+	names := strings.Join(connected, ", ")
 
 	switch {
 	case i < 0:
-		return orchestration.Node{}, fmt.Errorf("no node %q; connected now: %s", ref, strings.Join(connected, ", "))
+		return orchestration.Node{}, names, fmt.Errorf("no node %q; connected now: %s", ref, names)
 	case !nodes[i].Connected:
-		return orchestration.Node{}, fmt.Errorf("node %q is not connected; connected now: %s", ref,
-			strings.Join(connected, ", "))
+		return orchestration.Node{}, names, errors.New(agenttool.NodeNotConnected(ref, names))
 	default:
-		return nodes[i], nil
+		return nodes[i], names, nil
 	}
 }
 

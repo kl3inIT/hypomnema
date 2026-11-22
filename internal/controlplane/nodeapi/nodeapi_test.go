@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -758,6 +759,78 @@ func TestHeartbeatCarriesTheNodesMeasurement(t *testing.T) {
 	assert.InDelta(t, 1.5, n.Stats.Load1, 0)
 }
 
+// Scenario: a node still below its disk floor after trimming says so in its heartbeats (issue #1017). The owner is
+// told once for the episode and once when it recovers.
+func TestBlockedDiskInHeartbeatsTellsTheOwnerOncePerEpisode(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	alerts := make(chan orchestration.DiskAlert, 8)
+	p.api.WithDiskAlerts(func(_ context.Context, alert orchestration.DiskAlert) { alerts <- alert })
+	conn := p.connect()
+	beat := func(free int64, blocked bool) {
+		p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Disk: &nodeproto.DiskSpace{
+			FreeBytes: &free, FloorBytes: 5 << 30, TrimBytes: 15 << 30, Blocked: blocked,
+		}})
+		p.next(conn, nodeproto.TypeHeartbeatAck)
+	}
+
+	for range 3 {
+		beat(1<<30, true)
+	}
+	beat(20<<30, false)
+
+	told := []orchestration.DiskAlert{<-alerts, <-alerts}
+	assert.Equal(t, orchestration.DiskAlert{NodeID: p.node.ID, Node: p.node.Name, FreeBytes: 1 << 30,
+		FloorBytes: 5 << 30}, told[0])
+	assert.True(t, told[1].Recovered)
+	assert.Empty(t, alerts, "the episode is told once")
+}
+
+// Scenario: telling the owner of a drop is slow, and the node recovers meanwhile (review round 2 of #1017). He is
+// told of the drop first and of the recovery after it.
+func TestDiskAlertsOfANodeAreToldInOrder(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	release := make(chan struct{})
+	var mu sync.Mutex
+	var told []bool
+	done := make(chan struct{}, 2)
+	p.api.WithDiskAlerts(func(_ context.Context, alert orchestration.DiskAlert) {
+		if !alert.Recovered {
+			<-release
+		}
+		mu.Lock()
+		told = append(told, alert.Recovered)
+		mu.Unlock()
+		done <- struct{}{}
+	})
+	conn := p.connect()
+	beat := func(free int64, blocked bool) {
+		p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Disk: &nodeproto.DiskSpace{
+			FreeBytes: &free, FloorBytes: 5 << 30, TrimBytes: 15 << 30, Blocked: blocked,
+		}})
+		p.next(conn, nodeproto.TypeHeartbeatAck)
+	}
+
+	beat(1<<30, true)
+	beat(20<<30, false)
+	select {
+	case <-done:
+		close(release)
+		t.Fatal("the recovery was told while the drop was still being told")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	<-done
+	<-done
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []bool{false, true}, told, "the drop, then the recovery")
+}
+
 // Scenario: hello after a restart. Each claimed Dispatch is answered.
 func TestHelloAnswersEachClaim(t *testing.T) {
 	t.Parallel()
@@ -1145,4 +1218,62 @@ func TestANodeThatWritesItsOwnGuidesIsSentNone(t *testing.T) {
 	assert.Equal(t, []nodeproto.Skill{
 		{Name: "superset", Revision: 1, Digest: sk.Digest, Requires: []string{"integration:superset"}},
 	}, offer.Skills)
+}
+
+// Scenario: telling the owner hangs while a node's disk keeps changing (fix round 4 of #1017). Its alerts do not
+// pile up: what waits is the node's latest state, as client-go's workqueue keeps an item dirty once however often
+// it is added while it is processed (util/workqueue/queue.go:210-221,243-264,306-319). The owner is told the drop
+// in flight, then the latest state when it differs from what he was told.
+func TestDiskAlertsOfANodeWaitAsItsLatestStateOnly(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		flips []bool
+		told  []bool
+	}{
+		{name: "ends low", flips: []bool{true, false, true, false}, told: []bool{false}},
+		{name: "ends recovered", flips: []bool{true, false, true}, told: []bool{false, true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			release := make(chan struct{})
+			var mu sync.Mutex
+			var told []bool
+			s := New(nil, slog.New(slog.DiscardHandler)).WithDiskAlerts(
+				func(_ context.Context, alert orchestration.DiskAlert) {
+					if !alert.Recovered {
+						<-release
+					}
+					mu.Lock()
+					told = append(told, alert.Recovered)
+					mu.Unlock()
+				})
+			queue := func(recovered bool) {
+				s.diskReports.Lock()
+				s.queueDiskAlert(t.Context(), "node_a", orchestration.DiskAlert{NodeID: "node_a", Recovered: recovered})
+				s.diskReports.Unlock()
+			}
+
+			queue(false)
+			for _, recovered := range tc.flips {
+				queue(recovered)
+			}
+			s.diskReports.Lock()
+			assert.LessOrEqual(t, len(s.diskAlerts["node_a"]), 2, "the alert in flight and the latest state")
+			s.diskReports.Unlock()
+			close(release)
+			require.Eventually(t, func() bool {
+				s.diskReports.Lock()
+				defer s.diskReports.Unlock()
+				_, busy := s.diskAlerts["node_a"]
+				return !busy
+			}, 5*time.Second, time.Millisecond, "the sender ends once the latest state is told")
+
+			mu.Lock()
+			defer mu.Unlock()
+			assert.Equal(t, tc.told, told)
+		})
+	}
 }

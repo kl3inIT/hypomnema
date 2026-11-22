@@ -15,6 +15,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -91,6 +93,30 @@ type Begin struct {
 type Turns struct {
 	// Chats are the chats whose Bot works on a turn.
 	Chats []string `json:"chats"`
+	// ToolCalls is how many agents' calls of the control plane's tools run now, a worker's too (issue #1060): a
+	// command on a node, the browser's, the phone's. A control plane from before it says none.
+	ToolCalls int `json:"tool_calls,omitempty"`
+}
+
+// busy says whether a turn or a tool call runs.
+func (t Turns) busy() bool { return len(t.Chats) > 0 || t.ToolCalls > 0 }
+
+// String says what runs, as the update prints it.
+func (t Turns) String() string {
+	var parts []string
+
+	if len(t.Chats) > 0 {
+		parts = append(parts, "in chats "+strings.Join(t.Chats, ", "))
+	}
+
+	switch {
+	case t.ToolCalls == 1:
+		parts = append(parts, "1 tool call")
+	case t.ToolCalls > 1:
+		parts = append(parts, strconv.Itoa(t.ToolCalls)+" tool calls")
+	}
+
+	return strings.Join(parts, " and ")
 }
 
 // ErrBusy means another update holds the lock.

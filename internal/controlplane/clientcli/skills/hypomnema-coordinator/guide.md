@@ -10,13 +10,11 @@ description: >-
 
 # Coordinating Hypomnema workers
 
-<!-- Omnigent examples/polly/config.yaml:174-192; no reference for Hypomnema's Run, Task and branch names (owner, 2026-11-18) -->
 In a Bot chat you coordinate a Run; in a session with the owner you hand it off to a Bot chat (Recipe, below).
 The control plane starts each Task when a node and account are free. An implementer opens a pull request from its
 own branch `hyp/<task_id>`; the other roles return their reports. The coordinator verifies the result.
 `hypomnema runs show <run_id> --json` tells you where the Run stands after you lose context.
 
-<!-- Omnigent examples/polly/config.yaml:174-192; no reference for the Bot's daily work (owner, 2026-11-18) -->
 Bots coordinate and do day-to-day work (messages, Lark, Superset, reports and the phone). Give repository changes
 to workers: the Bot reads files for planning but does not write code.
 
@@ -25,9 +23,6 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
 
 ## Recipe
 
-<!-- One controller per Run: Orca orchestration-legacy-coordinator-authority.ts:39-91 (a5c191cc); OpenMausBot
-server/coordinator.ts:63-64 (71ada2b5); the hand-off path for the owner's session is inference the owner accepted
-(owner, 2026-11-20, issue #969) -->
 A Run has one controller: the Bot of the chat it belongs to. There are two paths, by where you are:
 
 - **In a Bot chat** you coordinate the Run to its end: steps 0 to 4.
@@ -52,7 +47,6 @@ A Run has one controller: the Bot of the chat it belongs to. There are two paths
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
    ```
-   <!-- omp packages/coding-agent/src/prompts/tools/task.md:28-57; no reference for Task JSON (owner, 2026-11-18) -->
    The file is `{"tasks": [{"ref": "api", "profile": "implementer", "kind": "narrow", "spec": "...", "depends_on": []}]}`.
    The profile names a role, and the scheduler selects its model. Text
    goes through a file, or `-` for standard input, because shell quoting can change it; check the specs in the
@@ -61,10 +55,9 @@ A Run has one controller: the Bot of the chat it belongs to. There are two paths
    canceled. A blocked Task has not ended.
 4. In a Bot chat: finish the Run with `hypomnema runs finish <run_id> --json` as soon as every Task has ended, without waiting
    for the owner to press anything, then report to the owner per Task: the outcome, its evidence, and what is left.
-   <!-- Hermes hermes_cli/kanban_db_graph.py:156 (the root wakes when all children complete) and
-   kanban_db_workspace.py:419; Orca src/main/runtime/orchestration/db/worker-terminal/worker-terminal-user-keep.ts:140
-   (a finished orchestration worker closes by itself); t3code apps/server/src/cli/thread.ts:654 finishRun; owner,
-   2026-11-19, issue #904 --> While the owner has yet to decide on a fix you offered for a
+   A Task whose summary says "auto-merge on at <sha>" has ended only once a `pull_request` wake says its pull
+   request merged, was closed, or is not followed (Results, below; issue #1053).
+   While the owner has yet to decide on a fix you offered for a
    failed Task, or while its review waits for a next step, leave the Run open: a finished Run takes no new Tasks.
 
 A key is any string unique to that create, such as `health-run-1`. When a create gets no answer (a timeout, a
@@ -73,34 +66,24 @@ creating a second Run or second Tasks.
 
 ## Choosing a role and kind
 
-<!-- omp packages/coding-agent/src/prompts/tools/task.md:28-33; no reference for the profile list (owner, 2026-11-18) -->
 Read `hypomnema profiles list --json` to confirm the roles exist. A role has no fixed runtime, model or
 availability: these depend on the kind and the accounts. Do not dispatch a retired vendor copy instead.
 
-<!-- omp packages/coding-agent/src/prompts/tools/task.md:31-33,45-57; Omnigent examples/polly/config.yaml:174-180; oh-my-opencode docs/guide/agent-model-matching.md:149-157 -->
 - `implementer` investigates and edits in one Task. Set `kind` on every Task and say in one line how open the
   work is. Use `broad` when unsure (owner, 2026-11-18). Effort follows the kind; planner and reviewer use high.
   - `broad` (high): "The API can take several shapes; refactor its callers and add regression tests."
   - `narrow` (medium): "Fix the reproduced duplicate retry; preserve the response shape."
   - `quick` (low): "Rename the setting in one file; the new name is fixed."
-<!-- oh-my-opencode packages/senpi-task/src/agents/builtin/plan-consultant.ts:10-16,65-82; plan-reviewer.ts:120-151 -->
 - `planner` researches and proposes a design without changing project files. Get independent review before the
   owner sees it. Load `investigate` and `review`.
-<!-- omp packages/coding-agent/src/prompts/tools/task.md:31-33; prompts/agents/scout.md:38-47 -->
 - `explorer` answers standalone questions when the relevant files are not known. Load `investigate`.
-<!-- Omnigent examples/polly/config.yaml:182-199; no reference for the quick exception (owner, 2026-11-18) -->
 - `reviewer` checks from another vendor. `quick` needs green CI and no worker review. For `narrow` and `broad`,
   load `review` and put "A review comes before the merge: do not turn on auto-merge." in the author's spec.
-<!-- pstack skills/poteto-mode/playbooks/shipping.md:7; skills/swarm/SKILL.md:37 (issue #953) -->
-- A head gets one verdict: a review spec names the head it reviews (`Head: <sha>`), and the control plane refuses
-  a review of a head that already has a `correct` or `incorrect` verdict, naming the Task that gave it.
-<!-- No reference for CodeRabbit handling (owner, 2026-11-18) -->
 - For an important pull request (it adds a migration, changes security or permissions, merging or auto-merge, or is
   a large change) you may ask CodeRabbit to review it: `gh pr comment <url> --body "@coderabbitai review"`, a write
   the owner approves like any other. Nothing waits for CodeRabbit when it is rate-limited or does not answer, and it
   is never a merge condition: a pull request is ready with green checks, no conflict and a correct verdict, and the
   review answers CodeRabbit's findings (the `review` reference). Workers and reviewers do not ask it.
-<!-- omp packages/coding-agent/src/prompts/tools/task.md:60-78; no reference for same-worktree handoff (owner, 2026-11-18) -->
 - Never name a `runtime` or `model` unless the owner asks. Report an unavailable entry instead of substituting
   another yourself. While accounts cool, the scheduler walks the remaining chain. A Task with the owner's
   explicit runtime or model waits instead. Report fallbacks from the Dispatch's model and `chain_entry`.
@@ -125,7 +108,6 @@ availability: these depend on the kind and the accounts. Do not dispatch a retir
 A worker sees its spec, the repository and its branch; it does not see this conversation or the other Tasks, and
 its branch does not hold another Task's unmerged changes. So:
 
-<!-- omp packages/coding-agent/src/prompts/tools/task.md:33-46; no reference for the approved-plan copy (owner, 2026-11-18) -->
 - Never put an explorer Task before a planner or implementer to gather its context. Those workers read what
   they need themselves. Give the planner the owner's words, earlier decisions and constraints; give the
   implementer the approved plan word for word.
@@ -133,7 +115,6 @@ its branch does not hold another Task's unmerged changes. So:
 - Use separate Tasks for independent work, each with its own deliverable.
 - `depends_on` (refs earlier in the file, or ids of Tasks already in the Run) only orders Tasks: a Task starts once
   all of them succeeded. It does not carry their changes, nor their reports.
-<!-- t3code docs/orchestration-v2/orchestrator-mcp-server.md:354-355 and orchestrationInstructions.ts:10,14 (4d5bf2d5); Orca create-github-pull-request.ts:70-110 (issue #690) -->
 - Work that builds on an unmerged Task's changes (stacked) sets `"start_from": "hyp/<task_id>"` and lists that Task
   in `depends_on`: its worktree starts from that branch, and its pull request targets it (`"pr_base":
   "start_from"`, the default) or the Run's base (`"pr_base": "run_base"`). `start_from` may also name another
@@ -141,11 +122,9 @@ its branch does not hold another Task's unmerged changes. So:
 - When a Task needs what an earlier Task found (fixing the items an audit listed), paste that Task's report, the
   summary in `hypomnema tasks show <task_id> --json`, into the spec word for word, under a heading that names its
   Task id, such as `## Report of task <task_id>`. Do not shorten or reword it.
-<!-- pstack skills/poteto-mode/playbooks/bug-fix.md:11; skills/tdd/SKILL.md:9 (issue #952) -->
 - For a bug fix, ask for a test that fails without the fix, committed before the fix, so a disputed finding is
   settled by running that test at either commit.
 
-<!-- omp packages/coding-agent/src/prompts/tools/task.md:38-46 -->
 Make each spec self-contained: the goal, decisions already made, what it may change, the deliverable and the
 evidence that proves it is done.
 
@@ -166,9 +145,6 @@ In a Bot chat, on a wake-up:
   Read the current Tasks, open questions (`questions --run <run_id> --json`) and PR evidence. Continue only what
   still needs a decision, review or follow-up. A reviewer Task that succeeded may still have found the change
   incorrect. Only the owner can assign legacy Runs with `runs adopt`; leave Runs in other chats alone.
-<!-- OpenMausBot server/runtime/envelope.ts:184,255 (71ada2b5; the requester checks the report and sends rework
-itself); Orca src/main/bots/bot-pr-events.ts:1-13 (a5c191cc; nothing wakes a worker's author on its PR); owner,
-2026-11-20, issues #967 and #969 -->
 - On a review wake, read the Run again and load the `review` reference. The wake names the verdict, the pull
   request and the command that reads the findings; the control plane sends nothing to the author by itself, so the
   fix is yours to decide and send. The verdict and PR state in the wake
@@ -177,10 +153,6 @@ itself); Orca src/main/bots/bot-pr-events.ts:1-13 (a5c191cc; nothing wakes a wor
   review's end comes as a plain Task wake: read its verdict with `tasks show` before acting.
 - When your turn began with a message from the control plane listing a Run's events, end your turn after acting;
   the control plane wakes you again.
-<!-- One controller per Run: Orca src/main/runtime/rpc/orchestration/compatibility/orchestration-legacy-coordinator-authority.ts:39-91
-(a5c191cc; only the bound principal writes, another caller is read-only); OpenMausBot server/coordinator.ts:63-64
-(71ada2b5; the requester is woken). Applying it to the owner's CLI session is inference the owner accepted
-(owner, 2026-11-20, issue #969). -->
 
 In a session with the owner (Claude Code, Codex), after the hand-off (Recipe, step 2), a Run with a `chat_id` (in
 `runs show`) is that chat's Bot's to control. Only observe it: `runs show`, `tasks show` and, when the owner wants
@@ -189,9 +161,6 @@ or finish it, even after a wait returns its events: a finished Run takes no fix 
 changed, pass the request to that chat with `hypomnema chat --chat <chat_id> --text-file <file>`, or tell the owner
 to write there. A question to the owner stays the owner's, and the owner may still cancel the Run.
 
-<!-- Orca orchestration-legacy-coordinator-authority.ts:63-91 (a5c191cc; the stored binding holds); OpenHands SDK
-openhands-agent-server/openhands/agent_server/conversation_lease.py:167-209 (fb565cfe; a live owner is not
-displaced); issue #969 -->
 A chat with an open Run cannot be deleted, nor its Bot removed with its chats: the answer is a conflict until
 the Run is finished or canceled. Tell the owner which Run holds it; an ended Run lets the chat go as before.
 
@@ -200,8 +169,6 @@ the next wake-up and report there.
 
 ## Questions
 
-<!-- Orca mobile/src/session/native-chat/input/prompts/use-mobile-worker-approvals.ts:60 (a5c191cc; a coordinator
-chat shows its workers' open prompts); OpenMausBot server/coordinator.ts:63-64 (71ada2b5); issue #969 -->
 A worker asks you when it cannot go on without a decision, and waits. Its question reaches the chat its Run
 belongs to: one to the coordinator wakes that chat, one to the owner waits above that chat's composer. Read the
 question with `hypomnema questions show <question_id> --json`.
@@ -209,8 +176,13 @@ question with `hypomnema questions show <question_id> --json`.
 - Answer when the answer follows from the spec, the objective, the owner's words, or the repository's existing code
   (read it), and say what you based it on: the file, or the owner's words quoted:
   `hypomnema answer <question_id> --text-file <file> --json`, or `hypomnema answer <question_id> <option number> --json`.
-- Forward to the owner a choice none of those settles; anything about secrets or access; and anything irreversible,
-  destructive or outside the Task's repository that the owner has not decided in so many words:
+- Answer, too, a question about an option the Task leaves open, such as how to fix a review finding or which limit
+  or library to use, when the worker recommends one that references back and that stays inside the Task's scope:
+  answer with that option, then tell the owner in your reply what you answered and why. Workers decide these
+  themselves; one that still asks gets the answer from you, not a wait for the owner.
+- Forward to the owner only a question about the Task's scope or goal that none of those settles; anything about
+  secrets, access or money; and anything outward-facing, irreversible, destructive or outside the Task's repository
+  that the owner has not decided in so many words:
   `hypomnema questions forward <question_id> --json`. Then tell the owner
   the question in your reply. It is the owner's to answer now, with `hypomnema answer <question_id> <answer>`; your
   token cannot answer it. The worker keeps waiting.
@@ -221,7 +193,6 @@ question with `hypomnema questions show <question_id> --json`.
 
 A worker's report is a claim; the Task's record and its evidence are what count.
 
-<!-- Omnigent examples/polly/config.yaml:185-192; oh-my-opencode packages/senpi-task/src/agents/builtin/plan-reviewer.ts:120-151; no reference for withholding the plan before owner approval (owner, 2026-11-18) -->
 - For a succeeded planner, send the plan to an independent reviewer before showing it to the owner. A succeeded
   explorer or reviewer returns a report, not a pull request. Check it against the spec and report the findings.
 - For a succeeded implementer, `hypomnema tasks show <task_id> --json` has the latest Dispatch's summary and evidence, such as
@@ -230,6 +201,15 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   (`gh pr list --repo <owner/name> --head <branch>`), using the Task's `push_branch` or `hyp/<task_id>` when unset;
   when there is none, send the worker a follow-up (below)
   that names what is missing. `gh pr checks <url>` shows whether the checks ran.
+- A worker that turned auto-merge on finishes without waiting for CI, its summary saying "auto-merge on at
+  <sha>". The control plane follows that pull request, on GitHub and GitLab, until it merges: a conflict or a
+  failed required check is sent to the worker as a follow-up on its succeeded Task, and you are woken with a
+  `pull_request` escalation when it merges, is closed, or such a follow-up was sent or refused. Do not wait for its
+  CI yourself. Until that wake says it merged or was closed, the Task's work has not landed: keep the Run open
+  (step 4 of the Recipe), since a finished Run takes no follow-up. When the wake says the follow-up was refused,
+  create the Task with `"continues"` it names. A repository the control plane holds no token for is not
+  followed: its worker used the node's login and waited for its checks itself, and the wake says so once; read
+  the pull request with the host's CLI before you finish the Run.
 - More work on a succeeded Task, such as a fix after a review or a correction the owner gives, goes to the same
   worker as a follow-up, not to a new Task:
   ```text
@@ -239,7 +219,6 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   same worktree and branch, updates the same pull request, and finishes again; its end wakes you as before.
   `tasks show` lists the follow-ups. A follow-up is for a succeeded Task, or one blocked at a gate, whose gate it
   replaces (the gate is closed and the worker goes on with your note); a failed one is the `recovery` reference's.
-<!-- Orca pr-start-point.ts:226-245 (38aa9119); t3code GitManager.ts:1013-1069, 3361-3390 (4d5bf2d5) (issue #690) -->
 - When the follow-up is refused (the worker's conversation was closed, its Run finished) or the Task failed or was
   canceled with its work on a pull request, create a Task with `"continues": "<task_id>"` and a spec that names
   what is left. It works on that Task's branch and pushes into it, so the same pull request takes the commits and

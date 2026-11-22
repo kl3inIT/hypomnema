@@ -19,9 +19,85 @@ type DiskStatus struct {
 }
 
 func (s *Service) NodeDisk(ctx context.Context, nodeID string, disk nodeproto.DiskSpace) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
-		return setNodeDisk(ctx, q, now, nodeID, disk)
+	_, err := s.ReportNodeDisk(ctx, nodeID, disk)
+	return err
+}
+
+// DiskAlertDebounce is how long after the owner was told a node is out of disk a new episode is not told: Coder's
+// debounce of its out-of-disk notification (coderd/agentapi/api.go:183).
+const DiskAlertDebounce = 30 * time.Minute
+
+// The states of a node's out-of-disk alert (nodes.disk_alert): Coder's OK and NOK, NOK split by whether the owner
+// was told, so that he is told of a recovery only when he was told of the episode.
+const (
+	diskAlertOK   = "ok"
+	diskAlertLow  = "low"
+	diskAlertTold = "told"
+)
+
+// DiskAlert is what the owner is to be told of a node's disk (issue #1017): it is still below its floor after
+// trimming every cache it manages, or, after he was told so, it is at or above the floor again.
+type DiskAlert struct {
+	NodeID     string
+	Node       string
+	Recovered  bool
+	FreeBytes  int64
+	FloorBytes int64
+}
+
+// ReportNodeDisk keeps a node's heartbeat disk sample and moves its out-of-disk alert, in one write, as Coder's
+// monitorVolumes moves a volume monitor (coderd/agentapi/resources_monitoring.go:213,248-252): a node that reports it
+// is still below its floor after trimming (Blocked) goes from OK to NOK, and the owner is told when the debounce
+// since the last such message has passed; a sample at or above the floor is OK again, and the owner is told the
+// node recovered when he was told of the episode; any other sample leaves the state as it was. It returns what to
+// tell, or nil.
+func (s *Service) ReportNodeDisk(ctx context.Context, nodeID string, disk nodeproto.DiskSpace) (*DiskAlert, error) {
+	var alert *DiskAlert
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		alert = nil
+		if err := setNodeDisk(ctx, q, now, nodeID, disk); err != nil {
+			return err
+		}
+
+		node, err := q.GetNode(ctx, nodeID)
+		if err != nil {
+			return notFound(err, "node", nodeID)
+		}
+
+		state, until := node.DiskAlert, node.DiskAlertUntil
+
+		switch {
+		case disk.AllowsWork():
+			if state == diskAlertTold {
+				alert = &DiskAlert{Recovered: true}
+			}
+
+			state = diskAlertOK
+		case disk.Blocked && disk.FreeBytes != nil && state == diskAlertOK:
+			state = diskAlertLow
+			if now > until {
+				state, until = diskAlertTold, now+DiskAlertDebounce.Milliseconds()
+				alert = &DiskAlert{}
+			}
+		}
+
+		if state == node.DiskAlert && until == node.DiskAlertUntil {
+			return nil
+		}
+
+		if alert != nil {
+			alert.NodeID, alert.Node, alert.FreeBytes, alert.FloorBytes = node.ID, node.Name, *disk.FreeBytes,
+				disk.FloorBytes
+		}
+
+		return q.SetNodeDiskAlert(ctx, store.SetNodeDiskAlertParams{ID: nodeID, DiskAlert: state, DiskAlertUntil: until})
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return alert, nil
 }
 
 func setNodeDisk(ctx context.Context, q *store.Queries, now int64, nodeID string, disk nodeproto.DiskSpace) error {

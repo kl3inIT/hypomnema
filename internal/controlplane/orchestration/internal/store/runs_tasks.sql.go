@@ -799,6 +799,62 @@ func (q *Queries) SetTaskWaitingReason(ctx context.Context, arg SetTaskWaitingRe
 	return err
 }
 
+const succeededTasksOfOpenRuns = `-- name: SucceededTasksOfOpenRuns :many
+SELECT t.id, t.run_id, t.position, t.profile, t.spec, t.runtime, t.model, t.effort, t.status, t.blocked_reason, t.failure_count, t.result, t.created_at, t.updated_at, t.finished_at, t.not_before, t.cancel_requested_at, t.waiting_reason, t.kind, t.author_vendor, t.continues, t.push_branch, t.start_from, t.pr_base, t.model_unresolved FROM tasks t JOIN runs r ON r.id = t.run_id
+WHERE r.status = 'open' AND t.status = 'succeeded'
+ORDER BY t.run_id, t.position
+`
+
+// The Tasks whose pull request the control plane may follow after they succeeded (issue #1053).
+func (q *Queries) SucceededTasksOfOpenRuns(ctx context.Context) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, succeededTasksOfOpenRuns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Task{}
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.Position,
+			&i.Profile,
+			&i.Spec,
+			&i.Runtime,
+			&i.Model,
+			&i.Effort,
+			&i.Status,
+			&i.BlockedReason,
+			&i.FailureCount,
+			&i.Result,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FinishedAt,
+			&i.NotBefore,
+			&i.CancelRequestedAt,
+			&i.WaitingReason,
+			&i.Kind,
+			&i.AuthorVendor,
+			&i.Continues,
+			&i.PushBranch,
+			&i.StartFrom,
+			&i.PrBase,
+			&i.ModelUnresolved,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const transitionRun = `-- name: TransitionRun :execrows
 UPDATE runs
 SET status = ?1, updated_at = ?2, finished_at = ?2

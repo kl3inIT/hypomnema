@@ -3,10 +3,13 @@
 package browser
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // standIn is a program put where the pinned agent-browser is installed. It
@@ -32,6 +37,10 @@ import (
 //     outlives the session, and answers `tab_gone` once that tab was closed or
 //     its Chrome went away. A call takes a second while `slow` is there.
 //     `agent_browser_set_viewport` also logs the size it was given.
+//     `agent_browser_screenshot` logs its arguments, saves a PNG of
+//     `shot-bytes` bytes after its signature where agent-browser 0.42.0 saves
+//     one, and answers its path with no image, as agent-browser does past its
+//     10 MiB (cli/src/mcp.rs:187, 4515-4545, 4698-4711; native/screenshot.rs:658-666).
 //
 // Chrome's DevTools port is the one in `devtools`, or one nothing listens on.
 const standIn = `#!/bin/sh
@@ -52,6 +61,15 @@ mcp)
     fi
     printf '{"targetId":"T-%s","url":"about:blank","cdp":"%s"}' "$AGENT_BROWSER_SESSION" "$AGENT_BROWSER_CDP" > "$bound"
     if [ -f "$dir/slow" ]; then sleep 1; fi
+    if [ "$3" = agent_browser_screenshot ]; then
+      echo "shot $in" >> "$dir/log"
+      shots="$HOME/.agent-browser/tmp/screenshots"
+      mkdir -p "$shots"
+      { printf '\211PNG\r\n\032\n'; head -c "$(cat "$dir/shot-bytes")" /dev/zero; } > "$shots/screenshot-1.png"
+      printf '{"content":[{"type":"text","text":"%s"}],"isError":false,' "$shots/screenshot-1.png"
+      printf '"structuredContent":{"response":{"success":true,"data":{"path":"%s"}}}}\n' "$shots/screenshot-1.png"
+      exit 0
+    fi
     echo '{"content":[{"type":"text","text":"done"}],"isError":false,"structuredContent":{"profile":"/engine/profile"}}'
   else
     cat "$dir/tools"
@@ -349,4 +367,85 @@ func TestChromeIsLaunchedAsTheBinarysHeadedSelf(t *testing.T) {
 	_, err = unread.Call(t.Context(), "d-one", toolOpen, json.RawMessage(`{"url":"example.com"}`))
 	require.ErrorIs(t, err, ErrUnavailable)
 	assert.Empty(t, containing(unread.runs(t), "open about:blank"), "Chrome is not launched without its identity")
+}
+
+// Scenario (issue #1059, review round 1): a screenshot asked with save_to is
+// sent whole, read from the file agent-browser saved, past agent-browser's own
+// 10 MiB for an inline image and the 8 MiB of another answer; agent-browser is
+// not given save_to. One asked without it is answered as agent-browser
+// answered.
+func TestAScreenshotToSaveIsSentWholeFromAgentBrowsersFile(t *testing.T) {
+	r := newRig(t, Config{})
+	r.touch(t, "shot-bytes", strconv.Itoa(12<<20))
+
+	result, err := r.Call(t.Context(), "d-one", agenttool.ToolBrowserScreenshot,
+		json.RawMessage(`{"selector":"main","save_to":"page.png"}`))
+	require.NoError(t, err)
+
+	var answer struct {
+		Content []struct {
+			Type     string `json:"type"`
+			Data     string `json:"data"`
+			MimeType string `json:"mimeType"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+
+	require.NoError(t, json.Unmarshal(result, &answer))
+	require.False(t, answer.IsError)
+	require.Len(t, answer.Content, 1)
+	assert.Equal(t, "image", answer.Content[0].Type)
+	assert.Equal(t, "image/png", answer.Content[0].MimeType)
+
+	shot, err := base64.StdEncoding.DecodeString(answer.Content[0].Data)
+	require.NoError(t, err)
+	assert.Len(t, shot, 8+12<<20, "the whole picture")
+	assert.True(t, bytes.HasPrefix(shot, []byte("\x89PNG\r\n\x1a\n")))
+
+	var asked []string
+
+	for _, run := range r.runs(t) {
+		if given, ok := strings.CutPrefix(run, "shot "); ok {
+			asked = append(asked, given)
+		}
+	}
+
+	require.Len(t, asked, 1)
+	assert.JSONEq(t, `{"selector":"main"}`, asked[0], "save_to is never agent-browser's")
+
+	result, err = r.Call(t.Context(), "d-one", agenttool.ToolBrowserScreenshot, json.RawMessage(`{"selector":"main"}`))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(result, &answer))
+	require.Len(t, answer.Content, 1)
+	assert.Equal(t, "text", answer.Content[0].Type, "without save_to the answer is agent-browser's")
+}
+
+// Scenario (issue #1059, review round 2): the picture is read only from a file
+// in agent-browser's screenshot folder, opened there: a link in that folder to
+// a file elsewhere on this machine is not followed.
+func TestAScreenshotToSaveIsReadOnlyInAgentBrowsersFolder(t *testing.T) {
+	r := newRig(t, Config{})
+	r.touch(t, "shot-bytes", "16")
+
+	shots := filepath.Join(r.home(), ".agent-browser", "tmp", "screenshots")
+	elsewhere := filepath.Join(t.TempDir(), "elsewhere.png")
+	require.NoError(t, os.WriteFile(elsewhere, nil, 0o600))
+	require.NoError(t, os.MkdirAll(shots, 0o700))
+	require.NoError(t, os.Symlink(elsewhere, filepath.Join(shots, "screenshot-1.png")))
+
+	result, err := r.Call(t.Context(), "d-one", agenttool.ToolBrowserScreenshot, json.RawMessage(`{"save_to":"a.png"}`))
+	require.NoError(t, err)
+
+	var answer struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+		IsError bool `json:"isError"`
+	}
+
+	require.NoError(t, json.Unmarshal(result, &answer))
+	assert.True(t, answer.IsError, "a file out of the folder is not sent")
+	require.Len(t, answer.Content, 1)
+	assert.Contains(t, answer.Content[0].Text, "could not be read")
 }

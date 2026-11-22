@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   AudioLines,
   BookA,
+  Bell,
   BookOpen,
   Cable,
   ChevronLeft,
@@ -38,6 +39,7 @@ import { cn } from "@/lib/utils"
 // with a way back as Omnigent's does (web/src/shell/settingsNav.tsx). A section appears here once it has a page.
 type Section = {
   to:
+    | "/settings/notifications"
     | "/settings/models"
     | "/settings/web-search"
     | "/settings/images"
@@ -78,6 +80,13 @@ type Section = {
 // attention with the system's plumbing last, and Coder's deployment settings hold its infrastructure
 // (site/src/modules/management/DeploymentSidebarView.tsx). Their pages keep their own heads.
 const groups: { heading: string; sections: Section[] }[] = [
+  // "Preferences" holds how the app reaches the owner: his devices' notifications (issue #1047), first as in
+  // OpenClaw's Settings, whose group of that name holds its notifications (ui/src/app-navigation.ts
+  // SETTINGS_NAVIGATION_GROUPS).
+  {
+    heading: "Preferences",
+    sections: [{ to: "/settings/notifications", label: "Notifications", icon: Bell }],
+  },
   {
     heading: "Gateway",
     sections: [

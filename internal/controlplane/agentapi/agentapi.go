@@ -46,6 +46,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
@@ -102,6 +103,10 @@ type Store interface {
 	// SSHOfDispatch says whether a Dispatch's repository is cloned over SSH, and its host's keys, for the SSH key
 	// (issue #625).
 	SSHOfDispatch(ctx context.Context, dispatchID string) (hostKeys string, overSSH bool, err error)
+	// StartBackground and EndBackground keep a Bot's pi's background commands and wake its chat when one ends
+	// (issue #1058).
+	StartBackground(ctx context.Context, chatID, pi, id string) error
+	EndBackground(ctx context.Context, chatID, pi string, e orchestration.BackgroundEnd) (bool, error)
 }
 
 // Token is a Connection's access token and when it ends.
@@ -156,6 +161,22 @@ type Server struct {
 	// none.
 	gitSSHKey GitSSHKey
 	logger    *slog.Logger
+	// calls is how many tool calls run now (ToolCalls).
+	calls atomic.Int64
+}
+
+// ToolCalls is how many agents' tool calls run now, for `hypomnema update` to wait for before it stops the control
+// plane, as it waits for Bots' turns (issue #1060).
+func (s *Server) ToolCalls() int { return int(s.calls.Load()) }
+
+// counted counts the calls of a tool route while they run.
+func (s *Server) counted(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.calls.Add(1)
+		defer s.calls.Add(-1)
+
+		h(w, r)
+	}
 }
 
 // New returns a Server.
@@ -176,15 +197,16 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+agenttool.PathConnections, s.connections)
 	mux.HandleFunc("POST "+agenttool.PathToken, s.token)
 	mux.HandleFunc("GET "+agenttool.PathBrowserTools, s.browserTools)
-	mux.HandleFunc("POST "+agenttool.PathBrowserCall, s.browserCall)
+	mux.HandleFunc("POST "+agenttool.PathBrowserCall, s.counted(s.browserCall))
 	mux.HandleFunc("POST "+agenttool.PathMemory, s.memory)
 	mux.HandleFunc("GET "+agenttool.PathDeviceTools, s.deviceTools)
-	mux.HandleFunc("POST "+agenttool.PathDeviceCall, s.deviceCall)
+	mux.HandleFunc("POST "+agenttool.PathDeviceCall, s.counted(s.deviceCall))
 	mux.HandleFunc("GET "+agenttool.PathGatewayTools, s.listGateway)
 	mux.HandleFunc("POST "+agenttool.PathGatewayCall, s.callGateway)
 	mux.HandleFunc("GET "+agenttool.PathTools, s.listTools)
-	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.callTool)
+	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.counted(s.callTool))
 	mux.HandleFunc("GET "+agenttool.PathGitSSHKey, s.gitSSHKeyFor)
+	mux.HandleFunc("POST "+agenttool.PathBackground, s.background)
 }
 
 // agent is who asks: what it is called in the log, and which Connections of
@@ -654,6 +676,12 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 
 // runBrowser runs one of the browser's tools in the agent's own tab.
 func (s *Server) runBrowser(w http.ResponseWriter, r *http.Request, a agent, asked agenttool.BrowserCall) {
+	// A screenshot to be saved on the agent's machine is sent whole, up to 64 MiB, which takes longer than the
+	// server's write timeout over a slow link, as an image generate_image makes does (images.go, issue #1059).
+	if browser.SendsWhole(asked.Tool, asked.Arguments) {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	}
+
 	result, err := s.browser.Call(r.Context(), a.key, asked.Tool, asked.Arguments)
 	if err != nil {
 		s.failBrowser(w, r, err)
@@ -669,7 +697,13 @@ func (s *Server) runBrowser(w http.ResponseWriter, r *http.Request, a agent, ask
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(result)
+
+	// The agent got a cut answer, or none: said here, since the answer can no longer say it.
+	if _, err := w.Write(result); err != nil {
+		s.logger.WarnContext(r.Context(), "the browser's answer could not be written",
+			slog.String("event", "agentapi.browser_answer_failed"), slog.String("agent", a.name),
+			slog.String("tool", asked.Tool), slog.Int("bytes", len(result)), slog.String("error", err.Error()))
+	}
 }
 
 // failBrowser answers an error of the browser: a call the agent made wrongly
