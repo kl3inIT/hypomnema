@@ -55,26 +55,31 @@ function gate() {
   return { opened, open: () => open() }
 }
 
+// Network is how the fake network and the CLI behave; a test may change it while the page is open.
+type Network = {
+  // cliFirst: the CLI writes to writer once the server has read the Bots for the page, making its main chat.
+  cliFirst?: boolean
+  // botsAfter holds the Bots' answer, as a slow network does, and botsFail answers 503 (issue #1055).
+  botsAfter?: Promise<void>
+  botsFail?: boolean
+  // postAfter is how long a chat's making takes to reach the server, in milliseconds.
+  postAfter?: number
+  // lost is a chat of writer's under this id, made by a send whose answer was lost: writer's main chat.
+  lost?: string
+}
+
 // fakeServer answers as the control plane: coordinator's main chat is cht_1, beside an older chat of it (cht_old) and
 // a Routine's run (cht_run); writer has none until something makes it. POST /chats/main answers writer's main chat,
-// the CLI's (cht_cli) when cliFirst says the CLI wrote first: the Bots read after botsAfter settles name it as
-// writer's. The Bots are answered once botsAfter settles, as on a slow network, and botsFail answers 503 (issue
-// #1055).
-async function fakeServer(
-  page: Page,
-  {
-    cliFirst = false,
-    botsAfter,
-    botsFail = false,
-  }: { cliFirst?: boolean; botsAfter?: Promise<void>; botsFail?: boolean } = {},
-) {
+// making it when there is none; the Bots are answered as the server read them when asked.
+async function fakeServer(page: Page, net: Network = {}) {
   const calls: Call[] = []
   const chats = [
     chat("cht_1", "Fix the header", "coordinator"),
     chat("cht_old", "The release plan", "coordinator", { updated_at: ago(3600) }),
     chat("cht_run", "Daily digest", "coordinator", { routine: true, updated_at: ago(1800) }),
+    ...(net.lost ? [chat(net.lost, "draft the release notes", "writer")] : []),
   ]
-  const bots = [bot("coordinator", 0, "cht_1"), bot("writer", 1)]
+  const bots = [bot("coordinator", 0, "cht_1"), bot("writer", 1, net.lost)]
   // cli makes writer's main chat as the CLI would.
   const cli = () => {
     const made = chat("cht_cli", "from the terminal", "writer", { created_at: ago(0) })
@@ -94,11 +99,13 @@ async function fakeServer(
     const body = request.method() === "GET" ? null : request.postDataJSON()
     if (request.method() !== "GET") calls.push({ call, body })
 
+    if (call === "POST /chats/main" || call === "POST /chats") {
+      await new Promise((done) => setTimeout(done, net.postAfter ?? 0))
+    }
     if (call === "POST /chats/main") {
       // As the server: the Bot's main chat is answered, unless the page says how long ago it opened and the main
       // chat is older (issue #1055); then, and when the Bot has none, the chat asked for is made its main chat.
       const asked = body as { bot: string; id: string; title?: string; opened_ms_ago?: number }
-      if (cliFirst) cli()
       const of = bots.find((b) => b.id === asked.bot)!
       const main = chats.find((c) => c.id === of.main_chat)
       const opened = Date.now() - (asked.opened_ms_ago ?? Infinity)
@@ -116,8 +123,11 @@ async function fakeServer(
       return json(changed)
     }
     if (call === "POST /chats") {
-      const asked = body as { bot: string }
-      const made = chat("cht_new", "Chat", asked.bot)
+      const asked = body as { bot: string; id?: string; title?: string }
+      if (chats.some((c) => c.id === asked.id)) {
+        return json({ code: "conflict", message: `chat ${asked.id} exists` }, 409)
+      }
+      const made = chat(asked.id ?? "cht_new", asked.title ?? "Chat", asked.bot)
       chats.push(made)
       bots.find((b) => b.id === asked.bot)!.main_chat = made.id
 
@@ -144,12 +154,14 @@ async function fakeServer(
         return json({ id: "usr_1", name: "admin", kind: "owner" })
       case "/chats":
         return json({ data: chats })
-      case "/bots":
-        await botsAfter
-        if (botsFail) return json({ error: "unavailable" }, 503)
-        if (cliFirst) cli()
+      case "/bots": {
+        const read = structuredClone(bots)
+        if (net.cliFirst) cli()
+        await net.botsAfter
+        if (net.botsFail) return json({ code: "unavailable", message: "unavailable" }, 503)
 
-        return json({ data: bots })
+        return json({ data: read })
+      }
       case "/events/stream":
         return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
       case "/tasks":
@@ -164,13 +176,13 @@ async function fakeServer(
 
 // Scenario: the page is open on writer, which has no main chat, when the CLI writes to writer first and makes its
 // main chat. The page's first message asks for writer's main chat with the id it chose, gets the CLI's, and goes
-// there: no second chat is made. The message is sent before the Bots are read (issue #1055), which then name the
-// CLI's chat as writer's: the page, which did not know writer had none, still asks for writer's main chat.
+// there: no second chat is made. The message is sent before the Bots arrive and its chat is slow to be made (issue
+// #1055): the page waits for the Bots, which say writer has none, and the server's write decides the rest.
 test("the first message to a Bot with no main chat goes to the one made meanwhile", async ({
   page,
 }) => {
   const sent = gate()
-  const calls = await fakeServer(page, { cliFirst: true, botsAfter: sent.opened })
+  const calls = await fakeServer(page, { cliFirst: true, botsAfter: sent.opened, postAfter: 1000 })
   await page.goto("/?bot=writer")
 
   await page.getByRole("textbox", { name: "Message" }).fill("draft the release notes")
@@ -201,43 +213,92 @@ test("the first message to a Bot with no main chat makes it under the page's id"
   await expect(page).toHaveURL(new RegExp(`/chats/${made}$`))
 })
 
-// Scenario: the Bots are not read yet, and the owner sends the first message and reloads the page (issue #1055): the
-// message has gone to writer's main chat without waiting for them, so the reload loses nothing.
-test("the first message does not wait for the Bots, so a reload does not lose it", async ({
+// Scenario: the Bots are not read yet, and the owner sends the first message and reloads the page (issue #1055).
+// Nothing was asked of the server yet: the message is still the page's draft after the reload.
+test("a first message waiting for the Bots stays in the draft through a reload", async ({
   page,
 }) => {
   const calls = await fakeServer(page, { botsAfter: gate().opened })
   await page.goto("/?bot=writer")
 
-  await page.getByRole("textbox", { name: "Message" }).fill("draft the release notes")
+  const box = page.getByRole("textbox", { name: "Message" })
+  await box.fill("draft the release notes")
   await page.keyboard.press("Enter")
-
-  await expect
-    .poll(() => calls.map((c) => c.call.replace(/cht_\w+/, "cht_page")))
-    .toEqual(["POST /chats/main", "POST /chats/cht_page/messages"])
-  const made = (calls[0]!.body as { id: string }).id
-  expect(calls[0]!.body).toMatchObject({ bot: "writer", title: "draft the release notes" })
   await page.reload()
-  await expect(page).toHaveURL(new RegExp(`/chats/${made}$`))
+
+  await expect(box).toHaveValue("draft the release notes")
+  expect(calls).toEqual([])
 })
 
-// Scenario: the Bots cannot be read (503, issue #1055): the first message to writer still goes to its main chat, and
-// the message box is usable again.
-test("the first message goes to the Bot's main chat when the Bots cannot be read", async ({
+// Scenario: the Bots cannot be read (503, issue #1055): the first message is not sent, the page says so and the
+// message stays in the box; once they can be, it is sent to writer's main chat.
+test("a first message is kept and the page says so when the Bots cannot be read", async ({
   page,
 }) => {
-  const calls = await fakeServer(page, { botsFail: true })
+  const net: Network = { botsFail: true }
+  const calls = await fakeServer(page, net)
   await page.goto("/?bot=writer")
 
   const box = page.getByRole("textbox", { name: "Message" })
   await box.fill("draft the release notes")
   await page.keyboard.press("Enter")
 
+  // The Bots' read is tried again a few times before it fails.
+  await expect(page.getByText(/^Not sent/)).toBeVisible({ timeout: 20_000 })
+  await expect(box).toHaveValue("draft the release notes")
+  expect(calls).toEqual([])
+
+  net.botsFail = false
+  await page.keyboard.press("Enter")
   await expect(page).toHaveURL(/\/chats\/cht_\w+$/)
   const made = (calls[0]!.body as { id: string }).id
   expect(calls.map((c) => c.call)).toEqual(["POST /chats/main", `POST /chats/${made}/messages`])
-  await expect(page).toHaveURL(new RegExp(`/chats/${made}$`))
-  await expect(box).toBeEditable()
+})
+
+// Scenario: the browser goes offline while the Bots are being read (issue #1055): the first message is not sent, the
+// page says so at once and the message stays in the box.
+test("a first message is kept and the page says so when it goes offline", async ({
+  page,
+  context,
+}) => {
+  const calls = await fakeServer(page, { botsAfter: gate().opened })
+  await page.goto("/?bot=writer")
+
+  const box = page.getByRole("textbox", { name: "Message" })
+  await box.fill("draft the release notes")
+  await context.setOffline(true)
+  await page.keyboard.press("Enter")
+
+  await expect(page.getByText(/^Not sent/)).toBeVisible()
+  await expect(box).toHaveValue("draft the release notes")
+  expect(calls).toEqual([])
+  await context.setOffline(false)
+})
+
+// Scenario: a first message reached the server, which made writer's main chat under the page's id, but its answer
+// was lost and the page reloaded (issue #1055): the page's draft still has that id. Sent again, the message goes to
+// that chat: the page's id names it, and no second chat is made.
+test("a first message sent again after a lost answer goes to the chat made under the page's id", async ({
+  page,
+}) => {
+  const id = `cht_${"q".repeat(26)}`
+  const calls = await fakeServer(page, { lost: id })
+  await page.addInitScript({
+    content: `localStorage.setItem("hypomnema:chat-drafts:v1", ${JSON.stringify(
+      JSON.stringify({
+        new: { text: "draft the release notes", files: [], chat: id, bot: "writer" },
+      }),
+    )})`,
+  })
+  await page.goto("/?bot=writer")
+
+  const box = page.getByRole("textbox", { name: "Message" })
+  await expect(box).toHaveValue("draft the release notes")
+  await expect(page.getByLabel("Bot", { exact: true })).toContainText("writer")
+  await box.press("Enter")
+
+  await expect(page).toHaveURL(new RegExp(`/chats/${id}$`))
+  expect(calls.map((c) => c.call).at(-1)).toBe(`POST /chats/${id}/messages`)
 })
 
 // Scenario: the owner types /new in coordinator's main chat (issue #471): a new chat with coordinator is made, which

@@ -42,8 +42,18 @@ const gatewayModel = (name: string, reasoning: boolean, efforts: string[]) => ({
 async function fakeServer(page: Page) {
   // calls says what was asked of the Bots' folders, with the Bot named, and what was posted.
   const calls: string[] = []
-  // The Bots are answered once slow.until settles, as on a slow network (issue #1055).
+  // The Bots are answered once slow.until settles, as on a slow network, as the server read them when asked (issue
+  // #1055).
   const slow: { until?: Promise<void> } = {}
+  // Each Bot's main chat, and when it was made.
+  const mains: Record<string, { id: string; created_at: string }> = {
+    coordinator: { id: "cht_main_coordinator", created_at: at },
+    researcher: { id: "cht_main_researcher", created_at: at },
+  }
+  // cliNew starts a new chat with coordinator from the CLI (`hypomnema chat --new`), its main chat from now on.
+  const cliNew = () => {
+    mains.coordinator = { id: "cht_cli_new", created_at: new Date().toISOString() }
+  }
   const posted: { call: string; body: Record<string, unknown> }[] = []
   // The Bots' folders, a file's place as "<bot>:<path>".
   const files = new Set<string>()
@@ -136,10 +146,15 @@ async function fakeServer(page: Page) {
     switch (call) {
       case "GET /me":
         return json({ id: "usr_1", name: "admin", kind: "owner" })
-      case "GET /bots":
+      case "GET /bots": {
+        const read = [bot("coordinator"), bot("researcher")].map((b) => ({
+          ...b,
+          main_chat: mains[b.id]?.id,
+        }))
         await slow.until
 
-        return json({ data: [bot("coordinator"), bot("researcher")] })
+        return json({ data: read })
+      }
       case "GET /models":
         return json({ data: models })
       case "GET /gateway/models":
@@ -152,17 +167,26 @@ async function fakeServer(page: Page) {
       case "GET /chats":
         return json({ data: chat ? [chat] : [] })
       case "POST /chats/main": {
-        // As the server (issue #1055): each Bot's main chat was made at `at`, before the page opened, so a page that
-        // says how long ago it opened gets a new chat, made as New chat makes it; one that does not gets the main chat.
-        if (body?.opened_ms_ago !== undefined) return json(make(body), 201)
+        // As the server: the Bot's main chat is answered, unless the page says how long ago it opened and the main
+        // chat is older (issue #1055); then the chat asked for is made its main chat.
         const of = body?.bot ?? "coordinator"
+        const main = mains[of]
+        const age = body?.opened_ms_ago as number | undefined
+        if (main && (age === undefined || Date.parse(main.created_at) >= Date.now() - age)) {
+          chat = { ...make({ bot: of, title: "Main" }), id: main.id }
 
-        chat = { ...make({ bot: of, title: "Main" }), id: `cht_main_${of}` }
+          return json(chat)
+        }
+        mains[of] = { id: `${body?.id}`, created_at: new Date().toISOString() }
 
-        return json(chat)
-      }
-      case "POST /chats":
         return json(make(body), 201)
+      }
+      case "POST /chats": {
+        const made = make(body)
+        mains[`${made.bot}`] = { id: `${made.id}`, created_at: new Date().toISOString() }
+
+        return json(made, 201)
+      }
       case `GET /chats/${id}`:
         return json(chat)
       case `GET /chats/${id}/workspaces`:
@@ -190,7 +214,7 @@ async function fakeServer(page: Page) {
     }
   })
 
-  return { calls, posted, files, slow }
+  return { calls, posted, files, slow, cliNew }
 }
 
 // gate is a promise opened by hand: what waits on it goes on once the test opens it.
@@ -346,8 +370,8 @@ test("the New chat page keeps its draft across a reload", async ({ page }) => {
 })
 
 // Scenario: the owner sends the New chat page's first message to coordinator, which has a main chat, before the Bots
-// are read (issue #1055). The page cannot know that coordinator has one; the server, told how long ago the page
-// opened, finds the main chat older than the page and makes a new chat under the page's id, as New chat does.
+// are read (issue #1055). The page waits for them, learns that coordinator has one, and makes a new chat under the
+// page's id, as New chat does.
 test("New chat makes a new chat with a Bot that has a main chat while the Bots are slow", async ({
   page,
 }) => {
@@ -358,14 +382,37 @@ test("New chat makes a new chat with a Bot that has a main chat while the Bots a
 
   await page.getByRole("textbox", { name: "Message" }).fill("plan the release")
   await page.keyboard.press("Enter")
+  bots.open()
 
   await expect.poll(() => posted.length).toBe(2)
   const id = posted[0]?.body.id
-  expect(posted.map((p) => p.call)).toEqual(["POST /chats/main", `POST /chats/${id}/messages`])
-  expect(posted[0]?.body).toMatchObject({ title: "plan the release" })
-  expect(posted[0]?.body.opened_ms_ago).toEqual(expect.any(Number))
+  expect(posted.map((p) => p.call)).toEqual(["POST /chats", `POST /chats/${id}/messages`])
+  expect(posted[0]?.body).toEqual({ id, title: "plan the release", bot: "coordinator" })
   await expect(page).toHaveURL(new RegExp(`/chats/${id}$`))
+})
+
+// Scenario: the New chat page is open on coordinator, which has a main chat, when the CLI starts a new chat with it
+// (`hypomnema chat --new`), and the owner sends before the Bots are read (issue #1055). The page's first message is
+// still New chat: a new chat under the page's id, not the CLI's.
+test("New chat makes a new chat when the CLI starts one meanwhile while the Bots are slow", async ({
+  page,
+}) => {
+  const { posted, slow, cliNew } = await fakeServer(page)
+  const bots = gate()
+  slow.until = bots.opened
+  await page.goto("/")
+
+  const box = page.getByRole("textbox", { name: "Message" })
+  await expect(box).toBeVisible()
+  cliNew()
+  await box.fill("plan the release")
+  await page.keyboard.press("Enter")
   bots.open()
+
+  await expect.poll(() => posted.length).toBe(2)
+  const id = posted[0]?.body.id
+  expect(posted.map((p) => p.call)).toEqual(["POST /chats", `POST /chats/${id}/messages`])
+  await expect(page).toHaveURL(new RegExp(`/chats/${id}$`))
 })
 
 // Scenario: the owner attached a report on the New chat page and picked researcher, which has a main chat, then
@@ -399,13 +446,13 @@ test("a file on the New chat page goes with the first message while the Bots are
   await expect(chips.getByText("report.pdf")).toBeVisible()
   await expect(box).toHaveValue("summarise this report")
   await box.press("Enter")
+  bots.open()
 
   await expect(page).toHaveURL(new RegExp(`/chats/${id}$`))
-  expect(posted.map((p) => p.call)).toEqual(["POST /chats/main", `POST /chats/${id}/messages`])
-  expect(posted[0]?.body).toMatchObject({ id, title: "summarise this report", bot: "researcher" })
+  expect(posted.map((p) => p.call)).toEqual(["POST /chats", `POST /chats/${id}/messages`])
+  expect(posted[0]?.body).toEqual({ id, title: "summarise this report", bot: "researcher" })
   expect(posted[1]?.body).toMatchObject({
     text: "summarise this report",
     attachments: [{ name: "report.pdf", path: `attachments/${id}/report.pdf` }],
   })
-  bots.open()
 })
