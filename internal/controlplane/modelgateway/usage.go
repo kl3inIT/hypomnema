@@ -93,8 +93,6 @@ type Usage struct {
 	CreatedAt time.Time
 	// started is when the gateway received the request, for TTFT.
 	started time.Time
-	// explained says a truncated stream ended on the provider's own error event, not silently (issue #1052).
-	explained bool
 }
 
 // firstChunk notes that the first chunk of a streamed answer reached the

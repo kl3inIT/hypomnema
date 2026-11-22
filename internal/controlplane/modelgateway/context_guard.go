@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"sync"
 	"time"
 
@@ -21,11 +22,16 @@ import (
 // owner's choice B, 2026-11-22). LiteLLM checks a prompt against the window
 // only when asked to (litellm/router.py:95, enable_pre_call_checks False).
 // What counts, whatever the prompt's size, is an answer that did not end: a
-// stream cut short without a word, a client gone before anything came, or the
-// provider saying the prompt did not fit (internal/shared/contextwindow). A
-// stream the provider ended on another error of its own, such as a tool's
-// input too long, is its refusal and does not count (review of PR #1057). An
-// answer that ends well clears the run.
+// stream cut short, silently or on an error the provider sent (one Codex
+// retries on its own up to five times, codex-rs/codex-api/src/sse/
+// responses_error.rs:73-91, model-provider-info/src/lib.rs:74), a client gone
+// before anything came, or the provider saying the prompt did not fit
+// (internal/shared/contextwindow). A stream the provider ended because a
+// parameter was invalid, such as a tool's input too long, does not count: the
+// request is at fault, not its size or the provider, as OmniRoute sets
+// invalid_value and invalid_type apart (open-sse/services/accountFallback.ts:
+// 379); counting it would end the turn as an overflow (review of PR #1057).
+// An answer that ends well clears the run.
 //
 // The run ends as LiteLLM's router cools a deployment: more than
 // DEFAULT_ALLOWED_FAILS (3) failures (litellm/constants.py:162;
@@ -55,6 +61,9 @@ const (
 	codeContextOverflow = "context_overflow"
 )
 
+// parameterError is a provider's error that a parameter of the request was invalid.
+var parameterError = regexp.MustCompile(`\b(?:invalid_value|invalid_type)\b`)
+
 // answer is how an answer counts toward a run.
 type answer int
 
@@ -63,7 +72,7 @@ const (
 	answerOther answer = iota
 	// answerOK ended well and clears the run.
 	answerOK
-	// answerFailed did not end: cut short without a word, empty, or the prompt did not fit.
+	// answerFailed did not end: cut short, empty, or the prompt did not fit.
 	answerFailed
 )
 
@@ -178,7 +187,7 @@ func (s *Server) noteOverflow(ctx context.Context, key Key, model Model, run *ov
 	switch {
 	case record.Outcome == OutcomeOK:
 		kind = answerOK
-	case record.Outcome == OutcomeTruncated && !record.explained,
+	case record.Outcome == OutcomeTruncated && !parameterError.MatchString(record.Error),
 		record.Outcome == OutcomeClientGone && record.TTFT == nil,
 		(record.Outcome == OutcomeTruncated || record.Outcome == OutcomeUpstreamError) &&
 			contextwindow.Exceeded(record.Error):

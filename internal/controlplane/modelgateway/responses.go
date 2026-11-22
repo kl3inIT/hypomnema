@@ -407,7 +407,7 @@ func (s *Server) relayResponses(
 		// connection (codex-rs/codex-api/src/sse/responses.rs), which is not a client gone (issue #635).
 		record.Outcome = OutcomeOK
 	case failure != "":
-		record.Outcome, record.Error, record.explained = OutcomeTruncated, failure, true
+		record.Outcome, record.Error = OutcomeTruncated, failure
 	case clientGone || r.Context().Err() != nil:
 		record.Outcome = OutcomeClientGone
 	default:

@@ -3576,8 +3576,9 @@ capabilities do not exist yet.
   - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
     keeps its status and body.
   - A run of answers that did not end ends the client's turn (issue #1052), whatever the prompt's size: a stream cut
-    short without a word, a client gone before anything came, or the provider saying the prompt did not fit the
-    context window; a stream the provider ended on another error of its own does not count. After more than 3 in a
+    short (silently or on an error the provider sent, which Codex retries), a client gone before anything came, or
+    the provider saying the prompt did not fit the context window; a stream the provider ended on an invalid
+    parameter (`invalid_value`, `invalid_type`, as OmniRoute sets them apart) does not count. After more than 3 in a
     row on one key (one Dispatch's) and model with none that ended well between them (LiteLLM's `allowed_fails`),
     the key's requests to the model are answered 400 `context_overflow` without being sent for 5 s (LiteLLM's
     cooldown); its message names the context window, so the node reports an overflow and the next Dispatch starts a
