@@ -103,13 +103,11 @@ async function fakeServer(page: Page, net: Network = {}) {
       await new Promise((done) => setTimeout(done, net.postAfter ?? 0))
     }
     if (call === "POST /chats/main") {
-      // As the server: the Bot's main chat is answered, unless the page says how long ago it opened and the main
-      // chat is older (issue #1055); then, and when the Bot has none, the chat asked for is made its main chat.
-      const asked = body as { bot: string; id: string; title?: string; opened_ms_ago?: number }
+      // As the server: the Bot's main chat is answered; when it has none, the chat asked for is made its main chat.
+      const asked = body as { bot: string; id: string; title?: string }
       const of = bots.find((b) => b.id === asked.bot)!
       const main = chats.find((c) => c.id === of.main_chat)
-      const opened = Date.now() - (asked.opened_ms_ago ?? Infinity)
-      if (main && Date.parse(main.created_at) >= opened) return json(main)
+      if (main) return json(main)
       const made = chat(asked.id, asked.title ?? "Chat", asked.bot)
       chats.push(made)
       of.main_chat = made.id

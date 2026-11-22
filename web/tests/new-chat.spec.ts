@@ -45,14 +45,14 @@ async function fakeServer(page: Page) {
   // The Bots are answered once slow.until settles, as on a slow network, as the server read them when asked (issue
   // #1055).
   const slow: { until?: Promise<void> } = {}
-  // Each Bot's main chat, and when it was made.
-  const mains: Record<string, { id: string; created_at: string }> = {
-    coordinator: { id: "cht_main_coordinator", created_at: at },
-    researcher: { id: "cht_main_researcher", created_at: at },
+  // Each Bot's main chat.
+  const mains: Record<string, string> = {
+    coordinator: "cht_main_coordinator",
+    researcher: "cht_main_researcher",
   }
   // cliNew starts a new chat with coordinator from the CLI (`hypomnema chat --new`), its main chat from now on.
   const cliNew = () => {
-    mains.coordinator = { id: "cht_cli_new", created_at: new Date().toISOString() }
+    mains.coordinator = "cht_cli_new"
   }
   const posted: { call: string; body: Record<string, unknown> }[] = []
   // The Bots' folders, a file's place as "<bot>:<path>".
@@ -149,7 +149,7 @@ async function fakeServer(page: Page) {
       case "GET /bots": {
         const read = [bot("coordinator"), bot("researcher")].map((b) => ({
           ...b,
-          main_chat: mains[b.id]?.id,
+          main_chat: mains[b.id],
         }))
         await slow.until
 
@@ -167,23 +167,21 @@ async function fakeServer(page: Page) {
       case "GET /chats":
         return json({ data: chat ? [chat] : [] })
       case "POST /chats/main": {
-        // As the server: the Bot's main chat is answered, unless the page says how long ago it opened and the main
-        // chat is older (issue #1055); then the chat asked for is made its main chat.
+        // As the server: the Bot's main chat is answered; when it has none, the chat asked for is made its main chat.
         const of = body?.bot ?? "coordinator"
         const main = mains[of]
-        const age = body?.opened_ms_ago as number | undefined
-        if (main && (age === undefined || Date.parse(main.created_at) >= Date.now() - age)) {
-          chat = { ...make({ bot: of, title: "Main" }), id: main.id }
+        if (main) {
+          chat = { ...make({ bot: of, title: "Main" }), id: main }
 
           return json(chat)
         }
-        mains[of] = { id: `${body?.id}`, created_at: new Date().toISOString() }
+        mains[of] = `${body?.id}`
 
         return json(make(body), 201)
       }
       case "POST /chats": {
         const made = make(body)
-        mains[`${made.bot}`] = { id: `${made.id}`, created_at: new Date().toISOString() }
+        mains[`${made.bot}`] = `${made.id}`
 
         return json(made, 201)
       }

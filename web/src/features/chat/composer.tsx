@@ -30,8 +30,10 @@ import { recall, type Walk } from "./recall"
 // What is written, with the files that are up, is kept as the chat's draft (issue #433, drafts.ts) and is there
 // again when the owner comes back to the chat or reloads; it goes when it is sent. ↑ in the empty box brings back
 // what this chat sent, newest first, and ↓ goes back to the empty box (recall.ts).
-export function Composer({
+export function Composer<T>({
   onSend,
+  ready,
+  onSent,
   onStop,
   working,
   disabled,
@@ -42,7 +44,13 @@ export function Composer({
   sent,
   put,
 }: {
-  onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
+  onSend: (text: string, files: ChatAttachment[]) => Promise<T>
+  // ready is what the message waits for before it leaves the box and the draft, such as a new chat's Bots (issue
+  // #1055); a refusal leaves it there and says why.
+  ready?: () => Promise<unknown>
+  // onSent is told what onSend answered once the draft went with the message, so that what it does next, such as
+  // opening the chat made, finds no draft left (issue #1080).
+  onSent?: (sent: T) => void
   onStop: () => void
   working: boolean
   disabled?: boolean
@@ -62,6 +70,8 @@ export function Composer({
 }) {
   const [text, setText] = useState(() => (draft ? readDraft(draft.key).text : ""))
   const [sending, setSending] = useState(false)
+  // waiting: the message waits for ready, still in the box, which is not changed meanwhile.
+  const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
@@ -124,13 +134,26 @@ export function Composer({
 
     setSending(true)
     setError(null)
+    if (ready) {
+      setWaiting(true)
+      try {
+        await ready()
+      } catch (err) {
+        setError(`Not sent: ${errorText(err)}`)
+        setSending(false)
+
+        return
+      } finally {
+        setWaiting(false)
+      }
+    }
     attachments?.dismiss()
     walk.current = null
     type("")
 
     try {
       const files = attachments ? await attachments.draft.ready() : []
-      await onSend(message, files)
+      const sent = await onSend(message, files)
       attachments?.draft.clear()
       if (key) {
         clearDraft(key)
@@ -138,6 +161,7 @@ export function Composer({
         const typed = box.current?.value ?? ""
         if (typed !== "") type(typed)
       }
+      onSent?.(sent)
     } catch (err) {
       // A send whose answer was lost may have reached the server, and a page that goes (a reload) loses it so: it
       // goes back after a pause, which a page going away does not live through, so it is not kept as the draft
@@ -201,6 +225,7 @@ export function Composer({
             rows={1}
             value={text}
             disabled={disabled}
+            readOnly={waiting}
             ref={box}
             onChange={(event) => {
               walk.current = null

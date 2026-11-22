@@ -21,7 +21,7 @@ func runCoordinator(ctx context.Context, q *store.Queries, name string) (Token, 
 func (s *Service) runChat(ctx context.Context, q *store.Queries, now int64, chatID string) (store.Chat, error) {
 	if chatID == "" {
 		var err error
-		chatID, _, err = s.createChatTx(ctx, q, now, "", DefaultBotID, untitled, ChatModel{}, mainIfNone, 0)
+		chatID, _, err = s.createChatTx(ctx, q, now, "", DefaultBotID, untitled, ChatModel{}, mainIfNone)
 		if err != nil {
 			return store.Chat{}, err
 		}

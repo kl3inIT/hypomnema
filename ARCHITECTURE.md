@@ -175,11 +175,10 @@ chat does the same for that chat's Bot and opens the new chat; `hypomnema chat /
 returns the Bot's main chat, making one when it has none, read and made in one write so that the web and the CLI
 at once end in one. The web's first message to a Bot with no main chat goes through it with the id its page chose
 (and its title and model, used only when the chat is made): a main chat the CLI made meanwhile is answered instead
-(200, its own id), the message goes there, and files put under the page's id are refused rather than lost. A first
-message sent before the page has read the Bots goes through it too, saying how long ago the page opened
-(`opened_ms_ago`, a duration so that the two clocks need not agree, issue #1055): the server finds in the same write
-whether the main chat was made since, and answers it, or before, and then makes the page's chat the main chat, as
-New chat does. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
+(200, its own id), the message goes there, and files put under the page's id are refused rather than lost. Which
+of the two a first message is, the page reads in the Bots: one sent before they are read waits for them, still in the
+box and the draft, and a read that fails or a browser gone offline says so and leaves it there (issue #1055); a chat
+already under the page's id (409) is one a send of this page made whose answer was lost, and the message goes to it. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
 never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (Runs and
 their wake-ups, approvals, Routines and their report cards, the queue, a cut turn, files, artifacts, pi's
 sessions), and only leaves the sidebar's row. Deleting the main chat clears the pointer, and the next message
@@ -5957,7 +5956,7 @@ Node (`internal/node`):
     OpenMausBot's `src/lib/drafts.ts` and opencode's history walk): what is written in a chat's composer, with the
     files that are up (their place in the folder, not their bytes), is kept for that chat in localStorage
     (`hypomnema:chat-drafts:v1`), saved 300 ms after a write and when the page hides or the composer goes, and held
-    in memory where the storage throws; it is there again after switching chats or reloading, and goes when sent.
+    in memory where the storage throws; it is there again after switching chats or reloading, and goes when sent, before the chat made opens (issue #1080).
     The New chat page and a new chat's tab keep theirs with the chat's id they chose and the Bot picked; a restored
     file cannot move to another Bot's folder and asks to be attached again. In an empty box with the caret
     at its start, ↑ brings back the owner's messages of this chat, newest first; while walking, ↑ and ↓ step from

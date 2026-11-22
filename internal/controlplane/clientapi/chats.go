@@ -57,22 +57,9 @@ func (s *Server) CreateChat(ctx context.Context, req openapi.CreateChatRequestOb
 func (s *Server) OpenMainChat(ctx context.Context, req openapi.OpenMainChatRequestObject,
 ) (openapi.OpenMainChatResponseObject, error) {
 	b := req.Body
-	m := orchestration.ChatModel{Provider: val(b.Provider), Model: val(b.Model), Effort: val(b.Effort)}
-
-	var (
-		chat orchestration.Chat
-		made bool
-		err  error
-	)
-
-	// A page that has not read the Bots says how long ago it opened (issue #1055).
-	if b.OpenedMsAgo != nil {
-		chat, made, err = s.svc.OpenMainChatSince(ctx, val(b.Bot), val(b.Id), val(b.Title), m,
-			time.Duration(*b.OpenedMsAgo)*time.Millisecond)
-	} else {
-		chat, made, err = s.svc.OpenMainChat(ctx, val(b.Bot), val(b.Id), val(b.Title), m)
-	}
-
+	chat, made, err := s.svc.OpenMainChat(ctx, val(b.Bot), val(b.Id), val(b.Title), orchestration.ChatModel{
+		Provider: val(b.Provider), Model: val(b.Model), Effort: val(b.Effort),
+	})
 	if err != nil {
 		return nil, err
 	}

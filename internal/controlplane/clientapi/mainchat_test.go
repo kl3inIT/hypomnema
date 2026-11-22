@@ -5,7 +5,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,67 +117,6 @@ func TestTheWebAndTheCLIFirstMessagesEndInOneChat(t *testing.T) {
 		assert.Equal(t, openedChat(t, web), openedChat(t, cli), "one chat")
 		assert.Equal(t, openedChat(t, web), mainChat(t, owner, orchestration.DefaultBotID))
 	}
-}
-
-// Scenario: the web's page sends its first message before it has read the Bots, so it says how long ago it opened
-// (issue #1055). A main chat made before the page opened is kept as it was and a new chat is made under the page's
-// id, which becomes the main chat, as New chat does; one the CLI made since the page opened is answered, and no
-// second chat is made; a Bot with none gets the page's. A page cannot have opened in the future.
-func TestAPageThatHasNotReadTheBotsGetsANewChatOrTheOneMadeMeanwhile(t *testing.T) {
-	t.Parallel()
-
-	ctx := t.Context()
-	minute := ptr(time.Minute.Milliseconds())
-	page := func(c *openapi.ClientWithResponses, id string, ago *int64) *openapi.OpenMainChatResponse {
-		t.Helper()
-
-		r, err := c.OpenMainChatWithResponse(ctx, openapi.MainChatRequest{Id: &id, OpenedMsAgo: ago})
-		require.NoError(t, err)
-
-		return r
-	}
-	chats := func(c *openapi.ClientWithResponses) int {
-		t.Helper()
-
-		r, err := c.ListChatsWithResponse(ctx, &openapi.ListChatsParams{Bot: ptr(orchestration.DefaultBotID)})
-		require.NoError(t, err)
-		require.NotNil(t, r.JSON200, "%s", r.Body)
-
-		return len(r.JSON200.Data)
-	}
-
-	clock := &movedClock{}
-	w := newWorldAt(t, clock)
-	owner, _ := w.token("owner", bearertoken.Owner)
-	clock.by.Store(int64(-time.Hour))
-	before := page(owner, "cht_"+strings.Repeat("a", 26), nil)
-	require.NotNil(t, before.JSON201, "%s", before.Body)
-	clock.by.Store(0)
-
-	id := "cht_" + strings.Repeat("b", 26)
-	made := page(owner, id, minute)
-	require.NotNil(t, made.JSON201, "a new chat, as New chat's: %s", made.Body)
-	assert.Equal(t, id, made.JSON201.Id)
-	assert.Equal(t, id, mainChat(t, owner, orchestration.DefaultBotID))
-	assert.Equal(t, 2, chats(owner), "the former main chat stays")
-
-	w = newWorld(t)
-	owner, _ = w.token("owner", bearertoken.Owner)
-	cli := page(owner, "cht_"+strings.Repeat("c", 26), nil)
-	require.NotNil(t, cli.JSON201, "%s", cli.Body)
-	meanwhile := page(owner, "cht_"+strings.Repeat("d", 26), minute)
-	require.NotNil(t, meanwhile.JSON200, "the CLI's, made since the page opened: %s", meanwhile.Body)
-	assert.Equal(t, cli.JSON201.Id, meanwhile.JSON200.Id)
-	assert.Equal(t, 1, chats(owner), "no second chat")
-
-	w = newWorld(t)
-	owner, _ = w.token("owner", bearertoken.Owner)
-	none := page(owner, id, minute)
-	require.NotNil(t, none.JSON201, "%s", none.Body)
-	assert.Equal(t, id, none.JSON201.Id)
-
-	future := page(owner, "cht_"+strings.Repeat("e", 26), ptr(int64(-1)))
-	assert.Equal(t, http.StatusBadRequest, future.StatusCode(), "%s", future.Body)
 }
 
 func openedChat(t *testing.T, r *openapi.OpenMainChatResponse) string {

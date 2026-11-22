@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { AvatarName } from "@/components/agent-avatar"
-import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
+import { botNameOf, pickedBotOf } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import { AppSidebar } from "@/features/shell/app-shell"
 import { MenuButton, PageHeader } from "@/components/page-header"
@@ -51,20 +51,19 @@ function NewChat({ initialBot }: { initialBot?: string }) {
   const [saved] = useState(() => readDraft(newChatDraft))
   const listed = useBots().data
   const bots = listed ?? []
-  const main = mainBotOf(listed)
   const [picked, setPicked] = useState(initialBot ?? saved.bot ?? "")
   const choice = bots.length > 1
   // Until the Bots are read, the one picked stands, so that the files of the draft do not move meanwhile.
-  // A Bot is picked by its id (issue #466); one the list does not have, a draft's from before, is the main Bot.
-  const bot = !listed || bots.some((b) => b.id === picked) ? picked : main
+  const bot = pickedBotOf(listed, picked)
   const [chatId] = useState(() => saved.chat ?? newChatId())
   const attachments = useAttachments(chatId, bot, { files: saved.files, bot: saved.bot ?? bot })
   const [model, setModel] = useDraftChoice(bot)
 
-  // Before the Bots are read, the one picked is named: whether there is a choice is not known yet (issue #1055).
-  const named = listed ? (choice ? bot : undefined) : bot || undefined
-  const start = useStartChat(chatId, named, model, (chat) =>
-    navigate({ to: "/chats/$chatId", params: { chatId: chat.id } }),
+  // The Bot is named out of the Bots read when the message is sent, which it waits for (issue #1055).
+  const start = useStartChat(
+    chatId,
+    (read) => (read.length > 1 ? pickedBotOf(read, picked) : undefined),
+    model,
   )
 
   return (
@@ -98,7 +97,9 @@ function NewChat({ initialBot }: { initialBot?: string }) {
             </div>
           )}
           <Composer
-            onSend={(text, files) => start.mutateAsync({ text, files })}
+            onSend={start.send}
+            ready={start.ready}
+            onSent={(chat) => navigate({ to: "/chats/$chatId", params: { chatId: chat.id } })}
             onStop={() => {}}
             working={false}
             botName={botNameOf(bots, bot)}
