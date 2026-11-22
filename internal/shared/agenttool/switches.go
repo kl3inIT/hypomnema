@@ -296,8 +296,8 @@ var ToolFamilies = []ToolFamily{
 			devicetool.VideoMake, devicetool.VideoGet},
 		WhenToUse: "An Android phone a node holds is shared by every agent; drive it with the device_* tools, one " +
 			"call at a time, after loading the `android-device` skill. Look with device_screen before each action " +
-			"and tap its numbered boxes. A phone or machine stopped for idleness is started by any device_* call, " +
-			"and by node_exec on the phone's node. Sign in only with a password or code the owner gave you, and never buy " +
+			"and tap its numbered boxes. A phone or machine stopped for idleness is started by any device_* call; " +
+			"node_exec on the phone's node starts its machine only, not the phone. Sign in only with a password or code the owner gave you, and never buy " +
 			"or pay: ask the owner. " +
 			"To film a demo of an app, video_start a take, call video_say right before each action, then video_stop; " +
 			"make the take into a video for the owner to review with video_make, and follow it with video_get."},

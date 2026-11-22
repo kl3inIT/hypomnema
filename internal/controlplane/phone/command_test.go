@@ -31,11 +31,6 @@ func TestACommandOnThePhonesNodeWakesItsStoppedMachine(t *testing.T) {
 	assert.Equal(t, []string{"n-phone"}, machines.started)
 	assert.True(t, link.Online("n-phone"))
 	done()
-
-	done, woken, err = p.Use(t.Context(), "n-phone")
-	require.NoError(t, err)
-	assert.False(t, woken, "a connected node is not woken again")
-	done()
 }
 
 // A stopped machine that cannot be woken in time is answered with why it was stopped and how it starts, never as a
@@ -54,7 +49,9 @@ func TestACommandThatCannotWakeThePhoneSaysWhy(t *testing.T) {
 	assert.Contains(t, err.Error(), "device_screen")
 	assert.NotContains(t, err.Error(), "not connected")
 	assert.Equal(t, []string{"n-phone"}, machines.started)
-	assert.Zero(t, p.commands.Load(), "a command that did not run is not counted")
+	p.mu.Lock()
+	assert.Zero(t, p.commands, "a command that did not run is not counted")
+	p.mu.Unlock()
 }
 
 // A command running on the phone's node keeps its machine on, however long it runs, and the idle time starts when it
@@ -111,6 +108,10 @@ func TestACommandComingWhileTheMachineStopsIsRefused(t *testing.T) {
 	assert.Contains(t, err.Error(), "being stopped")
 	assert.Contains(t, err.Error(), "device_screen")
 	assert.NotContains(t, err.Error(), "not connected")
+
+	p.mu.Lock()
+	assert.Zero(t, p.commands, "the command is not admitted")
+	p.mu.Unlock()
 
 	close(machines.stopHold)
 	<-swept

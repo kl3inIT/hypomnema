@@ -57,17 +57,27 @@ func (p *Phone) Sweep(ctx context.Context) {
 
 	now := p.cfg.Clock.Now()
 
+	// The decision to stop and the admission of an agent's command are made under one lock (command.go, issue
+	// #1083): a command admitted first keeps the machine on, and one that comes while the machine is being stopped
+	// is refused, not run on a machine about to go off.
 	p.mu.Lock()
 	if p.idleSince.IsZero() {
 		p.idleSince = now
 	}
 
-	since := p.idleSince
+	p.stopping = now.Sub(p.idleSince) >= MachineIdle && p.commands == 0
+	stop := p.stopping
 	p.mu.Unlock()
 
-	if now.Sub(since) < MachineIdle {
+	if !stop {
 		return
 	}
+
+	defer func() {
+		p.mu.Lock()
+		p.stopping = false
+		p.mu.Unlock()
+	}()
 
 	// A stop the registry refuses (the node runs a Dispatch) or the provider fails is logged, and asked again at
 	// the next sweep: the idle time is not started again.
@@ -95,7 +105,11 @@ func (p *Phone) idle(n orchestration.Node) bool {
 
 	// A call holds the phone while it runs, a view is counted from its opening to its close, and an agent's command
 	// on the node while it runs (command.go).
-	if len(p.holder) > 0 || p.hold.Viewing() || p.commands.Load() > 0 {
+	p.mu.Lock()
+	commands := p.commands
+	p.mu.Unlock()
+
+	if len(p.holder) > 0 || p.hold.Viewing() || commands > 0 {
 		return false
 	}
 

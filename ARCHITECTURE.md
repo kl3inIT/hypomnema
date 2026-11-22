@@ -851,9 +851,13 @@ sequenceDiagram
     or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
     `phone.machine_stopped`. The next call or view starts the machine again (above), and so does a `node_exec` or
     `node_process` on the phone's node (`command.go`, `Phone.Use`, issue #1083, as Coder's tools start a stopped
-    workspace they name): it waits for the hello as a call does and then runs; when the machine does not come up,
-    its answer says the machine was stopped because the phone was idle and that a phone tool's call starts it, not
-    that the node is not connected. A node the owner drained stays drained through both.
+    workspace they name): its machine only, not the phone, which a phone call starts. It is woken when the node's
+    record says its machine is `stopped` or `starting`, even while the node's socket is still open after a stop; it
+    waits for the hello as a call does and then runs; when the machine does not come up, its answer says the machine
+    was stopped because the phone was idle and that a phone tool's call starts it, not that the node is not
+    connected. The look's decision to stop and a command's admission share one lock: a command admitted first keeps
+    the machine on, and one that comes while the stop runs is refused with "being stopped; try again in a minute".
+    A node the owner drained stays drained through both.
   - An agent is told of the phone when one is there: the node API marks an offer with `device: android`, and
     the phone's line of the "Tools" block, which a worker and a Bot get while a node holds the phone (issue #789),
     gives the rules that matter most: look before acting, act by box number, sign in only with what the owner gave, never pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
@@ -4916,7 +4920,8 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
   on a command line. A node with none runs `sudo` as it is: it works where sudo needs no password, else fails.
 - The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`, `list`) and waits for the answer on
   `POST /node/v1/exec?request=` for the command's time and 30 s; a node that goes away meanwhile fails the call at
-  once, as a phone call does. Each call is logged with the agent, the node and the action, not the command.
+  once, as a phone call does. A node tool's call lifts the agent API's 30 s write timeout, as a phone call does, so
+  that the answer of a longer command, or of a wait for the phone's machine, reaches the agent (issue #1083). Each call is logged with the agent, the node and the action, not the command.
 - MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), and 9 for a node tool
   (`toolsmcp.NodeCallTimeout`): longer than the 300 s and the node's answer, after the 2 minutes a phone's stopped
   machine may take to wake (issue #1083).

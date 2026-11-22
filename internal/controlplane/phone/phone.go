@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -94,13 +93,15 @@ type Phone struct {
 	holder chan struct{}
 	// hold is who drives the phone: the agents, or the owner who took control in a view (view.go).
 	hold *ownerhold.Hold
-	// commands counts the agents' commands running on the phone's node (command.go).
-	commands atomic.Int64
 
 	// waking is when each machine was last started for the phone: a machine is started once, and the calls
 	// and views that find it offline meanwhile wait for its hello.
 	mu     sync.Mutex
 	waking map[string]time.Time
+	// commands counts the agents' commands running on the phone's node, and stopping is set while a sweep stops
+	// its machine: a command is not admitted then (command.go, idle.go).
+	commands int
+	stopping bool
 	// idleSince is when a sweep first found the phone's machine idle, zero while it is not (idle.go).
 	idleSince time.Time
 	// lease is the take that holds the phone, nil when none does; ending are takes whose end did not reach their
@@ -269,7 +270,7 @@ func (p *Phone) wake(ctx context.Context, n orchestration.Node) error {
 
 	switch n.Machine.Power {
 	case orchestration.MachineStopping:
-		return fmt.Errorf("%w: the phone's machine is being stopped; try again in a minute", ErrUnavailable)
+		return errBeingStopped
 	case orchestration.MachineStopped:
 		if p.cfg.Machines == nil {
 			return fmt.Errorf("%w: the phone's machine is stopped", ErrUnavailable)
@@ -318,6 +319,9 @@ func (p *Phone) hello(ctx context.Context, n orchestration.Node) error {
 
 	return nil
 }
+
+// errBeingStopped is a machine whose stop has begun: it is started again once it is off.
+var errBeingStopped = fmt.Errorf("%w: the phone's machine is being stopped; try again in a minute", ErrUnavailable)
 
 // errWaking is a wait for a machine's hello that gave up while the machine is
 // still starting.

@@ -37,7 +37,7 @@ type Nodes interface {
 
 // NodeUse readies a node for an agent's command and counts the command as its use until done is called
 // (phone.Phone.Use, issue #1083): the phone's node whose machine the control plane stopped for idleness is started and
-// its hello waited for, and woken says so. A node it does not keep is left as it is.
+// its hello waited for, and woken says its node is connected now. A node it does not keep is left as it is.
 type NodeUse interface {
 	Use(ctx context.Context, nodeID string) (done func(), woken bool, err error)
 }
@@ -224,6 +224,11 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 
 	// A process is the agent's that ran it, a chat's or a worker's (issue #1060), as a phone's last screen is.
 	e.Agent = a.key
+
+	// A command runs up to five minutes, node_process waits as long, and the phone's stopped machine takes up to two
+	// to wake (issue #1083): longer than the server's write timeout. The answer must still reach the agent, as a
+	// phone call's does (device.go), or the tools server reads the lost answer as a restart of the control plane.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
 	n, connected, err := s.findNode(ctx, nodeRef)
 	if err != nil {

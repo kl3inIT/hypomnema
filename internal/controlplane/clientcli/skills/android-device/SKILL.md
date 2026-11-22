@@ -23,9 +23,10 @@ OpenMausBot's phone skill (`skills/phone-harness/SKILL.md`, Apache-2.0, notice i
   same phone and the same accounts.
 - One call runs at a time. A call made while another agent's runs waits for it; it is not refused.
 - The phone is stopped when it has been idle for 15 minutes, and its node's machine half an hour after that. Any
-  `device_*` call starts both again, which takes about a minute, as does `node_exec` or `node_process` on the
-  phone's node: never wait for a stopped phone or machine to come back by itself. A call that says the phone is
-  waking or being installed is tried again a minute later, not worked around.
+  `device_*` call starts both again, which takes about a minute. `node_exec` or `node_process` on the phone's node
+  starts only its machine and waits for its node, not the phone: for a command that needs the phone running
+  (`adb`), call `device_screen` first. Never wait for a stopped phone or machine to come back by itself. A call that says the
+  phone is waking or being installed is tried again a minute later, not worked around.
 - Another agent may have used the phone since you last looked. Look again before acting on an old screen.
 
 ## Look before you act
