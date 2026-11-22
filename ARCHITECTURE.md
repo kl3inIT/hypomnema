@@ -838,7 +838,9 @@ sequenceDiagram
     screen: the agent looks again (the issue's "never runs on another's half-done screen").
   - A call that finds the phone's node offline and its machine `stopped` starts the machine with the path of
     `hypomnema machines start` (`machines.Manager.Start`) and waits up to 2 minutes for the node's hello; one
-    whose machine is `starting` waits the same. After that the call is refused (503) with "the phone is waking …
+    whose machine is `starting` waits the same. The hello waited for is one since the start: the node's socket is
+    open and its record no longer says `stopped` or `starting` (its hello clears `starting`), so a socket still open
+    from before the stop, while the provider shuts the machine down, is not taken for it. After that the call is refused (503) with "the phone is waking …
     try again in a minute", and the machine keeps starting. A node installed by the owner, or whose machine is on,
     is reported offline.
   - The phone's machine is stopped when it has been idle (`idle.go`; inference, for cost: no reference stops a

@@ -306,7 +306,7 @@ func (p *Phone) hello(ctx context.Context, n orchestration.Node) error {
 	tick := time.NewTicker(p.cfg.Poll)
 	defer tick.Stop()
 
-	for !p.cfg.Link.Online(n.ID) {
+	for !p.back(ctx, n.ID) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -318,6 +318,20 @@ func (p *Phone) hello(ctx context.Context, n orchestration.Node) error {
 	}
 
 	return nil
+}
+
+// back says whether the phone's node said hello since its machine was started: its socket is open, and its record
+// no longer says its machine is stopped or starting, which the node's hello clears (NodeHello). A socket still open
+// from before a stop, as while the provider shuts the machine down, is not that (review of PR #1085, round 2): a
+// call or a command sent on it would be lost with the machine.
+func (p *Phone) back(ctx context.Context, nodeID string) bool {
+	if !p.cfg.Link.Online(nodeID) {
+		return false
+	}
+
+	n, err := p.node(ctx)
+
+	return err == nil && n.ID == nodeID && (n.Machine == nil || n.Machine.Power == "")
 }
 
 // errBeingStopped is a machine whose stop has begun: it is started again once it is off.
