@@ -854,6 +854,10 @@ type Finished struct {
 	Exit     Exit       `json:"exit"`
 	Usage    *Usage     `json:"usage,omitempty"`
 	Gate     *Ask       `json:"gate,omitempty"`
+	// ContextOverflow says a worker_error was the CLI's session outgrowing the model's context window (issue #1052),
+	// as Codex tells its ContextWindowExceeded apart (codex-rs/protocol/src/error.rs:146-149): resuming the session
+	// fails again, so the next Dispatch starts a new one.
+	ContextOverflow bool `json:"context_overflow,omitempty"`
 }
 
 // Reattach is the payload of a reattach report.

@@ -172,6 +172,42 @@ func TestSchedulerWaitsForTheBackOffThenContinues(t *testing.T) {
 	assert.Equal(t, first.ConversationID, w.dispatchOf(created[0]).ConversationID)
 }
 
+// Scenario: a worker whose CLI session outgrew the model's context window
+// (issue #1052). Resuming it would fail the same way, so after the back-off
+// the Task starts a new Conversation, with no session to resume; the failure
+// still counts toward the breaker.
+func TestAnOverflowStartsANewConversation(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	task := w.tasks(specs(1)...)[0]
+
+	first, c := w.start(task.ID)
+	require.NoError(t, w.finish(c, Outcome{
+		Class: FailureWorkerError, ContextOverflow: true,
+		Result: Result{Summary: "stopped without finish: Codex ran out of room in the model's context window."},
+	}))
+
+	closed, err := w.s.GetConversation(t.Context(), first.ConversationID)
+	require.NoError(t, err)
+	assert.Equal(t, ConversationClosed, closed.Status)
+	assert.Equal(t, CloseContextOverflow, closed.CloseReason)
+	assert.Equal(t, 1, w.task(task.ID).FailureCount)
+
+	w.advance(BackoffBase)
+	w.alive(w.node)
+
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+	next := w.dispatchOf(created[0])
+	assert.NotEqual(t, first.ConversationID, next.ConversationID)
+	assert.False(t, next.Recovery)
+
+	accepted, err := w.s.AcceptDispatch(t.Context(), w.call(next, 0))
+	require.NoError(t, err)
+	assert.Empty(t, accepted.CLISessionRef)
+}
+
 // Scenario: an open Conversation and its node is away. The Task waits for
 // that node, even when another one could take it; once the node is back,
 // the Conversation continues there.
@@ -1434,4 +1470,82 @@ func TestABotsTaskFallsBackOnlyToItsWorkers(t *testing.T) {
 	d := w.dispatchOf(out.Created[0])
 	assert.Equal(t, "the owner's", w.task(d.TaskID).Spec)
 	assert.Equal(t, "writer", d.FallbackFor)
+}
+
+// Scenario: the migration that lets a Conversation close for its overflow
+// rebuilds conversations under the Dispatches that reference it (issue
+// #1052). Rolled back, the overflow reads as superseded and every Dispatch
+// keeps its Conversation; migrated again, the rows are all there.
+func TestTheOverflowMigrationKeepsTheConversations(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	tasks := w.tasks(specs(2)...)
+	overflowed, c := w.start(tasks[0].ID)
+	require.NoError(t, w.finish(c, Outcome{
+		Class: FailureWorkerError, ContextOverflow: true, Result: Result{Summary: "out of the context window"},
+	}))
+	open := w.dispatch(tasks[1].ID)
+
+	migrations, err := provider(w.db)
+	require.NoError(t, err)
+	version := migrationVersion(t, migrations, "_conversation_context_overflow.sql")
+
+	reasons := func() map[string]string {
+		t.Helper()
+
+		rows, err := w.db.QueryContext(t.Context(), `SELECT d.id, coalesce(c.close_reason, c.status)
+			FROM dispatches d JOIN conversations c ON c.id = d.conversation_id`)
+		require.NoError(t, err)
+		defer func() { _ = rows.Close() }()
+
+		out := map[string]string{}
+		for rows.Next() {
+			var id, reason string
+			require.NoError(t, rows.Scan(&id, &reason))
+			out[id] = reason
+		}
+		require.NoError(t, rows.Err())
+
+		return out
+	}
+	assert.Equal(t, map[string]string{overflowed.ID: "context_overflow", open.ID: "open"}, reasons())
+
+	_, err = migrations.DownTo(t.Context(), version-1)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{overflowed.ID: "superseded", open.ID: "open"}, reasons())
+
+	_, err = migrations.UpTo(t.Context(), version)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{overflowed.ID: "superseded", open.ID: "open"}, reasons())
+
+	var violations int
+	require.NoError(t, w.db.QueryRowContext(t.Context(), "SELECT count(*) FROM pragma_foreign_key_check").
+		Scan(&violations))
+	assert.Zero(t, violations)
+}
+
+// mainOutcome is a finished report as main's control plane encoded it, before
+// ContextOverflow (issue #1052).
+type mainOutcome struct {
+	Class    FailureClass
+	ResetsAt *time.Time
+	Result   Result
+	Gate     *Ask
+}
+
+// Scenario: a node repeats a finished report across the control plane's
+// upgrade (review of PR #1057). The report hashes as before, so the receipt
+// kept for it still matches and the repeat is not refused as another call.
+func TestAFinishedReportHashesAsBeforeTheOverflowFlag(t *testing.T) {
+	t.Parallel()
+
+	call := NodeCall{NodeID: "node_a", DispatchID: "dsp_1", Epoch: 2, RequestID: "req_1"}
+	result := Result{Summary: "tests failed", Exit: Exit{Kind: "exited"}}
+
+	before, err := payloadHash("finished", call, mainOutcome{Class: FailureWorkerError, Result: result})
+	require.NoError(t, err)
+	after, err := payloadHash("finished", call, Outcome{Class: FailureWorkerError, Result: result})
+	require.NoError(t, err)
+	assert.Equal(t, before, after)
 }

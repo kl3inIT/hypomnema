@@ -77,6 +77,11 @@ func fakeCodex(mode string) int {
 		})
 
 		return 1
+	case "overflow":
+		emit(out, map[string]any{"type": "error", "message": overflowMessage})
+		emit(out, map[string]any{"type": "turn.failed", "error": map[string]any{"message": overflowMessage}})
+
+		return 1
 	case "nofinish":
 	default:
 		_ = bridge.Finish(bridgeDir(), bridge.Final{
@@ -95,6 +100,12 @@ func fakeCodex(mode string) int {
 // limitMessage is how the Codex CLI ends a turn on the gateway's usage limit
 // (issue #756): seen of codex-cli 0.169.0 against the gateway's answer.
 const limitMessage = "You’ve hit your usage limit. Try again at Nov 20th, 2099 1:12 PM."
+
+// overflowMessage is how the Codex CLI ends a turn whose thread outgrew the
+// model's context window (codex-rs/protocol/src/error.rs:146-149), as the
+// reviews of 2026-11-19 failed (issue #1052).
+const overflowMessage = "Codex ran out of room in the model's context window. " +
+	"Start a new thread or clear earlier history before retrying."
 
 func emit(out *json.Encoder, v map[string]any) {
 	if err := out.Encode(v); err != nil {
@@ -310,8 +321,8 @@ func TestAFollowUpResumesTheThread(t *testing.T) {
 
 // Scenario: how a turn that does not finish is reported. A key the gateway
 // refuses before the thread starts is a failed start; a usage limit is a
-// rate limit; a turn that ends without finish is the worker's failure; a
-// stopped worker is reported stopped; an offer with no gateway key is refused.
+// rate limit; a turn that ends without finish is the worker's failure, and
+// one that ran out of the context window says so; a stopped worker is reported stopped; an offer with no gateway key is refused.
 func TestHowACodexTurnEnds(t *testing.T) {
 	t.Parallel()
 
@@ -328,8 +339,25 @@ func TestHowACodexTurnEnds(t *testing.T) {
 
 			require.Len(t, r.finished, 1)
 			assert.Equal(t, want, r.finished[0].Class, r.finished[0].Summary)
+			assert.False(t, r.finished[0].ContextOverflow)
 		})
 	}
+
+	// A thread that outgrew the window is the worker's failure, said to be one, so the next Dispatch starts a
+	// new thread instead of resuming this one (issue #1052).
+	t.Run("overflow", func(t *testing.T) {
+		t.Parallel()
+
+		g := newRig(t, "overflow")
+		r := newReporter()
+		require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch("0199-thread"), r))
+		r.wait(t)
+
+		require.Len(t, r.finished, 1)
+		assert.Equal(t, "worker_error", r.finished[0].Class)
+		assert.True(t, r.finished[0].ContextOverflow)
+		assert.Contains(t, r.finished[0].Summary, "context window")
+	})
 
 	t.Run("stopped", func(t *testing.T) {
 		t.Parallel()

@@ -662,7 +662,17 @@ func (s *Service) ReportFinished(ctx context.Context, call NodeCall, o Outcome) 
 			return s.settleGated(ctx, q, now, d, o)
 		}
 
-		return s.settle(ctx, q, now, d, to, o.Class, &o.Result, o.ResetsAt, true)
+		if err := s.settle(ctx, q, now, d, to, o.Class, &o.Result, o.ResetsAt, true); err != nil {
+			return err
+		}
+
+		// A session that outgrew the window fails again when resumed (issue #1052): the next Dispatch opens a new
+		// Conversation. The failure still counts toward the breaker, so a Task that overflows each time stops.
+		if o.ContextOverflow && o.Class == FailureWorkerError {
+			return closeConversation(ctx, q, now, d.ConversationID, CloseContextOverflow)
+		}
+
+		return nil
 	})
 }
 

@@ -206,6 +206,9 @@ type filmRig struct {
 	agent    string
 	// nodeToken is the node's own token.
 	nodeToken string
+	// client is the server's own: http.DefaultClient's idle connections are closed by every other test's
+	// httptest.Server.Close, which breaks a request of this one that took such a connection (issue #1031, #1032).
+	client *http.Client
 }
 
 func newFilmRig(t *testing.T, held *filmingPhone, store *takes.Store) *filmRig {
@@ -228,9 +231,12 @@ func newFilmRig(t *testing.T, held *filmingPhone, store *takes.Store) *filmRig {
 	agentapi.New(svc, nil, logger).WithDevice(shared).Register(mux)
 	require.NoError(t, clientapi.New(svc, logger, stop).WithTakes(ownerTakes{store}).Register(mux))
 
-	// The shared server's short read timeout, which a take's upload outlives with its own deadline.
+	// The shared server's short read timeout, which a take's upload outlives with its own deadline. Its idle
+	// timeout is set as platform.Serve sets it: left at zero it would be the read timeout, and a request sent on a
+	// connection idle for that long meets the server closing it, EOF (issue #1031, #1032).
 	srv := httptest.NewUnstartedServer(mux)
 	srv.Config.ReadTimeout = 200 * time.Millisecond
+	srv.Config.IdleTimeout = time.Minute
 	srv.Start()
 	t.Cleanup(srv.Close)
 
@@ -275,7 +281,7 @@ func newFilmRig(t *testing.T, held *filmingPhone, store *takes.Store) *filmRig {
 	require.NoError(t, err)
 
 	return &filmRig{t: t, srv: srv, svc: svc, store: store, held: held, node: n, worker: worker, dispatch: dispatch,
-		owner: owner, agent: coordinator, nodeToken: token}
+		owner: owner, agent: coordinator, nodeToken: token, client: srv.Client()}
 }
 
 // ownerTakes are the store as the owner deletes takes.
@@ -301,7 +307,7 @@ func (r *filmRig) tool(name, args string) (string, bool) {
 	require.NoError(r.t, err)
 	req.Header.Set("Authorization", "Bearer "+r.worker)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := r.client.Do(req)
 	require.NoError(r.t, err)
 
 	defer resp.Body.Close() //nolint:errcheck // a test's response body
@@ -332,7 +338,7 @@ func (r *filmRig) api(token, method, path string, header http.Header) (int, http
 
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := r.client.Do(req)
 	require.NoError(r.t, err)
 
 	defer resp.Body.Close() //nolint:errcheck // a test's response body
@@ -547,7 +553,7 @@ func (r *filmRig) put(token, take, name string, pause time.Duration) int {
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set(nodeproto.TakeSumHeader, hex.EncodeToString(sum[:]))
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := r.client.Do(req)
 	require.NoError(r.t, err)
 
 	defer resp.Body.Close() //nolint:errcheck // a test's response body

@@ -348,7 +348,11 @@ sequenceDiagram
   (`ThreadLaunchService.ts:443-448`). The one-pusher rule held by the control plane, and allowing only a Task's
   branch as a push target, are inferred; Hermes, by contrast, salvages a contributor's work into a new pull
   request (`AGENTS.md:41`), which is what this replaces.
-- Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one; a node
+- Dispatches: the scheduler loop creates one for a ready Task (`orchestration/scheduler.go`, `createDispatch`), in a new Conversation or continuing the open one. A worker
+  whose CLI session outgrew the model's context window (the node's `context_overflow` on a `worker_error`) closes its
+  Conversation as `context_overflow`, so the next Dispatch starts a new session instead of resuming one that fails
+  again; the failure still counts toward the breaker (issue #1052, as Codex's error says to start a new thread,
+  `codex-rs/protocol/src/error.rs:146-149`, and OpenClaw tells the user to `/new`). A node
   accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
   then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
   outcome unknown and blocks the Task; a report from the same epoch or a reattach by the same node and process ends
@@ -3671,6 +3675,18 @@ capabilities do not exist yet.
     limit and the next account are the chat route's.
   - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
     keeps its status and body.
+  - A run of answers that did not end ends the client's turn (issue #1052), whatever the prompt's size: a stream cut
+    short (silently or on an error the provider sent, which Codex retries), a client gone before anything came, or
+    the provider saying the prompt did not fit the context window; a stream the provider ended on an invalid
+    parameter (`invalid_value`, `invalid_type`, as OmniRoute sets them apart) does not count. After more than 3 in a
+    row on one key (one Dispatch's) and model with none that ended well between them (LiteLLM's `allowed_fails`),
+    the key's requests to the model are answered 400 `context_overflow` without being sent for 5 s (LiteLLM's
+    cooldown); its message names the context window, so the node reports an overflow and the next Dispatch starts a
+    new Conversation. Codex never retries that code, so its turn ends instead of trimming and resending its history.
+    The 5 s are counted from an answer to the key's next request, and a run with a request in flight is kept, as one
+    answer may last longer; a run with nothing in flight 5 s after its last answer is forgotten. The runs are in
+    memory. The gateway does not count a prompt's tokens before sending it (the owner's choice, 2026-11-22), as
+    LiteLLM checks a prompt against the window only when asked to.
   - Not served: a model with no such target (400 `model_not_served_here`), an answer that is not a stream (400),
     `/v1/responses/compact`, a WebSocket.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
@@ -5465,7 +5481,9 @@ Node (`internal/node`):
   (issue #1019). `CODEX_HOME` is
   `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
-  or else what `turn.failed` said. A stop kills the process.
+  or else what `turn.failed` said; a failure whose text says the prompt did not fit the context window
+  (`internal/shared/contextwindow`, omp's providers' overflow phrases) is reported as one, and the next Dispatch
+  starts a new thread (issue #1052). A stop kills the process.
 - omp and opencode workers (`internal/node/acp`; [research](docs/research/2026-11-10-acp-omp-opencode.md)) share one
   runtime that speaks the Agent Client Protocol, and their model comes from the gateway too. Each is an entry of a
   table: the command (`omp acp`, `opencode acp`) and the configuration written under
@@ -6545,6 +6563,7 @@ internal/controlplane/modelgateway/codex  the Codex subscription's formats: chat
 internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault
 internal/controlplane/websearch  the web's search and a page's reading: the providers in turn, their rests, the cache, the page read as markdown through the browser's address rules, outside content marked
 internal/shared/agenttool the integrations' tools: the catalog, their setup, and the launcher that asks the control plane for a token
+internal/shared/contextwindow  whether an error's text says a prompt did not fit its model's context window, for the node's runtimes and the gateway
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids
