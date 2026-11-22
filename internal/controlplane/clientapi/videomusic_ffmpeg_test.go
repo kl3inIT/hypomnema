@@ -164,6 +164,10 @@ func TestTheRouteTakesTheFormatsTheLibraryPlays(t *testing.T) {
 	for name, body := range map[string][]byte{
 		"alac":            track(t, tools, "alac.m4a", append(bedSource(12), "-c:a", "alac")...),
 		"QuickTime's MOV": track(t, tools, "aac.mov", append(bedSource(12), "-c:a", "aac", "-f", "mov")...),
+		"3GP, compatible with isom": track(t, tools, "aac.3gp", append(bedSource(12), "-c:a", "aac", "-f",
+			"3gp")...),
+		"3G2, compatible with isom": track(t, tools, "aac.3g2", append(bedSource(12), "-c:a", "aac", "-f",
+			"3g2")...),
 		"two audio streams": track(t, tools, "two.m4a", "-f", "lavfi", "-i", "sine=d=12", "-f", "lavfi", "-i",
 			"sine=f=880:d=12", "-map", "0", "-map", "1", "-c:a", "aac"),
 		"a video": track(t, tools, "video.mp4", "-f", "lavfi", "-i", "sine=d=12", "-f", "lavfi", "-i",

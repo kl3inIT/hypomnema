@@ -276,16 +276,31 @@ func pruneBackups(root *os.Root, keep int) error {
 }
 
 // restoreDatabase copies the backup's database and WAL files back over the database, through the data folder root;
-// a WAL file the backup did not have is removed.
+// a WAL file the backup did not have is removed. A copy needs room for a second database beside the live one: when
+// the disk has none (ENOSPC), the backup's file itself is renamed into place within the data folder, as the update
+// before the music's backup put the database back without a second copy (review round 3 of #1049); the backup then
+// keeps its music without that file.
 func (o Options) restoreDatabase(root *os.Root, backup string, owner ids) error {
 	db := filepath.Base(o.database())
 
 	for _, suffix := range []string{"", "-wal", "-shm"} {
-		err := o.copyRegular(root, backup+"/"+db+suffix, root, db+suffix, owner)
+		saved := backup + "/" + db + suffix
+
+		err := o.copyRegular(root, saved, root, db+suffix, owner)
 		if errors.Is(err, fs.ErrNotExist) {
 			_ = root.Remove(db + suffix)
 
 			continue
+		}
+
+		if errors.Is(err, syscall.ENOSPC) {
+			info, lerr := root.Lstat(saved)
+			if lerr != nil || !info.Mode().IsRegular() {
+				return errors.Join(err, fmt.Errorf("%s: %w", saved, errNotRegular))
+			}
+
+			o.printf("no room to copy %s back; moving it into place\n", saved)
+			err = root.Rename(saved, db+suffix)
 		}
 
 		if err != nil {

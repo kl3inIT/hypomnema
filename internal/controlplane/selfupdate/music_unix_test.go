@@ -743,9 +743,9 @@ func addLibraryTrack(t *testing.T, o selfupdate.Options, exec func(string, ...an
 // PR2.5 end to end through the updater, with the control plane's database and library:
 //   - a track uploaded after an update's backup is gone from the database the rollback puts back, and the next
 //     start's sweep unlinks its file;
-//   - restoring by hand an older pair the updater made (ARCHITECTURE.md's steps: the database, then
-//     `rm -rf videos/music && cp -al predeploy-X/videos-music videos/music`) brings back its tracks as the same files,
-//     and the next start's sweep unlinks the newer track, whose bytes stay in the newer backup.
+//   - restoring an older pair the updater made (its database, and its music's files the live folder lacks linked
+//     back, the live folder left in place) brings back its tracks as the same files, and the next start's sweep
+//     unlinks the newer track, still in the live folder, whose bytes stay in the newer backup.
 func TestAnOlderPairComesBackThroughTheUpdater(t *testing.T) {
 	t.Parallel()
 
@@ -810,13 +810,22 @@ func TestAnOlderPairComesBackThroughTheUpdater(t *testing.T) {
 		newer = names[1]
 	}
 
-	// The owner restores the older pair by hand, the control plane stopped.
+	// The first track's file is gone from the live folder, which holds the second's. The owner restores the older
+	// pair, the control plane stopped: its database, and its music's files the live folder lacks linked back, the
+	// live folder left in place, so what is unlinked after is the sweep's doing.
+	require.NoError(t, os.Remove(filepath.Join(musicDir(o), first+".mp3")))
+
 	//nolint:gosec // The test's own folders.
 	restore := exec.CommandContext(t.Context(), "sh", "-ec", `cd "$1"
 cp "$2/hypomnema.db" hypomnema.db && rm -f hypomnema.db-wal hypomnema.db-shm
-rm -rf videos/music && cp -al "$2/videos-music" videos/music`, "sh", data, older[0])
+for f in "$2"/videos-music/*; do [ -e "videos/music/${f##*/}" ] || ln "$f" videos/music/; done`,
+		"sh", data, older[0])
 	out, err := restore.CombinedOutput()
 	require.NoError(t, err, "%s", out)
+
+	require.FileExists(t, filepath.Join(musicDir(o), second+".mp3"), "the newer track's file is there before the sweep")
+	require.True(t, sameFile(t, filepath.Join(musicDir(o), first+".mp3"),
+		filepath.Join(data, older[0], "videos-music", first+".mp3")), "the restore brings the first track's file back")
 
 	withLibrary(t, data, func(svc *videos.Service, _ func(string, ...any)) {
 		lib, err := svc.Music(t.Context())
@@ -833,4 +842,52 @@ rm -rf videos/music && cp -al "$2/videos-music" videos/music`, "sh", data, older
 		filepath.Join(data, older[0], "videos-music", first+".mp3")), "the same file as the backups'")
 	assert.True(t, sameFile(t, filepath.Join(data, older[0], "videos-music", first+".mp3"),
 		filepath.Join(data, newer, "videos-music", first+".mp3")), "one inode across backups")
+}
+
+// Scenario (review round 3 of #1049): the new release does not become ready and the disk has no room for a second
+// copy of the database beside the live one. The rollback moves the backup's database into place instead of copying
+// it, and starts the control plane again.
+func TestARollbackOnAFullDiskStillPutsTheDatabaseBack(t *testing.T) {
+	t.Parallel()
+
+	o := installed(t)
+	o.Ready = ready(t, http.StatusServiceUnavailable)
+	o.ReadyWithin = time.Second
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	db := filepath.Join(o.Home, "data", "hypomnema.db")
+
+	var rollingBack atomic.Bool
+
+	cmds := &commands{}
+	o.Run = func(ctx context.Context, name string, args ...string) error {
+		if name == "runuser" {
+			write(t, db, "the migrated database")
+			rollingBack.Store(true)
+		}
+
+		return cmds.run(ctx, name, args...)
+	}
+	o = selfupdate.WithCopyData(o, func(dst io.Writer, src io.Reader) (int64, error) {
+		if rollingBack.Load() {
+			return 0, syscall.ENOSPC
+		}
+
+		return io.Copy(dst, src)
+	})
+
+	require.ErrorContains(t, selfupdate.Install(t.Context(), o, from), "did not become ready")
+
+	assert.Equal(t, "the old database", read(t, db), "the backup's database is in place")
+
+	entries, err := os.ReadDir(filepath.Join(o.Home, "data"))
+	require.NoError(t, err)
+
+	for _, e := range entries {
+		assert.NotContains(t, e.Name(), ".tmp", "no half copy is left")
+	}
+
+	ran := cmds.lines()
+	assert.Equal(t, "systemctl start hypomnema-cp.service", ran[len(ran)-1], "the control plane is started again")
 }

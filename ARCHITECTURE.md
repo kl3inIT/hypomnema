@@ -1071,7 +1071,7 @@ sequenceDiagram
     synced, refused when under 400 MB is left after it, typed by ffprobe (`compose.ProbeFile`: exactly one audio
     stream and no video, a cover picture, chapters and other data streams aside; mp3 `audio/mpeg`, an ISO base
     media file whose major or a compatible brand is an M4A or MP4 one (M4A, M4B, mp41, mp42, isom, iso2-iso6; the MP4
-    Registration Authority's) with AAC `audio/mp4`, wav with PCM `audio/wav`, flac `audio/flac`, ogg
+    Registration Authority's), and whose major brand is no 3GPP or 3GPP2 one (3gp*, 3g2*), with AAC `audio/mp4`, wav with PCM `audio/wav`, flac `audio/flac`, ogg
     with Vorbis or Opus `audio/ogg`; ALAC, QuickTime's MOV and the rest refused) and decoded whole by `compose.Measure` (`-t 1201`, 60 s at
     most): its length is the decoded length, 10 s to 20 minutes, and silence (−70 LUFS or no peak) is refused.
     Then it is renamed, the folder synced and the row inserted. A full disk anywhere, ENOSPC from a file or
@@ -4971,9 +4971,10 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     a regular file is left out, and a file is checked again once opened or linked. It keeps the binary as `bin/hypomnema.previous` and puts the new one in place, runs
     `hypomnema migrate` as the user (the migration stays an explicit step, `docs/conventions.md`), starts the unit
     and waits up to a minute for `/readyz`. A control plane that does not become ready is stopped and its old
-    binary and database put back, every regular file of the backup's music missing from the music folder linked
-    back the same way (a name the folder has, of any kind, left as it is; a failure there is reported and does not
-    keep the unit stopped), and started. Once it is ready, the release's `deploy/coordinator` files, built into the binary
+    binary and database put back (copied, or, when the disk has no room for a second copy, the backup's file moved
+    into place within `data/`), every regular file of the backup's music missing from the music folder linked back
+    the same way (a name the folder has, of any kind, left as it is), and started: a failure putting the database or
+    the music back is reported and never keeps the unit stopped. Once it is ready, the release's `deploy/coordinator` files, built into the binary
     (`deploy/coordinator/files.go`), are written to a root-owned folder and its `setup-coordinator.sh` run, so the
     launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's. Whatever the
     outcome once the backup is published (ready, rolled back, the binary not placed, the coordinator not set up,

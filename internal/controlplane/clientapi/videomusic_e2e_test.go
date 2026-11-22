@@ -127,9 +127,16 @@ func ffmpegRun(ctx context.Context, t *testing.T, tools ffmpeg.Tools, args ...st
 	return out
 }
 
-// bandWindows are the RMS levels, in dBFS, of a file's sound above 2 kHz in each 100 ms from its start, or over
-// the whole file with whole: the music's band of a video whose voice is a 440 Hz tone.
-func bandWindows(t *testing.T, tools ffmpeg.Tools, file string, whole bool) []float64 {
+// The bands of a video whose voice is a 440 Hz tone and whose music is a 4 kHz one: above 2 kHz the music, under
+// 1 kHz the voice, each through three filters.
+const (
+	musicBand = "highpass=f=2000,highpass=f=2000,highpass=f=2000"
+	voiceBand = "lowpass=f=1000,lowpass=f=1000,lowpass=f=1000"
+)
+
+// bandWindows are the RMS levels, in dBFS, of a file's sound in a band in each 100 ms from its start, or over the
+// whole file with whole.
+func bandWindows(t *testing.T, tools ffmpeg.Tools, file, band string, whole bool) []float64 {
 	t.Helper()
 
 	frame := "asetnsamples=n=4410,astats=metadata=1:reset=1"
@@ -138,7 +145,7 @@ func bandWindows(t *testing.T, tools ffmpeg.Tools, file string, whole bool) []fl
 	}
 
 	out := ffmpegRun(t.Context(), t, tools, "-i", file, "-map", "0:a:0", "-af",
-		"highpass=f=2000,highpass=f=2000,highpass=f=2000,"+frame+
+		band+","+frame+
 			",ametadata=mode=print:key=lavfi.astats.Overall.RMS_level:file=-", "-f", "null", "-")
 
 	var levels []float64
@@ -160,7 +167,7 @@ func bandWindows(t *testing.T, tools ffmpeg.Tools, file string, whole bool) []fl
 // PR2.11: a 4 kHz track uploaded by POST /api/v1/videos/music, a make through POST /videos with its music, made by
 // the runner under a voice of three 3 s clips at -20, -30 and -40 dBFS, and the MP4 read through the API. In every
 // 100 ms from 0.2 s to the fade, the two 300 ms gaps between the clips included, the track's band is 12 dB under the
-// control's (PR1.2), within 1 dB; the control's band is the track's own level moved to 3 LU under the voice's
+// control's (PR1.2), within 1 dB, while the voice's band is the control's within 0.5 dB; the control's band is the track's own level moved to 3 LU under the voice's
 // -16 LUFS (PR1.4's BedGainDb, at gain 0), within 1 dB.
 func TestATrackUploadedAndMadeIsDuckedUnderTheVoice(t *testing.T) {
 	t.Parallel()
@@ -235,7 +242,7 @@ func TestATrackUploadedAndMadeIsDuckedUnderTheVoice(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.NoError(t, os.WriteFile(mp4, got, 0o600))
 
-	ducked, plain := bandWindows(t, tools, mp4, false), bandWindows(t, tools, control, false)
+	ducked, plain := bandWindows(t, tools, mp4, musicBand, false), bandWindows(t, tools, control, musicBand, false)
 
 	// Each scene is its clip and the 300 ms gap; the fade starts 1.8 s before the end.
 	scene := float64(rev.LengthMs) / 3 / 1000
@@ -258,10 +265,18 @@ func TestATrackUploadedAndMadeIsDuckedUnderTheVoice(t *testing.T) {
 
 	assert.GreaterOrEqual(t, gaps, 4, "the windows of both gaps are measured")
 
+	// The voice is the same with the duck and without it, within 0.5 dB, in the middle of each clip (PR1.2).
+	voiced, voicePlain := bandWindows(t, tools, mp4, voiceBand, false), bandWindows(t, tools, control, voiceBand, false)
+	for i := range 3 {
+		k := int((float64(i)*scene + 1.5) * 10)
+		require.Less(t, k, min(len(voiced), len(voicePlain)))
+		assert.InDelta(t, voicePlain[k], voiced[k], 0.5, "the voice of clip %d", i+1)
+	}
+
 	own, err := compose.Measure(t.Context(), tools, file, 0)
 	require.NoError(t, err)
 
-	track1 := bandWindows(t, tools, file, true)
+	track1 := bandWindows(t, tools, file, musicBand, true)
 	want := track1[len(track1)-1] + compose.VoiceLUFS - 3 - own.LUFS
 	assert.InDelta(t, want, sum/float64(last-2), 1, "the control is the track 3 LU under the voice")
 }

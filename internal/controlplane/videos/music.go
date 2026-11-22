@@ -437,8 +437,14 @@ var mp4Brands = map[string]bool{
 	"iso6": true,
 }
 
-// isMP4 says whether a probed ISO base media file is an M4A or MP4 by its major or a compatible brand.
+// isMP4 says whether a probed ISO base media file is an M4A or MP4 by its major or a compatible brand. A 3GPP or
+// 3GPP2 file (major brand 3gp* or 3g2*, the MP4 Registration Authority's brands) is not one, though it lists isom
+// among its compatible brands.
 func isMP4(p compose.Probe) bool {
+	if strings.HasPrefix(p.Brand, "3gp") || strings.HasPrefix(p.Brand, "3g2") {
+		return false
+	}
+
 	if mp4Brands[p.Brand] {
 		return true
 	}

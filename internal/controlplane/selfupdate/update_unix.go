@@ -289,12 +289,15 @@ func rollBack(
 		return fmt.Errorf("putting the old binary back: %w", err)
 	}
 
-	if err := o.restoreDatabase(data, backup, owner); err != nil {
-		return fmt.Errorf("putting the database back: %w", err)
+	// Whatever putting the database and the music back returns, the control plane is started again (review round 3
+	// of #1049): a failure is reported, never left as a stopped service.
+	dbErr := o.restoreDatabase(data, backup, owner)
+	if dbErr != nil {
+		dbErr = fmt.Errorf("putting the database back: %w", dbErr)
+		o.printf("%v\n", dbErr)
 	}
 
-	// The tracks deleted since the backup come back, as the same files: their rows came back with the database. A
-	// track that cannot be put back does not keep the control plane stopped.
+	// The tracks deleted since the backup come back, as the same files: their rows came back with the database.
 	musicErr := o.restoreMusic(data, backup, owner)
 	if musicErr != nil {
 		musicErr = fmt.Errorf("putting the videos' music back: %w", musicErr)
@@ -302,10 +305,10 @@ func rollBack(
 	}
 
 	if err := start(ctx, run, o.Unit); err != nil {
-		return errors.Join(musicErr, err)
+		return errors.Join(dbErr, musicErr, err)
 	}
 
-	return errors.Join(musicErr, o.waitReady(ctx))
+	return errors.Join(dbErr, musicErr, o.waitReady(ctx))
 }
 
 // setUpCoordinator writes this release's deploy/coordinator files and binary into a root-owned folder and runs its
