@@ -1188,7 +1188,18 @@ sequenceDiagram
     source's (a default frame on a turned take falls back to full; a frame sent is refused with its 409 shown). The
     look sample (`POST /videos/preview`, with `rev` for Change look) is a query keyed by its body: a change aborts
     the sample being drawn and only the latest answer is shown; a refusal (429, 503, 504) shows the server's
-    message. Change look is disabled until a section changed.
+    message. Change look is disabled until a section changed. The Look's last group is Music (#910 part 3, #1041;
+    `music-group.tsx`, `music-state.ts`, `use-music.ts`): the library of `GET /videos/music` as rows to pick from,
+    No music first, with each track's length and size and what the library holds of its 5 GB; a track plays from
+    its audio endpoint in one `<audio>` of the group, a type the browser's `canPlayType` refuses, or a file it fails
+    to play, showing the track's error state; a track's delete asks first and shows a refusal (409); "Add music…"
+    uploads a file to `POST /api/v1/videos/music?name=<the file's name without its extension>` as
+    `application/octet-stream` through the web's client and picks it, a refusal (411, 413, 429, 507) shown in the
+    server's words, or in the route's when the answer is not the server's (a proxy's page). A track the look names
+    that the library lost is listed as "(deleted)", with what the server does with it, a missing file as
+    "missing", and a look that fell back says so. The level moves the gain from −20 to +10 dB. The music is sent as
+    `{track, gain_db}` only when changed, and never to the look sample, which it does not change. Its browser tests
+    write their own test audio (`web/tests/audio.ts`: WAV, MP3, FLAC, Ogg Opus; an m4a by the browser's recorder).
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
