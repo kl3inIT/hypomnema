@@ -20,3 +20,9 @@ SELECT CAST(coalesce((
     WHERE e.run_id = @run_id AND r.status = 'open' AND e.kind IN ('task.created', 'task.status')
     ORDER BY e.seq DESC LIMIT 1
 ), '{}') AS TEXT) AS payload;
+
+-- name: PullRequestEscalationOf :one
+-- Whether the pull request a Dispatch reported was already settled (issue #1053): its escalation of kind
+-- pull_request.
+SELECT CAST(count(*) AS INTEGER) AS n FROM events
+WHERE task_id = @task_id AND dispatch_id = @dispatch_id AND kind = 'escalation' AND json_extract(payload, '$.kind') = 'pull_request';

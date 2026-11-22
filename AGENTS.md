@@ -25,6 +25,8 @@
 - **Act without asking** on: anything the owner approved in this conversation, and its obvious follow-ups (tests,
   fixing CI, updating docs, the PR); reading, searching and cloning references into `.tmp/`.
 - When in doubt about scope, do the smaller thing and say what was left out.
+- "Choosing between designs" above is the owner's choice of a design, not the options an approved issue leaves
+  open: a worker decides those itself, by the worker rules in `internal/node/runner/prompt.go` (issue #1069).
 
 ## Working rules
 

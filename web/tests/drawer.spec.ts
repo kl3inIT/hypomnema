@@ -148,13 +148,17 @@ test("Settings on a phone is a list of sections", async ({ page, isMobile }) => 
   await page.goto("/settings")
 
   const list = page.getByRole("navigation", { name: "Settings" })
-  await expect(list.getByRole("region")).toHaveCount(5)
+  await expect(list.getByRole("region")).toHaveCount(6)
   await expect(list.getByRole("heading", { level: 2 })).toHaveText([
+    "Preferences",
     "Gateway",
     "Meetings",
     "Agents",
     "Connections",
     "Workers",
+  ])
+  await expect(list.getByRole("region", { name: "Preferences" }).getByRole("link")).toHaveText([
+    "Notifications",
   ])
   await expect(list.getByRole("region", { name: "Workers" }).getByRole("link")).toHaveText([
     "Agents",

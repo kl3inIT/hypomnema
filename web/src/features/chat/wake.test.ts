@@ -66,6 +66,14 @@ describe("a wake-up's line", () => {
     expect(wakeLine({ event: "escalation", task_id: "tsk_9", escalation: "stalled" }).text).toBe(
       "Task tsk_9 stalled",
     )
+    expect(
+      wakeLine({
+        event: "escalation",
+        task_id: "tsk_9",
+        escalation: "pull_request",
+        reason: "merged",
+      }).text,
+    ).toBe("Task tsk_9 has news of its pull request: merged")
     expect(wakeLine({ event: "run.canceled", run_id: "run_9", status: "canceled" }).text).toBe(
       "Run run_9 canceled",
     )

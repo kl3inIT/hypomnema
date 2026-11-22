@@ -19,7 +19,7 @@ func run(ctx context.Context, c command) (output, error) {
 		defer cancel()
 	}
 
-	var stdout, stderr capped
+	stdout, stderr := capped{limit: c.Limit}, capped{limit: c.Limit}
 
 	//nolint:gosec // The pinned program, with arguments the engine wrote.
 	cmd := exec.CommandContext(ctx, c.Path, c.Args...)
@@ -46,14 +46,20 @@ func run(ctx context.Context, c command) (output, error) {
 	return out, nil
 }
 
-// capped keeps the first bytes written to it, up to a tool's largest answer,
-// and drops the rest.
+// capped keeps the first bytes written to it, up to its limit (a tool's
+// largest answer when it is 0) and one more, and drops the rest.
 type capped struct {
-	buf bytes.Buffer
+	buf   bytes.Buffer
+	limit int
 }
 
 func (c *capped) Write(p []byte) (int, error) {
-	if room := maxResultBytes + 1 - c.buf.Len(); room > 0 {
+	limit := c.limit
+	if limit == 0 {
+		limit = maxResultBytes
+	}
+
+	if room := limit + 1 - c.buf.Len(); room > 0 {
 		c.buf.Write(p[:min(room, len(p))])
 	}
 

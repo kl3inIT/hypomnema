@@ -309,6 +309,9 @@ const (
 	// Dispatch (issue #856). Raised at each such failure from the second; the
 	// Task is not stopped, its retries go on.
 	EscalationRepeatedFailure EscalationKind = "repeated_failure"
+	// EscalationPullRequest: the pull request a succeeded Task left with auto-merge on merged, was closed,
+	// conflicts or failed a required check (issue #1053, pullrequests.go).
+	EscalationPullRequest EscalationKind = "pull_request"
 )
 
 // Reasons a Task is unplaceable.

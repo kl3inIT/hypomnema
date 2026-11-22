@@ -46,7 +46,7 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 		assert.NotContains(t, prompt, "gh pr create")
 		assert.NotContains(t, prompt, "publish_branch")
 		assert.NotContains(t, prompt, "Do not end your turn on a plan")
-		assert.NotContains(t, prompt, "never with a polling loop", "a read-only worker pushes nothing")
+		assert.NotContains(t, prompt, "never a polling loop", "a read-only worker pushes nothing")
 		if role == "planner" {
 			assert.Contains(t, prompt, "this CLI's subagents for independent read-only lookups")
 			assert.NotContains(t, prompt, "Do not start subagents")
@@ -101,9 +101,10 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 		"pushing; CI runs the full suite.", "a worker runs the touched checks once (issue #894)")
 	assert.Contains(t, p, "Merge the base branch into yours only for a conflict, a red check whose cause is on "+
 		"the base, or when the repository's rules ask", "the base is merged only when needed (issue #894)")
-	assert.Contains(t, p, "never with a polling loop. When the task says a review comes first, do not wait for "+
-		"CI: report the pushed commit and finish", "CI is waited for with one command, or not at all (issue #894)")
-	assert.Less(t, strings.Index(p, "never with a polling loop"), strings.Index(p, "Task (implementer):"),
+	assert.Contains(t, p, "When you wait, use one command that blocks until it ends (the host's watch command, as "+
+		"in the merge steps below when they are given), never a polling loop.",
+		"CI is waited for with one command, or not at all (issues #894, #1053)")
+	assert.Less(t, strings.Index(p, "never a polling loop"), strings.Index(p, "Task (implementer):"),
 		"the rules come before the task, for the prompt cache (issue #672)")
 	assert.Contains(t, p, "Fix only the failures your diff causes. A red check that fails outside your diff and "+
 		"is also red on the base, or green on one rerun, is a flake: rerun it once, do not fix it in this pull "+
@@ -222,6 +223,13 @@ func TestPromptPutsTheTaskAfterTheRules(t *testing.T) {
 		"deploying or changing a server", "merging is not asked: auto-merge is turned on (issue #714)")
 	assert.Contains(t, p, "turning on its auto-merge as said below. Never merge it directly.")
 	assert.NotContains(t, p, "When a decision is not yours to make")
+	// The options a task leaves open are the worker's, said in its pull request, not asked (issue #1069); it asks
+	// only when no option keeps the goal.
+	assert.Contains(t, p, "The options the task leaves open, such as how to fix a review finding or which limit "+
+		"or library to use, are yours too: take the one most references take, or the one you would recommend, say "+
+		"in the pull request which you took and what it is learned from, and do not ask about it.")
+	assert.Contains(t, p, "acting outside this directory and this task's pull request, and when no option keeps "+
+		"the task's goal.")
 
 	order := []string{
 		"Rules:", "For this kind of task:", "Memory of your agent", "Work only in this directory",
@@ -237,8 +245,10 @@ func TestPromptPutsTheTaskAfterTheRules(t *testing.T) {
 // #714). On GitHub it checks, read-only, that the repository allows
 // auto-merge and that the base branch requires a check, by ruleset or branch
 // protection; a draft stays open; a conflict is resolved by merging the base;
-// auto-merge is pinned to the pushed commit; it waits for the required checks
-// and no longer. A repository lacking a setting gets the pull request left
+// auto-merge is pinned to the pushed commit; it reads the request back and
+// finishes without waiting for the checks, which the control plane follows
+// (issue #1053), and waits for them only without auto-merge when the task
+// needs their result. A repository lacking a setting gets the pull request left
 // open, with what it lacks said first, and no gate. A task that says a review
 // comes first or to ask before merging skips it. GitLab has its own commands
 // and waits for a pipeline; a Task without a repository has none of this.
@@ -250,6 +260,7 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 
 	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
 	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+	d.Offer.RepoToken = "ghp_x" // the control plane holds the repository's token, so it can follow the PR
 	p := Prompt(d)
 
 	for _, want := range []string{
@@ -267,12 +278,26 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 		"On a conflict (mergeStateStatus is DIRTY), merge main into your branch, resolve it keeping the intent " +
 			"of both sides, rerun the checks the merge affects and push",
 		"`gh pr merge <url> --auto --merge --match-head-commit <sha>`, where <sha> is the commit you pushed",
-		"`gh pr checks <url> --required --watch`; fix a red one your diff causes and push, rerun a flake once " +
-			"as the rules say",
-		"Once they are green, call `finish` without waiting longer",
+		"Then do what the repository's instructions ask right before a merge, such as merging main and " +
+			"numbering a migration after its last, and push that too.",
+		"4. Read the pull request back with `gh pr view <url> --json state,mergedAt`, since a requested " +
+			"auto-merge is not a merge, then call `finish` at once, without waiting for the checks, saying that " +
+			"it merged or \"auto-merge on at <sha>\".",
+		"The control plane follows the pull request from there and sends you a follow-up if a check goes red or " +
+			"a conflict appears.",
+		"When auto-merge is not turned on, wait for the required checks with " +
+			"`gh pr checks <url> --required --watch` only when the task needs their result.",
+		"Wait for CI only when the task needs its result or the merge steps below say to. When the task says a " +
+			"review comes first, do not wait: report the pushed commit and finish; the coordinator follows CI.",
 	} {
 		assert.Contains(t, p, want)
 	}
+
+	// Issue #1053: a worker that turned auto-merge on finishes; it no longer waits for the checks to go green.
+	assert.NotContains(t, p, "Wait for the required checks with")
+	assert.NotContains(t, p, "Once they are green, call `finish`")
+	assert.Less(t, strings.Index(p, "instructions ask right before a merge"), strings.Index(p, "3. Turn auto-merge on"),
+		"what the repository asks before a merge comes before auto-merge lands the head")
 
 	assert.Less(t, strings.Index(p, "gh pr create"), strings.Index(p, "gh pr merge"),
 		"auto-merge follows the pull request it is for")
@@ -291,7 +316,8 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 			"read it one more time, never in a loop; if it is still null, do not enable auto-merge: finish and " +
 			"say the merge request has no pipeline.",
 		"`glab mr merge <iid> --auto-merge --yes --sha <sha>`",
-		"`glab ci status --live --branch hyp/tsk_1`",
+		"wait for the required checks with `glab ci status --live --branch hyp/tsk_1` only when the task needs " +
+			"their result",
 	} {
 		assert.Contains(t, p, want)
 	}
@@ -302,6 +328,30 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	assert.Contains(t, Prompt(d),
 		"`gh api --hostname github.example.com repos/kl3inIT/second-bite --jq .allow_auto_merge`",
 		"a GitHub Enterprise host is named apart too")
+}
+
+// Scenario (issue #1053, review round 2): a Dispatch without the repository's token runs git and the host's CLI
+// with the node's own login, so the control plane cannot read its pull request. Its worker stays in charge, as
+// before #1053: once auto-merge is on it waits for the required checks with one blocking command, fixes a red one
+// its diff causes, and finishes once they are green. With a token the worker finishes at once and Hypomnema
+// follows the pull request.
+func TestPromptWaitsForTheChecksWhenTheControlPlaneCannotFollow(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
+
+	p := Prompt(d)
+	assert.Contains(t, p, "4. Wait for the required checks with `gh pr checks <url> --required --watch`; fix a red "+
+		"one your diff causes and push, rerun a flake once as the rules say, and do step 2 again if a conflict "+
+		"appears. Once they are green, call `finish`")
+	assert.NotContains(t, p, "The control plane follows the pull request")
+
+	d.Offer.RepoToken = "ghp_x"
+	p = Prompt(d)
+	assert.Contains(t, p, "then call `finish` at once, without waiting for the checks")
+	assert.NotContains(t, p, "4. Wait for the required checks")
 }
 
 // Scenario (issue #723, decisions 2.2 to 2.4): the offer names the tools the

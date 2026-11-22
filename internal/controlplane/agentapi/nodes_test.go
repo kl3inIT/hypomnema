@@ -2,11 +2,14 @@ package agentapi_test
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +28,7 @@ type machines struct {
 	sent []nodeproto.Exec
 	to   []string
 	give nodeproto.ExecAnswer
+	fail error
 }
 
 func (m *machines) ListNodes(context.Context) ([]orchestration.Node, error) {
@@ -40,7 +44,7 @@ func (m *machines) Exec(_ context.Context, nodeID string, e nodeproto.Exec) (nod
 
 	m.sent, m.to = append(m.sent, e), append(m.to, nodeID)
 
-	return m.give, nil
+	return m.give, m.fail
 }
 
 // withMachines serves the world's agent API with the node tools; zm's sudo
@@ -107,8 +111,15 @@ func TestAnAgentRunsACommandOnTheNodeItNames(t *testing.T) {
 	require.Len(t, m.sent, 1)
 	assert.Equal(t, "nod_zm", m.to[0])
 	assert.Equal(t, nodeproto.Exec{
-		Action: nodeproto.ExecRun, Command: "sudo df -h /", TimeoutSeconds: 60, SudoPassword: "s3cret",
-	}, m.sent[0])
+		Agent: "b-" + chat.ID, Action: nodeproto.ExecRun, Command: "sudo df -h /", TimeoutSeconds: 60,
+		SudoPassword: "s3cret",
+	}, m.sent[0], "a process is its chat's (issue #1060)")
+
+	w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm","process_id":"proc_0123456789ab"}`)
+	require.Len(t, m.sent, 2)
+	assert.Equal(t, "d-dsp_1", m.sent[1].Agent, "a worker's is its Dispatch's")
+
+	m.sent, m.to = m.sent[:1], m.to[:1]
 
 	failed := 2
 	m.give = nodeproto.ExecAnswer{ExitCode: &failed, Output: "rm: cannot remove\n"}
@@ -118,13 +129,23 @@ func TestAnAgentRunsACommandOnTheNodeItNames(t *testing.T) {
 	assert.Equal(t, "exit code 2\noutput:\nrm: cannot remove\n", text)
 	assert.Equal(t, 300, m.sent[1].TimeoutSeconds, "a command runs five minutes at most")
 
+	// The process id the tools server chose names the command on the node, for its result to be read again after a
+	// restart of the control plane (issue #1060); one of another shape is refused and not sent.
+	named := nodeproto.NewProcessID()
+	w.use(pi, agenttool.ToolNodeExec, `{"node":"zm","command":"make","process_id":"`+named+`"}`)
+	assert.Equal(t, named, m.sent[2].ProcessID)
+
+	_, text, isErr = w.use(pi, agenttool.ToolNodeExec, `{"node":"zm","command":"make","process_id":"../x"}`)
+	assert.True(t, isErr)
+	assert.Contains(t, text, "process_id")
+
 	_, text, isErr = w.use(worker, agenttool.ToolNodeExec, `{"node":"old","command":"id"}`)
 	assert.True(t, isErr)
 	assert.Equal(t, `node "old" is not connected; connected now: zm`, text)
 
 	_, text, _ = w.use(worker, agenttool.ToolNodeExec, `{"node":"nowhere","command":"id"}`)
 	assert.Equal(t, `no node "nowhere"; connected now: zm`, text)
-	assert.Len(t, m.sent, 2, "a command for a node that cannot run it is not sent")
+	assert.Len(t, m.sent, 3, "a command for a node that cannot run it is not sent")
 
 	logs := w.logs.String()
 	assert.Contains(t, logs, "agentapi.node_exec")
@@ -159,17 +180,135 @@ func TestABackgroundCommandIsFollowedByItsID(t *testing.T) {
 	_, text, isErr = w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm","process_id":"proc_1","wait_seconds":30}`)
 	assert.False(t, isErr)
 	assert.Equal(t, "exit code 0 (process_id proc_1)\noutput:\nbuilt\n", text)
-	assert.Equal(t, nodeproto.Exec{Action: nodeproto.ExecOutput, ProcessID: "proc_1", WaitSeconds: 30}, m.sent[1])
+	assert.Equal(t, nodeproto.Exec{
+		Agent: "d-dsp_1", Action: nodeproto.ExecOutput, ProcessID: "proc_1", WaitSeconds: 30,
+	}, m.sent[1], "it is read as the worker's")
 
 	killed := -1
 	m.give = nodeproto.ExecAnswer{ProcessID: "proc_1", ExitCode: &killed}
 
 	_, _, _ = w.use(worker, agenttool.ToolNodeProcessKill, `{"node":"zm","process_id":"proc_1"}`)
-	assert.Equal(t, nodeproto.Exec{Action: nodeproto.ExecKill, ProcessID: "proc_1"}, m.sent[2])
+	assert.Equal(t, nodeproto.Exec{Agent: "d-dsp_1", Action: nodeproto.ExecKill, ProcessID: "proc_1"}, m.sent[2])
 
 	m.give = nodeproto.ExecAnswer{TimedOut: true, Output: "half\n", CutBytes: 10}
 
 	_, text, isErr = w.use(worker, agenttool.ToolNodeExec, `{"node":"zm","command":"sleep 99"}`)
 	assert.True(t, isErr)
 	assert.Equal(t, "killed: its time ran out\noutput, 10 bytes in the middle left out:\nhalf\n", text)
+}
+
+// blockingMachines is a node whose command runs until it is let go.
+type blockingMachines struct {
+	machines
+
+	running chan struct{}
+	release chan struct{}
+}
+
+func (m *blockingMachines) Exec(ctx context.Context, nodeID string, e nodeproto.Exec) (nodeproto.ExecAnswer, error) {
+	close(m.running)
+	<-m.release
+
+	return m.machines.Exec(ctx, nodeID, e)
+}
+
+// An agent's tool call counts as running until it is answered, for `hypomnema update` to wait for it before it stops
+// the control plane (issue #1060).
+func TestAToolCallCountsWhileItRuns(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	m := &blockingMachines{running: make(chan struct{}), release: make(chan struct{})}
+
+	mux := http.NewServeMux()
+	api := agentapi.New(w.svc, nil, slog.New(slog.DiscardHandler)).
+		WithNodeExec(m, m, func(context.Context, orchestration.Node) (string, error) { return "", nil })
+	api.Register(mux)
+
+	w.srv = httptest.NewServer(mux)
+	t.Cleanup(w.srv.Close)
+
+	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	assert.Zero(t, api.ToolCalls())
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.srv.URL+agenttool.PathToolsCall,
+		strings.NewReader(`{"tool":"node_exec","arguments":{"node":"zm","command":"make"}}`))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+worker)
+
+	answered := make(chan int, 1)
+
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			answered <- 0
+
+			return
+		}
+
+		_ = resp.Body.Close()
+		answered <- resp.StatusCode
+	}()
+
+	<-m.running
+	assert.Equal(t, 1, api.ToolCalls())
+
+	close(m.release)
+	assert.Equal(t, http.StatusOK, <-answered)
+	assert.Eventually(t, func() bool { return api.ToolCalls() == 0 }, 5*time.Second, time.Millisecond,
+		"the call ends once answered")
+}
+
+// A node the control plane lists as connected whose socket is not back yet, as right after the control plane
+// restarted (its last heartbeat still counts), answers as a node not connected, for the tools server to ask again
+// (issue #1060, review round 1).
+func TestANodeWhoseSocketIsNotBackAnswersNotConnected(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	m := &machines{fail: fmt.Errorf("%w: %w", orchestration.ErrUnavailable, orchestration.ErrNodeOffline)}
+	withMachines(w, m)
+
+	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	_, text, isErr := w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm","process_id":"proc_0123456789ab"}`)
+	assert.True(t, isErr)
+	assert.True(t, agenttool.IsNodeNotConnected(text), text)
+	assert.Equal(t, `node "zm" is not connected; connected now: zm`, text)
+}
+
+// node_process given no process_id lists the agent's own processes on the node (issue #1060), for a turn the update
+// cut to find the command it ran, as Coder's process list does.
+func TestNodeProcessWithoutAnIDListsTheAgentsProcesses(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	code := 3
+	m := &machines{give: nodeproto.ExecAnswer{Processes: []nodeproto.ExecProcess{
+		{ProcessID: "proc_0123456789ab", Command: "make build", Running: true, StartedAt: 1_795_000_000_000},
+		{ProcessID: "proc_ba9876543210", Command: "exit 3", ExitCode: &code, StartedAt: 1_794_999_000_000},
+	}}}
+	withMachines(w, m)
+
+	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	_, text, isErr := w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm"}`)
+	assert.False(t, isErr)
+	require.Len(t, m.sent, 1)
+	assert.Equal(t, nodeproto.Exec{Agent: "d-dsp_1", Action: nodeproto.ExecList}, m.sent[0])
+	assert.Contains(t, text, "process_id proc_0123456789ab, running, started ")
+	assert.Contains(t, text, ": make build")
+	assert.Contains(t, text, "process_id proc_ba9876543210, exit code 3, started ")
+
+	m.give = nodeproto.ExecAnswer{}
+	_, text, _ = w.use(worker, agenttool.ToolNodeProcess, `{"node":"zm"}`)
+	assert.Equal(t, "no process of yours on this node", text)
+
+	_, text, isErr = w.use(worker, agenttool.ToolNodeProcessKill, `{"node":"zm"}`)
+	assert.True(t, isErr, "a kill names its process")
+	assert.Contains(t, text, "process_id")
 }

@@ -1,8 +1,8 @@
 // Package inboxstore keeps the Inbox (issues #838, #845): the to-dos that have to happen, whoever does them (the
 // owner, a person he waits on, or a Bot), and the history of each. It is a domain store of the orchestration
 // database reached through the root package's Inbox(), as Omnara's storage facade reaches its stores (issue #404);
-// it imports the generated store and never the root package, writes only its own tables and reads the Bots and
-// Approvals through the shared queries.
+// it imports the generated store and never the root package, writes only its own tables and the push queue
+// (push_outbox, issue #1047), and reads the Bots and Approvals through the shared queries.
 //
 // A to-do's fields follow Northstar's Task and Omi's action item (models/action_item.py: who, due, typed
 // evidence; models/task_due.py); its states Plane's Intake (db/models/intake.py: pending, accepted, rejected,
@@ -498,6 +498,10 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		}
 
 		if err := addEvent(ctx, q, row.ID, now, 1, actor, EventCreated, map[string]any{}, fields(row)); err != nil {
+			return err
+		}
+
+		if err := queuePush(ctx, q, now, actor, id); err != nil {
 			return err
 		}
 
@@ -1085,4 +1089,30 @@ func optionalJSON(v *Link) (sql.NullString, error) {
 	}
 
 	return sql.NullString{String: string(b), Valid: true}, nil
+}
+
+// queuePush queues the push of a to-do a Bot or the system added that needs the owner (issue #1047), in the
+// transaction that adds it, as the root package queues an Approval's: one the owner wrote himself needs no push. The
+// sender reads the queue (push_outbox) after the commit; "todo" is the root package's PushTodo.
+func queuePush(ctx context.Context, q *store.Queries, now int64, actor Actor, id string) error {
+	if actor.Kind == Owner {
+		return nil
+	}
+
+	needs, err := q.TodoNeedsYou(ctx, store.TodoNeedsYouParams{
+		ID: id, Now: now, StaleBefore: time.UnixMilli(now).Add(-StaleAfter).UnixMilli(),
+	})
+	if err != nil {
+		return fmt.Errorf("reading whether to-do %s needs the owner: %w", id, err)
+	}
+
+	if needs == 0 {
+		return nil
+	}
+
+	if err := q.InsertPushOutbox(ctx, store.InsertPushOutboxParams{Kind: "todo", ItemID: id, Now: now}); err != nil {
+		return fmt.Errorf("queuing the push of to-do %s: %w", id, err)
+	}
+
+	return nil
 }

@@ -49,6 +49,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/ffmpeg"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/webpush"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -331,6 +332,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}}
 	go tokens.readIdentities(ctx)
 	sshKey := &gitSSHKey{vault: secrets}
+	// Web Push (issue #1047): what waits on the owner is pushed to his devices, signed with a key kept in the vault.
+	pusher := webpush.New(webpush.Config{
+		Store: svc, Keys: webpush.NewKeys(secrets), PublicURL: cfg.PublicURL, Logger: logger,
+	})
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
 		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS(), integration.WhatsApp(),
 		integration.Zalo())
@@ -648,6 +653,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithBotTools(agents.BotTools).WithToolUnavailability(agents.ToolUnavailability)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets})
+		api.WithPusher(pusher)
 	}
 	if !cfg.BrowserOff {
 		api.WithBrowser(ownersBrowser{shared})
@@ -777,6 +783,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		writeShareViews(shareViewsCtx, svc, logger, shareViewsWriteEvery)
 	}()
 
+	// The pull requests that succeeded Tasks left with auto-merge on are followed until they merge (issue #1053).
+	pullRequestsDone := make(chan struct{})
+
+	go func() {
+		defer close(pullRequestsDone)
+
+		followPullRequests(ctx, svc, tokens, logger, followPullRequestsEvery)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -819,13 +834,23 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		shared.Run(ctx)
 	}()
 
-	// `hypomnema update` asks which Bots' turns run before it stops the control plane (issue #716).
+	// What waits on the owner is pushed to his devices once its transaction commits (issue #1047).
+	pushDone := make(chan struct{})
+
+	go func() {
+		defer close(pushDone)
+
+		pusher.Run(ctx)
+	}()
+
+	// `hypomnema update` asks which Bots' turns and how many tool calls run before it stops the control plane (issues
+	// #716, #1060).
 	controlDone := make(chan struct{})
 
 	go func() {
 		defer close(controlDone)
 
-		serveControl(ctx, controlSocket(cfg.Database.Path), sup.WorkingChats, sup.BeginUpdate, logger)
+		serveControl(ctx, controlSocket(cfg.Database.Path), sup.WorkingChats, agents.ToolCalls, sup.BeginUpdate, logger)
 	}()
 
 	serveErr := platform.Serve(ctx, ln, mux, logger)
@@ -833,6 +858,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	stopShareViews()
 	cancel(nil)
 	<-controlDone
+	<-pushDone
 	<-pprofDone
 	<-browserDone
 	<-meetingsDone
@@ -847,6 +873,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-purgeDone
 	<-supDone
 	<-shareViewsDone
+	<-pullRequestsDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return errors.Join(serveErr, cause)

@@ -10,6 +10,8 @@
     "src/components/ui/**",
     // The pages the control plane of the browser tests shows (tests/server), files of an artifact, not modules.
     "tests/server/pages/**",
+    // The service worker (issue #1047), registered by its URL at the root, never imported.
+    "public/sw.js",
   ],
   // Runtime packages of the vendored shadcn primitives (carousel, input-otp, calendar, resizable,
   // message-scroller, questionnaire), kept with them.

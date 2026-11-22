@@ -8,7 +8,10 @@
 package nodeproto
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
@@ -424,14 +427,37 @@ const (
 	ExecOutput = "output"
 	// ExecKill kills a background process and what it started.
 	ExecKill = "kill"
+	// ExecList answers with the agent's processes the node keeps, running first, then the newest (issue #1060).
+	ExecList = "list"
 )
+
+// ExecListMost is how many processes ExecList answers with at most, as Coder's process list
+// (agent/agentproc/api.go handleListProcesses, maxListProcesses).
+const ExecListMost = 10
+
+// ExecProcess is one process ExecList answers with.
+type ExecProcess struct {
+	ProcessID string `json:"process_id"`
+	Command   string `json:"command"`
+	Running   bool   `json:"running,omitempty"`
+	ExitCode  *int   `json:"exit_code,omitempty"`
+	// StartedAt is when it started, in Unix milliseconds.
+	StartedAt int64 `json:"started_at"`
+}
 
 // Exec is one agent's command on a node (issue #543), or a question about
 // one it started in the background. SudoPassword is the node's sudo
 // password from the owner's vault, given to sudo through its askpass
-// helper; it is never logged or answered.
+// helper; it is never logged or answered. ProcessID, on a run or a start,
+// is the id the caller chose for it (IsProcessID), so that its result can
+// be asked for with ExecOutput when the answer is lost on the way, as when
+// the control plane restarts (issue #1060); the node makes one when empty.
 type Exec struct {
-	RequestID      string `json:"request_id"`
+	RequestID string `json:"request_id"`
+	// Agent names the agent as the control plane knows it ("b-<chat>", "d-<dispatch>"), as a DeviceCall's does: a
+	// process is that agent's, read and killed by it alone (issue #1060), as Coder keys a process by its chat
+	// (agent/agentproc/process.go get). It is no credential; a control plane from before it names none.
+	Agent          string `json:"agent,omitempty"`
 	Action         string `json:"action"`
 	Command        string `json:"command,omitempty"`
 	Cwd            string `json:"cwd,omitempty"`
@@ -452,6 +478,8 @@ type ExecAnswer struct {
 	Output    string `json:"output,omitempty"`
 	CutBytes  int64  `json:"cut_bytes,omitempty"`
 	Error     string `json:"error,omitempty"`
+	// Processes are ExecList's answer.
+	Processes []ExecProcess `json:"processes,omitempty"`
 }
 
 // DeviceAnswer is a phone tool's result as MCP has it: what the tool says,
@@ -939,4 +967,37 @@ type ItemsAck struct {
 	Seq        int64  `json:"seq"`
 	Status     string `json:"status"`
 	Error      string `json:"error,omitempty"`
+}
+
+// A process's id on a node (issue #1060): "proc_" and lowercase hex. The node
+// makes one for a command, or takes the one its caller chose, as Coder's
+// agent names a process after the tool call that started it
+// (agent/agentproc/api.go:92-98 handleStartProcess); one chosen must have the
+// shape the node makes and not be taken, as a chat's id a client chooses
+// (orchestration/chats.go:458-461,504-511, after t3code's
+// apps/web/src/hooks/useHandleNewThread.ts:404-405).
+const (
+	processIDPrefix  = "proc_"
+	processIDMinHex  = 12
+	processIDMaxHex  = 32
+	processIDNewHex  = 24
+	processIDHexBase = "0123456789abcdef"
+)
+
+// NewProcessID is a new process id, chosen by a caller before it asks.
+func NewProcessID() string {
+	raw := make([]byte, processIDNewHex/2)
+	_, _ = rand.Read(raw)
+
+	return processIDPrefix + hex.EncodeToString(raw)
+}
+
+// IsProcessID says whether id has the shape of a process's id.
+func IsProcessID(id string) bool {
+	digits, ok := strings.CutPrefix(id, processIDPrefix)
+	if !ok || len(digits) < processIDMinHex || len(digits) > processIDMaxHex {
+		return false
+	}
+
+	return strings.Trim(digits, processIDHexBase) == ""
 }

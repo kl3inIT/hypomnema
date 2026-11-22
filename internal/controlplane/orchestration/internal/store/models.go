@@ -241,6 +241,13 @@ type Chat struct {
 	TurnAttempts   int64
 }
 
+type ChatBackgroundCommand struct {
+	ChatID    string
+	ID        string
+	Pi        string
+	StartedAt int64
+}
+
 type ChatMessage struct {
 	Seq           int64
 	ChatID        string
@@ -822,6 +829,23 @@ type Provider struct {
 	BaseUrl   sql.NullString
 	ApiKeyRef sql.NullString
 	Source    string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
+type PushOutbox struct {
+	Seq       int64
+	Kind      string
+	ItemID    string
+	CreatedAt int64
+}
+
+type PushSubscription struct {
+	ID        string
+	Endpoint  string
+	P256dh    string
+	Auth      string
+	Label     string
 	CreatedAt int64
 	UpdatedAt int64
 }

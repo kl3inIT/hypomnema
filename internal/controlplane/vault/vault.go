@@ -303,45 +303,85 @@ func (s *Service) rotateAt(ctx context.Context, name string, p Payload, expires 
 	}
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		row, current, err := currentVersion(ctx, q, name)
-		if err != nil {
-			return err
-		}
-
-		if at != 0 && int(current.VersionNumber) != at {
-			return fmt.Errorf("%w: secret %q is at version %d, not %d", ErrConflict, name, current.VersionNumber, at)
-		}
-
-		if err := validPayload(Kind(row.Kind), p); err != nil {
-			return err
-		}
-
-		id := identity{
-			SecretID: row.ID, VersionID: s.newID("secv"), VersionNumber: current.VersionNumber + 1, Kind: Kind(row.Kind),
-		}
-
-		sealedVersion, err := seal(s.keyring, id, p)
-		if err != nil {
-			return err
-		}
-
-		if err := insertVersion(ctx, q, id, sealedVersion, expires, now); err != nil {
-			return err
-		}
-
-		if err := q.SetCurrentSecretVersion(ctx, store.SetCurrentSecretVersionParams{
-			CurrentVersionID: id.VersionID, Now: now, ID: row.ID,
-		}); err != nil {
-			return fmt.Errorf("pointing secret %q at its new version: %w", name, err)
-		}
-
-		return nil
+		return s.rotateQ(ctx, q, name, p, expires, at, now)
 	})
 	if err != nil {
 		return Secret{}, fmt.Errorf("rotating a secret: %w", err)
 	}
 
 	return s.Get(ctx, name)
+}
+
+func (s *Service) rotateQ(ctx context.Context, q *store.Queries, name string, p Payload, expires *time.Time, at int,
+	now int64,
+) error {
+	row, current, err := currentVersion(ctx, q, name)
+	if err != nil {
+		return err
+	}
+
+	if at != 0 && int(current.VersionNumber) != at {
+		return fmt.Errorf("%w: secret %q is at version %d, not %d", ErrConflict, name, current.VersionNumber, at)
+	}
+
+	if err := validPayload(Kind(row.Kind), p); err != nil {
+		return err
+	}
+
+	id := identity{
+		SecretID: row.ID, VersionID: s.newID("secv"), VersionNumber: current.VersionNumber + 1, Kind: Kind(row.Kind),
+	}
+
+	sealedVersion, err := seal(s.keyring, id, p)
+	if err != nil {
+		return err
+	}
+
+	if err := insertVersion(ctx, q, id, sealedVersion, expires, now); err != nil {
+		return err
+	}
+
+	if err := q.SetCurrentSecretVersion(ctx, store.SetCurrentSecretVersionParams{
+		CurrentVersionID: id.VersionID, Now: now, ID: row.ID,
+	}); err != nil {
+		return fmt.Errorf("pointing secret %q at its new version: %w", name, err)
+	}
+
+	return nil
+}
+
+// TxStep is a write of the vault's tables in another package's transaction, so that it and that package's own
+// writes commit or fail together (as CreateTx; Coder regenerates its VAPID keys and deletes the subscriptions in one
+// transaction, coderd/webpush/webpush.go:534).
+type TxStep func(ctx context.Context, tx *sql.Tx, now int64) error
+
+// PutStep keeps a secret in the caller's transaction: a new one, or the next version of the one of that name, whose
+// kind must be the same.
+func (s *Service) PutStep(n NewSecret) TxStep {
+	return func(ctx context.Context, tx *sql.Tx, now int64) error {
+		if s.keyring == nil {
+			return ErrNotConfigured
+		}
+
+		q := store.New(tx)
+
+		_, err := q.GetSecretByName(ctx, n.Name)
+
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			_, err = s.create(ctx, q, n, now)
+		case err != nil:
+			err = fmt.Errorf("reading secret %q: %w", n.Name, err)
+		default:
+			err = s.rotateQ(ctx, q, n.Name, n.Payload, nil, 0, now)
+		}
+
+		if err != nil {
+			return fmt.Errorf("keeping secret %q: %w", n.Name, err)
+		}
+
+		return nil
+	}
 }
 
 // Delete removes a secret and every version of it. It is refused while

@@ -172,6 +172,13 @@ func (s *Service) insertQuestion(ctx context.Context, q *store.Queries, now int6
 		return "", err
 	}
 
+	// A question for the owner reaches his browsers once it is committed (issue #1047).
+	if a.To == AddressOwner {
+		if err := queuePush(ctx, q, now, PushQuestion, id); err != nil {
+			return "", err
+		}
+	}
+
 	return id, nil
 }
 
@@ -302,9 +309,14 @@ func (s *Service) ForwardQuestion(ctx context.Context, id string) error {
 		}
 
 		if n == 1 {
-			return emitQuestion(ctx, q, now, EventQuestionForwarded,
+			if err := emitQuestion(ctx, q, now, EventQuestionForwarded,
 				questionRef{id: id, task: row.TaskID, run: row.RunID, dispatch: row.DispatchID},
-				map[string]any{"mode": row.Mode, "addressed_to": string(AddressOwner)})
+				map[string]any{"mode": row.Mode, "addressed_to": string(AddressOwner)}); err != nil {
+				return err
+			}
+
+			// The question forwarded reaches the owner's browsers once it is committed (issue #1047).
+			return queuePush(ctx, q, now, PushQuestion, id)
 		}
 
 		return fmt.Errorf("%w: question %s is %s and addressed to the %s", ErrConflict, id, row.Status, row.AddressedTo)

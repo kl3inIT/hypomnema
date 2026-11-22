@@ -117,7 +117,7 @@ flowchart TB
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
 (`--provider`, `--model`, `--thinking`),
-and stops it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
+and stops it after 30 min idle by closing its stdin, unless it runs a background command (below); it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt` when pi is idle and are marked delivered once pi accepted them. An owner
 message written while pi works, from the web, the CLI or Lark, or while others still wait, goes into the chat's
 queue (`chat_queue`, issue #497, after OpenMausBot's `server/channel-queue.ts`): off the transcript until the turn
@@ -143,7 +143,9 @@ with its own token, so an old pi's exit never clears the turn of the chat's next
 clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
 and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
 `continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
-check the current state before redoing anything, then finish the task"; it is no turn input of its own, so a turn
+check the current state before redoing anything, then finish the task", and lists its commands on a node with
+`node_process` before running one again, issue #1060: pi reads this prompt in place of the line, which is the
+owner's to read; it is no turn input of its own, so a turn
 that was the owner's stays his for `OwnerTurn`), one attempt more and its mark from now; any other mark is cleared
 with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
 line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
@@ -225,7 +227,28 @@ pi counts an image as about 1,200 tokens whatever its bytes, so every chat's pi 
 on pi's `context` event, before each model call, sends the oldest tool-result images as `[image removed to save
 context]` once the request's images pass 24,000,000 bytes of base64: in batches of 8, kept evicted for the session so
 the cached prefix holds, never the newest 3 tool images nor an image a person sent, and only in the request, not the
-session (Hermes's send-path eviction, `agent/image_eviction_policy.py`; issue #675). On
+session (Hermes's send-path eviction, `agent/image_eviction_policy.py`; issue #675).
+A Bot's bash takes `background: true` (issue #1058): `deploy/coordinator/pi-background.mts`, given to every chat's pi
+but a read run's, replaces pi's `bash` with pi's own plus that flag, as OpenClaw's exec continues the conversation when
+a backgrounded command exits (`tools.exec.notifyOnExit`, on by default, `src/config/schema.help.runtime.ts:467-470`, `docs/tools/exec.md:171-173`), opencode's
+shell says "You will be notified when it completes. DO NOT poll" and Claude Code's `run_in_background` re-invokes the
+agent. Before a Bot polled its own `setsid nohup … &` jobs with `sleep 240; cat …log`, a new turn of its whole context
+each time. The command starts in the box in a process group of its own and the tool answers at once with its id
+(`bg_…`), group and deadline, telling the Bot to end its turn if only waiting is left. Its deadline is OpenClaw's 1,800 s unless the call gives a `timeout` (`exec.md:192`); then the group gets SIGTERM and, 5 s later, SIGKILL, as OpenClaw stops a process (`src/process/supervisor/released-processes.ts:97-125`), and the wake says the time ran out, with OpenClaw's advice on retrying (`bash-tools.exec-output.ts:117-118`). So every command ends and wakes the chat, and no pi is kept for one forever. Output a child writes after the end was reported is let go of. The extension
+reports it on `POST /agent/v1/background` with pi's own token (`started`, then `ended` with its exit code or signal,
+the last 2,000 characters of its output, how many it wrote, and its file when the end is only part of it), and a
+command the control plane did not record is not started. All its output goes to an owner-only file of the box's
+`/tmp`, at most 64 MiB, kept only when the wake leaves part of it out: OpenClaw's file for a Gateway-host command (`exec.md:174`); keeping it in the box is this extension's choice, where the plan said `node_exec`'s 32 KB head and tail. The control
+plane keeps a row per running command (`chat_background_commands`: chat, id, a hash of the pi's token, start; no
+command text, as OpenClaw's `bash-process-durable.ts:83-129`). The end takes the row out and adds one wake-up to the
+chat ("Background command bg_… exited with code 3 after 4m12s:" and the output's end, after
+`bash-tools.exec-notify.ts:245-260`), once: a second report, or one from another pi of the chat, wakes nothing. Like
+every wake-up it waits for a turn that runs and goes with the others as the next prompt (OpenClaw's
+`session-event-batch.ts:34-58`). The box ends its commands with pi (`--unshare-pid`, `--die-with-parent`), so the
+supervisor does not stop an idle pi whose chat has a row, and when a pi exits its own rows become a wake-up saying the
+command was killed because the chat's pi stopped; at the supervisor's start every row left is reported killed by the
+restart (OpenClaw reports what the last Gateway lost, `bash-process-durable.ts:132-161, 200-225`). A deleted chat takes its
+rows. `node_exec`'s `background` is unchanged: it still answers through `node_process`. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's id and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), a third that removes a deleted chat's `run/<chat>`
@@ -768,7 +791,23 @@ sequenceDiagram
     boxes (Android CLI finds boxes only as it captures, so that is a capture of its own). Either is given to the
     agent as a JPEG of the same pixels at quality 75, as mobile-mcp gives its agent a screenshot (not scaled: the
     picture's pixels are a tap's coordinates); the answer crosses the control plane's public address, Tailscale
-    Funnel, at a few hundred KB/s, and the Home screen's PNG was 690 KB against 38 KB (issue #578); `device_layout` is
+    Funnel, at a few hundred KB/s, and the Home screen's PNG was 690 KB against 38 KB (issue #578). With
+    `save_to`, a `.png`, `.jpg` or `.jpeg` path in the folder the agent works in (a worker's worktree, a Bot's
+    folder), the agent's own tools server (`toolsmcp.ShotCall`, called by `internal/node/workertools` and `hypomnema
+    mcp`) takes it out of the call, writes the picture there in the format its name says, and answers
+    `Screenshot saved to: <path>` without the picture, as mobile-mcp's `mobile_save_screenshot`. A path out of
+    that folder is refused before the phone is called, a link followed to its target, even one not there yet;
+    the write is held in it by `os.Root`, and goes to a new file beside the name that is renamed over it, so a
+    link or a hard link there is replaced rather than written through (mobile-mcp `src/utils.ts:95-185`). The
+    control plane's phone refuses `save_to` as an argument it does not take. The browser's
+    `agent_browser_screenshot` takes `save_to` the same way, but it is sent on: the engine never gives it to
+    agent-browser, and reads the picture from the file agent-browser saved under its HOME
+    (`.agent-browser/tmp/screenshots`), since agent-browser gives an image only up to 10 MiB and the engine keeps
+    8 MiB of another answer; that answer, the picture whole in base64, may be up to 64 MiB
+    (`agenttool.MaxSavedShotBytes`, generate_image's bound) and has no write timeout, as generate_image's has none;
+    the file is opened in that folder (`os.Root`), and a larger one is refused with what to take instead
+    (issue #1059);
+    `device_layout` is
     `android layout --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with boxes
     with `android screen resolve`
     and tapped with `adb shell input tap x y`, or `x,y`, or an Android CLI selector (`android input tap`);
@@ -1381,7 +1420,8 @@ sequenceDiagram
     issue #789 the tools' own guidance (the Browser part of issue #704, Routines, the artifacts, the skills of
     `gws`, `lark-cli`, `gh`, `glab` and Superset) is in the "Tools" block, which workers get too (Agent tools,
     below); Tools and the owner keeps the coordinator skill, the owner's own Lark account on his turn, the
-    `MEDIA:` line and where the owner finds the Bot's tab beside the chat. The Research before a design part
+    `MEDIA:` line, where the owner finds the Bot's tab beside the chat, and that one message's tool calls run at
+    the same time (pi's default), so a file is not read in the message whose call makes it (issue #1059). The Research before a design part
     (issue #719, the owner's rule of this repository's `AGENTS.md`, 2026-11-17) says that before the Bot answers
     how others do something or proposes a design or a choice, it has a worker clone and read the code of three or
     four mature projects (or reads them itself), compares them with the paths read, recommends one and marks what
@@ -2110,15 +2150,17 @@ flowchart LR
   Migration 00115 (issue #718) makes the next version from that one (`pfv_seed8_reviewer`, where
   `pfv_seed7_reviewer` is still current) and keeps its text: the reviewer also checks out the pull request, runs the
   repository's checks for what it touched and says which it could not run and why; `reviewer-codex.yaml` carries
-  this text. The role sample `deploy/profiles/reviewer.yaml` (issue #952, after Cursor's pstack and orchestrate)
-  holds a review to its spec alone, with no check or round above it; makes a finding P0 or P1, and so the verdict
-  `incorrect`, only with proof at the head commit (a command run and its output, or a spec, contract or doc line
-  the change makes wrong), a problem the base already has blocking only when the change copies or newly reaches
-  it and the rest listed as follow-ups; names the head commit the verdict covers, an evidence level (`ran-live`,
-  `test-verified`, `typecheck-only`, `blocked`, never a pass, or `failed`) and an `Execution` list of what it ran;
-  checks a plan only for its cited code and whether it can be carried out; and returns `blocked` in place of
-  `correct` or `incorrect` when it could not run what the verdict needs, saying what stopped it (`review_stall`
-  shows it as `unknown`). No migration seeds it: a reviewer gets it when the owner applies the file.
+  this text. The role sample `deploy/profiles/reviewer.yaml` (issues #952 and #1051, after Cursor's pstack and
+  orchestrate, omp and Codex) is the one home of the reviewer's rules, with their sources: the spec alone is the
+  bar; P0 to P3 as omp and Codex define them, P2 and P3 never blocking; a P0 or P1 makes the verdict `incorrect` only with proof
+  at the head commit, a trigger that documented use with the default configuration reaches, and a break of the
+  spec's intent, the rest listed as follow-ups; from a second round, only what the diff since the reviewed head
+  adds may newly block; it runs the checks that touch the diff, answers CodeRabbit's Critical and Major findings,
+  and starts its summary with `Verdict:`, `Head:`, `Evidence:` (`ran-live`, `test-verified`, `typecheck-only`,
+  `blocked`, never a pass, or `failed`), for a pull request or merge request also the merge state and the
+  checks, then an `Execution` list; `blocked` when it could not run what the verdict needs (`review_stall` shows it as `unknown`). The coordinator's `review`
+  reference links to it and keeps only what the coordinator does; its sources are in `docs/role-routing.md`. No
+  migration seeds it: a reviewer gets it when the owner applies the file.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. Room is computed, not set (issue #731, migration 00114): a node takes a Dispatch while the
   requests of its Dispatches that have not settled (one waiting on a question included, a gated one not), plus this
@@ -4093,6 +4135,34 @@ capabilities do not exist yet.
   transaction, and Coder removes a deleted user's `api_keys` in the transaction that marks it). Providers are read
   through orchestration and keys through the vault.
 
+Web Push (`internal/controlplane/webpush`, issue #1047, [research](docs/research/2026-11-21-web-push.md)): what
+waits on the owner reaches his browsers and the iPhone Home Screen app (iOS 16.4+) when no tab of the app is open.
+- What pushes, one push per item: a question for the owner (asked to him, or forwarded to him by the coordinator), a
+  pending Approval, a Connection request, and an Inbox to-do a Bot or the system adds that needs him (the needs-you
+  predicate of `/inbox/needs-you`, as the query `TodoNeedsYou`). The item's transaction writes a row in
+  `push_outbox` (kind, item id; one per item); one the owner writes himself queues nothing.
+- The sender runs while the control plane serves. It reads the queue at start and after every commit
+  (`orchestration.Subscribe`), reads each item's words then (`QueuedPushes`: title naming the Bot, or the Run by its
+  objective; the item's own text cut to 1500 bytes, and cut again to what fits once JSON-encoded (3800 bytes); the page, the item's chat or the start page; the Inbox has no
+  page yet), drops one that no longer waits (answered, decided, gone), and sends it to every subscription at once,
+  then deletes the row. A push is a Declarative Web Push message (`{web_push: 8030, notification: {title, body,
+  navigate, tag}}`), encrypted with `SherClockHolmes/webpush-go`, with TTL 300 s, urgency high, the tag
+  `hypomnema-<kind>-<id>` and a Topic hashed from it, so a newer push of the same item replaces a pending one. 429,
+  5xx and no answer are tried three times in all (1 s, 4 s apart); 404 and 410 delete the subscription; any other
+  refusal is logged and dropped.
+- Subscriptions are `push_subscriptions`, one row per browser endpoint with its keys and label, no user column (the
+  owner alone uses the app); a browser subscribing again keeps its row and takes the new keys. The client API's
+  `GET|PUT /push/subscriptions`, `DELETE /push/subscriptions/{id}` and `POST /push/subscriptions/{id}/test` are the
+  owner's alone; the list carries the VAPID public key.
+- The VAPID key pair is made on first use and its private half kept in the vault as the secret
+  `web-push-vapid-key` (generic); the public half is read from it. The VAPID subject is `HYPOMNEMA_PUBLIC_URL`;
+  without an https one the control plane serves no key and drops what is queued. `hypomnema push regenerate-keys`
+  deletes every subscription and keeps a new pair in one transaction (the vault writes in orchestration's,
+  `vault.PutStep`), so a refused write changes nothing; each device then turns notifications on again. Like every
+  vault secret, the owner can read the private key with `secrets show` or the Vault page (recorded), as he can
+  `git-ssh-key`; nothing of Web Push prints or answers it. Without the
+  vault's root key the client API answers unavailable.
+
 Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,
 [research](docs/research/2026-11-13-web-search.md)): one Service the control plane makes as it serves, which the
 model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker and a Bot's pi as
@@ -4731,18 +4801,38 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
   out. An exit code other than 0, or a time run out, is an error result.
 - `background: true` answers at once with a `process_id`; the command runs with no time limit. `node_process
   {node, process_id, wait_seconds}` answers once it ended or after `wait_seconds` (at most 300), with the output so
-  far; `node_process_kill` kills its group. An ended one is kept an hour (Coder); the node's restart, as at an
-  update, kills the ones still running.
+  far; `node_process_kill` kills its group. An ended one is kept an hour (Coder), and at most 50 ended ones, the
+  oldest dropped as each ends (OpenClaw's finished sessions); the node's restart, as at an update, kills the ones
+  still running. A process is the agent's that ran it, a chat's pi (`b-<chat>`) or a worker's Dispatch
+  (`d-<dispatch>`), named with each `exec`: another agent that knows its id is told there is none (Coder keys a
+  process by its chat; issue #1060). `node_process {node}` with no `process_id` lists the agent's own on that
+  node, running first, then the newest started, at most 10, with id, state, start and the command's first 200
+  bytes (Coder's process list; the cut is this repository's, so that the list always fits a node's 1 MiB answer).
 - sudo: the vault secret `sudo-<node>` (lowercase, its `value`) is the node's sudo password. When there is one, the
   control plane sends it with the command, and the node adds `-A` after every `sudo` that is a simple command's
   command (parsed with `mvdan.cc/sh`) and sets `SUDO_ASKPASS` to a helper that prints it from a file only the
   node's user reads, removed when the command ends (Hermes's askpass form). The password is not logged, answered or
   on a command line. A node with none runs `sudo` as it is: it works where sudo needs no password, else fails.
-- The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`) and waits for the answer on
+- The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`, `list`) and waits for the answer on
   `POST /node/v1/exec?request=` for the command's time and 30 s; a node that goes away meanwhile fails the call at
   once, as a phone call does. Each call is logged with the agent, the node and the action, not the command.
 - MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), longer than the 300 s
   and the node's answer.
+- A restart of the control plane, as at an update, does not lose a command's result (issue #1060). The tools server
+  (`toolsmcp.NodeCall`, a worker's and a Bot's) names each `node_exec`'s process before it asks (`process_id`, not
+  in the tool's schema: `proc_` and hex, the shape the node makes), as Coder's agent names a process after its tool
+  call; the node reserves the id before the command starts and keeps a foreground command by it too, an hour once
+  it ended. When the answer's connection ends without it, or a proxy answers 502, 503 or 504 without the control
+  plane's own message (not a connection that could not be opened: that command never ran), the tools server asks
+  `node_process` for that id, waiting as long as the command may run, from half a second apart doubled up to eight
+  (OpenClaw's Control UI retries), within the 7 minutes, as Coder's execute tool reads a process again after a
+  transport error; it never runs the command again. It asks again past a node not reconnected yet: one the control
+  plane lists, whose socket is not back (its last heartbeat still counts), is answered as not connected. The
+  result read says first that the control plane restarted, with the node and the `process_id`; none within the 7
+  minutes is an error naming them. A `node_process` whose answer is lost is asked again the same way; a kill is
+  not. A Bot's turn the update cuts loses its tools server, and the id with it: the continued turn's prompt says
+  to list its commands with `node_process {node}` before running one again (the coordinator's choice of Coder's
+  process list over a stored row a command, 2026-11-22).
 - Not built: a PTY, a per-node switch to refuse commands (Nezha), a list of commands always refused (Hermes).
 
 ```mermaid
@@ -4925,8 +5015,13 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     drains a gateway's turns before it stops it): it asks the control plane every second on its control socket,
     `data/control.sock` next to the database (after Hermes's `gateway/control_socket.py`: a local socket, never a
     TCP port, mode 0600, a stale one removed when the control plane starts), whose `GET /turns` answers
-    `{"chats": [...]}`. A control plane that does not answer is not waited for; workers are never waited for. A turn
-    still running at the bound is cut, and continues when the control plane starts again (above). From before
+    `{"chats": [...], "tool_calls": N}`. It also waits, within the same bound, until no agent's call of the control
+    plane's tools runs (`tool_calls`, a worker's too: the calls on the tools', the browser's and the phone's routes,
+    issue #1060), as OpenClaw's update drains a Gateway's requests in flight for at most 5 minutes before it
+    restarts. Each question on the socket gets 5 s or what is left of the bound, whichever is less, and none is
+    asked past it. A control plane that does not answer is not waited for; a worker's turn is never waited for. A turn
+    still running at the bound is cut, and continues when the control plane starts again (above); a command on a
+    node is read again (`node_exec`, above). From before
     that wait until the release's coordinator is set up, `update install` names its process (pid and start time
     from `/proc`) in `data/updating`, which it removes when it returns. It asks the control plane to write it
     (`POST /update` on the control socket), which does so under the lock each pi start holds from its last look for
@@ -5045,6 +5140,8 @@ The owner's commands:
   - `secrets keygen [id]` prints a new root key; `secrets add <name> --from-file FILE|-` (with `--kind` and
     `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
+  - `push regenerate-keys` makes new VAPID keys for Web Push and removes every subscribed device in the same step
+    (issue #1047), the step to take when the key may have leaked; it prints how many devices it removed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
     table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
     owner key. `gateway keys set <id>` takes `--name`, `--models` and `--endpoints` (`*` restores every kind);
@@ -5102,13 +5199,15 @@ The owner's commands:
   under a heading naming its id (pi's chain passes the previous output whole); more work on a succeeded Task is a
   follow-up to its worker, not a new Task. The `planner` researches in one session; the `reviewer` checks plans
   before owner approval and `broad` or `narrow` changes from another vendor. A `quick` change needs green CI only.
-  A first PR review receives the pull request and spec, not the report or transcript, and is told to block only on
-  a P0 or P1 proved at the head and to give its `Head:` and evidence level in the summary (issue #952, after
-  pstack's `autopilot-full.md:16` and orchestrate's `verifier.md:23,41-61`); a P0 or P1 without proof is a
-  follow-up, and an `incorrect` verdict with none proved is handled as `blocked`: never a pass nor a fix round,
-  one new review once its cause is gone, then the owner told (orchestrate's `handoffs.md:137`). From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
-  effort `medium`, and the whole change again only for new behavior, a redesign or a large new diff; a clean merge
-  of the base or a wording-only change needs green CI only (pstack's `autopilot-full.md:5,14`). Before a review,
+  A first PR review receives the pull request and spec, not the report or transcript; an owner's acceptance
+  condition goes into the spec word for word, as one line, never restated as a property to hunt, and the spec does
+  not restate the reviewer's rules, which the `reviewer` profile holds (issue #1051, after pstack's `worker.md:4`).
+  An `incorrect` verdict with no finding that blocks by those rules is handled as `blocked`: never a pass nor a
+  fix round, one new review once its cause is gone, then the owner told (orchestrate's `handoffs.md:137`). From round 2 a review checks the earlier findings and `git diff <reviewed_sha>..<head>` only, at
+  effort `medium`, and the whole change again only for new behavior, a redesign or a large new diff; a head whose
+  only change is a clean merge of the base, a `make migration-fix` rename or wording needs green CI only (pstack's
+  `autopilot-full.md:5,14` for wording; the clean merge without a verifier and the rename are the choice of
+  issues #952 and #1051, not pstack's). Before a review,
   a red check gets one rerun of its failed jobs, noted in the report; one green on the rerun, or failing outside
   the diff and also red on the base, is a flake: the review goes on, and the author opens an issue, with no fix
   in the pull request (pstack's `babysit.md:8`). A bug fix's spec asks for the failing test committed before the fix
@@ -5120,12 +5219,34 @@ The owner's commands:
   author's answer and what is still disputed, word for word, and says of each finding whether it is fixed, open
   or disputed (issue #686, after t3code's "brief, findings, objections" for a re-check,
   `orchestrationInstructions.ts:11`; Polly keeps the first round blind), three rounds at most, after which the pull request is left open
-  and the owner told the verdict and findings, without adding a Task; a review first reads
-  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1,
-  so not correct) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
+  and the owner told the verdict and findings, without adding a Task; the reviewer first reads
+  what CodeRabbit left on the pull request and reports each Critical or Major finding as fixed, still open (a P1
+  of its own) or wrong, Minor ones as follow-ups, and for an important pull request (a migration, security or
   permissions, merging or auto-merge, a large change) the coordinator may comment `@coderabbitai review`, which
   nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
-  reported, not replaced.
+  reported, not replaced. The skill's files hold no source comments, since a coordinator turn reads them whole;
+  each rule's source is in `docs/role-routing.md` (issue #1051).
+  A worker that turned auto-merge on finishes without waiting for CI, its summary saying "auto-merge on at
+  <sha>", and the control plane follows its pull request (issue #1053, `orchestration/pullrequests.go`, after
+  pstack's watcher, `shipping.md:8-9` and `scripts/watch-pr/policy.ts:59-140`): once a minute
+  (`followPullRequests`, pstack's 60 s, `cli.ts:110`) it lists the succeeded, non-review Tasks of open Runs whose
+  last Dispatch's summary says so and names one pull request, and reads each at its host with the token of its
+  repository's Connection, by the Connection's route (`githost.ReadRequest`): on GitHub one GraphQL query for its
+  state, `mergeable`, head and the status check rollup of its last commit with `isRequired`, a check counted by
+  its newest run and failed in gh's fail and cancel buckets (cli/cli `api/query_builder.go:279-310`,
+  `pkg/cmd/pr/checks/aggregate.go:38-120`); on GitLab the merge request's state, `has_conflicts`, `sha` and head
+  pipeline. A conflict, before a failed required check (pstack's `babysit.md:8`), sends the worker a follow-up on
+  its succeeded Task, asked by the coordinator, to fix it, push, turn auto-merge on again and finish; merged,
+  closed, and a follow-up sent or refused each write one `escalation` event of kind `pull_request` on that
+  Dispatch (`state`, `pull_request`, `head`, `reason`, `follow_up` or `follow_up_refused`), which wakes the Run's
+  chat and marks the report settled; a follow-up's new Dispatch reports again. The follow-up and its escalation
+  are written in one transaction, which first reads again that the Run is open, the Task succeeded, its last
+  Dispatch is the one read and the report is not settled; GitHub's checks are read page by page, 100 a page, as gh
+  does (`pkg/cmd/pr/checks/checks.go:257-300`). A repository without a token is not read: its Dispatch's
+  worker, given no token, used the node's login and was told to wait for the required checks itself, as before
+  #1053, and the pass writes one escalation in state `unfollowed` for it (review round 2, the coordinator's
+  choice). The coordinator keeps the Run open until that wake says the pull request merged, was closed or is not
+  followed.
   A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
   in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
   A head gets one verdict (issue #953, after pstack's "a verdict covers a patch",
@@ -5391,12 +5512,18 @@ Node (`internal/node`):
     - the rules, the same for every worker:
       - one decision boundary, within what the task and the worker's instruction allow: it decides how to build
         it, which tests to add, running the checks, committing and pushing its branch, opening or updating the
-        Task's pull request and turning on its auto-merge (below); it never merges directly; it asks first, with
+        Task's pull request and turning on its auto-merge (below); it never merges directly; the options the task
+        leaves open, such as how to fix a review finding or which limit or library to use, are its own too: it takes
+        the one most references take or the one it would recommend, says which and what it is learned from in the
+        pull request, and does not ask (issue #1069, after pstack's "Proceed, then present"); it asks first, with
         `ask`, before changing the scope, deploying or changing a server, deleting what its change did not make, or
-        acting outside its directory and pull request (the owner's list, 2026-11-17, issue #672, with merging taken
-        off it by issue #714; after OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do freely / Ask
-        first"); no one reads the worker's messages before `finish`, so no progress messages (Orca,
-        omp);
+        acting outside its directory and pull request, and when no option keeps the task's goal (the owner's list,
+        2026-11-17, issue #672, with merging taken off it by issue #714 and the goal added by issue #1069; after
+        OpenAI's GPT-5.6 Sol and GPT-6 guidance and OpenClaw's "Do freely / Ask first"); when a worker still asks
+        about such an option, the coordinator answers it itself instead of forwarding it to the owner, if the
+        question reaches the coordinator (asked to it) and the worker's recommendation names its source and stays
+        inside the Task's scope (its skill's Questions); no one reads the worker's messages before `finish`, so no
+        progress messages (Orca, omp);
       - finish the whole task: errors and failing tests are worked through, a turn does not end on a plan or an
         offer to continue, and only what needs the owner stops it, with `ask` or a Gate (issue #672, after
         Anthropic's Opus 5.5 and Fable 5.2 pages, omp's subagent and Hermes's task-completion guidance);
@@ -5420,7 +5547,9 @@ Node (`internal/node`):
         cause is on the base, or when the repository's rules ask, with only the affected checks rerun (OpenClaw,
         oh-my-opencode); CI waited for with one blocking command, never a polling loop (Orca, Coder, Hermes,
         oh-my-opencode, t3code), and not at all when the spec says a review comes first, since the coordinator's
-        review step waits for CI itself (owner, 2026-11-19);
+        review step waits for CI itself (owner, 2026-11-19), or once auto-merge is on with the repository's token,
+        as the control plane follows it (issue #1053); otherwise only when the Task needs CI's result or the merge
+        steps say to (without the token, below);
       - for a worker that writes, that only its diff's failures get a commit: a red check outside the diff that is
         also red on the base, or green on one rerun, is a flake, rerun once and given an issue, which the worker
         opens or comments on without asking; and that a bug fix commits a test failing without the fix before the
@@ -5450,13 +5579,21 @@ Node (`internal/node`):
          `only_allow_merge_if_pipeline_succeeds`. When one fails the pull request stays open, the summary's first
          line says what the repository lacks, and no Gate is opened only to ask to merge;
       2. a draft stays open; a conflict (`DIRTY`, `has_conflicts`) is resolved by merging the base, keeping both
-         sides' intent, rerunning the checks the merge affects and pushing; on GitLab the merge request must have a
-         pipeline;
+         sides' intent, rerunning the checks the merge affects and pushing; what the repository's instructions ask
+         right before a merge (such as merging the base and numbering a migration after its last, this
+         repository's `make migration-fix`) is done and pushed before auto-merge lands the head (issue #1053); on
+         GitLab the merge request must have a pipeline;
       3. `gh pr merge <url> --auto --merge --match-head-commit <sha>` or
          `glab mr merge <iid> --auto-merge --yes --sha <sha>`;
-      4. waiting for the required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`),
-         fixing the red ones its diff causes and rerunning a flake once, then `finish`, saying whether it merged or
-         that auto-merge is on;
+      4. with the repository's token in the offer, reading the request back (`gh pr view <url> --json
+         state,mergedAt`), since a requested auto-merge is not
+         a merge, then `finish` at once, saying whether it merged or "auto-merge on at <sha>", without waiting for
+         the checks: the control plane follows the pull request to merged and sends a follow-up when it goes red
+         or conflicts (issue #1053, after pstack's `shipping.md:8-9`); without auto-merge the worker waits for the
+         required checks (`gh pr checks <url> --required --watch`, `glab ci status --live`) only when the Task
+         needs their result; without the token (the node's own login, which the control plane cannot read the
+         request with), waiting for the required checks with that command, fixing the red ones its diff causes and
+         rerunning a flake once, then `finish`, as before #1053;
     - `Task (<profile>):` and the Task's spec;
     - the recovery note, a follow-up ("You called `finish` on this task before, and more is asked of it now (this
       replaces the answer to any question you asked at `finish`): …", then to
@@ -6118,6 +6255,16 @@ Node (`internal/node`):
     Machines cards, table, switch and menu, the Task panel as a side panel.
   - A change the owner made in Settings that succeeded says so in a toast (`said` in
     `web/src/lib/said.ts`).
+  - Notifications (issue #1047, `web/src/features/notifications`): `web/public/sw.js`, a hand-written service
+    worker registered at the root from `main.tsx`, shows a push the browser hands it (Safari shows a Declarative
+    Web Push message itself, so there a push for the chat in view still shows), skips one for the chat the owner has
+    focused (only a chat: the test push, which opens Settings, shows there), opens the push's page on a click
+    (focusing a window on it, else taking an open one, else opening one) and keeps a renewed subscription under its
+    new endpoint only while the control plane still lists the old one, deleting the old row; it handles no fetch and
+    caches nothing. Settings, Preferences, Notifications turns them on for this browser (permission is
+    asked only from that button), lists the owner's devices with a test push and a remove, and on an iPhone or iPad
+    not opened from the Home Screen shows the steps to add it. A chat where something waits offers the same button
+    once, until it is on or dismissed ("Not now", kept in local storage).
   - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
     `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
   - What a query read stays fresh for 30 seconds (`web/src/main.tsx`, issue #510; Omnara's and MemoryOS's
@@ -6128,7 +6275,8 @@ Node (`internal/node`):
     they fit on one line, and the marks alone when they do not.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
-    - files as they are, with a year's cache under `assets/`;
+    - files as they are, with a year's cache under `assets/`; the service worker `sw.js` at the root with
+      `Cache-Control: no-cache` (issue #1047);
     - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin; under
       `/s/`, a view-only link's page (issue #745), also `X-Robots-Tag: noindex, nofollow` and `no-store`;
     - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`);
@@ -6137,6 +6285,18 @@ Node (`internal/node`):
   - A binary built without the client (only `dist/.gitkeep`) serves none.
 - In development, `pnpm dev` forwards `/api`, `/livez` and `/readyz` to the control plane (`HYPOMNEMA_API_URL`,
   default `http://127.0.0.1:8080`).
+
+## Orca plugin
+
+- `orca/` (issue #1061): an Orca plugin, another client of the client API, made from Orca's `worker-panel`
+  template; installed from this folder (`orca plugin install`), how in [its README](orca/README.md). Its worker
+  (`src/worker.ts`) follows `GET /events/stream` as the Work page does (`use-work.ts`) and lists what waits for the
+  owner by the Work page's "you" rule, ported to `src/waiting.ts` because Orca loads only a plugin's own files
+  (`web/src/features/work/orca-waiting.test.ts` keeps the two the same). It counts them in Orca's status bar, notifies
+  each new one once (the keys notified are kept in the plugin's storage), and its panel answers questions with
+  `POST /questions/{id}/answer`. It uses a dedicated owner token, kept in Orca's secrets; the server's URL is a
+  setting of the plugin. CI does not run its tests: `orca plugin test orca` and `orca plugin validate orca` do, on a
+  machine with Orca.
 
 ## Where it runs
 
@@ -6257,6 +6417,7 @@ internal/controlplane/videos/captions  cues from a voice's word times and the AS
 internal/controlplane/videos/ffmpeg  the pinned ffmpeg and ffprobe videos are made with, installed at start, and the captions' font; installffmpeg/ installs it for CI
 internal/controlplane/videos/compose  a take made into one MP4: scenes, dead time cut, each scene fitted to its voice, taps' rings, 9:16 or 16:9 (aidemo's compose, ported)
 internal/controlplane/webui    serves the embedded web client
+internal/controlplane/webpush  Web Push: the VAPID key pair in the vault, and the sender that pushes what waits on the owner to his devices
 internal/e2e               tests only: the control plane's node API with the node daemon
 internal/node             package node: configuration, CLI detection, init, check, run with the registry of runtimes, and the systemd unit
 internal/node/bridge      the mailbox between a worker's tools and the Supervisor: questions, answers, the final report

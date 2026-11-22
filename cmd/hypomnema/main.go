@@ -34,6 +34,7 @@
 //	hypomnema secrets rotate <name> --from-file FILE|-
 //	hypomnema secrets rm <name>                refused while a provider or an account names the secret
 //	hypomnema secrets rewrap                   wrap every data key under the active root key
+//	hypomnema push regenerate-keys            new VAPID keys for Web Push; removes every subscribed device
 //	hypomnema gateway models apply FILE        declare a model the gateway serves (a YAML document)
 //	hypomnema gateway models list | rm <name>
 //	hypomnema gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]
@@ -78,7 +79,8 @@ import (
 
 var errUsage = errors.New("usage: hypomnema migrate | serve | version | " +
 	"nodes add|list|drain|resume|rm|rename|set|token | machines providers|create | accounts add|login|list|refresh|rm | " +
-	"tokens add|list|revoke | users add|passwd|list | secrets keygen|add|list|rotate|rm|rewrap | gateway models|keys … | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
+	"tokens add|list|revoke | users add|passwd|list | secrets keygen|add|list|rotate|rm|rewrap | push regenerate-keys | " +
+	"gateway models|keys … | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
 	"runs … | tasks … | questions … | whoami | skills get|install | " +
 	"answer <question> <answer> | questions | files serve --root DIR | update --user U --home DIR")
 

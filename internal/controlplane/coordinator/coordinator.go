@@ -216,6 +216,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	t := time.NewTicker(tick)
 
 	s.running.Store(&ctx)
+	s.loseAllBackground(ctx)
 	s.continueCutTurns(ctx)
 
 	defer t.Stop()
@@ -269,7 +270,7 @@ func (s *Supervisor) pass(ctx context.Context) {
 		}
 	}
 
-	s.reapIdle()
+	s.reapIdle(ctx)
 }
 
 // deliver gives pi what the chat has for it and marks it delivered once pi accepted it. While pi works, only the
@@ -569,7 +570,12 @@ func (s *Supervisor) settled() {
 	}
 }
 
-func (s *Supervisor) reapIdle() {
+func (s *Supervisor) reapIdle(ctx context.Context) {
+	keep, ok := s.runningBackground(ctx)
+	if !ok {
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -577,7 +583,7 @@ func (s *Supervisor) reapIdle() {
 		switch {
 		case p.exited():
 			delete(s.procs, id)
-		case p.idleFor() > s.cfg.IdleAfter:
+		case p.idleFor() > s.cfg.IdleAfter && !slices.Contains(keep, id):
 			go p.stop()
 
 			delete(s.procs, id)
