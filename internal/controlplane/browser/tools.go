@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
 
 // Tool is one browser tool as an agent is offered it: agent-browser's own
@@ -51,19 +52,31 @@ var withheld = []string{
 // headless; a window on the control plane's machine is not how the owner sees
 // a tab (issue #704).
 var withheldOf = map[string][]string{
-	"agent_browser_screenshot": {"path", "screenshotDir"},
-	toolOpen:                   {"headed"},
+	agenttool.ToolBrowserScreenshot: {"path", "screenshotDir"},
+	toolOpen:                        {"headed"},
 }
 
 // added is what Hypomnema adds to a tool's own description: where the tab
 // is, how the owner sees it and signs in there (issue #704). agent-browser's
 // own text speaks of a browser it launches, which an agent here never does.
 var added = map[string]string{
+	agenttool.ToolBrowserScreenshot: devicetool.SaveToHelp,
 	toolOpen: "In Hypomnema the page opens in your own tab of the browser every agent shares. The owner sees " +
 		"that tab in the web client, beside the chat it belongs to, and can take control of it there; it is not " +
 		"his own tab \"My browser\". When a page needs a sign-in, open it and ask the owner to sign in in your " +
-		"tab, then hand it back: the browser keeps one sign-in for every agent. Never ask for or use a password " +
-		"in the chat. Hypomnema launches the browser itself, so a window is not how the owner sees a page.",
+		"tab, then hand it back, or type the password or code he gave you for that account of his: the browser " +
+		"keeps one sign-in for every agent. Never repeat a password in a reply or write one into a file. " +
+		"Hypomnema launches the browser itself, so a window is not how the owner sees a page.",
+}
+
+// addedOf are arguments Hypomnema adds to a tool's schema that agent-browser
+// does not take (issue #1059): they are not in what the tool takes, so a call
+// loses them here. The screenshot's save_to is written in the folder the agent
+// works in by the agent's own tools server, where the engine's own path is a
+// file on this machine (withheldOf); the engine sends that picture whole
+// (shot.go).
+var addedOf = map[string]map[string]string{
+	agenttool.ToolBrowserScreenshot: {devicetool.SaveTo: devicetool.SaveToProperty},
 }
 
 // catalog is the tools offered and the arguments each takes.
@@ -119,6 +132,10 @@ func trim(tool Tool) (Tool, []string, error) {
 	}
 
 	slices.Sort(takes)
+
+	for name, property := range addedOf[tool.Name] {
+		properties[name] = json.RawMessage(property)
+	}
 
 	raw, err := json.Marshal(properties)
 	if err != nil {

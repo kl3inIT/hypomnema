@@ -352,6 +352,13 @@ func (e *events) all() []string {
 func controlPlane(t *testing.T, home string, log *events, busy func(n int) []string) {
 	t.Helper()
 
+	serveTurns(t, home, log, func(n int) selfupdate.Turns { return selfupdate.Turns{Chats: busy(n)} })
+}
+
+// serveTurns is controlPlane answering what runs, tool calls too.
+func serveTurns(t *testing.T, home string, log *events, busy func(n int) selfupdate.Turns) {
+	t.Helper()
+
 	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", filepath.Join(home, "data", selfupdate.ControlSocket))
 	require.NoError(t, err)
 
@@ -363,12 +370,17 @@ func controlPlane(t *testing.T, home string, log *events, busy func(n int) []str
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+selfupdate.PathTurns, func(w http.ResponseWriter, _ *http.Request) {
 		mu.Lock()
-		chats := busy(n)
+		running := busy(n)
 		n++
 		mu.Unlock()
 
-		log.add(fmt.Sprintf("turns: %v", chats))
-		_ = json.NewEncoder(w).Encode(selfupdate.Turns{Chats: chats})
+		if running.ToolCalls > 0 {
+			log.add(fmt.Sprintf("turns: %v, tool calls: %d", running.Chats, running.ToolCalls))
+		} else {
+			log.add(fmt.Sprintf("turns: %v", running.Chats))
+		}
+
+		_ = json.NewEncoder(w).Encode(running)
 	})
 	// The control plane marks the update itself, as the real one does under its coordinator's lock.
 	mux.HandleFunc("POST "+selfupdate.PathUpdate, func(w http.ResponseWriter, r *http.Request) {
@@ -435,7 +447,39 @@ func TestInstallWaitsForBotsTurnsBeforeItStops(t *testing.T) {
 		"update began: true",
 		"turns: [cht_a]", "turns: [cht_a]", "turns: [cht_a]", "turns: []", "systemctl stop hypomnema-cp.service",
 	}, got[:6])
-	assert.Contains(t, out.String(), "waiting up to 5m0s for Bots' turns to end, in chats cht_a")
+	assert.Contains(t, out.String(), "waiting up to 5m0s for Bots' turns and tool calls to end, in chats cht_a")
+}
+
+// Scenario (issue #1060): no Bot's turn runs, but an agent's tool call does, a worker's command on a node. The update
+// waits for it too, within the same bound, before it stops the control plane.
+func TestInstallWaitsForToolCallsBeforeItStops(t *testing.T) {
+	t.Parallel()
+
+	log := &events{}
+	o := installWaiting(t, log)
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	serveTurns(t, o.Home, log, func(n int) selfupdate.Turns {
+		if n < 2 {
+			return selfupdate.Turns{ToolCalls: 1}
+		}
+
+		return selfupdate.Turns{}
+	})
+
+	var out strings.Builder
+	o.Out = &out
+
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	got := log.all()
+	require.GreaterOrEqual(t, len(got), 5)
+	assert.Equal(t, []string{
+		"update began: true",
+		"turns: [], tool calls: 1", "turns: [], tool calls: 1", "turns: []", "systemctl stop hypomnema-cp.service",
+	}, got[:5])
+	assert.Contains(t, out.String(), "waiting up to 5m0s for Bots' turns and tool calls to end, 1 tool call")
 }
 
 // Scenario: the turn does not end. The update waits as long as its bound, then stops the control plane anyway: the
@@ -550,4 +594,34 @@ func TestAMarkerOfAnUpdateThatIsGoneIsNoUpdate(t *testing.T) {
 
 	write(t, marker, "nonsense")
 	assert.False(t, selfupdate.Updating(dir))
+}
+
+// Scenario (issue #1060, review round 1): the control plane answers slowly once the wait has begun. The last
+// question is bounded by what is left of the wait, so the update stops it at the bound, not seconds after.
+func TestTheWaitForTurnsEndsAtItsBoundWhenTheControlPlaneIsSlow(t *testing.T) {
+	t.Parallel()
+
+	log := &events{}
+	o := installWaiting(t, log)
+	o.TurnsWithin = 300 * time.Millisecond
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+
+	serveTurns(t, o.Home, log, func(n int) selfupdate.Turns {
+		if n > 0 {
+			time.Sleep(3 * time.Second)
+		}
+
+		return selfupdate.Turns{ToolCalls: 1}
+	})
+
+	var out strings.Builder
+	o.Out = &out
+
+	started := time.Now()
+
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	assert.Less(t, time.Since(started), 2*time.Second, "the slow answer is not waited for past the bound")
+	assert.Contains(t, out.String(), "still run after 300ms, 1 tool call")
 }

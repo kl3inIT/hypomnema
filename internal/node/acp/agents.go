@@ -28,6 +28,9 @@ type launch struct {
 	// API is the wire for the model when it is a subscription's (nodeproto.Offer.ModelAPI); empty is chat.
 	API    string
 	Effort string
+	// ContextWindow and MaxOutput are the model's sizes as the gateway knows them (nodeproto.Offer
+	// ModelContextWindow, ModelMaxOutput); zero is agentconfig's default.
+	ContextWindow, MaxOutput int64
 	// Skills is the folder the Dispatch's skills were placed in, which the
 	// CLI is told of when it does not find it by itself; empty without skills.
 	Skills string
@@ -70,9 +73,12 @@ func Runtimes() []string { return []string{"omp", "opencode"} }
 func prepareOmp(l launch) ([]string, []string, error) {
 	agentDir, sessions := filepath.Join(l.Dir, "agent"), filepath.Join(l.Dir, "sessions")
 
-	// The size of a model the gateway serves is not known to the node: omp is given the defaults
+	// The model's sizes are the gateway's, from the offer (issue #1019); without them omp is given the defaults
 	// (agentconfig.DefaultContextWindow, DefaultMaxOutput). omp reads the key from keyVariable.
-	gw := agentconfig.Gateway{URL: l.URL, Key: keyVariable, Model: l.Model, API: l.API, Reasoning: l.Effort != ""}
+	gw := agentconfig.Gateway{
+		URL: l.URL, Key: keyVariable, Model: l.Model, API: l.API, Reasoning: l.Effort != "",
+		ContextWindow: l.ContextWindow, MaxOutput: l.MaxOutput,
+	}
 	models := agentconfig.OmpModels(gw)
 	config := "web_search:\n  enabled: false\ngenerate_image:\n  enabled: false\n"
 
@@ -112,6 +118,7 @@ func prepareOmp(l launch) ([]string, []string, error) {
 func prepareOpencode(l launch) ([]string, []string, error) {
 	settings := agentconfig.OpencodeConfig(agentconfig.Gateway{
 		URL: l.URL, Key: "{env:" + keyVariable + "}", Model: l.Model,
+		ContextWindow: l.ContextWindow, MaxOutput: l.MaxOutput,
 	})
 	settings["permissions"] = []map[string]string{
 		{"action": "*", "resource": "*", "effect": "allow"},

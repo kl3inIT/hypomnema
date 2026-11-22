@@ -31,6 +31,9 @@ UPDATE nodes SET disk_policy = 1, disk_free_bytes = @disk_free_bytes, disk_floor
     disk_trim_bytes = @disk_trim_bytes, disk_sample_at = @disk_sample_at
 WHERE id = @id AND status <> 'deleted';
 
+-- name: SetNodeDiskAlert :exec
+UPDATE nodes SET disk_alert = @disk_alert, disk_alert_until = @disk_alert_until WHERE id = @id;
+
 -- name: SetNodeGitHosts :execrows
 UPDATE nodes SET git_hosts = @git_hosts WHERE id = @id AND status <> 'deleted';
 

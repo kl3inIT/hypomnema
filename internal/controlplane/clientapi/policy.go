@@ -200,6 +200,11 @@ var policies = map[string]policy{
 	"PutRepo":                 {scope: scopeOwner},
 	"DeleteRepo":              {scope: scopeOwner},
 	"GetGitSSHKey":            {scope: scopeOwner},
+	// Web Push (issue #1047): only the owner's own devices subscribe (owner, 2026-11-21).
+	"ListPushSubscriptions":   {scope: scopeOwner},
+	"PutPushSubscription":     {scope: scopeOwner},
+	"DeletePushSubscription":  {scope: scopeOwner},
+	"TestPushSubscription":    {scope: scopeOwner},
 	"ListAccounts":            {},
 	"AddTokenAccount":         {scope: scopeOwner},
 	"EnableAccount":           {scope: scopeOwner},

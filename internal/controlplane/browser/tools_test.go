@@ -60,6 +60,7 @@ func TestCatalogOffersToolsWithoutWithheldArguments(t *testing.T) {
 	shot := properties(t, c.tools[indexOf(t, c, "agent_browser_screenshot")])
 	assert.NotContains(t, shot, "path", "where a screenshot is written is the engine's to say")
 	assert.NotContains(t, shot, "screenshotDir")
+	assert.Contains(t, shot, "save_to", "the agent's own tools server writes the picture in its folder (issue #1059)")
 	assert.Contains(t, properties(t, c.tools[indexOf(t, c, "agent_browser_click")]), "path",
 		"an argument is withheld from the tool it is a file's path for, not from every tool")
 }
@@ -99,6 +100,10 @@ func TestArgumentsDropWhatAnAgentMayNotSet(t *testing.T) {
 		`{"selector":"#go","timeoutMs":500,"session":"host","extraArgs":["--profile","/x"],"restore":true,"idleTimeout":"0"}`))
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"selector":"#go","timeoutMs":500}`, string(got))
+
+	got, err = c.arguments("agent_browser_screenshot", json.RawMessage(`{"selector":"#chart","save_to":"a.png"}`))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"selector":"#chart"}`, string(got), "save_to is the agent's side's, never agent-browser's")
 
 	got, err = c.arguments("agent_browser_get_url", nil)
 	require.NoError(t, err)
@@ -167,7 +172,7 @@ func TestOpenSaysWhereTheOwnerSeesTheTab(t *testing.T) {
 	assert.True(t, strings.HasPrefix(got.Description, "does "+toolOpen+"\n\n"), "agent-browser's text comes first")
 	assert.Contains(t, got.Description, "your own tab")
 	assert.Contains(t, got.Description, "in the web client")
-	assert.Contains(t, got.Description, "Never ask for or use a password in the chat")
+	assert.Contains(t, got.Description, "type the password or code he gave you")
 	assert.NotContains(t, properties(t, got), "headed", "a window is not how the owner sees a tab")
 	assert.Equal(t, "does agent_browser_click", c.tools[indexOf(t, c, "agent_browser_click")].Description,
 		"only open's description is added to")

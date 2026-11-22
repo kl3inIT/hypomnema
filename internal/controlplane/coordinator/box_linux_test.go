@@ -98,6 +98,7 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 	// pi's image extension, which the launcher gives pi (issue #675).
 	write(t, filepath.Join(root, "lib", "pi-image-eviction.mts"), "export default function () {}\n", 0o600)
 	write(t, filepath.Join(root, "lib", "pi-read-run.mts"), "export default function () {}\n", 0o600)
+	write(t, filepath.Join(root, "lib", "pi-background.mts"), "export default function () {}\n", 0o600)
 
 	// The control plane's CLI, as the launcher calls it before pi starts. `bots show` names the main Bot as
 	// coordinator and the Bot of the id `+otherBot+` as other, the names their directories had before ids.
@@ -166,6 +167,8 @@ if touch "$H/tools/envs/documents/x" 2> /dev/null; then echo documents=writable;
 		"images=/usr/local/lib/hypomnema/pi-image-eviction.mts": "images=" + filepath.Join(root, "lib",
 			"pi-image-eviction.mts"),
 		"read_files=/usr/local/lib/hypomnema/pi-read-run.mts": "read_files=" + filepath.Join(root, "lib", "pi-read-run.mts"),
+		"background=/usr/local/lib/hypomnema/pi-background.mts": "background=" + filepath.Join(root, "lib",
+			"pi-background.mts"),
 	} {
 		require.Equal(t, 1, strings.Count(text, "\n"+from+"\n"), "the launcher says %s once", from)
 		text = strings.Replace(text, "\n"+from+"\n", "\n"+to+"\n", 1)
@@ -249,6 +252,7 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.Equal(t, "--mode rpc --session-dir "+sessions+" --session-id cht_mine --model gpt-sol "+
 		"--append-system-prompt "+filepath.Join(w.home, "run", "cht_mine", "prompt.md")+
 		" --skill "+filepath.Join(w.home, "run", "cht_mine", "skills")+
+		" --extension "+filepath.Join(w.root, "lib", "pi-background.mts")+
 		" --extension "+filepath.Join(w.root, "lib", "pi-image-eviction.mts"), seen["args"])
 	assert.Equal(t, "persona of "+orchestration.DefaultBotID, seen["prompt"])
 	assert.Equal(t, work, seen["cwd"], "the main Bot works where pi always worked, the path its sessions record")

@@ -1,0 +1,126 @@
+package browser
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
+)
+
+// A screenshot asked with save_to (issue #1059) is written on the agent's
+// machine by its own tools server (toolsmcp's ShotCall), from the picture
+// this engine sends. agent-browser gives a model a screenshot of at most
+// 10 MiB as an image and a larger one as the path of the file it saved
+// (cli/src/mcp.rs:187, 4515-4545, image_content_from_response 4698-4711, at
+// 0.42.0), which is on this machine; and the engine keeps 8 MiB of another
+// answer. So the picture is read from that file, as agent-browser itself
+// reads it into its answer, and sent whole up to agenttool.MaxSavedShotBytes,
+// the bound of generate_image's answer (the coordinator's choice for the owner
+// in review round 1 of PR #1062, 2026-11-22).
+
+// shotLineBytes bounds agent-browser's answer to a screenshot to save: its own
+// image of up to 10 MiB in base64, which is not sent, and the rest.
+const shotLineBytes = 16 << 20
+
+// shotTypes are the pictures agent-browser saves, by extension, as its
+// image_mime_type reads them (cli/src/mcp.rs).
+var shotTypes = map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg"}
+
+// SendsWhole says whether a call is a screenshot asked with save_to, whose
+// answer is the picture whole, up to agenttool.MaxSavedShotBytes.
+func SendsWhole(tool string, arguments json.RawMessage) bool {
+	var given map[string]json.RawMessage
+
+	return tool == agenttool.ToolBrowserScreenshot && json.Unmarshal(arguments, &given) == nil &&
+		given[devicetool.SaveTo] != nil
+}
+
+// savedShot takes a screenshot and answers with the file agent-browser saved,
+// whole, as the image it is; agent-browser's own answer when it failed.
+func (e *Engine) savedShot(ctx context.Context, s *session, cdp string, arguments json.RawMessage) (
+	json.RawMessage, error,
+) {
+	answer, err := e.answer(ctx, s, cdp, agenttool.ToolBrowserScreenshot, arguments, shotLineBytes)
+	if err != nil || answer.IsError {
+		if err != nil {
+			return nil, err
+		}
+
+		return answer.result()
+	}
+
+	data, mime, why := e.readShot(answer.Structured.Response.Data.Path)
+	if why != "" {
+		return failedShot(why)
+	}
+
+	return json.Marshal(map[string]any{
+		"content": []map[string]string{{"type": "image", "data": data, "mimeType": mime}}, "isError": false,
+	})
+}
+
+// maxShotFileBytes is the largest picture whose answer, in base64 with what
+// surrounds it (well under a KiB), is within agenttool.MaxSavedShotBytes.
+const maxShotFileBytes = (agenttool.MaxSavedShotBytes - 1<<10) / 4 * 3
+
+// readShot reads a saved screenshot in base64, with its type, or says why it cannot be sent. Only a file in the
+// folder agent-browser saves a screenshot in when it is given no path (native/screenshot.rs:658-666, under the
+// HOME the engine gives it), which an agent cannot name (withheldOf), is read: it is opened in that folder with
+// os.Root, so a link there to a file elsewhere is not followed, and read no further than can be sent.
+func (e *Engine) readShot(path string) (string, string, string) {
+	mime := shotTypes[strings.ToLower(filepath.Ext(path))]
+	folder := filepath.Join(e.home(), ".agent-browser", "tmp", "screenshots")
+
+	within, err := filepath.Rel(folder, path)
+	if path == "" || err != nil || !filepath.IsLocal(within) || mime == "" {
+		return "", "", "The browser did not say where it saved the screenshot, so it could not be sent to be saved."
+	}
+
+	raw, err := readIn(folder, within)
+	if err != nil {
+		return "", "", "The screenshot the browser saved could not be read: " + err.Error()
+	}
+
+	if len(raw) > maxShotFileBytes {
+		return "", "", fmt.Sprintf("The screenshot is more than %d MB, more than can be sent to be saved (%d MB "+
+			"once encoded): take a part of the page with selector, or format jpeg.", maxShotFileBytes>>20,
+			agenttool.MaxSavedShotBytes>>20)
+	}
+
+	return base64.StdEncoding.EncodeToString(raw), mime, ""
+}
+
+// readIn reads the regular file name in folder, opened there, and at most one byte more than maxShotFileBytes.
+func readIn(folder, name string) ([]byte, error) {
+	root, err := os.OpenRoot(folder)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = root.Close() }()
+
+	f, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = f.Close() }()
+
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return nil, errors.Join(err, errors.New("it is not a file"))
+	}
+
+	return io.ReadAll(io.LimitReader(f, maxShotFileBytes+1))
+}
+
+func failedShot(why string) (json.RawMessage, error) {
+	return json.Marshal(map[string]any{"content": []map[string]string{{"type": "text", "text": why}}, "isError": true})
+}

@@ -1,0 +1,64 @@
+{
+  "manifestVersion": 2,
+  "id": "hypomnema",
+  "name": "Hypomnema",
+  "version": "0.1.0",
+  "description": "What waits for you in Hypomnema: questions from workers, reviews stopped at their last round, failed and blocked Tasks. A count in the status bar, a notification for each new item, and answers in a panel.",
+  "engines": {
+    "orca": ">=1.4.248"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "waiting",
+        "title": "Hypomnema",
+        "icon": "bell",
+        "entry": "src/panel.tsx",
+        "ui": "components"
+      }
+    ],
+    "commands": [
+      {
+        "id": "show",
+        "title": "Hypomnema: show what waits for you",
+        "action": "sidebar.right.toggle"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "waiting",
+        "icon": "bell",
+        "tone": "warning",
+        "tooltip": "Waiting for you in Hypomnema",
+        "command": "show"
+      }
+    ],
+    "settings": [
+      {
+        "key": "server",
+        "title": "Control plane URL",
+        "description": "Where the Hypomnema control plane is, such as https://hypomnema.example.com. The owner token is set in the panel.",
+        "type": "string",
+        "default": "",
+        "placeholder": "https://hypomnema.example.com"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "storage:own"
+    },
+    {
+      "kind": "secrets:own"
+    },
+    {
+      "kind": "settings:own"
+    },
+    {
+      "kind": "notifications:show"
+    }
+  ]
+}

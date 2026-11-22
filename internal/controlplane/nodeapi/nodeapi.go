@@ -44,6 +44,9 @@ type Server struct {
 	// modelKey makes the model gateway's key for a Dispatch; nil when the
 	// control plane wired none.
 	modelKey func(ctx context.Context, dispatchID, model string) (string, bool)
+	// modelSizes gives a model's context window and largest output as the
+	// gateway knows them (issue #1019); nil when the control plane wired none.
+	modelSizes func(ctx context.Context, model string) (window, output int64, ok bool)
 	// agentKey makes a Dispatch's own key to the agent API, for the
 	// Connections its Run may use; nil when the control plane wired none.
 	agentKey func(ctx context.Context, dispatchID string, uses []string) (string, bool)
@@ -59,6 +62,16 @@ type Server struct {
 	// phoneHeld says whether a node holds a phone allowed workers are given; nil when the control
 	// plane wired none.
 	phoneHeld func(ctx context.Context) bool
+
+	// diskAlert tells the owner a node is still out of disk after trimming, or has recovered (issue #1017); nil
+	// when the control plane wired none.
+	diskAlert func(ctx context.Context, alert orchestration.DiskAlert)
+	// diskReports orders a node's disk reports with the alerts they make, and diskAlerts holds, by node, at most the
+	// alert being told now and the latest one made since: one sender a node, so a recovery is never told before its
+	// drop, and what waits is the node's latest state, not every change (client-go's workqueue keeps an item dirty
+	// once while it is processed, util/workqueue/queue.go:210-221,243-264,306-319).
+	diskReports sync.Mutex
+	diskAlerts  map[string][]orchestration.DiskAlert
 
 	// releaseURL is where a node finds its releases, sent at hello.
 	releaseURL string
@@ -179,6 +192,74 @@ func (s *Server) skillsFor(nodeID string, skills []nodeproto.Skill) []nodeproto.
 	return slices.DeleteFunc(slices.Clone(skills), func(sk nodeproto.Skill) bool { return len(sk.Requires) > 0 })
 }
 
+// WithDiskAlerts sets how the owner is told of a node's out-of-disk episode and its recovery.
+func (s *Server) WithDiskAlerts(tell func(ctx context.Context, alert orchestration.DiskAlert)) *Server {
+	s.diskAlert = tell
+
+	return s
+}
+
+// reportDisk keeps a heartbeat's disk sample and queues the alert it makes, in the order the samples were kept.
+func (s *Server) reportDisk(ctx context.Context, nodeID string, disk nodeproto.DiskSpace) error {
+	s.diskReports.Lock()
+	defer s.diskReports.Unlock()
+
+	alert, err := s.svc.ReportNodeDisk(ctx, nodeID, disk)
+	if alert != nil && s.diskAlert != nil {
+		s.queueDiskAlert(ctx, nodeID, *alert)
+	}
+
+	return err
+}
+
+// queueDiskAlert queues an alert of a node for its sender, starting one when none runs. diskReports is held.
+func (s *Server) queueDiskAlert(ctx context.Context, nodeID string, alert orchestration.DiskAlert) {
+	if s.diskAlerts == nil {
+		s.diskAlerts = map[string][]orchestration.DiskAlert{}
+	}
+
+	queued := s.diskAlerts[nodeID]
+	if len(queued) == 2 {
+		queued[1] = alert
+
+		return
+	}
+
+	s.diskAlerts[nodeID] = append(queued, alert)
+
+	if len(queued) == 0 {
+		// Told apart from the session, as sending to a channel may take seconds the node's messages do not wait.
+		go s.tellDiskAlerts(context.WithoutCancel(ctx), nodeID)
+	}
+}
+
+// tellDiskAlerts tells a node's queued alerts one after another, and ends when none is left. The latest state is
+// told only when it differs from the alert just told: a drop and its recovery that came while the owner was told of
+// the drop before them leave nothing new to tell.
+func (s *Server) tellDiskAlerts(ctx context.Context, nodeID string) {
+	for {
+		s.diskReports.Lock()
+		queued := s.diskAlerts[nodeID]
+		if len(queued) == 0 {
+			delete(s.diskAlerts, nodeID)
+			s.diskReports.Unlock()
+
+			return
+		}
+		s.diskReports.Unlock()
+
+		s.diskAlert(ctx, queued[0])
+
+		s.diskReports.Lock()
+		rest := s.diskAlerts[nodeID][1:]
+		if len(rest) > 0 && rest[0].Recovered == queued[0].Recovered {
+			rest = rest[1:]
+		}
+		s.diskAlerts[nodeID] = rest
+		s.diskReports.Unlock()
+	}
+}
+
 // WithPhone sets how an offer learns whether workers are given a phone.
 func (s *Server) WithPhone(held func(ctx context.Context) bool) *Server {
 	s.phoneHeld = held
@@ -198,6 +279,15 @@ func (s *Server) WithToolNames(names func(ctx context.Context, dispatchID, key s
 func (s *Server) WithAgentKeys(key func(ctx context.Context, dispatchID string, uses []string) (string, bool),
 ) *Server {
 	s.agentKey = key
+
+	return s
+}
+
+// WithModelSizes sets where an offer's model sizes come from: the gateway's context window and largest output of a
+// model, in tokens, and whether it knows them (issue #1019).
+func (s *Server) WithModelSizes(sizes func(ctx context.Context, model string) (window, output int64, ok bool),
+) *Server {
+	s.modelSizes = sizes
 
 	return s
 }
@@ -677,6 +767,13 @@ func (c *session) push(ctx context.Context) error {
 			}
 		}
 
+		// And the model's sizes, so its CLI compacts before the window is full (issue #1019).
+		if c.srv.modelSizes != nil && o.AccountRef == orchestration.GatewayAccountRef && o.Model != "" {
+			if window, output, ok := c.srv.modelSizes(ctx, o.Model); ok {
+				o.ModelContextWindow, o.ModelMaxOutput = window, output
+			}
+		}
+
 		// And the worker's key to the agent API: its tools reach the accounts its Run was given with it, and the
 		// shared browser (issue #212), which a Run with no account has too.
 		if c.srv.agentKey != nil {
@@ -798,7 +895,7 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 	}
 
 	if hb.Disk != nil {
-		if diskErr := c.srv.svc.NodeDisk(ctx, c.nodeID, *hb.Disk); diskErr != nil {
+		if diskErr := c.srv.reportDisk(ctx, c.nodeID, *hb.Disk); diskErr != nil {
 			err = errors.Join(err, diskErr)
 		}
 	}
