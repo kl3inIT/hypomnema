@@ -1443,7 +1443,12 @@ sequenceDiagram
     is. Until 2026-11-15 the prompt taught `hypomnema memory add|replace|remove`, which the owner and a Routine's
     script keep. When the Bot cannot be read pi does not start.
   - A Bot's pi has the tools `memory`, `show_artifact` and `routines` (issue #536), `web_search`, `web_fetch`,
-    `generate_image`, `audio_transcribe` and `audio_speak` (issue #723), and Superset's `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
+    `generate_image`, `audio_transcribe` and `audio_speak` (issue #723), the Inbox's `inbox_*` (issue #1004), the
+    meetings' `meeting_list` and `meeting_get` (issue #1023: the meetings recorded, changed or whose notes became
+    ready since a time (`Notes.WrittenAt`, which the list loads), and one with its notes, actions and up to 400 lines
+    of transcript after a line number, which only grows, so a live transcript pages without a line skipped or given
+    twice; reads only, also in a read run and its check), and Superset's
+    `superset_*` when its Bot may use a Superset account, from Hypomnema's tools
     server (issues #492, #536, see "An agent's tools"), and the shared browser's and the phone's (issue #536,
     step 4), which its pi mounts through pi's own MCP (below, the box). Those are relayed by the control plane
     over the same HTTP the other tools use, so the box needs nothing more. Until
@@ -1894,9 +1899,20 @@ flowchart LR
     Hermes's `script` with a `prompt`): its limit is the script's, the Bot's turn has its hour. What runs is set
     whole: a prompt, a script, or both. A Bot with Routines is not removed.
   - **Access** ([issue #956](https://github.com/kl3inIT/hypomnema/issues/956), migration 00142). `full` is the
-    default, with the usual tool and approval rules. Only the owner may mark a prompt without a script `read`, in
-    the Routine panel or with `hypomnema routines set <name> --access read`. A Bot's later change to the work or
-    schedule clears that grant. The wake-up in each run's new chat records the access then; it is still no owner
+    default, with the usual tool and approval rules. Only the owner may mark a prompt `read`, in the Routine panel
+    or with `hypomnema routines set <name> --access read`; a script alone is never `read`. A Bot's later change to the
+    work or schedule clears that grant. A `read` prompt may have a check script (owner, 2026-11-21 on #1023, after
+    Hermes's pre-run script, `cron/scheduler.py:2232-2250`; until then a `read` prompt had none): it reads with the
+    rights of the Routine's read run and nothing more, through the token any Routine's script has, which the agent
+    API then takes as a read run's (`agentapi` `authenticate`: the Bot's own accounts, user Connections included,
+    only their reads, the meetings' and the messaging reads, never the Inbox, the memory or a send) and the client
+    API refuses whole, as it refuses a read run's pi. The woken run's prompt keeps the read-only notice and treats
+    what the check printed as records. A run is one snapshot of its Routine when it starts (`routine_runs.access`,
+    `prompt`, `script`, `script_text`, `timeout_seconds`): the launch (`ClaimRoutineScript`), the wake
+    (`WakeRoutineRun`) and every check of the run's token (`orchestration.RoutineScriptReads`) read only that copy,
+    so the owner's switch or a Bot's edit meanwhile changes nothing of the run that goes on. A script's token is
+    bound to its run (`Token.RoutineRun`) and stops working when the run ends, in the run's own transaction, before
+    it is revoked (reviews of #1037). The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
     the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
     `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
@@ -2875,7 +2891,9 @@ flowchart LR
       `limit`) read the mirror, the latest first, for the owner only.
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
-      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages`, `whatsapp_media` (an image as an image of the
+      Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages` (as `zalo_messages`, with `offset` beside
+      `before` and `limit`: pages that never skip messages sent in the same second, issue #1023),
+      `whatsapp_media` (an image as an image of the
       type its bytes say when a model views it, JPEG, PNG, GIF or WebP, else its path with a line saying it was
       omitted, as OpenClaw's `sanitizeContentBlocksImages` does, [issue #760](https://github.com/kl3inIT/hypomnema/issues/760); a voice note
       with its transcript after its path, see "Incoming voice" under "An agent's tools") and `whatsapp_history`.
@@ -4699,8 +4717,35 @@ its client API, its CLI and the Bots' tools.
   tunnel's opening (`agenttool.HeaderTodo`); the agent API or the proxy turn it into the item's current attempt
   (`orchestration.InboxAttempt`, refused unless the Bot is doing the item in that chat or run), which
   `NewApproval.AttemptID` records.
-- Not built: the system closing a reply from the messages as they arrive (the Bot of part 4 records it), the web
-  page, the morning brief and the "Thư ký" Bot (later parts of #838).
+- "Log in again" items (`inboxstore/signin.go`, `agentapi/signins.go`; issue #1023, section 6, the owner's plan of
+  2026-11-21, which no reference has in this form): a read of one of the owner's accounts in a Routine's read run
+  (its pi or its check) of a Bot that keeps the Inbox (its switches allow `inbox_add`) says whether the account's
+  sign-in works. `account_read` answered 401 or 403 (the proxy answers 403 when the account's token cannot be had),
+  or a Zalo or WhatsApp account whose session must be linked again (`integration.Service.DeviceState`), adds the one
+  open item "Log in again: <account>", given to the owner, from that run, with the refusal as its quote, or keeps
+  the one that is open, unchanged (`SignInFailed`). A read of that account that works closes it, done by him, closed
+  by the Bot, with the run as evidence (`SignInWorks`). The item holds the account's key (`idempotency_key`
+  `hypomnema:signin:<account>`, which is unique) while it is open and lets it go for one of its own when it closes,
+  also when the owner closed it, so the next refusal adds a new one; reopened, it takes the account's key again, and
+  the reopen is refused while another item of the account is open: one open item per account, never one per failure.
+  `account_read` closes it only after a read under 400 whose body is JSON records without the service's error (a
+  nonzero Lark `code`, a Google `error`).
+- A Bot that only reads the owner's own accounts (`bots.owner_accounts` `read`, `hypomnema bots set
+  --owner-accounts read`; issue #1023, the owner's choice of 2026-11-21 on #1037): every write and send through his
+  Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, never asked, in every chat and Routine of
+  the Bot and by the workers of its Runs, whatever his answers or grants say; reads stay. The agent API carries it
+  on the agent (`ownerReadOnly`: no `zalo_send` or `whatsapp_send`), and the service proxy refuses every action of
+  such a Connection that is not a read (`readsOnly`, `serviceproxy.Caller.OwnerReadOnly`), reading the caller again
+  at each request of an open connection, so the owner's change applies from the next request. Only the owner makes a
+  Bot use them again: a change from the main Bot's chat is forbidden, `UpdateBot`, which a Bot's change uses, never
+  writes it (`SetBotOwnerAccounts`), and an undo, of a change or of a removal, puts back `read` from the copy it
+  kept (`botSettings.OwnerAccounts`) and never `use`.
+- The "Thư ký" Bot (issue #1023, part 4): its prompt, switches, model and Routines are set by the owner with
+  `deploy/thu-ky/setup.sh` (`hypomnema bots set`, `routines set`), not seeded by a migration. `triage` reads only,
+  every 15 minutes, behind its check `new-messages.mjs`; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark
+  chat with the Bot.
+- Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
+  of #838).
 
 An agent's tools (`internal/controlplane/agentapi/tools.go`, `memory.go`, `artifacts.go`, `routines.go`, `web.go`,
 `images.go`, `superset.go`;

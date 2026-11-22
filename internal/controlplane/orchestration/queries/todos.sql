@@ -104,3 +104,8 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))));
+
+-- name: SetTodoIdempotencyKey :exec
+-- An account's "log in again" item lets the account's key go when it closes, for one of its own, and takes it again
+-- when it is reopened (issue #1023), so that the account has one open item.
+UPDATE todos SET idempotency_key = @idempotency_key WHERE id = @id;

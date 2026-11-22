@@ -1,6 +1,7 @@
 package clientapi
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -161,6 +162,10 @@ func withSettings(had orchestration.Bot, in openapi.BotSettings) orchestration.B
 
 	if n := in.GuaranteedDispatches; n != nil {
 		bot.GuaranteedDispatches = *n
+	}
+
+	if o := in.OwnerAccounts; o != nil {
+		bot.OwnerAccounts = string(*o)
 	}
 
 	return bot
@@ -336,7 +341,8 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		ToolsOff:    append([]string{}, b.ToolsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers), Scopes: toScopes(b.Scopes),
 		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), GuaranteedDispatches: b.Guarantee(),
-		Position: b.Position, Department: opt(b.Department), MainChat: opt(b.MainChat),
+		OwnerAccounts: new(openapi.OwnerAccounts(cmp.Or(b.OwnerAccounts, orchestration.OwnerAccountsUse))),
+		Position:      b.Position, Department: opt(b.Department), MainChat: opt(b.MainChat),
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }

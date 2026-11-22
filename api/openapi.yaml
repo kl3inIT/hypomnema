@@ -9625,8 +9625,17 @@ components:
             (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first
             claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and
             nothing running is stopped for it.
+        owner_accounts: { $ref: "#/components/schemas/OwnerAccounts" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    OwnerAccounts:
+      type: string
+      enum: [use, read]
+      x-enum-varnames: [OwnerAccountsUse, OwnerAccountsRead]
+      description: >-
+        What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write
+        and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat
+        and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
     ToolDisplay:
       type: string
       enum: [off, on, full]
@@ -10017,6 +10026,9 @@ components:
           minimum: 1
           maximum: 64
           description: The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
+        owner_accounts:
+          $ref: "#/components/schemas/OwnerAccounts"
+          description: What the Bot may do with the owner's own accounts; only the owner changes it; left out, the Bot keeps it, use for a new one.
     Memory:
       type: object
       additionalProperties: false

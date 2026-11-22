@@ -484,6 +484,8 @@ var commands = []command{
 				"slug separated by commas, such as prod=8,9; label= for none, label=all for every one")
 			fs.String("tool-display", "", "what its chats show of its tool calls: off (none), on (each tool's name) "+
 				"or full (arguments, output and time as well)")
+			fs.String("owner-accounts", "", "what it may do with the owner's own accounts (owner only): use, or read, "+
+				"which refuses every write and send through his Lark sign-in, Google, Zalo and WhatsApp")
 			fs.Int("guarantee", 0, "its guaranteed share of the room, in workers across every node: 1 to 64 (4 for a "+
 				"new bot); it may use more when the others leave room free")
 			jsonFlag(fs)

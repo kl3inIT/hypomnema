@@ -165,6 +165,7 @@ type Bot struct {
 	Preset               string
 	MainChat             sql.NullString
 	Department           sql.NullString
+	OwnerAccounts        string
 }
 
 type Channel struct {
@@ -950,17 +951,22 @@ type RoutineGrant struct {
 }
 
 type RoutineRun struct {
-	ID        string
-	RoutineID string
-	StartedBy string
-	State     string
-	StartedAt int64
-	EndedAt   sql.NullInt64
-	ExitCode  sql.NullInt64
-	Output    string
-	Error     string
-	ChatID    sql.NullString
-	KeyHash   sql.NullString
+	ID             string
+	RoutineID      string
+	StartedBy      string
+	State          string
+	StartedAt      int64
+	EndedAt        sql.NullInt64
+	ExitCode       sql.NullInt64
+	Output         string
+	Error          string
+	ChatID         sql.NullString
+	KeyHash        sql.NullString
+	Access         string
+	Prompt         string
+	Script         string
+	ScriptText     string
+	TimeoutSeconds int64
 }
 
 type Run struct {

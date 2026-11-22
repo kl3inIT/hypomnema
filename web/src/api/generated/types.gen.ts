@@ -3513,9 +3513,15 @@ export type Bot = {
    * The Bot's guaranteed share of the room, in unsettled Dispatches of the Runs it made, across every node (issue #731; its limit, max_dispatches, until 2026-11-17). 4 unless the Bot sets its own. It is a first claim on room as room frees, not a cap: the Bot may use any free room the others do not need, and nothing running is stopped for it.
    */
   guaranteed_dispatches: number;
+  owner_accounts?: OwnerAccounts;
   created_at: string;
   updated_at: string;
 };
+
+/**
+ * What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
+ */
+export type OwnerAccounts = 'use' | 'read';
 
 /**
  * What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
@@ -3884,6 +3890,7 @@ export type BotSettings = {
    * The Bot's guaranteed share in Dispatches; left out, the Bot keeps it, 4 for a new one.
    */
   guaranteed_dispatches?: number;
+  owner_accounts?: OwnerAccounts;
 };
 
 export type Memory = {

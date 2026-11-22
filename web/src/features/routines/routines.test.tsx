@@ -108,6 +108,29 @@ test("the owner can mark a prompt Routine read-only from its panel", async () =>
   expect(screen.getByText("Each run’s chat only")).toBeInTheDocument()
 })
 
+// Issue #1023: a read-only prompt may have a check script that reads as its runs do (owner, 2026-11-21).
+test("a prompt with a check can be marked read-only", async () => {
+  const calls = server([
+    routine("rtn_triage", {
+      kind: "prompt",
+      script: "new-messages.mjs",
+      script_text: "#!/usr/bin/env node\n",
+      prompt: "Triage the new messages",
+    }),
+  ])
+  open("/routines?open=rtn_triage")
+
+  const toggle = await screen.findByRole("switch", { name: "Read-only" })
+  await userEvent.click(toggle)
+  await waitFor(() =>
+    expect(calls).toContainEqual({
+      call: "PATCH /routines/rtn_triage",
+      query: "",
+      body: { access: "read" },
+    }),
+  )
+})
+
 type Call = { call: string; query?: string; body?: unknown }
 
 // The server keeps the Routines as the control plane does, pages their runs by offset, says a schedule in words

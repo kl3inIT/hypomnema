@@ -373,7 +373,8 @@ func (s *Store) List(ctx context.Context, query string, limit int) ([]Meeting, e
 			Failure: r.Failure, Attempts: r.Attempts, Provider: r.Provider, Model: r.Model, CreatedAt: r.CreatedAt,
 			UpdatedAt: r.UpdatedAt, Source: r.Source, Kind: r.Kind,
 		})
-		m.Notes = Notes{State: r.NotesState, Summary: r.NotesSummary}
+		// When the notes were written, which moves only meeting_notes: the Thư ký finds a meeting by it (#1023).
+		m.Notes = Notes{State: r.NotesState, Summary: r.NotesSummary, WrittenAt: storeutil.OptionalMillis(r.NotesWrittenAt)}
 		m.Speakers = speakers[r.ID]
 		m.Actions, m.OpenActions = int(r.Actions), int(r.OpenActions)
 		out = append(out, m)

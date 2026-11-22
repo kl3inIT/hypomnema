@@ -226,6 +226,9 @@ type AgentSession struct {
 	// scope was set; every one of Uses when that Bot is gone. Read when
 	// asked, as ByCoordinator is.
 	Scoped []string
+	// OwnerReadOnly says the Bot whose Run it is only reads the owner's own accounts (Bot.OwnerAccounts, issue
+	// #1023): its workers only read his Google too.
+	OwnerReadOnly bool
 }
 
 // AddAgentSession makes a Dispatch's key and returns it once; only its hash
@@ -308,6 +311,8 @@ func (s *Service) AgentSessionOf(ctx context.Context, secret string) (AgentSessi
 		if err != nil {
 			return AgentSession{}, err
 		}
+
+		session.OwnerReadOnly = b.ReadsOwnerAccountsOnly()
 
 		// A Bot that is gone cannot say what it may reach: its Run's workers get none of its Connections.
 		for _, use := range uses {
