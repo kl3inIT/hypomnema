@@ -173,10 +173,13 @@ and the web and the CLI write to. `POST /chats` (the web's New chat, `hypomnema 
 becomes its Bot's main chat in the same write, as OpenClaw's `/new` starts a new session (`/new` typed in a web
 chat does the same for that chat's Bot and opens the new chat; `hypomnema chat /new` is `--new`); `POST /chats/main`
 returns the Bot's main chat, making one when it has none, read and made in one write so that the web and the CLI
-at once end in one. The web's first message to a Bot with no main chat, or sent before the page has read the Bots
-(issue #1055), goes through it with the id its page chose
+at once end in one. The web's first message to a Bot with no main chat goes through it with the id its page chose
 (and its title and model, used only when the chat is made): a main chat the CLI made meanwhile is answered instead
-(200, its own id), the message goes there, and files put under the page's id are refused rather than lost. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
+(200, its own id), the message goes there, and files put under the page's id are refused rather than lost. A first
+message sent before the page has read the Bots goes through it too, saying how long ago the page opened
+(`opened_ms_ago`, a duration so that the two clocks need not agree, issue #1055): the server finds in the same write
+whether the main chat was made since, and answers it, or before, and then makes the page's chat the main chat, as
+New chat does. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
 never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (Runs and
 their wake-ups, approvals, Routines and their report cards, the queue, a cut turn, files, artifacts, pi's
 sessions), and only leaves the sidebar's row. Deleting the main chat clears the pointer, and the next message

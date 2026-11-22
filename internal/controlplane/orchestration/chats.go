@@ -416,7 +416,7 @@ func IsChatID(id string) bool { return platform.IsID(ChatIDPrefix, id) }
 // (issue #369, as t3code's draft thread keeps its model); an empty one is the
 // Bot's.
 func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string, m ChatModel) (Chat, error) {
-	chat, _, err := s.createChat(ctx, id, bot, title, m, notMain)
+	chat, _, err := s.createChat(ctx, id, bot, title, m, notMain, 0)
 	return chat, err
 }
 
@@ -425,7 +425,7 @@ func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string, m
 // agent's main key (docs/concepts/session.md). The Bot's former main chat stays as it was, with its id and whatever
 // still runs in it; it is only no longer the Bot's row. Lark's chats and a Routine's never take this path.
 func (s *Service) StartMainChat(ctx context.Context, id, bot, title string, m ChatModel) (Chat, error) {
-	chat, _, err := s.createChat(ctx, id, bot, title, m, moveMain)
+	chat, _, err := s.createChat(ctx, id, bot, title, m, moveMain, 0)
 	return chat, err
 }
 
@@ -438,7 +438,22 @@ func (s *Service) StartMainChat(ctx context.Context, id, bot, title string, m Ch
 func (s *Service) OpenMainChat(ctx context.Context, bot, id, title string, m ChatModel) (chat Chat, made bool,
 	err error,
 ) {
-	return s.createChat(ctx, id, bot, title, m, mainIfNone)
+	return s.createChat(ctx, id, bot, title, m, mainIfNone, 0)
+}
+
+// OpenMainChatSince is OpenMainChat for a page that opened ago before it asks and sends its first message before it
+// has read the Bots (issue #1055), so that it cannot know whether the Bot has a main chat. A main chat made since the
+// page opened, as by the CLI meanwhile, is answered as OpenMainChat answers it; one made before is kept as it was,
+// and the chat is made and becomes the main chat, as StartMainChat makes New chat's. The page says how long ago it
+// opened rather than when, so that its clock and this one need not agree, as HTTP's Age and max-age are durations
+// (RFC 9111 §5.1, §5.2.2.1).
+func (s *Service) OpenMainChatSince(ctx context.Context, bot, id, title string, m ChatModel, ago time.Duration,
+) (chat Chat, made bool, err error) {
+	if ago < 0 {
+		return Chat{}, false, fmt.Errorf("%w: a page opened a duration of 0 or more ago", ErrInvalid)
+	}
+
+	return s.createChat(ctx, id, bot, title, m, mainIfNewer, ago)
 }
 
 // mainMode says what a chat made does to its Bot's main chat.
@@ -451,9 +466,13 @@ const (
 	moveMain
 	// mainIfNone returns the main chat when the Bot has one, and makes the chat its main chat when not.
 	mainIfNone
+	// mainIfNewer returns the main chat when it was made since the page asking opened, and makes the chat its main
+	// chat when not.
+	mainIfNewer
 )
 
 func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatModel, mode mainMode,
+	ago time.Duration,
 ) (Chat, bool, error) {
 	if id != "" && !IsChatID(id) {
 		return Chat{}, false, fmt.Errorf("%w: a chat id is %q followed by 26 characters of a-z and 2-7", ErrInvalid,
@@ -477,7 +496,7 @@ func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatM
 
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
 		var err error
-		id, made, err = s.createChatTx(ctx, q, now, id, bot, title, m, mode)
+		id, made, err = s.createChatTx(ctx, q, now, id, bot, title, m, mode, now-ago.Milliseconds())
 
 		return err
 	}); err != nil {
@@ -489,8 +508,9 @@ func (s *Service) createChat(ctx context.Context, id, bot, title string, m ChatM
 	return chat, made, err
 }
 
+// createChatTx makes a chat; opened is when the page asking opened, for mainIfNewer.
 func (s *Service) createChatTx(ctx context.Context, q *store.Queries, now int64, id, bot, title string, m ChatModel,
-	mode mainMode,
+	mode mainMode, opened int64,
 ) (string, bool, error) {
 	row, err := q.GetBot(ctx, bot)
 	if err != nil {
@@ -499,6 +519,17 @@ func (s *Service) createChatTx(ctx context.Context, q *store.Queries, now int64,
 
 	if mode == mainIfNone && row.MainChat.Valid {
 		return row.MainChat.String, false, nil
+	}
+
+	if mode == mainIfNewer && row.MainChat.Valid {
+		main, err := q.GetChat(ctx, row.MainChat.String)
+		if err != nil {
+			return "", false, fmt.Errorf("reading chat %s: %w", row.MainChat.String, err)
+		}
+
+		if main.CreatedAt >= opened {
+			return main.ID, false, nil
+		}
 	}
 
 	if id == "" {

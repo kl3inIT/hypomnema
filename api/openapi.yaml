@@ -4851,7 +4851,9 @@ paths:
         whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients
         writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes
         here with the id its page chose; when another client made the main chat meanwhile, that one is answered
-        (200), with its own id.
+        (200), with its own id. A page that sends before it has read the Bots says how long ago it opened
+        (`opened_ms_ago`, issue #1055): a main chat made before then is kept as it was and the chat is made as New
+        chat makes it (201).
       requestBody:
         required: true
         content:
@@ -10466,6 +10468,16 @@ components:
         provider: { type: string, description: Where the model is found. }
         model: { type: string, description: The chat's own model; its Bot's when left out. }
         effort: { type: string, description: The chat's own effort; its Bot's when left out. }
+        opened_ms_ago:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            How long ago the page asking opened, in milliseconds by its own clock, for a page that sends its first
+            message before it has read the Bots (issue #1055). Given, a main chat made before the page opened is
+            kept as it was, and the chat is made and becomes the main chat, as New chat's (201); one made since, as
+            by the CLI meanwhile, is answered (200). A duration, so that the page's clock and the server's need not
+            agree.
     ChatDeleted:
       type: object
       additionalProperties: false

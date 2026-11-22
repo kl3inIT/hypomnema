@@ -4231,6 +4231,10 @@ export type MainChatRequest = {
    * The chat's own effort; its Bot's when left out.
    */
   effort?: string;
+  /**
+   * How long ago the page asking opened, in milliseconds by its own clock, for a page that sends its first message before it has read the Bots (issue #1055). Given, a main chat made before the page opened is kept as it was, and the chat is made and becomes the main chat, as New chat's (201); one made since, as by the CLI meanwhile, is answered (200). A duration, so that the page's clock and the server's need not agree.
+   */
+  opened_ms_ago?: number;
 };
 
 /**

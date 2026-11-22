@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useRef } from "react"
+import { useRef, useState } from "react"
 
 import "@/api/client"
 import { createChat, openMainChat, sendChatMessage } from "@/api/generated/sdk.gen"
@@ -23,7 +23,9 @@ import type { ChatChoice } from "./chat-model-state"
 // page's id (POST /chats/main), so that a main chat the CLI made meanwhile takes it instead of a second chat; the
 // main chat keeps its own model, and files put under the page's id cannot go to it: the page says so and nothing is
 // sent. A message sent before the Bots are read does not wait for them (issue #1055): the page cannot know whether its
-// Bot has a main chat, so it asks for it as to a Bot with none, which never makes a second chat.
+// Bot has a main chat, so it asks for the main chat saying how long ago it opened, and the server decides in the same
+// write: a main chat made before the page opened is kept and a new chat is made, as New chat; one made since is the
+// one the CLI made meanwhile.
 export function useStartChat(
   id: string,
   bot: string | undefined,
@@ -34,6 +36,8 @@ export function useStartChat(
   const refreshBots = useRefreshBots()
   const bots = useBots().data
   const made = useRef<Chat | null>(null)
+  // opened is when the page opened, on its monotonic clock.
+  const [opened] = useState(() => performance.now())
 
   return useMutation({
     mutationFn: async ({ text, files }: { text: string; files: ChatAttachment[] }) => {
@@ -47,6 +51,7 @@ export function useStartChat(
           ...(choice.model && { model: choice.model }),
           ...(choice.model && choice.provider && { provider: choice.provider }),
           ...(choice.effort && { effort: choice.effort }),
+          ...(!bots && { opened_ms_ago: Math.max(0, Math.round(performance.now() - opened)) }),
         }
         made.current = toMain
           ? (await openMainChat({ body })).data

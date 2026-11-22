@@ -4925,6 +4925,9 @@ type MainChatRequest struct {
 	// Model The chat's own model; its Bot's when left out.
 	Model *string `json:"model,omitempty"`
 
+	// OpenedMsAgo How long ago the page asking opened, in milliseconds by its own clock, for a page that sends its first message before it has read the Bots (issue #1055). Given, a main chat made before the page opened is kept as it was, and the chat is made and becomes the main chat, as New chat's (201); one made since, as by the CLI meanwhile, is answered (200). A duration, so that the page's clock and the server's need not agree.
+	OpenedMsAgo *int64 `json:"opened_ms_ago,omitempty"`
+
 	// Provider Where the model is found.
 	Provider *string `json:"provider,omitempty"`
 	Title    *string `json:"title,omitempty"`
@@ -9969,7 +9972,7 @@ type ClientInterface interface {
 
 	// OpenMainChatWithBody A Bot's main chat, made when it has none
 	//
-	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id. A page that sends before it has read the Bots says how long ago it opened (`opened_ms_ago`, issue #1055): a main chat made before then is kept as it was and the chat is made as New chat makes it (201).
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -9978,7 +9981,7 @@ type ClientInterface interface {
 
 	// OpenMainChat A Bot's main chat, made when it has none
 	//
-	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id. A page that sends before it has read the Bots says how long ago it opened (`opened_ms_ago`, issue #1055): a main chat made before then is kept as it was and the chat is made as New chat makes it (201).
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -13677,7 +13680,7 @@ func (c *Client) CreateChat(ctx context.Context, body CreateChatJSONRequestBody,
 
 // OpenMainChatWithBody A Bot's main chat, made when it has none
 //
-// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id. A page that sends before it has read the Bots says how long ago it opened (`opened_ms_ago`, issue #1055): a main chat made before then is kept as it was and the chat is made as New chat makes it (201).
 //
 // Takes any type of body and a specified content type.
 //
@@ -13696,7 +13699,7 @@ func (c *Client) OpenMainChatWithBody(ctx context.Context, contentType string, b
 
 // OpenMainChat A Bot's main chat, made when it has none
 //
-// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id. A page that sends before it has read the Bots says how long ago it opened (`opened_ms_ago`, issue #1055): a main chat made before then is kept as it was and the chat is made as New chat makes it (201).
 //
 // Takes a body of the `application/json` content type.
 //
@@ -34007,7 +34010,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenMainChatWithBodyWithResponse A Bot's main chat, made when it has none
 	//
-	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id. A page that sends before it has read the Bots says how long ago it opened (`opened_ms_ago`, issue #1055): a main chat made before then is kept as it was and the chat is made as New chat makes it (201).
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -34016,7 +34019,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenMainChatWithResponse A Bot's main chat, made when it has none
 	//
-	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
+	// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id. A page that sends before it has read the Bots says how long ago it opened (`opened_ms_ago`, issue #1055): a main chat made before then is kept as it was and the chat is made as New chat makes it (201).
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -51819,7 +51822,7 @@ func (c *ClientWithResponses) CreateChatWithResponse(ctx context.Context, body C
 
 // OpenMainChatWithBodyWithResponse A Bot's main chat, made when it has none
 //
-// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id. A page that sends before it has read the Bots says how long ago it opened (`opened_ms_ago`, issue #1055): a main chat made before then is kept as it was and the chat is made as New chat makes it (201).
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -51834,7 +51837,7 @@ func (c *ClientWithResponses) OpenMainChatWithBodyWithResponse(ctx context.Conte
 
 // OpenMainChatWithResponse A Bot's main chat, made when it has none
 //
-// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id.
+// The chat a click on the Bot opens and `hypomnema chat` writes to (issue #471). A Bot that never had one, or whose main chat was deleted, gets a new one, answered with 201; read and made in one write, so two clients writing to the Bot at once end in one main chat. The web's first message to a Bot with no main chat comes here with the id its page chose; when another client made the main chat meanwhile, that one is answered (200), with its own id. A page that sends before it has read the Bots says how long ago it opened (`opened_ms_ago`, issue #1055): a main chat made before then is kept as it was and the chat is made as New chat makes it (201).
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
