@@ -263,7 +263,9 @@ func TestAPushRefusedForNowIsTriedAgain(t *testing.T) {
 
 	assert.Len(t, w.push.got("busy"), 3)
 	assert.Len(t, w.push.got("down"), 3, "three tries, no more")
-	assert.Equal(t, []string{"busy", "down"}, w.devices())
+	// Both devices stay subscribed. The list is oldest first by the millisecond, and the two subscriptions above
+	// are often made in the same one, where the order falls to their random ids (#1068): compare without order.
+	assert.ElementsMatch(t, []string{"busy", "down"}, w.devices())
 }
 
 // Scenario: the owner answers the Approval in the app before the sender gets to it (the control plane was
