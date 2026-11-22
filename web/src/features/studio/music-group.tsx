@@ -37,8 +37,9 @@ const accept = "audio/*,.mp3,.m4a,.mp4,.wav,.flac,.ogg,.opus"
 // endpoint, with an error state when this browser cannot play it, and deletes it after a confirm. "Add music…"
 // uploads a file and picks it, saying the server's reason when it refuses (411, 413, 429, 507). A track the look
 // names that was deleted stays in the list as "(deleted)", with what the server will do; a track whose file is
-// missing says so. The level moves the track from 3 LU under the voice, −20 to +10 dB. The fields are sent as
-// {track, gain_db} only when changed (look-state.ts).
+// missing says so. The level moves the track from 3 LU under the voice, −20 to +10 dB; it is locked with No music,
+// and with a deleted track, since a level changed would send the deleted track, which the server refuses (409). The
+// fields are sent as {track, gain_db} only when changed (look-state.ts).
 export function MusicGroup({
   music,
   stored,
@@ -70,6 +71,8 @@ export function MusicGroup({
 
   const gone = goneOf(music.track, tracks, stored)
   const fellBack = stored?.track === "none" ? stored.fell_back_from : undefined
+  // levelOff: no track whose level can be sent, none or one deleted.
+  const levelOff = music.track === "none" || gone !== undefined
 
   function choose(file: File | undefined) {
     if (!file) return
@@ -207,7 +210,7 @@ export function MusicGroup({
           to 64 MB.
         </p>
       )}
-      <div className={cn("flex flex-col gap-1.5", music.track === "none" && "opacity-60")}>
+      <div className={cn("flex flex-col gap-1.5", levelOff && "opacity-60")}>
         <div className="flex items-center justify-between text-sm">
           <span id={`${id}-level`}>Level</span>
           <span className="text-xs text-muted-foreground tabular-nums" data-testid="music-level">
@@ -220,7 +223,7 @@ export function MusicGroup({
           max={10}
           step={1}
           value={[music.gain_db]}
-          disabled={music.track === "none"}
+          disabled={levelOff}
           onValueChange={(value) => {
             const next = Array.isArray(value) ? value[0] : value
             if (typeof next === "number" && Number.isFinite(next)) {
