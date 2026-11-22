@@ -5,6 +5,7 @@
 //   silence (ISO/IEC 11172-3, 2.4.1.7: part2_3_length 0).
 // - flac: STREAMINFO and frames of one VERBATIM subframe of the tone (xiph.org/flac/format.html), with their CRC-8
 //   and CRC-16.
+// - m4a: AAC-LC in MP4, frames of silence (below).
 // - ogg: Opus in Ogg (RFC 7845): OpusHead, OpusTags, then 20 ms CELT packets of silence (TOC 0xF8 and 0xFF 0xFE,
 //   the silence frame WebRTC sends), with the pages' CRC-32.
 
@@ -39,12 +40,13 @@ export function wav(): Buffer {
   return Buffer.concat([head, data])
 }
 
-export function mp3(): Buffer {
+// mp3 is seconds of silence, one by default.
+export function mp3(seconds = 1): Buffer {
   // 144 × 128000 / 44100 bytes a frame, without padding; 39 frames are about a second.
   const frame = Buffer.alloc(417)
   frame.set([0xff, 0xfb, 0x90, 0xc0])
 
-  return Buffer.concat(Array.from({ length: 39 }, () => frame))
+  return Buffer.concat(Array.from({ length: 39 * seconds }, () => frame))
 }
 
 function crc8(bytes: Uint8Array): number {
@@ -144,5 +146,117 @@ export function ogg(): Buffer {
     page(0x02, 0n, 0, [opusHead]),
     page(0x00, 0n, 1, [tags]),
     page(0x04, BigInt(preSkip + packets.length * 960), 2, packets),
+  ])
+}
+
+// box is an ISO BMFF box (ISO/IEC 14496-12, 4.2): its size, its type, then its body.
+function box(type: string, ...body: Buffer[]): Buffer {
+  const head = Buffer.alloc(8)
+  head.writeUInt32BE(8 + body.reduce((n, b) => n + b.length, 0), 0)
+  head.write(type, 4, "latin1")
+
+  return Buffer.concat([head, ...body])
+}
+
+// full is a full box: a box whose body starts with its version and flags (ISO/IEC 14496-12, 4.2).
+const full = (type: string, flags: number, ...body: Buffer[]) => {
+  const head = Buffer.alloc(4)
+  head.writeUInt32BE(flags)
+
+  return box(type, head, ...body)
+}
+
+const u32 = (...values: number[]) => {
+  const out = Buffer.alloc(values.length * 4)
+  values.forEach((v, i) => out.writeUInt32BE(v, i * 4))
+
+  return out
+}
+
+// descriptor is an MPEG-4 descriptor (ISO/IEC 14496-1, 8.3.3): its tag, its size in one byte, then its body.
+const descriptor = (tag: number, ...body: Buffer[]) => {
+  const inner = Buffer.concat(body)
+
+  return Buffer.concat([Buffer.from([tag, inner.length]), inner])
+}
+
+// The unity matrix of a movie and a track header (ISO/IEC 14496-12, 8.2.2 and 8.3.2).
+const unity = u32(0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000)
+
+// m4a is AAC-LC in MP4, the m4a the server takes (videos/music.go, sniffMusic: AAC in an mp4 brand): an 'M4A '
+// file of one mono 44.1 kHz track whose 1024-sample frames are each a single channel element of no spectral data,
+// so silence (ISO/IEC 14496-3, 4.4.2: global_gain 160, max_sfb 0, then ID_END), about three seconds of it. The
+// AudioSpecificConfig 0x12 0x08 says AAC-LC (2), 44.1 kHz (index 4), mono (1).
+export function m4a(): Buffer {
+  const frames = 130
+  const frame = Buffer.from([0x01, 0x40, 0x20, 0x07])
+  const length = frames * 1024
+  const ftyp = box("ftyp", Buffer.from("M4A "), u32(0), Buffer.from("M4A mp42isom"))
+  const esds = full(
+    "esds",
+    0,
+    descriptor(
+      0x03,
+      Buffer.from([0, 0, 0]),
+      descriptor(
+        0x04,
+        // MPEG-4 audio (0x40), an audio stream (5 << 2 | 1), its buffer and bit rates.
+        Buffer.from([0x40, 0x15, 0, 0, 0]),
+        u32(8000, 8000),
+        descriptor(0x05, Buffer.from([0x12, 0x08])),
+      ),
+      descriptor(0x06, Buffer.from([0x02])),
+    ),
+  )
+  const mp4aHead = Buffer.alloc(28)
+  mp4aHead.writeUInt16BE(1, 6) // data_reference_index
+  mp4aHead.writeUInt16BE(1, 16) // channels
+  mp4aHead.writeUInt16BE(16, 18) // sample size
+  mp4aHead.writeUInt32BE(rate * 0x10000, 24)
+  const mvhdTail = Buffer.alloc(80)
+  mvhdTail.writeUInt32BE(0x10000, 0) // rate 1.0
+  mvhdTail.writeUInt16BE(0x100, 4) // volume 1.0
+  unity.copy(mvhdTail, 16)
+  mvhdTail.writeUInt32BE(2, 76) // next track ID
+  const tkhdTail = Buffer.alloc(60)
+  tkhdTail.writeUInt16BE(0x100, 12) // volume 1.0
+  unity.copy(tkhdTail, 16)
+  const mdhdTail = Buffer.from([0x55, 0xc4, 0, 0]) // language "und"
+  const hdlr = full("hdlr", 0, u32(0), Buffer.from("soun"), u32(0, 0, 0), Buffer.from("Sound\0"))
+
+  const moov = (offset: number) =>
+    box(
+      "moov",
+      full("mvhd", 0, u32(0, 0, 1000, Math.round((length * 1000) / rate)), mvhdTail),
+      box(
+        "trak",
+        full("tkhd", 7, u32(0, 0, 1, 0, Math.round((length * 1000) / rate), 0, 0), tkhdTail),
+        box(
+          "mdia",
+          full("mdhd", 0, u32(0, 0, rate, length), mdhdTail),
+          hdlr,
+          box(
+            "minf",
+            full("smhd", 0, u32(0)),
+            box("dinf", full("dref", 0, u32(1), full("url ", 1))),
+            box(
+              "stbl",
+              full("stsd", 0, u32(1), box("mp4a", mp4aHead, esds)),
+              full("stts", 0, u32(1, frames, 1024)),
+              full("stsc", 0, u32(1, 1, frames, 1)),
+              full("stsz", 0, u32(frame.length, frames)),
+              full("stco", 0, u32(1, offset)),
+            ),
+          ),
+        ),
+      ),
+    )
+  // The one chunk of samples starts after the moov, whose size does not depend on where it points.
+  const offset = ftyp.length + moov(0).length + 8
+
+  return Buffer.concat([
+    ftyp,
+    moov(offset),
+    box("mdat", ...Array.from({ length: frames }, () => frame)),
   ])
 }

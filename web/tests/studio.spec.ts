@@ -4,7 +4,7 @@ import { deflateSync } from "node:zlib"
 
 import { expect, test, type Locator, type Page, type Route } from "@playwright/test"
 
-import { flac, mp3, ogg, wav } from "./audio.js"
+import { flac, m4a, mp3, ogg, wav } from "./audio.js"
 import { shot } from "./shot.js"
 
 // The Studio (issue #818, row 12), built, against a fake client API, on a phone and a desktop: the library of takes
@@ -275,8 +275,20 @@ const frameOf = (chrome: string) => ({
 
 // savedLook is the saved default of the catalogue: an owner's make chose an iPhone frame, so choosing Android is a
 // change, and the default is a frame that falls back on a turned take.
+// musicId is a track's id as the API's MusicID has it (mus_ and 26 of [0-9a-z]), named by its end.
+const musicId = (name: string) => `mus_${name.padStart(26, "0")}`
+
+// validMusic is the pattern of the API's MusicID (api/openapi.yaml): the fake server refuses an id that does not
+// match, as the server's request validator does.
+const validMusic = /^mus_[0-9a-z]{26}$/
+
 // lofi is the saved default's track (issue #910).
-const lofi = "mus_00000000000010f1"
+const lofi = musicId("lofi")
+const piano = musicId("piano")
+const ukulele = musicId("ukulele")
+const bass = musicId("bass")
+const guitar = musicId("guitar")
+const broken = musicId("broken")
 
 const savedLook: Look = {
   captions: { preset: "clean", position: "preset" },
@@ -322,7 +334,7 @@ const catalogue = {
 }
 
 // The owner's music library (issue #910): a track of each format the Studio plays, a corrupt one, one whose file is
-// missing. Their audio is made by tests/audio.ts, an m4a by the browser's own recorder.
+// missing. Their audio is made by tests/audio.ts, the m4a AAC in MP4 as the server takes it.
 type MusicTrack = {
   id: string
   name: string
@@ -346,22 +358,24 @@ const track = (id: string, name: string, media_type: string, more: Partial<Music
 function musicLibrary(): MusicTrack[] {
   return [
     track(lofi, "Lo-fi buổi sáng", "audio/mpeg"),
-    track("mus_000000000000f1ac", "Piano", "audio/flac", { length_ms: 184_000, bytes: 21_700_000 }),
-    track("mus_00000000000000cc", "Ukulele", "audio/ogg", { length_ms: 62_000 }),
-    track("mus_0000000000000ba5", "Bass", "audio/wav", { length_ms: 30_000, bytes: 5_300_000 }),
-    track("mus_00000000000004a4", "Guitar", "audio/mp4", { length_ms: 121_000 }),
-    track("mus_0000000000000bad", "Broken", "audio/mpeg", { length_ms: 48_000 }),
-    track("mus_000000000000d15c", "Old jingle", "audio/mpeg", { missing: true, length_ms: 15_000 }),
+    track(piano, "Piano", "audio/flac", { length_ms: 184_000, bytes: 21_700_000 }),
+    track(ukulele, "Ukulele", "audio/ogg", { length_ms: 62_000 }),
+    track(bass, "Bass", "audio/wav", { length_ms: 30_000, bytes: 5_300_000 }),
+    track(guitar, "Guitar", "audio/mp4", { length_ms: 121_000 }),
+    track(broken, "Broken", "audio/mpeg", { length_ms: 48_000 }),
+    track(musicId("oldjingle"), "Old jingle", "audio/mpeg", { missing: true, length_ms: 15_000 }),
   ]
 }
 
 const audioOf: Record<string, () => Buffer> = {
-  [lofi]: mp3,
-  mus_000000000000f1ac: flac,
-  mus_00000000000000cc: ogg,
-  mus_0000000000000ba5: wav,
+  // Long enough to be seen playing.
+  [lofi]: () => mp3(10),
+  [piano]: flac,
+  [ukulele]: ogg,
+  [bass]: wav,
+  [guitar]: m4a,
   // Bytes that are no track: the player shows its error state.
-  mus_0000000000000bad: () => Buffer.from("this is not an mp3, only its name says so".repeat(40)),
+  [broken]: () => Buffer.from("this is not an mp3, only its name says so".repeat(40)),
 }
 
 type Upload = { name: string; type: string; bytes: number }
@@ -397,11 +411,11 @@ type Server = {
   // uploads are the tracks sent to the upload route; uploadAnswer answers one: a delay first, a refusal, or 201.
   uploads: Upload[]
   uploadAnswer: (upload: Upload) => { delay?: number; status?: number; body?: string }
+  // musicAnswer answers a read of the library: a delay first, or a refusal.
+  musicAnswer: () => { delay?: number; status?: number }
   deleted: string[]
-  // deleteAnswer refuses a delete with its status, or deletes it (0).
-  deleteAnswer: (id: string) => number
-  // m4a is an m4a the browser recorded, served for the m4a track.
-  m4a?: Buffer
+  // deleteAnswer answers a delete: a delay first, a refusal with its status, or 204.
+  deleteAnswer: (id: string) => { delay?: number; status?: number }
   // defaultLook is the saved default GET /videos/looks answers.
   defaultLook: Look
 }
@@ -468,8 +482,9 @@ async function fakeServer(page: Page): Promise<Server> {
     usedBytes: 61_300_000,
     uploads: [],
     uploadAnswer: () => ({}),
+    musicAnswer: () => ({}),
     deleted: [],
-    deleteAnswer: () => 0,
+    deleteAnswer: () => ({}),
     defaultLook: catalogue.default,
   }
   const video = () => ({
@@ -514,11 +529,36 @@ async function fakeServer(page: Page): Promise<Server> {
       })
     }
 
+    // A track's id the API's MusicID does not match is refused before the route, as the server's validator does.
+    const musicPath = /^\w+ \/videos\/music\/([^/]+)/.exec(call)
+    if (musicPath && !validMusic.test(musicPath[1]!)) {
+      return json({ code: "invalid_request", message: `music_id ${musicPath[1]}` }, 400)
+    }
+    // A look sent with a track the library has no more is refused, as the server refuses it (VideoMusicInput).
+    const sentJson = request.headers()["content-type"]?.startsWith("application/json")
+    const sentTrack = (
+      request.method() === "POST" && sentJson
+        ? (request.postDataJSON() as { look?: Look } | null)
+        : null
+    )?.look?.music?.track
+    if (sentTrack && sentTrack !== "none" && !server.music.some((m) => m.id === sentTrack)) {
+      if (call === "POST /videos")
+        server.made.push(request.postDataJSON() as Record<string, unknown>)
+      if (call.endsWith("/look")) {
+        server.looks.push({
+          body: request.postDataJSON() as Record<string, unknown>,
+          key: request.headers()["idempotency-key"] ?? "",
+        })
+      }
+
+      return json({ code: "conflict", message: `music track ${sentTrack} was deleted` }, 409)
+    }
+
     const audio = /^GET \/videos\/music\/([^/]+)\/audio$/.exec(call)
     if (audio) {
       const id = audio[1]!
       const t = server.music.find((m) => m.id === id)
-      const body = id === "mus_00000000000004a4" ? server.m4a : audioOf[id]?.()
+      const body = audioOf[id]?.()
       if (!t || !body) return json({ code: "not_found", message: `music track ${id}` }, 404)
 
       return route.fulfill({
@@ -530,8 +570,9 @@ async function fakeServer(page: Page): Promise<Server> {
     const removed = /^DELETE \/videos\/music\/([^/]+)$/.exec(call)
     if (removed) {
       const id = removed[1]!
-      const status = server.deleteAnswer(id)
-      if (status === 409) {
+      const answer = server.deleteAnswer(id)
+      if (answer.delay) await new Promise((done) => setTimeout(done, answer.delay))
+      if (answer.status === 409) {
         return json(
           {
             code: "conflict",
@@ -547,12 +588,22 @@ async function fakeServer(page: Page): Promise<Server> {
     }
 
     switch (call) {
-      case "GET /videos/music":
+      case "GET /videos/music": {
+        const answer = server.musicAnswer()
+        if (answer.delay) await new Promise((done) => setTimeout(done, answer.delay))
+        if (answer.status) {
+          return json(
+            { code: "internal", message: "the music folder could not be read" },
+            answer.status,
+          )
+        }
+
         return json({
           tracks: server.music,
           used_bytes: server.usedBytes,
           quota_bytes: 5_000_000_000,
         })
+      }
       case "POST /videos/music": {
         const upload = {
           name: url.searchParams.get("name") ?? "",
@@ -569,16 +620,11 @@ async function fakeServer(page: Page): Promise<Server> {
             body: answer.body ?? "",
           })
         }
-        const made = track(
-          `mus_${"0".repeat(12)}${(server.music.length + 0xa0).toString(16)}`,
-          upload.name,
-          "audio/mpeg",
-          {
-            created_at: at(59),
-            length_ms: 72_000,
-            bytes: upload.bytes,
-          },
-        )
+        const made = track(musicId(`upload${server.uploads.length}`), upload.name, "audio/mpeg", {
+          created_at: at(59),
+          length_ms: 72_000,
+          bytes: upload.bytes,
+        })
         server.music = [made, ...server.music]
         server.usedBytes += upload.bytes
 
@@ -1162,8 +1208,7 @@ test("Change look posts only the sections changed and the new revision appears",
   await expect(page.getByTestId("video-progress")).toContainText("Revision 2 is queued")
 })
 
-// The Music group of the Look (issue #910, row 18). An m4a to play is recorded by the browser itself after the page
-// was pressed, as a page may start sound only then.
+// The Music group of the Look (issue #910, row 18).
 test.describe("the Music group", () => {
   // openMake opens Make video on the take, with its Look's Music group.
   async function openMake(page: Page) {
@@ -1185,40 +1230,11 @@ test.describe("the Music group", () => {
   const radio = (group: Locator, name: string) =>
     group.getByRole("radio", { name: new RegExp(`^${name}`) })
 
-  // recordM4a is a second of a tone as the browser's MediaRecorder writes it in MP4, or null when it cannot.
-  async function recordM4a(page: Page): Promise<Buffer | null> {
-    const base64 = (await page.evaluate(`(async () => {
-      const type = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4"].find((t) => MediaRecorder.isTypeSupported(t))
-      if (!type) return null
-      const ctx = new AudioContext()
-      await ctx.resume()
-      if (ctx.state !== "running") return null
-      const tone = ctx.createOscillator()
-      const out = ctx.createMediaStreamDestination()
-      tone.connect(out)
-      tone.start()
-      const recorder = new MediaRecorder(out.stream, { mimeType: type })
-      const parts = []
-      recorder.ondataavailable = (e) => parts.push(e.data)
-      const stopped = new Promise((done) => (recorder.onstop = done))
-      recorder.start()
-      await new Promise((done) => setTimeout(done, 1200))
-      recorder.stop()
-      await stopped
-      const bytes = new Uint8Array(await new Blob(parts).arrayBuffer())
-      let text = ""
-      for (const b of bytes) text += String.fromCharCode(b)
-      return btoa(text)
-    })()`)) as string | null
-
-    return base64 ? Buffer.from(base64, "base64") : null
-  }
-
   // Scenario: the owner opens Make video; the Music group lists the library from GET /videos/music, the saved
-  // default's track picked, with what the library holds. Each track plays: mp3, flac, ogg and wav; m4a plays where
-  // the browser says it can (canPlayType), else shows the error state; a corrupt file shows the error state; a track
-  // whose file is missing says so and does not play. A delete asks first, and a refusal says why. Nothing in the
-  // music changed, the make sends no music, so the server keeps the default's.
+  // default's track picked, with what the library holds. Each track plays: mp3, flac, ogg and wav; a corrupt file
+  // shows the error state; a track whose file is missing says so and does not play. A delete asks first, shows it is
+  // deleting, and a refusal says why. Nothing in the music changed, the make sends no music, so the server keeps the
+  // default's.
   test("the library lists, plays each format and deletes a track after a confirm", async ({
     page,
   }) => {
@@ -1235,45 +1251,37 @@ test.describe("the Music group", () => {
     await showGroup(group)
     await shot(page, "studio-music-list")
 
-    for (const name of ["Lo-fi buổi sáng", "Piano", "Ukulele", "Bass"]) {
+    await group.getByRole("button", { name: "Play Lo-fi buổi sáng" }).click()
+    await expect(group.getByRole("button", { name: "Pause Lo-fi buổi sáng" })).toBeVisible()
+    await shot(page, "studio-music-playing")
+    for (const name of ["Piano", "Ukulele", "Bass"]) {
       await group.getByRole("button", { name: `Play ${name}` }).click()
       await expect(group.getByRole("button", { name: `Pause ${name}` })).toBeVisible()
     }
     await group.getByRole("button", { name: "Pause Bass" }).click()
     await expect(group.getByRole("button", { name: "Play Bass" })).toBeVisible()
 
-    const guitar = group.getByTestId("music-row").filter({ hasText: "Guitar" })
-    const mp4 = (await page.evaluate(
-      `document.createElement("audio").canPlayType("audio/mp4")`,
-    )) as string
-    if (mp4) {
-      server.m4a = (await recordM4a(page)) ?? undefined
-      test.skip(!server.m4a, "this browser plays m4a but cannot record one to play")
-      await guitar.getByRole("button", { name: "Play Guitar" }).click()
-      await expect(guitar.getByRole("button", { name: "Pause Guitar" })).toBeVisible()
-    } else {
-      await guitar.getByRole("button", { name: "Play Guitar" }).click()
-      await expect(guitar.getByRole("alert")).toHaveText("This browser cannot play this track.")
-    }
-
-    const broken = group.getByTestId("music-row").filter({ hasText: "Broken" })
-    await broken.getByRole("button", { name: "Play Broken" }).click()
-    await expect(broken.getByRole("alert")).toHaveText("This browser cannot play this track.")
-    await expect(broken.getByRole("button", { name: "Play Broken" })).toBeDisabled()
+    const corrupt = group.getByTestId("music-row").filter({ hasText: "Broken" })
+    await corrupt.getByRole("button", { name: "Play Broken" }).click()
+    await expect(corrupt.getByRole("alert")).toHaveText("This browser cannot play this track.")
+    await expect(corrupt.getByRole("button", { name: "Play Broken" })).toBeDisabled()
     await missing.scrollIntoViewIfNeeded()
     await shot(page, "studio-music-play-error")
 
+    server.deleteAnswer = () => ({ delay: 1500 })
     await group.getByRole("button", { name: "Delete Piano" }).click()
     const confirm = page.getByRole("alertdialog", { name: "Delete “Piano”?" })
     await expect(confirm).toContainText("Videos made with it keep their sound.")
     await shot(page, "studio-music-delete")
     expect(server.deleted).toEqual([])
     await confirm.getByRole("button", { name: "Delete" }).click()
+    await expect(confirm.getByRole("button", { name: "Delete" })).toBeDisabled()
+    await shot(page, "studio-music-deleting")
     await expect(confirm).toBeHidden()
-    expect(server.deleted).toEqual(["mus_000000000000f1ac"])
+    expect(server.deleted).toEqual([piano])
     await expect(radio(group, "Piano")).toHaveCount(0)
 
-    server.deleteAnswer = () => 409
+    server.deleteAnswer = () => ({ status: 409 })
     await group.getByRole("button", { name: "Delete Bass" }).click()
     const refused = page.getByRole("alertdialog", { name: "Delete “Bass”?" })
     await refused.getByRole("button", { name: "Delete" }).click()
@@ -1285,6 +1293,81 @@ test.describe("the Music group", () => {
     await dialog.getByRole("button", { name: "Make video" }).click()
     await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
     expect(server.made).toEqual([{ take: takeId, captions: true, aspect: "9:16" }])
+  })
+
+  // Scenario: the owner plays an m4a, AAC in MP4 as the server takes it (videos/music.go), built by tests/audio.ts.
+  // It plays where this browser says it plays AAC (canPlayType with its codec); else the row shows the error state,
+  // whether the browser refuses the type at once or fails to decode it.
+  test("an m4a with AAC plays where the browser plays AAC, else says it cannot", async ({
+    page,
+  }) => {
+    await fakeServer(page)
+    const { group } = await openMake(page)
+    const aac = (await page.evaluate(
+      `document.createElement("audio").canPlayType('audio/mp4; codecs="mp4a.40.2"')`,
+    )) as string
+    test.info().annotations.push({ type: "aac", description: aac || "no" })
+
+    const row = group.getByTestId("music-row").filter({ hasText: "Guitar" })
+    await row.getByRole("button", { name: "Play Guitar" }).click()
+    if (aac) {
+      await expect(row.getByRole("button", { name: "Pause Guitar" })).toBeVisible()
+    } else {
+      await expect(row.getByRole("alert")).toHaveText("This browser cannot play this track.")
+      await expect(row.getByRole("button", { name: "Play Guitar" })).toBeDisabled()
+    }
+  })
+
+  // Scenario: the library is slow to read, then cannot be read. The group says it is reading, then why it could not,
+  // No music still there to choose.
+  test("the library's read is shown while it lasts, and a read refused says why", async ({
+    page,
+  }) => {
+    const server = await fakeServer(page)
+    server.musicAnswer = () => ({ delay: 2000 })
+    const { group } = await openMake(page)
+    await expect(group.getByText("Reading the music…")).toBeVisible()
+    await showGroup(group)
+    await shot(page, "studio-music-loading")
+    await expect(radio(group, "Lo-fi buổi sáng")).toBeChecked()
+    await expect(group.getByText("Reading the music…")).toHaveCount(0)
+
+    server.musicAnswer = () => ({ status: 500 })
+    await openMake(page)
+    // The web's queries try a read three times more before they say it failed.
+    await expect(group.getByRole("alert")).toHaveText(
+      /The music could not be read: the music folder could not be read/,
+      { timeout: 15_000 },
+    )
+    await expect(radio(group, "No music")).toBeVisible()
+    await showGroup(group)
+    await shot(page, "studio-music-read-error")
+  })
+
+  // Scenario: the owner changes only the Background in Make video. Meanwhile the default's track is deleted from
+  // elsewhere (the CLI), and the saved default loses its music; the looks are read again when the owner deletes
+  // another track here. The make sends the Background alone: the music, left alone, is not the old default's track,
+  // which the server would refuse (409).
+  test("a Background changed alone does not send the music the default had", async ({ page }) => {
+    const server = await fakeServer(page)
+    const { dialog, group } = await openMake(page)
+    await expect(radio(group, "Lo-fi buổi sáng")).toBeChecked()
+    await dialog.getByRole("button", { name: "Ocean" }).click()
+
+    server.music = server.music.filter((m) => m.id !== lofi)
+    server.defaultLook = savedLook
+    await group.getByRole("button", { name: "Delete Piano" }).click()
+    const confirm = page.getByRole("alertdialog", { name: "Delete “Piano”?" })
+    await confirm.getByRole("button", { name: "Delete" }).click()
+    await expect(confirm).toBeHidden()
+    await expect.poll(() => server.looksRead).toBe(2)
+    await expect(radio(group, "No music")).toBeChecked()
+
+    await dialog.getByRole("button", { name: "Make video" }).click()
+    await expect(page).toHaveURL(new RegExp(`/studio/videos/${videoId}$`))
+    expect(server.made).toEqual([
+      { take: takeId, captions: true, aspect: "9:16", look: { background: { preset: "ocean" } } },
+    ])
   })
 
   // Scenario: the owner picks another track and raises its level. The look sample is not asked again, since music
@@ -1314,7 +1397,7 @@ test.describe("the Music group", () => {
         take: takeId,
         captions: true,
         aspect: "9:16",
-        look: { music: { track: "mus_00000000000000cc", gain_db: 2 } },
+        look: { music: { track: ukulele, gain_db: 2 } },
       },
     ])
     expect(server.samples).toHaveLength(1)
@@ -1395,7 +1478,7 @@ test.describe("the Music group", () => {
     page,
   }) => {
     const server = await fakeServer(page)
-    const gone = { track: "mus_00000000000de1e7", name: "Mưa", length_ms: 40_000 }
+    const gone = { track: musicId("mua"), name: "Mưa", length_ms: 40_000 }
     const base = revision(1, "review").look
     server.revisions = [
       revision(1, "review", { look: { ...base, music: { ...gone, gain_db: -4 } } }),
@@ -1409,6 +1492,8 @@ test.describe("the Music group", () => {
     await expect(radio(group, "Mưa \\(deleted\\)")).toBeChecked()
     await expect(group).toContainText("This track was deleted.")
     await expect(group.getByTestId("music-level")).toHaveText("-4 dB")
+    // Its level is locked with it: a level changed would send the deleted track, which the server refuses.
+    await expect(group.getByRole("slider")).toBeDisabled()
     await showGroup(group)
     await shot(page, "studio-music-deleted")
 
