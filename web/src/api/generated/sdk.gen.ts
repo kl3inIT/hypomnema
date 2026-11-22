@@ -1216,7 +1216,7 @@ export const listPushSubscriptions = <ThrowOnError extends boolean = true>(optio
 /**
  * Keep this browser's push subscription; only the owner
  *
- * The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label. If that endpoint is no longer registered, return 404.
+ * The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
  */
 export const putPushSubscription = <ThrowOnError extends boolean = true>(options: Options<PutPushSubscriptionData, ThrowOnError>): RequestResult<PutPushSubscriptionResponses, PutPushSubscriptionErrors, ThrowOnError> => (options.client ?? client).put<PutPushSubscriptionResponses, PutPushSubscriptionErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

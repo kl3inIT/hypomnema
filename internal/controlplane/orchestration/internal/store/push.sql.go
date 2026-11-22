@@ -22,6 +22,29 @@ func (q *Queries) DeleteAllPushSubscriptions(ctx context.Context) (int64, error)
 	return result.RowsAffected()
 }
 
+const deletePreviousPushSubscriptionForMerge = `-- name: DeletePreviousPushSubscriptionForMerge :one
+DELETE FROM push_subscriptions
+WHERE push_subscriptions.endpoint = ?1
+  AND EXISTS (
+    SELECT 1 FROM push_subscriptions AS replacement
+    WHERE replacement.endpoint = ?2 AND replacement.endpoint <> push_subscriptions.endpoint
+  )
+RETURNING label
+`
+
+type DeletePreviousPushSubscriptionForMergeParams struct {
+	PreviousEndpoint string
+	Endpoint         string
+}
+
+// Remove the old row only when the replacement is already registered. Carry its label to the upsert.
+func (q *Queries) DeletePreviousPushSubscriptionForMerge(ctx context.Context, arg DeletePreviousPushSubscriptionForMergeParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, deletePreviousPushSubscriptionForMerge, arg.PreviousEndpoint, arg.Endpoint)
+	var label string
+	err := row.Scan(&label)
+	return label, err
+}
+
 const deletePushOutbox = `-- name: DeletePushOutbox :exec
 DELETE FROM push_outbox WHERE seq = ?1
 `

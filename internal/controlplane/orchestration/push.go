@@ -61,7 +61,7 @@ type NewPushSubscription struct {
 	PreviousEndpoint string
 }
 
-// SavePushSubscription registers a browser or renews the device at PreviousEndpoint in place.
+// SavePushSubscription registers a browser or renews the device at PreviousEndpoint.
 func (s *Service) SavePushSubscription(ctx context.Context, n NewPushSubscription) (PushSubscription, error) {
 	n.Label = strings.TrimSpace(n.Label)
 
@@ -78,19 +78,30 @@ func (s *Service) SavePushSubscription(ctx context.Context, n NewPushSubscriptio
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		if n.PreviousEndpoint != "" {
-			row, err := q.RenewPushSubscription(ctx, store.RenewPushSubscriptionParams{
-				PreviousEndpoint: n.PreviousEndpoint, Endpoint: n.Endpoint, P256dh: n.P256dh, Auth: n.Auth, Now: now,
+			label, err := q.DeletePreviousPushSubscriptionForMerge(ctx, store.DeletePreviousPushSubscriptionForMergeParams{
+				PreviousEndpoint: n.PreviousEndpoint, Endpoint: n.Endpoint,
 			})
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("%w: previous push subscription is gone", ErrNotFound)
-			}
-			if err != nil {
-				return fmt.Errorf("renewing the push subscription: %w", err)
-			}
+			switch {
+			case err == nil:
+				// Settings already registered the replacement. The upsert below keeps its id.
+				n.Label = label
+			case errors.Is(err, sql.ErrNoRows):
+				row, err := q.RenewPushSubscription(ctx, store.RenewPushSubscriptionParams{
+					PreviousEndpoint: n.PreviousEndpoint, Endpoint: n.Endpoint, P256dh: n.P256dh, Auth: n.Auth, Now: now,
+				})
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("%w: previous push subscription is gone", ErrNotFound)
+				}
+				if err != nil {
+					return fmt.Errorf("renewing the push subscription: %w", err)
+				}
 
-			out = pushSubscriptionFromRow(row)
+				out = pushSubscriptionFromRow(row)
 
-			return nil
+				return nil
+			default:
+				return fmt.Errorf("removing the previous push subscription: %w", err)
+			}
 		}
 
 		row, err := q.UpsertPushSubscription(ctx, store.UpsertPushSubscriptionParams{

@@ -17,6 +17,16 @@ SET endpoint = @endpoint, p256dh = @p256dh, auth = @auth, updated_at = @now
 WHERE endpoint = @previous_endpoint
 RETURNING *;
 
+-- name: DeletePreviousPushSubscriptionForMerge :one
+-- Remove the old row only when the replacement is already registered. Carry its label to the upsert.
+DELETE FROM push_subscriptions
+WHERE push_subscriptions.endpoint = @previous_endpoint
+  AND EXISTS (
+    SELECT 1 FROM push_subscriptions AS replacement
+    WHERE replacement.endpoint = @endpoint AND replacement.endpoint <> push_subscriptions.endpoint
+  )
+RETURNING label;
+
 -- name: ListPushSubscriptions :many
 SELECT * FROM push_subscriptions ORDER BY created_at, id;
 

@@ -11712,7 +11712,7 @@ type ClientInterface interface {
 
 	// PutPushSubscriptionWithBody Keep this browser's push subscription; only the owner
 	//
-	// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label. If that endpoint is no longer registered, return 404.
+	// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -11721,7 +11721,7 @@ type ClientInterface interface {
 
 	// PutPushSubscription Keep this browser's push subscription; only the owner
 	//
-	// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label. If that endpoint is no longer registered, return 404.
+	// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -17780,7 +17780,7 @@ func (c *Client) ListPushSubscriptions(ctx context.Context, reqEditors ...Reques
 
 // PutPushSubscriptionWithBody Keep this browser's push subscription; only the owner
 //
-// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label. If that endpoint is no longer registered, return 404.
+// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
 //
 // Takes any type of body and a specified content type.
 //
@@ -17799,7 +17799,7 @@ func (c *Client) PutPushSubscriptionWithBody(ctx context.Context, contentType st
 
 // PutPushSubscription Keep this browser's push subscription; only the owner
 //
-// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label. If that endpoint is no longer registered, return 404.
+// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -35940,7 +35940,7 @@ type ClientWithResponsesInterface interface {
 
 	// PutPushSubscriptionWithBodyWithResponse Keep this browser's push subscription; only the owner
 	//
-	// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label. If that endpoint is no longer registered, return 404.
+	// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -35949,7 +35949,7 @@ type ClientWithResponsesInterface interface {
 
 	// PutPushSubscriptionWithResponse Keep this browser's push subscription; only the owner
 	//
-	// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label. If that endpoint is no longer registered, return 404.
+	// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -55168,7 +55168,7 @@ func (c *ClientWithResponses) ListPushSubscriptionsWithResponse(ctx context.Cont
 
 // PutPushSubscriptionWithBodyWithResponse Keep this browser's push subscription; only the owner
 //
-// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label. If that endpoint is no longer registered, return 404.
+// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -55183,7 +55183,7 @@ func (c *ClientWithResponses) PutPushSubscriptionWithBodyWithResponse(ctx contex
 
 // PutPushSubscriptionWithResponse Keep this browser's push subscription; only the owner
 //
-// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in place, retaining its id and label. If that endpoint is no longer registered, return 404.
+// The same endpoint again keeps its row and takes the new keys and label, as a browser that subscribes again after a reinstall. With previous_endpoint, renew the existing device in one transaction. If the new endpoint is already registered, keep its row and remove the previous row. Otherwise retain the previous device's id. A nonempty label on the previous device carries over. If the previous endpoint is no longer registered, return 404.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

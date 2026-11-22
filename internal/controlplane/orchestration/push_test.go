@@ -190,10 +190,12 @@ func TestSavePushSubscriptionRenewsAnExistingDevice(t *testing.T) {
 		{name: "next endpoint is new"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			w := newWorld(t)
+			t.Parallel()
+
+			s, _, clock := newTestService(t)
 			ctx := t.Context()
 
-			old, err := w.s.SavePushSubscription(ctx, NewPushSubscription{
+			old, err := s.SavePushSubscription(ctx, NewPushSubscription{
 				Endpoint: "https://push.example/old", P256dh: "old-key", Auth: "old-auth", Label: "iPhone · Safari",
 			})
 			require.NoError(t, err)
@@ -204,17 +206,17 @@ func TestSavePushSubscriptionRenewsAnExistingDevice(t *testing.T) {
 			}
 			kept := old
 			if tc.registeredNext {
-				kept, err = w.s.SavePushSubscription(ctx, NewPushSubscription{
+				kept, err = s.SavePushSubscription(ctx, NewPushSubscription{
 					Endpoint: renewal.Endpoint, P256dh: "registered-key", Auth: "registered-auth", Label: "New label",
 				})
 				require.NoError(t, err)
 			}
 
 			if tc.removePrevious {
-				require.NoError(t, w.s.DeletePushSubscription(ctx, old.ID))
+				require.NoError(t, s.DeletePushSubscription(ctx, old.ID))
 			}
 
-			got, err := w.s.SavePushSubscription(ctx, renewal)
+			got, err := s.SavePushSubscription(ctx, renewal)
 			if tc.removePrevious {
 				require.ErrorIs(t, err, ErrNotFound)
 			} else {
@@ -223,11 +225,11 @@ func TestSavePushSubscriptionRenewsAnExistingDevice(t *testing.T) {
 				kept.Label = old.Label
 				kept.P256dh = renewal.P256dh
 				kept.Auth = renewal.Auth
-				kept.UpdatedAt = got.UpdatedAt
+				kept.UpdatedAt = clock.Now()
 				assert.Equal(t, kept, got)
 			}
 
-			all, err := w.s.ListPushSubscriptions(ctx)
+			all, err := s.ListPushSubscriptions(ctx)
 			require.NoError(t, err)
 			assert.Equal(t, []PushSubscription{kept}, all)
 		})
