@@ -77,7 +77,7 @@ async function fakeServer(
   const bots = [bot("coordinator", 0, "cht_1"), bot("writer", 1)]
   // cli makes writer's main chat as the CLI would.
   const cli = () => {
-    const made = chat("cht_cli", "from the terminal", "writer")
+    const made = chat("cht_cli", "from the terminal", "writer", { created_at: ago(0) })
     if (!chats.some((c) => c.id === made.id)) chats.push(made)
     bots.find((b) => b.id === "writer")!.main_chat = made.id
 
@@ -95,12 +95,19 @@ async function fakeServer(
     if (request.method() !== "GET") calls.push({ call, body })
 
     if (call === "POST /chats/main") {
-      const asked = body as { bot: string; id: string; title?: string }
-      const made = cliFirst ? cli() : chat(asked.id, asked.title ?? "Chat", asked.bot)
-      if (!chats.some((c) => c.id === made.id)) chats.push(made)
-      bots.find((b) => b.id === asked.bot)!.main_chat = made.id
+      // As the server: the Bot's main chat is answered, unless the page says how long ago it opened and the main
+      // chat is older (issue #1055); then, and when the Bot has none, the chat asked for is made its main chat.
+      const asked = body as { bot: string; id: string; title?: string; opened_ms_ago?: number }
+      if (cliFirst) cli()
+      const of = bots.find((b) => b.id === asked.bot)!
+      const main = chats.find((c) => c.id === of.main_chat)
+      const opened = Date.now() - (asked.opened_ms_ago ?? Infinity)
+      if (main && Date.parse(main.created_at) >= opened) return json(main)
+      const made = chat(asked.id, asked.title ?? "Chat", asked.bot)
+      chats.push(made)
+      of.main_chat = made.id
 
-      return json(made, cliFirst ? 200 : 201)
+      return json(made, 201)
     }
     if (request.method() === "PATCH" && path.startsWith("/bots/")) {
       const changed = bots.find((b) => path === `/bots/${b.id}`)!

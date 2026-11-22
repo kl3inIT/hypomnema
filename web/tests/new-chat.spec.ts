@@ -42,12 +42,31 @@ const gatewayModel = (name: string, reasoning: boolean, efforts: string[]) => ({
 async function fakeServer(page: Page) {
   // calls says what was asked of the Bots' folders, with the Bot named, and what was posted.
   const calls: string[] = []
+  // The Bots are answered once slow.until settles, as on a slow network (issue #1055).
+  const slow: { until?: Promise<void> } = {}
   const posted: { call: string; body: Record<string, unknown> }[] = []
   // The Bots' folders, a file's place as "<bot>:<path>".
   const files = new Set<string>()
   const uploads = new Map<string, { bot: string; path: string; bytes: number }>()
   let chat: Record<string, unknown> | null = null
   let first: Record<string, unknown> | null = null
+  // make makes the chat asked for.
+  const make = (asked: Record<string, string> | null) => {
+    chat = {
+      id: asked?.id,
+      title: asked?.title || "Chat",
+      bot: asked?.bot ?? "coordinator",
+      ...(asked?.provider && { provider: asked.provider }),
+      ...(asked?.model && { model: asked.model }),
+      ...(asked?.effort && { effort: asked.effort }),
+      working: false,
+      coordinator: true,
+      created_at: at,
+      updated_at: at,
+    }
+
+    return chat
+  }
 
   // page.route answers a stream whole and ends it, which the page takes for a dropped stream; the page's fetch of a
   // stream gives what was answered and then stays open, as the server's does.
@@ -118,6 +137,8 @@ async function fakeServer(page: Page) {
       case "GET /me":
         return json({ id: "usr_1", name: "admin", kind: "owner" })
       case "GET /bots":
+        await slow.until
+
         return json({ data: [bot("coordinator"), bot("researcher")] })
       case "GET /models":
         return json({ data: models })
@@ -130,21 +151,18 @@ async function fakeServer(page: Page) {
         })
       case "GET /chats":
         return json({ data: chat ? [chat] : [] })
-      case "POST /chats":
-        chat = {
-          id: body?.id,
-          title: body?.title || "Chat",
-          bot: body?.bot ?? "coordinator",
-          ...(body?.provider && { provider: body.provider }),
-          ...(body?.model && { model: body.model }),
-          ...(body?.effort && { effort: body.effort }),
-          working: false,
-          coordinator: true,
-          created_at: at,
-          updated_at: at,
-        }
+      case "POST /chats/main": {
+        // As the server (issue #1055): each Bot's main chat was made at `at`, before the page opened, so a page that
+        // says how long ago it opened gets a new chat, made as New chat makes it; one that does not gets the main chat.
+        if (body?.opened_ms_ago !== undefined) return json(make(body), 201)
+        const of = body?.bot ?? "coordinator"
 
-        return json(chat, 201)
+        chat = { ...make({ bot: of, title: "Main" }), id: `cht_main_${of}` }
+
+        return json(chat)
+      }
+      case "POST /chats":
+        return json(make(body), 201)
       case `GET /chats/${id}`:
         return json(chat)
       case `GET /chats/${id}/workspaces`:
@@ -172,7 +190,15 @@ async function fakeServer(page: Page) {
     }
   })
 
-  return { calls, posted, files }
+  return { calls, posted, files, slow }
+}
+
+// gate is a promise opened by hand: what waits on it goes on once the test opens it.
+function gate() {
+  let open = () => {}
+  const opened = new Promise<void>((done) => (open = done))
+
+  return { opened, open: () => open() }
 }
 
 // Scenario: on the New chat page the owner attaches a report, then picks another Bot, then sends (issue #357). The
@@ -317,4 +343,69 @@ test("the New chat page keeps its draft across a reload", async ({ page }) => {
   await page.goto("/")
   await expect(box).toHaveValue("")
   await expect(chips).toHaveCount(0)
+})
+
+// Scenario: the owner sends the New chat page's first message to coordinator, which has a main chat, before the Bots
+// are read (issue #1055). The page cannot know that coordinator has one; the server, told how long ago the page
+// opened, finds the main chat older than the page and makes a new chat under the page's id, as New chat does.
+test("New chat makes a new chat with a Bot that has a main chat while the Bots are slow", async ({
+  page,
+}) => {
+  const { posted, slow } = await fakeServer(page)
+  const bots = gate()
+  slow.until = bots.opened
+  await page.goto("/")
+
+  await page.getByRole("textbox", { name: "Message" }).fill("plan the release")
+  await page.keyboard.press("Enter")
+
+  await expect.poll(() => posted.length).toBe(2)
+  const id = posted[0]?.body.id
+  expect(posted.map((p) => p.call)).toEqual(["POST /chats/main", `POST /chats/${id}/messages`])
+  expect(posted[0]?.body).toMatchObject({ title: "plan the release" })
+  expect(posted[0]?.body.opened_ms_ago).toEqual(expect.any(Number))
+  await expect(page).toHaveURL(new RegExp(`/chats/${id}$`))
+  bots.open()
+})
+
+// Scenario: the owner attached a report on the New chat page and picked researcher, which has a main chat, then
+// reloads the page and sends while the Bots are slow (issue #1055). The draft keeps the report and the Bot; the
+// first message makes a new chat under the page's id, and the report goes with it.
+test("a file on the New chat page goes with the first message while the Bots are slow", async ({
+  page,
+}) => {
+  const { calls, posted, slow } = await fakeServer(page)
+  await page.goto("/")
+  await expect(page.getByLabel("Bot", { exact: true })).toContainText("coordinator")
+  await choose(page, page.getByLabel("Bot", { exact: true }), "researcher")
+
+  await page.getByLabel("Files to attach").setInputFiles({
+    name: "report.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.7 report"),
+  })
+  const chips = page.getByLabel("Files to send")
+  await expect(chips.getByText("report.pdf")).toBeVisible()
+  await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
+  const box = page.getByRole("textbox", { name: "Message" })
+  await box.fill("summarise this report")
+  const begun = calls.find((c) => c.startsWith("POST uploads "))
+  const id = /attachments\/(cht_[a-z2-7]{26})\/report\.pdf researcher$/.exec(begun ?? "")?.[1]
+  expect(id, `${begun}`).toBeDefined()
+
+  const bots = gate()
+  slow.until = bots.opened
+  await page.reload()
+  await expect(chips.getByText("report.pdf")).toBeVisible()
+  await expect(box).toHaveValue("summarise this report")
+  await box.press("Enter")
+
+  await expect(page).toHaveURL(new RegExp(`/chats/${id}$`))
+  expect(posted.map((p) => p.call)).toEqual(["POST /chats/main", `POST /chats/${id}/messages`])
+  expect(posted[0]?.body).toMatchObject({ id, title: "summarise this report", bot: "researcher" })
+  expect(posted[1]?.body).toMatchObject({
+    text: "summarise this report",
+    attachments: [{ name: "report.pdf", path: `attachments/${id}/report.pdf` }],
+  })
+  bots.open()
 })
