@@ -845,11 +845,15 @@ sequenceDiagram
     whole machine for a device): every minute the control plane looks at the node that holds the phone, and stops
     its machine with the path of `hypomnema machines stop` (`machines.Manager.Stop`) once, for 30 minutes, the
     machine was one a provider made and on, its node connected and saying its phone `stopped`, `absent` or
-    `failed`, with no agent's call running and no view open. The 30 minutes count from the first look that finds
-    all of that; a call or a view, its start and its end, and a look that finds any of it otherwise, end the count. A stop that is refused (the node runs a Dispatch)
+    `failed`, with no agent's call running, no view open and no agent's `node_exec` or `node_process` on that node
+    running. The 30 minutes count from the first look that finds all of that; a call, a view or such a command, its
+    start and its end, and a look that finds any of it otherwise, end the count. A stop that is refused (the node runs a Dispatch)
     or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
-    `phone.machine_stopped`. The next call or view starts the machine again (above); a node the owner
-    drained stays drained through both.
+    `phone.machine_stopped`. The next call or view starts the machine again (above), and so does a `node_exec` or
+    `node_process` on the phone's node (`command.go`, `Phone.Use`, issue #1083, as Coder's tools start a stopped
+    workspace they name): it waits for the hello as a call does and then runs; when the machine does not come up,
+    its answer says the machine was stopped because the phone was idle and that a phone tool's call starts it, not
+    that the node is not connected. A node the owner drained stays drained through both.
   - An agent is told of the phone when one is there: the node API marks an offer with `device: android`, and
     the phone's line of the "Tools" block, which a worker and a Bot get while a node holds the phone (issue #789),
     gives the rules that matter most: look before acting, act by box number, sign in only with what the owner gave, never pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
@@ -4889,7 +4893,8 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
 `run_command`, Nezha's `server.exec` and Coder's `coder_workspace_execute`:
 
 - `node_exec {node, command, cwd, timeout_seconds, background}` runs `sh -c <command>` on the node named (its name or
-  id, drained or not; one not connected is refused with the names of those that are), as the node's own user, in
+  id, drained or not; one not connected is refused with the names of those that are, except the phone's node whose
+  machine is stopped, which is started first, above), as the node's own user, in
   `cwd` or the user's home, with stdin empty and Coder's non-interactive environment (`PAGER=cat`, `TERM=dumb`,
   `GIT_TERMINAL_PROMPT=0`, editors `true`). It runs at once, with no approval (owner, 2026-11-15). In the
   foreground it is killed with its process group after `timeout_seconds` (60, at most 300); the answer is the exit
@@ -4912,8 +4917,9 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
 - The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`, `list`) and waits for the answer on
   `POST /node/v1/exec?request=` for the command's time and 30 s; a node that goes away meanwhile fails the call at
   once, as a phone call does. Each call is logged with the agent, the node and the action, not the command.
-- MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), longer than the 300 s
-  and the node's answer.
+- MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), and 9 for a node tool
+  (`toolsmcp.NodeCallTimeout`): longer than the 300 s and the node's answer, after the 2 minutes a phone's stopped
+  machine may take to wake (issue #1083).
 - A restart of the control plane, as at an update, does not lose a command's result (issue #1060). The tools server
   (`toolsmcp.NodeCall`, a worker's and a Bot's) names each `node_exec`'s process before it asks (`process_id`, not
   in the tool's schema: `proc_` and hex, the shape the node makes), as Coder's agent names a process after its tool
@@ -4921,7 +4927,7 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
   it ended. When the answer's connection ends without it, or a proxy answers 502, 503 or 504 without the control
   plane's own message (not a connection that could not be opened: that command never ran), the tools server asks
   `node_process` for that id, waiting as long as the command may run, from half a second apart doubled up to eight
-  (OpenClaw's Control UI retries), within the 7 minutes, as Coder's execute tool reads a process again after a
+  (OpenClaw's Control UI retries), within the 9 minutes, as Coder's execute tool reads a process again after a
   transport error; it never runs the command again. It asks again past a node not reconnected yet: one the control
   plane lists, whose socket is not back (its last heartbeat still counts), is answered as not connected. The
   result read says first that the control plane restarted, with the node and the `process_id`; none within the 7

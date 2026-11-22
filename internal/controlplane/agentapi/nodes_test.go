@@ -2,12 +2,14 @@ package agentapi_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/phone"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
@@ -311,4 +314,120 @@ func TestNodeProcessWithoutAnIDListsTheAgentsProcesses(t *testing.T) {
 	_, text, isErr = w.use(worker, agenttool.ToolNodeProcessKill, `{"node":"zm"}`)
 	assert.True(t, isErr, "a kill names its process")
 	assert.Contains(t, text, "process_id")
+}
+
+// phoneMachine is the phone's node, its machine stopped because the phone was idle, beside the nodes of machines:
+// starting it connects its node, unless it never wakes.
+type phoneMachine struct {
+	machines
+
+	never   bool
+	online  atomic.Bool
+	started atomic.Int32
+}
+
+func (m *phoneMachine) ListNodes(ctx context.Context) ([]orchestration.Node, error) {
+	nodes, err := m.machines.ListNodes(ctx)
+
+	return append(nodes, orchestration.Node{
+		ID: "nod_phone", Name: "phone", Device: nodeproto.DeviceAndroid,
+		Machine: &orchestration.Machine{
+			ResourceID: "i-0123", State: orchestration.MachineReady, Power: orchestration.MachineStopped,
+		},
+	}), err
+}
+
+func (m *phoneMachine) Online(nodeID string) bool { return nodeID == "nod_zm" || m.online.Load() }
+
+func (m *phoneMachine) DeviceCall(context.Context, string, string, string, json.RawMessage,
+) (nodeproto.DeviceAnswer, error) {
+	return nodeproto.DeviceAnswer{}, nil
+}
+
+func (m *phoneMachine) DeviceState(string) (nodeproto.DeviceState, bool) {
+	return nodeproto.DeviceState{}, false
+}
+
+func (m *phoneMachine) Start(_ context.Context, nodeID string) (orchestration.Node, error) {
+	m.started.Add(1)
+
+	if !m.never {
+		m.online.Store(true)
+	}
+
+	return orchestration.Node{ID: nodeID}, nil
+}
+
+func (m *phoneMachine) Stop(_ context.Context, nodeID string) (orchestration.Node, error) {
+	return orchestration.Node{ID: nodeID}, nil
+}
+
+func (m *phoneMachine) Exec(ctx context.Context, nodeID string, e nodeproto.Exec) (nodeproto.ExecAnswer, error) {
+	if !m.Online(nodeID) {
+		return nodeproto.ExecAnswer{}, fmt.Errorf("%w: %w", orchestration.ErrUnavailable, orchestration.ErrNodeOffline)
+	}
+
+	return m.machines.Exec(ctx, nodeID, e)
+}
+
+// withPhoneMachine serves the world's agent API with the node tools and the phone, as the control plane wires them.
+func withPhoneMachine(w *world, m *phoneMachine) {
+	shared := phone.New(phone.Config{
+		Nodes: m, Link: m, Machines: m, WakeWithin: 300 * time.Millisecond, Poll: 5 * time.Millisecond,
+	})
+
+	mux := http.NewServeMux()
+	agentapi.New(w.svc, nil, slog.New(slog.DiscardHandler)).
+		WithNodeExec(m, m, func(context.Context, orchestration.Node) (string, error) { return "", nil }).
+		WithNodeUse(shared).Register(mux)
+
+	w.srv = httptest.NewServer(mux)
+	w.t.Cleanup(w.srv.Close)
+}
+
+// Scenario: a Bot runs a command on the phone's node, whose machine the control plane stopped because the phone was
+// idle (issue #1083). The machine is started, as a phone call starts it, and the command runs once the node said
+// hello; another node that is not connected is still answered as one, for the tools server to ask again.
+func TestACommandStartsThePhonesStoppedMachine(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	code := 0
+	m := &phoneMachine{machines: machines{give: nodeproto.ExecAnswer{ExitCode: &code, Output: "emulator-5554\n"}}}
+	withPhoneMachine(w, m)
+
+	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	_, text, isErr := w.use(worker, agenttool.ToolNodeExec, `{"node":"phone","command":"adb devices"}`)
+	assert.False(t, isErr, text)
+	assert.Equal(t, "exit code 0\noutput:\nemulator-5554\n", text)
+	assert.Equal(t, int32(1), m.started.Load())
+	require.Len(t, m.sent, 1)
+	assert.Equal(t, "nod_phone", m.to[0])
+
+	_, text, isErr = w.use(worker, agenttool.ToolNodeExec, `{"node":"old","command":"id"}`)
+	assert.True(t, isErr)
+	assert.True(t, agenttool.IsNodeNotConnected(text), text)
+	assert.Equal(t, int32(1), m.started.Load(), "only the phone's machine is started")
+}
+
+// A phone's machine that does not wake in time is answered with why it was stopped and how it starts, never as a
+// node not connected, which would leave an agent waiting for it (issue #1083: a Bot waited 5 and 9 hours).
+func TestAPhonesMachineThatDoesNotWakeSaysWhy(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	m := &phoneMachine{never: true}
+	withPhoneMachine(w, m)
+
+	worker, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	_, text, isErr := w.use(worker, agenttool.ToolNodeProcess, `{"node":"phone","process_id":"proc_0123456789ab"}`)
+	assert.True(t, isErr)
+	assert.False(t, agenttool.IsNodeNotConnected(text), text)
+	assert.Contains(t, text, "stopped its machine because the phone was idle")
+	assert.Contains(t, text, "device_screen")
+	assert.Empty(t, m.sent)
 }

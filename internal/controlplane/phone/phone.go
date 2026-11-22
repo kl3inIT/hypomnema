@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -93,6 +94,8 @@ type Phone struct {
 	holder chan struct{}
 	// hold is who drives the phone: the agents, or the owner who took control in a view (view.go).
 	hold *ownerhold.Hold
+	// commands counts the agents' commands running on the phone's node (command.go).
+	commands atomic.Int64
 
 	// waking is when each machine was last started for the phone: a machine is started once, and the calls
 	// and views that find it offline meanwhile wait for its hello.

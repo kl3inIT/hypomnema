@@ -13,7 +13,8 @@ import (
 // the node stops the emulator 15 minutes after its last call or view
 // (internal/node/device), and the control plane stops the machine
 // MachineIdle after that, through the same path as `hypomnema machines stop`.
-// A call or a view that finds it stopped starts it again (phone.go, wake).
+// A call, a view or an agent's command on the phone's node that finds it stopped starts it again (phone.go, wake;
+// command.go).
 // This is inference, for cost, as the issue's "Machine lifecycle" row says: no
 // reference stops a whole machine when its device is idle. Its shape is the
 // browser's Sweep (internal/controlplane/browser, engine.go), which closes
@@ -29,7 +30,7 @@ const (
 	SweepEvery = time.Minute
 )
 
-// busy notes that the phone is in use now: a call or a view began or ended,
+// busy notes that the phone is in use now: a call, a view or a command began or ended,
 // or a sweep found the machine not idle. Its idle time starts at the next
 // sweep that finds it idle.
 func (p *Phone) busy() {
@@ -92,8 +93,9 @@ func (p *Phone) idle(n orchestration.Node) bool {
 		return false
 	}
 
-	// A call holds the phone while it runs, and a view is counted from its opening to its close.
-	if len(p.holder) > 0 || p.hold.Viewing() {
+	// A call holds the phone while it runs, a view is counted from its opening to its close, and an agent's command
+	// on the node while it runs (command.go).
+	if len(p.holder) > 0 || p.hold.Viewing() || p.commands.Load() > 0 {
 		return false
 	}
 
