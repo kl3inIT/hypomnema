@@ -549,6 +549,85 @@ func TestLowDiskRefusesOrEndsATake(t *testing.T) {
 	require.Len(t, take.Segments, 1)
 }
 
+// Scenario (review of #1025): the disk runs low as a segment is to start, while
+// the owner watches and take.json's last write is slow. The view goes on
+// getting the stream's frames; the take's writer saves it and only then
+// reports it finished.
+func TestASlowSaveOfATakeEndedForLowDiskHoldsUpNoView(t *testing.T) {
+	t.Parallel()
+
+	r := newTakeRig(t)
+
+	var (
+		mu   sync.Mutex
+		free uint64 = 1 << 30
+	)
+
+	r.m.opts.FreeBytes = func(string) (uint64, error) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return free, nil
+	}
+
+	r.begin(t, "tk_slow")
+
+	v := r.m.Watch(t.Context())
+	t.Cleanup(v.Close)
+
+	video := &testVideo{width: 32, height: 32}
+	r.send(t, configPacket(video))
+	first := keyPacket(video, 0)
+	r.send(t, first)
+	frame, _ := until(t, v, "")
+	assert.Equal(t, semuFrame(first, video.config()), frame)
+	r.clock.advance(time.Second)
+
+	_, err := r.m.PauseTake("tk_slow")
+	require.NoError(t, err)
+
+	mu.Lock()
+	free = 1 << 20
+	mu.Unlock()
+
+	_, err = r.m.ResumeTake("tk_slow")
+	require.NoError(t, err)
+
+	r.m.film.mu.Lock()
+	tk := r.m.film.takes["tk_slow"]
+	r.m.film.mu.Unlock()
+
+	// A write of take.json under way, as on a slow disk; released at the end if the test fails before.
+	tk.saveMu.Lock()
+
+	release := sync.OnceFunc(tk.saveMu.Unlock)
+	t.Cleanup(release)
+
+	next := keyPacket(video, 2*time.Second)
+	r.send(t, next)
+	frame, _ = until(t, v, "")
+	assert.Equal(t, semuFrame(next, video.config()), frame, "the view goes on while the take is saved")
+
+	select {
+	case <-tk.done:
+		t.Fatal("the take was reported finished before its last save")
+	default:
+	}
+
+	release()
+
+	take := r.finished(t, "tk_slow")
+	assert.Equal(t, devicetool.EndedDiskLow, take.EndedBy)
+
+	saved, err := os.ReadFile(filepath.Join(r.dir, takesDir, "tk_slow", takeFile))
+	require.NoError(t, err)
+
+	var meta devicetool.Take
+	require.NoError(t, json.Unmarshal(saved, &meta))
+	assert.Equal(t, devicetool.TakeUploading, meta.State, "take.json is the finished take's")
+	assert.Equal(t, devicetool.EndedDiskLow, meta.EndedBy)
+}
+
 // Scenario: a take runs with no view open. The stream stays open for it,
 // and the phone is not stopped as idle past IdleAfter; once the take ends the
 // stream closes and the idle time counts again.
