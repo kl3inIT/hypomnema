@@ -419,7 +419,9 @@ func (s *Server) ListMessagingMessages(ctx context.Context, req openapi.ListMess
 		return nil, errNoMessaging
 	}
 
-	q := messaging.Query{Chat: val(req.Params.Chat), Search: val(req.Params.Q), Limit: val(req.Params.Limit)}
+	q := messaging.Query{
+		Chat: val(req.Params.Chat), ID: val(req.Params.Id), Search: val(req.Params.Q), Limit: val(req.Params.Limit),
+	}
 	if req.Params.Before != nil {
 		q.Before = *req.Params.Before
 	}
