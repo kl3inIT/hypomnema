@@ -67,8 +67,9 @@ import {
 // MeetingScreen is one meeting (issue #721): the player on top, then Summary and Transcript as tabs with "Write
 // again" on the tab row, as Otter, Fireflies and Nojoin lay a meeting out (player, tabs) and Granola, Fireflies and
 // Otter regenerate. While the recording is heard or written up, the steps
-// show where it stands (Nojoin's stage texts, Meetily, MemoryOS); a failure says why and where to fix it.
-export function MeetingScreen({ id }: { id: string }) {
+// show where it stands (Nojoin's stage texts, Meetily, MemoryOS); a failure says why and where to fix it. line opens
+// the transcript at that line, marked (an Inbox item from the meeting; issue #1105).
+export function MeetingScreen({ id, line }: { id: string; line?: number }) {
   const meeting = useMeeting(id)
   const d = meeting.data
 
@@ -103,7 +104,7 @@ export function MeetingScreen({ id }: { id: string }) {
                   {working(d.meeting) || stageOf(d.meeting) !== "ready" ? (
                     <Progress meeting={d.meeting} />
                   ) : null}
-                  {d.meeting.state === "transcribed" && <Body detail={d} />}
+                  {d.meeting.state === "transcribed" && <Body detail={d} line={line} />}
                 </>
               )}
             </PlayerProvider>
@@ -212,8 +213,8 @@ function Progress({ meeting }: { meeting: Meeting }) {
 
 type Tab = "summary" | "transcript"
 
-function Body({ detail }: { detail: MeetingDetail }) {
-  const [tab, setTab] = useState<Tab>("summary")
+function Body({ detail, line }: { detail: MeetingDetail; line?: number }) {
+  const [tab, setTab] = useState<Tab>(line ? "transcript" : "summary")
   // fixed: a word was fixed in the transcript since the page opened, and the notes are as they were (issue #747).
   const [fixed, setFixed] = useState(false)
 
@@ -233,7 +234,7 @@ function Body({ detail }: { detail: MeetingDetail }) {
         <Summary detail={detail} />
       </TabsContent>
       <TabsContent value="transcript">
-        <Transcript detail={detail} onFixed={() => setFixed(true)} />
+        <Transcript detail={detail} line={line} onFixed={() => setFixed(true)} />
       </TabsContent>
     </Tabs>
   )
@@ -421,8 +422,22 @@ function ActionRow({ meetingId, action }: { meetingId: string; action: MeetingIt
 // the name is a picker that says who spoke (speaker-picker.tsx), the time a way to play from there; the line being
 // played is marked. Each line keeps its own time, speaker and a way to fix a word heard wrong (word-fix.tsx), opened
 // with what the owner selected in that line.
-function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () => void }) {
+function Transcript({
+  detail,
+  line,
+  onFixed,
+}: {
+  detail: MeetingDetail
+  line?: number
+  onFixed: () => void
+}) {
   const [find, setFind] = useState("")
+  const list = useRef<HTMLOListElement>(null)
+  // The line asked for is brought into view once, when the transcript first shows it.
+  useEffect(() => {
+    if (line)
+      list.current?.querySelector(`[data-line="${line}"]`)?.scrollIntoView({ block: "center" })
+  }, [line])
   const picked = usePickedWords()
   const speakers = detail.meeting.speakers
   const at = usePlayingAt()
@@ -470,7 +485,11 @@ function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () =>
           </InputGroup>
         </div>
       </div>
-      <ol aria-label="Transcript" className="flex flex-col gap-3 rounded-xl border bg-card p-2">
+      <ol
+        ref={list}
+        aria-label="Transcript"
+        className="flex flex-col gap-3 rounded-xl border bg-card p-2"
+      >
         {lines.length === 0 && (
           <li className="py-6 text-center text-sm text-muted-foreground">
             {needle ? "No line holds this." : "Nothing was heard."}
@@ -512,10 +531,11 @@ function Transcript({ detail, onFixed }: { detail: MeetingDetail; onFixed: () =>
                       <li
                         key={l.n}
                         data-testid="transcript-line"
-                        aria-current={now || undefined}
+                        aria-current={now || (l.n === line ? "location" : undefined)}
                         className={cn(
                           "group/line flex min-w-0 items-start gap-1 rounded-lg px-2 py-0.5",
                           now && "bg-muted",
+                          l.n === line && !now && "ring-1 ring-ring/50",
                         )}
                       >
                         <p className="min-w-0 flex-1 text-sm leading-relaxed" data-line={l.n}>
