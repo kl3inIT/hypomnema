@@ -16,6 +16,7 @@ import { InboxDetail } from "./inbox-detail"
 import { FilterChips, InboxFilterButton } from "./inbox-filter"
 import { InboxRow } from "./inbox-row"
 import { useSeen } from "./inbox-seen"
+import { ScanNow } from "./scan-now"
 import {
   actionsOf,
   firstWaiting,
@@ -243,6 +244,7 @@ export function InboxScreen({
             <InboxFilterButton filter={filter} onFilter={setFilter} />
           </div>
         </PageHeading>
+        <ScanNow now={now} />
         <FilterChips filter={filter} onFilter={setFilter} />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-8 sm:px-3">
