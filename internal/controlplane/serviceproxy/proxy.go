@@ -228,6 +228,7 @@ func (p *Proxy) again(ctx context.Context, s *session) (refusal string, err erro
 
 	caller, err := p.cfg.Agents.Caller(s.opened)
 	if err != nil {
+		//nolint:nilerr // A credential that no longer works refuses the request; it is no failure of the proxy.
 		return "Refused: this agent's credential no longer works. The request was not run", nil
 	}
 
