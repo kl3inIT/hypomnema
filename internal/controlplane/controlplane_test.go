@@ -222,6 +222,65 @@ func TestLoadConfigReadsTheCommandForADeletedChatsFiles(t *testing.T) {
 	require.ErrorContains(t, err, "HYPOMNEMA_CHAT_RM_COMMAND is not a JSON array of strings")
 }
 
+// Scenario (issue #1084): HYPOMNEMA_BACKGROUND_COMMAND is read as a JSON array, the launcher of a Bot's background
+// commands; anything else is refused when the control plane starts.
+func TestLoadConfigReadsTheCommandOfBackgroundCommands(t *testing.T) {
+	t.Parallel()
+
+	load := func(command string) (controlplane.Config, error) {
+		return controlplane.LoadConfig(func(name string) string {
+			return map[string]string{
+				"HYPOMNEMA_DATABASE_PATH":      filepath.Join(t.TempDir(), "hypomnema.db"),
+				"HYPOMNEMA_BACKGROUND_COMMAND": command,
+			}[name]
+		})
+	}
+
+	cfg, err := load(`["sudo","-n","-u","coordinator","/usr/local/bin/hypomnema-background"]`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sudo", "-n", "-u", "coordinator", "/usr/local/bin/hypomnema-background"},
+		cfg.BackgroundCommand)
+
+	cfg, err = load("")
+	require.NoError(t, err)
+	assert.Empty(t, cfg.BackgroundCommand)
+
+	_, err = load("sudo hypomnema-background")
+	require.ErrorContains(t, err, "HYPOMNEMA_BACKGROUND_COMMAND is not a JSON array of strings")
+}
+
+// Scenario (issue #1084, review round 1): a control plane installed by setup-coordinator.sh, whose env names only the
+// coordinator's launcher, runs background commands with the launcher installed beside it after an update, with no
+// new line in its env; an explicit command wins, and a coordinator command that is not the launcher gives none.
+func TestLoadConfigRunsBackgroundCommandsBesideTheCoordinatorsLauncher(t *testing.T) {
+	t.Parallel()
+
+	load := func(vars map[string]string) controlplane.Config {
+		vars["HYPOMNEMA_DATABASE_PATH"] = filepath.Join(t.TempDir(), "hypomnema.db")
+		cfg, err := controlplane.LoadConfig(func(name string) string { return vars[name] })
+		require.NoError(t, err)
+
+		return cfg
+	}
+
+	cfg := load(map[string]string{
+		"HYPOMNEMA_COORDINATOR_COMMAND": `["sudo","-n","-u","coordinator","/usr/local/bin/hypomnema-pi"]`,
+	})
+	assert.Equal(t, []string{"sudo", "-n", "-u", "coordinator", "/usr/local/bin/hypomnema-background"},
+		cfg.BackgroundCommand)
+
+	cfg = load(map[string]string{
+		"HYPOMNEMA_COORDINATOR_COMMAND": `["sudo","-n","-u","coordinator","/usr/local/bin/hypomnema-pi"]`,
+		"HYPOMNEMA_BACKGROUND_COMMAND":  `["/opt/bg"]`,
+	})
+	assert.Equal(t, []string{"/opt/bg"}, cfg.BackgroundCommand)
+
+	cfg = load(map[string]string{"HYPOMNEMA_COORDINATOR_COMMAND": `["/usr/bin/fake-pi"]`})
+	assert.Empty(t, cfg.BackgroundCommand)
+
+	assert.Empty(t, load(map[string]string{}).BackgroundCommand)
+}
+
 // serve starts the control plane on a port of the system's choosing (HYPOMNEMA_HTTP_ADDR 127.0.0.1:0) and returns
 // the address it listens on, read from its "server started" log line, and the channel Serve's end is sent on. A
 // port picked first and closed again could be taken by another test before Serve listened on it, and the test
