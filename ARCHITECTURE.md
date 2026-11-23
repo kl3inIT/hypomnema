@@ -4879,7 +4879,10 @@ its client API, its CLI and the Bots' tools.
   every 15 minutes, behind its check `new-messages.mjs`; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark
   chat with the Bot. A check past its cap keeps the rest of a span by what it read, never by a position: the second it
   stopped in and the messages of it counted (Zalo, WhatsApp), the mails read (Gmail), the chats read and the one it
-  stopped in (Lark, whose cap is checked at each page); issue #1071.
+  stopped in (Lark, whose cap is checked at each page); issue #1071. A run gets at most 15 conversations (`perRun`),
+  direct chats and those that tag or name the owner first, then groups, mail and meetings; the rest is carried in the
+  check's state, named first next time and waking the Bot even with nothing new (issue #1101). The Routine's
+  `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
 

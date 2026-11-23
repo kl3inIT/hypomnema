@@ -38,7 +38,10 @@ hypomnema bots set "$bot" \
   --connections "$connections" --owner-accounts read --workers ""
 
 # The triage: every 15 minutes, read only. Its check (new-messages.mjs) counts the new messages first and wakes the
-# Bot only when some are left after its filters; its result stays in the run's chat.
+# Bot only when some are left after its filters, with a batch of at most 15 conversations (perRun), the rest at the
+# next run (issue #1101); its result stays in the run's chat. --timeout is the check's limit only: the Bot's turn has
+# the 60 minutes of every prompt run (routinestore.PromptTimeout), which a batch fits. The check of a 7-day first
+# look took 96 s on zm (2026-11-23), and the Bot's turn after it 57 s for 23 tool calls.
 hypomnema routines set triage --bot "$bot" --access read --every 15 --timeout 300 --quiet \
   --summary "Turn the owner's new messages and meetings into Inbox items, with drafts" \
   --prompt-file "$here/triage.md" --script-file "$here/new-messages.mjs" --script new-messages.mjs

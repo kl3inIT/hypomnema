@@ -166,7 +166,7 @@ test("every chat with new messages is found, however many there are", async () =
     }));
   }
   const w = world({ chats, messages });
-  const got = await check({ tools, call: w.call, state, now });
+  const got = await check({ tools, call: w.call, state, now, config: { perRun: 1e9 } });
 
   assert.equal(got.wake, true);
   for (let i = 0; i < 60; i++) assert.match(got.text, new RegExp(`chat "Group ${i}" \\(id g_${i}\\): 9 new`));
