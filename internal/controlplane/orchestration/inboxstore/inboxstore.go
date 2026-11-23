@@ -135,11 +135,6 @@ var sourceMessage = map[string]string{
 	FromLark: LinkLarkMessage, FromZalo: LinkZaloMessage, FromWhatsApp: LinkWhatsAppMessage, FromGmail: LinkMail,
 }
 
-// fromMessaging says whether a source is a chat of the owner's own account at a messaging service.
-func fromMessaging(kind string) bool {
-	return kind == FromLark || kind == FromZalo || kind == FromWhatsApp
-}
-
 // FoundKinds are the sources a Bot names for what it read (issue #1105): a chat of the owner's Lark, Zalo or
 // WhatsApp, a thread of his Gmail, or a meeting he recorded. The others come from who adds the item: the owner's
 // hand, a Bot's chat or a Routine's run.

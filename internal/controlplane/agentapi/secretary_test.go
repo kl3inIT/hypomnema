@@ -502,8 +502,9 @@ func TestABotAddsFromWhatItReadInItsChat(t *testing.T) {
 	sw := newSecretaryWorld(t)
 	ctx := t.Context()
 
-	_, err := sw.svc.SaveServiceConnection(ctx, orchestration.Connection{Integration: "zalo", Label: "work",
-		Secret: "test-zalo-work"})
+	work := "work"
+	_, err := sw.svc.SaveServiceConnection(ctx, orchestration.Connection{Integration: "zalo", Label: work,
+		Secret: "test-zalo-" + work})
 	require.NoError(t, err)
 	_, err = sw.svc.SetConnectionChats(ctx, "zalo", "work", true)
 	require.NoError(t, err)
