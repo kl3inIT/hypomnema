@@ -4857,10 +4857,11 @@ its client API, its CLI and the Bots' tools.
   Bot use them again: a change from the main Bot's chat is forbidden, `UpdateBot`, which a Bot's change uses, never
   writes it (`SetBotOwnerAccounts`), and an undo, of a change or of a removal, puts back `read` from the copy it
   kept (`botSettings.OwnerAccounts`) and never `use`.
-- The "Thư ký" Bot (issue #1023, part 4): its prompt, switches, model and Routines are set by the owner with
-  `deploy/thu-ky/setup.sh` (`hypomnema bots set`, `routines set`), not seeded by a migration. `triage` reads only,
-  every 15 minutes, behind its check `new-messages.mjs`; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark
-  chat with the Bot. A check past its cap keeps the rest of a span by what it read, never by a position: the second it
+- The secretary Routines (issue #1023, part 4): `triage` and `brief` of the main Bot, which keeps its own persona
+  (issue #1107; a "Thư ký" Bot of their own until 2026-11-23), are set by the owner with `deploy/thu-ky/setup.sh`
+  (`hypomnema routines set`, `--bot` for another Bot; it makes no Bot), not seeded by a migration. Their prompts
+  carry the secretary's rules. `triage` reads only, every 15 minutes, behind its check `new-messages.mjs`, so its
+  runs send nothing; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark chat with the Bot. A check past its cap keeps the rest of a span by what it read, never by a position: the second it
   stopped in and the messages of it counted (Zalo, WhatsApp), the mails read (Gmail), the chats read and the one it
   stopped in (Lark, whose cap is checked at each page); issue #1071. A run gets at most 15 conversations (`perRun`),
   direct chats and those that tag or name the owner first, then groups, mail and meetings; the rest is carried in the
