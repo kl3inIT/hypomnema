@@ -3,7 +3,6 @@ import { HypomnemaIcon } from "@/components/icons/brand-icons"
 import {
   ArrowLeft,
   AudioLines,
-  BookA,
   Bell,
   BookOpen,
   Cable,
@@ -21,7 +20,6 @@ import {
   MessagesSquare,
   Plug,
   Server,
-  Sparkles,
   SquareTerminal,
   UserRound,
   type LucideIcon,
@@ -45,8 +43,6 @@ type Section = {
     | "/settings/images"
     | "/settings/muse"
     | "/settings/audio"
-    | "/settings/dictionary"
-    | "/settings/notes-model"
     | "/settings/gateway-keys"
     | "/settings/connect"
     | "/settings/usage"
@@ -63,8 +59,8 @@ type Section = {
   icon: LucideIcon
 }
 
-// The group "Meetings" holds what every meeting is set up with, out of Gateway since issue #762: the dictionary and the
-// model that writes the notes, as Hyprnote's Settings has Dictionary and AI (apps/desktop/src/settings/). The group "Gateway" holds the model gateway's models and keys (issue #199), as LiteLLM's sidebar heading "AI
+// What every meeting is set up with, the dictionary and the notes model, was the group "Meetings" from issue #762 until
+// issue #1121 moved it behind a gear on the Meetings page (owner, 2026-11-23). The group "Gateway" holds the model gateway's models and keys (issue #199), as LiteLLM's sidebar heading "AI
 // Gateway" and Coder's "AI Gateway keys": called "Models" until the owner renamed it, so that no item reads like its
 // group (issue #293, 2026-11-13), and its web search (issue #354), images (issue #431) and audio (issue #694), as
 // OmniRoute and 9router keep their search and media providers beside their models; not "Agents", a group of its own (2026-11-12). "Connections" holds
@@ -99,13 +95,6 @@ const groups: { heading: string; sections: Section[] }[] = [
       // Connect a tool sits next to the keys it uses (issue #907), as 9router's CLI tools page beside its keys.
       { to: "/settings/connect", label: "Connect a tool", icon: Cable },
       { to: "/settings/usage", label: "Usage", icon: ChartColumn },
-    ],
-  },
-  {
-    heading: "Meetings",
-    sections: [
-      { to: "/settings/dictionary", label: "Dictionary", icon: BookA },
-      { to: "/settings/notes-model", label: "Notes model", icon: Sparkles },
     ],
   },
   {
