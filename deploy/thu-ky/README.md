@@ -18,7 +18,7 @@ Inbox's "log in again" items; the meetings' tools).
 1. Check the accounts the Bot will read: `hypomnema integrations list`. The defaults are `lark:me` and `zalo:main`;
    add WhatsApp and Google by their labels.
 2. Run `deploy/thu-ky/setup.sh --connections lark:me,zalo:main,whatsapp:<label>,google:<label>`. It sets the Bot
-   (Claude Sonnet 5.5, GPT-6.1 Sol as its fallback, its tools) and the `triage` Routine, read only.
+   (Claude Sonnet 5.5, DeepSeek V4.1 Flash as its fallback, its tools) and the `triage` Routine, read only.
 3. The brief is told in a Lark chat with the Bot. Give the Bot a Lark app of its own:
    `hypomnema channels lark set thu-ky --bot "Thư ký" --app-file - --owner <your Lark email> --mode owner --on`
    (the app's `app_id` and `app_secret` as JSON on standard input; never in a file kept in Git). Write to the app
