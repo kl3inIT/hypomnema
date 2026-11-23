@@ -6026,7 +6026,9 @@ Node (`internal/node`):
     OpenMausBot's `src/lib/drafts.ts` and opencode's history walk): what is written in a chat's composer, with the
     files that are up (their place in the folder, not their bytes), is kept for that chat in localStorage
     (`hypomnema:chat-drafts:v1`), saved 300 ms after a write and when the page hides or the composer goes, and held
-    in memory where the storage throws; it is there again after switching chats or reloading, and goes when sent.
+    in memory where the storage throws; it is there again after switching chats or reloading. It goes as a message
+    is sent, before the send ends (as t3code's `useComposerSend.ts` and assistant-ui's composer clear it at send;
+    issue #1080), and its text and files come back if the message was not sent.
     The New chat page and a new chat's tab keep theirs with the chat's id they chose and the Bot picked; a restored
     file cannot move to another Bot's folder and asks to be attached again. In an empty box with the caret
     at its start, ↑ brings back the owner's messages of this chat, newest first; while walking, ↑ and ↓ step from
