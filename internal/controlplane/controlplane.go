@@ -555,20 +555,32 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// client API's Superset routes; the proxy is made after the agent API it asks who an agent is.
 	agents.WithRelay(proxy)
 	agents.WithMessaging(integrations).WithJudge(proxy)
+	// The owner's own Lark sign-in, by its label.
+	larkToken := func(ctx context.Context, label string) (string, error) {
+		if !integrations.Has(larkIntegration) {
+			return tokens.Of(ctx, larkIntegration, label)
+		}
+
+		token, err := integrations.Token(ctx, larkIntegration, label)
+
+		return token.AccessToken, err
+	}
 	// The Inbox checks the message the owner sent that a Bot gives as evidence that he answered (issue #1004).
 	svc.Inbox().WithSent(inboxSent{
-		messages: integrations.Messages,
-		larkToken: func(ctx context.Context, label string) (string, error) {
-			if !integrations.Has(larkIntegration) {
-				return tokens.Of(ctx, larkIntegration, label)
-			}
-
-			token, err := integrations.Token(ctx, larkIntegration, label)
+		messages: integrations.Messages, larkToken: larkToken,
+		larkURL: "https://" + serviceproxy.LarkHost, client: &http.Client{Timeout: 30 * time.Second},
+	})
+	// The owner sends a reply from the Inbox through his own accounts (issue #1111).
+	ownerReplies := inboxSender{
+		send: integrations.Send, larkToken: larkToken,
+		googleToken: func(ctx context.Context, label string) (string, error) {
+			token, err := integrations.Token(ctx, integration.GoogleID, label)
 
 			return token.AccessToken, err
 		},
-		larkURL: "https://" + serviceproxy.LarkHost, client: &http.Client{Timeout: 30 * time.Second},
-	})
+		larkURL: "https://" + serviceproxy.LarkHost, gmailURL: "https://gmail.googleapis.com",
+		client: &http.Client{Timeout: 30 * time.Second},
+	}
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		ChatFallbacks: svc.ChatFallbacks,
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
@@ -659,7 +671,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).WithDevices(nodes).
 		WithWorkspaces(nodes.Files, bots).WithChatFiles(newChatFiles(cfg.ChatRmCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
-		WithIntegrations(integrations).WithMessaging(integrations).
+		WithIntegrations(integrations).WithMessaging(integrations).WithInboxSender(ownerReplies).
 		WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
 		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).
