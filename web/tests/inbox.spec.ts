@@ -43,12 +43,15 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // list. hold keeps each done call unanswered until release is called, so a second press finds the first in flight.
 // sources adds a to-do from a Gmail thread and one from a meeting's line (issue #1105), and the owner's Google
 // account the first was read with. quiet leaves nothing waiting on the owner. The owner's WhatsApp and Zalo accounts
-// keep their chats, which name Kai Yong and Lan, and the message Kai sent (issue #1110).
+// keep their chats, which name Kai Yong and Lan, and the message Kai sent (issue #1110). triage makes Thư ký the main
+// Bot with its triage Routine, last run 12 minutes ago; a run started by hand goes until endScan, which finds a new
+// to-do (issue #1115).
 function world({
   review = false,
   sources = false,
   quiet = false,
-}: { review?: boolean; sources?: boolean; quiet?: boolean } = {}) {
+  triage = false,
+}: { review?: boolean; sources?: boolean; quiet?: boolean; triage?: boolean } = {}) {
   let release = () => {}
   let held: Promise<void> | undefined
   const todos: Todo[] = [
@@ -177,6 +180,18 @@ function world({
   ].filter(() => !quiet)
   const closed = (t: Todo) => ["done", "dropped", "duplicate"].includes(t.state)
   const sent: { path: string; body: unknown }[] = []
+  const run = (id: string, m: object = {}) => ({
+    id,
+    routine_id: "rtn_triage",
+    started_by: "schedule",
+    state: "succeeded",
+    started_at: at(-13 * 60_000),
+    ended_at: at(-12 * 60_000),
+    output: "",
+    error: "",
+    ...m,
+  })
+  let lastRun = run("rrn_1")
 
   return {
     sent,
@@ -184,6 +199,17 @@ function world({
       held = new Promise((done) => (release = done))
     },
     release: () => release(),
+    endScan() {
+      lastRun = { ...lastRun, state: "succeeded", ended_at: at(0) }
+      todos.push(
+        todo("tdo_new", "Answer Hà about the tiles", {
+          why_open: "asked_directly",
+          created_at: at(0),
+          updated_at: at(0),
+        }),
+      )
+      needs.add("tdo_new")
+    },
     async serve(page: Page) {
       await page.route("**/api/v1/**", async (route) => {
         const request = route.request()
@@ -253,6 +279,45 @@ function world({
           }
 
           return json(answered)
+        }
+        if (path === "/routines")
+          return json({
+            data: triage
+              ? [
+                  {
+                    id: "rtn_triage",
+                    bot: "thu-ky",
+                    name: "triage",
+                    kind: "prompt",
+                    access: "read",
+                    every_minutes: 15,
+                    schedule: "every 15 minutes",
+                    sentence: "Every 15 minutes, Thư ký reads the new messages.",
+                    timeout_seconds: 300,
+                    state: "on",
+                    announce: false,
+                    failures: 0,
+                    skipped: 0,
+                    created_by: "owner",
+                    can_undo: false,
+                    created_at: at(-day),
+                    updated_at: at(-day),
+                    last_run: lastRun,
+                    grants: [],
+                  },
+                ]
+              : [],
+          })
+        if (path === "/routines/rtn_triage/runs") {
+          sent.push({ path, body: null })
+          lastRun = run("rrn_2", {
+            started_by: "manual",
+            state: "running",
+            started_at: at(0),
+            ended_at: undefined,
+          })
+
+          return json(lastRun)
         }
         if (path === "/questions") return json({ data: questions })
         if (path === "/questions/qst_1/answer") {
@@ -384,7 +449,7 @@ function world({
                 {
                   id: "thu-ky",
                   name: "Thư ký",
-                  main: false,
+                  main: triage,
                   persona: "",
                   memory: "",
                   memory_limit: 2200,
@@ -664,6 +729,46 @@ test("e pressed twice sends done once", async ({ page }) => {
   await expect(page.getByText("Not changed")).toHaveCount(0)
 })
 
+// Scenario: the owner does not wait for the next 15-minute read of his messages. The Inbox says when they were last
+// read; he presses Scan now, which runs the main Bot's triage Routine: the button says Scanning… and is disabled
+// while the run goes, and when it ends the list shows what it found, with the new time (issue #1115).
+test("Scan now runs the triage and the list shows what it found", async ({ page }) => {
+  const w = world({ triage: true })
+  await w.serve(page)
+  await page.goto("/inbox")
+
+  await expect(list(page).getByText(/^Read new messages 12/)).toBeVisible()
+  await list(page).getByRole("button", { name: "Scan now" }).click()
+  const scanning = list(page).getByRole("button", { name: "Scanning…" })
+  await expect(scanning).toBeDisabled()
+  await expect(list(page).getByText("Reading new messages…")).toBeVisible()
+  expect(w.sent.filter((s) => s.path === "/routines/rtn_triage/runs")).toHaveLength(1)
+  await shot(page, "inbox-scanning")
+
+  w.endScan()
+  // The Routines are read again every 5 seconds, the to-dos every 10: the end shows at the first, the list with it.
+  await expect(list(page).getByRole("button", { name: "Scan now" })).toBeEnabled({
+    timeout: 8_000,
+  })
+  await expect(list(page).getByText("Read new messages just now")).toBeVisible()
+  await expect(
+    rowsOf(page, "Needs you").filter({ hasText: "Answer Hà about the tiles" }),
+  ).toBeVisible({
+    timeout: 2_000,
+  })
+  await shot(page, "inbox-scanned")
+})
+
+// Scenario: without a triage Routine there is nothing to run, so the Inbox has no Scan now.
+test("without a triage Routine, there is no Scan now", async ({ page }) => {
+  const w = world()
+  await w.serve(page)
+  await page.goto("/inbox")
+
+  await expect(rowsOf(page, "Needs you")).toHaveCount(4)
+  await expect(page.getByRole("button", { name: "Scan now" })).toHaveCount(0)
+})
+
 // Scenario: on a computer, when nothing waits on the owner, the right pane says so with what the Inbox did today.
 test("when nothing waits, the pane says so with today's counts", async ({ page }) => {
   test.skip((page.viewportSize()?.width ?? 1280) < 768, "the pane beside the list is a computer's")
@@ -682,10 +787,11 @@ test("when nothing waits, the pane says so with today's counts", async ({ page }
 for (const theme of ["light", "dark"] as const) {
   test(`the Inbox in the ${theme} theme`, async ({ page }) => {
     await page.addInitScript((choice) => localStorage.setItem("theme", choice), theme)
-    const w = world()
+    const w = world({ triage: true })
     await w.serve(page)
     await page.goto("/inbox")
     await expect(rowsOf(page, "Needs you")).toHaveCount(4)
+    await expect(list(page).getByRole("button", { name: "Scan now" })).toBeVisible()
     await shot(page, `inbox-${theme}`)
 
     await page.goto("/inbox?item=todo%3Atdo_reply")
