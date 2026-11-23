@@ -1,8 +1,10 @@
-import { BookA, Sparkles } from "lucide-react"
+import { Link } from "@tanstack/react-router"
+import { BookA, ChevronRight, Sparkles } from "lucide-react"
 
 import type { Model } from "@/api/generated/types.gen"
 import { ErrorAlert } from "@/components/error-alert"
-import { SettingsPage, SettingsSection } from "@/components/settings-page"
+import { PageHeader, PageHeading } from "@/components/page-header"
+import { SettingsSection } from "@/components/settings-page"
 import { toast } from "@/components/ui/toast"
 import { ModelPicker } from "@/features/agents/model-picker"
 import { modelKey, splitModel } from "@/features/agents/profiles-state"
@@ -12,57 +14,76 @@ import { useGatewayModels, useProviders } from "@/features/models/use-models"
 import { MeetingWordsField } from "./meeting-words-field"
 import { useMeetingSettings, useSetMeetingSettings } from "./use-meetings"
 
-// The group Meetings of Settings (issue #762), out of Gateway, which holds the gateway's models, keys and providers:
-// what is set up once for every meeting, a page each, as Hyprnote's Settings has Dictionary
-// (apps/desktop/src/settings/dictionary/index.tsx) and its LLM under AI (settings/ai/llm).
-
-// DictionarySettingsScreen is Settings → Dictionary (issues #747, #762): one list of names and jargon given to every
-// transcription (Nojoin's glossary setting) and to the model that writes the notes (Hyprnote's preferred names),
-// named as Hyprnote names it.
-export function DictionarySettingsScreen() {
+// MeetingSettingsScreen is the meetings' own settings (issue #1121), opened from the gear on the Meetings page: the
+// dictionary and the model that writes the notes, what is set up once for every meeting, kept out of the Settings
+// menu as Hyprnote keeps its dictionary and AI settings out of its meeting list (apps/desktop/src/settings/index.tsx;
+// owner, 2026-11-23). It was Settings' group Meetings until then (issue #762), a page each; the sections are those
+// pages, unchanged.
+export function MeetingSettingsScreen() {
   return (
-    <SettingsPage
-      title="Dictionary"
-      description="Names and jargon every recording is heard with, and its notes are written with, spelled as here."
-    >
-      <SettingsSection
-        id="dictionary"
-        icon={BookA}
-        title="Words"
-        note="Yours, and the names added for you. A word you fix in a transcript joins yours."
-      >
-        <MeetingWordsField />
-      </SettingsSection>
-    </SettingsPage>
+    <main className="flex min-w-0 flex-1 flex-col">
+      <PageHeader
+        title={
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Link to="/meetings" className="text-muted-foreground hover:text-foreground">
+              Meetings
+            </Link>
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" aria-hidden />
+            <span className="truncate">Settings</span>
+          </span>
+        }
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 sm:px-5">
+        <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-8 pt-2">
+          <PageHeading
+            title="Meeting settings"
+            description="What every meeting is set up with: the words it is heard with and the model that writes its notes."
+          />
+          <DictionarySection />
+          <NotesModelSection />
+        </div>
+      </div>
+    </main>
   )
 }
 
-// NotesModelSettingsScreen is Settings → Notes model (issues #721, #762): the gateway model that writes a meeting's
+// DictionarySection was Settings → Dictionary (issues #747, #762): one list of names and jargon given to every
+// transcription (Nojoin's glossary setting) and to the model that writes the notes (Hyprnote's preferred names),
+// named as Hyprnote names it.
+function DictionarySection() {
+  return (
+    <SettingsSection
+      id="dictionary"
+      icon={BookA}
+      title="Dictionary"
+      note="Names and jargon every recording is heard with, and its notes are written with, spelled as here. Yours, and the names added for you. A word you fix in a transcript joins yours."
+    >
+      <MeetingWordsField />
+    </SettingsSection>
+  )
+}
+
+// NotesModelSection was Settings → Notes model (issues #721, #762): the gateway model that writes a meeting's
 // notes, as Hyprnote has its LLM connection, Meetily its provider and model and Nojoin its settings, picked with the
 // single-model picker the Bots use (features/agents/model-picker.tsx).
-export function NotesModelSettingsScreen() {
+function NotesModelSection() {
   const settings = useMeetingSettings()
 
   return (
-    <SettingsPage
+    <SettingsSection
+      id="notes-model"
+      icon={Sparkles}
       title="Notes model"
-      description="The model that writes every meeting's summary, decisions and actions."
+      note="The model that writes every meeting's summary, decisions and actions: a chat model of the gateway. Without one, meetings are transcribed but have no notes."
     >
-      <SettingsSection
-        id="notes-model"
-        icon={Sparkles}
-        title="Model"
-        note="A chat model of the gateway. Without one, meetings are transcribed but have no notes."
-      >
-        {settings.isPending ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
-        ) : settings.error ? (
-          <ErrorAlert error={settings.error} />
-        ) : (
-          <NotesModel chosen={settings.data.notes_model} />
-        )}
-      </SettingsSection>
-    </SettingsPage>
+      {settings.isPending ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : settings.error ? (
+        <ErrorAlert error={settings.error} />
+      ) : (
+        <NotesModel chosen={settings.data.notes_model} />
+      )}
+    </SettingsSection>
   )
 }
 

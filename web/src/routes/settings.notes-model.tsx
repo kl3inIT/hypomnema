@@ -1,13 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, redirect } from "@tanstack/react-router"
 
-import { SettingsSidebar } from "@/components/settings-page"
-import { NotesModelSettingsScreen } from "@/features/meetings/meetings-settings-screen"
-
+// The Notes model moved out of Settings to the meetings' settings (issue #1121); the old address leads there, as
+// /machines leads into Settings (routes/machines.tsx, after OpenClaw's route aliases).
 export const Route = createFileRoute("/settings/notes-model")({
-  component: () => (
-    <>
-      <SettingsSidebar />
-      <NotesModelSettingsScreen />
-    </>
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: "/meetings/settings", hash: "notes-model", replace: true })
+  },
 })

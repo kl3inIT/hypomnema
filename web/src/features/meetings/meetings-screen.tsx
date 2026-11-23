@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router"
 import { tableFeatures, useTable, type ColumnDef } from "@tanstack/react-table"
-import { CalendarClock, ListChecks, Mic, Search, Upload, UsersRound } from "lucide-react"
+import { CalendarClock, ListChecks, Mic, Search, Settings, Upload, UsersRound } from "lucide-react"
 import { useDeferredValue, useState, type ReactNode } from "react"
 
 import type { Meeting } from "@/api/generated/types.gen"
 import { PageHeader, PageHeading } from "@/components/page-header"
+import { buttonVariants } from "@/components/ui/button"
 import {
   Empty,
   EmptyContent,
@@ -76,6 +77,7 @@ export function MeetingsScreen() {
           <div className="flex flex-wrap gap-2">
             <RecordMeeting />
             <UploadMeeting />
+            <SettingsLink />
           </div>
         </PageHeading>
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
@@ -94,6 +96,21 @@ export function MeetingsScreen() {
         </Tabs>
       </div>
     </main>
+  )
+}
+
+// SettingsLink is the gear that opens the meetings' settings, the dictionary and the notes model (issue #1121), as a
+// Bot's card opens its settings with a gear (features/bots/bots-screen.tsx SettingsLink).
+function SettingsLink() {
+  return (
+    <Link
+      to="/meetings/settings"
+      aria-label="Meeting settings"
+      title="Meeting settings"
+      className={buttonVariants({ variant: "outline", size: "icon" })}
+    >
+      <Settings aria-hidden />
+    </Link>
   )
 }
 

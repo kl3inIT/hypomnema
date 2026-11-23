@@ -4698,17 +4698,18 @@ gateway chat model writes its summary, decisions and actions.
   The sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
-  title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`, and
+  title and people; it links the meeting settings' Dictionary for the words. A meeting's page (`/meetings/{id}`, and
   `?line=<n>` to open its Transcript at that line, brought into view and marked, as an Inbox item from a meeting
   links it; issue #1105) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
   failed, and Summary and Transcript tabs with Write again; the transcript colours each voice, shows
   its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
   word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
-  offers Write again. Settings' Meetings group (out of Gateway since issue #762, as Hyprnote's Settings has
-  Dictionary and AI) has Dictionary, the words (the owner's as chips to remove, the found ones marked speaker, Bot or
-  repository), and Notes model, picked with the single-model picker the Bots use
-  (`features/agents/model-picker.tsx`). Settings' "Back to app"
+  offers Write again. A gear on the Meetings page opens the meeting settings (`/meetings/settings`, issue #1121;
+  Settings' group Meetings until then, issue #762), out of the Settings menu as Hyprnote keeps its dictionary and AI
+  settings out of its meeting list: Dictionary, the words (the owner's as chips to remove, the found ones marked
+  speaker, Bot or repository), and Notes model, picked with the single-model picker the Bots use
+  (`features/agents/model-picker.tsx`). The old `/settings/dictionary` and `/settings/notes-model` redirect there. Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
   Old Agents and Machines list URLs redirect into Settings and are skipped as return destinations.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
@@ -6327,8 +6328,9 @@ Node (`internal/node`):
   gives way to the settings sections under headings, with a way back (the headings are t3code's, the swap is
   Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
   on a phone `/settings` lists the sections and each page leads back to it ("‹ Settings", issue #604). The groups
-  are Gateway, Meetings, Agents, Connections and, last, Workers: the Agents and the Machines, moved out of the main
-  sidebar (issue #857, as OpenClaw's Settings holds its agents and devices with the system's plumbing last).
+  are Preferences, Gateway, Agents, Connections and, last, Workers: the Agents and the Machines, moved out of the main
+  sidebar (issue #857, as OpenClaw's Settings holds its agents and devices with the system's plumbing last). The
+  meetings' settings are not a group: they open from a gear on the Meetings page (issue #1121).
   - `/settings/integrations` (under Connections) lists the git hosts as one card a product, GitHub and GitLab,
     after Orca's integration card (MIT), with each host of that product a row, as Coder lists each configured
     instance (issue #379): its address ("server" beside a company's own), a "Connected" or "No token" badge, and
