@@ -465,6 +465,17 @@ func (s *Service) Chats(ctx context.Context, integration, label string, limit in
 	return acc.Chats(ctx, limit)
 }
 
+// AccountID is the account's own id at the service, as the session held of a Connection of kind device knows it:
+// the Zalo id, the WhatsApp number's JID (issue #1124). Its Connection records its name, which for Zalo is not it.
+func (s *Service) AccountID(ctx context.Context, integration, label string) (string, error) {
+	acc, err := s.heldAccount(ctx, integration, label)
+	if err != nil {
+		return "", err
+	}
+
+	return acc.ID(), nil
+}
+
 // Media is a kept message's image or file, downloaded first when it is not kept yet (issue #634).
 func (s *Service) Media(ctx context.Context, integration, label, chat, id string) (messaging.Media, error) {
 	acc, err := s.heldAccount(ctx, integration, label)

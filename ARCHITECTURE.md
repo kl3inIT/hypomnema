@@ -4725,9 +4725,9 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165 and 00166; issues
-#838, #845, #966, #1004, #1105, #1111 and #1118, parts 1 to 3 of the Inbox, the sources a Bot reads, handing an item to
-a Bot, and passing it from Bot to Bot): the store of the to-dos that have to happen, whoever does them, its state machine,
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165, 00166 and
+00167; issues #838, #845, #966, #1004, #1105, #1111, #1118 and #1124, parts 1 to 3 of the
+Inbox, the sources a Bot reads, handing an item to a Bot, passing it from Bot to Bot, and a removed Bot's items): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000), `draft` (≤ 20,000, the reply a Bot drafted for the owner to send
@@ -4809,6 +4809,13 @@ its client API, its CLI and the Bots' tools.
   another attempt's id is a conflict and writes nothing, and a Bot other than the attempt's is forbidden. Leaving doing or review clears the attempt, and any change
   of state the snooze. A create retried with its idempotency key and the same request (actor and every field)
   returns the first item and writes nothing; the key with another request is a conflict and writes nothing.
+- A removed Bot's items (`inboxstore/removed.go`, issue #1124): removing a Bot (`removeBotRow`, for `DeleteBot`,
+  its removal from a chat and `ForceDeleteBot`, and undoing the setup change that made it) gives, in the removal's
+  transaction, the items not closed that it added or was given to the main Bot (`TakeOverTx`): `created_by` and the
+  assignee that named it become the main Bot's (a changed assignee clears `passed_by`), the revision moves on, and an `edited` event by the system
+  (`bots`) records the change with the reason; the created event still says who added it, who does it is otherwise
+  unchanged, nothing is woken, and closed items stay as they were. The migration 00167 did
+  the same for the items of Bots already removed (the Thư ký Bot's, #1107).
 - Handing over and the thread (`inboxstore/handoff.go`, `orchestration/inboxwake.go`; issue #1111, the owner's
   design of 2026-11-23, after GitHub's "Assign to Copilot" with additional instructions, Linear's agent assignment
   and Orca's bot items): `Hand` gives an item not closed nor in another Bot's attempt to a Bot with the owner's
@@ -4886,7 +4893,10 @@ its client API, its CLI and the Bots' tools.
   with `kind` `zalo`, `whatsapp` or `lark` and the `chat`, `gmail` and the `thread`, or `meeting` and the `meeting`,
   with the `account` (the label of `<integration>:<label>`, `google` for Gmail) for all but a meeting, and its
   `quote` and `message`. It is accepted only when the Bot may use that account now as its reads (`agentapi`'s
-  `readSource`: the Connections its tools are offered, `Bot.MayUse`), or, for a meeting, when it reads meetings and
+  `readSource`: the Connections its tools are offered, `Bot.MayUse`), named by its label or by the account's own id
+  (issue #1124, `accountLabel`: what its Connection records, such as the phone number, or what its session held
+  knows, `Messaging.AccountID`, such as the Zalo id; a `+`, spaces and a WhatsApp JID's device and server aside),
+  and the item keeps the label; the `zalo_*` and `whatsapp_*` reads name the label in their answers (`account`), or, for a meeting, when it reads meetings and
   the meeting is there; `inbox_update` points an item at it by the same check. The triage of #966 holds wherever
   the Bot is: what it read opens with `why_open`, a quote and the message, else it is proposed; what the owner tells
   it in its chat, with no `source`, opens.
@@ -4941,7 +4951,9 @@ its client API, its CLI and the Bots' tools.
   stopped in and the messages of it counted (Zalo, WhatsApp), the mails read (Gmail), the chats read and the one it
   stopped in (Lark, whose cap is checked at each page); issue #1071. A run gets at most 15 conversations (`perRun`),
   direct chats and those that tag or name the owner first, then groups, mail and meetings; the rest is carried in the
-  check's state, named first next time and waking the Bot even with nothing new (issue #1101). The Routine's
+  check's state, named first next time and waking the Bot even with nothing new (issue #1101). A conversation of
+  Zalo or WhatsApp is named `<integration>:<label>`, the label the reads' answers give when the Bot has one account
+  and its tools' schemas name none (issue #1124). The Routine's
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).

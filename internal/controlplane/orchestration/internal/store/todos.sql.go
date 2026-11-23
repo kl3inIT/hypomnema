@@ -491,6 +491,82 @@ func (q *Queries) InsertTodoWake(ctx context.Context, arg InsertTodoWakeParams) 
 	return err
 }
 
+const listOpenTodosOfBot = `-- name: ListOpenTodosOfBot :many
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by FROM todos
+WHERE state NOT IN ('done', 'dropped', 'duplicate')
+  AND ((created_by_kind = 'bot' AND created_by = ?1) OR (assignee_kind = 'bot' AND assignee = ?1))
+ORDER BY id
+`
+
+// The items not closed a Bot added or was given (issue #1124): those the main Bot takes over when it is removed.
+func (q *Queries) ListOpenTodosOfBot(ctx context.Context, bot string) ([]Todo, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenTodosOfBot, bot)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Todo{}
+	for rows.Next() {
+		var i Todo
+		if err := rows.Scan(
+			&i.ID,
+			&i.Revision,
+			&i.Title,
+			&i.Notes,
+			&i.DoneWhen,
+			&i.Draft,
+			&i.DueKind,
+			&i.DueDate,
+			&i.DueZone,
+			&i.DueAt,
+			&i.OverdueAt,
+			&i.AssigneeKind,
+			&i.Assignee,
+			&i.State,
+			&i.SnoozedUntil,
+			&i.SourceKind,
+			&i.SourceID,
+			&i.SourceAccount,
+			&i.SourceQuote,
+			&i.SourceRef,
+			&i.CreatedByKind,
+			&i.CreatedBy,
+			&i.WorkAttempt,
+			&i.WorkKind,
+			&i.WorkID,
+			&i.WorkBot,
+			&i.WorkStartedAt,
+			&i.ApprovalID,
+			&i.DoneByKind,
+			&i.DoneBy,
+			&i.RecordedByKind,
+			&i.RecordedBy,
+			&i.ClosedHow,
+			&i.CloseReason,
+			&i.Evidence,
+			&i.ClosedAt,
+			&i.DuplicateOf,
+			&i.IdempotencyKey,
+			&i.IdempotencyHash,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.WhyOpen,
+			&i.ChatID,
+			&i.PassedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOwnerTodoEvents = `-- name: ListOwnerTodoEvents :many
 SELECT id, todo_id, at, revision, actor_kind, actor, kind, "before", "after" FROM todo_events WHERE todo_id = ?1 AND actor_kind = 'owner' AND at >= ?2
 ORDER BY id DESC LIMIT ?3
@@ -834,6 +910,38 @@ type SetTodoIdempotencyKeyParams struct {
 func (q *Queries) SetTodoIdempotencyKey(ctx context.Context, arg SetTodoIdempotencyKeyParams) error {
 	_, err := q.db.ExecContext(ctx, setTodoIdempotencyKey, arg.IdempotencyKey, arg.ID)
 	return err
+}
+
+const takeOverTodo = `-- name: TakeOverTodo :execrows
+UPDATE todos
+SET revision = revision + 1, created_by = ?1, assignee = ?2, passed_by = ?3, updated_at = ?4
+WHERE id = ?5 AND revision = ?6
+`
+
+type TakeOverTodoParams struct {
+	CreatedBy string
+	Assignee  string
+	PassedBy  sql.NullString
+	Now       int64
+	ID        string
+	Revision  int64
+}
+
+// A removed Bot's item becomes the main Bot's (issue #1124): who it counts as added by, who it is given to and
+// through whom, at the revision read, which it moves on.
+func (q *Queries) TakeOverTodo(ctx context.Context, arg TakeOverTodoParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, takeOverTodo,
+		arg.CreatedBy,
+		arg.Assignee,
+		arg.PassedBy,
+		arg.Now,
+		arg.ID,
+		arg.Revision,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const touchTodo = `-- name: TouchTodo :execrows

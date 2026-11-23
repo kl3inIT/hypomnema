@@ -126,6 +126,9 @@ const iso = (ms) => new Date(ms).toISOString();
 // it counted. A message that comes late in that second is read next run, and one counted is not counted again.
 async function readMessaging(call, source, st, now, config) {
   const account = source.label ? { account: source.label } : {};
+  // The account's label, which an Inbox item's source names (issue #1124): a Bot given one account has no account
+  // in its tools' schemas, so the label is the one the reads' answers name.
+  let label = source.label;
   // The new span ends a second after now, so that its offsets stay put while messages keep arriving.
   const spans = [{ after: st.mark, before: iso(now.getTime() + 1000) }, ...(st.gaps ?? [])];
   const fresh = new Map();
@@ -141,9 +144,10 @@ async function readMessaging(call, source, st, now, config) {
     // A gap an earlier version kept by its offset is read on from there.
     let offset = span.offset ?? 0;
     for (let done = false; !done;) {
-      const { messages = [] } = await call(`${source.service}_messages`, {
+      const { messages = [], account: named } = await call(`${source.service}_messages`, {
         ...account, limit: pageSize, offset, before: span.before,
       });
+      label ||= named;
       for (const m of messages) {
         if (!later(m.At, span.after)) {
           done = true;
@@ -192,7 +196,7 @@ async function readMessaging(call, source, st, now, config) {
     for (const c of kept) kinds.set(c.ID, c.Kind);
   }
   const found = [...chats].map(([id, c]) => ({
-    where: `${keyOf(source)} chat "${c.name}" (id ${id})`,
+    where: `${keyOf({ ...source, label })} chat "${c.name}" (id ${id})`,
     count: c.count,
     from: [...c.from],
     latest: c.latest,

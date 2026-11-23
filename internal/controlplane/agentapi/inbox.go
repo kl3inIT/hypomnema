@@ -352,17 +352,60 @@ func (s *Server) readSource(ctx context.Context, a agent, in inboxArgs) (inboxst
 			"the label of %s:<label>", orchestration.ErrInvalid, src.Kind, integration)
 	}
 
-	may, err := s.offeredTo(ctx, a, integration)
+	label, err := s.accountLabel(ctx, a, integration, src.Account)
 	if err != nil {
 		return inboxstore.Source{}, err
 	}
 
-	if !slices.ContainsFunc(may, func(c orchestration.Connection) bool { return c.Label == src.Account }) {
-		return inboxstore.Source{}, fmt.Errorf("%w: you may not use %s:%s, so nothing is added from it",
-			orchestration.ErrForbidden, integration, src.Account)
-	}
+	src.Account = label
 
 	return src, nil
+}
+
+// accountLabel is the label of the owner's account a Bot names, by its label or by the account's own id (issue
+// #1124): the Zalo id or the phone number its Connection records or its session held knows, as the Bot saw it in
+// what it read. Only an account the Bot may use is found; the item keeps its label, as everything else names a
+// Connection by it.
+func (s *Server) accountLabel(ctx context.Context, a agent, integration, named string) (string, error) {
+	may, err := s.offeredTo(ctx, a, integration)
+	if err != nil {
+		return "", err
+	}
+
+	if slices.ContainsFunc(may, func(c orchestration.Connection) bool { return c.Label == named }) {
+		return named, nil
+	}
+
+	for _, c := range may {
+		if sameAccount(named, c.Account) {
+			return c.Label, nil
+		}
+
+		if s.messaging == nil {
+			continue
+		}
+
+		// A session not held knows no id: the account is then named by its label.
+		if id, err := s.messaging.AccountID(ctx, integration, c.Label); err == nil && sameAccount(named, id) {
+			return c.Label, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: you may not use %s:%s, so nothing is added from it", orchestration.ErrForbidden,
+		integration, named)
+}
+
+// sameAccount says whether two names of an account are one: a phone number with or without its + and spaces, and
+// a WhatsApp JID by its user (84369230426:12@s.whatsapp.net is 84369230426).
+func sameAccount(named, id string) bool {
+	key := func(s string) string {
+		s, _, _ = strings.Cut(s, "@")
+		s, _, _ = strings.Cut(s, ":")
+
+		return strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(s), " ", ""), "+")
+	}
+
+	return key(id) != "" && key(named) == key(id)
 }
 
 // inboxCall runs one of the Inbox's tools. What the Bot can act on (its arguments, a conflict, a refusal) is its
