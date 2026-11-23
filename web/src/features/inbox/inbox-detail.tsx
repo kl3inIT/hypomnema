@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router"
 import {
   Bot as BotIcon,
+  Check,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
@@ -9,7 +10,7 @@ import {
   Pencil,
   Send,
 } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 
 import type { Todo, TodoEvent } from "@/api/generated/types.gen"
 import {
@@ -37,15 +38,19 @@ import {
   detailActions,
   dueOf,
   groupNames,
+  placeOf,
   sourceNames,
   sourceOf,
   sourceTarget,
   type Action,
   type GroupId,
+  type Origin,
   type Row,
 } from "./inbox-state"
 import { canHand, canSend, sendQuestion, threadOf } from "./inbox-thread"
+import { SourceIcon } from "./source-icon"
 import { useCommentTodo, useSendDraft, useTodo } from "./use-inbox"
+import { useOrigin, type KeptChats } from "./use-origin"
 import { copyDraft } from "./use-row-actions"
 
 // InboxDetail is the selected item, after OpenMausBot's InboxReading (its place in the list, stepping up and down)
@@ -62,6 +67,7 @@ export function InboxDetail({
   pending,
   botName,
   mainBot,
+  chats,
   onBack,
   onStep,
   onAction,
@@ -76,6 +82,7 @@ export function InboxDetail({
   botName: (id: string) => string
   // mainBot is the Bot "Hand to" gives an item to: the main Bot, by its id; empty while the Bots are read.
   mainBot: string
+  chats: KeptChats
   onBack: () => void
   onStep: (by: -1 | 1) => void
   onAction: (action: Action, until?: number) => void
@@ -155,6 +162,7 @@ export function InboxDetail({
               row={row}
               now={now}
               botName={botName}
+              chats={chats}
               onAnswered={onAnswered}
               onSaveDraft={onSaveDraft}
             />
@@ -209,12 +217,12 @@ function Head({
 }: {
   row: Row
   now: number
-  path: string
+  path: ReactNode
   children: ReactNode
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
         <KindIcon row={row} now={now} className="size-3.5" />
         {path}
       </p>
@@ -310,59 +318,94 @@ function OpenSource({ todo, name }: { todo: Todo; name: string }) {
   )
 }
 
+// Said is what was said where the item came from, with who said it, as OpenMausBot's InboxReading shows the sender
+// above their words: the message's sender or the meeting's speaker, and the meeting's name.
+function Said({ todo, origin, children }: { todo: Todo; origin: Origin; children: ReactNode }) {
+  const who = origin.fromMe ? "You" : origin.sender || origin.speaker
+  const where = origin.meeting
+
+  return (
+    <Section title="Said">
+      <figure className="flex flex-col gap-1">
+        {(who || where) && (
+          <figcaption className="text-xs text-muted-foreground">
+            {who && <span className="font-medium text-foreground">{who}</span>}
+            {who && where && " · "}
+            {where}
+          </figcaption>
+        )}
+        <blockquote className="border-l-2 border-border-strong py-0.5 ps-3 text-sm whitespace-pre-wrap text-foreground/85">
+          {todo.source.quote}
+        </blockquote>
+      </figure>
+      {children}
+    </Section>
+  )
+}
+
 function TodoBody({
   row,
   now,
   botName,
+  chats,
   onAnswered,
   onSaveDraft,
 }: {
   row: Extract<Row, { kind: "todo" }>
   now: number
   botName: (id: string) => string
+  chats: KeptChats
   onAnswered: () => void
   onSaveDraft: (draft: string, onSaved: () => void) => void
 }) {
   const { todo } = row
   const detail = useTodo(todo.id)
-  const source = sourceNames[sourceOf(row)]
-  const path = [source, todo.source.account, todo.source.ref?.label].filter(Boolean).join(" › ")
+  const origin = useOrigin(row, chats)
+  const kind = sourceOf(row)
+  const source = sourceNames[kind]
+  const place = placeOf(row, origin, botName)
   const due = dueOf(todo, now)
+  // Only what is said shows: an empty field is left out, not written "Not said" (issue #1110).
   const doneWhen =
     todo.done_when ||
-    (todo.why_open === "asked_directly"
-      ? "You answer in this chat; it closes by itself"
-      : "Not said")
+    (todo.why_open === "asked_directly" ? "You answer in this chat; it closes by itself" : "")
   const linked = linkedOf(todo, botName)
+  const fields: [string, ReactNode][] = [
+    ["Who", whoOf(todo, botName)],
+    ...(due ? ([["Date", due.text]] as [string, ReactNode][]) : []),
+    ...(doneWhen ? ([["Done when", doneWhen]] as [string, ReactNode][]) : []),
+    ...(linked ? ([["Linked", linked]] as [string, ReactNode][]) : []),
+    ...(todo.snoozed_until && Date.parse(todo.snoozed_until) > now
+      ? ([["Snoozed", `until ${new Date(todo.snoozed_until).toLocaleString()}`]] as [
+          string,
+          ReactNode,
+        ][])
+      : []),
+    ...(todo.close_reason ? ([["Closed", todo.close_reason]] as [string, ReactNode][]) : []),
+  ]
 
   return (
     <>
-      <Head row={row} now={now} path={path}>
+      <Head
+        row={row}
+        now={now}
+        path={
+          <>
+            <SourceIcon source={kind} className="[&>svg]:size-3.5" />
+            <span className="min-w-0 truncate">
+              {kind === "hand" ? source : [source, place].filter(Boolean).join(" › ")}
+            </span>
+          </>
+        }
+      >
         {todo.title}
       </Head>
-      <Fields
-        rows={[
-          ["Who", whoOf(todo, botName)],
-          ["Due", due ? due.text : "No due date"],
-          ["Done when", doneWhen],
-          ...(linked ? ([["Linked", linked]] as [string, ReactNode][]) : []),
-          ...(todo.snoozed_until && Date.parse(todo.snoozed_until) > now
-            ? ([["Snoozed", `until ${new Date(todo.snoozed_until).toLocaleString()}`]] as [
-                string,
-                ReactNode,
-              ][])
-            : []),
-          ...(todo.close_reason ? ([["Closed", todo.close_reason]] as [string, ReactNode][]) : []),
-        ]}
-      />
+      <Fields rows={fields} />
       {todo.notes && <p className="text-sm whitespace-pre-wrap text-foreground/85">{todo.notes}</p>}
       {todo.source.quote && (
-        <Section title="Said">
-          <blockquote className="border-l-2 border-border-strong py-0.5 ps-3 text-sm whitespace-pre-wrap text-foreground/85">
-            {todo.source.quote}
-          </blockquote>
+        <Said todo={todo} origin={origin}>
           <OpenSource todo={todo} name={source} />
-        </Section>
+        </Said>
       )}
       {row.approval && (
         <Section title="Waits for your approval">
@@ -435,8 +478,13 @@ function linkedOf(todo: Todo, botName: (id: string) => string): ReactNode {
   return null
 }
 
-// Draft is the reply a Bot wrote for the owner to send himself: Copy, Edit, Open in its source, and Send, which the
-// owner presses and confirms, through his own account to the item's own chat or thread (issue #1111).
+// copiedFor is how long Copy says "Copied", as OpenMausBot's copy status stays until the next action.
+const copiedFor = 2_000
+
+// Draft is the reply a Bot wrote for the owner to send himself, after OpenMausBot's InboxAnswer: Copy is the card's
+// primary button and says "Copied" once it copied, beside Edit, Open in its source, and Send, which the owner
+// presses and confirms, through his own account to the item's own chat or thread (issue #1111). An item someone
+// asked the owner about and that has no draft yet says that a Bot drafts one; any other needs none and shows nothing.
 function Draft({
   todo,
   source,
@@ -451,13 +499,23 @@ function Draft({
   const sendable = canSend(todo)
   // shown is what Send sends: the text as it is on screen, edits included.
   const shown = editing ? text : todo.draft
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(false), copiedFor)
+
+    return () => window.clearTimeout(timer)
+  }, [copied])
 
   if (!todo.draft && !editing) {
+    if (todo.why_open !== "asked_directly") return null
+
     return (
       <Section title="Draft">
         <p className="text-sm text-muted-foreground">
-          No draft. A Bot drafts a reply to a client, a lead or a boss for you to send; a password
-          or a code is never written into the Inbox.
+          No draft yet. A Bot drafts a reply to a client, a lead or a boss for you to send; a
+          password or a code is never written into the Inbox.
         </p>
       </Section>
     )
@@ -490,9 +548,13 @@ function Draft({
           </>
         ) : (
           <>
-            <Button size="sm" onClick={() => copyDraft(todo.draft)}>
-              <Copy data-icon="inline-start" />
-              Copy
+            <Button
+              size="sm"
+              aria-label={copied ? "Copied" : "Copy"}
+              onClick={() => void copyDraft(todo.draft).then(setCopied)}
+            >
+              {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
+              {copied ? "Copied" : "Copy"}
             </Button>
             {sendable && <SendDraft todo={todo} text={shown} />}
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>

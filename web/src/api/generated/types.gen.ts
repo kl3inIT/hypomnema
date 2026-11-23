@@ -8058,6 +8058,10 @@ export type ListMessagingMessagesData = {
   };
   query?: {
     chat?: string;
+    /**
+     * The service's id of one message.
+     */
+    id?: string;
     q?: string;
     before?: string;
     limit?: number;

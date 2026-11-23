@@ -42,8 +42,13 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // world is the fake client API. review adds a to-do that waits for the Approval apr_1, which it then holds out of the
 // list. hold keeps each done call unanswered until release is called, so a second press finds the first in flight.
 // sources adds a to-do from a Gmail thread and one from a meeting's line (issue #1105), and the owner's Google
-// account the first was read with.
-function world({ review = false, sources = false }: { review?: boolean; sources?: boolean } = {}) {
+// account the first was read with. quiet leaves nothing waiting on the owner. The owner's WhatsApp and Zalo accounts
+// keep their chats, which name Kai Yong and Lan, and the message Kai sent (issue #1110).
+function world({
+  review = false,
+  sources = false,
+  quiet = false,
+}: { review?: boolean; sources?: boolean; quiet?: boolean } = {}) {
   let release = () => {}
   let held: Promise<void> | undefined
   const todos: Todo[] = [
@@ -56,7 +61,7 @@ function world({ review = false, sources = false }: { review?: boolean; sources?
         id: "6591234567@s.whatsapp.net",
         account: "main",
         quote: "Hi Dat, any news on the contract? We need it before Friday.",
-        ref: { kind: "whatsapp_message", ref: "3EB0C1", label: "Kai Yong" },
+        ref: { kind: "whatsapp_message", ref: "3EB0C1" },
       },
       updated_at: at(-20 * 60_000),
     }),
@@ -71,8 +76,9 @@ function world({ review = false, sources = false }: { review?: boolean; sources?
       assignee: { kind: "person", name: "Lan" },
       source: {
         kind: "zalo",
+        id: "2261258766901429891",
         account: "main",
-        ref: { kind: "zalo_message", ref: "z1", label: "Lan" },
+        ref: { kind: "zalo_message", ref: "z1" },
       },
     }),
     todo("tdo_invoice", "Send the invoice to ELITEX", {
@@ -132,7 +138,9 @@ function world({ review = false, sources = false }: { review?: boolean; sources?
         },
       }),
     )
-  const needs = new Set(["tdo_reply", "tdo_login", "tdo_idea", ...(review ? ["tdo_mail"] : [])])
+  const needs = new Set(
+    quiet ? [] : ["tdo_reply", "tdo_login", "tdo_idea", ...(review ? ["tdo_mail"] : [])],
+  )
   let approvals = [
     {
       id: "apr_1",
@@ -152,7 +160,7 @@ function world({ review = false, sources = false }: { review?: boolean; sources?
       used: false,
       created_at: at(-30 * 60_000),
     },
-  ]
+  ].filter(() => !quiet)
   let questions = [
     {
       id: "qst_1",
@@ -166,7 +174,7 @@ function world({ review = false, sources = false }: { review?: boolean; sources?
       status: "open",
       created_at: at(-40 * 60_000),
     },
-  ]
+  ].filter(() => !quiet)
   const closed = (t: Todo) => ["done", "dropped", "duplicate"].includes(t.state)
   const sent: { path: string; body: unknown }[] = []
   // threads are each to-do's history past its creation: the hand-over, the comments (issue #1111).
@@ -330,7 +338,90 @@ function world({ review = false, sources = false }: { review?: boolean; sources?
                     { integration: "google", label: "work", account: "dat@example.com" },
                   ],
                 },
+                {
+                  id: "whatsapp",
+                  name: "WhatsApp",
+                  kind: "device",
+                  connections: [
+                    { integration: "whatsapp", label: "main", account: "+84369230426" },
+                  ],
+                },
+                {
+                  id: "zalo",
+                  name: "Zalo",
+                  kind: "device",
+                  connections: [{ integration: "zalo", label: "main", account: "Hồng Đạt" }],
+                },
               ],
+            })
+          case "/integrations/whatsapp/connections/main/chats":
+            return json({
+              data: [
+                {
+                  id: "6591234567@s.whatsapp.net",
+                  kind: "dm",
+                  name: "Kai Yong",
+                  last_message_at: at(-2 * hour),
+                },
+              ],
+            })
+          case "/integrations/zalo/connections/main/chats":
+            return json({
+              data: [
+                { id: "2261258766901429891", kind: "dm", name: "Lan", last_message_at: at(-day) },
+              ],
+            })
+          case "/integrations/whatsapp/connections/main/messages":
+            return json({
+              data:
+                url.searchParams.get("id") === "3EB0C1"
+                  ? [
+                      {
+                        id: "3EB0C1",
+                        chat: "6591234567@s.whatsapp.net",
+                        chat_name: "Kai Yong",
+                        sender: "6591234567@s.whatsapp.net",
+                        sender_name: "Kai Yong",
+                        at: at(-2 * hour),
+                        from_me: false,
+                        text: "Hi Dat, any news on the contract? We need it before Friday.",
+                        edited: false,
+                        revoked: false,
+                        media_kept: false,
+                      },
+                    ]
+                  : [],
+            })
+          case "/meetings/mtg_1":
+            return json({
+              meeting: {
+                id: "mtg_1",
+                title: "Tiles review",
+                speakers: [
+                  {
+                    track: "mic",
+                    label: "s1",
+                    owner: false,
+                    name: "Hà",
+                    named: true,
+                    talk_ms: 1,
+                    share: 1,
+                  },
+                ],
+              },
+              lines: [
+                {
+                  n: 12,
+                  track: "mic",
+                  start_ms: 0,
+                  end_ms: 1,
+                  speaker: "s1",
+                  heard: "s1",
+                  text: "Để em check tiles.",
+                },
+              ],
+              items: [],
+              suggestions: [],
             })
           case "/me":
             return json({ id: "usr_1", name: "admin", kind: "owner" })
@@ -415,16 +506,21 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   await place.click()
   await expect(page).toHaveURL(/\/inbox$/)
 
+  // A row says who and where by name, read from the kept chats and the message, never the account's number; what
+  // was said on its second line; its date labelled; the time of the message on its right.
   await expect(rowsOf(page, "Needs you")).toHaveText([
     /Send mail: kai@example.com/,
     /Should \/health be public/,
-    /Reply to Kai Yong.*WhatsApp · Kai Yong.*Today.*draft/,
+    /^KYTo-doReply to Kai Yong2h agoHi Dat, any news on the contract.*Kai YongDue todaydraft$/,
     /Log in again: lark:me/,
   ])
+  const kai = rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" })
+  await expect(kai).not.toContainText("6591234567")
+  await expect(kai.locator('[data-source="whatsapp"]')).toBeVisible()
   await expect(rowsOf(page, "Working")).toHaveText([/Draft the weekly report.*Thư ký/])
   await expect(rowsOf(page, "Open")).toHaveText([
-    /Lan sends the signed contract.*Late · Yesterday/,
-    /Send the invoice to ELITEX.*Tomorrow/,
+    /Lan sends the signed contract.*Lan.*Late · Chase yesterday/,
+    /Send the invoice to ELITEX.*ELITEX.*Due tomorrow/,
   ])
   await expect(rowsOf(page, "Proposed")).toHaveText([/Book the meeting room/])
   // Snoozed and Done are folded, with their counts.
@@ -451,8 +547,9 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   await expect(detail).toContainText("3 of 4 in Needs you")
   await expect(detail).toContainText("You answer in this chat; it closes by itself")
   await expect(detail.getByRole("region", { name: "Said" })).toContainText(
-    "any news on the contract",
+    "Kai YongHi Dat, any news on the contract",
   )
+  await expect(detail).toContainText("WhatsApp › Kai Yong")
   // Send is the owner's own, beside Copy (issue #1111); a Bot never sends.
   await expect(
     detail.getByRole("region", { name: "Draft" }).getByRole("button", { name: "Send" }),
@@ -466,6 +563,9 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   await expect
     .poll(() => page.evaluate<string>("navigator.clipboard.readText()"))
     .toBe("Hi Kai, I will send the signed contract this afternoon.")
+  await expect(
+    detail.getByRole("region", { name: "Draft" }).getByRole("button", { name: "Copied" }),
+  ).toBeVisible()
 
   await detail.getByRole("button", { name: "Done", exact: true }).click()
   await expect.poll(() => w.sent.map((s) => s.path)).toContain("/inbox/tdo_reply/done")
@@ -499,6 +599,13 @@ test("a mail opens in Gmail and a meeting's action at its line", async ({ page }
 
   await page.goto("/inbox?item=todo%3Atdo_tiles")
   await expect(detail.getByRole("heading", { name: "Check tiles", exact: true })).toBeVisible()
+  // The meeting by its name, who said the line, and no empty field nor a note on a draft it does not need.
+  await expect(detail).toContainText("Meeting › Tiles review")
+  await expect(detail.getByRole("region", { name: "Said" })).toContainText(
+    "Hà · Tiles reviewĐể em check tiles.",
+  )
+  await expect(detail).not.toContainText("Not said")
+  await expect(detail.getByRole("region", { name: "Draft" })).toHaveCount(0)
   const meeting = detail.getByRole("link", { name: "Open meeting" })
   await expect(meeting).toHaveAttribute("href", "/meetings/mtg_1?line=12")
   await shot(page, "inbox-meeting")
@@ -547,15 +654,19 @@ test("j, k and e work through the list, and a row shows its actions", async ({ p
   await page.goto("/inbox")
 
   await expect(rowsOf(page, "Needs you")).toHaveCount(4)
-  await page.keyboard.press("j")
+  // The first item of Needs you is open by itself; every row is bold until it is opened once.
   await expect(
     item(page).getByRole("heading", { name: "Send mail: kai@example.com", exact: true }),
   ).toBeVisible()
+  const question = rowsOf(page, "Needs you").filter({ hasText: "Should /health" })
+  await expect(question).toHaveAttribute("data-unread", "true")
   await page.keyboard.press("j")
+  await expect(item(page).getByRole("heading", { name: /Should \/health/ })).toBeVisible()
   await page.keyboard.press("j")
   await expect(
     item(page).getByRole("heading", { name: "Reply to Kai Yong", exact: true }),
   ).toBeVisible()
+  await expect(question).not.toHaveAttribute("data-unread")
   await page.keyboard.press("k")
   await expect(item(page).getByRole("heading", { name: /Should \/health/ })).toBeVisible()
   await page.keyboard.press("j")
@@ -704,6 +815,20 @@ test("the owner sends a draft after confirming", async ({ page }) => {
     })
   await expect(confirm).toBeHidden()
   await expect(page.getByText("Sent", { exact: true })).toBeVisible()
+})
+
+// Scenario: on a computer, when nothing waits on the owner, the right pane says so with what the Inbox did today.
+test("when nothing waits, the pane says so with today's counts", async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 1280) < 768, "the pane beside the list is a computer's")
+  const w = world({ quiet: true })
+  await w.serve(page)
+  await page.goto("/inbox")
+
+  await expect(rowsOf(page, "Open")).not.toHaveCount(0)
+  await expect(page.getByText("Nothing waits on you")).toBeVisible()
+  await expect(page.getByText(/Today: \d+ added, \d+ closed\./)).toBeVisible()
+  await expect(item(page)).toHaveCount(0)
+  await shot(page, "inbox-nothing-waits")
 })
 
 // The pictures the owner looks at, in the light and the dark theme.

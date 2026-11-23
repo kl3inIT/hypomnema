@@ -1,4 +1,4 @@
-import { ChevronRight, Inbox, Search } from "lucide-react"
+import { CircleCheck, ChevronRight, Inbox, Search } from "lucide-react"
 import { useEffect, useMemo, useRef, useState } from "react"
 
 import { ErrorAlert } from "@/components/error-alert"
@@ -18,6 +18,7 @@ import { InboxRow } from "./inbox-row"
 import { useSeen } from "./inbox-seen"
 import {
   actionsOf,
+  firstWaiting,
   fold,
   foldedByDefault,
   fromText,
@@ -28,11 +29,14 @@ import {
   matches,
   nextAfter,
   noFilter,
+  sourceOf,
+  todayCounts,
   type Filter,
   type GroupId,
   type Row,
 } from "./inbox-state"
 import { useInbox } from "./use-inbox"
+import { useKeptChats, type KeptChats } from "./use-origin"
 import { useRowActions } from "./use-row-actions"
 
 // tick is how often the page's own clock moves, for due dates, snoozes coming back and "5m ago".
@@ -60,13 +64,20 @@ function editable(target: EventTarget | null) {
   )
 }
 
+// chatOf is the kept chat's name a row's Zalo or WhatsApp source is in, for the search.
+function chatOf(row: Row, chats: KeptChats) {
+  if (row.kind !== "todo" || !row.todo.source.id) return undefined
+
+  return chats.get(`${sourceOf(row)}:${row.todo.source.id}`)?.name
+}
+
 // InboxScreen is the Inbox (issue #1093): on a computer the list on the left and the selected item on the right, as
-// Chatwoot's conversation list beside the open conversation (ConversationView.vue); on a phone one pane at a time,
-// the item full screen with a way back. The list is in groups, Needs you first, each folding, after Orca's Items
+// Chatwoot's conversation list beside the open conversation (ConversationView.vue), the first item of Needs you open
+// when none is chosen (issue #1110); on a phone one pane at a time, the item full screen with a way back. The list is in groups, Needs you first, each folding, after Orca's Items
 // tab. j and k move, e marks done and c copies the draft, after Orca's item chords (use-bot-item-chords.ts: step
 // to the previous or next item, never from a field); Escape goes back to the list on a phone.
 export function InboxScreen({
-  selected,
+  selected: chosen,
   onSelect,
 }: {
   selected?: string
@@ -77,6 +88,7 @@ export function InboxScreen({
   const { rows, loading, error } = useInbox(now)
   const bots = useBots()
   const botName = (id: string) => botNameOf(bots.data, id)
+  const chats = useKeptChats()
   const { unread, markSeen } = useSeen()
   const [filter, setFilter] = useState<Filter>(noFilter)
   const [open, setOpen] = useState<Record<GroupId, boolean>>(
@@ -94,12 +106,15 @@ export function InboxScreen({
         matches(
           r,
           filter,
-          fromText(r, (id) => botNameOf(bots.data, id)),
+          fromText(r, { chat: chatOf(r, chats) }, (id) => botNameOf(bots.data, id)),
         ),
       ),
-    [rows, filter, bots.data],
+    [rows, filter, bots.data, chats],
   )
   const groups = useMemo(() => groupRows(shown, now), [shown, now])
+  // On a computer, the first item of Needs you is open when none is chosen, as OpenMausBot's InboxPanel keeps an item
+  // open (InboxPanel.tsx:47-56); a phone shows the list first.
+  const selected = chosen ?? (phone ? undefined : firstWaiting(groups))
   const folds = useMemo(
     () =>
       Object.fromEntries(
@@ -278,7 +293,8 @@ export function InboxScreen({
                         <InboxRow
                           key={row.key}
                           row={row}
-                          from={fromText(row, botName)}
+                          chats={chats}
+                          botName={botName}
                           now={now}
                           selected={row.key === selected}
                           unread={unread(row)}
@@ -319,6 +335,7 @@ export function InboxScreen({
           pending={actions.pending}
           botName={botName}
           mainBot={mainBotOf(bots.data)}
+          chats={chats}
           onBack={() => select(undefined)}
           onStep={step}
           onAction={(action, until) => actions.run(current, action, until)}
@@ -328,20 +345,36 @@ export function InboxScreen({
           onSaveDraft={(draft, onSaved) => actions.saveDraft(current, draft, onSaved)}
         />
       ) : (
-        !phone && (
-          <div className="flex min-w-0 flex-1 items-center justify-center p-6">
-            <Empty>
-              <EmptyHeader>
-                <EmptyTitle>Pick an item</EmptyTitle>
-                <EmptyDescription>
-                  <Kbd>j</Kbd> and <Kbd>k</Kbd> move, <Kbd>e</Kbd> marks done, <Kbd>c</Kbd> copies
-                  the draft.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          </div>
-        )
+        !phone && <NothingWaits rows={rows} now={now} loading={loading} />
       )}
     </main>
+  )
+}
+
+// NothingWaits is the right pane when nothing waits on the owner: it says so, with what the Inbox did today, and the
+// keys that move through the list.
+function NothingWaits({ rows, now, loading }: { rows: Row[]; now: number; loading: boolean }) {
+  if (loading) return <div className="flex-1" />
+
+  const today = todayCounts(rows, now)
+
+  return (
+    <div className="flex min-w-0 flex-1 items-center justify-center p-6">
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <CircleCheck />
+          </EmptyMedia>
+          <EmptyTitle>Nothing waits on you</EmptyTitle>
+          <EmptyDescription>
+            Today: {today.added} added, {today.closed} closed.
+          </EmptyDescription>
+          <EmptyDescription>
+            <Kbd>j</Kbd> and <Kbd>k</Kbd> move, <Kbd>e</Kbd> marks done, <Kbd>c</Kbd> copies the
+            draft.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    </div>
   )
 }
