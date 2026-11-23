@@ -96,7 +96,8 @@ func (s *Server) ListTodos(ctx context.Context, req openapi.ListTodosRequestObje
 	return openapi.ListTodos200JSONResponse(out), nil
 }
 
-// GetInboxNeedsYou counts the to-dos that need the owner now.
+// GetInboxNeedsYou counts what in the Inbox needs the owner now: the to-dos, the pending Approvals and the open
+// questions to him.
 func (s *Server) GetInboxNeedsYou(ctx context.Context, _ openapi.GetInboxNeedsYouRequestObject,
 ) (openapi.GetInboxNeedsYouResponseObject, error) {
 	n, err := s.svc.InboxNeedsYou(ctx)

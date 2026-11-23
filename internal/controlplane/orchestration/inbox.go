@@ -10,8 +10,24 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
+// InboxNeedsYou is what the Inbox's Needs you holds, for the sidebar (issue #1093): the to-dos that need the owner,
+// the pending Approvals and the open questions workers asked him, each once. The Approvals and questions are counted
+// from their own tables, never copied into to-dos, as OpenMausBot's person inbox answers an ask "here as there"
+// (server/host/person-inbox.ts:223-249).
 func (s *Service) InboxNeedsYou(ctx context.Context) (int, error) {
-	return s.inbox.NeedsYou(ctx, s.clock.Now())
+	now := s.clock.Now()
+
+	todos, err := s.inbox.NeedsYou(ctx, now)
+	if err != nil {
+		return 0, err
+	}
+
+	asks, err := s.read().CountOwnerAsks(ctx, now.UnixMilli())
+	if err != nil {
+		return 0, fmt.Errorf("counting the asks that wait for the owner: %w", err)
+	}
+
+	return todos + int(asks), nil
 }
 
 // RoutineRunOf is the live run of a Routine a Bot token acts in (issue #966), by which the Inbox names where an item

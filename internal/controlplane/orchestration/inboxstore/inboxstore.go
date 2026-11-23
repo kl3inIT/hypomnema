@@ -913,7 +913,7 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 // NeedsYou is how many distinct to-dos need the owner at now: not closed, not snoozed, and proposed but not stale,
 // or in review with a pending Approval, or his own and overdue, or his own with a reply drafted for him to send
-// (issue #1004). List's NeedsYou filter is the same predicate.
+// (issue #1004), or his own "log in again" item (issue #1093). List's NeedsYou filter is the same predicate.
 func (s *Store) NeedsYou(ctx context.Context, now time.Time) (int, error) {
 	n, err := store.New(s.db).CountTodos(ctx, store.CountTodosParams{
 		AnyState: 1, Now: now.UnixMilli(), NeedsYou: 1, StaleBefore: now.Add(-StaleAfter).UnixMilli(),

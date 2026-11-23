@@ -68,3 +68,26 @@ test("a sidebar hidden last time opens hidden", async () => {
   expect(await screen.findByRole("button", { name: "Show sidebar" })).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Hide sidebar" })).not.toBeInTheDocument()
 })
+
+// Scenario (issue #1093): the Inbox is the place under New chat, with the server's count of what waits on the owner
+// there: its to-dos, the pending Approvals and the workers' open questions.
+test("the Inbox place shows the server's count of what needs the owner", async () => {
+  vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+    const url = new URL(input instanceof Request ? input.url : String(input), "http://h")
+    const body = url.pathname.endsWith("/inbox/needs-you")
+      ? { count: 4 }
+      : url.pathname.endsWith("/tasks")
+        ? { after: 0, data: [], runs: [] }
+        : { data: [] }
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })
+  })
+  open()
+
+  const places = await screen.findByRole("navigation", { name: "Places" })
+  const links = Array.from(places.querySelectorAll("a"), (a) => a.textContent)
+  expect(links.slice(0, 2)).toEqual(["New chat", expect.stringMatching(/^Inbox/)])
+  expect(await screen.findByLabelText("4 need you")).toBeInTheDocument()
+})

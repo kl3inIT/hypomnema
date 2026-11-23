@@ -22,6 +22,26 @@ func (q *Queries) CountDuplicatesOf(ctx context.Context, id sql.NullString) (int
 	return count, err
 }
 
+const countOwnerAsks = `-- name: CountOwnerAsks :one
+SELECT CAST(
+  (SELECT count(*) FROM approvals a
+    WHERE a.status = 'pending'
+      AND NOT EXISTS (SELECT 1 FROM todos t WHERE t.approval_id = a.id AND t.state = 'review'
+        AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?1 AS INTEGER))))
+  + (SELECT count(*) FROM questions q WHERE q.status = 'open' AND q.addressed_to = 'owner')
+AS INTEGER) AS asks
+`
+
+// What else waits on the owner in the Inbox's Needs you (issue #1093): the pending Approvals and the open questions
+// workers asked him. An Approval that a to-do in review waits for is counted once, as that to-do, unless the to-do
+// is snoozed.
+func (q *Queries) CountOwnerAsks(ctx context.Context, now int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOwnerAsks, now)
+	var asks int64
+	err := row.Scan(&asks)
+	return asks, err
+}
+
 const countTodos = `-- name: CountTodos :one
 SELECT count(*) FROM todos t
 WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?2 AS TEXT))))
@@ -39,6 +59,7 @@ WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
+      OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?11 AS INTEGER)))))
 `
 
@@ -474,6 +495,7 @@ WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
+      OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?11 AS INTEGER)))))
   AND (CAST(?15 AS INTEGER) = 0
     OR coalesce(t.due_at, 9223372036854775807) > CAST(?16 AS INTEGER)
