@@ -29,6 +29,16 @@ type ownWhatsApp struct {
 	sent    []messaging.Outgoing
 	// files are the kept files by message id.
 	files map[string]messaging.Media
+	// ids are the accounts' own ids by integration:label, as the sessions held know them.
+	ids map[string]string
+}
+
+func (o *ownWhatsApp) AccountID(_ context.Context, integration, label string) (string, error) {
+	if id, ok := o.ids[integration+":"+label]; ok {
+		return id, nil
+	}
+
+	return "", orchestration.ErrUnavailable
 }
 
 func (o *ownWhatsApp) Send(_ context.Context, _, _ string, out messaging.Outgoing) (messaging.Message, error) {

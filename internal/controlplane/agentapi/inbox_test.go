@@ -396,3 +396,73 @@ func TestABotPostsItsProgressInTheItemsThread(t *testing.T) {
 	assert.Equal(t, http.StatusOK, status, text)
 	assert.True(t, isError, "another Bot's item: %s", text)
 }
+
+// Scenario: issue #1124, section 1, as seen on zm on 2026-11-23. The owner's Zalo and WhatsApp are linked as "main":
+// the Connections record his Zalo name and his phone number, and the sessions held know his Zalo id and his
+// WhatsApp number's JID. The Bot names the account as it saw it: its label, or the id of the account, the Zalo id
+// or the phone number, with or without its +. Each is accepted and the item keeps the label, which the read tools
+// name in their answers, so the Bot copies the right one. An id of an account the Bot was not given is refused.
+func TestASourceNamedByTheAccountsIDKeepsItsLabel(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	w.whatsapp.ids = map[string]string{
+		"zalo:main": "2223515701293677881", "whatsapp:main": "84369230426:12@s.whatsapp.net",
+		"zalo:work": "1111111111111111111",
+	}
+
+	for _, c := range []orchestration.Connection{
+		{Integration: "zalo", Label: "main", Account: "Hồng Đạt", Secret: "conn-zalo-main"},
+		{Integration: "whatsapp", Label: "main", Account: "+84369230426", Secret: "conn-whatsapp-main"},
+		{Integration: "zalo", Label: "work", Account: "Đạt VTII", Secret: "conn-zalo-work"},
+	} {
+		_, err := w.svc.SaveServiceConnection(ctx, c)
+		require.NoError(t, err)
+		_, err = w.svc.SetConnectionChats(ctx, c.Integration, c.Label, true)
+		require.NoError(t, err)
+	}
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "hypo", Connections: orchestration.AllowList{Limited: true, Names: []string{"zalo:main", "whatsapp:main"}},
+	})
+	require.NoError(t, err)
+
+	pi, chat := w.inboxPi(bot)
+
+	for name, src := range map[string]map[string]any{
+		"zalo by its id":               {"kind": inboxstore.FromZalo, "chat": "g_laura", "account": "2223515701293677881"},
+		"zalo by its label":            {"kind": inboxstore.FromZalo, "chat": "g_laura", "account": "main"},
+		"whatsapp by its number":       {"kind": inboxstore.FromWhatsApp, "chat": "8491@s.whatsapp.net", "account": "84369230426"},
+		"whatsapp by its number and +": {"kind": inboxstore.FromWhatsApp, "chat": "8491@s.whatsapp.net", "account": "+84369230426"},
+	} {
+		item := w.inbox(pi, agenttool.ToolInboxAdd, map[string]any{
+			"title": "Reply: " + name, "source": src, "quote": "Anh xem giúp em nhé",
+			"message": map[string]any{"kind": src["kind"].(string) + "_message", "ref": "m_1"},
+		})
+		assert.Equal(t, src["kind"], item.Source.Kind, name)
+		assert.Equal(t, "main", item.Source.Account, "%s: the item keeps the label", name)
+	}
+
+	_, text, failed := w.use(pi, agenttool.ToolInboxAdd, mustJSON(t, map[string]any{
+		"title":   "Reply to the team",
+		"source":  map[string]any{"kind": inboxstore.FromZalo, "chat": "g_team", "account": "1111111111111111111"},
+		"message": map[string]any{"kind": inboxstore.LinkZaloMessage, "ref": "m_2"},
+	}))
+	assert.True(t, failed, "the id of an account it was not given: %s", text)
+
+	_, err = w.svc.AddChatMessage(ctx, chat, orchestration.ChatOwner, "what is new on Zalo?")
+	require.NoError(t, err)
+
+	for _, tool := range []string{agenttool.ToolZaloChats, agenttool.ToolWhatsAppMessages} {
+		_, text, failed := w.use(pi, tool, `{"chat":"g_laura"}`)
+		require.False(t, failed, text)
+
+		var answer struct {
+			Account string `json:"account"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(text), &answer), text)
+		assert.Equal(t, "main", answer.Account, "%s names the account by its label", tool)
+	}
+}
