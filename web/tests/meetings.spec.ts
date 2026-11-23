@@ -4,8 +4,8 @@ import { shot } from "./shot.js"
 
 // The Meetings pages (issues #721, #747), built, against a fake client API, on a phone and a desktop: the list
 // grouped by day, the upload dialog, a meeting's page with its player, notes and transcript, the speaker picker, a
-// word fixed in the transcript, the Actions tab, Settings' Meetings group (issue #762: the dictionary and the notes
-// model) and the way back from Settings. The notes have no format to pick: they are sectioned by topic (issue #771).
+// word fixed in the transcript, the Actions tab, the meetings' settings behind the gear (issue #1121: the dictionary
+// and the notes model, Settings' group Meetings until then) and the way back from Settings. The notes have no format to pick: they are sectioned by topic (issue #771).
 
 // Recording live (issue #820) uses the browser's microphone, which Chromium fakes with a tone, granted without asking;
 // a page's launch options are the file's, as each forces its own browser.
@@ -670,7 +670,7 @@ test("the owner sees the meetings by day, as cards or a table", async ({ page, i
 
 // Scenario: the owner uploads a recording: the file and its language, then under More details a title and the
 // people; no notes format is asked (issue #771). The words to hear right are not asked: they are set once on
-// Settings → Dictionary, which the dialog says. They are sent with the recording, and the meeting's page opens on
+// the meetings' settings, which the dialog links. They are sent with the recording, and the meeting's page opens on
 // its steps: uploaded, transcribing.
 test("the owner uploads a recording with its details", async ({ page }) => {
   const { calls } = await fakeServer(page)
@@ -847,11 +847,34 @@ test("the owner follows the actions across meetings", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Weekly sync with Kai", level: 2 })).toBeVisible()
 })
 
-// Scenario: Settings → Notes model has no model yet; the owner picks one of the gateway's chat models with the
-// one-model picker the Bots use, then sets it back to none.
+// Scenario: the gear on the Meetings page opens the meetings' settings, its two sections the dictionary and the notes
+// model, out of the Settings menu (issue #1121). The old addresses of those Settings pages lead there.
+test("the gear opens the meeting settings, where the old Settings pages lead", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/meetings")
+
+  await page.getByRole("link", { name: "Meeting settings" }).click()
+  await expect(page).toHaveURL(/\/meetings\/settings$/)
+  await expect(page.getByRole("heading", { name: "Meeting settings", level: 1 })).toBeVisible()
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText(["Dictionary", "Notes model"])
+  await expect(page.getByRole("list", { name: "Your words" })).toBeVisible()
+  await expect(page.getByTestId("notes-model").getByRole("combobox")).toBeVisible()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "meetings-settings")
+
+  await page.goto("/settings/dictionary")
+  await expect(page).toHaveURL(/\/meetings\/settings#dictionary$/)
+  await expect(page.getByRole("heading", { name: "Meeting settings", level: 1 })).toBeVisible()
+  await page.goto("/settings/notes-model")
+  await expect(page).toHaveURL(/\/meetings\/settings#notes-model$/)
+  await expect(page.getByRole("heading", { name: "Notes model", level: 2 })).toBeInViewport()
+})
+
+// Scenario: the notes model has no model yet; the owner picks one of the gateway's chat models with the one-model
+// picker the Bots use, then sets it back to none.
 test("the owner picks the model that writes notes", async ({ page }) => {
   const { calls } = await fakeServer(page)
-  await page.goto("/settings/notes-model")
+  await page.goto("/meetings/settings")
 
   const model = page.getByTestId("notes-model").getByRole("combobox")
   await expect(model).toContainText("None: notes are not written")
@@ -872,8 +895,8 @@ test("the owner picks the model that writes notes", async ({ page }) => {
 // the owner's whole list.
 test("the owner keeps the dictionary", async ({ page }) => {
   const { calls } = await fakeServer(page)
-  await page.goto("/settings/dictionary")
-  await expect(page.getByRole("heading", { name: "Dictionary", level: 1 })).toBeVisible()
+  await page.goto("/meetings/settings")
+  await expect(page.getByRole("heading", { name: "Dictionary", level: 2 })).toBeVisible()
 
   const own = page.getByRole("list", { name: "Your words" })
   await expect(own.getByRole("listitem")).toHaveText(["MapOps", "ĐKSD"])
@@ -934,10 +957,10 @@ test("the owner fixes a word heard wrong in the transcript", async ({ page }) =>
   await expect(behind).toHaveCount(0)
 })
 
-// Scenario: from the Meetings page, the owner follows the upload dialog's link into Settings → Dictionary; "Back to
-// app" returns to Meetings, not home (moving between Settings' own pages keeps it: back-from-settings.test.ts).
-// Settings opened straight away goes back home. The sidebar of Settings is a desktop's; a phone goes back with its
-// drawer.
+// Scenario: the upload dialog's link opens the meetings' settings at the dictionary. From the Meetings page, the owner
+// opens Settings; "Back to app" returns to Meetings, not home (moving between Settings' own pages keeps it:
+// back-from-settings.test.ts). Settings opened straight away goes back home. The sidebar of Settings is a desktop's;
+// a phone goes back with its drawer.
 test("Back to app returns to the page the owner came from", async ({ page, isMobile }) => {
   test.skip(isMobile, "Settings' sidebar, with Back to app, is a desktop's")
   await fakeServer(page)
@@ -946,14 +969,18 @@ test("Back to app returns to the page the owner came from", async ({ page, isMob
   const dialog = page.getByRole("dialog", { name: "Upload a recording" })
   await page.getByRole("button", { name: "Upload recording" }).first().click()
   await dialog.getByRole("link", { name: "Dictionary" }).click()
-  await expect(page).toHaveURL(/\/settings\/dictionary$/)
+  await expect(page).toHaveURL(/\/meetings\/settings#dictionary$/)
+  await page.getByRole("link", { name: "Meetings" }).first().click()
+  await expect(page).toHaveURL(/\/meetings$/)
+
+  await page.goto("/settings/shared-links")
   await shot(page, "settings-back-to-app")
   await page.getByRole("link", { name: "Back to app" }).click()
   await expect(page).toHaveURL(/\/meetings$/)
   await expect(page.getByRole("heading", { name: "Meetings", level: 1 })).toBeVisible()
 
   await page.evaluate("sessionStorage.clear()")
-  await page.goto("/settings/dictionary")
+  await page.goto("/settings/shared-links")
   await page.getByRole("link", { name: "Back to app" }).click()
   await expect(page).toHaveURL(/127\.0\.0\.1:4173\/$/)
 })

@@ -172,10 +172,15 @@ func (s *Store) changeTx(
 			}
 		}
 
+		// Who the item went through is set again with each change of who has it (issue #1118).
+		if next.AssigneeKind != cur.AssigneeKind || next.Assignee != cur.Assignee {
+			next.PassedBy = passedBy(c.Actor, Assignee{Kind: next.AssigneeKind, Name: next.Assignee})
+		}
+
 		n, err := q.UpdateTodo(ctx, store.UpdateTodoParams{
 			Title: next.Title, Notes: next.Notes, DoneWhen: next.DoneWhen, Draft: next.Draft, DueKind: next.DueKind,
 			DueDate: next.DueDate, DueZone: next.DueZone, DueAt: next.DueAt, OverdueAt: next.OverdueAt,
-			AssigneeKind: next.AssigneeKind, Assignee: next.Assignee, State: next.State,
+			AssigneeKind: next.AssigneeKind, Assignee: next.Assignee, PassedBy: next.PassedBy, State: next.State,
 			SourceKind: next.SourceKind, SourceID: next.SourceID, SourceAccount: next.SourceAccount,
 			SourceQuote: next.SourceQuote, SourceRef: next.SourceRef,
 			SnoozedUntil: next.SnoozedUntil, WorkAttempt: next.WorkAttempt, WorkKind: next.WorkKind, WorkID: next.WorkID,
@@ -200,6 +205,12 @@ func (s *Store) changeTx(
 
 		before, after := diff(fields(cur), fields(written))
 		maps.Copy(after, extra)
+
+		// A change of who has the item says whom in full, the kind with the name, so that the thread shows a
+		// hand-over from one Bot to another as one (issue #1118).
+		if _, ok := after["assignee"]; ok {
+			before["assignee_kind"], after["assignee_kind"] = cur.AssigneeKind, written.AssigneeKind
+		}
 
 		if err := addEvent(ctx, q, c.ID, now, written.Revision, c.Actor, kind, before, after); err != nil {
 			return err
@@ -880,14 +891,14 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 		) (map[string]any, error) {
 			before = &Assignee{Kind: cur.AssigneeKind, Name: cur.Assignee}
 
-			return edit(ctx, q, c, e, due, ref, cur, next)
+			return s.edit(ctx, q, c, e, due, ref, cur, next)
 		})
 		if err != nil {
 			return err
 		}
 
 		// An item given to a Bot wakes it (issue #1111).
-		if err := s.givenTx(ctx, q, now, t.ID, before, t.Assignee); err != nil {
+		if err := s.givenTx(ctx, q, now, c.Actor, t.ID, before, t.Assignee); err != nil {
 			return err
 		}
 
@@ -903,7 +914,7 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 }
 
 // edit makes the next row of an Edit from the row read, or refuses it.
-func edit(ctx context.Context, q *store.Queries, c Change, e Edit, due *dueColumns, ref sql.NullString,
+func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, due *dueColumns, ref sql.NullString,
 	cur store.Todo, next *store.Todo,
 ) (map[string]any, error) {
 	if Closed(cur.State) {
@@ -913,9 +924,16 @@ func edit(ctx context.Context, q *store.Queries, c Change, e Edit, due *dueColum
 	if c.Actor.Kind == Bot {
 		mine := (cur.CreatedByKind == Bot && cur.CreatedBy == c.Actor.ID) ||
 			(cur.AssigneeKind == ABot && cur.Assignee == c.Actor.ID)
-		if !mine || (e.Assignee != nil && e.Assignee.Kind != Me) {
+		if !mine || (e.Assignee != nil && e.Assignee.Kind != Me && e.Assignee.Kind != ABot) {
 			return nil, fmt.Errorf("%w: a Bot edits only the to-dos it added or is given, and gives them only "+
-				"back to the owner", storeerr.ErrForbidden)
+				"back to the owner or to a Bot", storeerr.ErrForbidden)
+		}
+
+		// Who a Bot may pass an item to (issue #1118).
+		if e.Assignee != nil {
+			if err := s.mayPass(c.Actor, Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -1020,7 +1038,7 @@ func fields(r store.Todo) map[string]any {
 		"work_bot": r.WorkBot, "work_started_at": r.WorkStartedAt, "approval_id": r.ApprovalID,
 		"done_by_kind": r.DoneByKind, "done_by": r.DoneBy, "recorded_by_kind": r.RecordedByKind,
 		"recorded_by": r.RecordedBy, "closed_how": r.ClosedHow, "closed_at": r.ClosedAt,
-		"duplicate_of": r.DuplicateOf, "why_open": r.WhyOpen,
+		"duplicate_of": r.DuplicateOf, "why_open": r.WhyOpen, "passed_by": r.PassedBy,
 	} {
 		m[k] = v
 	}

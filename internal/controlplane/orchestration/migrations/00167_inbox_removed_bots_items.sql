@@ -1,8 +1,8 @@
 -- A removed Bot's items pass to the main Bot (issue #1124): a Bot edits only the items it added or was given
 -- (inboxstore's edit and notAnotherBots), so the items the Thư ký Bot left when it was removed on 2026-11-23 (#1107)
--- could be closed or updated by no Bot. Removing a Bot now passes them on (inboxstore.PassTx); this passes the ones
+-- could be closed or updated by no Bot. Removing a Bot now gives them to the main Bot (inboxstore.TakeOverTx); this gives it the ones
 -- already left: every item not closed whose Bot, who added it or who it is given to, is no longer there (an item
--- that names no Bot it was added by has none to pass from). Each gets the event PassTx records, by the system, and
+-- that names no Bot it was added by has none to pass from). Each gets the event TakeOverTx records, by the system, and
 -- its revision moves on. Closed items stay as they were.
 
 -- +goose Up
@@ -34,6 +34,8 @@ SET revision = revision + 1,
                       THEN 'bot_mainaaaaaaaaaaaaaaaaaaaaaa' ELSE created_by END,
     assignee = CASE WHEN (SELECT to_removed FROM passed WHERE passed.id = todos.id)
                     THEN 'bot_mainaaaaaaaaaaaaaaaaaaaaaa' ELSE assignee END,
+    -- Given by the system, through no Bot (issue #1118).
+    passed_by = CASE WHEN (SELECT to_removed FROM passed WHERE passed.id = todos.id) THEN NULL ELSE passed_by END,
     updated_at = CAST(unixepoch('subsec') * 1000 AS INTEGER)
 WHERE id IN (SELECT id FROM passed);
 

@@ -261,7 +261,8 @@ function Body({ onDone }: { onDone: () => void }) {
             <p className="text-xs text-muted-foreground">
               Names and jargon are heard right from your{" "}
               <Link
-                to="/settings/dictionary"
+                to="/meetings/settings"
+                hash="dictionary"
                 className="underline underline-offset-2 hover:text-foreground"
               >
                 Dictionary

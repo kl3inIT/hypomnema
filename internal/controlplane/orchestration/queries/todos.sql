@@ -1,9 +1,9 @@
 -- name: InsertTodo :exec
 INSERT INTO todos (id, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
-                   assignee, state, source_kind, source_id, source_account, source_quote, source_ref,
+                   assignee, passed_by, state, source_kind, source_id, source_account, source_quote, source_ref,
                    created_by_kind, created_by, why_open, idempotency_key, idempotency_hash, created_at, updated_at)
 VALUES (@id, @title, @notes, @done_when, @draft, @due_kind, @due_date, @due_zone, @due_at, @overdue_at, @assignee_kind,
-        @assignee, @state, @source_kind, @source_id, @source_account, @source_quote, @source_ref, @created_by_kind,
+        @assignee, @passed_by, @state, @source_kind, @source_id, @source_account, @source_quote, @source_ref, @created_by_kind,
         @created_by, @why_open, @idempotency_key, @idempotency_hash, @now, @now);
 
 -- name: GetTodo :one
@@ -19,7 +19,8 @@ UPDATE todos
 SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_when, draft = @draft,
     due_kind = @due_kind,
     due_date = @due_date, due_zone = @due_zone, due_at = @due_at, overdue_at = @overdue_at,
-    assignee_kind = @assignee_kind, assignee = @assignee, state = @state, snoozed_until = @snoozed_until,
+    assignee_kind = @assignee_kind, assignee = @assignee, passed_by = @passed_by, state = @state,
+    snoozed_until = @snoozed_until,
     source_kind = @source_kind, source_id = @source_id, source_account = @source_account,
     source_quote = @source_quote, source_ref = @source_ref,
     work_attempt = @work_attempt, work_kind = @work_kind, work_id = @work_id, work_bot = @work_bot,
@@ -58,11 +59,17 @@ VALUES (@todo_id, @at, @revision, @actor_kind, @actor, @kind, @before, @after);
 -- The latest events of an item, newest first, at most lim.
 SELECT * FROM todo_events WHERE todo_id = @todo_id ORDER BY id DESC LIMIT @lim;
 
+-- name: ListOwnerTodoEvents :many
+-- The latest changes the owner made to an item at or after since, newest first, at most lim (issue #1119).
+SELECT * FROM todo_events WHERE todo_id = @todo_id AND actor_kind = 'owner' AND at >= @since
+ORDER BY id DESC LIMIT @lim;
+
 -- name: ListTodos :many
 -- One page of the items that match, by due (those without one last), then created, then id, after the cursor of
 -- the previous page when one is given. The filter is the same as CountTodos's. A proposal nobody touched since
 -- stale_before is stale (issue #966): left out unless with_stale, and never one that needs the owner. Touched is
--- any event after created, and every event moves the revision on, so an untouched item is at revision 1.
+-- any event after created, and every event moves the revision on, so an untouched item is at revision 1. With
+-- has_owner_since, only the items the owner changed at or after owner_since (issue #1119).
 SELECT t.* FROM todos t
 WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(@states AS TEXT))))
   AND (CAST(@assignee_kind AS TEXT) = '' OR (t.assignee_kind = @assignee_kind AND t.assignee = @assignee))
@@ -81,6 +88,8 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
+  AND (CAST(@has_owner_since AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(@owner_since AS INTEGER)))
   AND (CAST(@has_cursor AS INTEGER) = 0
     OR coalesce(t.due_at, 9223372036854775807) > CAST(@cursor_due AS INTEGER)
     OR (coalesce(t.due_at, 9223372036854775807) = CAST(@cursor_due AS INTEGER) AND t.created_at > @cursor_at)
@@ -107,7 +116,9 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
-      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))));
+      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
+  AND (CAST(@has_owner_since AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(@owner_since AS INTEGER)));
 
 -- name: CountOwnerAsks :one
 -- What else waits on the owner in the Inbox's Needs you (issue #1093): the pending Approvals and the open questions
@@ -150,14 +161,15 @@ INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at
 VALUES (@chat_id, 'system', 'wake', @text, 1, @now);
 
 -- name: ListOpenTodosOfBot :many
--- The items not closed a Bot added or was given (issue #1124): those its removal passes to the main Bot.
+-- The items not closed a Bot added or was given (issue #1124): those the main Bot takes over when it is removed.
 SELECT * FROM todos
 WHERE state NOT IN ('done', 'dropped', 'duplicate')
   AND ((created_by_kind = 'bot' AND created_by = @bot) OR (assignee_kind = 'bot' AND assignee = @bot))
 ORDER BY id;
 
--- name: PassTodo :execrows
--- An item passes to another Bot (issue #1124): who it counts as added by and who it is given to, at the revision
--- read, which it moves on.
-UPDATE todos SET revision = revision + 1, created_by = @created_by, assignee = @assignee, updated_at = @now
+-- name: TakeOverTodo :execrows
+-- A removed Bot's item becomes the main Bot's (issue #1124): who it counts as added by, who it is given to and
+-- through whom, at the revision read, which it moves on.
+UPDATE todos
+SET revision = revision + 1, created_by = @created_by, assignee = @assignee, passed_by = @passed_by, updated_at = @now
 WHERE id = @id AND revision = @revision;

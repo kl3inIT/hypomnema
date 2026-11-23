@@ -10,7 +10,7 @@
 // meeting_list. Nothing it can call sends or writes. The filter rules live here and in thu-ky/filters.json of the
 // Bot's folder, so that they change without a release of the server (owner, 2026-11-21). Its state is
 // thu-ky/new-messages.json of the Bot's folder: when each source was read through, what a capped run left to read,
-// and the conversations the last output had no room for.
+// the conversations the last output had no room for, and when it last woke the Bot (issue #1119).
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -475,11 +475,18 @@ export async function check({ tools, call, state = {}, config = {}, now = new Da
     else found.push(f);
   }
   const lines = problems.map((p) => `could not read ${p}`);
+  // When the Bot was last woken (issue #1119): the owner's changes to his Inbox since then are what it learns from.
+  // The check cannot read the Inbox, so it names the moment, and a check that wakes no one keeps it.
+  const woke = state.woke ? { woke: state.woke } : {};
   if (found.length === 0) {
-    return { wake: false, text: [...lines, JSON.stringify({ wakeAgent: false })].join("\n"), state: { sources: kept } };
+    return {
+      wake: false, text: [...lines, JSON.stringify({ wakeAgent: false })].join("\n"), state: { sources: kept, ...woke },
+    };
   }
+  const corrections = `The owner's own changes to his Inbox since the last run: inbox_list with owner_changed_since ` +
+    `${state.woke ?? firstMark}.`;
   const bytes = (text) => Buffer.byteLength(text, "utf8") + 1;
-  let left = config.printBytes - bytes(intro) - lines.reduce((n, l) => n + bytes(l), 0) - 200;
+  let left = config.printBytes - bytes(intro) - bytes(corrections) - lines.reduce((n, l) => n + bytes(l), 0) - 200;
   const shown = [];
   const carry = [];
   for (const f of found) {
@@ -494,8 +501,8 @@ export async function check({ tools, call, state = {}, config = {}, now = new Da
   const more = carry.length ? [`${carry.length} more conversations are told at the next check.`] : [];
   return {
     wake: true,
-    text: [intro, ...shown, ...more, ...lines].join("\n"),
-    state: { sources: kept, ...(carry.length ? { carry } : {}) },
+    text: [intro, ...shown, ...more, ...lines, corrections].join("\n"),
+    state: { sources: kept, woke: now.toISOString(), ...(carry.length ? { carry } : {}) },
   };
 }
 

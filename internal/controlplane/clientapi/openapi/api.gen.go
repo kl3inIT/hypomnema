@@ -7146,11 +7146,14 @@ type Todo struct {
 	DuplicateOf *string `json:"duplicate_of,omitempty"`
 
 	// Events Its history, the oldest first; GET /inbox/{todo_id} only.
-	Events     *[]TodoEvent `json:"events,omitempty"`
-	Evidence   []TodoLink   `json:"evidence"`
-	Id         string       `json:"id"`
-	Notes      string       `json:"notes"`
-	RecordedBy *TodoActor   `json:"recorded_by,omitempty"`
+	Events   *[]TodoEvent `json:"events,omitempty"`
+	Evidence []TodoLink   `json:"evidence"`
+	Id       string       `json:"id"`
+	Notes    string       `json:"notes"`
+
+	// PassedBy The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
+	PassedBy   *string    `json:"passed_by,omitempty"`
+	RecordedBy *TodoActor `json:"recorded_by,omitempty"`
 
 	// Revision Starts at 1 and grows with every change; a change carries it.
 	Revision     int        `json:"revision"`

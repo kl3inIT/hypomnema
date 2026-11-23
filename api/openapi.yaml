@@ -11596,6 +11596,11 @@ components:
         chat_id:
           type: string
           description: "The item's own chat with the Bot it was given to, where the owner's comments reach it."
+        passed_by:
+          type: string
+          description: >-
+            The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project
+            Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
         stale:
           type: boolean
           description: A proposal nobody touched for three days, left out of the list unless asked for.

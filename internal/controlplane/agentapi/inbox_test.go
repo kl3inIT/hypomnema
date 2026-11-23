@@ -24,6 +24,7 @@ type inboxItem struct {
 	Draft    string `json:"draft"`
 	Due      string `json:"due"`
 	Assignee string `json:"assignee"`
+	PassedBy string `json:"passed_by"`
 	WhyOpen  string `json:"why_open"`
 	Source   struct {
 		Kind    string           `json:"kind"`
@@ -395,6 +396,56 @@ func TestABotPostsItsProgressInTheItemsThread(t *testing.T) {
 		`{"id":"`+td.ID+`","text":"Mine now."}`)
 	assert.Equal(t, http.StatusOK, status, text)
 	assert.True(t, isError, "another Bot's item: %s", text)
+}
+
+// Scenario: issue #1118. The main Bot's pi passes an item the owner handed it to a project Bot with inbox_update
+// pass_to, and reads through whom that Bot has it; the project Bot's pi passes it to no other project Bot, and gives
+// it back to the main Bot the same way.
+func TestTheMainBotPassesAnItemWithTheUpdateTool(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	main, err := w.svc.GetBot(ctx, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	beyond, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "BeyondPilot"})
+	require.NoError(t, err)
+
+	vmap, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "VMAP"})
+	require.NoError(t, err)
+
+	mainPi, _ := w.inboxPi(main)
+	beyondPi, _ := w.inboxPi(beyond)
+
+	owner := inboxstore.Actor{Kind: inboxstore.Owner}
+	td, err := w.svc.Inbox().Create(ctx, owner, inboxstore.NewTodo{
+		Title: "Send Kai the pilot's report", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand},
+		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
+	})
+	require.NoError(t, err)
+
+	_, err = w.svc.Inbox().Hand(ctx, inboxstore.Change{Actor: owner, ID: td.ID, Revision: td.Revision}, main.ID, "")
+	require.NoError(t, err)
+
+	passed := w.inbox(mainPi, agenttool.ToolInboxUpdate, map[string]any{"id": td.ID, "pass_to": beyond.ID})
+	assert.Equal(t, "bot "+beyond.ID, passed.Assignee)
+	assert.Equal(t, "bot "+main.ID, passed.PassedBy)
+
+	status, text, isError := w.use(beyondPi, agenttool.ToolInboxUpdate,
+		`{"id":"`+td.ID+`","pass_to":"`+vmap.ID+`"}`)
+	assert.Equal(t, http.StatusOK, status, text)
+	assert.True(t, isError, "a project Bot passes to no other project Bot: %s", text)
+
+	back := w.inbox(beyondPi, agenttool.ToolInboxUpdate, map[string]any{"id": td.ID, "pass_to": main.ID})
+	assert.Equal(t, "bot "+main.ID, back.Assignee)
+	assert.Equal(t, "bot "+beyond.ID, back.PassedBy)
+
+	status, text, isError = w.use(mainPi, agenttool.ToolInboxUpdate,
+		`{"id":"`+td.ID+`","pass_to":"`+vmap.ID+`","hand_back":true}`)
+	assert.Equal(t, http.StatusOK, status, text)
+	assert.True(t, isError, "an item goes to one place: %s", text)
 }
 
 // Scenario: issue #1124, section 1, as seen on zm on 2026-11-23. The owner's Zalo and WhatsApp are linked as "main":

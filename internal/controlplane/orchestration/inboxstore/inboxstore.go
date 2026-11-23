@@ -310,7 +310,10 @@ type Todo struct {
 	DuplicateOf string
 	// Chat is the item's own chat with the Bot it was given to (issue #1111), where that Bot was woken with it and
 	// is woken by the owner's comments; empty before it was given to a Bot, or once that chat is deleted.
-	Chat      string
+	Chat string
+	// PassedBy is the Bot that gave the item to the Bot it is given to (issue #1118): the main Bot that passed it to
+	// a project Bot, or the project Bot that gave it back to the main Bot; empty when the owner or the system gave it.
+	PassedBy  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	// Events is its history, oldest first; filled by Get only.
@@ -351,6 +354,9 @@ type Store struct {
 	sent Sent
 	// waker wakes a Bot an item is given to (issue #1111); nil wakes none.
 	waker Waker
+	// mainBot is the id of the main Bot, the one Bot that passes an item to another (issue #1118); empty, no Bot
+	// passes one.
+	mainBot string
 }
 
 // WithSent lets the store check a message the owner sent, given as evidence that he answered (issue #1004).
@@ -493,6 +499,10 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
+		if err := s.mayGive(actor, n.Assignee); err != nil {
+			return err
+		}
+
 		if n.DueIn != nil {
 			if due, err = dueRow(Due{Kind: DueInstant, At: time.UnixMilli(now).Add(n.DueIn.After),
 				Zone: n.DueIn.Zone}); err != nil {
@@ -504,8 +514,8 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		if err := q.InsertTodo(ctx, store.InsertTodoParams{
 			ID: id, Title: n.Title, Notes: n.Notes, DoneWhen: n.DoneWhen, Draft: n.Draft,
 			DueKind: due.kind, DueDate: due.date, DueZone: due.zone, DueAt: due.at, OverdueAt: due.overdueAt,
-			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, State: n.State,
-			SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
+			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, PassedBy: passedBy(actor, n.Assignee),
+			State: n.State, SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
 			SourceQuote: n.Source.Quote, SourceRef: ref,
 			CreatedByKind: actor.Kind, CreatedBy: actor.ID, WhyOpen: nullString(n.WhyOpen),
 			IdempotencyKey: nullString(n.IdempotencyKey), IdempotencyHash: nullString(keyed(n.IdempotencyKey, hash)),
@@ -528,7 +538,7 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		}
 
 		// An item added for a Bot wakes it (issue #1111).
-		if err := s.givenTx(ctx, q, now, id, nil, n.Assignee); err != nil {
+		if err := s.givenTx(ctx, q, now, actor, id, nil, n.Assignee); err != nil {
 			return err
 		}
 
@@ -830,15 +840,22 @@ func (s *Store) get(ctx context.Context, q *store.Queries, id string) (Todo, err
 		return Todo{}, fmt.Errorf("reading the history of to-do %s: %w", id, err)
 	}
 
-	t.Events = make([]Event, 0, len(rows))
+	t.Events = eventsOf(rows)
+
+	return t, nil
+}
+
+// eventsOf is an item's events, oldest first, from rows read newest first.
+func eventsOf(rows []store.TodoEvent) []Event {
+	out := make([]Event, 0, len(rows))
 	for _, r := range slices.Backward(rows) {
-		t.Events = append(t.Events, Event{
+		out = append(out, Event{
 			ID: r.ID, At: storeutil.Millis(r.At), Revision: int(r.Revision), Actor: Actor{Kind: r.ActorKind, ID: r.Actor},
 			Kind: r.Kind, Before: json.RawMessage(r.Before), After: json.RawMessage(r.After),
 		})
 	}
 
-	return t, nil
+	return out
 }
 
 // Filter is which to-dos List returns and counts.
@@ -858,6 +875,10 @@ type Filter struct {
 	NeedsYou bool
 	// WithStale lists the stale proposals too: proposed, untouched for StaleAfter.
 	WithStale bool
+	// OwnerChangedSince, when given, lists only the items the owner changed at or after it (created, edited,
+	// closed, reopened, snoozed…), in any state, snoozed or stale, each with his own changes since then in Events
+	// (issue #1119): what the triage Routine learns from. States still narrows it.
+	OwnerChangedSince time.Time
 }
 
 // Page is one page of List.
@@ -889,7 +910,8 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 		AnyState: cnt.AnyState, States: cnt.States, AssigneeKind: cnt.AssigneeKind, Assignee: cnt.Assignee,
 		SourceKind: cnt.SourceKind, HasDueFrom: cnt.HasDueFrom, DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
 		DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed, WithStale: cnt.WithStale, StaleBefore: cnt.StaleBefore,
-		Now: cnt.Now, NeedsYou: cnt.NeedsYou, Lim: int64(limit) + 1,
+		Now: cnt.Now, NeedsYou: cnt.NeedsYou, HasOwnerSince: cnt.HasOwnerSince, OwnerSince: cnt.OwnerSince,
+		Lim: int64(limit) + 1,
 	}
 
 	if cursor != "" {
@@ -900,11 +922,12 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 	}
 
 	var (
-		rows  []store.Todo
-		total int64
+		rows   []store.Todo
+		total  int64
+		events = map[string][]store.TodoEvent{}
 	)
 
-	// The page and its total are read together, so the total counts the items the page shows.
+	// The page, its total and the owner's changes are read together, so the total counts the items the page shows.
 	err = s.snapshot(ctx, func(q *store.Queries) error {
 		if rows, err = q.ListTodos(ctx, p); err != nil {
 			return fmt.Errorf("listing the to-dos: %w", err)
@@ -912,6 +935,18 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 		if total, err = q.CountTodos(ctx, cnt); err != nil {
 			return fmt.Errorf("counting the to-dos: %w", err)
+		}
+
+		if cnt.HasOwnerSince == 0 {
+			return nil
+		}
+
+		for _, row := range rows[:min(len(rows), limit)] {
+			if events[row.ID], err = q.ListOwnerTodoEvents(ctx, store.ListOwnerTodoEventsParams{
+				TodoID: row.ID, Since: cnt.OwnerSince, Lim: MaxEvents,
+			}); err != nil {
+				return fmt.Errorf("reading the owner's changes of to-do %s: %w", row.ID, err)
+			}
 		}
 
 		return nil
@@ -934,6 +969,10 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 		t, err := fromRow(row, now)
 		if err != nil {
 			return Page{}, err
+		}
+
+		if mine, ok := events[row.ID]; ok {
+			t.Events = eventsOf(mine)
 		}
 
 		page.Items = append(page.Items, t)
@@ -960,8 +999,10 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 	now := s.clock.Now()
 	p := store.CountTodosParams{Now: now.UnixMilli(), States: "[]", StaleBefore: now.Add(-StaleAfter).UnixMilli()}
 
+	owner := !f.OwnerChangedSince.IsZero()
+
 	states := f.States
-	if len(states) == 0 && !f.WithClosed {
+	if len(states) == 0 && !f.WithClosed && !owner {
 		states = []string{Proposed, Open, Doing, Review}
 	}
 
@@ -1011,6 +1052,10 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 
 	if f.WithStale {
 		p.WithStale = 1
+	}
+
+	if owner {
+		p.HasOwnerSince, p.OwnerSince, p.WithSnoozed, p.WithStale = 1, f.OwnerChangedSince.UnixMilli(), 1, 1
 	}
 
 	return p, nil
@@ -1071,6 +1116,7 @@ func fromRow(r store.Todo, now time.Time) (Todo, error) {
 		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy}, WhyOpen: r.WhyOpen.String, Stale: stale(r, now),
 		ApprovalID: r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
 		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String, Chat: r.ChatID.String,
+		PassedBy:  r.PassedBy.String,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
 

@@ -1704,3 +1704,71 @@ func TestABotPointsItsItemAtWhereItCameFrom(t *testing.T) {
 	_, err = w.inbox.Edit(ctx, by(bot(w.lan), moved), inboxstore.Edit{Source: &zalo})
 	require.ErrorIs(t, err, storeerr.ErrForbidden, "another Bot's item")
 }
+
+// Scenario: issue #1119, item 4: the owner corrects what a Bot did. Before the last triage run he added an item; since
+// then he added another by hand, dropped one the Bot proposed and edited a third, and the Bot changed a fourth itself.
+// Listed by what the owner changed since that run: the three he touched since, whatever their state, each with only
+// his own changes since, oldest first, so the next run learns the rule it missed; not the one he touched before, nor
+// the one only the Bot changed.
+func TestTheOwnersChangesSinceAMoment(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	before := w.open(t)
+	w.clock.now = w.clock.now.Add(time.Minute)
+	since := w.clock.now
+
+	dropped := w.proposed(t)
+	edited := w.fromChat(t)
+	botOnly := w.fromChat(t)
+	byHand := w.open(t)
+
+	w.clock.now = w.clock.now.Add(time.Minute)
+	_, err := w.inbox.Drop(ctx, by(owner, dropped), "Not mine: Linh's mail goes to Lan.", nil)
+	require.NoError(t, err)
+
+	title := "Renew the passport before the Singapore trip"
+	_, err = w.inbox.Edit(ctx, by(owner, edited), inboxstore.Edit{Title: &title})
+	require.NoError(t, err)
+
+	notes := "Office hours are 8 to 5."
+	_, err = w.inbox.Edit(ctx, by(bot(w.kai), botOnly), inboxstore.Edit{Notes: &notes})
+	require.NoError(t, err)
+
+	page, err := w.inbox.List(ctx, inboxstore.Filter{OwnerChangedSince: since}, "", 0)
+	require.NoError(t, err)
+
+	got := map[string]inboxstore.Todo{}
+	for _, td := range page.Items {
+		got[td.ID] = td
+	}
+
+	assert.Equal(t, 3, page.Total)
+	assert.ElementsMatch(t, []string{dropped.ID, edited.ID, byHand.ID}, keysOf(got))
+	assert.NotContains(t, got, before.ID, "changed before the moment")
+	assert.NotContains(t, got, botOnly.ID, "only the Bot changed it")
+
+	assert.Equal(t, inboxstore.Dropped, got[dropped.ID].State, "a closed item is listed too")
+	require.Len(t, got[dropped.ID].Events, 1)
+	assert.Equal(t, inboxstore.EventState, got[dropped.ID].Events[0].Kind)
+	assert.Equal(t, owner, got[dropped.ID].Events[0].Actor)
+	assert.Contains(t, string(got[dropped.ID].Events[0].After), "Linh's mail goes to Lan")
+
+	require.Len(t, got[edited.ID].Events, 1, "the Bot's create is not his change")
+	assert.Equal(t, inboxstore.EventEdited, got[edited.ID].Events[0].Kind)
+	assert.Contains(t, string(got[edited.ID].Events[0].After), "Singapore trip")
+
+	require.Len(t, got[byHand.ID].Events, 1)
+	assert.Equal(t, inboxstore.EventCreated, got[byHand.ID].Events[0].Kind)
+}
+
+func keysOf(m map[string]inboxstore.Todo) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+
+	return out
+}

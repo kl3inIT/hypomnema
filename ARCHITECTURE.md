@@ -1701,6 +1701,14 @@ sequenceDiagram
     - Every other file is a note (`memory_notes`, migration 00117): at most 200 notes of 8,192 bytes, Coder's
       limits; a path at most two levels below `/memories`, each part letters, digits, `.`, `_` and `-` with no
       leading dot; `..`, `%` and backslashes refused, as Anthropic asks.
+    - A Bot's note `context/owner.md` is the **owner's context** (issue #1119): what the Bot learned of his people,
+      recurring processes, links, projects and teams, each entry with where it was learned. Every prompt run of the
+      Bot's Routines begins with it, as it was when the run's chat opened (`orchestration` `promptNotice`, after
+      the run's notice and before its check's output and prompt; Hermes gives `USER.md` as a frozen snapshot,
+      `tools/memory_tool.py:1-5`), and it is the one part of the memory a Routine's read run changes
+      (`memorystore.ReadRunMayChange`: `create`, `str_replace`, `insert` of that note; Hermes's cron jobs keep their
+      memory tool, `cron/scheduler.py:2471`). It keeps a note's limit. The owner reads and edits it with the Bot's
+      other notes.
     An edit of `MEMORY.md` or `USER.md` keeps their rule (an entry a line, empty and repeated lines dropped, the
     limit), and a change over a limit is refused and changes nothing. `view` lists a directory two levels deep
     with sizes, or a file's numbered lines (`view_range`), cut at 16,000 characters. Each command reads the
@@ -1984,7 +1992,8 @@ flowchart LR
     two apart: `routines.New(svc, svc.Routines(), cfg)`.
   - **What it is.** A row of `routines`: its Bot, a name of its own among the Bot's, a kind, a schedule, on or
     paused (with the reason), when it runs next, the chat it was made in, and whether a run's result is told
-    there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
+    there. A `prompt` Routine gives the Bot its text in a new chat each run, after the Bot's note of the owner's
+    context when it has one (issue #1119, under Memories). A `script` Routine names a file
     under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
     and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads and what
     runs. Longer code stays in a file of the Bot's folder that a short stored script runs, as a Hermes job points
@@ -2011,7 +2020,8 @@ flowchart LR
     it is revoked (reviews of #1037). The pi of a read run's chat reads the owner's accounts only while the run is
     live (`agentapi` `readLive`: no `account_read`, no user Connection off his turn once it ended; issue #1071). The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
-    the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
+    the allowed messaging, Superset and memory reads, and may write one note of the memory, the owner's context
+    (issue #1119, under Memories). pi disables extension discovery but explicitly loads
     `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
     write its private notes, not other files. Nothing asks for approval. Results stay in the run's chat, not in its run
     record, the chat it was made in, or an alert. See the [morning brief](docs/morning-brief.md).
@@ -4698,25 +4708,26 @@ gateway chat model writes its summary, decisions and actions.
   The sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
-  title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`, and
+  title and people; it links the meeting settings' Dictionary for the words. A meeting's page (`/meetings/{id}`, and
   `?line=<n>` to open its Transcript at that line, brought into view and marked, as an Inbox item from a meeting
   links it; issue #1105) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
   failed, and Summary and Transcript tabs with Write again; the transcript colours each voice, shows
   its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
   word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
-  offers Write again. Settings' Meetings group (out of Gateway since issue #762, as Hyprnote's Settings has
-  Dictionary and AI) has Dictionary, the words (the owner's as chips to remove, the found ones marked speaker, Bot or
-  repository), and Notes model, picked with the single-model picker the Bots use
-  (`features/agents/model-picker.tsx`). Settings' "Back to app"
+  offers Write again. A gear on the Meetings page opens the meeting settings (`/meetings/settings`, issue #1121;
+  Settings' group Meetings until then, issue #762), out of the Settings menu as Hyprnote keeps its dictionary and AI
+  settings out of its meeting list: Dictionary, the words (the owner's as chips to remove, the found ones marked
+  speaker, Bot or repository), and Notes model, picked with the single-model picker the Bots use
+  (`features/agents/model-picker.tsx`). The old `/settings/dictionary` and `/settings/notes-model` redirect there. Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
   Old Agents and Machines list URLs redirect into Settings and are skipped as return destinations.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165 and
-`*_inbox_removed_bots_items`; issues #838, #845, #966, #1004, #1105, #1111 and #1124, parts 1 to 3 of the Inbox, the
-sources a Bot reads, handing an item to a Bot, and a removed Bot's items): the store of the to-dos that have to happen, whoever does them, its state machine,
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165, 00166 and
+00167; issues #838, #845, #966, #1004, #1105, #1111, #1118 and #1124, parts 1 to 3 of the
+Inbox, the sources a Bot reads, handing an item to a Bot, passing it from Bot to Bot, and a removed Bot's items): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000), `draft` (≤ 20,000, the reply a Bot drafted for the owner to send
@@ -4743,12 +4754,15 @@ its client API, its CLI and the Bots' tools.
   `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
   `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`;
   `closed_at`); `duplicate_of`; `chat_id`, the item's own chat with the Bot it was given to (migration 00165, issue
-  #1111; cleared in `deleteChatTx` when that chat is deleted); `why_open`
+  #1111; cleared in `deleteChatTx` when that chat is deleted); `passed_by`, the Bot that gave the item to the Bot it
+  is given to (issue #1118), set again with every change of the assignee: the acting Bot when a Bot gives it to
+  another Bot, else NULL; `why_open`
   (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); a create's idempotency key,
   unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed`, `linked_approval` or `commented` (its text in `after.text`), the revision it made, JSON of the fields before and after, and the
-  reason when one is given), written in the change's transaction.
+  reason when one is given), written in the change's transaction; a change of the assignee carries
+  `assignee_kind` with `assignee` and, when it changed, `passed_by`, so a hand-over from Bot to Bot reads as one.
 - Transitions (`inboxstore/transitions.go`, the `transitions` table lists every move and who may make it): the
   owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from what it read
   of the owner's (`inboxstore.FoundKinds`: his Lark, Zalo or WhatsApp chat, his Gmail thread, his meeting; in any
@@ -4778,8 +4792,11 @@ its client API, its CLI and the Bots' tools.
   another only once its attempt ended (released, closed or its Approval answered); a duplicate's target exists, is
   not the item nor a duplicate, and the item is the target of none;
   the owner reopens a closed item, which clears its close; only the owner snoozes, to a time to come; the owner
-  edits any item not closed, a Bot only those it added or is given, and changes their assignee only to give the item
-  back to the owner (`me`); an edit points an item at what it was read in (`Edit.Source`, one of `FoundKinds` with
+  edits any item not closed, a Bot only those it added or is given, and changes their assignee only to the owner
+  (`me`) or to a Bot it may pass the item to (issue #1118, `inboxstore/pass.go`): the main Bot (`WithMainBot`,
+  `DefaultBotID`) to any Bot, and any Bot back to the main Bot, so a project Bot passes an item to no other project
+  Bot, as Paperclip's manager hands work down its chain; a Bot adds an item for another Bot by the same rule (for
+  itself, the owner, a person or nobody known as before); an edit points an item at what it was read in (`Edit.Source`, one of `FoundKinds` with
   its quote and message, never a chat, a run or the owner's hand, which only the token gives), and keeps its state. The system's transitions run in the transaction of what causes them
   (`LinkApprovalTx`, `ApprovalAnsweredTx`, `EndAttemptsTx`): `AskApproval` recording a new Approval with an
   `AttemptID` puts the item of that attempt in review; `DecideApproval` puts it back to doing, or open with the
@@ -4793,11 +4810,11 @@ its client API, its CLI and the Bots' tools.
   of state the snooze. A create retried with its idempotency key and the same request (actor and every field)
   returns the first item and writes nothing; the key with another request is a conflict and writes nothing.
 - A removed Bot's items (`inboxstore/removed.go`, issue #1124): removing a Bot (`removeBotRow`, for `DeleteBot`,
-  its removal from a chat and `ForceDeleteBot`, and undoing the setup change that made it) passes, in the removal's
-  transaction, the items not closed that it added or was given to the main Bot (`PassTx`): `created_by` and the
-  assignee that named it become the main Bot's, the revision moves on, and an `edited` event by the system
+  its removal from a chat and `ForceDeleteBot`, and undoing the setup change that made it) gives, in the removal's
+  transaction, the items not closed that it added or was given to the main Bot (`TakeOverTx`): `created_by` and the
+  assignee that named it become the main Bot's (a changed assignee clears `passed_by`), the revision moves on, and an `edited` event by the system
   (`bots`) records the change with the reason; the created event still says who added it, who does it is otherwise
-  unchanged, nothing is woken, and closed items stay as they were. The migration `*_inbox_removed_bots_items` did
+  unchanged, nothing is woken, and closed items stay as they were. The migration 00167 did
   the same for the items of Bots already removed (the Thư ký Bot's, #1107).
 - Handing over and the thread (`inboxstore/handoff.go`, `orchestration/inboxwake.go`; issue #1111, the owner's
   design of 2026-11-23, after GitHub's "Assign to Copilot" with additional instructions, Linear's agent assignment
@@ -4813,6 +4830,14 @@ its client API, its CLI and the Bots' tools.
   revision, which it moves on (`TouchTodo`): the owner on any item, his comment waking the Bot in the item's chat in
   `<owner_comment>` when it has one (Orca's item mail); a Bot on the items it added, is given or has the chat of,
   waking nobody.
+- Passing from Bot to Bot (issue #1118, the owner's request of 2026-11-23, after Paperclip's manager agent handing
+  issues to its reports and Linear's assignee shown with the agent it is delegated to): the wake-up names the Bot
+  that passed the item ("<Bot> passed you Inbox item …", read its thread with `inbox_get`). The main Bot given an
+  item is told the project Bots, each with its id, the first paragraph of its persona (≤ 300 characters) and its
+  Connections (`every Connection` when not limited), and to pass the item (`inbox_update pass_to`) when the work
+  needs that Bot's accounts or context, else to do it itself or start a Run. A project Bot is told to give it back
+  to the owner (`hand_back`) or to the main Bot (`pass_to`), and to no other Bot. Each Bot an item is passed to is
+  woken in its own chat for the item; the item keeps one `chat_id`, that of the Bot it is given to now.
 - Reads: `Get` with its latest 500 events, read in one transaction with the item, as every mutation returns the
   item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
@@ -4850,13 +4875,14 @@ its client API, its CLI and the Bots' tools.
   names none; `POST /open-apis/im/v1/messages?receive_id_type=chat_id`), and a reply in the Gmail thread to the
   Reply-To or From of the item's mail, "Re:" its subject, `In-Reply-To` and `References` its Message-ID (inbox-zero's
   `replyToEmail`), header values kept on one line; the evidence is a `zalo_sent`, `whatsapp_sent`, `lark_sent` or
-  `mail` link. `Todo.chat_id` is the item's chat.
+  `mail` link. `Todo.chat_id` is the item's chat, and `Todo.passed_by` the Bot it was passed through (issue #1118).
 - CLI (`clientcli/inbox.go`): `hypomnema inbox list` (the API's filters; one line an item), `show`, `add "<title>"
   [--due <date|date time|none|unknown> --tz <zone>] [--who me|unknown|bot:<id>|<name>] [--notes …] [--done-when …]`,
   `edit`, `accept`, `done [--evidence url] [--reason …]`, `drop <id> "<reason>"`, `duplicate <id> <of>`,
   `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision.
 - Bot tools (`agentapi/inbox.go`, the family `inbox` of `agenttool/switches.go`, in the `full` preset only; issue
-  #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`, `source`), `inbox_start`,
+  #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`, `source`, and
+  `pass_to` a Bot's id, issue #1118; not with `hand_back`), `inbox_start`,
   `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, `inbox_comment` (a comment in the
   item's thread, issue #1111), for a Bot's pi only. Who acts and
   where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
@@ -4876,7 +4902,10 @@ its client API, its CLI and the Bots' tools.
   it in its chat, with no `source`, opens.
   An item given to a person without a due is due 48 hours after it is first added (`NewTodo.DueIn`, counted by the
   store, so a retry with the same key is the same request; an empty draft stays out of the request's hash), the day
-  to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included. A Routine's run that reads
+  to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included, and `owner_changed_since`
+  (issue #1119): only the items the owner himself changed at or after a moment (an event of his), in any state,
+  snoozed or stale, each with his changes since then as its history, which the triage Routine learns from
+  (`inboxstore.Filter.OwnerChangedSince`). A Routine's run that reads
   only (#956) gets the family too (`agenttool.ReadRunAllows`), which writes only in the Inbox, and still no tool
   that sends as the owner: `zalo_send` and `whatsapp_send` are refused there by the agent API, and every write
   through the service proxy (a Lark message, a mail) by its read-only check; so the Bot that reads his messages
@@ -6141,7 +6170,8 @@ Node (`internal/node`):
     chosen; when nothing waits, the right pane says so with the to-dos added and closed today.
   - The detail: previous and next with "n of N in <group>"; a to-do's Snooze (Later today, Tomorrow, Monday, Next
     week, Pick a time; Orca's presets), Drop and Done, a proposal's Accept and Drop; the channel's mark and name and
-    the chat's, the person's or the meeting's name; Who, and the Date, Done when, Linked only when said; what was
+    the chat's, the person's or the meeting's name; Who (with the Bot it was passed through, "Hypo → BeyondPilot";
+    issue #1118), and the Date, Done when, Linked only when said; what was
     said under who said it (the message's sender, the meeting's speaker and the meeting's name), with Open in its
     chat (a Gmail thread opens in Gmail in the account it was read with,
     `https://mail.google.com/mail/u/<address>/#all/<thread>` after inbox-zero's `getGmailUrl`, the address from `GET
@@ -6149,7 +6179,8 @@ Node (`internal/node`):
     meeting, at `/meetings/{id}?line=<n>`; issue #1105), the draft with Copy, its primary button, which says Copied
     once it copied, Edit and Send (issue #1111: a confirmation names the recipient and the place, "Send to Kai Yong
     on WhatsApp (main)?", and shows the text as it is on screen, edits included, which `POST /inbox/{id}/send`
-    sends), the draft's section left out when the item needs none, and its thread: the events as lines and the
+    sends), the draft's section left out when the item needs none, and its thread: the events as lines (a hand-over
+    says "You gave it to Hypo", "Hypo passed it to BeyondPilot" or "BeyondPilot gave it back to you") and the
     comments as cards, a link to the item's chat, and a comment box (Ctrl+Enter). The top bar's "Hand to <main Bot>"
     (an item not closed nor in review) opens a dialog with an optional multi-line prompt, the quick prompts Do it,
     Only look into it, Draft a reply and Give it to a worker to fix the code, and Ctrl+Enter to hand it over (`POST
@@ -6375,8 +6406,9 @@ Node (`internal/node`):
   gives way to the settings sections under headings, with a way back (the headings are t3code's, the swap is
   Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
   on a phone `/settings` lists the sections and each page leads back to it ("‹ Settings", issue #604). The groups
-  are Gateway, Meetings, Agents, Connections and, last, Workers: the Agents and the Machines, moved out of the main
-  sidebar (issue #857, as OpenClaw's Settings holds its agents and devices with the system's plumbing last).
+  are Preferences, Gateway, Agents, Connections and, last, Workers: the Agents and the Machines, moved out of the main
+  sidebar (issue #857, as OpenClaw's Settings holds its agents and devices with the system's plumbing last). The
+  meetings' settings are not a group: they open from a gear on the Meetings page (issue #1121).
   - `/settings/integrations` (under Connections) lists the git hosts as one card a product, GitHub and GitLab,
     after Orca's integration card (MIT), with each host of that product a row, as Coder lists each configured
     instance (issue #379): its address ("server" beside a company's own), a "Connected" or "No token" badge, and

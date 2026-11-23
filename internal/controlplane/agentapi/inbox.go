@@ -171,6 +171,9 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 				"moment, RFC 3339; a date is due from its first moment."},
 			"due_to": map[string]any{"type": "string", "description": "Only the items due before this moment, " +
 				"RFC 3339."},
+			"owner_changed_since": map[string]any{"type": "string", "description": "Only the items the owner " +
+				"himself added, edited, closed, reopened or snoozed at or after this moment, RFC 3339, in any " +
+				"state, each with his changes since then as its history: what he corrected of yours."},
 			"cursor": map[string]any{"type": "string"},
 			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": inboxstore.MaxPage},
 		}, nil},
@@ -182,12 +185,16 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"and the message it came from. An item given to a person without a due is due in 2 days, the day " +
 			"to chase them.", merged(fields, due, add, read), []string{"title"}},
 		{agenttool.ToolInboxUpdate, "Change a to-do you added or were given: its fields, the reply you drafted " +
-			"(draft), where you read it (source, with quote and message), and hand_back to give it to the " +
-			"owner, where it waits in Needs you. An item you are doing is released first. Use it to attach a " +
-			"reply you drafted and give it to him to send.", merged(fields, due, read, map[string]any{
-			"id": id, "revision": revision,
-			"hand_back": map[string]any{"type": "boolean", "description": "Give it back to the owner."},
-		}), []string{"id"}},
+			"(draft), where you read it (source, with quote and message), hand_back to give it to the " +
+			"owner, where it waits in Needs you, or pass_to to give it to another Bot. An item you are doing is " +
+			"released first. Use it to attach a reply you drafted and give it to him to send.",
+			merged(fields, due, read, map[string]any{
+				"id": id, "revision": revision,
+				"hand_back": map[string]any{"type": "boolean", "description": "Give it back to the owner."},
+				"pass_to": map[string]any{"type": "string", "description": "Give it to this Bot, by its id; it is " +
+					"woken with it. The main Bot passes it to the project Bot whose accounts or context the work " +
+					"needs; a project Bot gives it back only to the main Bot."},
+			}), []string{"id"}},
 		{agenttool.ToolInboxStart, "Start an open to-do given to you: it is doing, here, until you close or " +
 			"release it. Use it before you work on one.", map[string]any{"id": id, "revision": revision}, []string{"id"}},
 		{agenttool.ToolInboxRelease, "Give up a to-do you are doing, with the reason: it is open again. Use it " +
@@ -248,6 +255,7 @@ type inboxArgs struct {
 	DueAt    string  `json:"due_at"`
 	Timezone string  `json:"timezone"`
 	HandBack bool    `json:"hand_back"`
+	PassTo   string  `json:"pass_to"`
 	// inbox_add.
 	AssigneeKind string `json:"assignee_kind"`
 	Assignee     string `json:"assignee"`
@@ -278,8 +286,10 @@ type inboxListArgs struct {
 	IncludeStale   bool     `json:"include_stale"`
 	DueFrom        string   `json:"due_from"`
 	DueTo          string   `json:"due_to"`
-	Cursor         string   `json:"cursor"`
-	Limit          int      `json:"limit"`
+	// OwnerChangedSince lists the items the owner changed since a moment, each with his changes (issue #1119).
+	OwnerChangedSince string `json:"owner_changed_since"`
+	Cursor            string `json:"cursor"`
+	Limit             int    `json:"limit"`
 }
 
 type inboxSourceArgs struct {
@@ -476,7 +486,10 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 	for _, bound := range []struct {
 		name, value string
 		into        *time.Time
-	}{{"due_from", in.DueFrom, &f.DueFrom}, {"due_to", in.DueTo, &f.DueTo}} {
+	}{
+		{"due_from", in.DueFrom, &f.DueFrom}, {"due_to", in.DueTo, &f.DueTo},
+		{"owner_changed_since", in.OwnerChangedSince, &f.OwnerChangedSince},
+	} {
 		if bound.value == "" {
 			continue
 		}
@@ -497,7 +510,7 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 
 	items := make([]todoOut, 0, len(page.Items))
 	for _, t := range page.Items {
-		items = append(items, todoView(t, false))
+		items = append(items, todoView(t, !f.OwnerChangedSince.IsZero()))
 	}
 
 	return map[string]any{"total": page.Total, "next_cursor": page.Next, "items": items}, nil
@@ -632,8 +645,15 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 			e.Due = &due
 		}
 
-		if in.HandBack {
+		pass := strings.TrimSpace(in.PassTo)
+
+		switch {
+		case in.HandBack && pass != "":
+			return nil, fmt.Errorf("%w: hand_back or pass_to, not both", orchestration.ErrInvalid)
+		case in.HandBack:
 			e.Assignee = &inboxstore.Assignee{Kind: inboxstore.Me}
+		case pass != "":
+			e.Assignee = &inboxstore.Assignee{Kind: inboxstore.ABot, Name: pass}
 		}
 
 		if in.Source != nil {
@@ -685,6 +705,7 @@ type todoOut struct {
 	Draft       string            `json:"draft,omitempty"`
 	Due         string            `json:"due,omitempty"`
 	Assignee    string            `json:"assignee"`
+	PassedBy    string            `json:"passed_by,omitempty"`
 	Source      map[string]any    `json:"source"`
 	WhyOpen     string            `json:"why_open,omitempty"`
 	CreatedBy   string            `json:"created_by"`
@@ -738,6 +759,10 @@ func todoView(t inboxstore.Todo, events bool) todoOut {
 
 	if t.Source.Ref != nil {
 		out.Source["message"] = t.Source.Ref
+	}
+
+	if t.PassedBy != "" {
+		out.PassedBy = who(inboxstore.Bot, t.PassedBy)
 	}
 
 	if t.Work != nil {
