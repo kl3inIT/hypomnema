@@ -13,6 +13,8 @@ import {
   noFilter,
   rowsOf,
   snoozePresets,
+  sourceOf,
+  sourceTarget,
   type Row,
 } from "./inbox-state"
 
@@ -228,4 +230,49 @@ test("the snooze presets come back at their times", () => {
   expect(new Date(presets[1]!.at).getDate()).toBe(25)
   expect(new Date(presets[2]!.at).getDay()).toBe(1)
   expect(presets.every((p) => p.at > now)).toBe(true)
+})
+
+// Issue #1105: a to-do from a Gmail thread opens that thread in Gmail, in the owner's account the Bot read it with
+// (inbox-zero's getGmailUrl, "https://mail.google.com/mail/u/<email>/#all/<thread>"); one from a meeting opens the
+// meeting at its line. Each is named by its own source kind, and an item made before them by its reference.
+test("a mail and a meeting open where they were read", () => {
+  const mails = new Map([["work", "dat@example.com"]])
+  const mailOf = (label: string) => mails.get(label)
+  const mail = todo("m", {
+    source: {
+      kind: "gmail",
+      id: "18c2f0a9b1d2e3f4",
+      account: "work",
+      ref: { kind: "mail", ref: "18c2f0a9b1d2e3f5" },
+    },
+  })
+  const meeting = todo("t", {
+    source: { kind: "meeting", id: "mtg_1", ref: { kind: "meeting_line", ref: "mtg_1/12" } },
+  })
+
+  expect(sourceTarget(mail, mailOf)).toEqual({
+    href: "https://mail.google.com/mail/u/dat@example.com/#all/18c2f0a9b1d2e3f4",
+  })
+  expect(sourceTarget({ ...mail, source: { ...mail.source, account: "gone" } }, mailOf)).toEqual({
+    href: "https://mail.google.com/mail/u/0/#all/18c2f0a9b1d2e3f4",
+  })
+  expect(sourceTarget(meeting, mailOf)).toEqual({ meeting: "mtg_1", line: 12 })
+  expect(sourceTarget(todo("n", { source: { kind: "meeting", id: "mtg_1" } }), mailOf)).toEqual({
+    meeting: "mtg_1",
+  })
+  expect(sourceTarget(todo("c", { source: { kind: "chat", id: "cht_1" } }), mailOf)).toEqual({
+    chat: "cht_1",
+  })
+  expect(
+    sourceTarget(todo("z", { source: { kind: "zalo", id: "g_1", account: "me" } }), mailOf),
+  ).toBe(null)
+
+  const row = (t: Todo): Row => ({ key: `todo:${t.id}`, kind: "todo", todo: t, needsYou: false })
+  expect(sourceOf(row(mail))).toBe("gmail")
+  expect(sourceOf(row(meeting))).toBe("meeting")
+  expect(
+    sourceOf(
+      row(todo("r", { source: { kind: "routine", id: "rrn_1", ref: { kind: "mail", ref: "x" } } })),
+    ),
+  ).toBe("gmail")
 })

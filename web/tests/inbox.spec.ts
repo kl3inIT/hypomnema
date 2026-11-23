@@ -41,7 +41,9 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 
 // world is the fake client API. review adds a to-do that waits for the Approval apr_1, which it then holds out of the
 // list. hold keeps each done call unanswered until release is called, so a second press finds the first in flight.
-function world({ review = false }: { review?: boolean } = {}) {
+// sources adds a to-do from a Gmail thread and one from a meeting's line (issue #1105), and the owner's Google
+// account the first was read with.
+function world({ review = false, sources = false }: { review?: boolean; sources?: boolean } = {}) {
   let release = () => {}
   let held: Promise<void> | undefined
   const todos: Todo[] = [
@@ -106,6 +108,28 @@ function world({ review = false }: { review?: boolean } = {}) {
         assignee: { kind: "bot", name: "thu-ky" },
         source: { kind: "chat", id: "cht_1" },
         updated_at: at(-10 * 60_000),
+      }),
+    )
+  if (sources)
+    todos.push(
+      todo("tdo_poc", "Xem đề xuất PoC của Alibaba Cloud", {
+        state: "proposed",
+        source: {
+          kind: "gmail",
+          id: "18c2f0a9b1d2e3f4",
+          account: "work",
+          quote: "Please find our PoC proposal attached.",
+          ref: { kind: "mail", ref: "18c2f0a9b1d2e3f5", label: "Alibaba Cloud" },
+        },
+      }),
+      todo("tdo_tiles", "Check tiles", {
+        why_open: "promised",
+        source: {
+          kind: "meeting",
+          id: "mtg_1",
+          quote: "Để em check tiles.",
+          ref: { kind: "meeting_line", ref: "mtg_1/12" },
+        },
       }),
     )
   const needs = new Set(["tdo_reply", "tdo_login", "tdo_idea", ...(review ? ["tdo_mail"] : [])])
@@ -249,6 +273,18 @@ function world({ review = false }: { review?: boolean } = {}) {
           })
 
         switch (path) {
+          case "/integrations":
+            return json({
+              data: [
+                {
+                  id: "google",
+                  name: "Google",
+                  connections: [
+                    { integration: "google", label: "work", account: "dat@example.com" },
+                  ],
+                },
+              ],
+            })
           case "/me":
             return json({ id: "usr_1", name: "admin", kind: "owner" })
           case "/bots":
@@ -377,6 +413,29 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
     await expect(list(page)).toBeVisible()
     await expect(item(page)).toBeHidden()
   }
+})
+
+// Scenario: issue #1105. A to-do the Thư ký found in the owner's Gmail opens its thread in Gmail, in the account it
+// was read with; one from a meeting opens the meeting at the action's line.
+test("a mail opens in Gmail and a meeting's action at its line", async ({ page }) => {
+  const w = world({ sources: true })
+  await w.serve(page)
+
+  await page.goto("/inbox?item=todo%3Atdo_poc")
+  const detail = item(page)
+  await expect(
+    detail.getByRole("heading", { name: "Xem đề xuất PoC của Alibaba Cloud", exact: true }),
+  ).toBeVisible()
+  await expect(detail.getByRole("link", { name: "Open in Gmail" })).toHaveAttribute(
+    "href",
+    "https://mail.google.com/mail/u/dat@example.com/#all/18c2f0a9b1d2e3f4",
+  )
+
+  await page.goto("/inbox?item=todo%3Atdo_tiles")
+  await expect(detail.getByRole("heading", { name: "Check tiles", exact: true })).toBeVisible()
+  const meeting = detail.getByRole("link", { name: "Open meeting" })
+  await expect(meeting).toHaveAttribute("href", "/meetings/mtg_1?line=12")
+  await shot(page, "inbox-meeting")
 })
 
 // Scenario: the owner allows an Approval from the Inbox, the same call as its card in the chat: it leaves Needs
