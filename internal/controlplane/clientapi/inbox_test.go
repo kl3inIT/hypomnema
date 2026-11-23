@@ -219,6 +219,15 @@ func TestEachTokenActsAsItsCaller(t *testing.T) {
 			return c.ReleaseTodoWithResponse(ctx, td.Id, openapi.TodoRelease{Revision: td.Revision,
 				Attempt: &td.Work.Attempt, Reason: "Stuck"})
 		}, [4]int{403, 200, 200, 403}},
+		// Issue #1111: only the owner hands an item to a Bot; a Bot comments on its own item.
+		{"HandTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Hand", toOwner) },
+			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
+				return c.HandTodoWithResponse(ctx, td.Id, openapi.TodoHand{Revision: td.Revision, Prompt: ptr("Do it")})
+			}, [4]int{200, 403, 403, 403}},
+		{"CommentTodo", func(t *testing.T, c inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Say", c.bot) },
+			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
+				return c.CommentTodoWithResponse(ctx, td.Id, openapi.TodoComment{Text: "On it"})
+			}, [4]int{200, 200, 200, 403}},
 	}
 
 	covered := map[string]bool{}

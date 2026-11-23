@@ -5322,7 +5322,7 @@ export type TodoEvent = {
   revision: number;
   actor: TodoActor;
   /**
-   * created, edited, state, snoozed or linked_approval.
+   * created, edited, state, snoozed, linked_approval or commented (after.text is the comment).
    */
   kind: string;
   /**
@@ -5371,6 +5371,10 @@ export type Todo = {
   evidence: Array<TodoLink>;
   closed_at?: string;
   duplicate_of?: string;
+  /**
+   * The item's own chat with the Bot it was given to, where the owner's comments reach it.
+   */
+  chat_id?: string;
   /**
    * A proposal nobody touched for three days, left out of the list unless asked for.
    */
@@ -5485,6 +5489,38 @@ export type TodoRelease = {
   revision: number;
   attempt?: string;
   reason: string;
+};
+
+export type TodoHand = {
+  revision: number;
+  /**
+   * The Bot's id; absent, the main Bot.
+   */
+  bot?: string;
+  /**
+   * What the owner asks of the Bot, its first comment; optional.
+   */
+  prompt?: string;
+};
+
+export type TodoComment = {
+  text: string;
+};
+
+export type TodoSend = {
+  /**
+   * The revision read; another is a conflict and sends nothing.
+   */
+  revision: number;
+  /**
+   * What is sent: the draft as shown, edits included.
+   */
+  text: string;
+};
+
+export type TodoSent = {
+  sent: TodoLink;
+  todo: Todo;
 };
 
 export type LarkChannelSettingsWritable = {
@@ -14295,3 +14331,84 @@ export type ReleaseTodoResponses = {
 };
 
 export type ReleaseTodoResponse = ReleaseTodoResponses[keyof ReleaseTodoResponses];
+
+export type HandTodoData = {
+  body: TodoHand;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/hand';
+};
+
+export type HandTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type HandTodoError = HandTodoErrors[keyof HandTodoErrors];
+
+export type HandTodoResponses = {
+  /**
+   * The to-do, given to the Bot, with chat_id its chat.
+   */
+  200: Todo;
+};
+
+export type HandTodoResponse = HandTodoResponses[keyof HandTodoResponses];
+
+export type CommentTodoData = {
+  body: TodoComment;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/comments';
+};
+
+export type CommentTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CommentTodoError = CommentTodoErrors[keyof CommentTodoErrors];
+
+export type CommentTodoResponses = {
+  /**
+   * The to-do, with its history.
+   */
+  200: Todo;
+};
+
+export type CommentTodoResponse = CommentTodoResponses[keyof CommentTodoResponses];
+
+export type SendTodoDraftData = {
+  body: TodoSend;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/send';
+};
+
+export type SendTodoDraftErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SendTodoDraftError = SendTodoDraftErrors[keyof SendTodoDraftErrors];
+
+export type SendTodoDraftResponses = {
+  /**
+   * The message sent and the to-do.
+   */
+  200: TodoSent;
+};
+
+export type SendTodoDraftResponse = SendTodoDraftResponses[keyof SendTodoDraftResponses];

@@ -15,11 +15,14 @@ import {
 } from "@/api/generated/@tanstack/react-query.gen"
 import {
   acceptTodo,
+  commentTodo,
   decideApproval,
   doneTodo,
   dropTodo,
   editTodo,
+  handTodo,
   reopenTodo,
+  sendTodoDraft,
   snoozeTodo,
 } from "@/api/generated/sdk.gen"
 import type { Todo } from "@/api/generated/types.gen"
@@ -156,6 +159,48 @@ export function useDecideById() {
           body: { decision: approve ? "approve" : "reject" },
         })
       ).data,
+    onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),
+  })
+}
+
+// useHandTodo hands a to-do to a Bot with the owner's prompt (POST /inbox/{id}/hand, issue #1111): the server gives
+// it to the Bot and wakes the Bot in the item's own chat; no Bot named is the main Bot.
+export function useHandTodo() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ todo, bot, prompt }: { todo: Todo; bot?: string; prompt: string }) =>
+      (
+        await handTodo({
+          path: { todo_id: todo.id },
+          body: { revision: todo.revision, bot, prompt: prompt.trim() || undefined },
+        })
+      ).data,
+    onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),
+  })
+}
+
+// useCommentTodo comments in a to-do's thread (POST /inbox/{id}/comments); the owner's reaches the Bot in the
+// item's chat.
+export function useCommentTodo() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ todo, text }: { todo: Todo; text: string }) =>
+      (await commentTodo({ path: { todo_id: todo.id }, body: { text } })).data,
+    onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),
+  })
+}
+
+// useSendDraft sends the text shown, edits included, through the owner's own account to the item's own chat or
+// thread (POST /inbox/{id}/send); the server closes the item with the message sent as its evidence.
+export function useSendDraft() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ todo, text }: { todo: Todo; text: string }) =>
+      (await sendTodoDraft({ path: { todo_id: todo.id }, body: { revision: todo.revision, text } }))
+        .data,
     onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),
   })
 }

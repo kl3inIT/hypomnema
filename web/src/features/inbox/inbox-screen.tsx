@@ -7,7 +7,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
-import { botNameOf } from "@/features/bots/bots-state"
+import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
@@ -336,6 +336,7 @@ export function InboxScreen({
           phone={phone}
           pending={actions.pending}
           botName={botName}
+          mainBot={mainBotOf(bots.data)}
           chats={chats}
           onBack={() => select(undefined)}
           onStep={step}
