@@ -499,7 +499,7 @@ func (r *Runner) runScript(ctx context.Context, s routinestore.StartedRun) {
 
 	result = r.answered(record, s.Run.ID, result)
 
-	if s.Routine.Kind == routinestore.RoutinePrompt && result.State == routinestore.RunSucceeded && wakes(output) {
+	if s.Run.Prompt != "" && result.State == routinestore.RunSucceeded && wakes(output) {
 		r.wake(record, s, output)
 
 		return
@@ -587,7 +587,10 @@ func (r *Runner) Follow(ctx context.Context) {
 	}
 
 	for _, l := range live {
-		if l.Routine.Kind != routinestore.RoutinePrompt || l.Run.ChatID == "" {
+		// What the run is, is its own snapshot (routinestore.RoutineRun.Prompt), not the Routine as it is now: a run
+		// a check woke stays a prompt run when its Routine becomes a script alone meanwhile, and ends as one (issue
+		// #1071).
+		if l.Run.Prompt == "" || l.Run.ChatID == "" {
 			continue
 		}
 
@@ -619,7 +622,7 @@ func (r *Runner) followPrompt(ctx context.Context, l routinestore.StartedRun) er
 	// script woke the Bot, whose own limit was the script's.
 	since := l.Run.StartedAt
 
-	if l.Routine.Script != "" {
+	if l.Run.Script != "" {
 		c, err := r.store.GetChat(ctx, chat)
 		if err != nil {
 			return err
@@ -724,8 +727,9 @@ func (r *Runner) finish(ctx context.Context, runID string, result routinestore.R
 	// A run's answer, or what a script printed, goes to the chat the Routine was made in unless the owner chose
 	// none (OpenClaw, src/cron/delivery-defaults.ts L155-189: agent, command and script jobs announce by default).
 	// A prompt run that has no chat is one whose check woke nobody: it is told nowhere (issue #656; Hermes,
-	// cron/scheduler.py L2279-2290, a silent success).
-	quiet := routine.Kind == routinestore.RoutinePrompt && run.ChatID == ""
+	// cron/scheduler.py L2279-2290, a silent success). Which it is, is the run's own snapshot: a Routine changed
+	// meanwhile does not tell what a check, which may have read only, printed (issue #1071).
+	quiet := run.Prompt != "" && run.ChatID == ""
 	if out := strings.TrimSpace(run.Output); run.State == routinestore.RunSucceeded && routine.Announce && out != "" &&
 		!quiet {
 		r.tell(ctx, routine.ChatID, fmt.Sprintf("Routine %q ran (%s):\n\n%s", routine.Name, run.ID, out),

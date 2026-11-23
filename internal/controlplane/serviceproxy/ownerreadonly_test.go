@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -115,4 +116,85 @@ func TestAnOpenConnectionFollowsTheBotsSettingAtEachRequest(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, got.Status, "the same connection now only reads")
 	assert.Contains(t, got.message(), agenttool.OwnerReadOnlyRefusal)
 	assert.Len(t, w.service.received(), 1, "only the first send reached Google")
+}
+
+// Scenario: issue #1071, finding 1 of the fourth review of #1037: the Bot's pi sends a mail through the owner's
+// Google, and the send waits for his approval. Meanwhile he makes the Bot read his accounts only, then approves the
+// mail. The send is refused, nothing reaches Google, and no approval is spent: what the Bot may do is read again
+// when the answer comes, not kept from before the wait. The same holds for a send the control plane makes itself (an
+// act, here a WhatsApp message as the owner).
+func TestAnApprovalAnsweredAfterTheBotWasMadeToReadOnlyDoesNotWrite(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	ctx := t.Context()
+
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "me", Account: "+84 900 000 001", Secret: "conn-whatsapp-me",
+	})
+	require.NoError(t, err)
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "Thư ký", OwnerAccounts: orchestration.OwnerAccountsUse,
+		Connections: orchestration.AllowList{Limited: true, Names: []string{"google:work", "whatsapp:me"}},
+	})
+	require.NoError(t, err)
+	chat, err := w.svc.CreateChat(ctx, bot.ID, "")
+	require.NoError(t, err)
+	secret, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
+	require.NoError(t, err)
+
+	readOnly := func(access string) {
+		t.Helper()
+
+		bot.OwnerAccounts = access
+		_, err := w.svc.PutBot(ctx, bot)
+		require.NoError(t, err)
+	}
+
+	gmail, refused := w.open(secret, "work", "gmail.googleapis.com", "")
+	require.Zero(t, refused)
+
+	contentType, body := mail("lan@example.com", "Báo giá", "Dạ em gửi ạ.", 1)
+	answered := make(chan answer, 1)
+	go func() { answered <- gmail.do(http.MethodPost, sendPath, contentType, body) }()
+
+	asked := w.pending()
+	readOnly(orchestration.OwnerAccountsRead)
+	_, err = w.proxy.Decide(ctx, asked.ID, true, orchestration.ScopeOnce)
+	require.NoError(t, err)
+
+	got := <-answered
+	assert.Equal(t, http.StatusForbidden, got.Status)
+	assert.Contains(t, got.message(), agenttool.OwnerReadOnlyRefusal)
+	assert.Empty(t, w.service.received(), "nothing reached Google")
+
+	approval, err := w.svc.GetApproval(ctx, asked.ID)
+	require.NoError(t, err)
+	assert.False(t, approval.Used, "the approval was not spent")
+
+	readOnly(orchestration.OwnerAccountsUse)
+
+	opened, err := http.NewRequestWithContext(ctx, http.MethodPost, w.srv.URL, nil)
+	require.NoError(t, err)
+	opened.Header.Set("Authorization", "Bearer "+secret)
+
+	judged := make(chan error, 1)
+	go func() {
+		judged <- w.proxy.Judge(ctx, serviceproxy.Act{
+			Caller:      serviceproxy.Caller{Name: "bot in chat", Coordinator: true, ChatID: chat.ID, Bot: bot.ID},
+			Integration: serviceproxy.WhatsAppID, Label: "me", ChatID: chat.ID, Action: "whatsapp.send",
+			Subject: "PMO", Fields: []orchestration.Field{{Label: "Text", Value: "Gửi báo giá nhé"}}, Hash: "h-1",
+			Opened: opened,
+		})
+	}()
+
+	asked = w.pending()
+	readOnly(orchestration.OwnerAccountsRead)
+	_, err = w.proxy.Decide(ctx, asked.ID, true, orchestration.ScopeOnce)
+	require.NoError(t, err)
+
+	var refusedAct *serviceproxy.RefusedError
+	require.ErrorAs(t, <-judged, &refusedAct, "the act is not done")
+	assert.Equal(t, agenttool.OwnerReadOnlyRefusal, refusedAct.Message)
 }

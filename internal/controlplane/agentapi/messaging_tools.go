@@ -655,7 +655,7 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 	err := s.judge.Judge(ctx, serviceproxy.Act{
 		Caller:      a.proxyCaller(),
 		Integration: m.integration, Label: label, ChatID: a.chatID, Action: m.integration + ".send",
-		Subject: name, Fields: fields, Hash: hex.EncodeToString(hash[:]), AttemptID: attempt,
+		Subject: name, Fields: fields, Hash: hex.EncodeToString(hash[:]), AttemptID: attempt, Opened: r,
 	})
 
 	var refused *serviceproxy.RefusedError

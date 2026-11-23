@@ -217,6 +217,43 @@ type session struct {
 
 func (s session) connection() string { return orchestration.Use(s.integration, s.label) }
 
+// again reads who the agent is and what its Bot may do with the owner's accounts again, from the request that opened
+// the session (review of #1037): at each request on an open connection, and when an Approval a request waited for is
+// answered (issue #1071). A refusal is what the agent is told when its credential no longer works. A session that
+// no request opened keeps what it was made with.
+func (p *Proxy) again(ctx context.Context, s *session) (refusal string, err error) {
+	if s.opened == nil {
+		return "", nil
+	}
+
+	caller, err := p.cfg.Agents.Caller(s.opened)
+	if err != nil {
+		//nolint:nilerr // A credential that no longer works refuses the request; it is no failure of the proxy.
+		return "Refused: this agent's credential no longer works. The request was not run", nil
+	}
+
+	s.caller.ReadRun, s.caller.OwnerReadOnly = caller.ReadRun, caller.OwnerReadOnly
+	s.ownerReadOnly = false
+
+	return "", p.readsOnly(ctx, s)
+}
+
+// writesOwners is the first of a request's actions that is not a read, when the session is of a Bot that only reads
+// the owner's accounts, on one of them (readsOnly): it refuses the request whatever the owner answered.
+func writesOwners(s session, all []Action) (Action, bool) {
+	if !s.ownerReadOnly {
+		return Action{}, false
+	}
+
+	for _, named := range all {
+		if named.Kind != Reads && !named.Plumbing {
+			return named, true
+		}
+	}
+
+	return Action{}, false
+}
+
 // readsOnly marks a session whose caller's Bot only reads the owner's own accounts when its Connection is one of
 // them: a user Connection (his Lark sign-in, his Zalo, his WhatsApp) or his Google (issue #1023, the owner's choice
 // of 2026-11-21 on #1037). decide then refuses every action that is not a read, at once, never asking.
@@ -434,18 +471,10 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 	// On an open connection, who the agent is and what its Bot may do with the owner's accounts are read again at
 	// each request, never kept from when the connection opened (review of #1037): a token that ended refuses, and
 	// a Bot the owner made read his accounts only reads them from the next request on.
-	if s.opened != nil {
-		caller, err := p.cfg.Agents.Caller(s.opened)
-		if err != nil {
-			return Action{}, "Refused: this agent's credential no longer works. The request was not run"
-		}
-
-		s.caller.ReadRun, s.caller.OwnerReadOnly = caller.ReadRun, caller.OwnerReadOnly
-		s.ownerReadOnly = false
-
-		if err := p.readsOnly(ctx, &s); err != nil {
-			return Action{}, "the control plane could not decide this request; it was not run. Try again"
-		}
+	if refusal, err := p.again(ctx, &s); err != nil {
+		return Action{}, "the control plane could not decide this request; it was not run. Try again"
+	} else if refusal != "" {
+		return Action{}, refusal
 	}
 
 	action, verdict, message, err := p.decideRequest(ctx, req, body, s)
@@ -474,12 +503,8 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 func (p *Proxy) decide(ctx context.Context, action Action, s session, describe func(Action) asking,
 ) (governing Action, verdict, message string, err error) {
 	all := append([]Action{action}, action.With...)
-	if s.ownerReadOnly {
-		for _, named := range all {
-			if named.Kind != Reads && !named.Plumbing {
-				return named, "owner-read-only", agenttool.OwnerReadOnlyRefusal, nil
-			}
-		}
+	if named, ok := writesOwners(s, all); ok {
+		return named, "owner-read-only", agenttool.OwnerReadOnlyRefusal, nil
 	}
 	if s.caller.ReadRun {
 		if !readRunIntegration(s.integration) && s.integration != SupersetID {
@@ -538,7 +563,7 @@ func (p *Proxy) decide(ctx context.Context, action Action, s session, describe f
 	}
 
 	if len(asks) == 1 {
-		verdict, message, _, err = p.ask(ctx, action, s, describe(action))
+		verdict, message, _, err = p.ask(ctx, action, all, s, describe(action))
 
 		return action, verdict, message, err
 	}
@@ -582,7 +607,7 @@ func (p *Proxy) decide(ctx context.Context, action Action, s session, describe f
 			q.fields = append([]orchestration.Field{{Label: "Also", Value: strings.Join(names, "; ")}}, q.fields...)
 		}
 
-		verdict, message, standing, err := p.ask(ctx, action, s, q)
+		verdict, message, standing, err := p.ask(ctx, action, all, s, q)
 		if err != nil || message != "" || !standing {
 			return action, verdict, message, err
 		}
@@ -683,8 +708,8 @@ func httpAsking(req *http.Request, body []byte, action Action, s session) asking
 // ask holds a request for the owner's Approval.
 //
 // standing is true when the action was allowed by a grant for the session or the Routine, not by an answer to this
-// request.
-func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking,
+// request. all are the actions the request names, which the agent's Bot is asked about again once the owner answers.
+func (p *Proxy) ask(ctx context.Context, action Action, all []Action, s session, q asking,
 ) (verdict, message string, standing bool, err error) {
 
 	askedBy := "worker"
@@ -739,6 +764,24 @@ func (p *Proxy) ask(ctx context.Context, action Action, s session, q asking,
 
 		// He answered as the wait ran out.
 		answered = true
+	}
+
+	if answered && decided.Status != orchestration.ApprovalRejected {
+		// The wait may have been long: what the agent's Bot may do is read again, as at each request, and not kept
+		// from before it (issue #1071). A Bot the owner made read his accounts meanwhile does not write with them,
+		// whatever he approved.
+		refusal, err := p.again(ctx, &s)
+		if err != nil {
+			return "", "", false, err
+		}
+
+		if refusal != "" {
+			return "no longer given", refusal, false, nil
+		}
+
+		if _, ok := writesOwners(s, all); ok {
+			return "owner-read-only", agenttool.OwnerReadOnlyRefusal, false, nil
+		}
 	}
 
 	switch {

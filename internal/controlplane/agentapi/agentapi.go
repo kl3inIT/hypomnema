@@ -233,6 +233,9 @@ type agent struct {
 	chatID  string
 	bot     string
 	readRun bool
+	// readLive says the read run the agent works in still goes: a read run's rights to the owner's accounts end with
+	// the run (issue #1071), while its chat reads only for good (readRun).
+	readLive bool
 	// routine is the read Routine whose check script asks, with its run's token; empty for any other agent.
 	routine string
 	// ownerReadOnly says the agent's Bot only reads the owner's own accounts (orchestration.Bot.OwnerAccounts,
@@ -341,7 +344,7 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 				// cron/scheduler.py:2232-2250): the owner's own accounts the Bot may use, and only their reads.
 				return agent{
 					name: fmt.Sprintf("bot %s in read routine %s", token.Bot, token.Routine), coordinator: true,
-					bot: token.Bot, routine: token.Routine, key: "r-" + token.Routine, readRun: true,
+					bot: token.Bot, routine: token.Routine, key: "r-" + token.Routine, readRun: true, readLive: true,
 					ownerReadOnly: bot.ReadsOwnerAccountsOnly(),
 					may:           bot.MayUse, offered: bot.MayUse, botSwitches: bot.ToolSwitches(),
 					scope: func(label string) superset.Scope { return superset.ScopeOf(bot, label) },
@@ -364,9 +367,23 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 			return agent{}, err
 		}
 
+		// A read run's chat reads the owner's accounts only while its run goes (issue #1071): its pi's token lives
+		// while pi idles in the chat, and its rights end with the run, as the run's script's token does.
+		readLive := false
+
+		if readRun {
+			run, err := s.store.RoutineRunOf(r.Context(), token)
+			if err != nil {
+				return agent{}, err
+			}
+
+			readLive = run != ""
+		}
+
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
-			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat, readRun), readRun: readRun,
+			bot: token.Bot, key: "b-" + token.Chat, may: s.botMay(r.Context(), bot, token.Chat, readLive),
+			readRun: readRun, readLive: readLive,
 			ownerReadOnly: bot.ReadsOwnerAccountsOnly(),
 			offered:       bot.MayUse,
 			botSwitches:   bot.ToolSwitches(),
@@ -380,8 +397,8 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 
 // botMay is what a Bot's pi in a chat may use: what its Bot may, and the
 // owner's own sign-in on the owner's turn in that chat (issues #468,
-// #618), or in an owner-marked read run (#956). The turn is read once a request, when a user Connection is
-// asked about. A turn that cannot be read is not his.
+// #618), or in an owner-marked read run while it goes (#956, #1071). The turn is read once a request, when a user
+// Connection is asked about. A turn that cannot be read is not his.
 func (s *Server) botMay(ctx context.Context, bot orchestration.Bot, chatID string, readRun bool,
 ) func(orchestration.Connection) bool {
 	var asked, ownerTurn bool

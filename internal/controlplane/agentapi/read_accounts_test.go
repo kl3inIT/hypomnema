@@ -158,3 +158,70 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 	assert.Empty(t, accounts)
 	assert.NotContains(t, toolNames(w.tools(full)), agenttool.ToolAccountRead)
 }
+
+// Scenario: issue #1071, finding 3 of the fourth review of #1037: a read Routine's run reads the owner's Lark through
+// its chat's pi. The run ends while that pi idles in the chat, its token still alive: from then on the token reads
+// nothing of his accounts, as the run's script's token ends with the run. The chat still reads only.
+func TestAReadRunsChatStopsReadingTheOwnersAccountsWhenTheRunEnds(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	var agents *agentapi.Server
+	w := newWorldWith(t, 0, func(api *agentapi.Server) { agents = api })
+	var upstreamCalls atomic.Int32
+	proxy, err := serviceproxy.New(serviceproxy.Config{
+		Agents: agents, Store: w.svc, Logger: slog.New(slog.DiscardHandler),
+		Token: func(context.Context, string, string) (string, error) { return "lark-owner-token", nil },
+		Upstream: accountTransport(func(*http.Request) (*http.Response, error) {
+			upstreamCalls.Add(1)
+
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"name":"Private"}`))}, nil
+		}),
+	})
+	require.NoError(t, err)
+	agents.WithRelay(proxy)
+
+	_, err = w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "lark", Label: "me", Secret: "test-lark", AppLabel: "test-app",
+	})
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "lark", "me", true)
+	require.NoError(t, err)
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "brief", Connections: orchestration.AllowList{Limited: true, Names: []string{"lark:me"}},
+	})
+	require.NoError(t, err)
+	_, _, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: bot.ID, Name: "brief", Kind: routinestore.RoutinePrompt, Prompt: "Write the brief.", EveryMinutes: 60,
+		Access: routinestore.AccessRead,
+	}, routinestore.RoutineAuthor{})
+	require.NoError(t, err)
+	run, err := w.svc.RunRoutineNow(ctx, routine.ID)
+	require.NoError(t, err)
+	pi, err := w.svc.AddBotToken(ctx, "pi", run.Run.ChatID, bot.ID)
+	require.NoError(t, err)
+
+	get := `{"account":"lark:me","host":"open.larksuite.com","method":"GET","path":"/open-apis/im/v1/chats"}`
+	_, text, failed := w.use(pi, agenttool.ToolAccountRead, get)
+	require.False(t, failed, text)
+	require.Equal(t, int32(1), upstreamCalls.Load())
+
+	_, err = w.svc.FinishRoutineRun(ctx, run.Run.ID, routinestore.RunResult{State: routinestore.RunSucceeded})
+	require.NoError(t, err)
+
+	assert.NotContains(t, toolNames(w.tools(pi)), agenttool.ToolAccountRead, "the ended run's chat lists no read")
+	_, accounts := w.get(pi, "lark")
+	assert.Empty(t, accounts, "nor the owner's Lark")
+
+	status, text, _ := w.use(pi, agenttool.ToolAccountRead, get)
+	assert.Equal(t, http.StatusNotFound, status, text)
+	assert.Equal(t, int32(1), upstreamCalls.Load(), "nothing more was read")
+
+	_, text, failed = w.use(pi, agenttool.ToolZaloSend, `{}`)
+	assert.True(t, failed)
+	assert.Contains(t, text, agenttool.ReadRunRefusal, "the chat still reads only")
+}

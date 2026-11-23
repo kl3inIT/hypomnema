@@ -16,7 +16,7 @@ import (
 var readAccountIntegrations = []string{"lark", "google"}
 
 func (s *Server) readAccountTools(ctx context.Context, a agent) []agenttool.BrowserTool {
-	if s.relay == nil {
+	if s.relay == nil || !a.readLive {
 		return nil
 	}
 
