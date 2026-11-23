@@ -3,7 +3,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { check } from "./new-messages.mjs";
+import { check as checkBatch } from "./new-messages.mjs";
+
+// These tests are about reading the sources, not the batch of a run (issue #1101): every conversation is printed.
+const check = (args) => checkBatch({ ...args, config: { perRun: Infinity, ...args.config } });
 
 const at = (seconds) => new Date(Date.parse("2026-11-21T01:00:00Z") + seconds * 1000).toISOString();
 const mark = at(0);
@@ -17,6 +20,8 @@ function messagingWorld(service, messages, precision = "ms") {
     { name: `${service}_messages` }];
   const call = async (name, args) => {
     calls.push({ name, args });
+    // The chats, as kept: none known here, so each counts as a group.
+    if (name === `${service}_chats`) return { chats: [] };
     if (name !== `${service}_messages` || args.chat) throw new Error(`no tool ${name}`);
     const list = messages
       .map((m, i) => ({ ...m, i }))

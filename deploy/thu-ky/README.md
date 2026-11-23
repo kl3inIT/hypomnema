@@ -29,6 +29,13 @@ without a release: write the fields to change into `thu-ky/filters.json` in the 
 `defaults` in `new-messages.mjs`). Its state, when each source was last read, is `thu-ky/new-messages.json` there;
 removing it makes the next check look back one hour.
 
+Each run gets a batch the Bot finishes (issue #1101): the check names at most `perRun` conversations (15), and keeps
+the rest as `carry` in its state. Direct chats and conversations that tag the owner (Lark) or name him come first,
+then groups, then mail, then meetings. What was carried is named first at the next check, and wakes the Bot even
+when nothing is new, so a backlog such as a first look of a week goes through in turns of 15 minutes. For a group
+message that names him to count as a direct ask, write his names into `ownerNames` of `filters.json` (regular
+expressions, such as `["Đạt", "anh Dat"]`); by default none is looked for.
+
 ## The two-day trial (owner, 2026-11-21)
 
 Run it on zm for two days before relying on it. Each day, look at the items it added (the Inbox page, or
