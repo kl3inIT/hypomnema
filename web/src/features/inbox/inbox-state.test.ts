@@ -4,17 +4,24 @@ import type { Approval, Question, Todo } from "@/api/generated/types.gen"
 
 import {
   actionsOf,
+  askerOf,
+  atOf,
   detailActions,
   dueOf,
+  firstWaiting,
   fold,
+  fromText,
   groupRows,
+  initialsOf,
   matches,
   nextAfter,
   noFilter,
+  placeOf,
   rowsOf,
   snoozePresets,
   sourceOf,
   sourceTarget,
+  todayCounts,
   type Row,
 } from "./inbox-state"
 
@@ -205,19 +212,151 @@ test("the search and the filter keep what matches", () => {
   expect(matches(kai!, { ...noFilter, people: ["bot"] }, "")).toBe(false)
 })
 
-// Scenario: a date is due all its day; a past one is late, today's is today.
-test("a due date says when, and whether it is today or late", () => {
-  const today = new Intl.DateTimeFormat("en-CA", { dateStyle: "short" }).format(now)
+// Scenario: issue #1110. A date says what it is: Due for the owner's or a Bot's, Chase for one given to someone else,
+// the day and the month past tomorrow; a date is due all its day, a past one is late, today's is today.
+test("a date is labelled Due or Chase, and says whether it is today or late", () => {
+  const day = (n: number) =>
+    new Intl.DateTimeFormat("en-CA", { dateStyle: "short" }).format(now + n * 24 * hour)
 
-  expect(dueOf(todo("a", { due: { kind: "date", date: today } }), now)).toEqual({
-    text: "Today",
+  expect(dueOf(todo("a", { due: { kind: "date", date: day(0) } }), now)).toEqual({
+    text: "Due today",
     tone: "today",
   })
-  expect(dueOf(todo("b", { due: { kind: "date", date: "2026-11-20" } }), now)?.tone).toBe("late")
-  expect(dueOf(todo("c", { due: { kind: "instant", at: iso(now - hour) } }), now)?.tone).toBe(
+  expect(dueOf(todo("t", { due: { kind: "date", date: day(1) } }), now)?.text).toBe("Due tomorrow")
+  expect(dueOf(todo("l", { due: { kind: "date", date: "2026-11-25" } }), now)?.text).toBe(
+    "Due tomorrow",
+  )
+  expect(dueOf(todo("m", { due: { kind: "date", date: "2026-12-05" } }), now)).toEqual({
+    text: "Due 05/12",
+    tone: "later",
+  })
+  expect(
+    dueOf(
+      todo("c", {
+        due: { kind: "date", date: "2026-11-20" },
+        assignee: { kind: "person", name: "Lan" },
+      }),
+      now,
+    ),
+  ).toEqual({ text: "Chase 20/11", tone: "late" })
+  expect(dueOf(todo("i", { due: { kind: "instant", at: iso(now - hour) } }), now)?.tone).toBe(
     "late",
   )
+  expect(dueOf(todo("i", { due: { kind: "instant", at: iso(now + hour) } }), now)?.text).toMatch(
+    /^Due today 11:00/,
+  )
   expect(dueOf(todo("d"), now)).toBeNull()
+})
+
+// Scenario: issue #1110. A row names where it came from by the chat's or the person's name, never the account's
+// number: the kept chat's name, else its reference's label; the owner's own is "Added by you"; a Bot's chat is the
+// Bot's. The avatar is the sender's, "You" for what the owner said, the speaker of a meeting's line.
+test("a row names the chat and the person, not the account's number", () => {
+  const one = (t: Todo) => rowsOf({ todos: [t] }, now)[0]!
+  const zalo = one(
+    todo("z", {
+      source: {
+        kind: "zalo",
+        id: "2261258766901429891",
+        account: "2223515701293677881",
+        quote: "a kieemr tra cho :O",
+        ref: { kind: "zalo_message", ref: "8520580535290" },
+      },
+      created_by: { kind: "bot", id: "thu-ky" },
+    }),
+  )
+  const bots = (id: string) => (id === "thu-ky" ? "Thư ký" : id)
+
+  expect(placeOf(zalo, { chat: "Vân Anh" }, bots)).toBe("Vân Anh")
+  expect(fromText(zalo, { chat: "Vân Anh" }, bots)).toBe("Zalo · Vân Anh")
+  expect(placeOf(zalo, {}, bots)).toBe("")
+  expect(fromText(zalo, {}, bots)).not.toContain("2223515701293677881")
+  expect(askerOf(zalo, { chat: "Dự Án Ma", sender: "Vân Anh" }, bots)).toBe("Vân Anh")
+  expect(askerOf(zalo, { chat: "Vân Anh", sender: "Đạt", fromMe: true }, bots)).toBe("You")
+  expect(askerOf(zalo, { chat: "Vân Anh" }, bots)).toBe("Vân Anh")
+
+  const lark = one(
+    todo("l", {
+      source: {
+        kind: "lark",
+        account: "me",
+        ref: { kind: "lark_message", ref: "om_1", label: "ELITEX" },
+      },
+    }),
+  )
+  expect(fromText(lark)).toBe("Lark · ELITEX")
+
+  const mine = one(todo("h"))
+  expect(placeOf(mine)).toBe("Added by you")
+  expect(fromText(mine)).toBe("Added by you")
+  expect(askerOf(mine)).toBe("You")
+
+  const chat = one(
+    todo("c", { source: { kind: "chat", id: "cht_1" }, created_by: { kind: "bot", id: "thu-ky" } }),
+  )
+  expect(fromText(chat, {}, bots)).toBe("Chat · Thư ký")
+
+  const meeting = one(
+    todo("m", {
+      source: { kind: "routine", id: "rrn_1", ref: { kind: "meeting_line", ref: "mtg_1/37" } },
+    }),
+  )
+  expect(fromText(meeting, { meeting: "CDP" })).toBe("Meeting · CDP")
+  expect(askerOf(meeting, { speaker: "Thành" })).toBe("Thành")
+  expect(sourceTarget(meeting.kind === "todo" ? meeting.todo : todo("x"), () => undefined)).toEqual(
+    {
+      meeting: "mtg_1",
+      line: 37,
+    },
+  )
+
+  expect(initialsOf("Vân Anh")).toBe("VA")
+  expect(initialsOf("Kai")).toBe("K")
+  expect(initialsOf("Phan Hồng Đạt")).toBe("PĐ")
+})
+
+// Scenario: issue #1110. The time on a row's right is the message's own, else when the item was added.
+test("a row's time is its message's, else when it was added", () => {
+  const [row] = rowsOf({ todos: [todo("t")] }, now)
+
+  expect(atOf(row!, { at: iso(now - 3 * hour) })).toBe(iso(now - 3 * hour))
+  expect(atOf(row!)).toBe(iso(now - 5 * hour))
+})
+
+// Scenario: issue #1110. On a computer the first item of Needs you opens by itself; when nothing waits, none does,
+// and the pane counts what was added and closed today.
+test("the first item of Needs you opens, and today's counts when nothing waits", () => {
+  const rows = rowsOf(
+    {
+      todos: [todo("open"), todo("reply")],
+      needsYou: ["reply"],
+      approvals: [approval("a")],
+      closedTodos: [
+        todo("today", {
+          state: "done",
+          closed_at: iso(now - hour),
+          created_at: iso(now - 30 * hour),
+        }),
+        todo("before", {
+          state: "done",
+          closed_at: iso(now - 30 * hour),
+          created_at: iso(now - 40 * hour),
+        }),
+      ],
+    },
+    now,
+  )
+
+  expect(firstWaiting(groupRows(rows, now))).toBe("approval:a")
+  expect(
+    firstWaiting(
+      groupRows(
+        rows.filter((r) => r.kind === "todo" && r.todo.id === "open"),
+        now,
+      ),
+    ),
+  ).toBeUndefined()
+  expect(todayCounts(rows, now)).toEqual({ added: 2, closed: 1 })
 })
 
 // Scenario: the snooze presets, Orca's, in the owner's time: later today at 6 PM, tomorrow and Monday at 9 AM, and
