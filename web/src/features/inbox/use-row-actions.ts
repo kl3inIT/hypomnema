@@ -1,3 +1,5 @@
+import { useRef } from "react"
+
 import { toast } from "@/components/ui/toast"
 import { errorText } from "@/lib/server-error"
 
@@ -10,7 +12,9 @@ const dropReason = "Dropped in the Inbox"
 // useRowActions runs a row's actions with the same calls as their sources (issue #1093): an Approval's decision, a
 // to-do's transitions. A change that succeeded says so in a toast. after is told which row was acted on, so the
 // selection can move on (OpenMausBot's InboxPanel auto-advance, InboxPanel.tsx:47-56); open opens a row whose
-// action is answered in the detail (a question).
+// action is answered in the detail (a question). One change runs at a time, whether it came from the e key, a row's
+// buttons or the detail's: a second press while the first is in flight would send the same revision again and be
+// refused (issue #1097; the detail's own guard, inbox-detail.tsx, made shared).
 export function useRowActions({
   after,
   open,
@@ -20,12 +24,25 @@ export function useRowActions({
 }) {
   const act = useTodoAct()
   const decide = useDecideById()
+  // busy is set from the press to the answer: the mutations' isPending shows only after the next render, and the
+  // e key can be pressed twice before it.
+  const busy = useRef(false)
+  const start = () => {
+    if (busy.current) return false
+    busy.current = true
+
+    return true
+  }
+  const settled = () => {
+    busy.current = false
+  }
 
   const change = (row: Row, todoAct: TodoAct, done: string) => {
-    if (row.kind !== "todo") return
+    if (row.kind !== "todo" || !start()) return
     act.mutate(
       { todo: row.todo, change: todoAct },
       {
+        onSettled: settled,
         onSuccess: () => {
           toast.add({ title: done, type: "success" })
           if (todoAct.act !== "draft") after(row)
@@ -42,10 +59,11 @@ export function useRowActions({
       case "decline": {
         const approval =
           row.kind === "approval" ? row.approval : row.kind === "todo" ? row.approval : undefined
-        if (!approval) return
+        if (!approval || !start()) return
         decide.mutate(
           { id: approval.id, approve: action === "approve" },
           {
+            onSettled: settled,
             onSuccess: () => {
               toast.add({ title: action === "approve" ? "Approved" : "Declined", type: "success" })
               after(row)
@@ -95,9 +113,11 @@ export function useRowActions({
     run,
     saveDraft: (row: Row, draft: string, onSaved: () => void) =>
       row.kind === "todo" &&
+      start() &&
       act.mutate(
         { todo: row.todo, change: { act: "draft", draft } },
         {
+          onSettled: settled,
           onSuccess: () => {
             toast.add({ title: "Draft saved", type: "success" })
             onSaved()

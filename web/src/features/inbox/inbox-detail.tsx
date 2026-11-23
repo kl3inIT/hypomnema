@@ -103,7 +103,13 @@ export function InboxDetail({
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-5">
           {row.kind === "todo" && (
-            <TodoBody row={row} now={now} botName={botName} onSaveDraft={onSaveDraft} />
+            <TodoBody
+              row={row}
+              now={now}
+              botName={botName}
+              onAnswered={onAnswered}
+              onSaveDraft={onSaveDraft}
+            />
           )}
           {row.kind === "approval" && (
             <>
@@ -253,11 +259,13 @@ function TodoBody({
   row,
   now,
   botName,
+  onAnswered,
   onSaveDraft,
 }: {
   row: Extract<Row, { kind: "todo" }>
   now: number
   botName: (id: string) => string
+  onAnswered: () => void
   onSaveDraft: (draft: string, onSaved: () => void) => void
 }) {
   const { todo } = row
@@ -303,7 +311,7 @@ function TodoBody({
       )}
       {row.approval && (
         <Section title="Waits for your approval">
-          <ApprovalCard approval={row.approval} />
+          <ApprovalCard approval={row.approval} onAnswered={onAnswered} />
         </Section>
       )}
       <Draft key={`${todo.id}:${todo.revision}`} todo={todo} source={source} onSave={onSaveDraft} />

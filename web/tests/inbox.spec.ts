@@ -39,7 +39,11 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
   ...m,
 })
 
-function world() {
+// world is the fake client API. review adds a to-do that waits for the Approval apr_1, which it then holds out of the
+// list. hold keeps each done call unanswered until release is called, so a second press finds the first in flight.
+function world({ review = false }: { review?: boolean } = {}) {
+  let release = () => {}
+  let held: Promise<void> | undefined
   const todos: Todo[] = [
     todo("tdo_reply", "Reply to Kai Yong", {
       due: { kind: "date", date: dayIn(0), zone: "Asia/Ho_Chi_Minh" },
@@ -94,7 +98,17 @@ function world() {
       close_reason: "Paid",
     }),
   ]
-  const needs = new Set(["tdo_reply", "tdo_login", "tdo_idea"])
+  if (review)
+    todos.unshift(
+      todo("tdo_mail", "Send the contract to Kai", {
+        state: "review",
+        approval_id: "apr_1",
+        assignee: { kind: "bot", name: "thu-ky" },
+        source: { kind: "chat", id: "cht_1" },
+        updated_at: at(-10 * 60_000),
+      }),
+    )
+  const needs = new Set(["tdo_reply", "tdo_login", "tdo_idea", ...(review ? ["tdo_mail"] : [])])
   let approvals = [
     {
       id: "apr_1",
@@ -134,6 +148,10 @@ function world() {
 
   return {
     sent,
+    hold() {
+      held = new Promise((done) => (release = done))
+    },
+    release: () => release(),
     async serve(page: Page) {
       await page.route("**/api/v1/**", async (route) => {
         const request = route.request()
@@ -178,6 +196,7 @@ function world() {
               ],
             })
           sent.push({ path, body: request.postDataJSON() })
+          if (acted[2] === "done" && held) await held
           t.revision += 1
           t.updated_at = at(0)
           if (acted[2] === "done") Object.assign(t, { state: "done", closed_at: at(0) })
@@ -194,6 +213,12 @@ function world() {
           sent.push({ path, body: request.postDataJSON() })
           const answered = { ...approvals[0], status: "approved", scope: "once" }
           approvals = []
+          // The to-do that waited for it goes on with its work.
+          const waited = todos.find((t) => t.approval_id === "apr_1")
+          if (waited) {
+            needs.delete(waited.id)
+            Object.assign(waited, { state: "doing", revision: waited.revision + 1 })
+          }
 
           return json(answered)
         }
@@ -422,6 +447,51 @@ test("j, k and e work through the list, and a row shows its actions", async ({ p
   await shot(page, "inbox-row-actions")
   await proposal.getByRole("button", { name: "Accept" }).click()
   await expect.poll(() => w.sent.map((s) => s.path)).toContain("/inbox/tdo_idea/accept")
+})
+
+// Scenario: a Bot's to-do waits for the owner's Approval. He opens the to-do and approves in its page: the call is
+// sent once and the next item opens, as approving on its row does (issue #1097).
+test("approving in a to-do's page moves on to the next item", async ({ page }) => {
+  const w = world({ review: true })
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_mail")
+  const detail = item(page)
+  await expect(
+    detail.getByRole("heading", { name: "Send the contract to Kai", exact: true }),
+  ).toBeVisible()
+  const card = detail.getByRole("region", { name: "Waits for your approval" })
+  await card.getByRole("button", { name: "Approve", exact: true }).click()
+  await expect
+    .poll(() => w.sent)
+    .toContainEqual({ path: "/approvals/apr_1/decision", body: { decision: "approve" } })
+  await expect(detail.getByRole("heading", { name: /Should \/health be public/ })).toBeVisible()
+  await expect(page).toHaveURL(/qst_1/)
+})
+
+// Scenario: the owner presses e twice, and clicks Done, before the first done is answered. One done is sent, no
+// error toast shows, and the next item opens (issue #1097).
+test("e pressed twice sends done once", async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 1280) < 768, "keys are a computer's")
+  const w = world()
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_reply")
+  const detail = item(page)
+  await expect(
+    detail.getByRole("heading", { name: "Reply to Kai Yong", exact: true }),
+  ).toBeVisible()
+
+  w.hold()
+  await page.keyboard.press("e")
+  await expect.poll(() => w.sent.map((s) => s.path)).toContain("/inbox/tdo_reply/done")
+  await page.keyboard.press("e")
+  await detail.getByRole("button", { name: "Done", exact: true }).click()
+  w.release()
+
+  await expect(
+    detail.getByRole("heading", { name: "Log in again: lark:me", exact: true }),
+  ).toBeVisible()
+  expect(w.sent.filter((s) => s.path === "/inbox/tdo_reply/done")).toHaveLength(1)
+  await expect(page.getByText("Not changed")).toHaveCount(0)
 })
 
 // The pictures the owner looks at, in the light and the dark theme.
