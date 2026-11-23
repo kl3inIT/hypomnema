@@ -182,3 +182,22 @@ test("every chat with new messages is found, however many there are", async () =
   assert.deepEqual(capped.state.sources["zalo:main"].gaps[0].seen, []);
   assert.match(capped.text, /could not read zalo:main: more than 100 new messages/);
 });
+
+// Issue #1124: a Bot given one Zalo account has no account in its tools' schemas, and the Bot copied the account's id
+// from what it read instead of its label. The check names the label the reads' answers give.
+test("one account is named by the label its reads give", async () => {
+  const w = world({
+    chats: [{ ID: "g_pmo", Kind: "group", Name: "PMO", LastMessageAt: "2026-11-21T01:55:00Z" }],
+    messages: { g_pmo: [{ ID: "m3", At: "2026-11-21T01:55:00Z", FromMe: false, SenderName: "Lan", Text: "anh xem" }] },
+  });
+  const call = async (name, args) => {
+    const answer = await w.call(name, args);
+    return name.startsWith("zalo_") ? { account: "main", ...answer } : answer;
+  };
+  const one = [{ name: "zalo_chats", inputSchema: { properties: { limit: {} } } }, { name: "zalo_messages" }];
+  const got = await check({ tools: one, call, state: { sources: { zalo: since } }, now });
+
+  assert.equal(got.wake, true);
+  assert.match(got.text, /zalo:main chat "PMO" \(id g_pmo\): 1 new from Lan/);
+  assert.ok(got.state.sources.zalo, "its state stays under the key it had");
+});

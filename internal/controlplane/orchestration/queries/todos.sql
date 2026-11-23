@@ -148,3 +148,16 @@ SELECT bot_id FROM chats WHERE id = @id;
 -- comment on it, given to the Bot as a Routine's prompt is (InsertRoutinePrompt), since nobody wrote it there.
 INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
 VALUES (@chat_id, 'system', 'wake', @text, 1, @now);
+
+-- name: ListOpenTodosOfBot :many
+-- The items not closed a Bot added or was given (issue #1124): those its removal passes to the main Bot.
+SELECT * FROM todos
+WHERE state NOT IN ('done', 'dropped', 'duplicate')
+  AND ((created_by_kind = 'bot' AND created_by = @bot) OR (assignee_kind = 'bot' AND assignee = @bot))
+ORDER BY id;
+
+-- name: PassTodo :execrows
+-- An item passes to another Bot (issue #1124): who it counts as added by and who it is given to, at the revision
+-- read, which it moves on.
+UPDATE todos SET revision = revision + 1, created_by = @created_by, assignee = @assignee, updated_at = @now
+WHERE id = @id AND revision = @revision;

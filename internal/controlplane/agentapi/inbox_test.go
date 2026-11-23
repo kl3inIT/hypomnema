@@ -414,10 +414,11 @@ func TestASourceNamedByTheAccountsIDKeepsItsLabel(t *testing.T) {
 	}
 
 	for _, c := range []orchestration.Connection{
-		{Integration: "zalo", Label: "main", Account: "Hồng Đạt", Secret: "conn-zalo-main"},
-		{Integration: "whatsapp", Label: "main", Account: "+84369230426", Secret: "conn-whatsapp-main"},
-		{Integration: "zalo", Label: "work", Account: "Đạt VTII", Secret: "conn-zalo-work"},
+		{Integration: "zalo", Label: "main", Account: "Hồng Đạt"},
+		{Integration: "whatsapp", Label: "main", Account: "+84369230426"},
+		{Integration: "zalo", Label: "work", Account: "Đạt VTII"},
 	} {
+		c.Secret = "conn-" + c.Integration + "-" + c.Label
 		_, err := w.svc.SaveServiceConnection(ctx, c)
 		require.NoError(t, err)
 		_, err = w.svc.SetConnectionChats(ctx, c.Integration, c.Label, true)
@@ -431,17 +432,19 @@ func TestASourceNamedByTheAccountsIDKeepsItsLabel(t *testing.T) {
 
 	pi, chat := w.inboxPi(bot)
 
-	for name, src := range map[string]map[string]any{
-		"zalo by its id":               {"kind": inboxstore.FromZalo, "chat": "g_laura", "account": "2223515701293677881"},
-		"zalo by its label":            {"kind": inboxstore.FromZalo, "chat": "g_laura", "account": "main"},
-		"whatsapp by its number":       {"kind": inboxstore.FromWhatsApp, "chat": "8491@s.whatsapp.net", "account": "84369230426"},
-		"whatsapp by its number and +": {"kind": inboxstore.FromWhatsApp, "chat": "8491@s.whatsapp.net", "account": "+84369230426"},
+	for name, src := range map[string]struct{ kind, chat, account string }{
+		"zalo by its id":               {inboxstore.FromZalo, "g_laura", "2223515701293677881"},
+		"zalo by its label":            {inboxstore.FromZalo, "g_laura", "main"},
+		"whatsapp by its number":       {inboxstore.FromWhatsApp, "8491@s.whatsapp.net", "84369230426"},
+		"whatsapp by its number and +": {inboxstore.FromWhatsApp, "8491@s.whatsapp.net", "+84369230426"},
 	} {
 		item := w.inbox(pi, agenttool.ToolInboxAdd, map[string]any{
-			"title": "Reply: " + name, "source": src, "quote": "Anh xem giúp em nhé",
-			"message": map[string]any{"kind": src["kind"].(string) + "_message", "ref": "m_1"},
+			"title":   "Reply: " + name,
+			"source":  map[string]any{"kind": src.kind, "chat": src.chat, "account": src.account},
+			"quote":   "Anh xem giúp em nhé",
+			"message": map[string]any{"kind": src.kind + "_message", "ref": "m_1"},
 		})
-		assert.Equal(t, src["kind"], item.Source.Kind, name)
+		assert.Equal(t, src.kind, item.Source.Kind, name)
 		assert.Equal(t, "main", item.Source.Account, "%s: the item keeps the label", name)
 	}
 

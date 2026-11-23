@@ -38,7 +38,8 @@ The check names the conversations with new messages since the last check. For ea
    with it, given as evidence; a later "dạ" or a thank-you does not close it.
 6. Anything you only infer (a group complains without tagging him, a thread that may concern him) is proposed.
 7. Every item carries the words it came from (`quote`) and where you read it, in `source` and `message`:
-   - Zalo, WhatsApp, Lark: `source` with `kind`, the `chat` and the `account` you read it with; `message`
+   - Zalo, WhatsApp, Lark: `source` with `kind`, the `chat` and the `account` you read it with, its label (`main`
+     of `zalo:main` in the check's lines, the `account` of the reads' answers), not the account's id; `message`
      `zalo_message`, `whatsapp_message` or `lark_message` with the message's id;
    - Gmail: `source` `gmail` with the `thread` and the `account` (the label of `google:<label>`); `message` `mail`
      with the Gmail message's id and the sender as its `label`;

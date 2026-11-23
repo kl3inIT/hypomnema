@@ -414,6 +414,11 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 			return err
 		}
 
+		// Its Inbox items not closed pass to the main Bot, as removeBotRow passes them (issue #1124).
+		if err := s.inbox.PassTx(ctx, q, now, row.ID, row.Name, DefaultBotID); err != nil {
+			return err
+		}
+
 		return q.DeleteBot(ctx, r.Name)
 	}
 
