@@ -139,7 +139,7 @@ export function useTodoAct() {
           return (await editTodo({ path, body: { revision, draft: change.draft } })).data
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ predicate: inboxReads }),
+    onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),
   })
 }
 
@@ -156,6 +156,6 @@ export function useDecideById() {
           body: { decision: approve ? "approve" : "reject" },
         })
       ).data,
-    onSettled: () => queryClient.invalidateQueries({ predicate: inboxReads }),
+    onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),
   })
 }

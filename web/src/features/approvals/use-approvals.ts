@@ -48,7 +48,9 @@ export function useDecide(approval: Approval) {
   return useMutation({
     mutationFn: async (decision: ApprovalDecision["decision"]) =>
       (await decideApproval({ path: { approval_id: approval.id }, body: { decision } })).data,
-    onSettled: () => queryClient.invalidateQueries({ predicate: decidedReads }),
+    // Not awaited: the card that answered leaves once the list is read again, and its own onSuccess (the toast) must
+    // run before that.
+    onSettled: () => void queryClient.invalidateQueries({ predicate: decidedReads }),
   })
 }
 
