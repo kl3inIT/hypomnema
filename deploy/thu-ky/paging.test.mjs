@@ -17,6 +17,8 @@ function messagingWorld(service, messages, precision = "ms") {
     { name: `${service}_messages` }];
   const call = async (name, args) => {
     calls.push({ name, args });
+    // The chats, as kept: none known here, so each counts as a group.
+    if (name === `${service}_chats`) return { chats: [] };
     if (name !== `${service}_messages` || args.chat) throw new Error(`no tool ${name}`);
     const list = messages
       .map((m, i) => ({ ...m, i }))
@@ -186,7 +188,7 @@ test("gmail: every page of mail is read, and past the cap, the rest next run", a
   const w = gmailWorld(150);
   const state = { sources: { "google:me": mark } };
 
-  const got = await check({ tools: w.tools, call: w.call, state, config: { perSource: 500, printBytes: 1e6 }, now: new Date(at(600)) });
+  const got = await check({ tools: w.tools, call: w.call, state, config: { perSource: 500, printBytes: 1e6, perRun: 1e9 }, now: new Date(at(600)) });
   assert.equal(Object.keys(counted(got.text.replaceAll("thread ", "id "))).length, 150);
   assert.equal(got.state.sources["google:me"].mark, at(600));
 
@@ -212,7 +214,7 @@ test("whatsapp: more messages in one second than the cap are all read, a run aft
   let kept = { sources: { "whatsapp:main": mark } };
   const read = {};
   for (let run = 0; run < 4; run++) {
-    const got = await check({ tools: w.tools, call: w.call, state: kept, config: { printBytes: 1e9 },
+    const got = await check({ tools: w.tools, call: w.call, state: kept, config: { printBytes: 1e9, perRun: 1e9 },
       now: new Date(at(60 + run * 60)) });
     Object.assign(read, counted(got.text));
     kept = got.state;
@@ -247,7 +249,8 @@ test("what the prompt cannot hold is told at the next check, never dropped", asy
   const seen = {};
 
   for (let run = 0; run < 5; run++) {
-    const got = await check({ tools: w.tools, call: w.call, state, now: new Date(at(600 + run * 60)) });
+    const got = await check({ tools: w.tools, call: w.call, state, config: { perRun: 1e9 },
+      now: new Date(at(600 + run * 60)) });
     assert.ok(Buffer.byteLength(got.text, "utf8") <= 16 << 10, `run ${run} prints ${Buffer.byteLength(got.text)} bytes`);
     Object.assign(seen, counted(got.text));
     state = got.state;
