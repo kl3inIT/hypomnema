@@ -5260,18 +5260,18 @@ export type TodoLink = {
 };
 
 /**
- * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there.
+ * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
  */
-export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo' | 'whatsapp';
+export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo' | 'whatsapp' | 'gmail' | 'meeting';
 
 export type TodoSource = {
   kind: TodoSourceKind;
   /**
-   * The chat, the Routine's run, or the chat's id at Lark or Zalo.
+   * The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting.
    */
   id?: string;
   /**
-   * The owner's account the chat is in; zalo and whatsapp, and lark when given.
+   * The owner's account the chat or thread is in; zalo, whatsapp and gmail, and lark when given.
    */
   account?: string;
   /**
@@ -5400,16 +5400,16 @@ export type InboxNeedsYou = {
 };
 
 /**
- * Where a Bot in a Routine's run found it: kind routine, or lark, zalo or whatsapp with the chat's id there (and the account). The owner's and a chat's come from the token.
+ * Where a Bot in a Routine's run found it: kind routine, or lark, zalo or whatsapp with the chat's id there, gmail with the thread's id, meeting with the meeting's id (and the account but for a meeting). The owner's and a chat's come from the token.
  */
 export type NewTodoSource = {
   kind?: TodoSourceKind;
   /**
-   * The chat's id at Lark, Zalo or WhatsApp; those only.
+   * The chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting's; those only.
    */
   id?: string;
   /**
-   * The owner's account the chat is in; required for zalo and whatsapp.
+   * The owner's account the chat or thread is in; required for zalo, whatsapp and gmail.
    */
   account?: string;
   quote?: string;

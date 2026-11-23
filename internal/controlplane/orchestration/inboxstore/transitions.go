@@ -176,6 +176,8 @@ func (s *Store) changeTx(
 			Title: next.Title, Notes: next.Notes, DoneWhen: next.DoneWhen, Draft: next.Draft, DueKind: next.DueKind,
 			DueDate: next.DueDate, DueZone: next.DueZone, DueAt: next.DueAt, OverdueAt: next.OverdueAt,
 			AssigneeKind: next.AssigneeKind, Assignee: next.Assignee, State: next.State,
+			SourceKind: next.SourceKind, SourceID: next.SourceID, SourceAccount: next.SourceAccount,
+			SourceQuote: next.SourceQuote, SourceRef: next.SourceRef,
 			SnoozedUntil: next.SnoozedUntil, WorkAttempt: next.WorkAttempt, WorkKind: next.WorkKind, WorkID: next.WorkID,
 			WorkBot: next.WorkBot, WorkStartedAt: next.WorkStartedAt, ApprovalID: next.ApprovalID,
 			DoneByKind: next.DoneByKind, DoneBy: next.DoneBy,
@@ -816,6 +818,9 @@ type Edit struct {
 	Draft    *string
 	Due      *Due
 	Assignee *Assignee
+	// Source points the item at what it was read in (issue #1105): one of FoundKinds, with its quote and message.
+	// A source the caller's token gives (the owner's hand, a chat, a Routine's run) is never set by an edit.
+	Source *Source
 }
 
 // Edit changes the fields of a to-do that is not closed. The owner edits any; a Bot only the items it created or
@@ -830,6 +835,24 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 
 	if c.Actor.Kind == System {
 		return Todo{}, fmt.Errorf("%w: the system does not edit a to-do", storeerr.ErrForbidden)
+	}
+
+	var ref sql.NullString
+
+	if e.Source != nil {
+		if !Found(e.Source.Kind) {
+			return Todo{}, fmt.Errorf("%w: an item is pointed only at what was read: %s, not %q", storeerr.ErrInvalid,
+				strings.Join(FoundKinds, ", "), e.Source.Kind)
+		}
+
+		if err := checkSource(*e.Source); err != nil {
+			return Todo{}, err
+		}
+
+		var err error
+		if ref, err = optionalJSON(e.Source.Ref); err != nil {
+			return Todo{}, err
+		}
 	}
 
 	var due *dueColumns
@@ -885,6 +908,11 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 			if due != nil {
 				next.DueKind, next.DueDate, next.DueZone = due.kind, due.date, due.zone
 				next.DueAt, next.OverdueAt = due.at, due.overdueAt
+			}
+
+			if e.Source != nil {
+				next.SourceKind, next.SourceID, next.SourceAccount = e.Source.Kind, e.Source.ID, e.Source.Account
+				next.SourceQuote, next.SourceRef = e.Source.Quote, ref
 			}
 
 			if e.Assignee != nil {
@@ -945,6 +973,7 @@ func fields(r store.Todo) map[string]any {
 	m := map[string]any{
 		"title": r.Title, "notes": r.Notes, "done_when": r.DoneWhen, "draft": r.Draft, "due_kind": r.DueKind,
 		"assignee_kind": r.AssigneeKind, "assignee": r.Assignee, "state": r.State, "source_kind": r.SourceKind,
+		"source_quote": r.SourceQuote,
 		"close_reason": r.CloseReason, "evidence": json.RawMessage(r.Evidence),
 	}
 
@@ -957,6 +986,11 @@ func fields(r store.Todo) map[string]any {
 		"duplicate_of": r.DuplicateOf, "why_open": r.WhyOpen,
 	} {
 		m[k] = v
+	}
+
+	m["source_ref"] = nil
+	if r.SourceRef.Valid {
+		m["source_ref"] = json.RawMessage(r.SourceRef.String)
 	}
 
 	return nullJSON(m)

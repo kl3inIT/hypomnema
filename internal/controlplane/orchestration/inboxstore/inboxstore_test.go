@@ -1609,3 +1609,98 @@ func TestALarkReplyClosesOnlyWithItsOwnAccountsMessage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.Done, done.State)
 }
+
+// Scenario: issue #1105, section 2. A Bot that read the owner's Gmail adds an item that names his Google account,
+// the thread and the mail it came from; one that read a meeting names the meeting and, when the action has one, its
+// line. Both are kept as given and listed by their source, and open only when the Bot says why, as every source it
+// reads. A Gmail item without its account or its mail, or a meeting item with another kind of reference or an
+// account, is refused.
+func TestAMailAndAMeetingAreSources(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+
+	mail := inboxstore.Source{Kind: inboxstore.FromGmail, ID: "18c2f0a9b1d2e3f4", Account: "work",
+		Quote: "Could you confirm the PoC scope by Friday?", Ref: &inboxstore.Link{Kind: inboxstore.LinkMail,
+			Ref: "18c2f0a9b1d2e3f5", Label: "Alibaba Cloud"}}
+	meeting := inboxstore.Source{Kind: inboxstore.FromMeeting, ID: "mtg_1", Quote: "Để em check tiles.",
+		Ref: &inboxstore.Link{Kind: inboxstore.LinkMeetingLine, Ref: "mtg_1/12"}}
+	noLine := inboxstore.Source{Kind: inboxstore.FromMeeting, ID: "mtg_1", Quote: "Lan sends the deck."}
+
+	for _, src := range []inboxstore.Source{mail, meeting, noLine} {
+		td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "From " + src.Kind,
+			State: inboxstore.Proposed, Source: src, Assignee: me})
+		require.NoError(t, err, src.Kind)
+		assert.Equal(t, src, td.Source)
+	}
+
+	for _, src := range []inboxstore.Source{mail, meeting} {
+		_, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Open from " + src.Kind,
+			State: inboxstore.Open, Source: src, Assignee: me})
+		require.ErrorIs(t, err, storeerr.ErrForbidden, "open from %s without why", src.Kind)
+
+		td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Open from " + src.Kind,
+			State: inboxstore.Open, Source: src, Assignee: me, WhyOpen: inboxstore.Promised})
+		require.NoError(t, err, src.Kind)
+		assert.Equal(t, inboxstore.Promised, td.WhyOpen)
+	}
+
+	for kind, want := range map[string]int{inboxstore.FromGmail: 2, inboxstore.FromMeeting: 3} {
+		page, err := w.inbox.List(ctx, inboxstore.Filter{SourceKind: kind}, "", 0)
+		require.NoError(t, err)
+		assert.Equal(t, want, page.Total, kind)
+	}
+
+	noAccount := mail
+	noAccount.Account = ""
+	noMail := mail
+	noMail.Ref = nil
+	lineAsURL := meeting
+	lineAsURL.Ref = &inboxstore.Link{Kind: inboxstore.LinkURL, Ref: "https://example.com"}
+	meetingAccount := meeting
+	meetingAccount.Account = "work"
+
+	for name, src := range map[string]inboxstore.Source{
+		"gmail without its account": noAccount, "gmail without its mail": noMail,
+		"a meeting with another reference": lineAsURL, "a meeting with an account": meetingAccount,
+	} {
+		_, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: name, State: inboxstore.Proposed,
+			Source: src, Assignee: me})
+		require.ErrorIs(t, err, storeerr.ErrInvalid, name)
+	}
+}
+
+// Scenario: issue #1105, section 1. A Bot points an item it added in its chat at the Zalo message it came from: the
+// item keeps its state, and the change is an event with the source before and after. A source only the token gives
+// (a chat, a Routine's run, the owner's hand) is never set by an edit, and a Bot does not repoint another Bot's item.
+func TestABotPointsItsItemAtWhereItCameFrom(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	td := w.fromChat(t)
+
+	zalo := inboxstore.Source{Kind: inboxstore.FromZalo, ID: "g_laura", Account: "main",
+		Quote: "tầm chiều tối em gửi cô cái báo cáo", Ref: &inboxstore.Link{Kind: inboxstore.LinkZaloMessage, Ref: "z_20"}}
+
+	moved, err := w.inbox.Edit(ctx, by(bot(w.kai), td), inboxstore.Edit{Source: &zalo})
+	require.NoError(t, err)
+	assert.Equal(t, zalo, moved.Source)
+	assert.Equal(t, inboxstore.Open, moved.State)
+
+	last := moved.Events[len(moved.Events)-1]
+	assert.Equal(t, inboxstore.EventEdited, last.Kind)
+	assert.JSONEq(t, `{"source_kind":"zalo","source_id":"g_laura","source_account":"main",`+
+		`"source_quote":"tầm chiều tối em gửi cô cái báo cáo","source_ref":{"kind":"zalo_message","ref":"z_20"}}`,
+		string(last.After))
+
+	for _, kind := range []string{inboxstore.FromChat, inboxstore.FromRoutine, inboxstore.ByHand} {
+		_, err := w.inbox.Edit(ctx, by(bot(w.kai), moved), inboxstore.Edit{Source: &inboxstore.Source{Kind: kind,
+			ID: "chat_x"}})
+		require.ErrorIs(t, err, storeerr.ErrInvalid, kind)
+	}
+
+	_, err = w.inbox.Edit(ctx, by(bot(w.lan), moved), inboxstore.Edit{Source: &zalo})
+	require.ErrorIs(t, err, storeerr.ErrForbidden, "another Bot's item")
+}

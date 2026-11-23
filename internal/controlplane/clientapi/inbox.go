@@ -24,8 +24,8 @@ import (
 // inboxCaller is who a request acts as in the Inbox, and where an item it adds comes from.
 type inboxCaller struct {
 	actor inboxstore.Actor
-	// source is the kind of source the token adds from: by hand, a chat, or a Routine's run (which may name a chat
-	// at Lark or Zalo instead).
+	// source is the kind of source the token adds from: by hand, a chat, or a Routine's run (which may name what of
+	// the owner's it read instead).
 	source string
 	// chat is the chat with the owner a Bot acts in; run the Routine's run.
 	chat, run string
@@ -148,7 +148,8 @@ func (s *Server) CreateTodo(ctx context.Context, req openapi.CreateTodoRequestOb
 }
 
 // newSource is where an item the caller adds comes from: the token says the kind and its chat or run; a Bot in a
-// Routine's run may name a chat at Lark or Zalo instead. A kind the token does not add from is refused, and so is
+// Routine's run may name what of the owner's it read instead (inboxstore.FoundKinds: a chat at Lark, Zalo or
+// WhatsApp, a Gmail thread, a meeting). A kind the token does not add from is refused, and so is
 // an id the token gives itself.
 func (c inboxCaller) newSource(b openapi.NewTodoSource) (inboxstore.Source, error) {
 	src := inboxstore.Source{Kind: c.source, Quote: val(b.Quote), Account: val(b.Account), Ref: linkIn(b.Ref)}
@@ -159,8 +160,7 @@ func (c inboxCaller) newSource(b openapi.NewTodoSource) (inboxstore.Source, erro
 
 	switch {
 	case src.Kind == c.source:
-	case c.source == inboxstore.FromRoutine && (src.Kind == inboxstore.FromLark || src.Kind == inboxstore.FromZalo ||
-		src.Kind == inboxstore.FromWhatsApp):
+	case c.source == inboxstore.FromRoutine && inboxstore.Found(src.Kind):
 		src.ID = val(b.Id)
 
 		return src, nil

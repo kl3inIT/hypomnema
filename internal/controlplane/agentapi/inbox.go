@@ -117,26 +117,36 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"person he waits on; a Bot, by its id in assignee."},
 		"assignee": map[string]any{"type": "string", "description": "The person's name, or the Bot's id."},
 		"state": map[string]any{"type": "string", "enum": []string{inboxstore.Open, inboxstore.Proposed},
-			"description": "Left out: open in this chat; in a Routine's run proposed, or open with why_open."},
+			"description": "Left out: open when it comes from this chat; proposed when it comes from this " +
+				"Routine's run or from what you read (source), or open there with why_open."},
 		"why_open": map[string]any{"type": "string", "enum": []string{inboxstore.AskedDirectly, inboxstore.Promised},
-			"description": "In a Routine's run: why it opens, with quote and the message."},
+			"description": "For an item from what you read or from a Routine's run: why it opens, with quote and " +
+				"the message."},
+		"key": map[string]any{"type": "string", "maxLength": inboxstore.MaxKey,
+			"description": "The same key again returns the item it made."},
+	}
+	// Where it was read: the same in inbox_add and in inbox_update, which points an item at it.
+	read := map[string]any{
 		"source": map[string]any{
-			"type": "object", "description": "In a Routine's run, the owner's Zalo, WhatsApp or Lark chat it was " +
-				"found in; left out, this chat or this run.",
+			"type": "object", "required": []string{"kind"},
+			"description": "What of the owner's you read it in, in this chat or a Routine's run: his Zalo, " +
+				"WhatsApp or Lark chat, his Gmail thread, or a meeting he recorded. Left out, this chat or this run.",
 			"properties": map[string]any{
-				"kind": map[string]any{"type": "string", "enum": []string{inboxstore.FromZalo, inboxstore.FromWhatsApp,
-					inboxstore.FromLark}},
-				"chat": map[string]any{"type": "string", "description": "The chat's id at the service."},
-				"account": map[string]any{"type": "string", "description": "The owner's account the chat is in; " +
-					"without it, his message there never closes the item."},
+				"kind": map[string]any{"type": "string", "enum": inboxstore.FoundKinds},
+				"chat": map[string]any{"type": "string", "description": "zalo, whatsapp, lark: the chat's id at " +
+					"the service."},
+				"thread":  map[string]any{"type": "string", "description": "gmail: the thread's id."},
+				"meeting": map[string]any{"type": "string", "description": "meeting: the meeting's id."},
+				"account": map[string]any{"type": "string", "description": "The owner's account you read it " +
+					"with, as your tools name it (the label of zalo:<label>, google:<label>…); every kind but " +
+					"meeting. One you may not use is refused."},
 			},
 		},
 		"quote": map[string]any{"type": "string", "maxLength": inboxstore.MaxQuote,
 			"description": "The words it came from."},
 		"message": inboxLinkSchema("The message it came from: lark_message, zalo_message or whatsapp_message " +
-			"for a chat there, chat_message for this chat's."),
-		"key": map[string]any{"type": "string", "maxLength": inboxstore.MaxKey,
-			"description": "The same key again returns the item it made."},
+			"for a chat there; mail, the Gmail message's id; meeting_line, \"<meeting id>/<line>\"; chat_message " +
+			"for this chat's."),
 	}
 
 	tools := []struct {
@@ -167,12 +177,14 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		{agenttool.ToolInboxGet, "Read one to-do with its draft, evidence and latest history. Use it before you " +
 			"change one you have not just read.",
 			map[string]any{"id": id}, []string{"id"}},
-		{agenttool.ToolInboxAdd, "Add a to-do, from this chat or this Routine's run. Use it for each direct ask " +
-			"to the owner and each promise he makes: give the quote and the message it came from. An item given " +
-			"to a person without a due is due in 2 days, the day to chase them.", merged(fields, due, add), []string{"title"}},
+		{agenttool.ToolInboxAdd, "Add a to-do, from this chat, this Routine's run, or what of the owner's you " +
+			"read (source). Use it for each direct ask to the owner and each promise he makes: give the quote " +
+			"and the message it came from. An item given to a person without a due is due in 2 days, the day " +
+			"to chase them.", merged(fields, due, add, read), []string{"title"}},
 		{agenttool.ToolInboxUpdate, "Change a to-do you added or were given: its fields, the reply you drafted " +
-			"(draft), and hand_back to give it to the owner, where it waits in Needs you. An item you are doing " +
-			"is released first. Use it to attach a reply you drafted and give it to him to send.", merged(fields, due, map[string]any{
+			"(draft), where you read it (source, with quote and message), and hand_back to give it to the " +
+			"owner, where it waits in Needs you. An item you are doing is released first. Use it to attach a " +
+			"reply you drafted and give it to him to send.", merged(fields, due, read, map[string]any{
 			"id": id, "revision": revision,
 			"hand_back": map[string]any{"type": "boolean", "description": "Give it back to the owner."},
 		}), []string{"id"}},
@@ -232,14 +244,15 @@ type inboxArgs struct {
 	Timezone string  `json:"timezone"`
 	HandBack bool    `json:"hand_back"`
 	// inbox_add.
-	AssigneeKind string           `json:"assignee_kind"`
-	Assignee     string           `json:"assignee"`
-	State        string           `json:"state"`
-	WhyOpen      string           `json:"why_open"`
-	Source       *inboxSourceArgs `json:"source"`
-	Quote        string           `json:"quote"`
-	Message      *inboxstore.Link `json:"message"`
-	Key          string           `json:"key"`
+	AssigneeKind string `json:"assignee_kind"`
+	Assignee     string `json:"assignee"`
+	State        string `json:"state"`
+	WhyOpen      string `json:"why_open"`
+	Key          string `json:"key"`
+	// inbox_add and inbox_update: where it was read.
+	Source  *inboxSourceArgs `json:"source"`
+	Quote   string           `json:"quote"`
+	Message *inboxstore.Link `json:"message"`
 	// inbox_release, inbox_done, inbox_drop.
 	Reason   string            `json:"reason"`
 	Evidence []inboxstore.Link `json:"evidence"`
@@ -265,7 +278,74 @@ type inboxListArgs struct {
 type inboxSourceArgs struct {
 	Kind    string `json:"kind"`
 	Chat    string `json:"chat"`
+	Thread  string `json:"thread"`
+	Meeting string `json:"meeting"`
 	Account string `json:"account"`
+}
+
+// sourceIntegration is the Integration whose Connection a source names its account by.
+var sourceIntegration = map[string]string{
+	inboxstore.FromZalo: "zalo", inboxstore.FromWhatsApp: "whatsapp", inboxstore.FromLark: "lark",
+	inboxstore.FromGmail: "google",
+}
+
+// readSource is where a Bot read an item, as it names it (issue #1105): what of the owner's it read, in any of its
+// chats or runs, accepted only when it may read it now as its reads are: an account it may use (Bot.MayUse, as
+// agentapi's tools and the service proxy check it), or a meeting that is there for a Bot that reads meetings. The
+// provenance is the token's still: the Bot names only what it may read, as the client API's newSource takes the
+// chat or run from the token (issue #966).
+func (s *Server) readSource(ctx context.Context, a agent, in inboxArgs) (inboxstore.Source, error) {
+	src := inboxstore.Source{Kind: in.Source.Kind, Account: strings.TrimSpace(in.Source.Account), Quote: in.Quote,
+		Ref: in.Message}
+
+	switch src.Kind {
+	case inboxstore.FromZalo, inboxstore.FromWhatsApp, inboxstore.FromLark:
+		src.ID = in.Source.Chat
+	case inboxstore.FromGmail:
+		src.ID = in.Source.Thread
+	case inboxstore.FromMeeting:
+		src.ID = in.Source.Meeting
+	default:
+		return inboxstore.Source{}, fmt.Errorf("%w: a to-do you read comes from %s, not %q; left out, it comes "+
+			"from this run or this chat", orchestration.ErrForbidden, strings.Join(inboxstore.FoundKinds, ", "),
+			src.Kind)
+	}
+
+	src.ID = strings.TrimSpace(src.ID)
+	if src.ID == "" {
+		return inboxstore.Source{}, fmt.Errorf("%w: a to-do from %s names its chat, thread or meeting",
+			orchestration.ErrInvalid, src.Kind)
+	}
+
+	if src.Kind == inboxstore.FromMeeting {
+		if !s.readsMeetings(a) {
+			return inboxstore.Source{}, fmt.Errorf("%w: you do not read the owner's meetings", orchestration.ErrForbidden)
+		}
+
+		if _, err := s.meetings.Get(ctx, src.ID); err != nil {
+			return inboxstore.Source{}, err
+		}
+
+		return src, nil
+	}
+
+	integration := sourceIntegration[src.Kind]
+	if src.Account == "" {
+		return inboxstore.Source{}, fmt.Errorf("%w: a to-do from %s names the owner's account you read it with, "+
+			"the label of %s:<label>", orchestration.ErrInvalid, src.Kind, integration)
+	}
+
+	may, err := s.offeredTo(ctx, a, integration)
+	if err != nil {
+		return inboxstore.Source{}, err
+	}
+
+	if !slices.ContainsFunc(may, func(c orchestration.Connection) bool { return c.Label == src.Account }) {
+		return inboxstore.Source{}, fmt.Errorf("%w: you may not use %s:%s, so nothing is added from it",
+			orchestration.ErrForbidden, integration, src.Account)
+	}
+
+	return src, nil
 }
 
 // inboxCall runs one of the Inbox's tools. What the Bot can act on (its arguments, a conflict, a refusal) is its
@@ -309,7 +389,7 @@ func (s *Server) inboxCall(w http.ResponseWriter, r *http.Request, a agent, call
 			out = todoView(t, true)
 		}
 	case agenttool.ToolInboxAdd:
-		out, err = s.inboxAdd(ctx, c, in)
+		out, err = s.inboxAdd(ctx, a, c, in)
 	default:
 		out, err = s.inboxChange(ctx, a, c, call.Tool, in)
 	}
@@ -399,7 +479,7 @@ func inboxChase(in inboxArgs) *inboxstore.DueIn {
 	return &inboxstore.DueIn{After: inboxDefaultChase, Zone: zone}
 }
 
-func (s *Server) inboxAdd(ctx context.Context, c inboxCaller, in inboxArgs) (any, error) {
+func (s *Server) inboxAdd(ctx context.Context, a agent, c inboxCaller, in inboxArgs) (any, error) {
 	n := inboxstore.NewTodo{
 		Title: val(in.Title), Notes: val(in.Notes), DoneWhen: val(in.DoneWhen), Draft: val(in.Draft),
 		Assignee: inboxstore.Assignee{Kind: inboxstore.Me}, WhyOpen: in.WhyOpen, IdempotencyKey: in.Key,
@@ -422,29 +502,29 @@ func (s *Server) inboxAdd(ctx context.Context, c inboxCaller, in inboxArgs) (any
 		n.DueIn = inboxChase(in)
 	}
 
-	// Where it came from is the token's: this chat, or this Routine's run, which may name the owner's chat at a
-	// messaging service instead, and nothing else (clientapi's newSource): a run naming a chat with the owner would
-	// open what it only infers.
+	// Where it came from: what of the owner's the Bot read, in any of its chats or runs (issue #1105), or else the
+	// token's chat or Routine's run, and nothing else: a run naming a chat with the owner would open what it only
+	// infers (clientapi's newSource).
 	switch {
-	case in.Source != nil && c.work.Kind != inboxstore.WorkRun:
-		return nil, fmt.Errorf("%w: only a Routine's run adds a to-do from the owner's Zalo, WhatsApp or Lark chat; "+
-			"in this chat it comes from this chat", orchestration.ErrForbidden)
-	case in.Source != nil && in.Source.Kind != inboxstore.FromZalo && in.Source.Kind != inboxstore.FromWhatsApp &&
-		in.Source.Kind != inboxstore.FromLark:
-		return nil, fmt.Errorf("%w: a to-do this Routine's run adds comes from this run, or from the owner's Zalo, "+
-			"WhatsApp or Lark chat it names, not from %q", orchestration.ErrForbidden, in.Source.Kind)
 	case in.Source != nil:
-		n.Source.Kind, n.Source.ID, n.Source.Account = in.Source.Kind, in.Source.Chat, in.Source.Account
+		src, err := s.readSource(ctx, a, in)
+		if err != nil {
+			return nil, err
+		}
+
+		n.Source = src
 	case c.work.Kind == inboxstore.WorkRun:
 		n.Source.Kind, n.Source.ID = inboxstore.FromRoutine, c.work.ID
 	default:
 		n.Source.Kind, n.Source.ID = inboxstore.FromChat, c.work.ID
 	}
 
+	// The triage of #966 wherever the Bot is: what it read opens with why_open, else it is proposed; what the owner
+	// tells it in its chat opens.
 	switch {
 	case in.State != "":
 		n.State = in.State
-	case n.WhyOpen != "" || c.work.Kind == inboxstore.WorkChat:
+	case n.WhyOpen != "" || n.Source.Kind == inboxstore.FromChat:
 		n.State = inboxstore.Open
 	default:
 		n.State = inboxstore.Proposed
@@ -499,6 +579,15 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 
 		if in.HandBack {
 			e.Assignee = &inboxstore.Assignee{Kind: inboxstore.Me}
+		}
+
+		if in.Source != nil {
+			src, srcErr := s.readSource(ctx, a, in)
+			if srcErr != nil {
+				return nil, srcErr
+			}
+
+			e.Source = &src
 		}
 
 		t, err = inbox.Edit(ctx, ch, e)

@@ -121,22 +121,39 @@ const (
 	// FromWhatsApp: a chat of the owner's own WhatsApp (issue #1004), named by its account and chat as Zalo's is
 	// (messaging/whatsapp/store.go, wa_messages); Ref a LinkWhatsAppMessage.
 	FromWhatsApp = "whatsapp"
+	// FromGmail: a thread of the owner's own Gmail (issue #1105): Account his Google Connection, ID the thread's id
+	// and Ref the mail, a LinkMail with the message's id, as inbox-zero and Zero Mail key a mail by thread and
+	// message.
+	FromGmail = "gmail"
+	// FromMeeting: a meeting the owner recorded (issue #1105): ID the meeting and Ref, when the action has one, its
+	// line, a LinkMeetingLine "<meeting>/<line>". It names no account: meetings are the control plane's own.
+	FromMeeting = "meeting"
 )
 
-// sourceMessage is the kind of Link a source at a messaging service names its message by.
+// sourceMessage is the kind of Link a source a Bot reads at a service names its message by, which it must give.
 var sourceMessage = map[string]string{
-	FromLark: LinkLarkMessage, FromZalo: LinkZaloMessage, FromWhatsApp: LinkWhatsAppMessage,
+	FromLark: LinkLarkMessage, FromZalo: LinkZaloMessage, FromWhatsApp: LinkWhatsAppMessage, FromGmail: LinkMail,
 }
 
-// fromMessaging says whether a source is a chat of the owner's own account at a messaging service.
-func fromMessaging(kind string) bool { return sourceMessage[kind] != "" }
+// FoundKinds are the sources a Bot names for what it read (issue #1105): a chat of the owner's Lark, Zalo or
+// WhatsApp, a thread of his Gmail, or a meeting he recorded. The others come from who adds the item: the owner's
+// hand, a Bot's chat or a Routine's run.
+var FoundKinds = []string{FromLark, FromZalo, FromWhatsApp, FromGmail, FromMeeting}
+
+// Found says whether a source is one a Bot names for what it read.
+func Found(kind string) bool { return slices.Contains(FoundKinds, kind) }
+
+// namesAccount says whether a source names the owner's Connection it was read through: required for Zalo, WhatsApp
+// and Gmail, whose items are keyed or linked by account; optional for Lark.
+func namesAccount(kind string) bool { return Found(kind) && kind != FromMeeting }
 
 // Source is where a to-do came from, with the words it came from and a typed reference to them.
 type Source struct {
 	Kind string
 	ID   string
-	// Account is the owner's Connection (its label) the chat is in: set for FromZalo and FromWhatsApp, whose stores
-	// key a message by account, chat and id; optional for FromLark; empty for any other.
+	// Account is the owner's Connection (its label) the chat or thread is in: set for FromZalo and FromWhatsApp,
+	// whose stores key a message by account, chat and id, and for FromGmail, whose thread opens in that account;
+	// optional for FromLark; empty for any other.
 	Account string
 	Quote   string
 	Ref     *Link
@@ -389,8 +406,8 @@ type DueIn struct {
 }
 
 // Create adds a to-do. The owner adds open items by hand; a Bot adds open items in a chat with the owner (Source
-// FromChat) and proposed ones in a Routine's run or from the owner's Lark or Zalo chats (Source FromRoutine,
-// FromLark, FromZalo), or open ones there with WhyOpen, a quote and a reference. A create retried with the same
+// FromChat) and proposed ones in a Routine's run or from what it read of the owner's (Source FromRoutine, or one of
+// FoundKinds), or open ones there with WhyOpen, a quote and a reference. A create retried with the same
 // IdempotencyKey and the same request returns the first item and writes nothing; with another request it is a
 // conflict (docs/conventions.md, "Idempotency").
 func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error) {
@@ -518,16 +535,17 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 
 // mayCreate is the creation rows of the transitions (issue #845) with the owner's triage of 2026-11-20 (issue
 // #966): the owner adds open items by hand; a Bot adds open items in a chat with the owner; in a Routine's run or
-// from the owner's Lark or Zalo chats it adds proposed ones (Plane's intake: what is found waits as pending), or open
-// ones when it says why (WhyOpen) and gives the quote and the reference to the message.
+// from what it read of the owner's (FoundKinds, in any chat or run: issue #1105) it adds proposed ones (Plane's
+// intake: what is found waits as pending), or open ones when it says why (WhyOpen) and gives the quote and the
+// reference to the message.
 func mayCreate(actor Actor, n NewTodo) error {
 	state, source := n.State, n.Source.Kind
-	found := source == FromRoutine || fromMessaging(source)
+	found := source == FromRoutine || Found(source)
 
 	switch {
 	case state != Open && state != Proposed:
 		return fmt.Errorf("%w: a to-do starts open or proposed", storeerr.ErrInvalid)
-	case !slices.Contains([]string{ByHand, FromChat, FromRoutine, FromLark, FromZalo, FromWhatsApp}, source):
+	case source != ByHand && source != FromChat && !found:
 		return fmt.Errorf("%w: unknown source %q", storeerr.ErrInvalid, source)
 	case n.WhyOpen != "" && n.WhyOpen != AskedDirectly && n.WhyOpen != Promised:
 		return fmt.Errorf("%w: why a to-do opens is %s or %s, not %q", storeerr.ErrInvalid, AskedDirectly, Promised,
@@ -582,17 +600,20 @@ func checkSource(src Source) error {
 		return fmt.Errorf("%w: a to-do written by hand names no chat or run", storeerr.ErrInvalid)
 	case src.Kind != ByHand && (src.ID == "" || len(src.ID) > MaxID):
 		return fmt.Errorf("%w: a to-do from a %s names it", storeerr.ErrInvalid, src.Kind)
-	case (src.Kind == FromZalo || src.Kind == FromWhatsApp) && src.Account == "":
-		return fmt.Errorf("%w: a to-do from %s names the owner's account the chat is in", storeerr.ErrInvalid, src.Kind)
+	case namesAccount(src.Kind) && src.Kind != FromLark && src.Account == "":
+		return fmt.Errorf("%w: a to-do from %s names the owner's account it was read in", storeerr.ErrInvalid,
+			src.Kind)
 	case len(src.Account) > MaxID:
 		return fmt.Errorf("%w: an account is at most %d characters", storeerr.ErrInvalid, MaxID)
-	case !fromMessaging(src.Kind) && src.Account != "":
-		return fmt.Errorf("%w: only a to-do from Lark, Zalo or WhatsApp names an account", storeerr.ErrInvalid)
+	case !namesAccount(src.Kind) && src.Account != "":
+		return fmt.Errorf("%w: only a to-do from Lark, Zalo, WhatsApp or Gmail names an account", storeerr.ErrInvalid)
 	case utf8.RuneCountInString(src.Quote) > MaxQuote:
 		return fmt.Errorf("%w: a quote is at most %d characters", storeerr.ErrInvalid, MaxQuote)
 	case sourceMessage[src.Kind] != "" && (src.Ref == nil || src.Ref.Kind != sourceMessage[src.Kind]):
 		return fmt.Errorf("%w: a to-do from %s names its message as a %s", storeerr.ErrInvalid, src.Kind,
 			sourceMessage[src.Kind])
+	case src.Kind == FromMeeting && src.Ref != nil && src.Ref.Kind != LinkMeetingLine:
+		return fmt.Errorf("%w: a to-do from a meeting names its line as a %s", storeerr.ErrInvalid, LinkMeetingLine)
 	case src.Ref != nil:
 		return checkLink(*src.Ref)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -488,4 +489,109 @@ func TestABotThatReadsTheOwnersAccountsHasNoSend(t *testing.T) {
 	assert.Contains(t, text, agenttool.OwnerReadOnlyRefusal)
 	assert.Empty(t, sw.whatsapp.sent, "nothing is sent as the owner")
 	assert.Empty(t, sw.judge.asked, "nor asked")
+}
+
+// Scenario: issue #1105, section 1, the owner's ask of 2026-11-23. In its own chat with the owner, not a Routine's
+// run, the Thư ký reads his Zalo, his Gmail and a meeting and puts what it found in his Inbox from where it read it:
+// his promise to cô Laura on Zalo opens with why_open, a mail with nothing clear in it is proposed, and the meeting's
+// action points at its line. An account the Bot may not use is refused, as its reads are, and nothing is added. An
+// item it added from the chat is pointed at the Zalo message it came from with inbox_update.
+func TestABotAddsFromWhatItReadInItsChat(t *testing.T) {
+	t.Parallel()
+
+	sw := newSecretaryWorld(t)
+	ctx := t.Context()
+
+	work := "work"
+	_, err := sw.svc.SaveServiceConnection(ctx, orchestration.Connection{Integration: "zalo", Label: work,
+		Secret: "test-zalo-" + work})
+	require.NoError(t, err)
+	_, err = sw.svc.SetConnectionChats(ctx, "zalo", "work", true)
+	require.NoError(t, err)
+
+	pi, _ := sw.inboxPi(sw.bot)
+	promise := map[string]any{
+		"title":  "Gửi cô Laura báo cáo VETC, Goong, Cốc Cốc",
+		"source": map[string]any{"kind": inboxstore.FromZalo, "chat": "g_laura", "account": "me"},
+		"quote":  "tầm chiều tối em gửi cô cái báo cáo các app vetc,... nhé ạ", "why_open": inboxstore.Promised,
+		"message": map[string]any{"kind": inboxstore.LinkZaloMessage, "ref": "z_20"},
+	}
+
+	laura := sw.inbox(pi, agenttool.ToolInboxAdd, promise)
+	assert.Equal(t, inboxstore.Open, laura.State)
+	assert.Equal(t, inboxstore.Promised, laura.WhyOpen)
+	assert.Equal(t, inboxstore.FromZalo, laura.Source.Kind)
+	assert.Equal(t, "g_laura", laura.Source.ID)
+	assert.Equal(t, "me", laura.Source.Account)
+
+	mail := sw.inbox(pi, agenttool.ToolInboxAdd, map[string]any{
+		"title":  "Xem đề xuất PoC của Alibaba Cloud",
+		"source": map[string]any{"kind": inboxstore.FromGmail, "thread": "18c2f0a9b1d2e3f4", "account": "me"},
+		"quote":  "Please find our PoC proposal attached.",
+		"message": map[string]any{"kind": inboxstore.LinkMail, "ref": "18c2f0a9b1d2e3f5",
+			"label": "Alibaba Cloud"},
+	})
+	assert.Equal(t, inboxstore.Proposed, mail.State, "nothing asked him directly: proposed, as in a run")
+	assert.Equal(t, inboxstore.FromGmail, mail.Source.Kind)
+	assert.Equal(t, "18c2f0a9b1d2e3f4", mail.Source.ID)
+	assert.Equal(t, "me", mail.Source.Account)
+	assert.Equal(t, &inboxstore.Link{Kind: inboxstore.LinkMail, Ref: "18c2f0a9b1d2e3f5", Label: "Alibaba Cloud"},
+		mail.Source.Message)
+
+	tiles := sw.inbox(pi, agenttool.ToolInboxAdd, map[string]any{
+		"title":  "Check tiles",
+		"source": map[string]any{"kind": inboxstore.FromMeeting, "meeting": standup.ID},
+		"quote":  "Để em check tiles.", "why_open": inboxstore.Promised,
+		"message": map[string]any{"kind": inboxstore.LinkMeetingLine, "ref": standup.ID + "/1"},
+	})
+	assert.Equal(t, inboxstore.Open, tiles.State)
+	assert.Equal(t, inboxstore.FromMeeting, tiles.Source.Kind)
+	assert.Equal(t, standup.ID, tiles.Source.ID)
+	assert.Empty(t, tiles.Source.Account)
+
+	for kind, want := range map[string]string{inboxstore.FromGmail: mail.ID, inboxstore.FromMeeting: tiles.ID} {
+		assert.Equal(t, []string{want}, sw.inboxList(pi, map[string]any{"source_kind": kind,
+			"state": []string{inboxstore.Open, inboxstore.Proposed}}), kind)
+	}
+
+	for name, src := range map[string]map[string]any{
+		"an account it may not use": {"kind": inboxstore.FromZalo, "chat": "g_laura", "account": "work"},
+		"an account that is not":    {"kind": inboxstore.FromGmail, "thread": "t_1", "account": "nobody"},
+		"no account":                {"kind": inboxstore.FromZalo, "chat": "g_laura"},
+		"a meeting that is not":     {"kind": inboxstore.FromMeeting, "meeting": "mtg_404"},
+	} {
+		refused := maps.Clone(promise)
+		refused["source"], refused["key"] = src, name
+
+		_, text, failed := sw.use(pi, agenttool.ToolInboxAdd, mustJSON(t, refused))
+		assert.True(t, failed, "%s: %s", name, text)
+	}
+
+	all, err := sw.svc.Inbox().List(ctx, inboxstore.Filter{WithClosed: true}, "", 0)
+	require.NoError(t, err)
+	assert.Equal(t, 3, all.Total, "nothing refused was added")
+
+	added := sw.inbox(pi, agenttool.ToolInboxAdd, map[string]any{"title": "Gửi cô Laura báo cáo"})
+	assert.Equal(t, inboxstore.FromChat, added.Source.Kind)
+
+	moved := sw.inbox(pi, agenttool.ToolInboxUpdate, map[string]any{
+		"id": added.ID, "source": promise["source"], "quote": promise["quote"], "message": promise["message"],
+	})
+	assert.Equal(t, inboxstore.FromZalo, moved.Source.Kind)
+	assert.Equal(t, "g_laura", moved.Source.ID)
+	assert.Equal(t, inboxstore.Open, moved.State)
+
+	_, text, failed := sw.use(pi, agenttool.ToolInboxUpdate, mustJSON(t, map[string]any{"id": added.ID,
+		"source":  map[string]any{"kind": inboxstore.FromZalo, "chat": "g_laura", "account": "work"},
+		"message": promise["message"]}))
+	assert.True(t, failed, "repointed at an account it may not use: %s", text)
+}
+
+func mustJSON(t *testing.T, v any) string {
+	t.Helper()
+
+	raw, err := json.Marshal(v)
+	require.NoError(t, err)
+
+	return string(raw)
 }
