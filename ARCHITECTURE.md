@@ -4714,7 +4714,7 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165 and the one of `passed_by`; issues
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165 and 00166; issues
 #838, #845, #966, #1004, #1105, #1111 and #1118, parts 1 to 3 of the Inbox, the sources a Bot reads, handing an item to
 a Bot, and passing it from Bot to Bot): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
