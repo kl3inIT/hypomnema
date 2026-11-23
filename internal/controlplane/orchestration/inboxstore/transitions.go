@@ -866,71 +866,108 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 		due = &d
 	}
 
-	return s.change(ctx, c, EventEdited,
-		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
-			if Closed(cur.State) {
-				return nil, fmt.Errorf("%w: a %s to-do is reopened before it is edited", storeerr.ErrConflict, cur.State)
-			}
+	if err := checkActor(c.Actor); err != nil {
+		return Todo{}, err
+	}
 
-			if c.Actor.Kind == Bot {
-				mine := (cur.CreatedByKind == Bot && cur.CreatedBy == c.Actor.ID) ||
-					(cur.AssigneeKind == ABot && cur.Assignee == c.Actor.ID)
-				if !mine || (e.Assignee != nil && e.Assignee.Kind != Me) {
-					return nil, fmt.Errorf("%w: a Bot edits only the to-dos it added or is given, and gives them only "+
-						"back to the owner", storeerr.ErrForbidden)
-				}
-			}
+	var got Todo
 
-			if e.Title != nil {
-				next.Title = strings.TrimSpace(*e.Title)
-			}
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		var before *Assignee
 
-			if e.Notes != nil {
-				next.Notes = *e.Notes
-			}
+		t, err := s.changeTx(ctx, q, now, c, EventEdited, func(q *store.Queries, cur store.Todo, next *store.Todo,
+			_ int64,
+		) (map[string]any, error) {
+			before = &Assignee{Kind: cur.AssigneeKind, Name: cur.Assignee}
 
-			if e.DoneWhen != nil {
-				next.DoneWhen = *e.DoneWhen
-			}
-
-			if e.Draft != nil {
-				if err := checkDraft(*e.Draft); err != nil {
-					return nil, err
-				}
-
-				next.Draft = *e.Draft
-			}
-
-			if err := checkText(next.Title, next.Notes, next.DoneWhen); err != nil {
-				return nil, err
-			}
-
-			if due != nil {
-				next.DueKind, next.DueDate, next.DueZone = due.kind, due.date, due.zone
-				next.DueAt, next.OverdueAt = due.at, due.overdueAt
-			}
-
-			if e.Source != nil {
-				next.SourceKind, next.SourceID, next.SourceAccount = e.Source.Kind, e.Source.ID, e.Source.Account
-				next.SourceQuote, next.SourceRef = e.Source.Quote, ref
-			}
-
-			if e.Assignee != nil {
-				a := Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}
-				if (cur.State == Doing || cur.State == Review) && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
-					return nil, fmt.Errorf("%w: a Bot's attempt is on to-do %s; it ends before the item is given to "+
-						"another", storeerr.ErrConflict, cur.ID)
-				}
-
-				if err := checkAssignee(ctx, q, a); err != nil {
-					return nil, err
-				}
-
-				next.AssigneeKind, next.Assignee = a.Kind, a.Name
-			}
-
-			return nil, nil
+			return edit(ctx, q, c, e, due, ref, cur, next)
 		})
+		if err != nil {
+			return err
+		}
+
+		// An item given to a Bot wakes it (issue #1111).
+		if err := s.givenTx(ctx, q, now, t.ID, before, t.Assignee); err != nil {
+			return err
+		}
+
+		got, err = s.get(ctx, q, t.ID)
+
+		return err
+	})
+	if err != nil {
+		return Todo{}, err
+	}
+
+	return got, nil
+}
+
+// edit makes the next row of an Edit from the row read, or refuses it.
+func edit(ctx context.Context, q *store.Queries, c Change, e Edit, due *dueColumns, ref sql.NullString,
+	cur store.Todo, next *store.Todo,
+) (map[string]any, error) {
+	if Closed(cur.State) {
+		return nil, fmt.Errorf("%w: a %s to-do is reopened before it is edited", storeerr.ErrConflict, cur.State)
+	}
+
+	if c.Actor.Kind == Bot {
+		mine := (cur.CreatedByKind == Bot && cur.CreatedBy == c.Actor.ID) ||
+			(cur.AssigneeKind == ABot && cur.Assignee == c.Actor.ID)
+		if !mine || (e.Assignee != nil && e.Assignee.Kind != Me) {
+			return nil, fmt.Errorf("%w: a Bot edits only the to-dos it added or is given, and gives them only "+
+				"back to the owner", storeerr.ErrForbidden)
+		}
+	}
+
+	if e.Title != nil {
+		next.Title = strings.TrimSpace(*e.Title)
+	}
+
+	if e.Notes != nil {
+		next.Notes = *e.Notes
+	}
+
+	if e.DoneWhen != nil {
+		next.DoneWhen = *e.DoneWhen
+	}
+
+	if e.Draft != nil {
+		if err := checkDraft(*e.Draft); err != nil {
+			return nil, err
+		}
+
+		next.Draft = *e.Draft
+	}
+
+	if err := checkText(next.Title, next.Notes, next.DoneWhen); err != nil {
+		return nil, err
+	}
+
+	if due != nil {
+		next.DueKind, next.DueDate, next.DueZone = due.kind, due.date, due.zone
+		next.DueAt, next.OverdueAt = due.at, due.overdueAt
+	}
+
+	if e.Source != nil {
+		next.SourceKind, next.SourceID, next.SourceAccount = e.Source.Kind, e.Source.ID, e.Source.Account
+		next.SourceQuote, next.SourceRef = e.Source.Quote, ref
+	}
+
+	if e.Assignee != nil {
+		a := Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}
+		if (cur.State == Doing || cur.State == Review) && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
+			return nil, fmt.Errorf("%w: a Bot's attempt is on to-do %s; it ends before the item is given to "+
+				"another", storeerr.ErrConflict, cur.ID)
+		}
+
+		if err := checkAssignee(ctx, q, a); err != nil {
+			return nil, err
+		}
+
+		next.AssigneeKind, next.Assignee = a.Kind, a.Name
+	}
+
+	return nil, nil
 }
 
 // closeFields records who closed a to-do, how and why.

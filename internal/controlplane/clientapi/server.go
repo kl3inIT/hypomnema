@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -118,7 +119,11 @@ type Server struct {
 	integrations Integrations
 	// messaging reads the kept chats of the messaging accounts linked as devices (issue #631).
 	messaging Messaging
-	approvals Approvals
+	// inboxSender sends the owner's replies from the Inbox (issue #1111); nil when the control plane wired none.
+	inboxSender InboxSender
+	// inboxSends holds one Send at a time for each Inbox item, by its id.
+	inboxSends sync.Map
+	approvals  Approvals
 	// relay sends requests to a Connection that has its own address; nil when the control plane wired none.
 	relay        Relay
 	larkChannels LarkChannels

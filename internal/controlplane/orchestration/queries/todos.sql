@@ -125,3 +125,26 @@ AS INTEGER) AS asks;
 -- An account's "log in again" item lets the account's key go when it closes, for one of its own, and takes it again
 -- when it is reopened (issue #1023), so that the account has one open item.
 UPDATE todos SET idempotency_key = @idempotency_key WHERE id = @id;
+
+-- name: TouchTodo :execrows
+-- A comment on an item (issue #1111) moves its revision on, as every change does, without changing a field: the
+-- item read before it is stale, and a proposal commented on is touched.
+UPDATE todos SET revision = revision + 1, updated_at = @now WHERE id = @id AND revision = @revision;
+
+-- name: SetTodoChat :exec
+-- The item's own chat with the Bot it is given to (issue #1111).
+UPDATE todos SET chat_id = @chat_id WHERE id = @id;
+
+-- name: ClearTodoChats :exec
+-- A chat deleted is no item's own chat any more.
+UPDATE todos SET chat_id = NULL WHERE chat_id = @chat_id;
+
+-- name: GetTodoChatBot :one
+-- The Bot of a chat, read for an item's own chat: none when the chat was deleted.
+SELECT bot_id FROM chats WHERE id = @id;
+
+-- name: InsertTodoWake :exec
+-- A wake-up of the control plane in an item's own chat (issue #1111): the item handed to the Bot, or the owner's
+-- comment on it, given to the Bot as a Routine's prompt is (InsertRoutinePrompt), since nobody wrote it there.
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (@chat_id, 'system', 'wake', @text, 1, @now);

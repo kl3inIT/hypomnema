@@ -5637,6 +5637,73 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Todo" }
         default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/hand:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: HandTodo
+      summary: Hand a to-do to a Bot with a prompt, waking the Bot in the item's own chat; only the owner
+      description: >-
+        The item is given to the Bot (the main Bot when none is named); a proposal is accepted and a snoozed item
+        brought back. The prompt is the first comment of the item's thread. The Bot is woken with the item (its
+        quote, source, due and draft) and the prompt in a chat of its own for the item, opened when the item has
+        none with that Bot, and decides: it does the item, starts a Run, or asks the owner. Issue #1111.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoHand" }
+      responses:
+        "200":
+          description: The to-do, given to the Bot, with chat_id its chat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/comments:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: CommentTodo
+      summary: Comment in a to-do's thread; the owner, or a Bot on its own items
+      description: >-
+        The owner's comment reaches the Bot in the item's own chat, when the item has one; a Bot's wakes nobody.
+        A comment changes no field and carries no revision; it moves the revision on. Issue #1111.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoComment" }
+      responses:
+        "200":
+          description: The to-do, with its history.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        default: { $ref: "#/components/responses/Error" }
+  /inbox/{todo_id}/send:
+    parameters:
+      - $ref: "#/components/parameters/TodoID"
+    post:
+      operationId: SendTodoDraft
+      summary: Send a reply as the owner to the to-do's own chat or thread, and close it; only the owner
+      description: >-
+        The owner presses Send on a draft (issue #1111): the text goes through his own account to the item's source,
+        a Zalo, WhatsApp or Lark chat (lark:me when the item names no account) or a reply in its Gmail thread, and
+        the item is closed done by him with the message sent as evidence. A Bot's token is refused: no Bot sends as
+        the owner. The revision read is checked before the send; an item in review or closed is not closed by it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TodoSend" }
+      responses:
+        "200":
+          description: The message sent and the to-do.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TodoSent" }
+        default: { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     bearerAuth:
@@ -11488,7 +11555,9 @@ components:
         at: { type: string, format: date-time }
         revision: { type: integer, description: The revision the change made. }
         actor: { $ref: "#/components/schemas/TodoActor" }
-        kind: { type: string, description: "created, edited, state, snoozed or linked_approval." }
+        kind:
+          type: string
+          description: "created, edited, state, snoozed, linked_approval or commented (after.text is the comment)."
         before: { type: object, additionalProperties: true, description: "The fields that changed, before." }
         after: { type: object, additionalProperties: true, description: "The fields that changed, after." }
     Todo:
@@ -11519,6 +11588,9 @@ components:
         evidence: { type: array, items: { $ref: "#/components/schemas/TodoLink" } }
         closed_at: { type: string, format: date-time }
         duplicate_of: { type: string }
+        chat_id:
+          type: string
+          description: "The item's own chat with the Bot it was given to, where the owner's comments reach it."
         stale:
           type: boolean
           description: A proposal nobody touched for three days, left out of the list unless asked for.
@@ -11628,3 +11700,30 @@ components:
         revision: { type: integer, minimum: 1 }
         attempt: { type: string, maxLength: 200 }
         reason: { type: string, minLength: 1, maxLength: 2000 }
+    TodoHand:
+      type: object
+      required: [revision]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        bot: { type: string, maxLength: 200, description: "The Bot's id; absent, the main Bot." }
+        prompt:
+          type: string
+          maxLength: 10000
+          description: What the owner asks of the Bot, its first comment; optional.
+    TodoComment:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string, minLength: 1, maxLength: 10000 }
+    TodoSend:
+      type: object
+      required: [revision, text]
+      properties:
+        revision: { type: integer, minimum: 1, description: The revision read; another is a conflict and sends nothing. }
+        text: { type: string, minLength: 1, maxLength: 20000, description: "What is sent: the draft as shown, edits included." }
+    TodoSent:
+      type: object
+      required: [sent, todo]
+      properties:
+        sent: { $ref: "#/components/schemas/TodoLink" }
+        todo: { $ref: "#/components/schemas/Todo" }

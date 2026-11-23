@@ -1149,6 +1149,7 @@ type Todo struct {
 	CreatedAt       int64
 	UpdatedAt       int64
 	WhyOpen         sql.NullString
+	ChatID          sql.NullString
 }
 
 type TodoEvent struct {
