@@ -2,7 +2,14 @@ import { expect, test } from "vitest"
 
 import type { Todo, TodoEvent } from "@/api/generated/types.gen"
 
-import { canHand, canSend, sendQuestion, threadOf } from "./inbox-thread"
+import {
+  canHand,
+  canSend,
+  handoverWords,
+  sendQuestion,
+  threadOf,
+  throughWhom,
+} from "./inbox-thread"
 
 const source = (m: Partial<Todo["source"]>): Pick<Todo, "source" | "state"> => ({
   state: "open",
@@ -74,4 +81,36 @@ test("an item is handed over unless it is closed or in review", () => {
   expect(canHand({ state: "doing" })).toBe(true)
   expect(canHand({ state: "review" })).toBe(false)
   expect(canHand({ state: "done" })).toBe(false)
+})
+
+const botNames: Record<string, string> = { bot_main: "Hypo", bot_beyond: "BeyondPilot" }
+const nameOf = (id: string) => botNames[id] ?? id
+
+// Scenario: issue #1118, section 4. An item the main Bot passed to a project Bot shows who has it and through whom;
+// one the owner gave shows its Bot alone.
+test("the assignee shows the Bot it was passed through", () => {
+  expect(throughWhom({ passed_by: "bot_main" }, "BeyondPilot", nameOf)).toBe("Hypo → BeyondPilot")
+  expect(throughWhom({}, "Hypo", nameOf)).toBe("Hypo")
+})
+
+// Scenario: issue #1118, section 4. The thread says each hand-over: the main Bot passing it to a project Bot, that
+// Bot giving it back to the owner, and the owner giving it to a Bot or a person.
+test("the thread shows each hand-over", () => {
+  expect(
+    handoverWords(
+      { assignee_kind: "bot", assignee: "bot_beyond", passed_by: "bot_main" },
+      "Hypo",
+      nameOf,
+    ),
+  ).toBe("Hypo passed it to BeyondPilot")
+  expect(handoverWords({ assignee_kind: "me", assignee: "" }, "BeyondPilot", nameOf)).toBe(
+    "BeyondPilot gave it back to you",
+  )
+  expect(handoverWords({ assignee_kind: "bot", assignee: "bot_main" }, "You", nameOf)).toBe(
+    "You gave it to Hypo",
+  )
+  expect(handoverWords({ assignee_kind: "person", assignee: "Lan" }, "You", nameOf)).toBe(
+    "You gave it to Lan",
+  )
+  expect(handoverWords({ notes: "x" }, "You", nameOf)).toBeUndefined()
 })

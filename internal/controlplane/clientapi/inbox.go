@@ -451,6 +451,7 @@ func todoOut(t inboxstore.Todo, events bool) openapi.Todo {
 		CreatedBy: actorOut(t.CreatedBy), ApprovalId: ptr(t.ApprovalID), CloseReason: t.CloseReason,
 		Evidence: make([]openapi.TodoLink, 0, len(t.Evidence)), ClosedAt: t.ClosedAt, DuplicateOf: ptr(t.DuplicateOf),
 		Stale: t.Stale, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, ChatId: ptr(t.Chat),
+		PassedBy: ptr(t.PassedBy),
 	}
 
 	if t.Due.Date != "" {

@@ -310,7 +310,10 @@ type Todo struct {
 	DuplicateOf string
 	// Chat is the item's own chat with the Bot it was given to (issue #1111), where that Bot was woken with it and
 	// is woken by the owner's comments; empty before it was given to a Bot, or once that chat is deleted.
-	Chat      string
+	Chat string
+	// PassedBy is the Bot that gave the item to the Bot it is given to (issue #1118): the main Bot that passed it to
+	// a project Bot, or the project Bot that gave it back to the main Bot; empty when the owner or the system gave it.
+	PassedBy  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	// Events is its history, oldest first; filled by Get only.
@@ -351,6 +354,9 @@ type Store struct {
 	sent Sent
 	// waker wakes a Bot an item is given to (issue #1111); nil wakes none.
 	waker Waker
+	// mainBot is the id of the main Bot, the one Bot that passes an item to another (issue #1118); empty, no Bot
+	// passes one.
+	mainBot string
 }
 
 // WithSent lets the store check a message the owner sent, given as evidence that he answered (issue #1004).
@@ -493,6 +499,10 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
+		if err := s.mayGive(actor, n.Assignee); err != nil {
+			return err
+		}
+
 		if n.DueIn != nil {
 			if due, err = dueRow(Due{Kind: DueInstant, At: time.UnixMilli(now).Add(n.DueIn.After),
 				Zone: n.DueIn.Zone}); err != nil {
@@ -504,8 +514,8 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		if err := q.InsertTodo(ctx, store.InsertTodoParams{
 			ID: id, Title: n.Title, Notes: n.Notes, DoneWhen: n.DoneWhen, Draft: n.Draft,
 			DueKind: due.kind, DueDate: due.date, DueZone: due.zone, DueAt: due.at, OverdueAt: due.overdueAt,
-			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, State: n.State,
-			SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
+			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, PassedBy: passedBy(actor, n.Assignee),
+			State: n.State, SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
 			SourceQuote: n.Source.Quote, SourceRef: ref,
 			CreatedByKind: actor.Kind, CreatedBy: actor.ID, WhyOpen: nullString(n.WhyOpen),
 			IdempotencyKey: nullString(n.IdempotencyKey), IdempotencyHash: nullString(keyed(n.IdempotencyKey, hash)),
@@ -528,7 +538,7 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		}
 
 		// An item added for a Bot wakes it (issue #1111).
-		if err := s.givenTx(ctx, q, now, id, nil, n.Assignee); err != nil {
+		if err := s.givenTx(ctx, q, now, actor, id, nil, n.Assignee); err != nil {
 			return err
 		}
 
@@ -1071,6 +1081,7 @@ func fromRow(r store.Todo, now time.Time) (Todo, error) {
 		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy}, WhyOpen: r.WhyOpen.String, Stale: stale(r, now),
 		ApprovalID: r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
 		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String, Chat: r.ChatID.String,
+		PassedBy:  r.PassedBy.String,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
 

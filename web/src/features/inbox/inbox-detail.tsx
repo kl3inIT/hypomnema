@@ -47,7 +47,14 @@ import {
   type Origin,
   type Row,
 } from "./inbox-state"
-import { canHand, canSend, sendQuestion, threadOf } from "./inbox-thread"
+import {
+  canHand,
+  canSend,
+  handoverWords,
+  sendQuestion,
+  threadOf,
+  throughWhom,
+} from "./inbox-thread"
 import { SourceIcon } from "./source-icon"
 import { useCommentTodo, useSendDraft, useTodo } from "./use-inbox"
 import { useOrigin, type KeptChats } from "./use-origin"
@@ -371,7 +378,7 @@ function TodoBody({
     (todo.why_open === "asked_directly" ? "You answer in this chat; it closes by itself" : "")
   const linked = linkedOf(todo, botName)
   const fields: [string, ReactNode][] = [
-    ["Who", whoOf(todo, botName)],
+    ["Who", throughWhom(todo, whoOf(todo, botName), botName)],
     ...(due ? ([["Date", due.text]] as [string, ReactNode][]) : []),
     ...(doneWhen ? ([["Done when", doneWhen]] as [string, ReactNode][]) : []),
     ...(linked ? ([["Linked", linked]] as [string, ReactNode][]) : []),
@@ -702,10 +709,10 @@ function eventWords(e: TodoEvent, botName: (id: string) => string) {
     case "linked_approval":
       return `${who} asked for an Approval`
     case "edited":
-      if (after.assignee_kind === "bot" && typeof after.assignee === "string")
-        return `${who} gave it to ${botName(after.assignee)}`
-
-      return `${who} changed ${Object.keys(after).join(", ") || "it"}`
+      return (
+        handoverWords(after, who, botName) ??
+        `${who} changed ${Object.keys(after).join(", ") || "it"}`
+      )
     default:
       return `${who}: ${e.kind}`
   }

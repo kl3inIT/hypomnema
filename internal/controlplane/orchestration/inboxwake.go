@@ -38,7 +38,12 @@ func (k inboxWaker) WakeTx(ctx context.Context, q *store.Queries, now int64, w i
 		}
 	}
 
-	wake := store.InsertTodoWakeParams{ChatID: chat, Text: inboxWakeText(w), Now: now}
+	text, err := k.wakeText(ctx, q, w)
+	if err != nil {
+		return "", err
+	}
+
+	wake := store.InsertTodoWakeParams{ChatID: chat, Text: text, Now: now}
 	if err := q.InsertTodoWake(ctx, wake); err != nil {
 		return "", fmt.Errorf("waking the Bot of to-do %s: %w", w.Todo.ID, err)
 	}
@@ -46,8 +51,108 @@ func (k inboxWaker) WakeTx(ctx context.Context, q *store.Queries, now int64, w i
 	return chat, nil
 }
 
-// inboxWakeText is what the Bot is told: the item handed to it with the owner's prompt, or his comment on it.
-func inboxWakeText(w inboxstore.Wake) string {
+// wakeText is what the Bot is told: the item handed to it with the owner's prompt, passed to it by a Bot, or his
+// comment on it. The main Bot given an item is told the project Bots it may pass it to (issue #1118); a project Bot
+// passed one, that it gives it back to the owner or the main Bot.
+func (k inboxWaker) wakeText(ctx context.Context, q *store.Queries, w inboxstore.Wake) (string, error) {
+	if w.Kind == inboxstore.WakeComment {
+		return inboxWakeText(w, "", ""), nil
+	}
+
+	by := ""
+
+	if w.By.Kind == inboxstore.Bot {
+		row, err := q.GetBot(ctx, w.By.ID)
+		if err != nil {
+			return "", fmt.Errorf("reading the Bot that passed to-do %s: %w", w.Todo.ID, err)
+		}
+
+		by = row.Name
+	}
+
+	if w.Bot != DefaultBotID {
+		main, err := q.GetBot(ctx, DefaultBotID)
+		if err != nil {
+			return "", fmt.Errorf("reading the main Bot: %w", err)
+		}
+
+		return inboxWakeText(w, by, fmt.Sprintf(inboxProjectRule, main.Name, DefaultBotID)), nil
+	}
+
+	bots, err := q.ListBots(ctx)
+	if err != nil {
+		return "", fmt.Errorf("listing the Bots: %w", err)
+	}
+
+	var b strings.Builder
+
+	b.WriteString(inboxMainRule)
+
+	listed := 0
+
+	for _, r := range bots {
+		if r.ID == DefaultBotID {
+			continue
+		}
+
+		listed++
+
+		fmt.Fprintf(&b, "- %s (%s): %s Connections: %s.\n", r.Name, r.ID, inboxPersonaLine(r.Persona),
+			inboxConnectionWords(allowListOf(r.Connections)))
+	}
+
+	if listed == 0 {
+		b.WriteString("- None: there is no project Bot.\n")
+	}
+
+	return inboxWakeText(w, by, b.String()), nil
+}
+
+// The rule a Bot given an item follows about passing it on (issue #1118, sections 2, 3 and 5): the main Bot passes
+// it to the project Bot that fits, and a project Bot passes it only back.
+const (
+	inboxMainRule = "\nPass it with inbox_update pass_to (the Bot's id) when the work needs a project Bot's accounts " +
+		"or context, the ones below; do it yourself or start a Run otherwise. The Bot you pass it to reports in the " +
+		"item's thread and closes it, or gives it back. The project Bots:\n"
+	inboxProjectRule = "\nGive it back when it is not yours to do: to the owner (inbox_update hand_back) when he " +
+		"must decide or send, or to %s (inbox_update pass_to %s) when another Bot's accounts are needed. Pass it " +
+		"to no other Bot.\n"
+)
+
+// inboxPersonaChars bounds the part of a Bot's persona the main Bot reads to choose it.
+const inboxPersonaChars = 300
+
+// inboxPersonaLine is the first paragraph of a Bot's persona, what it is, on one line and at most inboxPersonaChars.
+func inboxPersonaLine(persona string) string {
+	first, _, _ := strings.Cut(strings.TrimSpace(persona), "\n\n")
+
+	line := []rune(strings.Join(strings.Fields(first), " "))
+	if len(line) == 0 {
+		return "(no persona)."
+	}
+
+	if len(line) > inboxPersonaChars {
+		line = append(line[:inboxPersonaChars-1], '…')
+	}
+
+	return string(line)
+}
+
+// inboxConnectionWords are the Connections a Bot may use, in words.
+func inboxConnectionWords(l AllowList) string {
+	switch {
+	case !l.Limited:
+		return "every Connection"
+	case len(l.Names) == 0:
+		return "none"
+	}
+
+	return strings.Join(l.Names, ", ")
+}
+
+// inboxWakeText is what the Bot is told: the item handed to it with the owner's prompt, passed to it by the Bot
+// named by, or his comment on it; rule is how it may pass the item on.
+func inboxWakeText(w inboxstore.Wake, by, rule string) string {
 	t := w.Todo
 
 	var b strings.Builder
@@ -59,6 +164,9 @@ func inboxWakeText(w inboxstore.Wake) string {
 	case strings.TrimSpace(w.Text) != "":
 		fmt.Fprintf(&b, "The owner handed you Inbox item %s %q, with this prompt:\n<owner_prompt>\n%s\n"+
 			"</owner_prompt>\n\n", t.ID, t.Title, w.Text)
+	case by != "":
+		fmt.Fprintf(&b, "%s passed you Inbox item %s %q. Read its thread with inbox_get first: the owner's prompt "+
+			"and %s's notes are there.\n\n", by, t.ID, t.Title, by)
 	default:
 		fmt.Fprintf(&b, "Inbox item %s %q was given to you.\n\n", t.ID, t.Title)
 	}
@@ -76,7 +184,8 @@ func inboxWakeText(w inboxstore.Wake) string {
 		"something is missing (inbox_comment, then inbox_update hand_back). Post your progress with inbox_comment: " +
 		"started, the Run's link, the pull request, done. End by closing it with inbox_done and evidence (a pull " +
 		"request, a message sent), or by giving it back to the owner with inbox_update hand_back, with a draft " +
-		"for him to send when it needs a reply. Never send a message to a client or a boss yourself.")
+		"for him to send when it needs a reply. Never send a message to a client or a boss yourself.\n")
+	b.WriteString(rule)
 
 	return b.String()
 }
