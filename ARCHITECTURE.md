@@ -4714,7 +4714,7 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153 and MIGRATION_1105; issues #838, #845,
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153 and 00164; issues #838, #845,
 #966, #1004 and #1105, parts 1 to 3 of the Inbox and the sources a Bot reads): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
