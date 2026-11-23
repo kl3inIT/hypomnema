@@ -52,6 +52,9 @@ test("send names the recipient and the place, and only for the owner's own chats
   expect(canSend(kai)).toBe(true)
   expect(sendQuestion(kai)).toBe("Send to Kai Yong on WhatsApp (me)?")
 
+  expect(sendQuestion({ source: { kind: "zalo", id: "lan", account: "main" } }, "Lan")).toBe(
+    "Send to Lan on Zalo (main)?",
+  )
   expect(sendQuestion(source({ kind: "lark", id: "oc_1" }))).toBe(
     "Send to the chat it came from on Lark?",
   )

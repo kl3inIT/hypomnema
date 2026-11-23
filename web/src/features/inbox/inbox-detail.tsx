@@ -412,7 +412,13 @@ function TodoBody({
           <ApprovalCard approval={row.approval} onAnswered={onAnswered} />
         </Section>
       )}
-      <Draft key={`${todo.id}:${todo.revision}`} todo={todo} source={source} onSave={onSaveDraft} />
+      <Draft
+        key={`${todo.id}:${todo.revision}`}
+        todo={todo}
+        source={source}
+        recipient={origin.chat || origin.sender}
+        onSave={onSaveDraft}
+      />
       <Section title="Thread">
         {detail.data?.events?.length ? (
           <ol className="flex flex-col gap-2 text-sm">
@@ -488,10 +494,13 @@ const copiedFor = 2_000
 function Draft({
   todo,
   source,
+  recipient,
   onSave,
 }: {
   todo: Todo
   source: string
+  // recipient names who a Send reaches, as the server keeps the chat.
+  recipient?: string
   onSave: (draft: string, onSaved: () => void) => void
 }) {
   const [editing, setEditing] = useState(false)
@@ -541,7 +550,7 @@ function Draft({
             <Button size="sm" onClick={() => onSave(text, () => setEditing(false))}>
               Save
             </Button>
-            {sendable && <SendDraft todo={todo} text={shown} />}
+            {sendable && <SendDraft todo={todo} text={shown} recipient={recipient} />}
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
               Cancel
             </Button>
@@ -556,7 +565,7 @@ function Draft({
               {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
               {copied ? "Copied" : "Copy"}
             </Button>
-            {sendable && <SendDraft todo={todo} text={shown} />}
+            {sendable && <SendDraft todo={todo} text={shown} recipient={recipient} />}
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
               <Pencil data-icon="inline-start" />
               Edit
@@ -572,7 +581,7 @@ function Draft({
 // SendDraft sends the text shown through the owner's own account after he confirms, naming who gets it and where
 // ("Send to Kai Yong on WhatsApp?"), as inbox-zero's Send of an AI draft and Chatwoot's reply from the inbox; the
 // server closes the item with the message sent as its evidence.
-function SendDraft({ todo, text }: { todo: Todo; text: string }) {
+function SendDraft({ todo, text, recipient }: { todo: Todo; text: string; recipient?: string }) {
   const [open, setOpen] = useState(false)
   const send = useSendDraft()
 
@@ -589,7 +598,7 @@ function SendDraft({ todo, text }: { todo: Todo; text: string }) {
       </Button>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{sendQuestion(todo)}</AlertDialogTitle>
+          <AlertDialogTitle>{sendQuestion(todo, recipient)}</AlertDialogTitle>
           <AlertDialogDescription>
             It goes from your own account, as you, and the item is closed.
           </AlertDialogDescription>

@@ -48,12 +48,15 @@ export function canSend(todo: Pick<Todo, "state" | "source">) {
 }
 
 // sendQuestion is what the confirmation asks, naming the recipient and the place, as "Send to Kai Yong on
-// WhatsApp?": the person or chat the item names in its message's label, else the chat or thread it came from.
-export function sendQuestion(todo: Pick<Todo, "source">) {
+// WhatsApp?": the chat's or person's name as the server keeps it (issue #1110's useOrigin), else the label the item's
+// message has, else the chat or thread it came from.
+export function sendQuestion(todo: Pick<Todo, "source">, name?: string) {
   const { source } = todo
   const place = sourceNames[source.kind as Source] ?? source.kind
   const who =
-    source.ref?.label?.trim() || (source.kind === "gmail" ? "the thread" : "the chat it came from")
+    name?.trim() ||
+    source.ref?.label?.trim() ||
+    (source.kind === "gmail" ? "the thread" : "the chat it came from")
   const account = source.account && source.kind !== "lark" ? ` (${source.account})` : ""
 
   return `Send to ${who} on ${place}${account}?`
