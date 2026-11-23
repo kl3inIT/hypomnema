@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test, vi } from "vitest"
 
+import { useAttachments } from "./attachments"
 import { Composer } from "./composer"
 import { draftsKey } from "./drafts"
 
@@ -130,4 +131,70 @@ test("a queued message taken back to edit goes into the box", async () => {
   rerender(<Composer {...props} put={{ text: "then this", at: 2 }} />)
 
   expect(box).toHaveValue("first\n\nthen this")
+})
+
+// A composer whose files are a draft's, as the New chat page's are after a reload (issue #433).
+function WithFiles({ onSend, draftKey }: { onSend: () => Promise<unknown>; draftKey: string }) {
+  const attachments = useAttachments("cht_sent", "coordinator", { files: [report] })
+
+  return (
+    <Composer
+      onSend={onSend}
+      onStop={() => {}}
+      working={false}
+      botName="coordinator"
+      attachments={attachments}
+      draft={{ key: draftKey, chat: "cht_sent", bot: "coordinator" }}
+    />
+  )
+}
+
+const report = { name: "report.pdf", path: "attachments/cht_sent/report.pdf", size: 15 }
+const stored = () => JSON.parse(localStorage.getItem(draftsKey) ?? "{}") as Record<string, unknown>
+
+// Scenario: the owner sends a message with a file from the New chat page, and the page goes (a reload, the next
+// New chat) before the send has finished: on the New chat page it ends only after the chat's page has opened. The
+// message went with its file, so neither its text nor its file is the next draft (issue #1080).
+test("a message being sent leaves nothing in the draft as the page goes", async () => {
+  let sent: () => void = () => {}
+  render(
+    <WithFiles draftKey="new:sending" onSend={() => new Promise<void>((done) => (sent = done))} />,
+  )
+  const box = screen.getByRole("textbox", { name: "Message" })
+
+  fireEvent.change(box, { target: { value: "summarise this report" } })
+  fireEvent.keyDown(box, { key: "Enter" })
+  await act(async () => {})
+
+  window.dispatchEvent(new Event("pagehide"))
+  expect(stored()).not.toHaveProperty("new:sending")
+
+  await act(async () => sent())
+  window.dispatchEvent(new Event("pagehide"))
+  expect(stored()).not.toHaveProperty("new:sending")
+})
+
+// Scenario: the server refuses the message: its text and its file are the draft again, to send later.
+test("a message that was not sent is the draft again", async () => {
+  render(
+    <WithFiles
+      draftKey="new:refused"
+      onSend={async () => {
+        throw { code: "unavailable", message: "the coordinator is not running" }
+      }}
+    />,
+  )
+  const box = screen.getByRole("textbox", { name: "Message" })
+
+  fireEvent.change(box, { target: { value: "summarise this report" } })
+  fireEvent.keyDown(box, { key: "Enter" })
+  expect(await screen.findByRole("alert")).toHaveTextContent("Not sent")
+
+  window.dispatchEvent(new Event("pagehide"))
+  expect(stored()["new:refused"]).toEqual({
+    text: "summarise this report",
+    files: [report],
+    chat: "cht_sent",
+    bot: "coordinator",
+  })
 })
