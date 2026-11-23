@@ -70,7 +70,7 @@ func TestAReadRunKeepsTheOwnersContextAndNoOtherMemory(t *testing.T) {
 
 	note, err := sw.svc.Memories().ReadNote(ctx, dir, memorystore.ContextFile)
 	require.NoError(t, err)
-	assert.Equal(t, strings.Replace(people, "VTII", "VTII, VMAP", 1)+process, note.Text)
+	assert.Equal(t, strings.Replace(people, "VTII", "VTII, VMAP", 1)+strings.TrimSuffix(process, "\n"), note.Text)
 
 	for _, args := range []map[string]any{
 		{"command": memorystore.Create, "path": "/memories/thanh.md", "file_text": "CVs go to the sheet."},
@@ -124,7 +124,7 @@ func TestATriageRunSeesTheOwnersCorrections(t *testing.T) {
 	untouched := sw.inbox(pi, agenttool.ToolInboxAdd, map[string]any{"title": "Maybe send Lan the slides"})
 
 	_, err := sw.svc.Inbox().Drop(ctx, inboxstore.Change{
-		Actor: inboxstore.Actor{Kind: inboxstore.Owner}, ID: proposed.ID, Revision: proposed.Revision,
+		Actor: inboxstore.Actor{Kind: inboxstore.Owner}, ID: proposed.ID, Revision: 1,
 	}, "Linh's mail is Lan's.", nil)
 	require.NoError(t, err)
 

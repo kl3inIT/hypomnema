@@ -171,6 +171,9 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 				"moment, RFC 3339; a date is due from its first moment."},
 			"due_to": map[string]any{"type": "string", "description": "Only the items due before this moment, " +
 				"RFC 3339."},
+			"owner_changed_since": map[string]any{"type": "string", "description": "Only the items the owner " +
+				"himself added, edited, closed, reopened or snoozed at or after this moment, RFC 3339, in any " +
+				"state, each with his changes since then as its history: what he corrected of yours."},
 			"cursor": map[string]any{"type": "string"},
 			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": inboxstore.MaxPage},
 		}, nil},
@@ -271,8 +274,10 @@ type inboxListArgs struct {
 	IncludeStale   bool     `json:"include_stale"`
 	DueFrom        string   `json:"due_from"`
 	DueTo          string   `json:"due_to"`
-	Cursor         string   `json:"cursor"`
-	Limit          int      `json:"limit"`
+	// OwnerChangedSince lists the items the owner changed since a moment, each with his changes (issue #1119).
+	OwnerChangedSince string `json:"owner_changed_since"`
+	Cursor            string `json:"cursor"`
+	Limit             int    `json:"limit"`
 }
 
 type inboxSourceArgs struct {
@@ -421,7 +426,10 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 	for _, bound := range []struct {
 		name, value string
 		into        *time.Time
-	}{{"due_from", in.DueFrom, &f.DueFrom}, {"due_to", in.DueTo, &f.DueTo}} {
+	}{
+		{"due_from", in.DueFrom, &f.DueFrom}, {"due_to", in.DueTo, &f.DueTo},
+		{"owner_changed_since", in.OwnerChangedSince, &f.OwnerChangedSince},
+	} {
 		if bound.value == "" {
 			continue
 		}
@@ -442,7 +450,7 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 
 	items := make([]todoOut, 0, len(page.Items))
 	for _, t := range page.Items {
-		items = append(items, todoView(t, false))
+		items = append(items, todoView(t, !f.OwnerChangedSince.IsZero()))
 	}
 
 	return map[string]any{"total": page.Total, "next_cursor": page.Next, "items": items}, nil

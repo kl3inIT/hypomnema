@@ -197,7 +197,7 @@ test("a wake names the moment of the last one, for the owner's changes since", a
     chats: [{ ID: "g_pmo", Kind: "group", Name: "PMO", LastMessageAt: "2026-11-21T01:55:00Z" }],
     messages: { g_pmo: [{ ID: "m3", At: "2026-11-21T01:55:00Z", FromMe: false, SenderName: "Lan", Text: "anh ơi" }] },
   });
-  const got = await check({ tools, call: w.call, state: asleep.state, now });
+  const got = await check({ tools, call: w.call, state: { ...state, woke: asleep.state.woke }, now });
   assert.equal(got.wake, true);
   assert.match(got.text, new RegExp(`inbox_list with owner_changed_since ${lastWake}`));
   assert.equal(got.state.woke, now.toISOString());

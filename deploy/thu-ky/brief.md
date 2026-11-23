@@ -1,5 +1,6 @@
 Write the owner's brief now, from his Inbox (`inbox_list`). Your answer is the message he gets on Lark: write only
-the brief.
+the brief. What you learned of his people and processes, when you have it, is above under "The owner's context": name
+people as he addresses them there.
 
 Write him one short message in Vietnamese, numbered across its parts in this order:
 

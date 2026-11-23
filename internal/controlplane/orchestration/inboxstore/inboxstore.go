@@ -820,15 +820,22 @@ func (s *Store) get(ctx context.Context, q *store.Queries, id string) (Todo, err
 		return Todo{}, fmt.Errorf("reading the history of to-do %s: %w", id, err)
 	}
 
-	t.Events = make([]Event, 0, len(rows))
+	t.Events = eventsOf(rows)
+
+	return t, nil
+}
+
+// eventsOf is an item's events, oldest first, from rows read newest first.
+func eventsOf(rows []store.TodoEvent) []Event {
+	out := make([]Event, 0, len(rows))
 	for _, r := range slices.Backward(rows) {
-		t.Events = append(t.Events, Event{
+		out = append(out, Event{
 			ID: r.ID, At: storeutil.Millis(r.At), Revision: int(r.Revision), Actor: Actor{Kind: r.ActorKind, ID: r.Actor},
 			Kind: r.Kind, Before: json.RawMessage(r.Before), After: json.RawMessage(r.After),
 		})
 	}
 
-	return t, nil
+	return out
 }
 
 // Filter is which to-dos List returns and counts.
@@ -848,6 +855,10 @@ type Filter struct {
 	NeedsYou bool
 	// WithStale lists the stale proposals too: proposed, untouched for StaleAfter.
 	WithStale bool
+	// OwnerChangedSince, when given, lists only the items the owner changed at or after it (created, edited,
+	// closed, reopened, snoozed…), in any state, snoozed or stale, each with his own changes since then in Events
+	// (issue #1119): what the triage Routine learns from. States still narrows it.
+	OwnerChangedSince time.Time
 }
 
 // Page is one page of List.
@@ -879,7 +890,8 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 		AnyState: cnt.AnyState, States: cnt.States, AssigneeKind: cnt.AssigneeKind, Assignee: cnt.Assignee,
 		SourceKind: cnt.SourceKind, HasDueFrom: cnt.HasDueFrom, DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
 		DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed, WithStale: cnt.WithStale, StaleBefore: cnt.StaleBefore,
-		Now: cnt.Now, NeedsYou: cnt.NeedsYou, Lim: int64(limit) + 1,
+		Now: cnt.Now, NeedsYou: cnt.NeedsYou, HasOwnerSince: cnt.HasOwnerSince, OwnerSince: cnt.OwnerSince,
+		Lim: int64(limit) + 1,
 	}
 
 	if cursor != "" {
@@ -890,11 +902,12 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 	}
 
 	var (
-		rows  []store.Todo
-		total int64
+		rows   []store.Todo
+		total  int64
+		events = map[string][]store.TodoEvent{}
 	)
 
-	// The page and its total are read together, so the total counts the items the page shows.
+	// The page, its total and the owner's changes are read together, so the total counts the items the page shows.
 	err = s.snapshot(ctx, func(q *store.Queries) error {
 		if rows, err = q.ListTodos(ctx, p); err != nil {
 			return fmt.Errorf("listing the to-dos: %w", err)
@@ -902,6 +915,18 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 		if total, err = q.CountTodos(ctx, cnt); err != nil {
 			return fmt.Errorf("counting the to-dos: %w", err)
+		}
+
+		if cnt.HasOwnerSince == 0 {
+			return nil
+		}
+
+		for _, row := range rows[:min(len(rows), limit)] {
+			if events[row.ID], err = q.ListOwnerTodoEvents(ctx, store.ListOwnerTodoEventsParams{
+				TodoID: row.ID, Since: cnt.OwnerSince, Lim: MaxEvents,
+			}); err != nil {
+				return fmt.Errorf("reading the owner's changes of to-do %s: %w", row.ID, err)
+			}
 		}
 
 		return nil
@@ -924,6 +949,10 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 		t, err := fromRow(row, now)
 		if err != nil {
 			return Page{}, err
+		}
+
+		if mine, ok := events[row.ID]; ok {
+			t.Events = eventsOf(mine)
 		}
 
 		page.Items = append(page.Items, t)
@@ -950,8 +979,10 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 	now := s.clock.Now()
 	p := store.CountTodosParams{Now: now.UnixMilli(), States: "[]", StaleBefore: now.Add(-StaleAfter).UnixMilli()}
 
+	owner := !f.OwnerChangedSince.IsZero()
+
 	states := f.States
-	if len(states) == 0 && !f.WithClosed {
+	if len(states) == 0 && !f.WithClosed && !owner {
 		states = []string{Proposed, Open, Doing, Review}
 	}
 
@@ -1001,6 +1032,10 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 
 	if f.WithStale {
 		p.WithStale = 1
+	}
+
+	if owner {
+		p.HasOwnerSince, p.OwnerSince, p.WithSnoozed, p.WithStale = 1, f.OwnerChangedSince.UnixMilli(), 1, 1
 	}
 
 	return p, nil
