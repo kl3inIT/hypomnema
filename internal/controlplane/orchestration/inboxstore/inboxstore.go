@@ -308,8 +308,11 @@ type Todo struct {
 	Evidence    []Link
 	ClosedAt    *time.Time
 	DuplicateOf string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Chat is the item's own chat with the Bot it was given to (issue #1111), where that Bot was woken with it and
+	// is woken by the owner's comments; empty before it was given to a Bot, or once that chat is deleted.
+	Chat      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 	// Events is its history, oldest first; filled by Get only.
 	Events []Event
 }
@@ -320,7 +323,7 @@ type Event struct {
 	At       time.Time
 	Revision int
 	Actor    Actor
-	// Kind is created, edited, state, snoozed or linked_approval.
+	// Kind is created, edited, state, snoozed, linked_approval or commented.
 	Kind string
 	// Before and After are JSON objects of the fields that changed.
 	Before json.RawMessage
@@ -346,6 +349,8 @@ type Store struct {
 	// sent reads the messages the owner sent in his own accounts' chats, the evidence that he answered; nil reads
 	// none.
 	sent Sent
+	// waker wakes a Bot an item is given to (issue #1111); nil wakes none.
+	waker Waker
 }
 
 // WithSent lets the store check a message the owner sent, given as evidence that he answered (issue #1004).
@@ -519,6 +524,11 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		}
 
 		if err := queuePush(ctx, q, now, actor, id); err != nil {
+			return err
+		}
+
+		// An item added for a Bot wakes it (issue #1111).
+		if err := s.givenTx(ctx, q, now, id, nil, n.Assignee); err != nil {
 			return err
 		}
 
@@ -1095,7 +1105,7 @@ func fromRow(r store.Todo, now time.Time) (Todo, error) {
 		Source:       Source{Kind: r.SourceKind, ID: r.SourceID, Account: r.SourceAccount, Quote: r.SourceQuote},
 		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy}, WhyOpen: r.WhyOpen.String, Stale: stale(r, now),
 		ApprovalID: r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
-		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String,
+		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String, Chat: r.ChatID.String,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
 

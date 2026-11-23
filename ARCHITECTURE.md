@@ -4724,8 +4724,8 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153 and 00164; issues #838, #845,
-#966, #1004 and #1105, parts 1 to 3 of the Inbox and the sources a Bot reads): the store of the to-dos that have to happen, whoever does them, its state machine,
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164 and 00165; issues #838, #845,
+#966, #1004, #1105 and #1111, parts 1 to 3 of the Inbox, the sources a Bot reads, and handing an item to a Bot): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000), `draft` (≤ 20,000, the reply a Bot drafted for the owner to send
@@ -4751,11 +4751,12 @@ its client API, its CLI and the Bots' tools.
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
   `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
   `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`;
-  `closed_at`); `duplicate_of`; `why_open`
+  `closed_at`); `duplicate_of`; `chat_id`, the item's own chat with the Bot it was given to (migration 00165, issue
+  #1111; cleared in `deleteChatTx` when that chat is deleted); `why_open`
   (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); a create's idempotency key,
   unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
-  `edited`, `state`, `snoozed` or `linked_approval`, the revision it made, JSON of the fields before and after, and the
+  `edited`, `state`, `snoozed`, `linked_approval` or `commented` (its text in `after.text`), the revision it made, JSON of the fields before and after, and the
   reason when one is given), written in the change's transaction.
 - Transitions (`inboxstore/transitions.go`, the `transitions` table lists every move and who may make it): the
   owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from what it read
@@ -4800,6 +4801,20 @@ its client API, its CLI and the Bots' tools.
   another attempt's id is a conflict and writes nothing, and a Bot other than the attempt's is forbidden. Leaving doing or review clears the attempt, and any change
   of state the snooze. A create retried with its idempotency key and the same request (actor and every field)
   returns the first item and writes nothing; the key with another request is a conflict and writes nothing.
+- Handing over and the thread (`inboxstore/handoff.go`, `orchestration/inboxwake.go`; issue #1111, the owner's
+  design of 2026-11-23, after GitHub's "Assign to Copilot" with additional instructions, Linear's agent assignment
+  and Orca's bot items): `Hand` gives an item not closed nor in another Bot's attempt to a Bot with the owner's
+  optional prompt; only the owner does. A proposal handed over is accepted and a snoozed item brought back; the
+  prompt is the first comment. Whatever gives an item to a Bot wakes that Bot (`Create` for a Bot, `Edit` to another
+  Bot, `Hand`), in the change's transaction, through the store's `Waker` (`WithWaker`, the root's `inboxWaker`): the
+  item's own chat with that Bot, opened when it has none ("Inbox: <title>", as Orca's item keeps its `chat_id`),
+  gets a wake-up of the control plane (`InsertTodoWake`, role `system`, kind `wake`, as a Routine's prompt) with the
+  prompt in `<owner_prompt>`, the item's state, due, source, notes, quote and draft (each in its tag, the quote
+  marked as a record), and what to do: do it (`inbox_start`), start a Run, or ask the owner; post progress with
+  `inbox_comment`; close with evidence or hand it back with a draft. `Comment` adds a comment at the item's
+  revision, which it moves on (`TouchTodo`): the owner on any item, his comment waking the Bot in the item's chat in
+  `<owner_comment>` when it has one (Orca's item mail); a Bot on the items it added, is given or has the chat of,
+  waking nobody.
 - Reads: `Get` with its latest 500 events, read in one transaction with the item, as every mutation returns the
   item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
@@ -4824,14 +4839,28 @@ its client API, its CLI and the Bots' tools.
   and opens with `why_open`. A Bot starts an item in its chat,
   or in the Routine's run. A coordinator token only reads: the writes have the policy `scopeActor`
   (`clientapi/policy.go`). The store's errors map as elsewhere: invalid 400, forbidden 403, not found 404, a stale
-  revision or another attempt 409. The system transitions are not served.
+  revision or another attempt 409. The system transitions are not served. Issue #1111: `POST
+  /inbox/{todo_id}/hand` (`HandTodo`, the owner only; `bot`, the main Bot when absent, and `prompt`), `POST
+  /inbox/{todo_id}/comments` (`CommentTodo`, the owner or a Bot, `scopeActor`), and `POST /inbox/{todo_id}/send`
+  (`SendTodoDraft`, the owner only, policy `scopeOwner` and a check of the principal: a Bot's token never sends as
+  him): at the revision read, one send at a time per item, it sends the text given to the item's own Zalo, WhatsApp
+  or Lark chat or Gmail thread, never a chat the request names, and closes the item done by him, by hand, with the
+  message sent as evidence (a proposal is accepted first; an item in review stays as it is), answering `{sent,
+  todo}`. A closed item, another revision (409) or a source with no chat of his (400) sends nothing. The control
+  plane's `inboxSender` (`controlplane/inboxsend.go`) sends through his own accounts: a Zalo or WhatsApp chat of the
+  Connection the item names (`integration.Service.Send`), a Lark chat with his Lark sign-in (`lark:me` when the item
+  names none; `POST /open-apis/im/v1/messages?receive_id_type=chat_id`), and a reply in the Gmail thread to the
+  Reply-To or From of the item's mail, "Re:" its subject, `In-Reply-To` and `References` its Message-ID (inbox-zero's
+  `replyToEmail`), header values kept on one line; the evidence is a `zalo_sent`, `whatsapp_sent`, `lark_sent` or
+  `mail` link. `Todo.chat_id` is the item's chat.
 - CLI (`clientcli/inbox.go`): `hypomnema inbox list` (the API's filters; one line an item), `show`, `add "<title>"
   [--due <date|date time|none|unknown> --tz <zone>] [--who me|unknown|bot:<id>|<name>] [--notes …] [--done-when …]`,
   `edit`, `accept`, `done [--evidence url] [--reason …]`, `drop <id> "<reason>"`, `duplicate <id> <of>`,
   `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision.
 - Bot tools (`agentapi/inbox.go`, the family `inbox` of `agenttool/switches.go`, in the `full` preset only; issue
   #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`, `source`), `inbox_start`,
-  `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, for a Bot's pi only. Who acts and
+  `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, `inbox_comment` (a comment in the
+  item's thread, issue #1111), for a Bot's pi only. Who acts and
   where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
   the chat was opened for while it is live); each call reads the item and writes at the revision read (or the one
   given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. An item
@@ -6118,7 +6147,13 @@ Node (`internal/node`):
     `https://mail.google.com/mail/u/<address>/#all/<thread>` after inbox-zero's `getGmailUrl`, the address from `GET
     /integrations`; a meeting's item, also one a Routine's run found by its `meeting_line` reference, says Open
     meeting, at `/meetings/{id}?line=<n>`; issue #1105), the draft with Copy, its primary button, which says Copied
-    once it copied, and Edit (no Send), the draft's section left out when the item needs none, and its history.
+    once it copied, Edit and Send (issue #1111: a confirmation names the recipient and the place, "Send to Kai Yong
+    on WhatsApp (main)?", and shows the text as it is on screen, edits included, which `POST /inbox/{id}/send`
+    sends), the draft's section left out when the item needs none, and its thread: the events as lines and the
+    comments as cards, a link to the item's chat, and a comment box (Ctrl+Enter). The top bar's "Hand to <main Bot>"
+    (an item not closed nor in review) opens a dialog with an optional multi-line prompt, the quick prompts Do it,
+    Only look into it, Draft a reply and Give it to a worker to fix the code, and Ctrl+Enter to hand it over (`POST
+    /inbox/{id}/hand`).
     An Approval shows its chat card (`ApprovalCard`) and a question its form (`QuestionForm`), the same calls as at
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
     (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on

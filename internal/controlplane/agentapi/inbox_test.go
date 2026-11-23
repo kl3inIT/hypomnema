@@ -352,3 +352,47 @@ func TestAReadingRoutineKeepsTheInboxButCannotSend(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, items.Total, "nothing it only inferred is open")
 }
+
+// Scenario: issue #1111, section 2. The owner hands an item to a Bot; its pi posts its progress in the item's thread
+// with inbox_comment, which the owner reads with the item's history. Another Bot's pi cannot post on it.
+func TestABotPostsItsProgressInTheItemsThread(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "thu-ky"})
+	require.NoError(t, err)
+
+	other, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "other"})
+	require.NoError(t, err)
+
+	pi, _ := w.inboxPi(bot)
+	otherPi, _ := w.inboxPi(other)
+
+	owner := inboxstore.Actor{Kind: inboxstore.Owner}
+	td, err := w.svc.Inbox().Create(ctx, owner, inboxstore.NewTodo{
+		Title: "Fix the login page", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand},
+		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
+	})
+	require.NoError(t, err)
+
+	_, err = w.svc.Inbox().Hand(ctx, inboxstore.Change{Actor: owner, ID: td.ID, Revision: td.Revision}, bot.ID,
+		"Give it to a worker.")
+	require.NoError(t, err)
+
+	w.inbox(pi, agenttool.ToolInboxComment, map[string]any{"id": td.ID, "text": "Started: Run run_1 fixes it."})
+
+	got, err := w.svc.Inbox().Get(ctx, td.ID)
+	require.NoError(t, err)
+
+	last := got.Events[len(got.Events)-1]
+	assert.Equal(t, inboxstore.EventCommented, last.Kind)
+	assert.Equal(t, inboxstore.Actor{Kind: inboxstore.Bot, ID: bot.ID}, last.Actor)
+	assert.JSONEq(t, `{"text":"Started: Run run_1 fixes it."}`, string(last.After))
+
+	status, text, isError := w.use(otherPi, agenttool.ToolInboxComment,
+		`{"id":"`+td.ID+`","text":"Mine now."}`)
+	assert.Equal(t, http.StatusOK, status, text)
+	assert.True(t, isError, "another Bot's item: %s", text)
+}

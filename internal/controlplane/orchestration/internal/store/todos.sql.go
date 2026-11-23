@@ -10,6 +10,16 @@ import (
 	"database/sql"
 )
 
+const clearTodoChats = `-- name: ClearTodoChats :exec
+UPDATE todos SET chat_id = NULL WHERE chat_id = ?1
+`
+
+// A chat deleted is no item's own chat any more.
+func (q *Queries) ClearTodoChats(ctx context.Context, chatID sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, clearTodoChats, chatID)
+	return err
+}
+
 const countDuplicatesOf = `-- name: CountDuplicatesOf :one
 SELECT count(*) FROM todos WHERE duplicate_of = ?1 AND state = 'duplicate'
 `
@@ -110,7 +120,7 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 }
 
 const getTodo = `-- name: GetTodo :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE id = ?1
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id FROM todos WHERE id = ?1
 `
 
 func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
@@ -159,12 +169,13 @@ func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.WhyOpen,
+		&i.ChatID,
 	)
 	return i, err
 }
 
 const getTodoByIdempotencyKey = `-- name: GetTodoByIdempotencyKey :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE idempotency_key = ?1
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id FROM todos WHERE idempotency_key = ?1
 `
 
 func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (Todo, error) {
@@ -213,8 +224,21 @@ func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sq
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.WhyOpen,
+		&i.ChatID,
 	)
 	return i, err
+}
+
+const getTodoChatBot = `-- name: GetTodoChatBot :one
+SELECT bot_id FROM chats WHERE id = ?1
+`
+
+// The Bot of a chat, read for an item's own chat: none when the chat was deleted.
+func (q *Queries) GetTodoChatBot(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTodoChatBot, id)
+	var bot_id string
+	err := row.Scan(&bot_id)
+	return bot_id, err
 }
 
 const getTodoChatMessage = `-- name: GetTodoChatMessage :one
@@ -236,7 +260,7 @@ func (q *Queries) GetTodoChatMessage(ctx context.Context, seq int64) (GetTodoCha
 }
 
 const getTodoOfApproval = `-- name: GetTodoOfApproval :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE approval_id = ?1 AND state = 'review'
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id FROM todos WHERE approval_id = ?1 AND state = 'review'
 `
 
 // The item that waits for an Approval.
@@ -286,12 +310,13 @@ func (q *Queries) GetTodoOfApproval(ctx context.Context, approvalID sql.NullStri
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.WhyOpen,
+		&i.ChatID,
 	)
 	return i, err
 }
 
 const getTodoOfAttempt = `-- name: GetTodoOfAttempt :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE work_attempt = ?1 AND state IN ('doing', 'review')
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id FROM todos WHERE work_attempt = ?1 AND state IN ('doing', 'review')
 `
 
 // The item a Bot's attempt is on.
@@ -341,6 +366,7 @@ func (q *Queries) GetTodoOfAttempt(ctx context.Context, workAttempt sql.NullStri
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.WhyOpen,
+		&i.ChatID,
 	)
 	return i, err
 }
@@ -441,6 +467,24 @@ func (q *Queries) InsertTodoEvent(ctx context.Context, arg InsertTodoEventParams
 	return err
 }
 
+const insertTodoWake = `-- name: InsertTodoWake :exec
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (?1, 'system', 'wake', ?2, 1, ?3)
+`
+
+type InsertTodoWakeParams struct {
+	ChatID string
+	Text   string
+	Now    int64
+}
+
+// A wake-up of the control plane in an item's own chat (issue #1111): the item handed to the Bot, or the owner's
+// comment on it, given to the Bot as a Routine's prompt is (InsertRoutinePrompt), since nobody wrote it there.
+func (q *Queries) InsertTodoWake(ctx context.Context, arg InsertTodoWakeParams) error {
+	_, err := q.db.ExecContext(ctx, insertTodoWake, arg.ChatID, arg.Text, arg.Now)
+	return err
+}
+
 const listOwnerTodoEvents = `-- name: ListOwnerTodoEvents :many
 SELECT id, todo_id, at, revision, actor_kind, actor, kind, "before", "after" FROM todo_events WHERE todo_id = ?1 AND actor_kind = 'owner' AND at >= ?2
 ORDER BY id DESC LIMIT ?3
@@ -530,7 +574,7 @@ func (q *Queries) ListTodoEvents(ctx context.Context, arg ListTodoEventsParams) 
 }
 
 const listTodos = `-- name: ListTodos :many
-SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open FROM todos t
+SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id FROM todos t
 WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?2 AS TEXT))))
   AND (CAST(?3 AS TEXT) = '' OR (t.assignee_kind = ?3 AND t.assignee = ?4))
   AND (CAST(?5 AS TEXT) = '' OR t.source_kind = ?5)
@@ -661,6 +705,7 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.WhyOpen,
+			&i.ChatID,
 		); err != nil {
 			return nil, err
 		}
@@ -676,7 +721,7 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 }
 
 const listTodosOfWork = `-- name: ListTodosOfWork :many
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE work_kind = ?1 AND work_id = ?2 AND state IN ('doing', 'review') ORDER BY id
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id FROM todos WHERE work_kind = ?1 AND work_id = ?2 AND state IN ('doing', 'review') ORDER BY id
 `
 
 type ListTodosOfWorkParams struct {
@@ -737,6 +782,7 @@ func (q *Queries) ListTodosOfWork(ctx context.Context, arg ListTodosOfWorkParams
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.WhyOpen,
+			&i.ChatID,
 		); err != nil {
 			return nil, err
 		}
@@ -749,6 +795,21 @@ func (q *Queries) ListTodosOfWork(ctx context.Context, arg ListTodosOfWorkParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const setTodoChat = `-- name: SetTodoChat :exec
+UPDATE todos SET chat_id = ?1 WHERE id = ?2
+`
+
+type SetTodoChatParams struct {
+	ChatID sql.NullString
+	ID     string
+}
+
+// The item's own chat with the Bot it is given to (issue #1111).
+func (q *Queries) SetTodoChat(ctx context.Context, arg SetTodoChatParams) error {
+	_, err := q.db.ExecContext(ctx, setTodoChat, arg.ChatID, arg.ID)
+	return err
 }
 
 const setTodoIdempotencyKey = `-- name: SetTodoIdempotencyKey :exec
@@ -765,6 +826,26 @@ type SetTodoIdempotencyKeyParams struct {
 func (q *Queries) SetTodoIdempotencyKey(ctx context.Context, arg SetTodoIdempotencyKeyParams) error {
 	_, err := q.db.ExecContext(ctx, setTodoIdempotencyKey, arg.IdempotencyKey, arg.ID)
 	return err
+}
+
+const touchTodo = `-- name: TouchTodo :execrows
+UPDATE todos SET revision = revision + 1, updated_at = ?1 WHERE id = ?2 AND revision = ?3
+`
+
+type TouchTodoParams struct {
+	Now      int64
+	ID       string
+	Revision int64
+}
+
+// A comment on an item (issue #1111) moves its revision on, as every change does, without changing a field: the
+// item read before it is stale, and a proposal commented on is touched.
+func (q *Queries) TouchTodo(ctx context.Context, arg TouchTodoParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, touchTodo, arg.Now, arg.ID, arg.Revision)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateTodo = `-- name: UpdateTodo :execrows

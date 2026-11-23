@@ -202,6 +202,11 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"id": id, "revision": revision, "evidence": evidence, "reason": reason,
 			"for_owner": map[string]any{"type": "boolean", "description": "The owner did it; you record it."},
 		}, []string{"id", "evidence"}},
+		{agenttool.ToolInboxComment, "Post a comment in a to-do's thread, which the owner reads on the item: " +
+			"what you started, the Run's link, the pull request, what you need from him, done. Use it on an item " +
+			"you added or were given, to tell him where its work is; his comments on it reach you in its chat.",
+			map[string]any{"id": id, "text": map[string]any{"type": "string", "maxLength": inboxstore.MaxComment}},
+			[]string{"id", "text"}},
 		{agenttool.ToolInboxDrop, "Drop a to-do the owner said is not needed, with his message as evidence and " +
 			"the reason. Use it only on his word.", map[string]any{"id": id, "revision": revision, "reason": reason, "evidence": evidence},
 			[]string{"id", "reason", "evidence"}},
@@ -256,6 +261,8 @@ type inboxArgs struct {
 	Source  *inboxSourceArgs `json:"source"`
 	Quote   string           `json:"quote"`
 	Message *inboxstore.Link `json:"message"`
+	// inbox_comment.
+	Text string `json:"text"`
 	// inbox_release, inbox_done, inbox_drop.
 	Reason   string            `json:"reason"`
 	Evidence []inboxstore.Link `json:"evidence"`
@@ -395,6 +402,11 @@ func (s *Server) inboxCall(w http.ResponseWriter, r *http.Request, a agent, call
 		}
 	case agenttool.ToolInboxAdd:
 		out, err = s.inboxAdd(ctx, a, c, in)
+	case agenttool.ToolInboxComment:
+		var t inboxstore.Todo
+		if t, err = s.store.Inbox().Comment(ctx, c.actor, strings.TrimSpace(in.ID), in.Text); err == nil {
+			out = todoView(t, true)
+		}
 	default:
 		out, err = s.inboxChange(ctx, a, c, call.Tool, in)
 	}

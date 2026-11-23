@@ -69,12 +69,14 @@ const (
 	ToolInboxRelease = "inbox_release"
 	ToolInboxDone    = "inbox_done"
 	ToolInboxDrop    = "inbox_drop"
+	// ToolInboxComment posts in an item's thread (issue #1111): the Bot's progress, read by the owner on the item.
+	ToolInboxComment = "inbox_comment"
 )
 
 // InboxTools are the Inbox's tools.
 var InboxTools = []string{
 	ToolInboxList, ToolInboxGet, ToolInboxAdd, ToolInboxUpdate, ToolInboxStart, ToolInboxRelease, ToolInboxDone,
-	ToolInboxDrop,
+	ToolInboxDrop, ToolInboxComment,
 }
 
 // The meetings' tools (issue #1023, part 4 of #838): a Bot reads the meetings the owner recorded, their notes,
@@ -219,7 +221,9 @@ var ToolFamilies = []ToolFamily{
 			"waits in Needs you: never send a message to a client or a boss yourself. Close an item with " +
 			"inbox_done and evidence of what was done; close his item only with his own message: in this chat, " +
 			"or the one he sent in the item's Zalo, WhatsApp or Lark chat after it was made (zalo_sent, " +
-			"whatsapp_sent, lark_sent). Edit and close only your own items. A send you make while working on an " +
+			"whatsapp_sent, lark_sent). Edit and close only your own items. An item given to you wakes you in its " +
+			"own chat: post your progress there with inbox_comment (started, the Run, the pull request, done), and " +
+			"the owner's comments reach you there. A send you make while working on an " +
 			"item names it (todo, or HYPOMNEMA_TODO=<id> before the command) and waits for his approval in " +
 			"review."},
 	{Name: "meetings", Description: "Read the owner's recorded meetings (a Bot only)", Pattern: "meeting_*",
