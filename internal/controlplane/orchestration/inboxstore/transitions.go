@@ -967,7 +967,7 @@ func edit(ctx context.Context, q *store.Queries, c Change, e Edit, due *dueColum
 		next.AssigneeKind, next.Assignee = a.Kind, a.Name
 	}
 
-	return nil, nil
+	return map[string]any{}, nil
 }
 
 // closeFields records who closed a to-do, how and why.

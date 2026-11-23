@@ -38,7 +38,8 @@ func (k inboxWaker) WakeTx(ctx context.Context, q *store.Queries, now int64, w i
 		}
 	}
 
-	if err := q.InsertTodoWake(ctx, store.InsertTodoWakeParams{ChatID: chat, Text: inboxWakeText(w), Now: now}); err != nil {
+	wake := store.InsertTodoWakeParams{ChatID: chat, Text: inboxWakeText(w), Now: now}
+	if err := q.InsertTodoWake(ctx, wake); err != nil {
 		return "", fmt.Errorf("waking the Bot of to-do %s: %w", w.Todo.ID, err)
 	}
 

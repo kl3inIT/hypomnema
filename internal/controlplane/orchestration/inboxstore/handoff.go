@@ -261,7 +261,7 @@ func (s *Store) Hand(ctx context.Context, c Change, bot, prompt string) (Todo, e
 					next.State = Open
 				}
 
-				return nil, nil
+				return map[string]any{}, nil
 			})
 		if err != nil {
 			return err

@@ -724,5 +724,18 @@ for (const theme of ["light", "dark"] as const) {
       "Thư ký added it",
     )
     await shot(page, `inbox-reply-${theme}`)
+
+    // Issue #1111: the hand-over's dialog and the Send's confirmation.
+    await item(page).getByRole("button", { name: "Hand to Hypo" }).click()
+    await expect(page.getByRole("dialog", { name: "Hand to Hypo" })).toBeVisible()
+    await shot(page, `inbox-hand-${theme}`)
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog", { name: "Hand to Hypo" })).toBeHidden()
+    await item(page)
+      .getByRole("region", { name: "Draft" })
+      .getByRole("button", { name: "Send" })
+      .click()
+    await expect(page.getByRole("alertdialog", { name: /Send to Kai Yong/ })).toBeVisible()
+    await shot(page, `inbox-send-${theme}`)
   })
 }
