@@ -80,6 +80,8 @@ test("past its cap a source keeps where it stopped and reads on from there, the 
 // page_token too.
 function larkWorld({ groups = [], p2p = [], messages = {} }) {
   const tools = [{ name: "account_read", description: "Use the account name (lark:me), API hostname" }];
+  // fetched counts the messages the check was given, over every page of every chat.
+  const counter = { fetched: 0 };
   const page = (items, url, size) => {
     const start = Number(url.searchParams.get("page_token") || 0);
     const next = start + size;
@@ -97,9 +99,14 @@ function larkWorld({ groups = [], p2p = [], messages = {} }) {
     const start = Number(url.searchParams.get("start_time") ?? 0) * 1000;
     const end = Number(url.searchParams.get("end_time") ?? Infinity) * 1000;
     const list = (messages[chat] ?? []).filter((m) => Number(m.create_time) >= start && Number(m.create_time) <= end);
-    return { status: 200, records: { code: 0, data: page(list, url, Number(url.searchParams.get("page_size") ?? 20)) } };
+    if (url.searchParams.get("sort_type") === "ByCreateTimeDesc") {
+      list.sort((a, b) => Number(b.create_time) - Number(a.create_time));
+    }
+    const data = page(list, url, Number(url.searchParams.get("page_size") ?? 20));
+    counter.fetched += data.items.length;
+    return { status: 200, records: { code: 0, data } };
   };
-  return { tools, call };
+  return { tools, call, counter };
 }
 
 const larkMessage = (seconds, sender = "ou_kai") => ({
@@ -145,6 +152,11 @@ test("lark: every page of chats and of messages is read, and past the cap, the r
 });
 
 function gmailWorld(count) {
+  return gmailWorldOf(count).world;
+}
+
+// gmailWorldOf is gmailWorld with its mails, which a test may change between two runs.
+function gmailWorldOf(count) {
   const tools = [{ name: "account_read", description: "Use the account name (google:me), API hostname" }];
   const mails = Array.from({ length: count }, (_, i) => ({
     id: `x${i}`, threadId: `t${i}`, internalDate: String(Date.parse(at(10))), labelIds: ["INBOX"],
@@ -167,7 +179,7 @@ function gmailWorld(count) {
       ...(next < found.length ? { nextPageToken: String(next) } : {}),
     } };
   };
-  return { tools, call };
+  return { world: { tools, call }, mails };
 }
 
 test("gmail: every page of mail is read, and past the cap, the rest next run", async () => {
@@ -243,4 +255,76 @@ test("what the prompt cannot hold is told at the next check, never dropped", asy
   }
 
   assert.equal(Object.keys(seen).length, 400, "every chat is told");
+});
+
+// Issue #1071, finding 4 of the fourth review of #1037: a capped run resumes from what it read, not from a position,
+// so that what changes meanwhile neither hides a message nor counts one twice.
+
+test("whatsapp: a late message in the second a capped run stopped in is read, and none is counted twice", async () => {
+  // WhatsApp keeps seconds and lists the latest kept first within one: a message that comes late with the time of
+  // the second the run stopped in comes before the ones the run counted (whatsapp/store.go: ts DESC, rowid DESC).
+  const messages = Array.from({ length: 150 }, (_, i) => ({
+    Chat: `c_${i}`, ChatName: `C${i}`, ID: `m${i}`, At: at(30), SenderName: "Lan",
+  }));
+  const w = messagingWorld("whatsapp", messages, "s");
+  const config = { scanMessages: 100, printBytes: 1e9 };
+
+  const first = await check({ tools: w.tools, call: w.call, config, state: { sources: { "whatsapp:main": mark } },
+    now: new Date(at(60)) });
+  const read = counted(first.text);
+  assert.equal(sum(read), 100);
+
+  messages.push({ Chat: "c_late", ChatName: "Late", ID: "late", At: at(30), SenderName: "Kai" });
+  const second = await check({ tools: w.tools, call: w.call, config, state: first.state, now: new Date(at(120)) });
+  const again = counted(second.text);
+
+  assert.deepEqual(Object.keys(again).filter((chat) => read[chat]), [], "no message is counted twice");
+  assert.equal(again.c_late, 1, "the late message is read");
+  assert.equal(sum(read) + sum(again), 151, "every message, once");
+});
+
+test("gmail: a counted mail deleted before the capped run resumes hides no other", async () => {
+  const { world: w, mails } = gmailWorldOf(150);
+  const config = { perSource: 100, printBytes: 1e6 };
+  const threads = (text) => counted(text.replaceAll("thread ", "id "));
+
+  const first = await check({ tools: w.tools, call: w.call, config, state: { sources: { "google:me": mark } },
+    now: new Date(at(600)) });
+  const read = threads(first.text);
+  assert.equal(Object.keys(read).length, 100);
+
+  mails.splice(mails.findIndex((m) => read[m.threadId]), 1);
+  const second = await check({ tools: w.tools, call: w.call, config, state: first.state, now: new Date(at(660)) });
+  const again = threads(second.text);
+
+  assert.deepEqual(Object.keys(again).filter((t) => read[t]), [], "no mail is counted twice");
+  assert.equal(Object.keys(again).length, 50, "the 50 left are read");
+  assert.deepEqual(second.state.sources["google:me"].gaps, [], "nothing is left to read");
+});
+
+test("lark: the cap is checked as a chat's pages are read, and the rest of the chat is read next run", async () => {
+  // 500 messages of one chat, three to a second, some in the same millisecond.
+  const messages = {
+    oc_all: Array.from({ length: 500 }, (_, j) => ({
+      ...larkMessage(10 + Math.floor(j / 3)), message_id: `om_${j}`,
+    })),
+  };
+  const w = larkWorld({ groups: [{ chat_id: "oc_all", name: "Everyone" }], messages });
+  const config = { larkMessages: 100, printBytes: 1e6 };
+  let kept = { sources: { "lark:me": mark } };
+  let total = 0;
+  let runs = 0;
+
+  for (; runs < 10; runs++) {
+    const before = w.counter.fetched;
+    const got = await check({ tools: w.tools, call: w.call, state: kept, config, now: new Date(at(600 + runs * 60)) });
+    assert.ok(w.counter.fetched - before <= 150, `run ${runs} read ${w.counter.fetched - before} messages`);
+    total += counted(got.text).oc_all ?? 0;
+    kept = got.state;
+    if (!got.wake) break;
+  }
+
+  assert.equal(total, 500, "every message, once");
+  assert.ok(runs >= 5, "100 a run");
+  assert.deepEqual(kept.sources["lark:me"].gaps, [], "nothing is left to read");
 });
