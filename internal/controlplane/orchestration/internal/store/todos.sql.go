@@ -715,13 +715,15 @@ SET revision = revision + 1, title = ?1, notes = ?2, done_when = ?3, draft = ?4,
     due_kind = ?5,
     due_date = ?6, due_zone = ?7, due_at = ?8, overdue_at = ?9,
     assignee_kind = ?10, assignee = ?11, state = ?12, snoozed_until = ?13,
-    work_attempt = ?14, work_kind = ?15, work_id = ?16, work_bot = ?17,
-    work_started_at = ?18,
-    approval_id = ?19, done_by_kind = ?20,
-    done_by = ?21, recorded_by_kind = ?22, recorded_by = ?23, closed_how = ?24,
-    close_reason = ?25, evidence = ?26, closed_at = ?27, duplicate_of = ?28,
-    updated_at = ?29
-WHERE id = ?30 AND revision = ?31 AND state = ?32
+    source_kind = ?14, source_id = ?15, source_account = ?16,
+    source_quote = ?17, source_ref = ?18,
+    work_attempt = ?19, work_kind = ?20, work_id = ?21, work_bot = ?22,
+    work_started_at = ?23,
+    approval_id = ?24, done_by_kind = ?25,
+    done_by = ?26, recorded_by_kind = ?27, recorded_by = ?28, closed_how = ?29,
+    close_reason = ?30, evidence = ?31, closed_at = ?32, duplicate_of = ?33,
+    updated_at = ?34
+WHERE id = ?35 AND revision = ?36 AND state = ?37
 `
 
 type UpdateTodoParams struct {
@@ -738,6 +740,11 @@ type UpdateTodoParams struct {
 	Assignee       string
 	State          string
 	SnoozedUntil   sql.NullInt64
+	SourceKind     string
+	SourceID       string
+	SourceAccount  string
+	SourceQuote    string
+	SourceRef      sql.NullString
 	WorkAttempt    sql.NullString
 	WorkKind       sql.NullString
 	WorkID         sql.NullString
@@ -776,6 +783,11 @@ func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (int64, 
 		arg.Assignee,
 		arg.State,
 		arg.SnoozedUntil,
+		arg.SourceKind,
+		arg.SourceID,
+		arg.SourceAccount,
+		arg.SourceQuote,
+		arg.SourceRef,
 		arg.WorkAttempt,
 		arg.WorkKind,
 		arg.WorkID,

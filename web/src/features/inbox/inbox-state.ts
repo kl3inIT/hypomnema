@@ -1,4 +1,5 @@
 import type { Approval, Question, Todo, TodoSourceKind } from "@/api/generated/types.gen"
+import { safeLink } from "@/features/work/work-state"
 
 // The Inbox's list (issue #1093): what waits on the owner and every to-do, in groups, after Orca's Items tab (MIT,
 // Copyright (c) 2026 Lovecast Inc., https://github.com/stablyai/orca; src/shared/bots/bot-item-groups.ts,
@@ -231,7 +232,8 @@ export function nextAfter(keys: readonly string[], key: string): string | undefi
 }
 
 // The sources the filter offers (issue #1093, section 5): where a to-do came from, as the owner names it. A mail
-// and a meeting's line come through a Routine's run, so the reference names them.
+// and a meeting have their own source kinds (issue #1105); an item a Routine's run found before them is named by its
+// reference.
 export type Source =
   | "zalo"
   | "whatsapp"
@@ -262,6 +264,8 @@ const sourceOfKind: Record<TodoSourceKind, Source> = {
   lark: "lark",
   zalo: "zalo",
   whatsapp: "whatsapp",
+  gmail: "gmail",
+  meeting: "meeting",
 }
 
 export function sourceOf(row: Row): Source {
@@ -273,6 +277,48 @@ export function sourceOf(row: Row): Source {
   if (ref === "meeting_line") return "meeting"
 
   return sourceOfKind[row.todo.source.kind]
+}
+
+// SourceTarget is where "Open in <source>" leads: a chat of the app, a web address, or a meeting at its line.
+export type SourceTarget = { chat: string } | { href: string } | { meeting: string; line?: number }
+
+// sourceTarget is where a to-do's source opens (issue #1105): the chat a Bot added it from; a Gmail thread in Gmail,
+// in the owner's account the Bot read it with, whose address mailOf gives by its Connection's label; a meeting at
+// the action's line; or the message's own link when it is a web address. A Zalo, WhatsApp or Lark chat has no web
+// address to open.
+export function sourceTarget(
+  todo: Todo,
+  mailOf: (label: string) => string | undefined,
+): SourceTarget | null {
+  const { source } = todo
+  if (source.kind === "chat" && source.id) return { chat: source.id }
+  if (source.kind === "gmail" && source.id) {
+    return { href: gmailThread(source.id, source.account ? mailOf(source.account) : undefined) }
+  }
+  if (source.kind === "meeting" && source.id) {
+    const line = source.ref?.kind === "meeting_line" ? lineOf(source.ref.ref) : undefined
+
+    return line ? { meeting: source.id, line } : { meeting: source.id }
+  }
+
+  const href = source.ref?.kind === "url" ? safeLink(source.ref.ref) : undefined
+
+  return href ? { href } : null
+}
+
+// gmailThread is a thread's address in Gmail, after inbox-zero's getGmailUrl (apps/web/utils/url.ts): the account's
+// own address picks it among those signed in, the first one when it is not known.
+function gmailThread(thread: string, address?: string) {
+  const account = address && /^[^\s/@#?]+@[^\s/@#?]+$/.test(address) ? address : "0"
+
+  return `https://mail.google.com/mail/u/${account}/#all/${encodeURIComponent(thread)}`
+}
+
+// lineOf is the line a meeting_line reference names, "<meeting>/<line>" or the line alone.
+function lineOf(ref: string) {
+  const n = Number(ref.slice(ref.lastIndexOf("/") + 1))
+
+  return Number.isInteger(n) && n > 0 ? n : undefined
 }
 
 export type Person = "me" | "bot" | "other"

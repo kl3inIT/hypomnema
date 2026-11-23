@@ -24,9 +24,12 @@ type inboxItem struct {
 	Draft    string `json:"draft"`
 	Due      string `json:"due"`
 	Assignee string `json:"assignee"`
+	WhyOpen  string `json:"why_open"`
 	Source   struct {
-		Kind string `json:"kind"`
-		ID   string `json:"id"`
+		Kind    string           `json:"kind"`
+		ID      string           `json:"id"`
+		Account string           `json:"account"`
+		Message *inboxstore.Link `json:"message"`
 	} `json:"source"`
 }
 
@@ -182,10 +185,6 @@ func TestABotKeepsTheOwnersInbox(t *testing.T) {
 	assert.Contains(t, listed, chase.ID)
 	assert.Contains(t, listed, first.ID)
 	assert.NotContains(t, listed, reply.ID)
-
-	_, text, isError := w.use(pi, agenttool.ToolInboxAdd, `{"title":"x","source":{"kind":"zalo","chat":"g_1"}}`)
-	assert.True(t, isError)
-	assert.Contains(t, text, "only a Routine's run", "in a chat, an item comes from that chat")
 
 	bot.ToolsOff = []string{"inbox"}
 	_, err = w.svc.PutBot(ctx, bot)

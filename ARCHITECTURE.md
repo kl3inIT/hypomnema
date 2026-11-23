@@ -4698,7 +4698,9 @@ gateway chat model writes its summary, decisions and actions.
   The sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
-  title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`, and
+  `?line=<n>` to open its Transcript at that line, brought into view and marked, as an Inbox item from a meeting
+  links it; issue #1105) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
   failed, and Summary and Transcript tabs with Write again; the transcript colours each voice, shows
   its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
@@ -4712,8 +4714,8 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143, 00148 and 00151; issues #838, #845, #966 and
-#1004, parts 1 to 3 of the Inbox): the store of the to-dos that have to happen, whoever does them, its state machine,
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153 and 00164; issues #838, #845,
+#966, #1004 and #1105, parts 1 to 3 of the Inbox and the sources a Bot reads): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000), `draft` (≤ 20,000, the reply a Bot drafted for the owner to send
@@ -4724,9 +4726,12 @@ its client API, its CLI and the Bots' tools.
   `person` (a name ≤ 100), `bot` (an existing Bot's id) or `unknown`; `state` `proposed`, `open`, `doing`, `review`,
   `done`, `dropped`, `duplicate`; `snoozed_until` (proposed or open only); the source (`owner`, `chat` with its chat,
   `routine` with its run, `lark`, `zalo` or `whatsapp` with the chat's id at the service and its message as a
-  `lark_message`, `zalo_message` or `whatsapp_message` reference, and for `zalo` and `whatsapp` the owner's account
-  (its Connection's label) the chat is in (`source_account`, optional for `lark`), as their stores key a message by
-  account, chat and id; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt
+  `lark_message`, `zalo_message` or `whatsapp_message` reference, `gmail` with the thread's id and its mail as a
+  `mail` reference (the Gmail message's id), `meeting` with the meeting's id and, when the action has one, its line
+  as a `meeting_line` reference `<meeting>/<line>` (issue #1105); for `zalo`, `whatsapp` and `gmail` the owner's
+  account (its Connection's label) the chat or thread is in (`source_account`, optional for `lark`, never for a
+  meeting), as their stores key a message by account, chat and id and a thread opens in its account; a quote ≤ 2,000
+  and a typed reference); who created it; the Bot's attempt
   while doing or review (`work_attempt`, its own id given by `Start`; `work_kind` `chat` or `run` and `work_id`,
   where it works, which may hold attempts at other items too; `work_bot`, the Bot that started it, and
   `work_started_at`); `approval_id` while review, the Approval linked, which was pending and asked by the item's
@@ -4743,8 +4748,10 @@ its client API, its CLI and the Bots' tools.
   `edited`, `state`, `snoozed` or `linked_approval`, the revision it made, JSON of the fields before and after, and the
   reason when one is given), written in the change's transaction.
 - Transitions (`inboxstore/transitions.go`, the `transitions` table lists every move and who may make it): the
-  owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from the owner's
-  Lark or Zalo chats adds proposed ones, which stay proposed until the owner accepts, drops or marks them duplicate;
+  owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from what it read
+  of the owner's (`inboxstore.FoundKinds`: his Lark, Zalo or WhatsApp chat, his Gmail thread, his meeting; in any
+  of its chats or runs, issue #1105) adds proposed ones, which stay proposed until the owner accepts, drops or marks
+  them duplicate;
   by the owner's triage of 2026-11-20 (issue #966) that Bot adds an open item instead only when it gives `why_open`
   (`asked_directly`: someone tagged or messaged the owner and he has not answered; `promised`: the owner promised
   it), a quote and a reference to the message, and `why_open` is kept in the item and its created event;
@@ -4770,7 +4777,8 @@ its client API, its CLI and the Bots' tools.
   not the item nor a duplicate, and the item is the target of none;
   the owner reopens a closed item, which clears its close; only the owner snoozes, to a time to come; the owner
   edits any item not closed, a Bot only those it added or is given, and changes their assignee only to give the item
-  back to the owner (`me`). The system's transitions run in the transaction of what causes them
+  back to the owner (`me`); an edit points an item at what it was read in (`Edit.Source`, one of `FoundKinds` with
+  its quote and message, never a chat, a run or the owner's hand, which only the token gives), and keeps its state. The system's transitions run in the transaction of what causes them
   (`LinkApprovalTx`, `ApprovalAnsweredTx`, `EndAttemptsTx`): `AskApproval` recording a new Approval with an
   `AttemptID` puts the item of that attempt in review; `DecideApproval` puts it back to doing, or open with the
   reason when rejected; `ExpireApproval` and a Routine's run ending (`FinishRoutineRun`, which refuses what the run
@@ -4801,8 +4809,9 @@ its client API, its CLI and the Bots' tools.
   `attempt`. Who acts comes from the token, never the body: the owner (token or web session) acts as `owner` and
   writes by hand; a Bot token bound to a chat acts as its Bot, from that chat, which is also the chat its owner's
   message is looked up in; a Bot token of a Routine's run (a script's token, or the pi of a prompt run's chat while
-  that run is live, `orchestration.RoutineRunOf`) acts as the Routine's Bot, from the run, or from a Lark or Zalo
-  chat the body names; such a Bot proposes by default and opens with `why_open`. A Bot starts an item in its chat,
+  that run is live, `orchestration.RoutineRunOf`) acts as the Routine's Bot, from the run, or from what of the
+  owner's the body names (a Lark, Zalo or WhatsApp chat, a Gmail thread, a meeting); such a Bot proposes by default
+  and opens with `why_open`. A Bot starts an item in its chat,
   or in the Routine's run. A coordinator token only reads: the writes have the policy `scopeActor`
   (`clientapi/policy.go`). The store's errors map as elsewhere: invalid 400, forbidden 403, not found 404, a stale
   revision or another attempt 409. The system transitions are not served.
@@ -4811,12 +4820,20 @@ its client API, its CLI and the Bots' tools.
   `edit`, `accept`, `done [--evidence url] [--reason …]`, `drop <id> "<reason>"`, `duplicate <id> <of>`,
   `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision.
 - Bot tools (`agentapi/inbox.go`, the family `inbox` of `agenttool/switches.go`, in the `full` preset only; issue
-  #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`), `inbox_start`,
+  #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`, `source`), `inbox_start`,
   `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, for a Bot's pi only. Who acts and
   where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
   the chat was opened for while it is live); each call reads the item and writes at the revision read (or the one
-  given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. A Routine's
-  run adds from the run, or from the owner's Zalo, WhatsApp or Lark chat it names, never as a chat with the owner.
+  given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. An item
+  comes from the chat, or from the Routine's run, never from a chat with the owner a run names; or, in any of the
+  Bot's chats or runs, from what of the owner's it read (issue #1105, the owner's decision of 2026-11-23): `source`
+  with `kind` `zalo`, `whatsapp` or `lark` and the `chat`, `gmail` and the `thread`, or `meeting` and the `meeting`,
+  with the `account` (the label of `<integration>:<label>`, `google` for Gmail) for all but a meeting, and its
+  `quote` and `message`. It is accepted only when the Bot may use that account now as its reads (`agentapi`'s
+  `readSource`: the Connections its tools are offered, `Bot.MayUse`), or, for a meeting, when it reads meetings and
+  the meeting is there; `inbox_update` points an item at it by the same check. The triage of #966 holds wherever
+  the Bot is: what it read opens with `why_open`, a quote and the message, else it is proposed; what the owner tells
+  it in its chat, with no `source`, opens.
   An item given to a person without a due is due 48 hours after it is first added (`NewTodo.DueIn`, counted by the
   store, so a retry with the same key is the same request; an empty draft stays out of the request's hash), the day
   to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included. A Routine's run that reads
@@ -6073,7 +6090,10 @@ Node (`internal/node`):
     Decline, Answer, Copy draft, Done and Snooze, Accept and Drop, Reopen or Unsnooze.
   - The detail: previous and next with "n of N in <group>"; a to-do's Snooze (Later today, Tomorrow, Monday, Next
     week, Pick a time; Orca's presets), Drop and Done, a proposal's Accept and Drop; where it came from, Who, Due,
-    Done when, Linked, what was said with Open in its chat, the draft with Copy and Edit (no Send), and its history.
+    Done when, Linked, what was said with Open in its chat (a Gmail thread opens in Gmail in the account it was read
+    with, `https://mail.google.com/mail/u/<address>/#all/<thread>` after inbox-zero's `getGmailUrl`, the address
+    from `GET /integrations`; a meeting's item says Open meeting, at `/meetings/{id}?line=<n>`; issue #1105), the
+    draft with Copy and Edit (no Send), and its history.
     An Approval shows its chat card (`ApprovalCard`) and a question its form (`QuestionForm`), the same calls as at
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
     (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on

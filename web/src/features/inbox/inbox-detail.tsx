@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ApprovalCard } from "@/features/approvals/approval-card"
 import { QuestionForm } from "@/features/questions/question-form"
-import { safeLink } from "@/features/work/work-state"
+import { useServices } from "@/features/settings/use-integrations"
 import { since } from "@/lib/time"
 
 import { KindIcon, RowActions } from "./inbox-row"
@@ -17,6 +17,7 @@ import {
   groupNames,
   sourceNames,
   sourceOf,
+  sourceTarget,
   type Action,
   type GroupId,
   type Row,
@@ -232,23 +233,30 @@ function whoOf(todo: Todo, botName: (id: string) => string) {
   }
 }
 
-// sourceLink is where "Open in <source>" leads: the chat a Bot added it from, or the message's own link when it is
-// a web address. A Zalo, WhatsApp or Lark chat has no web address to open.
-function sourceLink(todo: Todo): { chat?: string; href?: string } | null {
-  if (todo.source.kind === "chat" && todo.source.id) return { chat: todo.source.id }
-
-  const href = todo.source.ref?.kind === "url" ? safeLink(todo.source.ref.ref) : undefined
-
-  return href ? { href } : null
-}
-
+// OpenSource leads to where a to-do was read (sourceTarget): its chat, a Gmail thread in the owner's account the
+// Bot read it with, a meeting at its line, or the message's web address.
 function OpenSource({ todo, name }: { todo: Todo; name: string }) {
-  const link = sourceLink(todo)
-  if (!link) return null
-  if (link.chat) return <OpenChat chatId={link.chat}>Open in {name}</OpenChat>
+  const services = useServices()
+  const google = services.data?.find((s) => s.id === "google")?.connections ?? []
+  const target = sourceTarget(todo, (label) => google.find((c) => c.label === label)?.account)
+  if (!target) return null
+  if ("chat" in target) return <OpenChat chatId={target.chat}>Open in {name}</OpenChat>
+  if ("meeting" in target) {
+    return (
+      <Link
+        to="/meetings/$meetingId"
+        params={{ meetingId: target.meeting }}
+        search={target.line ? { line: target.line } : {}}
+        className={openClass}
+      >
+        <ExternalLink className="size-3.5" aria-hidden />
+        Open meeting
+      </Link>
+    )
+  }
 
   return (
-    <a href={link.href} target="_blank" rel="noreferrer" className={openClass}>
+    <a href={target.href} target="_blank" rel="noreferrer" className={openClass}>
       <ExternalLink className="size-3.5" aria-hidden />
       Open in {name}
     </a>

@@ -20,6 +20,8 @@ SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_w
     due_kind = @due_kind,
     due_date = @due_date, due_zone = @due_zone, due_at = @due_at, overdue_at = @overdue_at,
     assignee_kind = @assignee_kind, assignee = @assignee, state = @state, snoozed_until = @snoozed_until,
+    source_kind = @source_kind, source_id = @source_id, source_account = @source_account,
+    source_quote = @source_quote, source_ref = @source_ref,
     work_attempt = @work_attempt, work_kind = @work_kind, work_id = @work_id, work_bot = @work_bot,
     work_started_at = @work_started_at,
     approval_id = @approval_id, done_by_kind = @done_by_kind,

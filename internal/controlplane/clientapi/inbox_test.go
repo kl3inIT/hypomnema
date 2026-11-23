@@ -369,6 +369,22 @@ func TestARoutineBotOpensOnlyWhatIsClear(t *testing.T) {
 	require.NotNil(t, got.Events)
 	assert.Equal(t, string(asked), (*got.Events)[0].After["why_open"])
 
+	// A Gmail thread and a meeting are named the same way (issue #1105).
+	gmail, meeting := openapi.TodoSourceKindGmail, openapi.TodoSourceKindMeeting
+	mail := openapi.TodoLink{Kind: openapi.TodoLinkKindMail, Ref: "18c2f0a9b1d2e3f5"}
+	line := openapi.TodoLink{Kind: openapi.TodoLinkKindMeetingLine, Ref: "mtg_1/12"}
+
+	for kind, src := range map[openapi.TodoSourceKind]openapi.NewTodoSource{
+		gmail:   {Kind: &gmail, Id: ptr("18c2f0a9b1d2e3f4"), Account: ptr("work"), Quote: &quote, Ref: &mail},
+		meeting: {Kind: &meeting, Id: ptr("mtg_1"), Quote: &quote, Ref: &line},
+	} {
+		r := create(openapi.NewTodo{Title: "Check the contract", WhyOpen: &asked, Source: &src})
+		require.Equal(t, http.StatusCreated, r.StatusCode(), string(r.Body))
+		assert.Equal(t, openapi.TodoStateOpen, r.JSON201.State, kind)
+		assert.Equal(t, openapi.TodoSource{Kind: kind, Id: src.Id, Account: src.Account, Quote: &quote,
+			Ref: src.Ref}, r.JSON201.Source)
+	}
+
 	// A prompt Routine's run, with its own chat.
 	prompt, every := "Read my Lark chats.", 60
 	made, err := w.owner.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "brief",
