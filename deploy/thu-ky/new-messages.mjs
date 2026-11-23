@@ -97,10 +97,11 @@ const stateOf = (kept, fallback) => (typeof kept === "string" ? { mark: kept } :
 // The pages of the servers' kept messages (messaging/zalo/store.go, whatsapp/store.go), the latest first.
 const pageSize = 500;
 
-// A span of time a source reads, after (exclusive) to before, with where in it a capped run stopped. A run reads
-// its own new span, from the mark to now, and then the spans earlier runs left; past its cap it keeps the rest of
-// a span, with its position, for the next run, so that no message is read twice in one run nor left for good
-// (reviews of #1037, rounds 2 and 3).
+// A span of time a source reads, after (exclusive) to before, with what a capped run counted at its end. A run
+// reads its own new span, from the mark to now, and then the spans earlier runs left; past its cap it keeps the rest
+// of a span for the next run, so that no message is read twice in one run nor left for good (reviews of #1037,
+// rounds 2 and 3). The rest is kept by what was read, never by a position in a list (issue #1071): a message that
+// comes or goes meanwhile moves every position after it, and a resumed run would skip one or count one again.
 const later = (at, after) => Date.parse(at) > Date.parse(after);
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -108,11 +109,12 @@ const iso = (ms) => new Date(ms).toISOString();
 // an official account's or a no-reply sender's. It reads every chat's messages of a span, the latest first, by
 // offset under the span's fixed end, which skips none sent at the same time (WhatsApp keeps seconds), down to the
 // span's start; a message is known by its chat and its id. At scanMessages it stops on the message it reached and
-// keeps the rest of the span, with that offset, to read on from next run.
+// keeps the rest of the span: it ends a second after that message, and seen are the messages of that last second
+// it counted. A message that comes late in that second is read next run, and one counted is not counted again.
 async function readMessaging(call, source, st, now, config) {
   const account = source.label ? { account: source.label } : {};
   // The new span ends a second after now, so that its offsets stay put while messages keep arriving.
-  const spans = [{ after: st.mark, before: iso(now.getTime() + 1000), offset: 0 }, ...(st.gaps ?? [])];
+  const spans = [{ after: st.mark, before: iso(now.getTime() + 1000) }, ...(st.gaps ?? [])];
   const fresh = new Map();
   const gaps = [];
   for (const span of spans) {
@@ -120,22 +122,38 @@ async function readMessaging(call, source, st, now, config) {
       gaps.push(span);
       continue;
     }
+    const seen = new Set(span.seen ?? []);
+    // Every message of the span met in this run, counted now or before, with its time: the last second's are kept.
+    const met = [];
+    // A gap an earlier version kept by its offset is read on from there.
     let offset = span.offset ?? 0;
     for (let done = false; !done;) {
       const { messages = [] } = await call(`${source.service}_messages`, {
         ...account, limit: pageSize, offset, before: span.before,
       });
-      for (const [i, m] of messages.entries()) {
+      for (const m of messages) {
         if (!later(m.At, span.after)) {
           done = true;
           break;
         }
+        const key = `${m.Chat}\u0000${m.ID}`;
+        if (seen.has(key) || fresh.has(key)) {
+          met.push([key, Date.parse(m.At)]);
+          continue;
+        }
         if (fresh.size >= config.scanMessages) {
-          gaps.push({ ...span, offset: offset + i });
+          // The second of the message it stopped on, inside the span: past its end are another span's.
+          const stop = Date.parse(m.At);
+          const end = Math.min(stop + 1000, Date.parse(span.before));
+          gaps.push({
+            after: span.after, before: iso(end),
+            seen: met.filter(([, at]) => at >= stop && at < end).map(([k]) => k),
+          });
           done = true;
           break;
         }
-        fresh.set(`${m.Chat}\u0000${m.ID}`, m);
+        fresh.set(key, m);
+        met.push([key, Date.parse(m.At)]);
       }
       offset += messages.length;
       if (messages.length < pageSize) done = true;
@@ -176,9 +194,11 @@ async function pages(get, path) {
 
 // readLark counts the owner's new Lark messages in his chats, direct ones too (types=p2p,group; larksuite/cli
 // shortcuts/im/im_chat_list.go:283-302): not his own, nor an app's. For each span it lists every page of his chats,
-// the most active first, and reads every page of each one's messages in the span (start_time, end_time). In the new
-// span, larkIdleStop chats in a row with nothing new end it: the rest were active before. Past larkChats chats or
-// larkMessages messages it keeps the rest of the span, with the chats it read, for the next run.
+// the most active first, and reads each one's messages in the span (start_time, end_time), the latest first, a page
+// at a time. In the new span, larkIdleStop chats in a row with nothing new end it: the rest were active before. Past
+// larkChats chats or larkMessages messages, checked at each page (issue #1071), it keeps the rest of the span: the
+// chats it read through (done), and the chat it stopped in (part) by the time of the last message it read there and
+// the messages of that millisecond it read (seen).
 async function readLark(call, source, st, now, config) {
   const get = async (path) => {
     const answer = await call("account_read", {
@@ -195,46 +215,75 @@ async function readLark(call, source, st, now, config) {
   const gaps = [];
   let chatsRead = 0;
   let messagesRead = 0;
+  const capped = () => chatsRead >= config.larkChats || messagesRead >= config.larkMessages;
   for (const span of spans) {
     const done = new Set(span.done ?? []);
-    const keep = () => gaps.push({ after: span.after, before: span.before, done: [...done] });
-    if (chatsRead >= config.larkChats || messagesRead >= config.larkMessages) {
-      keep();
+    // What is kept of a span is read through as a whole next time: the idle stop is the new span's only.
+    const keep = (part) =>
+      gaps.push({ after: span.after, before: span.before, done: [...done], ...(part ? { part } : {}) });
+    if (capped()) {
+      keep(span.part);
       continue;
     }
     const chats = await pages(get, "/open-apis/im/v1/chats?types=p2p,group&sort_type=ByActiveTimeDesc&page_size=100");
     const since = Date.parse(span.after);
-    const until = Date.parse(span.before);
     let idle = 0;
+    let part;
+    let stopped = false;
     for (const chat of chats) {
       if (done.has(chat.chat_id) || dropped(config, chat.name, chat.chat_id)) continue;
       if (span.fresh && idle >= config.larkIdleStop) break;
-      if (chatsRead >= config.larkChats || messagesRead >= config.larkMessages) {
-        keep();
+      if (capped()) {
+        stopped = true;
         break;
       }
-      const list = await pages(get,
-        `/open-apis/im/v1/messages?container_id_type=chat&container_id=${chat.chat_id}` +
-          `&start_time=${Math.floor(since / 1000)}&end_time=${Math.ceil(until / 1000)}&page_size=50` +
-          "&sort_type=ByCreateTimeDesc");
+      // A chat an earlier run stopped in is read on below the last message it read there.
+      const resumed = span.part?.chat === chat.chat_id ? span.part : undefined;
+      const until = resumed ? resumed.before : Date.parse(span.before);
+      const seen = new Set(resumed?.seen ?? []);
+      const path = `/open-apis/im/v1/messages?container_id_type=chat&container_id=${chat.chat_id}` +
+        `&start_time=${Math.floor(since / 1000)}&end_time=${Math.ceil(until / 1000)}&page_size=50` +
+        "&sort_type=ByCreateTimeDesc";
       chatsRead += 1;
-      messagesRead += list.length;
+      let inSpan = 0;
+      let oldest = until;
+      let atOldest = [...seen];
+      let token = "";
+      for (;;) {
+        const data = await get(path + (token ? `&page_token=${encodeURIComponent(token)}` : ""));
+        const list = data.items ?? [];
+        messagesRead += list.length;
+        for (const m of list) {
+          const at = Number(m.create_time);
+          if (at <= since || at > until || (at === until && seen.has(m.message_id))) continue;
+          if (at < oldest) [oldest, atOldest] = [at, []];
+          atOldest.push(m.message_id);
+          inSpan += 1;
+          if (m.deleted || m.sender?.id === me || (config.dropLarkApps && m.sender?.sender_type === "app")) continue;
+          const entry = out.get(chat.chat_id) ?? {
+            where: `${source.account} chat "${chat.name || chat.chat_id}" (id ${chat.chat_id})`, count: 0,
+            from: new Set(), latest: 0,
+          };
+          entry.count += 1;
+          if (m.sender?.id) entry.from.add(m.sender.id);
+          entry.latest = Math.max(entry.latest, at);
+          out.set(chat.chat_id, entry);
+        }
+        if (!data.has_more) break;
+        if (messagesRead >= config.larkMessages) {
+          part = { chat: chat.chat_id, before: oldest, seen: atOldest };
+          break;
+        }
+        token = data.page_token;
+      }
+      if (part) {
+        stopped = true;
+        break;
+      }
       done.add(chat.chat_id);
-      const inSpan = list.filter((m) => Number(m.create_time) > since && Number(m.create_time) <= until);
-      idle = inSpan.length ? 0 : idle + 1;
-      const fresh = inSpan.filter(
-        (m) => !m.deleted && m.sender?.id !== me && !(config.dropLarkApps && m.sender?.sender_type === "app"),
-      );
-      if (fresh.length === 0) continue;
-      const entry = out.get(chat.chat_id) ?? {
-        where: `${source.account} chat "${chat.name || chat.chat_id}" (id ${chat.chat_id})`, count: 0,
-        from: new Set(), latest: 0,
-      };
-      entry.count += fresh.length;
-      for (const m of fresh) if (m.sender?.id) entry.from.add(m.sender.id);
-      entry.latest = Math.max(entry.latest, ...fresh.map((m) => Number(m.create_time)));
-      out.set(chat.chat_id, entry);
+      idle = inSpan ? 0 : idle + 1;
     }
+    if (stopped) keep(part ?? (span.part && !done.has(span.part.chat) ? span.part : undefined));
   }
   return {
     found: [...out.values()].map((e) => ({ ...e, from: [...e.from], latest: iso(e.latest) })),
@@ -247,8 +296,9 @@ const header = (message, name) =>
   message.payload?.headers?.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
 
 // readGmail counts the owner's new mail, per thread: not his own, nor a list's, a newsletter's or a no-reply sender's.
-// For each span it lists every page of the search (after:, before:), the newest first, and reads each mail from
-// where the span stopped (skip); past perSource mails it keeps the rest of the span, with that position.
+// For each span it lists every page of the search (after:, before:), the newest first, and reads each mail it has not
+// read yet; past perSource mails it keeps the rest of the span, with the mails of it it read (seen), so that a mail
+// deleted or come meanwhile neither hides another nor is counted twice.
 async function readGmail(call, source, st, now, config) {
   const get = async (path) => {
     const answer = await call("account_read", {
@@ -257,7 +307,7 @@ async function readGmail(call, source, st, now, config) {
     if (answer.status >= 400) throw new Error(`${source.account} could not be read: HTTP ${answer.status}`);
     return answer.records ?? {};
   };
-  const spans = [{ after: st.mark, before: iso(now.getTime() + 1000), skip: 0 }, ...(st.gaps ?? [])];
+  const spans = [{ after: st.mark, before: iso(now.getTime() + 1000) }, ...(st.gaps ?? [])];
   const threads = new Map();
   const gaps = [];
   let read = 0;
@@ -279,14 +329,19 @@ async function readGmail(call, source, st, now, config) {
       if (!page.nextPageToken) break;
       token = page.nextPageToken;
     }
-    for (let i = span.skip ?? 0; i < ids.length; i++) {
+    // Of what was read before, only the mails still there are kept. A gap an earlier version kept by its position
+    // (skip) is read on from there.
+    const seen = new Set((span.seen ?? []).filter((id) => ids.includes(id)));
+    for (const [i, id] of ids.entries()) {
+      if (i < (span.skip ?? 0) || seen.has(id)) continue;
       if (read >= config.perSource) {
-        gaps.push({ ...span, skip: i });
+        gaps.push({ after: span.after, before: span.before, seen: [...seen, ...ids.slice(0, span.skip ?? 0)] });
         break;
       }
       read += 1;
+      seen.add(id);
       const m = await get(
-        `/gmail/v1/users/me/messages/${ids[i]}?format=metadata&metadataHeaders=From&metadataHeaders=Subject` +
+        `/gmail/v1/users/me/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject` +
           config.listHeaders.map((h) => `&metadataHeaders=${h}`).join(""),
       );
       const from = header(m, "From");
