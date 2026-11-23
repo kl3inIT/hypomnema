@@ -1,15 +1,37 @@
 import { Link } from "@tanstack/react-router"
-import { ChevronDown, ChevronLeft, ChevronUp, Copy, ExternalLink, Pencil } from "lucide-react"
+import {
+  Bot as BotIcon,
+  ChevronDown,
+  ChevronLeft,
+  ChevronUp,
+  Copy,
+  ExternalLink,
+  Pencil,
+  Send,
+} from "lucide-react"
 import { useState, type ReactNode } from "react"
 
 import type { Todo, TodoEvent } from "@/api/generated/types.gen"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { toast } from "@/components/ui/toast"
 import { ApprovalCard } from "@/features/approvals/approval-card"
 import { QuestionForm } from "@/features/questions/question-form"
 import { useServices } from "@/features/settings/use-integrations"
+import { errorText } from "@/lib/server-error"
 import { since } from "@/lib/time"
 
+import { HandDialog } from "./hand-dialog"
 import { KindIcon, RowActions } from "./inbox-row"
 import {
   detailActions,
@@ -22,14 +44,16 @@ import {
   type GroupId,
   type Row,
 } from "./inbox-state"
-import { useTodo } from "./use-inbox"
+import { canHand, canSend, sendQuestion, threadOf } from "./inbox-thread"
+import { useCommentTodo, useSendDraft, useTodo } from "./use-inbox"
 import { copyDraft } from "./use-row-actions"
 
 // InboxDetail is the selected item, after OpenMausBot's InboxReading (its place in the list, stepping up and down)
 // and Chatwoot's conversation view beside its list: a top bar with the item's actions, then where it came from, its
-// fields, what was said, the draft to copy, and its history. An Approval shows its card and a worker's question its
-// form, the same parts and calls as in the chat and on Team. No Send: a Bot never sends for the owner (owner,
-// 2026-11-17); he copies the draft and sends it himself.
+// fields, what was said, the draft to copy or send, and its thread. An Approval shows its card and a worker's
+// question its form, the same parts and calls as in the chat and on Team. A to-do is handed to the main Bot with a
+// prompt from the top bar (issue #1111). Send is the owner's own, through his account, after a confirmation: a Bot
+// never sends for him (owner, 2026-11-17; Send pressed by him, 2026-11-23).
 export function InboxDetail({
   row,
   now,
@@ -37,6 +61,7 @@ export function InboxDetail({
   phone,
   pending,
   botName,
+  mainBot,
   onBack,
   onStep,
   onAction,
@@ -49,6 +74,8 @@ export function InboxDetail({
   phone: boolean
   pending: boolean
   botName: (id: string) => string
+  // mainBot is the Bot "Hand to" gives an item to: the main Bot, by its id; empty while the Bots are read.
+  mainBot: string
   onBack: () => void
   onStep: (by: -1 | 1) => void
   onAction: (action: Action, until?: number) => void
@@ -56,6 +83,8 @@ export function InboxDetail({
   onSaveDraft: (draft: string, onSaved: () => void) => void
 }) {
   const actions = detailActions(row, now)
+  const [handing, setHanding] = useState(false)
+  const handTo = mainBot ? botName(mainBot) : "Hypo"
 
   return (
     <article aria-label="Item" className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -91,15 +120,33 @@ export function InboxDetail({
             {position.index + 1} of {position.count} in {groupNames[position.group]}
           </span>
         )}
+        {row.kind === "todo" && canHand(row.todo) && (
+          <span className="ms-auto">
+            <Button variant="outline" size="sm" disabled={pending} onClick={() => setHanding(true)}>
+              <BotIcon data-icon="inline-start" />
+              Hand to {handTo}
+            </Button>
+          </span>
+        )}
         {actions.length > 0 && (
           <RowActions
-            className="ms-auto flex flex-wrap"
+            className={
+              row.kind === "todo" && canHand(row.todo) ? "flex flex-wrap" : "ms-auto flex flex-wrap"
+            }
             labelled
             actions={actions}
             onAction={(action, until) => !pending && onAction(action, until)}
           />
         )}
       </header>
+      {handing && row.kind === "todo" && (
+        <HandDialog
+          todo={row.todo}
+          bot={mainBot || undefined}
+          botName={handTo}
+          onClose={() => setHanding(false)}
+        />
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-5">
@@ -323,28 +370,49 @@ function TodoBody({
         </Section>
       )}
       <Draft key={`${todo.id}:${todo.revision}`} todo={todo} source={source} onSave={onSaveDraft} />
-      <Section title="Activity">
+      <Section title="Thread">
         {detail.data?.events?.length ? (
-          <ol className="flex flex-col gap-1.5 text-sm">
-            {detail.data.events
-              .slice()
-              .reverse()
-              .map((e) => (
-                <li key={e.id} className="flex items-baseline gap-2">
-                  <span className="min-w-0 flex-1 text-foreground/85">
-                    {eventWords(e, botName)}
+          <ol className="flex flex-col gap-2 text-sm">
+            {threadOf(detail.data.events).map((e) =>
+              e.kind === "comment" ? (
+                <li
+                  key={e.id}
+                  className="flex flex-col gap-1 rounded-lg border bg-surface-raised px-3 py-2"
+                >
+                  <span className="flex items-baseline gap-2 text-xs">
+                    <span className="font-medium text-foreground">
+                      {actorName(e.actor, botName)}
+                    </span>
+                    <span className="text-2xs text-muted-foreground tabular-nums">
+                      {since(e.at, now)}
+                    </span>
+                  </span>
+                  <p className="break-words whitespace-pre-wrap text-foreground/90">{e.text}</p>
+                </li>
+              ) : (
+                <li key={e.id} className="flex items-baseline gap-2 px-1">
+                  <span className="min-w-0 flex-1 text-muted-foreground">
+                    {eventWords(e.event, botName)}
                   </span>
                   <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
                     {since(e.at, now)}
                   </span>
                 </li>
-              ))}
+              ),
+            )}
           </ol>
         ) : (
           <p className="text-sm text-muted-foreground">
             {detail.isPending ? "Reading…" : "Nothing yet."}
           </p>
         )}
+        {todo.chat_id && (
+          <OpenChat chatId={todo.chat_id}>
+            Open {todo.assignee.kind === "bot" ? `${botName(todo.assignee.name ?? "")}'s` : "the"}{" "}
+            chat for this item
+          </OpenChat>
+        )}
+        <CommentBox key={todo.id} todo={todo} />
       </Section>
     </>
   )
@@ -367,7 +435,8 @@ function linkedOf(todo: Todo, botName: (id: string) => string): ReactNode {
   return null
 }
 
-// Draft is the reply a Bot wrote for the owner to send himself: Copy, Edit and Open in its source, never Send.
+// Draft is the reply a Bot wrote for the owner to send himself: Copy, Edit, Open in its source, and Send, which the
+// owner presses and confirms, through his own account to the item's own chat or thread (issue #1111).
 function Draft({
   todo,
   source,
@@ -379,6 +448,9 @@ function Draft({
 }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(todo.draft)
+  const sendable = canSend(todo)
+  // shown is what Send sends: the text as it is on screen, edits included.
+  const shown = editing ? text : todo.draft
 
   if (!todo.draft && !editing) {
     return (
@@ -411,6 +483,7 @@ function Draft({
             <Button size="sm" onClick={() => onSave(text, () => setEditing(false))}>
               Save
             </Button>
+            {sendable && <SendDraft todo={todo} text={shown} />}
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
               Cancel
             </Button>
@@ -421,6 +494,7 @@ function Draft({
               <Copy data-icon="inline-start" />
               Copy
             </Button>
+            {sendable && <SendDraft todo={todo} text={shown} />}
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
               <Pencil data-icon="inline-start" />
               Edit
@@ -433,14 +507,118 @@ function Draft({
   )
 }
 
+// SendDraft sends the text shown through the owner's own account after he confirms, naming who gets it and where
+// ("Send to Kai Yong on WhatsApp?"), as inbox-zero's Send of an AI draft and Chatwoot's reply from the inbox; the
+// server closes the item with the message sent as its evidence.
+function SendDraft({ todo, text }: { todo: Todo; text: string }) {
+  const [open, setOpen] = useState(false)
+  const send = useSendDraft()
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={!text.trim() || send.isPending}
+        onClick={() => setOpen(true)}
+      >
+        <Send data-icon="inline-start" />
+        Send
+      </Button>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{sendQuestion(todo)}</AlertDialogTitle>
+          <AlertDialogDescription>
+            It goes from your own account, as you, and the item is closed.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <p className="max-h-48 overflow-y-auto rounded-lg border bg-surface-raised px-3 py-2.5 text-sm whitespace-pre-wrap">
+          {text}
+        </p>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={send.isPending}
+            onClick={() =>
+              send.mutate(
+                { todo, text },
+                {
+                  onSuccess: () => {
+                    setOpen(false)
+                    toast.add({ title: "Sent", type: "success" })
+                  },
+                  onError: (error) =>
+                    toast.add({ title: "Not sent", description: errorText(error), type: "error" }),
+                },
+              )
+            }
+          >
+            <Send data-icon="inline-start" />
+            Send
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+// CommentBox writes in the item's thread; the owner's comment reaches the Bot in the item's own chat when it has
+// one. Ctrl+Enter sends it, as in the hand-over.
+function CommentBox({ todo }: { todo: Todo }) {
+  const [text, setText] = useState("")
+  const comment = useCommentTodo()
+  const submit = () => {
+    if (!text.trim() || comment.isPending) return
+    comment.mutate(
+      { todo, text },
+      {
+        onSuccess: () => setText(""),
+        onError: (error) =>
+          toast.add({ title: "Not commented", description: errorText(error), type: "error" }),
+      },
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Textarea
+        aria-label="Comment"
+        value={text}
+        rows={2}
+        maxLength={10_000}
+        placeholder={todo.chat_id ? "Answer the Bot, or add a note" : "Add a note"}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault()
+            submit()
+          }
+        }}
+      />
+      <span className="self-end">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!text.trim() || comment.isPending}
+          onClick={submit}
+        >
+          Comment
+        </Button>
+      </span>
+    </div>
+  )
+}
+
+// actorName names who wrote in the thread: the owner, a Bot by its name, or Hypomnema.
+function actorName(actor: TodoEvent["actor"], botName: (id: string) => string) {
+  if (actor.kind === "owner") return "You"
+
+  return actor.kind === "bot" ? botName(actor.id ?? "") : "Hypomnema"
+}
+
 // eventWords says one change of the item's history in words: who, and what.
 function eventWords(e: TodoEvent, botName: (id: string) => string) {
-  const who =
-    e.actor.kind === "owner"
-      ? "You"
-      : e.actor.kind === "bot"
-        ? botName(e.actor.id ?? "")
-        : "Hypomnema"
+  const who = actorName(e.actor, botName)
   const after = e.after as Record<string, unknown>
 
   switch (e.kind) {
@@ -453,6 +631,9 @@ function eventWords(e: TodoEvent, botName: (id: string) => string) {
     case "linked_approval":
       return `${who} asked for an Approval`
     case "edited":
+      if (after.assignee_kind === "bot" && typeof after.assignee === "string")
+        return `${who} gave it to ${botName(after.assignee)}`
+
       return `${who} changed ${Object.keys(after).join(", ") || "it"}`
     default:
       return `${who}: ${e.kind}`

@@ -169,6 +169,12 @@ function world({ review = false, sources = false }: { review?: boolean; sources?
   ]
   const closed = (t: Todo) => ["done", "dropped", "duplicate"].includes(t.state)
   const sent: { path: string; body: unknown }[] = []
+  // threads are each to-do's history past its creation: the hand-over, the comments (issue #1111).
+  const threads: Record<string, Record<string, unknown>[]> = {}
+  const remember = (t: Todo, event: Record<string, unknown>) => {
+    const thread = (threads[t.id] ??= [])
+    thread.push({ id: thread.length + 2, at: at(0), revision: t.revision, before: {}, ...event })
+  }
 
   return {
     sent,
@@ -217,9 +223,50 @@ function world({ review = false, sources = false }: { review?: boolean; sources?
                   before: {},
                   after: { title: t.title },
                 },
+                ...(threads[t.id] ?? []),
               ],
             })
-          sent.push({ path, body: request.postDataJSON() })
+          const body = request.postDataJSON() as Record<string, string>
+          sent.push({ path, body })
+          // Issue #1111: the hand-over gives the item to the Bot with its chat and the prompt as its first comment;
+          // a comment is added to the thread; Send closes the item with the message sent.
+          if (acted[2] === "hand") {
+            t.revision += 1
+            Object.assign(t, { assignee: { kind: "bot", name: body.bot }, chat_id: "cht_item" })
+            remember(t, {
+              actor: { kind: "owner" },
+              kind: "edited",
+              after: { assignee_kind: "bot", assignee: body.bot },
+            })
+            if (body.prompt) {
+              t.revision += 1
+              remember(t, {
+                actor: { kind: "owner" },
+                kind: "commented",
+                after: { text: body.prompt },
+              })
+            }
+
+            return json(t)
+          }
+          if (acted[2] === "comments") {
+            t.revision += 1
+            remember(t, { actor: { kind: "owner" }, kind: "commented", after: { text: body.text } })
+
+            return json(t)
+          }
+          if (acted[2] === "send") {
+            const sentLink = {
+              kind: "whatsapp_sent",
+              ref: "3EB0SENT",
+              account: "main",
+              chat: "6591234567@s.whatsapp.net",
+            }
+            t.revision += 1
+            Object.assign(t, { state: "done", closed_at: at(0), evidence: [sentLink] })
+
+            return json({ sent: sentLink, todo: t })
+          }
           if (acted[2] === "done" && held) await held
           t.revision += 1
           t.updated_at = at(0)
@@ -290,6 +337,23 @@ function world({ review = false, sources = false }: { review?: boolean; sources?
           case "/bots":
             return json({
               data: [
+                {
+                  id: "bot_main",
+                  name: "Hypo",
+                  main: true,
+                  persona: "",
+                  memory: "",
+                  memory_limit: 2200,
+                  skills: [],
+                  skills_off: [],
+                  tools: [],
+                  tools_off: [],
+                  connections: { limited: false, names: [] },
+                  workers: { limited: false, names: [] },
+                  scopes: {},
+                  created_at: at(-day),
+                  updated_at: at(-day),
+                },
                 {
                   id: "thu-ky",
                   name: "Thư ký",
@@ -389,8 +453,10 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   await expect(detail.getByRole("region", { name: "Said" })).toContainText(
     "any news on the contract",
   )
-  // No Send: the owner sends the reply himself.
-  await expect(detail.getByRole("button", { name: /^Send/ })).toHaveCount(0)
+  // Send is the owner's own, beside Copy (issue #1111); a Bot never sends.
+  await expect(
+    detail.getByRole("region", { name: "Draft" }).getByRole("button", { name: "Send" }),
+  ).toBeVisible()
   const phone = (page.viewportSize()?.width ?? 1280) < 768
   if (phone) await expect(list(page)).toBeHidden()
   else await expect(list(page)).toBeVisible()
@@ -553,6 +619,93 @@ test("e pressed twice sends done once", async ({ page }) => {
   await expect(page.getByText("Not changed")).toHaveCount(0)
 })
 
+// Scenario: issue #1111, sections 1 and 2. The owner hands the invoice to the main Bot from the item's top bar: a
+// quick prompt fills the box, he writes his own, and Ctrl+Enter hands it over. The item shows Hypo as who does it,
+// his prompt first in its thread and a link to the item's chat; his comment goes to the same thread.
+test("the owner hands an item to Hypo with a prompt and follows it in the thread", async ({
+  page,
+}) => {
+  const w = world()
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_invoice")
+  const detail = item(page)
+  await expect(
+    detail.getByRole("heading", { name: "Send the invoice to ELITEX", exact: true }),
+  ).toBeVisible()
+
+  await detail.getByRole("button", { name: "Hand to Hypo" }).click()
+  const dialog = page.getByRole("dialog", { name: "Hand to Hypo" })
+  const prompt = dialog.getByRole("textbox", { name: /What to do/ })
+  await dialog.getByRole("button", { name: "Draft a reply" }).click()
+  await expect(prompt).toHaveValue("Draft a reply")
+  await prompt.fill("Do it now, then draft a reply to ELITEX for me to send")
+  await shot(page, "inbox-hand")
+  await prompt.press("Control+Enter")
+
+  await expect
+    .poll(() => w.sent)
+    .toContainEqual({
+      path: "/inbox/tdo_invoice/hand",
+      body: {
+        revision: 1,
+        bot: "bot_main",
+        prompt: "Do it now, then draft a reply to ELITEX for me to send",
+      },
+    })
+  await expect(dialog).toBeHidden()
+  const thread = detail.getByRole("region", { name: "Thread" })
+  await expect(thread).toContainText("You gave it to Hypo")
+  await expect(thread).toContainText("Do it now, then draft a reply to ELITEX for me to send")
+  await expect(detail).toContainText(/Who\s*Hypo/)
+  await expect(
+    thread.getByRole("link", { name: "Open Hypo's chat for this item" }),
+  ).toHaveAttribute("href", "/chats/cht_item")
+
+  await thread.getByRole("textbox", { name: "Comment" }).fill("Use the November rate.")
+  await thread.getByRole("button", { name: "Comment" }).click()
+  await expect
+    .poll(() => w.sent)
+    .toContainEqual({
+      path: "/inbox/tdo_invoice/comments",
+      body: { text: "Use the November rate." },
+    })
+  await expect(thread).toContainText("Use the November rate.")
+  await shot(page, "inbox-thread")
+})
+
+// Scenario: issue #1111, section 3. The owner edits the reply to Kai and presses Send: a confirmation names Kai
+// Yong and WhatsApp and shows the text; once he confirms, the text as edited is sent with the revision he read, and
+// nothing is sent before.
+test("the owner sends a draft after confirming", async ({ page }) => {
+  const w = world()
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_reply")
+  const detail = item(page)
+  const draft = detail.getByRole("region", { name: "Draft" })
+  await expect(draft).toContainText("Hi Kai, I will send the signed contract this afternoon.")
+
+  await draft.getByRole("button", { name: "Edit" }).click()
+  await draft
+    .getByRole("textbox", { name: "Draft" })
+    .fill("Hi Kai, the signed contract comes this afternoon.")
+  await draft.getByRole("button", { name: "Send" }).click()
+
+  const confirm = page.getByRole("alertdialog", { name: "Send to Kai Yong on WhatsApp (main)?" })
+  await expect(confirm).toContainText("Hi Kai, the signed contract comes this afternoon.")
+  expect(w.sent.filter((s) => s.path.endsWith("/send"))).toHaveLength(0)
+  await shot(page, "inbox-send")
+  await confirm.getByRole("button", { name: "Send" }).click()
+
+  await expect
+    .poll(() => w.sent)
+    .toContainEqual({
+      path: "/inbox/tdo_reply/send",
+      body: { revision: 1, text: "Hi Kai, the signed contract comes this afternoon." },
+    })
+  await expect(confirm).toBeHidden()
+  await expect(page.getByText("Sent", { exact: true })).toBeVisible()
+})
+
 // The pictures the owner looks at, in the light and the dark theme.
 for (const theme of ["light", "dark"] as const) {
   test(`the Inbox in the ${theme} theme`, async ({ page }) => {
@@ -567,7 +720,7 @@ for (const theme of ["light", "dark"] as const) {
     await expect(
       item(page).getByRole("heading", { name: "Reply to Kai Yong", exact: true }),
     ).toBeVisible()
-    await expect(item(page).getByRole("region", { name: "Activity" })).toContainText(
+    await expect(item(page).getByRole("region", { name: "Thread" })).toContainText(
       "Thư ký added it",
     )
     await shot(page, `inbox-reply-${theme}`)
