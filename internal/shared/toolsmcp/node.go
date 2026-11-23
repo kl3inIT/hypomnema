@@ -29,7 +29,7 @@ const (
 	reaskMost  = 8 * time.Second
 )
 
-// NodeCall runs node_exec or node_process on path within CallTimeout, and reads the result again when the control
+// NodeCall runs node_exec or node_process on path within NodeCallTimeout, and reads the result again when the control
 // plane restarts while it runs. Any other tool is ToolCall's.
 func (a *Agent) NodeCall(ctx context.Context, path, tool string, arguments json.RawMessage) (json.RawMessage, error) {
 	ask, reask, lost := arguments, json.RawMessage(nil), func(error) error { return nil }
@@ -94,10 +94,10 @@ func (a *Agent) NodeCall(ctx context.Context, path, tool string, arguments json.
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, CallTimeout)
+	ctx, cancel := context.WithTimeout(ctx, NodeCallTimeout)
 	defer cancel()
 
-	raw, err := a.toolCall(ctx, path, CallTimeout, maxAnswerBytes, tool, ask)
+	raw, err := a.toolCall(ctx, path, NodeCallTimeout, maxAnswerBytes, tool, ask)
 	if reask == nil || !answerLost(err) {
 		return raw, err
 	}
@@ -130,7 +130,7 @@ func (a *Agent) reask(ctx context.Context, path string, args json.RawMessage) (j
 
 		wait = min(wait*2, reaskMost)
 
-		raw, err := a.toolCall(ctx, path, CallTimeout, maxAnswerBytes, agenttool.ToolNodeProcess, args)
+		raw, err := a.toolCall(ctx, path, NodeCallTimeout, maxAnswerBytes, agenttool.ToolNodeProcess, args)
 
 		var u unreachable
 

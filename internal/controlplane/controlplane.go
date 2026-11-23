@@ -495,7 +495,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	agents.WithVideos(videoSvc, phoneTakes)
 
 	// An agent's commands on a node's machine (issue #543), sudo given the node's password from the vault.
-	agents.WithNodeExec(svc, nodes, nodeSudo(secrets))
+	// A command on the phone's node starts its machine stopped for idleness, as a phone call does (issue #1083).
+	agents.WithNodeExec(svc, nodes, nodeSudo(secrets)).WithNodeUse(sharedPhone)
 
 	// The owner's hold on the phone ends as the browser's does (issue #417, step 3).
 	go sharedPhone.Run(ctx)
