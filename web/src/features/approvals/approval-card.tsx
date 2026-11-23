@@ -41,12 +41,24 @@ function Mark({ action }: { action: string }) {
 // ComposerPendingApprovalActions.tsx, Decline and Approve are the two buttons and approving for the session waits
 // in the "…" menu beside them. A request a Routine's run made has one more answer there (issue #211, after
 // OpenClaw's standing grant scoped to the job): always for this Routine.
-function ApprovalCard({ approval }: { approval: Approval }) {
+// onAnswered is told once the answer was taken, so the Inbox can move on to its next item (issue #1093).
+export function ApprovalCard({
+  approval,
+  onAnswered,
+}: {
+  approval: Approval
+  onAnswered?: () => void
+}) {
   const decide = useDecide(approval)
   const session = sessionOf(approval)
 
   const answer = (decision: ApprovalDecision["decision"], done: string) =>
-    decide.mutate(decision, { onSuccess: () => toast.add({ title: done, type: "success" }) })
+    decide.mutate(decision, {
+      onSuccess: () => {
+        toast.add({ title: done, type: "success" })
+        onAnswered?.()
+      },
+    })
 
   return (
     <section

@@ -10802,7 +10802,7 @@ type ClientInterface interface {
 
 	// ListTodos One page of the Inbox's to-dos, by due (those without one last), then created
 	//
-	// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+	// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the to-dos GET /inbox/needs-you counts. total counts every page of the same filter.
 	//
 	// Corresponds with GET /inbox (the `ListTodos` operationId).
 	ListTodos(ctx context.Context, params *ListTodosParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -10825,9 +10825,9 @@ type ClientInterface interface {
 	// Corresponds with POST /inbox (the `CreateTodo` operationId).
 	CreateTodo(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetInboxNeedsYou How many to-dos need the owner now, for the sidebar
+	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	//
-	// Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+	// The to-dos that need him, each once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue, with a reply drafted for him, or a "log in again" item. Then the pending Approvals and the open questions workers asked him, from their own lists; an Approval a to-do in review waits for counts once, as that to-do, unless the to-do is snoozed.
 	//
 	// Corresponds with GET /inbox/needs-you (the `GetInboxNeedsYou` operationId).
 	GetInboxNeedsYou(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -15650,7 +15650,7 @@ func (c *Client) GenerateImages(ctx context.Context, body GenerateImagesJSONRequ
 
 // ListTodos One page of the Inbox's to-dos, by due (those without one last), then created
 //
-// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the to-dos GET /inbox/needs-you counts. total counts every page of the same filter.
 //
 // Corresponds with GET /inbox (the `ListTodos` operationId).
 func (c *Client) ListTodos(ctx context.Context, params *ListTodosParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -15703,9 +15703,9 @@ func (c *Client) CreateTodo(ctx context.Context, params *CreateTodoParams, body 
 	return c.Client.Do(req)
 }
 
-// GetInboxNeedsYou How many to-dos need the owner now, for the sidebar
+// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 //
-// Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+// The to-dos that need him, each once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue, with a reply drafted for him, or a "log in again" item. Then the pending Approvals and the open questions workers asked him, from their own lists; an Approval a to-do in review waits for counts once, as that to-do, unless the to-do is snoozed.
 //
 // Corresponds with GET /inbox/needs-you (the `GetInboxNeedsYou` operationId).
 func (c *Client) GetInboxNeedsYou(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -34932,7 +34932,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListTodosWithResponse One page of the Inbox's to-dos, by due (those without one last), then created
 	//
-	// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+	// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the to-dos GET /inbox/needs-you counts. total counts every page of the same filter.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -34957,9 +34957,9 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /inbox (the `CreateTodo` operationId).
 	CreateTodoWithResponse(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTodoResponse, error)
 
-	// GetInboxNeedsYouWithResponse How many to-dos need the owner now, for the sidebar
+	// GetInboxNeedsYouWithResponse How many things in the Inbox need the owner now, for the sidebar
 	//
-	// Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+	// The to-dos that need him, each once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue, with a reply drafted for him, or a "log in again" item. Then the pending Approvals and the open questions workers asked him, from their own lists; an Approval a to-do in review waits for counts once, as that to-do, unless the to-do is snoozed.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -53428,7 +53428,7 @@ func (c *ClientWithResponses) GenerateImagesWithResponse(ctx context.Context, bo
 
 // ListTodosWithResponse One page of the Inbox's to-dos, by due (those without one last), then created
 //
-// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+// With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the to-dos GET /inbox/needs-you counts. total counts every page of the same filter.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -53471,9 +53471,9 @@ func (c *ClientWithResponses) CreateTodoWithResponse(ctx context.Context, params
 	return ParseCreateTodoResponse(rsp)
 }
 
-// GetInboxNeedsYouWithResponse How many to-dos need the owner now, for the sidebar
+// GetInboxNeedsYouWithResponse How many things in the Inbox need the owner now, for the sidebar
 //
-// Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+// The to-dos that need him, each once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue, with a reply drafted for him, or a "log in again" item. Then the pending Approvals and the open questions workers asked him, from their own lists; an Approval a to-do in review waits for counts once, as that to-do, unless the to-do is snoozed.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -66710,7 +66710,7 @@ type ServerInterface interface {
 	// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
 	// (POST /inbox)
 	CreateTodo(w http.ResponseWriter, r *http.Request, params CreateTodoParams)
-	// GetInboxNeedsYou How many to-dos need the owner now, for the sidebar
+	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	// (GET /inbox/needs-you)
 	GetInboxNeedsYou(w http.ResponseWriter, r *http.Request)
 	// GetTodo A to-do with its history
@@ -89367,7 +89367,7 @@ type StrictServerInterface interface {
 	// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
 	// (POST /inbox)
 	CreateTodo(ctx context.Context, request CreateTodoRequestObject) (CreateTodoResponseObject, error)
-	// GetInboxNeedsYou How many to-dos need the owner now, for the sidebar
+	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	// (GET /inbox/needs-you)
 	GetInboxNeedsYou(ctx context.Context, request GetInboxNeedsYouRequestObject) (GetInboxNeedsYouResponseObject, error)
 	// GetTodo A to-do with its history

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as GridRouteImport } from './routes/grid'
+import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as MeetingsRouteImport } from './routes/meetings'
 import { Route as RoutinesRouteImport } from './routes/routines'
@@ -62,6 +63,11 @@ const IndexRoute = IndexRouteImport.update({
 const GridRoute = GridRouteImport.update({
   id: '/grid',
   path: '/grid',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InboxRoute = InboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MachinesRoute = MachinesRouteImport.update({
@@ -278,6 +284,7 @@ const StudioVideosVideoIdRoute = StudioVideosVideoIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
+  '/inbox': typeof InboxRoute
   '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
@@ -324,6 +331,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
+  '/inbox': typeof InboxRoute
   '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
@@ -371,6 +379,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
+  '/inbox': typeof InboxRoute
   '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
@@ -419,6 +428,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/grid'
+    | '/inbox'
     | '/machines'
     | '/meetings'
     | '/routines'
@@ -465,6 +475,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/grid'
+    | '/inbox'
     | '/machines'
     | '/meetings'
     | '/routines'
@@ -511,6 +522,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/grid'
+    | '/inbox'
     | '/machines'
     | '/meetings'
     | '/routines'
@@ -558,6 +570,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   GridRoute: typeof GridRoute
+  InboxRoute: typeof InboxRoute
   MachinesRoute: typeof MachinesRoute
   MeetingsRoute: typeof MeetingsRoute
   RoutinesRoute: typeof RoutinesRoute
@@ -616,6 +629,13 @@ declare module '@tanstack/react-router' {
       path: '/grid'
       fullPath: '/grid'
       preLoaderRoute: typeof GridRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/inbox': {
+      id: '/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof InboxRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/machines': {
@@ -918,6 +938,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   GridRoute: GridRoute,
+  InboxRoute: InboxRoute,
   MachinesRoute: MachinesRoute,
   MeetingsRoute: MeetingsRoute,
   RoutinesRoute: RoutinesRoute,

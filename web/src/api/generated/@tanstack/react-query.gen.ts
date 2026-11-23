@@ -5651,7 +5651,7 @@ export const listTodosQueryKey = (options?: Options<ListTodosData>) => createQue
 /**
  * One page of the Inbox's to-dos, by due (those without one last), then created
  *
- * With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+ * With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the to-dos GET /inbox/needs-you counts. total counts every page of the same filter.
  */
 export const listTodosOptions = (options?: Options<ListTodosData>) => queryOptions<ListTodosResponse, ListTodosError, ListTodosResponse, ReturnType<typeof listTodosQueryKey>>({
   queryFn: async ({ queryKey, signal }) => {
@@ -5671,7 +5671,7 @@ export const listTodosInfiniteQueryKey = (options?: Options<ListTodosData>): Que
 /**
  * One page of the Inbox's to-dos, by due (those without one last), then created
  *
- * With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+ * With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the to-dos GET /inbox/needs-you counts. total counts every page of the same filter.
  */
 export const listTodosInfiniteOptions = (options?: Options<ListTodosData>) => {
   const opts = infiniteQueryOptions<ListTodosResponse, ListTodosError, InfiniteData<ListTodosResponse>, QueryKey<Options<ListTodosData>>, string | Pick<QueryKey<Options<ListTodosData>>[0], 'body' | 'headers' | 'path' | 'query'>>(
@@ -5720,9 +5720,9 @@ export const createTodoMutation = (options?: Partial<Options<CreateTodoData>>): 
 export const getInboxNeedsYouQueryKey = (options?: Options<GetInboxNeedsYouData>) => createQueryKey('getInboxNeedsYou', options);
 
 /**
- * How many to-dos need the owner now, for the sidebar
+ * How many things in the Inbox need the owner now, for the sidebar
  *
- * Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+ * The to-dos that need him, each once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue, with a reply drafted for him, or a "log in again" item. Then the pending Approvals and the open questions workers asked him, from their own lists; an Approval a to-do in review waits for counts once, as that to-do, unless the to-do is snoozed.
  */
 export const getInboxNeedsYouOptions = (options?: Options<GetInboxNeedsYouData>) => queryOptions<GetInboxNeedsYouResponse, GetInboxNeedsYouError, GetInboxNeedsYouResponse, ReturnType<typeof getInboxNeedsYouQueryKey>>({
   queryFn: async ({ queryKey, signal }) => {

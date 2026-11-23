@@ -2,12 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
 import {
+  getInboxNeedsYouQueryKey,
+  getTodoQueryKey,
   listApprovalsOptions,
   listApprovalsQueryKey,
+  listTodosQueryKey,
 } from "@/api/generated/@tanstack/react-query.gen"
 import { decideApproval } from "@/api/generated/sdk.gen"
 import type { Approval, ApprovalDecision } from "@/api/generated/types.gen"
-import { everyCall } from "@/lib/query-keys"
+import { callsOf } from "@/lib/query-keys"
 
 // Approvals (issue #154): requests agents made to the owner's accounts that wait for his answer. The list is
 // read again every few seconds while a screen that shows it is open, as Onyx reads a session's approvals.
@@ -29,6 +32,15 @@ export function usePending(where: { chatId?: string; taskId?: string; routineId?
   })
 }
 
+// decidedReads matches what an answer changes: every list of Approvals, and the Inbox, whose count holds them and
+// whose to-do in review moves with its Approval (issue #1093).
+const decidedReads = callsOf(
+  listApprovalsQueryKey(),
+  getInboxNeedsYouQueryKey(),
+  listTodosQueryKey(),
+  getTodoQueryKey({ path: { todo_id: "" } }),
+)
+
 // useDecide answers one Approval; every list of them is read again.
 export function useDecide(approval: Approval) {
   const queryClient = useQueryClient()
@@ -36,8 +48,7 @@ export function useDecide(approval: Approval) {
   return useMutation({
     mutationFn: async (decision: ApprovalDecision["decision"]) =>
       (await decideApproval({ path: { approval_id: approval.id }, body: { decision } })).data,
-    onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: everyCall(listApprovalsQueryKey()) }),
+    onSettled: () => queryClient.invalidateQueries({ predicate: decidedReads }),
   })
 }
 

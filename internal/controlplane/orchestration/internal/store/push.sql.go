@@ -228,6 +228,7 @@ WHERE t.id = ?1
   AND (t.state = 'proposed'
     OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
     OR (t.assignee_kind = 'me' AND t.draft <> '')
+    OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
     OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?3 AS INTEGER)))
 `
 

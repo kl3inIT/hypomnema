@@ -1,0 +1,216 @@
+import {
+  AlarmClock,
+  Check,
+  CheckCircle2,
+  Circle,
+  CircleDashed,
+  Copy,
+  Lightbulb,
+  MessageCircleQuestion,
+  RotateCcw,
+  ShieldQuestion,
+  Trash2,
+  X,
+  type LucideIcon,
+} from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { since } from "@/lib/time"
+import { cn } from "@/lib/utils"
+
+import { SnoozeMenu } from "./snooze-menu"
+import { actionsOf, dueOf, isClosed, titleOf, type Action, type Row } from "./inbox-state"
+
+// The kind a row is, as its icon shows it: an Approval, a question, a to-do, one a Bot is doing, a proposal, a
+// closed one, a snoozed one.
+type Kind = "approval" | "question" | "todo" | "doing" | "proposed" | "done" | "snoozed"
+
+const kinds: Record<Kind, { Icon: LucideIcon; label: string; tone: string }> = {
+  approval: { Icon: ShieldQuestion, label: "Approval", tone: "text-needs-you" },
+  question: { Icon: MessageCircleQuestion, label: "Question", tone: "text-needs-you" },
+  todo: { Icon: Circle, label: "To-do", tone: "text-muted-foreground" },
+  doing: { Icon: CircleDashed, label: "A Bot is doing it", tone: "text-running" },
+  proposed: { Icon: Lightbulb, label: "Proposed", tone: "text-muted-foreground" },
+  done: { Icon: CheckCircle2, label: "Closed", tone: "text-done" },
+  snoozed: { Icon: AlarmClock, label: "Snoozed", tone: "text-muted-foreground" },
+}
+
+function kindOf(row: Row, now: number): Kind {
+  if (row.kind !== "todo") return row.kind
+  if (row.approval) return "approval"
+
+  const { todo } = row
+  if (isClosed(todo)) return "done"
+  if (todo.snoozed_until && Date.parse(todo.snoozed_until) > now) return "snoozed"
+  if (todo.state === "proposed") return "proposed"
+  if (todo.state === "doing" || todo.state === "review") return "doing"
+
+  return "todo"
+}
+
+export function KindIcon({ row, now, className }: { row: Row; now: number; className?: string }) {
+  const { Icon, label, tone } = kinds[kindOf(row, now)]
+
+  return (
+    <span title={label} className={cn("inline-flex shrink-0", className)}>
+      <Icon aria-hidden className={cn("size-4", tone)} />
+      <span className="sr-only">{label}</span>
+    </span>
+  )
+}
+
+// The look of each action, as OpenMausBot's ACTION_LOOK (InboxRow.tsx): an icon and its name.
+const actionLook: Record<Action, { Icon: LucideIcon; label: string }> = {
+  approve: { Icon: Check, label: "Approve" },
+  decline: { Icon: X, label: "Decline" },
+  answer: { Icon: MessageCircleQuestion, label: "Answer" },
+  copy: { Icon: Copy, label: "Copy draft" },
+  done: { Icon: Check, label: "Done" },
+  snooze: { Icon: AlarmClock, label: "Snooze" },
+  accept: { Icon: Check, label: "Accept" },
+  drop: { Icon: Trash2, label: "Drop" },
+  reopen: { Icon: RotateCcw, label: "Reopen" },
+  unsnooze: { Icon: RotateCcw, label: "Unsnooze" },
+}
+
+const dueTone = { late: "text-failed", today: "text-needs-you", later: "text-muted-foreground" }
+
+// InboxRow is one line of the list, after OpenMausBot's InboxRowItem and Chatwoot's ConversationCard: the kind's
+// icon, the title (bold while unread), where it came from and who, its due date coloured when it is today or late,
+// a draft chip, and how long ago it changed. Pointed at or focused, its actions take the time's place; a phone
+// shows them in the detail instead. It is a row that opens, its own design rather than a Button.
+export function InboxRow({
+  row,
+  from,
+  now,
+  selected,
+  unread,
+  actions = true,
+  onOpen,
+  onAction,
+}: {
+  row: Row
+  from: string
+  now: number
+  selected: boolean
+  unread: boolean
+  actions?: boolean
+  onOpen: () => void
+  onAction: (action: Action, until?: number) => void
+}) {
+  const title = titleOf(row)
+  const todo = row.kind === "todo" ? row.todo : undefined
+  const due = todo ? dueOf(todo, now) : null
+  const at =
+    row.kind === "approval"
+      ? row.approval.created_at
+      : row.kind === "question"
+        ? row.question.created_at
+        : row.todo.updated_at
+
+  return (
+    <li
+      data-testid="inbox-row"
+      data-key={row.key}
+      aria-current={selected || undefined}
+      className={cn(
+        "group relative flex min-w-0 items-start rounded-lg",
+        selected
+          ? "bg-sidebar-row-active"
+          : "focus-within:bg-sidebar-row-hover hover:bg-sidebar-row-hover",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={title}
+        className="flex min-w-0 flex-1 items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+      >
+        <KindIcon row={row} now={now} className="mt-0.5" />
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-sm",
+                unread ? "font-semibold text-foreground" : "text-foreground/85",
+              )}
+            >
+              {title}
+            </span>
+            <span
+              className={cn(
+                "shrink-0 text-2xs text-muted-foreground tabular-nums",
+                actions && "md:group-focus-within:invisible md:group-hover:invisible",
+              )}
+            >
+              {since(at, now)}
+            </span>
+          </span>
+          <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="min-w-0 truncate">{from}</span>
+            {due && (
+              <span className={cn("shrink-0", dueTone[due.tone])}>
+                {due.tone === "late" ? `Late · ${due.text}` : due.text}
+              </span>
+            )}
+            {todo?.draft && (
+              <span className="shrink-0">
+                <Badge variant="outline">draft</Badge>
+              </span>
+            )}
+          </span>
+        </span>
+      </button>
+      {actions && (
+        <RowActions
+          className="absolute top-1.5 right-1.5 hidden rounded-md bg-popover shadow-xs md:group-focus-within:flex md:group-hover:flex"
+          actions={actionsOf(row, now)}
+          onAction={onAction}
+        />
+      )}
+    </li>
+  )
+}
+
+export function RowActions({
+  actions,
+  onAction,
+  className,
+  labelled = false,
+}: {
+  actions: Action[]
+  onAction: (action: Action, until?: number) => void
+  className?: string
+  labelled?: boolean
+}) {
+  return (
+    <span className={cn("items-center gap-0.5", className)}>
+      {actions.map((action) => {
+        const { Icon, label } = actionLook[action]
+        const button = (
+          <Button
+            key={action}
+            variant={labelled ? "outline" : "ghost"}
+            size={labelled ? "sm" : "icon-sm"}
+            aria-label={label}
+            title={label}
+            onClick={action === "snooze" ? undefined : () => onAction(action)}
+          >
+            <Icon data-icon={labelled ? "inline-start" : undefined} />
+            {labelled && label}
+          </Button>
+        )
+
+        return action === "snooze" ? (
+          <SnoozeMenu
+            key={action}
+            trigger={button}
+            onSnooze={(until) => onAction("snooze", until)}
+          />
+        ) : (
+          button
+        )
+      })}
+    </span>
+  )
+}

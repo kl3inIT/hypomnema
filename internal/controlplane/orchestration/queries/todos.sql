@@ -77,6 +77,7 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
+      OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))))
   AND (CAST(@has_cursor AS INTEGER) = 0
     OR coalesce(t.due_at, 9223372036854775807) > CAST(@cursor_due AS INTEGER)
@@ -103,7 +104,20 @@ WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_eac
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
+      OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(@now AS INTEGER)))));
+
+-- name: CountOwnerAsks :one
+-- What else waits on the owner in the Inbox's Needs you (issue #1093): the pending Approvals and the open questions
+-- workers asked him. An Approval that a to-do in review waits for is counted once, as that to-do, unless the to-do
+-- is snoozed.
+SELECT CAST(
+  (SELECT count(*) FROM approvals a
+    WHERE a.status = 'pending'
+      AND NOT EXISTS (SELECT 1 FROM todos t WHERE t.approval_id = a.id AND t.state = 'review'
+        AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))))
+  + (SELECT count(*) FROM questions q WHERE q.status = 'open' AND q.addressed_to = 'owner')
+AS INTEGER) AS asks;
 
 -- name: SetTodoIdempotencyKey :exec
 -- An account's "log in again" item lets the account's key go when it closes, for one of its own, and takes it again

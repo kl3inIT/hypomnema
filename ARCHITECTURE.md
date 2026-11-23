@@ -4211,8 +4211,8 @@ waits on the owner reaches his browsers and the iPhone Home Screen app (iOS 16.4
   `push_outbox` (kind, item id; one per item); one the owner writes himself queues nothing.
 - The sender runs while the control plane serves. It reads the queue at start and after every commit
   (`orchestration.Subscribe`), reads each item's words then (`QueuedPushes`: title naming the Bot, or the Run by its
-  objective; the item's own text cut to 1500 bytes, and cut again to what fits once JSON-encoded (3800 bytes); the page, the item's chat or the start page; the Inbox has no
-  page yet), drops one that no longer waits (answered, decided, gone), and sends it to every subscription at once,
+  objective; the item's own text cut to 1500 bytes, and cut again to what fits once JSON-encoded (3800 bytes); the page, the item's chat or the start page; a to-do's push
+  still opens its chat or the start page), drops one that no longer waits (answered, decided, gone), and sends it to every subscription at once,
   then deletes the row. A push is a Declarative Web Push message (`{web_push: 8030, notification: {title, body,
   navigate, tag}}`), encrypted with `SherClockHolmes/webpush-go`, with TTL 300 s, urgency high, the tag
   `hypomnema-<kind>-<id>` and a Topic hashed from it, so a newer push of the same item replaces a pending one. 429,
@@ -4743,14 +4743,16 @@ its client API, its CLI and the Bots' tools.
   item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
   created, pages of at most 200 with a cursor and the filter's total, read in one transaction with the page; `NeedsYou(now)`, the distinct items not closed nor snoozed that are proposed, in
-  review with a pending Approval, or the owner's own and overdue or with a draft, the same predicate as `List`'s
-  needs-you filter.
+  review with a pending Approval, or the owner's own and overdue, with a draft, or a "log in again" item (issue
+  #1093), the same predicate as `List`'s needs-you filter and the push's `TodoNeedsYou`.
   A stale proposal, proposed and untouched (at revision 1, no event after `created`) for `StaleAfter` (3 days, a
   constant), is left out of `List` unless asked for (`WithStale`), never counted by `NeedsYou` nor listed by the
   needs-you filter, and shown with `Stale`; it is neither accepted nor deleted, and any change makes it fresh.
 - Client API (`clientapi/inbox.go`, issue #966): `GET /inbox` (`ListTodos`, the filters of `List` with
   `include_snoozed`, `include_closed`, `include_stale`, `cursor`, `limit` ≤ 200 and `total`), `GET /inbox/needs-you`
-  (`GetInboxNeedsYou`), `POST /inbox` (`CreateTodo`, with an optional `Idempotency-Key`), `GET /inbox/{todo_id}`
+  (`GetInboxNeedsYou`, `orchestration.InboxNeedsYou`: `NeedsYou` plus the pending Approvals and the open questions
+  to the owner, the query `CountOwnerAsks`; an Approval that a counted item in review waits for counts once, as
+  that item; issue #1093), `POST /inbox` (`CreateTodo`, with an optional `Idempotency-Key`), `GET /inbox/{todo_id}`
   (`GetTodo`, with its events), `PATCH /inbox/{todo_id}` (`EditTodo`), and `POST /inbox/{todo_id}/accept`, `done`,
   `drop`, `duplicate`, `reopen`, `snooze`, `start`, `release`, each carrying the `revision` read and a Bot's
   `attempt`. Who acts comes from the token, never the body: the owner (token or web session) acts as `owner` and
@@ -6004,6 +6006,28 @@ Node (`internal/node`):
     /chats/{id}/compact`), disabled while pi works, "Compacting…" while it is asked. No ring shows before pi
     reported, as in Orca; after a compaction it shows "–" until pi's next answer. A `usage` frame on the chat's
     stream updates the chat as the page holds it.
+- The Inbox page (issue #1093, part 5 of #838, `web/src/features/inbox`, route `/inbox?item=<kind>:<id>`): the
+  sidebar's place under New chat, with the count of `GET /inbox/needs-you`. On a computer the list (520 px) is on
+  the left and the selected item on the right, as Chatwoot's conversation view; on a phone one pane at a time, the
+  item full screen with Inbox to go back. The list reads `GET /inbox` (open and snoozed), `GET /inbox?needs_you`
+  (which to-dos the server counts) and the closed items, with the pending Approvals and the open questions to the
+  owner from their own lists, every 10 seconds; an Approval and a question are never copied into to-dos.
+  - Groups, after Orca's Items tab (`bot-item-groups.ts`): Needs you (the Approvals, a to-do in review shown with
+    its Approval as one row, the questions, then the to-dos the server counts but proposals), Working (a Bot's),
+    Open, Proposed, Snoozed and Done, the last two folded. A group shows five rows and "Show N more", the asks never
+    hidden (Orca's `needs-you-fold.ts`). The sidebar's count also holds the proposals not yet triaged, which the
+    server's predicate counts.
+  - A row: the kind's icon, the title (bold until opened in this browser since it last changed; kept in
+    `localStorage`), where it came from and who, the due date coloured today or late, a draft chip, and when it
+    changed. Pointed at or focused on a computer, its actions by kind, as OpenMausBot's `quickActions`: Approve and
+    Decline, Answer, Copy draft, Done and Snooze, Accept and Drop, Reopen or Unsnooze.
+  - The detail: previous and next with "n of N in <group>"; a to-do's Snooze (Later today, Tomorrow, Monday, Next
+    week, Pick a time; Orca's presets), Drop and Done, a proposal's Accept and Drop; where it came from, Who, Due,
+    Done when, Linked, what was said with Open in its chat, the draft with Copy and Edit (no Send), and its history.
+    An Approval shows its chat card (`ApprovalCard`) and a question its form (`QuestionForm`), the same calls as at
+    their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
+    (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on
+    a phone.
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,

@@ -3,6 +3,7 @@ import type { MouseEvent } from "react"
 import {
   BotMessageSquare,
   Clapperboard,
+  Inbox,
   LayoutGrid,
   LogOut,
   Mic,
@@ -16,6 +17,7 @@ import "@/api/client"
 import { HypomnemaIcon, HypomnemaWordmark } from "@/components/icons/brand-icons"
 import { Sidebar, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { signOut } from "@/features/auth/session"
+import { useInboxCount } from "@/features/inbox/use-inbox"
 import { useLiveUpdates, useWork } from "@/features/work/use-work"
 import { needsYou } from "@/features/work/work-state"
 import { useBrowser } from "@/features/browser/browser-state"
@@ -30,7 +32,7 @@ import { BotList } from "./bot-list"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
-// Team with what waits for the owner, the Routines, the Meetings (issue #721), the Studio of takes and videos (issue
+// Inbox with what waits for the owner (issue #1093), the Team with what waits for him there, the Routines, the Meetings (issue #721), the Studio of takes and videos (issue
 // #818, after Cap's My Caps in its navbar, Navbar/Items.tsx; layout only), then the Bots; in the order they are used,
 // as OpenClaw's navigation, issue #371; the agents and the machines are in Settings since issue #857, as OpenClaw's
 // agents and devices, ui/src/app-navigation.ts) and the Bots with
@@ -48,9 +50,25 @@ export function LiveUpdates() {
 const placeClass =
   "flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-foreground"
 
+// NeedsYouCount is a place's count of what waits on the owner.
+function NeedsYouCount({ count }: { count: number | undefined }) {
+  if (!count) return null
+
+  return (
+    <span
+      className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-needs-you/18 px-1.5 text-2xs font-semibold text-needs-you"
+      aria-label={`${count} need you`}
+    >
+      {count}
+    </span>
+  )
+}
+
 function Places() {
   const { cards } = useWork()
   const waiting = needsYou(cards)
+  // The Inbox's count is the server's (GET /inbox/needs-you, issue #1093): its to-dos, Approvals and questions.
+  const inbox = useInboxCount()
 
   return (
     <nav aria-label="Places" className="flex flex-col gap-px">
@@ -59,19 +77,20 @@ function Places() {
         New chat
       </Link>
       <Link
+        to="/inbox"
+        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
+      >
+        <Inbox className="size-4" />
+        Inbox
+        <NeedsYouCount count={inbox.data} />
+      </Link>
+      <Link
         to="/team"
         className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
       >
         <UsersRound className="size-4" />
         Team
-        {waiting > 0 && (
-          <span
-            className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-needs-you/18 px-1.5 text-2xs font-semibold text-needs-you"
-            aria-label={`${waiting} need you`}
-          >
-            {waiting}
-          </span>
-        )}
+        <NeedsYouCount count={waiting} />
       </Link>
       <Link
         to="/routines"

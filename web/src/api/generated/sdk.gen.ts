@@ -3321,7 +3321,7 @@ export const sendQueuedChatMessage = <ThrowOnError extends boolean = true>(optio
 /**
  * One page of the Inbox's to-dos, by due (those without one last), then created
  *
- * With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the items GET /inbox/needs-you counts. total counts every page of the same filter.
+ * With no state, every state that is not closed, or every state with include_closed. A snoozed item is left out until its time unless include_snoozed; a stale proposal (proposed and untouched for three days) unless include_stale. needs_you lists the to-dos GET /inbox/needs-you counts. total counts every page of the same filter.
  */
 export const listTodos = <ThrowOnError extends boolean = true>(options?: Options<ListTodosData, ThrowOnError>): RequestResult<ListTodosResponses, ListTodosErrors, ThrowOnError> => (options?.client ?? client).get<ListTodosResponses, ListTodosErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -3345,9 +3345,9 @@ export const createTodo = <ThrowOnError extends boolean = true>(options: Options
 });
 
 /**
- * How many to-dos need the owner now, for the sidebar
+ * How many things in the Inbox need the owner now, for the sidebar
  *
- * Each item once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue.
+ * The to-dos that need him, each once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue, with a reply drafted for him, or a "log in again" item. Then the pending Approvals and the open questions workers asked him, from their own lists; an Approval a to-do in review waits for counts once, as that to-do, unless the to-do is snoozed.
  */
 export const getInboxNeedsYou = <ThrowOnError extends boolean = true>(options?: Options<GetInboxNeedsYouData, ThrowOnError>): RequestResult<GetInboxNeedsYouResponses, GetInboxNeedsYouErrors, ThrowOnError> => (options?.client ?? client).get<GetInboxNeedsYouResponses, GetInboxNeedsYouErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

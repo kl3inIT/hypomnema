@@ -317,3 +317,74 @@ func TestAKeyUsedBeforeTheDraftReturnsItsItem(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "tdo_1", again.ID)
 }
+
+// Scenario: issue #1093, section 6. The sidebar's count is what the Inbox's Needs you holds, each once: an open
+// question a worker asked the owner (not one to the coordinator), a pending Approval asked in a chat, a proposal,
+// an account's "log in again" item, and an item in review with its Approval, counted as the item alone. Answered at their source, the asks leave the count.
+func TestTheInboxCountsWhatWaitsOnTheOwnerOnce(t *testing.T) {
+	t.Parallel()
+
+	w := newSeedWorld(t)
+	ctx := t.Context()
+	count := func() int {
+		t.Helper()
+
+		n, err := w.s.InboxNeedsYou(ctx)
+		require.NoError(t, err)
+
+		return n
+	}
+
+	require.Equal(t, 0, count())
+
+	tasks := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"}, NewTask{Ref: "b", Profile: "implementer",
+		Spec: "b"})
+	_, ca := w.start(tasks[0].ID)
+	_, cb := w.start(tasks[1].ID)
+	question := w.ask(ca, libraryChoice(AddressOwner))
+	w.ask(cb, libraryChoice(AddressCoordinator))
+	assert.Equal(t, 1, count(), "a question to the coordinator waits on him")
+
+	chat, err := w.s.CreateChat(ctx, DefaultBotID, "")
+	require.NoError(t, err)
+
+	loose := w.askMail(chat.ID, "", "loose")
+	assert.Equal(t, 2, count())
+
+	_, err = w.s.Inbox().Create(ctx, inboxBot, inboxstore.NewTodo{
+		Title: "Reply to Lan", State: inboxstore.Proposed, Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
+		Source: inboxstore.Source{Kind: inboxstore.FromWhatsApp, ID: "8490@s.whatsapp.net", Account: "main",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "3EB0"}},
+	})
+	require.NoError(t, err)
+
+	signIn, added, err := w.s.Inbox().SignInFailed(ctx, inboxBot, "lark:me", "rrn_1", "401 from Lark")
+	require.NoError(t, err)
+	require.True(t, added)
+	assert.Equal(t, 4, count(), "a log in again item needs him though it has no due")
+
+	listed, err := w.s.Inbox().List(ctx, inboxstore.Filter{NeedsYou: true}, "", 0)
+	require.NoError(t, err)
+	assert.Contains(t, idsOf(listed.Items), signIn.ID, "the list's needs_you is the same predicate")
+
+	td := w.doingIn(inboxstore.Work{Kind: inboxstore.WorkChat, ID: chat.ID})
+	w.askMail(chat.ID, td.Work.Attempt, "held")
+	td = w.todo(td.ID)
+	require.Equal(t, inboxstore.Review, td.State)
+	assert.Equal(t, 5, count(), "the item in review and its Approval count once")
+
+	_, err = w.s.DecideApproval(ctx, loose.ID, true, ScopeOnce)
+	require.NoError(t, err)
+	_, err = w.s.AnswerQuestion(ctx, question, AddressOwner, Answer{Option: choice(0)})
+	require.NoError(t, err)
+	assert.Equal(t, 3, count(), "answered at their source, the asks leave")
+}
+
+func idsOf(items []inboxstore.Todo) []string {
+	ids := make([]string, 0, len(items))
+	for _, td := range items {
+		ids = append(ids, td.ID)
+	}
+
+	return ids
+}
