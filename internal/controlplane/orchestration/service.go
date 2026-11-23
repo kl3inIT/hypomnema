@@ -118,7 +118,8 @@ func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opt
 	s.channels = channelstore.New(s.db, s.clock, s.notify.signal)
 	s.routines = routinestore.New(s.db, s.clock, s.newID, s.notify.signal)
 	s.meetings = meetingstore.New(s.db, s.clock, s.newID, s.notify.signal)
-	s.inbox = inboxstore.New(s.db, s.clock, s.newID, s.notify.signal).WithWaker(inboxWaker{s})
+	s.inbox = inboxstore.New(s.db, s.clock, s.newID, s.notify.signal).WithWaker(inboxWaker{s}).
+		WithMainBot(DefaultBotID)
 
 	return s
 }

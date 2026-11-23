@@ -524,3 +524,29 @@ func TestInboxErrorsAndRetries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusConflict, other.StatusCode(), string(other.Body))
 }
+
+// Scenario: issue #1118, through the client API. The main Bot's token passes an item to a project Bot and the item
+// reads through whom that Bot has it; the project Bot's token passes it to no other project Bot.
+func TestTheMainBotsTokenPassesAnItemToAProjectBot(t *testing.T) {
+	t.Parallel()
+
+	w := newInboxWorld(t)
+	ctx := t.Context()
+
+	beyond, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "BeyondPilot"})
+	require.NoError(t, err)
+
+	td := w.add(ctx, t, "Send Kai the pilot's report", toMain)
+	assert.Nil(t, td.PassedBy, "the owner gave it himself")
+
+	passed, err := w.chatBot.EditTodoWithResponse(ctx, td.Id, openapi.TodoEdit{Revision: td.Revision, Assignee: &w.vmap})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, passed.StatusCode(), string(passed.Body))
+	assert.Equal(t, w.vmap, passed.JSON200.Assignee)
+	assert.Equal(t, ptr(orchestration.DefaultBotID), w.get(t, td.Id).PassedBy)
+
+	round, err := w.routineBot.EditTodoWithResponse(ctx, td.Id, openapi.TodoEdit{Revision: passed.JSON200.Revision,
+		Assignee: &openapi.TodoAssignee{Kind: openapi.TodoAssigneeKindBot, Name: &beyond.ID}})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, round.StatusCode(), string(round.Body))
+}

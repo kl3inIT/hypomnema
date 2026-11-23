@@ -5376,6 +5376,10 @@ export type Todo = {
    */
   chat_id?: string;
   /**
+   * The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
+   */
+  passed_by?: string;
+  /**
    * A proposal nobody touched for three days, left out of the list unless asked for.
    */
   stale: boolean;

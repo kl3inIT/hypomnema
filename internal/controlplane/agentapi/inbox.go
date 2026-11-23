@@ -185,12 +185,16 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"and the message it came from. An item given to a person without a due is due in 2 days, the day " +
 			"to chase them.", merged(fields, due, add, read), []string{"title"}},
 		{agenttool.ToolInboxUpdate, "Change a to-do you added or were given: its fields, the reply you drafted " +
-			"(draft), where you read it (source, with quote and message), and hand_back to give it to the " +
-			"owner, where it waits in Needs you. An item you are doing is released first. Use it to attach a " +
-			"reply you drafted and give it to him to send.", merged(fields, due, read, map[string]any{
-			"id": id, "revision": revision,
-			"hand_back": map[string]any{"type": "boolean", "description": "Give it back to the owner."},
-		}), []string{"id"}},
+			"(draft), where you read it (source, with quote and message), hand_back to give it to the " +
+			"owner, where it waits in Needs you, or pass_to to give it to another Bot. An item you are doing is " +
+			"released first. Use it to attach a reply you drafted and give it to him to send.",
+			merged(fields, due, read, map[string]any{
+				"id": id, "revision": revision,
+				"hand_back": map[string]any{"type": "boolean", "description": "Give it back to the owner."},
+				"pass_to": map[string]any{"type": "string", "description": "Give it to this Bot, by its id; it is " +
+					"woken with it. The main Bot passes it to the project Bot whose accounts or context the work " +
+					"needs; a project Bot gives it back only to the main Bot."},
+			}), []string{"id"}},
 		{agenttool.ToolInboxStart, "Start an open to-do given to you: it is doing, here, until you close or " +
 			"release it. Use it before you work on one.", map[string]any{"id": id, "revision": revision}, []string{"id"}},
 		{agenttool.ToolInboxRelease, "Give up a to-do you are doing, with the reason: it is open again. Use it " +
@@ -251,6 +255,7 @@ type inboxArgs struct {
 	DueAt    string  `json:"due_at"`
 	Timezone string  `json:"timezone"`
 	HandBack bool    `json:"hand_back"`
+	PassTo   string  `json:"pass_to"`
 	// inbox_add.
 	AssigneeKind string `json:"assignee_kind"`
 	Assignee     string `json:"assignee"`
@@ -597,8 +602,15 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 			e.Due = &due
 		}
 
-		if in.HandBack {
+		pass := strings.TrimSpace(in.PassTo)
+
+		switch {
+		case in.HandBack && pass != "":
+			return nil, fmt.Errorf("%w: hand_back or pass_to, not both", orchestration.ErrInvalid)
+		case in.HandBack:
 			e.Assignee = &inboxstore.Assignee{Kind: inboxstore.Me}
+		case pass != "":
+			e.Assignee = &inboxstore.Assignee{Kind: inboxstore.ABot, Name: pass}
 		}
 
 		if in.Source != nil {
@@ -650,6 +662,7 @@ type todoOut struct {
 	Draft       string            `json:"draft,omitempty"`
 	Due         string            `json:"due,omitempty"`
 	Assignee    string            `json:"assignee"`
+	PassedBy    string            `json:"passed_by,omitempty"`
 	Source      map[string]any    `json:"source"`
 	WhyOpen     string            `json:"why_open,omitempty"`
 	CreatedBy   string            `json:"created_by"`
@@ -703,6 +716,10 @@ func todoView(t inboxstore.Todo, events bool) todoOut {
 
 	if t.Source.Ref != nil {
 		out.Source["message"] = t.Source.Ref
+	}
+
+	if t.PassedBy != "" {
+		out.PassedBy = who(inboxstore.Bot, t.PassedBy)
 	}
 
 	if t.Work != nil {

@@ -45,13 +45,20 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // account the first was read with. quiet leaves nothing waiting on the owner. The owner's WhatsApp and Zalo accounts
 // keep their chats, which name Kai Yong and Lan, and the message Kai sent (issue #1110). triage makes Thư ký the main
 // Bot with its triage Routine, last run 12 minutes ago; a run started by hand goes until endScan, which finds a new
-// to-do (issue #1115).
+// to-do (issue #1115). passed adds a to-do Hypo passed to the BeyondPilot Bot (issue #1118).
 function world({
   review = false,
   sources = false,
   quiet = false,
   triage = false,
-}: { review?: boolean; sources?: boolean; quiet?: boolean; triage?: boolean } = {}) {
+  passed = false,
+}: {
+  review?: boolean
+  sources?: boolean
+  quiet?: boolean
+  triage?: boolean
+  passed?: boolean
+} = {}) {
   let release = () => {}
   let held: Promise<void> | undefined
   const todos: Todo[] = [
@@ -178,10 +185,42 @@ function world({
       created_at: at(-40 * 60_000),
     },
   ].filter(() => !quiet)
+  if (passed)
+    todos.push(
+      todo("tdo_pilot", "Send Kai the pilot's report", {
+        assignee: { kind: "bot", name: "bot_beyond" },
+        passed_by: "bot_main",
+        chat_id: "cht_beyond",
+        source: { kind: "owner" },
+      }),
+    )
   const closed = (t: Todo) => ["done", "dropped", "duplicate"].includes(t.state)
   const sent: { path: string; body: unknown }[] = []
   // threads are each to-do's history past its creation: the hand-over, the comments (issue #1111).
-  const threads: Record<string, Record<string, unknown>[]> = {}
+  const threads: Record<string, Record<string, unknown>[]> = passed
+    ? {
+        tdo_pilot: [
+          {
+            id: 2,
+            at: at(-30 * 60_000),
+            revision: 2,
+            actor: { kind: "owner" },
+            kind: "edited",
+            before: {},
+            after: { assignee_kind: "bot", assignee: "bot_main" },
+          },
+          {
+            id: 3,
+            at: at(-20 * 60_000),
+            revision: 3,
+            actor: { kind: "bot", id: "bot_main" },
+            kind: "edited",
+            before: {},
+            after: { assignee_kind: "bot", assignee: "bot_beyond", passed_by: "bot_main" },
+          },
+        ],
+      }
+    : {}
   const remember = (t: Todo, event: Record<string, unknown>) => {
     const thread = (threads[t.id] ??= [])
     thread.push({ id: thread.length + 2, at: at(0), revision: t.revision, before: {}, ...event })
@@ -498,6 +537,23 @@ function world({
                   name: "Hypo",
                   // The main Bot, unless triage makes Thư ký the main Bot with its triage Routine (issue #1115).
                   main: !triage,
+                  persona: "",
+                  memory: "",
+                  memory_limit: 2200,
+                  skills: [],
+                  skills_off: [],
+                  tools: [],
+                  tools_off: [],
+                  connections: { limited: false, names: [] },
+                  workers: { limited: false, names: [] },
+                  scopes: {},
+                  created_at: at(-day),
+                  updated_at: at(-day),
+                },
+                {
+                  id: "bot_beyond",
+                  name: "BeyondPilot",
+                  main: false,
                   persona: "",
                   memory: "",
                   memory_limit: 2200,
@@ -848,6 +904,24 @@ test("the owner hands an item to Hypo with a prompt and follows it in the thread
     })
   await expect(thread).toContainText("Use the November rate.")
   await shot(page, "inbox-thread")
+})
+
+// Scenario: issue #1118, section 4. Hypo passed an item the owner handed it to the BeyondPilot Bot: the item shows
+// who has it and through whom, and its thread shows each hand-over.
+test("an item the main Bot passed shows who has it through whom", async ({ page }) => {
+  const w = world({ passed: true })
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_pilot")
+  const detail = item(page)
+  await expect(
+    detail.getByRole("heading", { name: "Send Kai the pilot's report", exact: true }),
+  ).toBeVisible()
+
+  await expect(detail).toContainText(/Who\s*Hypo → BeyondPilot/)
+  const thread = detail.getByRole("region", { name: "Thread" })
+  await expect(thread).toContainText("You gave it to Hypo")
+  await expect(thread).toContainText("Hypo passed it to BeyondPilot")
+  await shot(page, "inbox-passed")
 })
 
 // Scenario: issue #1111, section 3. The owner edits the reply to Kai and presses Send: a confirmation names Kai

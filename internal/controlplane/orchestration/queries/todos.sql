@@ -1,9 +1,9 @@
 -- name: InsertTodo :exec
 INSERT INTO todos (id, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
-                   assignee, state, source_kind, source_id, source_account, source_quote, source_ref,
+                   assignee, passed_by, state, source_kind, source_id, source_account, source_quote, source_ref,
                    created_by_kind, created_by, why_open, idempotency_key, idempotency_hash, created_at, updated_at)
 VALUES (@id, @title, @notes, @done_when, @draft, @due_kind, @due_date, @due_zone, @due_at, @overdue_at, @assignee_kind,
-        @assignee, @state, @source_kind, @source_id, @source_account, @source_quote, @source_ref, @created_by_kind,
+        @assignee, @passed_by, @state, @source_kind, @source_id, @source_account, @source_quote, @source_ref, @created_by_kind,
         @created_by, @why_open, @idempotency_key, @idempotency_hash, @now, @now);
 
 -- name: GetTodo :one
@@ -19,7 +19,8 @@ UPDATE todos
 SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_when, draft = @draft,
     due_kind = @due_kind,
     due_date = @due_date, due_zone = @due_zone, due_at = @due_at, overdue_at = @overdue_at,
-    assignee_kind = @assignee_kind, assignee = @assignee, state = @state, snoozed_until = @snoozed_until,
+    assignee_kind = @assignee_kind, assignee = @assignee, passed_by = @passed_by, state = @state,
+    snoozed_until = @snoozed_until,
     source_kind = @source_kind, source_id = @source_id, source_account = @source_account,
     source_quote = @source_quote, source_ref = @source_ref,
     work_attempt = @work_attempt, work_kind = @work_kind, work_id = @work_id, work_bot = @work_bot,

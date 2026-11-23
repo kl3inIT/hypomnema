@@ -39,6 +39,8 @@ const (
 // Wake is a wake-up of the Bot an item is given to, in the item's own chat.
 type Wake struct {
 	Kind string
+	// By is who gave the item or wrote the comment: the owner, or the Bot that passed it (issue #1118).
+	By Actor
 	// Todo is the item as the change left it.
 	Todo Todo
 	// Bot is the Bot woken.
@@ -64,7 +66,8 @@ func (s *Store) WithWaker(w Waker) *Store {
 
 // wakeTx wakes bot about the item id, in the item's chat with that Bot when it still has one, and keeps the chat it
 // was woken in as the item's.
-func (s *Store) wakeTx(ctx context.Context, q *store.Queries, now int64, id, kind, bot, text string) error {
+func (s *Store) wakeTx(ctx context.Context, q *store.Queries, now int64, by Actor, id, kind, bot, text string,
+) error {
 	if s.waker == nil {
 		return nil
 	}
@@ -84,7 +87,7 @@ func (s *Store) wakeTx(ctx context.Context, q *store.Queries, now int64, id, kin
 		return err
 	}
 
-	woke, err := s.waker.WakeTx(ctx, q, now, Wake{Kind: kind, Todo: t, Bot: bot, Chat: chat, Text: text})
+	woke, err := s.waker.WakeTx(ctx, q, now, Wake{Kind: kind, By: by, Todo: t, Bot: bot, Chat: chat, Text: text})
 	if err != nil {
 		return err
 	}
@@ -121,13 +124,14 @@ func chatOf(ctx context.Context, q *store.Queries, row store.Todo, bot string) (
 }
 
 // givenTx wakes the Bot an item was just given to: assigned to a Bot when it was not that Bot's before.
-func (s *Store) givenTx(ctx context.Context, q *store.Queries, now int64, id string, before *Assignee, after Assignee,
+func (s *Store) givenTx(ctx context.Context, q *store.Queries, now int64, by Actor, id string, before *Assignee,
+	after Assignee,
 ) error {
 	if after.Kind != ABot || (before != nil && *before == after) {
 		return nil
 	}
 
-	return s.wakeTx(ctx, q, now, id, WakeGiven, after.Name, "")
+	return s.wakeTx(ctx, q, now, by, id, WakeGiven, after.Name, "")
 }
 
 func checkComment(text string) error {
@@ -199,7 +203,7 @@ func (s *Store) Comment(ctx context.Context, actor Actor, id, text string) (Todo
 		}
 
 		if actor.Kind == Owner && chatBot != "" {
-			if err := s.wakeTx(ctx, q, now, id, WakeComment, chatBot, text); err != nil {
+			if err := s.wakeTx(ctx, q, now, actor, id, WakeComment, chatBot, text); err != nil {
 				return err
 			}
 		}
@@ -273,7 +277,7 @@ func (s *Store) Hand(ctx context.Context, c Change, bot, prompt string) (Todo, e
 			}
 		}
 
-		if err := s.wakeTx(ctx, q, now, t.ID, WakeGiven, to.Name, prompt); err != nil {
+		if err := s.wakeTx(ctx, q, now, c.Actor, t.ID, WakeGiven, to.Name, prompt); err != nil {
 			return err
 		}
 

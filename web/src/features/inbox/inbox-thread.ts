@@ -25,6 +25,39 @@ export function threadOf(events: readonly TodoEvent[] = []): ThreadEntry[] {
   })
 }
 
+// throughWhom names who has an item and, when a Bot passed it to them, through whom (issue #1118): the main Bot
+// passed it to a project Bot, "Hypo → BeyondPilot", as Linear shows an issue's assignee with the agent it is
+// delegated to.
+export function throughWhom(
+  todo: Pick<Todo, "passed_by">,
+  who: string,
+  botName: (id: string) => string,
+) {
+  return todo.passed_by ? `${botName(todo.passed_by)} → ${who}` : who
+}
+
+// handoverWords says a change of who has the item in words, or nothing when the change gave it to no one new: to
+// the owner, given back; to a Bot through the Bot who passed it, passed; else given (issues #1111, #1118).
+export function handoverWords(
+  after: Record<string, unknown>,
+  who: string,
+  botName: (id: string) => string,
+) {
+  const to = typeof after.assignee === "string" ? after.assignee : ""
+  switch (after.assignee_kind) {
+    case "me":
+      return `${who} gave it back to you`
+    case "bot":
+      return typeof after.passed_by === "string"
+        ? `${who} passed it to ${botName(to)}`
+        : `${who} gave it to ${botName(to)}`
+    case "person":
+      return to ? `${who} gave it to ${to}` : undefined
+    default:
+      return undefined
+  }
+}
+
 // quickPrompts fill the hand-over's prompt in one click (issue #1111, section 1).
 export const quickPrompts = [
   "Do it",
