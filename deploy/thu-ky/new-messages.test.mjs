@@ -182,3 +182,27 @@ test("every chat with new messages is found, however many there are", async () =
   assert.deepEqual(capped.state.sources["zalo:main"].gaps[0].seen, []);
   assert.match(capped.text, /could not read zalo:main: more than 100 new messages/);
 });
+
+// Issue #1119, item 4: the owner corrects the Bot in his Inbox between runs (adds, drops, edits, reopens). The check
+// cannot read the Inbox, so it names the moment the Bot was last woken, and the Bot lists his changes since then with
+// inbox_list's owner_changed_since. A check that wakes no one keeps that moment, so that no change is missed.
+test("a wake names the moment of the last one, for the owner's changes since", async () => {
+  const quiet = world();
+  const lastWake = "2026-11-21T01:30:00.000Z";
+  const asleep = await check({ tools, call: quiet.call, state: { ...state, woke: lastWake }, now });
+  assert.equal(asleep.wake, false);
+  assert.equal(asleep.state.woke, lastWake, "no wake, the moment stays");
+
+  const w = world({
+    chats: [{ ID: "g_pmo", Kind: "group", Name: "PMO", LastMessageAt: "2026-11-21T01:55:00Z" }],
+    messages: { g_pmo: [{ ID: "m3", At: "2026-11-21T01:55:00Z", FromMe: false, SenderName: "Lan", Text: "anh ơi" }] },
+  });
+  const got = await check({ tools, call: w.call, state: asleep.state, now });
+  assert.equal(got.wake, true);
+  assert.match(got.text, new RegExp(`inbox_list with owner_changed_since ${lastWake}`));
+  assert.equal(got.state.woke, now.toISOString());
+
+  const first = await check({ tools, call: w.call, state: {}, now });
+  assert.match(first.text, /inbox_list with owner_changed_since 2026-11-21T01:00:00.000Z/,
+    "a first wake looks back as far as the first look at the messages");
+});
