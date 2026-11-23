@@ -2984,8 +2984,8 @@ flowchart LR
       whatsmeow knows it. The mirror is `wa_chats`, `wa_messages` with `wa_messages_fts` (FTS5) and `wa_groups` in
       `whatsapp.db`, keyed by the number, so a number linked again keeps its history; disconnecting removes it.
       The shape and the parsing follow wacli (`internal/store/schema.sql`, `internal/wa/messages.go`, MIT).
-    - `GET /integrations/whatsapp/connections/{label}/chats` and `…/messages` (`chat`, `q` for a search, `before`,
-      `limit`) read the mirror, the latest first, for the owner only.
+    - `GET /integrations/whatsapp/connections/{label}/chats` and `…/messages` (`chat`, `id` for one message, `q` for
+      a search, `before`, `limit`) read the mirror, the latest first, for the owner only.
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
       Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages` (as `zalo_messages`, with `offset` beside
@@ -6084,16 +6084,28 @@ Node (`internal/node`):
     Open, Proposed, Snoozed and Done, the last two folded. A group shows five rows and "Show N more", the asks never
     hidden (Orca's `needs-you-fold.ts`). The sidebar's count also holds the proposals not yet triaged, which the
     server's predicate counts.
-  - A row: the kind's icon, the title (bold until opened in this browser since it last changed; kept in
-    `localStorage`), where it came from and who, the due date coloured today or late, a draft chip, and when it
-    changed. Pointed at or focused on a computer, its actions by kind, as OpenMausBot's `quickActions`: Approve and
-    Decline, Answer, Copy draft, Done and Snooze, Accept and Drop, Reopen or Unsnooze.
+  - A row (issue #1110, after Chatwoot's `ConversationCard` and OpenMausBot's `InboxRow`): the asker's avatar
+    (shadcn `Avatar`, initials, a pen for the owner's own) with the kind's icon as its badge; the title, bold until
+    the row is opened once in this browser (kept in `localStorage`; a Bot's later edit does not make it unread),
+    on two lines on a phone; the quote on one muted line; the channel's mark (16 px, named in a tooltip) and the
+    chat's or the person's name, never the account's number, "Added by you" for the owner's own; the date labelled
+    "Due 25/11", or "Chase 25/11" for an item given to someone else, coloured today or late; a draft chip; and the
+    source message's time, else when the item was added. Names come from what the server keeps
+    (`features/inbox/use-origin.ts`): the chats of each Zalo and WhatsApp Connection (`…/chats`, the chat found by its
+    id in any of them), the message by its id (`…/messages?chat=&id=`: sender and time), the meeting (`GET
+    /meetings/{id}`: title and the line's speaker); without them, the reference's label. Pointed at or focused on a
+    computer, its actions by kind, as OpenMausBot's `quickActions`: Approve and Decline, Answer, Copy draft, Done and
+    Snooze, Accept and Drop, Reopen or Unsnooze. On a computer the first item of Needs you is open when none is
+    chosen; when nothing waits, the right pane says so with the to-dos added and closed today.
   - The detail: previous and next with "n of N in <group>"; a to-do's Snooze (Later today, Tomorrow, Monday, Next
-    week, Pick a time; Orca's presets), Drop and Done, a proposal's Accept and Drop; where it came from, Who, Due,
-    Done when, Linked, what was said with Open in its chat (a Gmail thread opens in Gmail in the account it was read
-    with, `https://mail.google.com/mail/u/<address>/#all/<thread>` after inbox-zero's `getGmailUrl`, the address
-    from `GET /integrations`; a meeting's item says Open meeting, at `/meetings/{id}?line=<n>`; issue #1105), the
-    draft with Copy and Edit (no Send), and its history.
+    week, Pick a time; Orca's presets), Drop and Done, a proposal's Accept and Drop; the channel's mark and name and
+    the chat's, the person's or the meeting's name; Who, and the Date, Done when, Linked only when said; what was
+    said under who said it (the message's sender, the meeting's speaker and the meeting's name), with Open in its
+    chat (a Gmail thread opens in Gmail in the account it was read with,
+    `https://mail.google.com/mail/u/<address>/#all/<thread>` after inbox-zero's `getGmailUrl`, the address from `GET
+    /integrations`; a meeting's item, also one a Routine's run found by its `meeting_line` reference, says Open
+    meeting, at `/meetings/{id}?line=<n>`; issue #1105), the draft with Copy, its primary button, which says Copied
+    once it copied, and Edit (no Send), the draft's section left out when the item needs none, and its history.
     An Approval shows its chat card (`ApprovalCard`) and a question its form (`QuestionForm`), the same calls as at
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
     (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on

@@ -133,9 +133,27 @@ function askRank(row: Row) {
   return row.kind === "question" ? 1 : 2
 }
 
-// fromText is where a row comes from and who it is about, as the row's second line says it: "WhatsApp · Kai Yong",
-// the service and account an Approval acts on, or the worker that asks. botName names a Bot by its id.
-export function fromText(row: Row, botName: (id: string) => string = (id) => id): string {
+// Origin is what the server keeps beside a to-do's source, read for the Inbox (issue #1110): the chat's name among the
+// owner's kept Zalo and WhatsApp chats; the kept message's sender, whether the owner sent it, and its time; a
+// meeting's title and who said the line.
+export type Origin = {
+  chat?: string
+  sender?: string
+  fromMe?: boolean
+  at?: string
+  meeting?: string
+  speaker?: string
+}
+
+// placeOf is the name a row's source shows after its channel's icon, as Chatwoot's InboxName shows an inbox's name
+// beside its ChannelIcon (components/widgets/InboxName.vue:14): the chat's or the person's name, a mail's or a
+// meeting's, never the account's number; "Added by you" for the owner's own; the Bot that added it from a chat or a
+// Routine's run; who does it when that is someone else.
+export function placeOf(
+  row: Row,
+  origin: Origin = {},
+  botName: (id: string) => string = (id) => id,
+): string {
   if (row.kind === "approval") {
     const { approval: a } = row
 
@@ -144,7 +162,26 @@ export function fromText(row: Row, botName: (id: string) => string = (id) => id)
   if (row.kind === "question") return "A worker asks · Team"
 
   const { todo } = row
-  const where = todo.source.ref?.label || todo.source.account
+  const source = sourceOf(row)
+  const label = todo.source.ref?.label
+  const where = (() => {
+    switch (source) {
+      case "hand":
+        return sourceNames.hand
+      case "zalo":
+      case "whatsapp":
+        return origin.chat || label
+      case "meeting":
+        return origin.meeting || label
+      case "chat":
+      case "routine":
+        return todo.created_by.kind === "bot" && todo.created_by.id
+          ? botName(todo.created_by.id)
+          : label
+      default:
+        return label
+    }
+  })()
   const { assignee } = todo
   const who =
     assignee.kind === "bot"
@@ -153,9 +190,105 @@ export function fromText(row: Row, botName: (id: string) => string = (id) => id)
         ? assignee.name
         : undefined
 
-  return [sourceNames[sourceOf(row)], where, who === where ? undefined : who]
-    .filter(Boolean)
-    .join(" · ")
+  return [where, who === where ? undefined : who].filter(Boolean).join(" · ")
+}
+
+// fromText is where a row comes from in words, its channel then its place, for the search: "WhatsApp · Kai Yong".
+export function fromText(
+  row: Row,
+  origin: Origin = {},
+  botName: (id: string) => string = (id) => id,
+): string {
+  const source = sourceOf(row)
+  const place = placeOf(row, origin, botName)
+  if (row.kind !== "todo" || source === "hand") return place
+
+  return [sourceNames[source], place].filter(Boolean).join(" · ")
+}
+
+// askerOf is who a row comes from, for its avatar, as Chatwoot's card shows the contact's (ConversationCard.vue:129)
+// and OpenMausBot's row its sender's (InboxRow.tsx, InboxSender): the sender of the message it was read from, "You"
+// for one the owner sent or added, the speaker of a meeting's line, the chat or the person a reference names, the
+// Bot that added it or asks for an Approval. A worker's question has none.
+export function askerOf(
+  row: Row,
+  origin: Origin = {},
+  botName: (id: string) => string = (id) => id,
+): string | undefined {
+  if (row.kind === "approval") return botName(row.approval.asked_by)
+  if (row.kind === "question") return undefined
+
+  const { todo } = row
+  switch (sourceOf(row)) {
+    case "hand":
+      return "You"
+    case "zalo":
+    case "whatsapp":
+      if (origin.fromMe) return "You"
+
+      return origin.sender || todo.source.ref?.label || origin.chat
+    case "meeting":
+      return origin.speaker || undefined
+    case "chat":
+    case "routine":
+      return todo.created_by.kind === "bot" && todo.created_by.id
+        ? botName(todo.created_by.id)
+        : undefined
+    default:
+      return todo.source.ref?.label || undefined
+  }
+}
+
+// initialsOf is a name's first letters, at most two, for an avatar without a picture, as Chatwoot's Avatar does.
+export function initialsOf(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  const letters = words.length > 1 ? [words[0] ?? "", words.at(-1) ?? ""] : words
+
+  return letters
+    .map((w) => Array.from(w)[0] ?? "")
+    .join("")
+    .toUpperCase()
+}
+
+// atOf is the time a row shows on its right, as Chatwoot shows its last message's: the message's own time when it is
+// known, else when the item was added or asked.
+export function atOf(row: Row, origin: Origin = {}) {
+  if (origin.at) return origin.at
+
+  switch (row.kind) {
+    case "approval":
+      return row.approval.created_at
+    case "question":
+      return row.question.created_at
+    case "todo":
+      return row.todo.created_at
+  }
+}
+
+// quoteOf is what was said, a row's second line, as a mail's preview (Chatwoot's MessagePreview,
+// ConversationCard.vue:192; OpenMausBot's snippetOf): the to-do's quote, on one line.
+export function quoteOf(row: Row) {
+  return row.kind === "todo" ? (row.todo.source.quote ?? "").replace(/\s+/g, " ").trim() : ""
+}
+
+// firstWaiting is the item the Inbox opens on a computer when none is chosen: the first of Needs you, as
+// OpenMausBot's InboxPanel keeps an item open (InboxPanel.tsx:47-56). Nothing when nothing waits.
+export function firstWaiting(groups: Groups): string | undefined {
+  return groups.needs_you[0]?.key
+}
+
+// todayCounts is what the Inbox did today, for the pane that says nothing waits: the to-dos added and closed since
+// midnight, the owner's own time.
+export function todayCounts(rows: Row[], now: number) {
+  const midnight = new Date(now)
+  midnight.setHours(0, 0, 0, 0)
+  const since = (at?: string) => !!at && Date.parse(at) >= midnight.getTime()
+  const todos = rows.flatMap((r) => (r.kind === "todo" ? [r.todo] : []))
+
+  return {
+    added: todos.filter((t) => since(t.created_at)).length,
+    closed: todos.filter((t) => isClosed(t) && since(t.closed_at)).length,
+  }
 }
 
 // The rows a group shows before "Show N more", as Orca's NEEDS_YOU_CAP and BOT_ITEM_GROUP_ROWS.
@@ -251,7 +384,7 @@ export const sourceNames: Record<Source, string> = {
   gmail: "Gmail",
   meeting: "Meeting",
   chat: "Chat",
-  hand: "By hand",
+  hand: "Added by you",
   routine: "Routine",
 }
 
@@ -295,10 +428,11 @@ export function sourceTarget(
   if (source.kind === "gmail" && source.id) {
     return { href: gmailThread(source.id, source.account ? mailOf(source.account) : undefined) }
   }
-  if (source.kind === "meeting" && source.id) {
+  const meeting = meetingOf(todo)
+  if (meeting) {
     const line = source.ref?.kind === "meeting_line" ? lineOf(source.ref.ref) : undefined
 
-    return line ? { meeting: source.id, line } : { meeting: source.id }
+    return line ? { meeting, line } : { meeting }
   }
 
   const href = source.ref?.kind === "url" ? safeLink(source.ref.ref) : undefined
@@ -314,8 +448,20 @@ function gmailThread(thread: string, address?: string) {
   return `https://mail.google.com/mail/u/${account}/#all/${encodeURIComponent(thread)}`
 }
 
+// meetingOf is the meeting a to-do came from: its source's, or the one its meeting_line reference names, as an item
+// a Routine's run found in a meeting before meetings were a source of their own (issue #1105) names it.
+export function meetingOf(todo: Pick<Todo, "source">): string | undefined {
+  const { source } = todo
+  if (source.kind === "meeting" && source.id) return source.id
+  if (source.ref?.kind !== "meeting_line") return undefined
+
+  const at = source.ref.ref.lastIndexOf("/")
+
+  return at > 0 ? source.ref.ref.slice(0, at) : undefined
+}
+
 // lineOf is the line a meeting_line reference names, "<meeting>/<line>" or the line alone.
-function lineOf(ref: string) {
+export function lineOf(ref: string) {
   const n = Number(ref.slice(ref.lastIndexOf("/") + 1))
 
   return Number.isInteger(n) && n > 0 ? n : undefined
@@ -377,20 +523,22 @@ function dayIn(at: number, zone?: string) {
 
 export type DueTone = "late" | "today" | "later"
 
-// dueOf says when a to-do is due, in words, and whether that is past or today, which the row colours. A date is
-// due all of its day in its zone; a moment, at it.
+// dueOf says when a to-do is due, in words that say what the date is: "Due 25/11" for the owner's or a Bot's, "Chase
+// 25/11" for one given to someone else, the day to chase them (inboxstore's DueIn); and whether that is past or today,
+// which the row colours. A date is due all of its day in its zone; a moment, at it.
 export function dueOf(
-  todo: Pick<Todo, "due">,
+  todo: Pick<Todo, "due"> & Partial<Pick<Todo, "assignee">>,
   now: number,
 ): { text: string; tone: DueTone } | null {
   const { due } = todo
-  if (due.kind === "unknown") return { text: "Due unknown", tone: "later" }
+  const verb = todo.assignee?.kind === "person" ? "Chase" : "Due"
+  if (due.kind === "unknown") return { text: `${verb} date unknown`, tone: "later" }
 
   if (due.kind === "date" && due.date) {
     const today = dayIn(now, due.zone)
     const tone = due.date < today ? "late" : due.date === today ? "today" : "later"
 
-    return { text: dayWords(due.date, today), tone }
+    return { text: `${verb} ${dayWords(due.date, today)}`, tone }
   }
 
   if (due.kind === "instant" && due.at) {
@@ -402,23 +550,22 @@ export function dueOf(
     )
     const tone = at < now ? "late" : day === today ? "today" : "later"
 
-    return { text: `${dayWords(day, today)} ${time}`, tone }
+    return { text: `${verb} ${dayWords(day, today)} ${time}`, tone }
   }
 
   return null
 }
 
+// dayWords is a day as the owner reads it: today, tomorrow or yesterday, else its day and month, 25/11, 05/12.
 function dayWords(day: string, today: string) {
   const diff = Math.round((Date.parse(day) - Date.parse(today)) / 86_400_000)
-  if (diff === 0) return "Today"
-  if (diff === 1) return "Tomorrow"
-  if (diff === -1) return "Yesterday"
+  if (diff === 0) return "today"
+  if (diff === 1) return "tomorrow"
+  if (diff === -1) return "yesterday"
 
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(Date.parse(day))
+  const [, month, date] = day.split("-")
+
+  return `${date}/${month}`
 }
 
 // The snooze presets, after Orca's botItemSnoozePresets and botItemSnoozePickerPresets (bot-item-snooze.ts), in the

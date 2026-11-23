@@ -2,9 +2,12 @@ import { useCallback, useState } from "react"
 
 import type { Row } from "./inbox-state"
 
-// What the owner has opened, so a row he has not read since it last changed shows bold, as Orca marks an item
-// changed since the owner last opened the tab (bot-item-groups.ts isBotItemUnseen) and OpenMausBot reads a row when
-// it is opened (InboxPanel.tsx readInboxRow). It is kept in this browser only; the server keeps no read state.
+// What the owner has opened, so a row he has never opened shows bold and one he read once is regular, as OpenMausBot
+// reads a row when it is opened (InboxPanel.tsx readInboxRow, InboxRow.tsx row.unread) and Chatwoot's card is bold
+// only while it holds what was not seen (ConversationCard.vue hasUnread). A Bot's later edit of an item, its draft or
+// its due, does not make it unread again (issue #1110: the Thư ký edits the items it added, and each edit made a read
+// row bold again).
+// It is kept in this browser only; the server keeps no read state.
 const key = "hypomnema.inbox.seen"
 const most = 500
 
@@ -20,29 +23,15 @@ function read(): Seen {
   }
 }
 
-// stampOf is what changes when a row changes: a to-do's last change, an ask's own moment.
-function stampOf(row: Row) {
-  switch (row.kind) {
-    case "approval":
-      return row.approval.created_at
-    case "question":
-      return row.question.created_at
-    case "todo":
-      return row.todo.updated_at
-  }
-}
-
 export function useSeen() {
   const [seen, setSeen] = useState(read)
 
   const markSeen = useCallback((row: Row) => {
     setSeen((before) => {
-      if (before[row.key] === stampOf(row)) return before
+      if (row.key in before) return before
 
       const next = Object.fromEntries(
-        [...Object.entries(before).filter(([k]) => k !== row.key), [row.key, stampOf(row)]].slice(
-          -most,
-        ),
+        [...Object.entries(before), [row.key, new Date().toISOString()]].slice(-most),
       )
       try {
         window.localStorage.setItem(key, JSON.stringify(next))
@@ -54,5 +43,5 @@ export function useSeen() {
     })
   }, [])
 
-  return { unread: (row: Row) => seen[row.key] !== stampOf(row), markSeen }
+  return { unread: (row: Row) => !(row.key in seen), markSeen }
 }

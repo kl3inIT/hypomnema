@@ -80,7 +80,7 @@ export function useRowActions({
 
         return
       case "copy":
-        if (row.kind === "todo" && row.todo.draft) copyDraft(row.todo.draft)
+        if (row.kind === "todo" && row.todo.draft) void copyDraft(row.todo.draft)
 
         return
       case "done":
@@ -134,11 +134,20 @@ function snoozed(until: number) {
   return `Snoozed until ${snoozeWords(until, Date.now())}`
 }
 
-// copyDraft puts a draft on the clipboard for the owner to paste where he answers; a Bot never sends it.
-export function copyDraft(draft: string) {
+// copyDraft puts a draft on the clipboard for the owner to paste where he answers; a Bot never sends it. It says
+// whether it was copied.
+export function copyDraft(draft: string): Promise<boolean> {
   // A browser may refuse the clipboard (no permission, no focus); the toast then says so.
-  navigator.clipboard.writeText(draft).then(
-    () => toast.add({ title: "Draft copied", type: "success" }),
-    () => toast.add({ title: "The browser did not let the draft be copied", type: "error" }),
+  return navigator.clipboard.writeText(draft).then(
+    () => {
+      toast.add({ title: "Draft copied", type: "success" })
+
+      return true
+    },
+    () => {
+      toast.add({ title: "The browser did not let the draft be copied", type: "error" })
+
+      return false
+    },
   )
 }
