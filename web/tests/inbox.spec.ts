@@ -496,7 +496,8 @@ function world({
                 {
                   id: "bot_main",
                   name: "Hypo",
-                  main: true,
+                  // The main Bot, unless triage makes Thư ký the main Bot with its triage Routine (issue #1115).
+                  main: !triage,
                   persona: "",
                   memory: "",
                   memory_limit: 2200,
@@ -957,11 +958,13 @@ for (const theme of ["light", "dark"] as const) {
     await shot(page, `inbox-reply-${theme}`)
 
     // Issue #1111: the hand-over's dialog and the Send's confirmation.
-    await item(page).getByRole("button", { name: "Hand to Hypo" }).click()
-    await expect(page.getByRole("dialog", { name: "Hand to Hypo" })).toBeVisible()
+    await item(page)
+      .getByRole("button", { name: /^Hand to/ })
+      .click()
+    await expect(page.getByRole("dialog", { name: /^Hand to/ })).toBeVisible()
     await shot(page, `inbox-hand-${theme}`)
     await page.keyboard.press("Escape")
-    await expect(page.getByRole("dialog", { name: "Hand to Hypo" })).toBeHidden()
+    await expect(page.getByRole("dialog", { name: /^Hand to/ })).toBeHidden()
     await item(page)
       .getByRole("region", { name: "Draft" })
       .getByRole("button", { name: "Send" })
