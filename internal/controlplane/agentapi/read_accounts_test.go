@@ -217,8 +217,8 @@ func TestAReadRunsChatStopsReadingTheOwnersAccountsWhenTheRunEnds(t *testing.T) 
 	_, accounts := w.get(pi, "lark")
 	assert.Empty(t, accounts, "nor the owner's Lark")
 
-	_, text, failed = w.use(pi, agenttool.ToolAccountRead, get)
-	assert.True(t, failed, text)
+	status, text, _ := w.use(pi, agenttool.ToolAccountRead, get)
+	assert.Equal(t, http.StatusNotFound, status, text)
 	assert.Equal(t, int32(1), upstreamCalls.Load(), "nothing more was read")
 
 	_, text, failed = w.use(pi, agenttool.ToolZaloSend, `{}`)
