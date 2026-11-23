@@ -1701,6 +1701,14 @@ sequenceDiagram
     - Every other file is a note (`memory_notes`, migration 00117): at most 200 notes of 8,192 bytes, Coder's
       limits; a path at most two levels below `/memories`, each part letters, digits, `.`, `_` and `-` with no
       leading dot; `..`, `%` and backslashes refused, as Anthropic asks.
+    - A Bot's note `context/owner.md` is the **owner's context** (issue #1119): what the Bot learned of his people,
+      recurring processes, links, projects and teams, each entry with where it was learned. Every prompt run of the
+      Bot's Routines begins with it, as it was when the run's chat opened (`orchestration` `promptNotice`, after
+      the run's notice and before its check's output and prompt; Hermes gives `USER.md` as a frozen snapshot,
+      `tools/memory_tool.py:1-5`), and it is the one part of the memory a Routine's read run changes
+      (`memorystore.ReadRunMayChange`: `create`, `str_replace`, `insert` of that note; Hermes's cron jobs keep their
+      memory tool, `cron/scheduler.py:2471`). It keeps a note's limit. The owner reads and edits it with the Bot's
+      other notes.
     An edit of `MEMORY.md` or `USER.md` keeps their rule (an entry a line, empty and repeated lines dropped, the
     limit), and a change over a limit is refused and changes nothing. `view` lists a directory two levels deep
     with sizes, or a file's numbered lines (`view_range`), cut at 16,000 characters. Each command reads the
@@ -1984,7 +1992,8 @@ flowchart LR
     two apart: `routines.New(svc, svc.Routines(), cfg)`.
   - **What it is.** A row of `routines`: its Bot, a name of its own among the Bot's, a kind, a schedule, on or
     paused (with the reason), when it runs next, the chat it was made in, and whether a run's result is told
-    there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
+    there. A `prompt` Routine gives the Bot its text in a new chat each run, after the Bot's note of the owner's
+    context when it has one (issue #1119, under Memories). A `script` Routine names a file
     under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
     and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads and what
     runs. Longer code stays in a file of the Bot's folder that a short stored script runs, as a Hermes job points
@@ -2011,7 +2020,8 @@ flowchart LR
     it is revoked (reviews of #1037). The pi of a read run's chat reads the owner's accounts only while the run is
     live (`agentapi` `readLive`: no `account_read`, no user Connection off his turn once it ended; issue #1071). The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
-    the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
+    the allowed messaging, Superset and memory reads, and may write one note of the memory, the owner's context
+    (issue #1119, under Memories). pi disables extension discovery but explicitly loads
     `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
     write its private notes, not other files. Nothing asks for approval. Results stay in the run's chat, not in its run
     record, the chat it was made in, or an alert. See the [morning brief](docs/morning-brief.md).
@@ -4866,7 +4876,10 @@ its client API, its CLI and the Bots' tools.
   it in its chat, with no `source`, opens.
   An item given to a person without a due is due 48 hours after it is first added (`NewTodo.DueIn`, counted by the
   store, so a retry with the same key is the same request; an empty draft stays out of the request's hash), the day
-  to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included. A Routine's run that reads
+  to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included, and `owner_changed_since`
+  (issue #1119): only the items the owner himself changed at or after a moment (an event of his), in any state,
+  snoozed or stale, each with his changes since then as its history, which the triage Routine learns from
+  (`inboxstore.Filter.OwnerChangedSince`). A Routine's run that reads
   only (#956) gets the family too (`agenttool.ReadRunAllows`), which writes only in the Inbox, and still no tool
   that sends as the owner: `zalo_send` and `whatsapp_send` are refused there by the agent API, and every write
   through the service proxy (a Lark message, a mail) by its read-only check; so the Bot that reads his messages

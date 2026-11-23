@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -75,7 +76,7 @@ func memoryTool(a agent) (agenttool.BrowserTool, bool) {
 	text := map[string]any{"type": "string"}
 	commands := memorystore.Commands
 	if a.readRun {
-		commands = []string{memorystore.View}
+		commands = []string{memorystore.View, memorystore.Create, memorystore.StrReplace, memorystore.Insert}
 	} else if a.owner {
 		commands = []string{memorystore.View, memorystore.Insert, memorystore.StrReplace}
 	}
@@ -102,7 +103,12 @@ func memoryTool(a agent) (agenttool.BrowserTool, bool) {
 
 	if a.readRun {
 		return agenttool.BrowserTool{
-			Name: agenttool.ToolMemory, Description: "Read memory with view; it cannot be changed in this run.",
+			Name: agenttool.ToolMemory, Description: "Read your memory, the directory /memories, with view. In " +
+				"this run you may change only " + memorystore.ContextFile + ", what you learned of the owner's " +
+				"people, recurring processes, links, projects and teams, each entry with where you read it: " +
+				"create it, or change it with str_replace or insert. Use it to keep what this run taught you; " +
+				"every other file stays as it is. It holds at most " + strconv.Itoa(memorystore.MaxNoteBytes) +
+				" bytes: merge and prune entries rather than only adding. Never write a secret into it.",
 			InputSchema: raw,
 		}, true
 	}
@@ -150,7 +156,7 @@ func (s *Server) memoryCall(w http.ResponseWriter, r *http.Request, a agent, cal
 
 		return
 	}
-	if a.readRun && c.Command != memorystore.View {
+	if a.readRun && !memorystore.ReadRunMayChange(c) {
 		answerTool(w, agenttool.ReadRunRefusal, true)
 
 		return

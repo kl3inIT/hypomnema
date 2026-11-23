@@ -71,23 +71,27 @@ WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?11 AS INTEGER)))))
+  AND (CAST(?15 AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(?16 AS INTEGER)))
 `
 
 type CountTodosParams struct {
-	AnyState     int64
-	States       string
-	AssigneeKind string
-	Assignee     string
-	SourceKind   string
-	HasDueFrom   int64
-	DueFrom      int64
-	HasDueTo     int64
-	DueTo        int64
-	WithSnoozed  int64
-	Now          int64
-	WithStale    int64
-	StaleBefore  int64
-	NeedsYou     int64
+	AnyState      int64
+	States        string
+	AssigneeKind  string
+	Assignee      string
+	SourceKind    string
+	HasDueFrom    int64
+	DueFrom       int64
+	HasDueTo      int64
+	DueTo         int64
+	WithSnoozed   int64
+	Now           int64
+	WithStale     int64
+	StaleBefore   int64
+	NeedsYou      int64
+	HasOwnerSince int64
+	OwnerSince    int64
 }
 
 // How many items match the filter of ListTodos, every page together.
@@ -107,6 +111,8 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 		arg.WithStale,
 		arg.StaleBefore,
 		arg.NeedsYou,
+		arg.HasOwnerSince,
+		arg.OwnerSince,
 	)
 	var count int64
 	err := row.Scan(&count)
@@ -479,6 +485,51 @@ func (q *Queries) InsertTodoWake(ctx context.Context, arg InsertTodoWakeParams) 
 	return err
 }
 
+const listOwnerTodoEvents = `-- name: ListOwnerTodoEvents :many
+SELECT id, todo_id, at, revision, actor_kind, actor, kind, "before", "after" FROM todo_events WHERE todo_id = ?1 AND actor_kind = 'owner' AND at >= ?2
+ORDER BY id DESC LIMIT ?3
+`
+
+type ListOwnerTodoEventsParams struct {
+	TodoID string
+	Since  int64
+	Lim    int64
+}
+
+// The latest changes the owner made to an item at or after since, newest first, at most lim (issue #1119).
+func (q *Queries) ListOwnerTodoEvents(ctx context.Context, arg ListOwnerTodoEventsParams) ([]TodoEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listOwnerTodoEvents, arg.TodoID, arg.Since, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TodoEvent{}
+	for rows.Next() {
+		var i TodoEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.TodoID,
+			&i.At,
+			&i.Revision,
+			&i.ActorKind,
+			&i.Actor,
+			&i.Kind,
+			&i.Before,
+			&i.After,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTodoEvents = `-- name: ListTodoEvents :many
 SELECT id, todo_id, at, revision, actor_kind, actor, kind, "before", "after" FROM todo_events WHERE todo_id = ?1 ORDER BY id DESC LIMIT ?2
 `
@@ -541,40 +592,45 @@ WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?11 AS INTEGER)))))
-  AND (CAST(?15 AS INTEGER) = 0
-    OR coalesce(t.due_at, 9223372036854775807) > CAST(?16 AS INTEGER)
-    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?16 AS INTEGER) AND t.created_at > ?17)
-    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?16 AS INTEGER) AND t.created_at = ?17 AND t.id > ?18))
+  AND (CAST(?15 AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(?16 AS INTEGER)))
+  AND (CAST(?17 AS INTEGER) = 0
+    OR coalesce(t.due_at, 9223372036854775807) > CAST(?18 AS INTEGER)
+    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?18 AS INTEGER) AND t.created_at > ?19)
+    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?18 AS INTEGER) AND t.created_at = ?19 AND t.id > ?20))
 ORDER BY coalesce(t.due_at, 9223372036854775807), t.created_at, t.id
-LIMIT ?19
+LIMIT ?21
 `
 
 type ListTodosParams struct {
-	AnyState     int64
-	States       string
-	AssigneeKind string
-	Assignee     string
-	SourceKind   string
-	HasDueFrom   int64
-	DueFrom      int64
-	HasDueTo     int64
-	DueTo        int64
-	WithSnoozed  int64
-	Now          int64
-	WithStale    int64
-	StaleBefore  int64
-	NeedsYou     int64
-	HasCursor    int64
-	CursorDue    int64
-	CursorAt     int64
-	CursorID     string
-	Lim          int64
+	AnyState      int64
+	States        string
+	AssigneeKind  string
+	Assignee      string
+	SourceKind    string
+	HasDueFrom    int64
+	DueFrom       int64
+	HasDueTo      int64
+	DueTo         int64
+	WithSnoozed   int64
+	Now           int64
+	WithStale     int64
+	StaleBefore   int64
+	NeedsYou      int64
+	HasOwnerSince int64
+	OwnerSince    int64
+	HasCursor     int64
+	CursorDue     int64
+	CursorAt      int64
+	CursorID      string
+	Lim           int64
 }
 
 // One page of the items that match, by due (those without one last), then created, then id, after the cursor of
 // the previous page when one is given. The filter is the same as CountTodos's. A proposal nobody touched since
 // stale_before is stale (issue #966): left out unless with_stale, and never one that needs the owner. Touched is
-// any event after created, and every event moves the revision on, so an untouched item is at revision 1.
+// any event after created, and every event moves the revision on, so an untouched item is at revision 1. With
+// has_owner_since, only the items the owner changed at or after owner_since (issue #1119).
 func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, error) {
 	rows, err := q.db.QueryContext(ctx, listTodos,
 		arg.AnyState,
@@ -591,6 +647,8 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 		arg.WithStale,
 		arg.StaleBefore,
 		arg.NeedsYou,
+		arg.HasOwnerSince,
+		arg.OwnerSince,
 		arg.HasCursor,
 		arg.CursorDue,
 		arg.CursorAt,

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
@@ -889,4 +890,61 @@ func TestARoutinesRunsComeAPageAtATime(t *testing.T) {
 
 	_, _, err := w.s.Routines().RoutineRunPage(t.Context(), "rtn_gone", 2, 0)
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+// Scenario: issue #1119: the main Bot keeps what it learned of the owner's people, recurring processes and links in
+// its note /memories/context/owner.md. Each prompt run of its Routines begins with that note as it was when the run's
+// chat opened, a frozen snapshot as Hermes gives USER.md (tools/memory_tool.py:1-5): after the run's notice, before
+// what its check printed and before its prompt. A Bot without the note gets nothing more.
+func TestAPromptRunBeginsWithTheOwnersContext(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	firstPrompt := func(chatID string) string {
+		t.Helper()
+
+		msgs, err := w.s.ListChatMessages(ctx, chatID, 0, 0)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+
+		return msgs[0].Text
+	}
+
+	brief := w.routine(daily("brief"))
+	started, err := w.s.RunRoutineNow(ctx, brief.ID)
+	require.NoError(t, err)
+	assert.NotContains(t, firstPrompt(started.Run.ChatID), "## The owner's context",
+		"no note, nothing before the prompt")
+	w.end(started.Run.ID, succeeded)
+
+	learned := "## Recurring processes\n- ThanhTV sends a CV on Lark: add it to cô Laura's candidate sheet, tell anh " +
+		"Thanh (lark chat oc_1, messages om_19, om_20)\n"
+	_, err = w.s.Memories().WriteNote(ctx, memorystore.BotDir(DefaultBotID), memorystore.ContextFile, learned)
+	require.NoError(t, err)
+
+	started, err = w.s.RunRoutineNow(ctx, brief.ID)
+	require.NoError(t, err)
+	prompt := firstPrompt(started.Run.ChatID)
+	assert.Contains(t, prompt, "## The owner's context\n")
+	assert.Contains(t, prompt, learned)
+	assert.Less(t, strings.Index(prompt, learned), strings.Index(prompt, "Summarize what changed overnight."),
+		"the context comes before the prompt")
+	w.end(started.Run.ID, succeeded)
+
+	triage := w.routine(routineSpec{
+		Bot: DefaultBotID, Name: "triage", Kind: routinestore.RoutinePrompt, Prompt: "Triage the new messages.",
+		Script: "new-messages.mjs", ScriptText: "#!/usr/bin/env node\n", EveryMinutes: 15,
+		Access: routinestore.AccessRead,
+	})
+	started, err = w.s.RunRoutineNow(ctx, triage.ID)
+	require.NoError(t, err)
+	woke, err := w.s.WakeRoutineRun(ctx, started.Run.ID, "- Lark chat ThanhTV: 1 new\n")
+	require.NoError(t, err)
+
+	prompt = firstPrompt(woke.Run.ChatID)
+	assert.True(t, strings.HasPrefix(prompt, `Routine "triage" runs`), "the read-only notice stays first")
+	assert.Less(t, strings.Index(prompt, learned), strings.Index(prompt, "## Script Output"),
+		"the context comes before what the check printed")
 }
