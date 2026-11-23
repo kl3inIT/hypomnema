@@ -1961,9 +1961,12 @@ flowchart LR
     what the check printed as records. A run is one snapshot of its Routine when it starts (`routine_runs.access`,
     `prompt`, `script`, `script_text`, `timeout_seconds`): the launch (`ClaimRoutineScript`), the wake
     (`WakeRoutineRun`) and every check of the run's token (`orchestration.RoutineScriptReads`) read only that copy,
-    so the owner's switch or a Bot's edit meanwhile changes nothing of the run that goes on. A script's token is
+    so the owner's switch or a Bot's edit meanwhile changes nothing of the run that goes on; the run's end is
+    settled by that copy too (`routines.Runner` `Follow` and `finish`: a run is a prompt run by its `prompt`, and a
+    check that woke nobody is told nowhere, issue #1071). A script's token is
     bound to its run (`Token.RoutineRun`) and stops working when the run ends, in the run's own transaction, before
-    it is revoked (reviews of #1037). The wake-up in each run's new chat records the access then; it is still no owner
+    it is revoked (reviews of #1037). The pi of a read run's chat reads the owner's accounts only while the run is
+    live (`agentapi` `readLive`: no `account_read`, no user Connection off his turn once it ended; issue #1071). The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
     the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
     `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
@@ -4803,14 +4806,18 @@ its client API, its CLI and the Bots' tools.
   the Bot and by the workers of its Runs, whatever his answers or grants say; reads stay. The agent API carries it
   on the agent (`ownerReadOnly`: no `zalo_send` or `whatsapp_send`), and the service proxy refuses every action of
   such a Connection that is not a read (`readsOnly`, `serviceproxy.Caller.OwnerReadOnly`), reading the caller again
-  at each request of an open connection, so the owner's change applies from the next request. Only the owner makes a
+  at each request of an open connection, so the owner's change applies from the next request, and again when an
+  Approval a request or an act (`serviceproxy.Act.Opened`) waited for is answered, so one approved after the change
+  is refused unspent (issue #1071). Only the owner makes a
   Bot use them again: a change from the main Bot's chat is forbidden, `UpdateBot`, which a Bot's change uses, never
   writes it (`SetBotOwnerAccounts`), and an undo, of a change or of a removal, puts back `read` from the copy it
   kept (`botSettings.OwnerAccounts`) and never `use`.
 - The "Thư ký" Bot (issue #1023, part 4): its prompt, switches, model and Routines are set by the owner with
   `deploy/thu-ky/setup.sh` (`hypomnema bots set`, `routines set`), not seeded by a migration. `triage` reads only,
   every 15 minutes, behind its check `new-messages.mjs`; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark
-  chat with the Bot.
+  chat with the Bot. A check past its cap keeps the rest of a span by what it read, never by a position: the second it
+  stopped in and the messages of it counted (Zalo, WhatsApp), the mails read (Gmail), the chats read and the one it
+  stopped in (Lark, whose cap is checked at each page); issue #1071.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
 
