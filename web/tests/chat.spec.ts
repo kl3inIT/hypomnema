@@ -1450,6 +1450,50 @@ test("messages written while the Bot works wait above the composer", async ({ pa
   await expect(strip).toHaveCount(0)
 })
 
+// Scenario: a long chat opens on a slow link (issue #1129). While its newest page is on its way the chat says it is
+// loading, never "Send a message to start."; once the page comes, the chat stands at its end at once, with no slide
+// down to it: every scroll the page makes lands at the bottom.
+test("a long chat says it is loading, then opens at its end without sliding", async ({ page }) => {
+  const older = Array.from({ length: 120 }, (_, i) =>
+    message(i + 1, { role: i % 2 ? "coordinator" : "owner", text: `message ${i + 1}` }),
+  )
+  await fakeServer(page, () => ({ status: 201, body: {} }), noWork(), botFolder(), chat, older)
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  // Registered after the fake server, so it is asked first, and hands the request on once released.
+  await page.route(`**/api/v1/chats/${chat.id}/messages?*`, async (route) => {
+    if (route.request().method() === "GET") await held
+    await route.fallback()
+  })
+  // How far from the bottom each scroll of the page lands (a string: the tests have no DOM types).
+  await page.addInitScript(`
+    globalThis.fromBottom = []
+    document.addEventListener("scroll", (e) => {
+      const el = e.target
+      globalThis.fromBottom.push(Math.round(el.scrollHeight - el.clientHeight - el.scrollTop))
+    }, true)
+  `)
+
+  await page.goto(`/chats/${chat.id}`)
+  await expect(page.getByRole("status").filter({ hasText: "Loading conversation" })).toBeVisible()
+  await expect(page.getByText("Send a message to start.")).toHaveCount(0)
+  await shot(page, "chat-loading")
+
+  release()
+  await expect.poll(() => streams(page)).toBe(1)
+  await write(page, state(false))
+
+  const log = page.getByRole("log")
+  await expect(log.getByText("message 120", { exact: true })).toBeInViewport()
+  await expect(page.getByText("Loading conversation")).toHaveCount(0)
+  // A smooth slide would pass through the rows above the end; an instant one lands there.
+  const fromBottom = await page.evaluate(
+    () => (globalThis as unknown as { fromBottom: number[] }).fromBottom,
+  )
+  expect(fromBottom.length).toBeGreaterThan(0)
+  expect(fromBottom.every((d) => d <= 1)).toBe(true)
+})
+
 // Scenario: a long chat opens on its newest 200 messages (issue #502). Scrolling up brings the older ones, and the
 // row the owner was reading stays where it was; the stream follows from the newest message read.
 test("a long chat opens at its end and brings older messages on scroll", async ({ page }) => {

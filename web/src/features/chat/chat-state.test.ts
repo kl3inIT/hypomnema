@@ -258,6 +258,26 @@ describe("the conversation items", () => {
 
 // A chat is read from its end a page at a time (issue #502).
 describe("history read in pages", () => {
+  // Scenario: a chat opens on a slow link (issue #1129). It is loading until its newest page is read, even an empty
+  // one, so the view never calls a long chat empty meanwhile; what the stream brings after the page is what came
+  // while the chat is open, which the view may follow with a smooth scroll.
+  test("a chat is loading until its newest page, and live once the stream brings more", () => {
+    expect(emptyChat).toMatchObject({ loaded: false, streamed: false })
+
+    const read = run({ type: "history", messages: [msg({ role: "owner", text: "hi" })], earlier: true })
+    expect(read).toMatchObject({ loaded: true, streamed: false })
+    expect(run({ type: "history", messages: [], earlier: false }).loaded).toBe(true)
+
+    expect(chatReducer(read, { type: "state", working: true }).streamed).toBe(false)
+    expect(
+      chatReducer(read, { type: "delta", delta: { kind: "text", index: 0, delta: "on it" } })
+        .streamed,
+    ).toBe(true)
+    expect(
+      chatReducer(read, { type: "message", message: msg({ role: "coordinator", text: "done" }) })
+        .streamed,
+    ).toBe(true)
+  })
   // Scenario: the newest page arrives, the stream sends its last message again, then an older page goes on top; a
   // tool group cut by the page edge joins up, and nothing shows twice.
   test("an older page goes on top and joins the group it cut", () => {
