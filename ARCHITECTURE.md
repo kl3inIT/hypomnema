@@ -2672,6 +2672,8 @@ flowchart LR
         ([research](docs/research/2026-11-19-scheduled-runs-and-owner-accounts.md)). The
         agent API applies it in its list of accounts and so in the service proxy's check of every request.
         An owner-marked read run may use a Connection the Bot may use, through `account_read` without Bash.
+        The tool's description names those accounts and which Lark ones sign in as the owner, the rest being apps;
+        the triage's check reads the owner's Lark chats only through those (issue #1127).
         The proxy allows only catalogued reads that do not need approval; writes never create a card in a read run.
   - Superset is an Integration of kind `account` ([issue #203](https://github.com/kl3inIT/hypomnema/issues/203),
     [research](docs/research/2026-11-12-superset-integration.md)): a third kind beside `oauth` and `app`, for a
