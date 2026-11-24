@@ -33,6 +33,12 @@ export type ChatView = {
   queue: QueuedChatMessage[]
   // earlier says that older history is left on the server, read when the reader scrolls up (issue #502).
   earlier: boolean
+  // loaded says the chat's newest page was read: until then the chat is loading, not empty (issue #1129), as
+  // assistant-ui's thread is empty only once it is not loading (thread-runtime-client.ts isEmpty).
+  loaded: boolean
+  // streamed says the stream brought a message or pi's live text since the page was read: what the reader watches
+  // arrive, which the view follows with a smooth scroll, where the history it opened on lands at once (issue #1129).
+  streamed: boolean
 }
 
 export type ChatAction =
@@ -54,6 +60,8 @@ export const emptyChat: ChatView = {
   reconnecting: false,
   queue: [],
   earlier: false,
+  loaded: false,
+  streamed: false,
 }
 
 export function chatReducer(view: ChatView, action: ChatAction): ChatView {
@@ -65,20 +73,29 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
         // again, and it takes the place of the one kept.
         if (m.kind !== "artifact") return view
 
-        return { ...view, messages: view.messages.map((kept) => (kept.seq === m.seq ? m : kept)) }
+        return {
+          ...view,
+          messages: view.messages.map((kept) => (kept.seq === m.seq ? m : kept)),
+          streamed: true,
+        }
       }
 
       const messages = [...view.messages, m].sort((a, b) => a.seq - b.seq)
 
-      if (m.role === "coordinator") return { ...view, messages, live: {} }
+      if (m.role === "coordinator") return { ...view, messages, live: {}, streamed: true }
 
       if (m.role === "tool") {
         const ended = new Set(m.parts?.map((p) => p.id))
 
-        return { ...view, messages, running: view.running.filter((t) => !ended.has(t.id)) }
+        return {
+          ...view,
+          messages,
+          running: view.running.filter((t) => !ended.has(t.id)),
+          streamed: true,
+        }
       }
 
-      return { ...view, messages }
+      return { ...view, messages, streamed: true }
     }
     case "reset":
       return { ...view, live: {} }
@@ -92,6 +109,7 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
           ...view.live,
           [index]: { kind, text: (block?.kind === kind ? block.text : "") + delta },
         },
+        streamed: true,
       }
     }
     case "tool": {
@@ -102,6 +120,7 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
       return {
         ...view,
         running: [...view.running, { id: a.id, name: a.name ?? "tool", args: a.args }],
+        streamed: true,
       }
     }
     case "state":
@@ -122,7 +141,7 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
         (a, b) => a.seq - b.seq,
       )
 
-      return { ...view, messages, earlier: action.earlier }
+      return { ...view, messages, earlier: action.earlier, loaded: true }
     }
   }
 }

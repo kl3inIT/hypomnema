@@ -264,7 +264,11 @@ describe("history read in pages", () => {
   test("a chat is loading until its newest page, and live once the stream brings more", () => {
     expect(emptyChat).toMatchObject({ loaded: false, streamed: false })
 
-    const read = run({ type: "history", messages: [msg({ role: "owner", text: "hi" })], earlier: true })
+    const read = run({
+      type: "history",
+      messages: [msg({ role: "owner", text: "hi" })],
+      earlier: true,
+    })
     expect(read).toMatchObject({ loaded: true, streamed: false })
     expect(run({ type: "history", messages: [], earlier: false }).loaded).toBe(true)
 

@@ -6071,10 +6071,14 @@ Node (`internal/node`):
   profiles' are, shows no age. Not there: deleting, renaming or duplicating a profile (the API has no delete), and
   a check that nobody else saved meanwhile.
 - Chats with pi (issue #41 PR 4, after Omnara; learned from assistant-ui, ai-elements and pi-web): a list of chats
-  beside the open one. A chat reads its newest 200 messages (`GET /chats/{id}/messages?before=`, issue #502, after
-  OpenMausBot's `message-history.ts`), then follows `GET /chats/{id}/stream` from the newest seq read: kept messages,
-  then pi's live frames, reopened after the last kept message when the server ends it. Scrolling up brings the
-  page of 200 before the oldest message read, from a sentinel 600 px ahead or a "Load earlier messages" button; the
+  beside the open one. A chat reads its newest 50 messages (`GET /chats/{id}/messages?before=`, issue #502, after
+  OpenMausBot's `message-history.ts`; 50 since issue #1129, so a long chat opens in under a second on a slow link),
+  then follows `GET /chats/{id}/stream` from the newest seq read: kept messages, then pi's live frames, reopened
+  after the last kept message when the server ends it. Until the first page is read the chat shows a skeleton of a
+  conversation (assistant-ui's history skeleton), never its empty text; the scroller mounts with the page in it and
+  opens at its end at once, and only what the stream brings while the chat is open is followed with a smooth scroll
+  (use-stick-to-bottom's `initial` and `resize`, issue #1129). Scrolling up brings the page of 200 before the
+  oldest message read, from a sentinel 600 px ahead or a "Load earlier messages" button; the
   page keeps the reader's row by adding the growth of the scroll height back (OpenMausBot's
   `use-transcript-viewport.ts`), as Safari has no scroll anchoring. There is no virtual list. pi's thoughts and tools between replies form one line that opens,
   with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
@@ -6592,7 +6596,8 @@ Node (`internal/node`):
       `/s/`, a view-only link's page (issue #745), also `X-Robots-Tag: noindex, nofollow` and `no-store`;
     - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`);
     - gzipped, at level 5, to a browser that accepts it: HTML, CSS, JavaScript, JSON and SVG, through chi's
-      `middleware.Compressor`, as Coder's site is (issue #510). The API's answers are not compressed.
+      `middleware.Compressor`, as Coder's site is (issue #510). The client API's JSON answers go gzipped the same way
+      (issue #1129, as Kubernetes' API server does by default); its streams and files are not compressed.
   - A binary built without the client (only `dist/.gitkeep`) serves none.
 - In development, `pnpm dev` forwards `/api`, `/livez` and `/readyz` to the control plane (`HYPOMNEMA_API_URL`,
   default `http://127.0.0.1:8080`).
