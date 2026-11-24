@@ -13,7 +13,7 @@ function world({ chats = [], messages = [], lark = { chats: [], messages: {} }, 
   const tools = [
     { name: "zalo_chats", inputSchema: { properties: { account: { enum: ["main"] } } } },
     { name: "zalo_messages" },
-    { name: "account_read", description: "Use the account name (lark:me, google:me), API hostname" },
+    { name: "account_read", description: "Use the account name (lark:me, google:me), API hostname. Lark accounts that sign in as the owner (lark:me); any other" },
     { name: "meeting_list" },
   ];
   const call = async (name, args) => {

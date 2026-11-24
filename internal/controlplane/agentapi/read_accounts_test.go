@@ -65,9 +65,17 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	// Another Bot's Lark app, which the Bot is given too (issue #1127): the owner's chats are not read through it.
+	_, err = w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "lark", Label: "work", Secret: "test-lark-work", AppID: "cli_work",
+	})
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "lark", "work", true)
+	require.NoError(t, err)
+
 	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
 		Name: "brief", Connections: orchestration.AllowList{
-			Limited: true, Names: []string{"lark:me", "google:me", "zalo:me"},
+			Limited: true, Names: []string{"lark:me", "lark:work", "google:me", "zalo:me"},
 		},
 		Tools: []string{"device_*"},
 	})
@@ -93,8 +101,17 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 	mine, err := w.svc.OwnerTurn(ctx, chat)
 	require.NoError(t, err)
 	assert.False(t, mine)
-	listed := toolNames(w.tools(pi))
+	tools := w.tools(pi)
+	listed := toolNames(tools)
 	assert.Contains(t, listed, agenttool.ToolAccountRead)
+	// The tool tells which Lark accounts sign in as the owner and which are apps (issue #1127), as the Bot's
+	// connections list says User of each (agenttool.Connection).
+	for _, tool := range tools {
+		if tool.Name == agenttool.ToolAccountRead {
+			assert.Contains(t, tool.Description, "(lark:me, lark:work, google:me)")
+			assert.Contains(t, tool.Description, "Lark accounts that sign in as the owner (lark:me);")
+		}
+	}
 	assert.Contains(t, listed, agenttool.ToolZaloMessages)
 	status, raw := w.call(http.MethodGet, agenttool.PathDeviceTools, pi, nil)
 	require.Equal(t, http.StatusOK, status, "the MCP server can finish discovery without a phone")
@@ -155,7 +172,7 @@ func TestReadRoutineCanReadOwnAccountsButCannotAct(t *testing.T) {
 
 	full, _ := start(routinestore.AccessFull)
 	_, accounts := w.get(full, "lark")
-	assert.Empty(t, accounts)
+	assert.Equal(t, []string{"work"}, accounts, "a full run is given the app, not the owner's sign-in")
 	assert.NotContains(t, toolNames(w.tools(full)), agenttool.ToolAccountRead)
 }
 

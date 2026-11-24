@@ -84,7 +84,7 @@ test("past its cap a source keeps where it stopped and reads on from there, the 
 // groups only unless types names p2p, pages by page_token; a chat's messages since start_time (seconds), by
 // page_token too.
 function larkWorld({ groups = [], p2p = [], messages = {} }) {
-  const tools = [{ name: "account_read", description: "Use the account name (lark:me), API hostname" }];
+  const tools = [{ name: "account_read", description: "Use the account name (lark:me), API hostname. Lark accounts that sign in as the owner (lark:me); any other" }];
   // fetched counts the messages the check was given, over every page of every chat.
   const counter = { fetched: 0 };
   const page = (items, url, size) => {
