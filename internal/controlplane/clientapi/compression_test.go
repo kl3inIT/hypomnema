@@ -46,7 +46,6 @@ func TestAChatsPageGoesGzippedAndItsStreamStaysPlain(t *testing.T) {
 
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		t.Cleanup(func() { _ = resp.Body.Close() })
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
 		return resp
@@ -55,11 +54,15 @@ func TestAChatsPageGoesGzippedAndItsStreamStaysPlain(t *testing.T) {
 	page := "/chats/" + chat.ID + "/messages?before=9007199254740991&limit=200"
 
 	plain := get(page, "identity")
+	defer func() { _ = plain.Body.Close() }()
+
 	assert.Empty(t, plain.Header.Get("Content-Encoding"), "nothing gzipped to a client that did not ask")
 	plainBody, err := io.ReadAll(plain.Body)
 	require.NoError(t, err)
 
 	zipped := get(page, "gzip, deflate, br")
+	defer func() { _ = zipped.Body.Close() }()
+
 	assert.Equal(t, "gzip", zipped.Header.Get("Content-Encoding"))
 	assert.Contains(t, zipped.Header.Values("Vary"), "Accept-Encoding")
 	wire, err := io.ReadAll(zipped.Body)
@@ -77,6 +80,8 @@ func TestAChatsPageGoesGzippedAndItsStreamStaysPlain(t *testing.T) {
 	assert.Less(t, len(wire), len(plainBody)/3, "the page is much smaller on the wire")
 
 	stream := get("/chats/"+chat.ID+"/stream", "gzip")
+	defer func() { _ = stream.Body.Close() }()
+
 	assert.Equal(t, "text/event-stream", stream.Header.Get("Content-Type"))
 	assert.Empty(t, stream.Header.Get("Content-Encoding"), "a stream is never gzipped")
 
