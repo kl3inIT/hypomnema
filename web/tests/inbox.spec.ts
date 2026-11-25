@@ -45,19 +45,22 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // account the first was read with. quiet leaves nothing waiting on the owner. The owner's WhatsApp and Zalo accounts
 // keep their chats, which name Kai Yong and Lan, and the message Kai sent (issue #1110). triage makes Thư ký the main
 // Bot with its triage Routine, last run 12 minutes ago; a run started by hand goes until endScan, which finds a new
-// to-do (issue #1115). passed adds a to-do Hypo passed to the BeyondPilot Bot (issue #1118).
+// to-do (issue #1115). passed adds a to-do Hypo passed to the BeyondPilot Bot (issue #1118). worked adds one Hypo
+// works on, with its steps and its report, and one it closed as done (issue #1143).
 function world({
   review = false,
   sources = false,
   quiet = false,
   triage = false,
   passed = false,
+  worked = false,
 }: {
   review?: boolean
   sources?: boolean
   quiet?: boolean
   triage?: boolean
   passed?: boolean
+  worked?: boolean
 } = {}) {
   let release = () => {}
   let held: Promise<void> | undefined
@@ -194,33 +197,174 @@ function world({
         source: { kind: "owner" },
       }),
     )
+  const fromElitex = {
+    kind: "lark",
+    account: "me",
+    quote: "Anh gửi giúp em invoice tháng 11 nhé",
+    ref: { kind: "lark_message", ref: "om_2", label: "ELITEX" },
+  }
+  const pr = {
+    kind: "pull_request",
+    ref: "https://github.com/kl3inIT/elitex/pull/12",
+    label: "#12",
+  }
+  if (worked)
+    todos.push(
+      todo("tdo_work", "Send the November invoice to ELITEX", {
+        state: "doing",
+        assignee: { kind: "bot", name: "bot_main" },
+        chat_id: "cht_work",
+        work: {
+          attempt: "att_2",
+          kind: "chat",
+          id: "cht_work",
+          bot: "bot_main",
+          started_at: at(-48 * 60_000),
+        },
+        draft: "Hi ELITEX team, the November invoice is attached.",
+        source: fromElitex,
+      }),
+      todo("tdo_shipped", "Fix the invoice total on the ELITEX site", {
+        state: "done",
+        assignee: { kind: "bot", name: "bot_main" },
+        chat_id: "cht_shipped",
+        closed_at: at(-5 * 60_000),
+        close_reason: "The total is fixed; PR #12 is merged.",
+        evidence: [pr],
+        source: fromElitex,
+      }),
+    )
+  // report is a Bot's long comment, its sections folded in <details>, as CodeRabbit's summary comment.
+  const report = [
+    "Drafted the reply and opened PR #12 for the total.",
+    "",
+    "<details>",
+    "<summary>What was done</summary>",
+    "",
+    "- Read the November figures from the sheet.",
+    "- Fixed the total's rounding in `invoice.ts`.",
+    "</details>",
+    "",
+    "<details>",
+    "<summary>Risks</summary>",
+    "",
+    "The October invoice used the old rounding.",
+    "</details>",
+    "",
+    "<details>",
+    "<summary>Checks</summary>",
+    "",
+    "Unit tests pass; the PR's CI is green.",
+    "</details>",
+  ].join("\n")
+  const workedOn = (start: number) => [
+    {
+      id: start,
+      at: at(-50 * 60_000),
+      revision: start,
+      actor: { kind: "owner" },
+      kind: "edited",
+      before: {},
+      after: { assignee_kind: "bot", assignee: "bot_main" },
+    },
+    {
+      id: start + 1,
+      at: at(-50 * 60_000),
+      revision: start + 1,
+      actor: { kind: "owner" },
+      kind: "commented",
+      before: {},
+      after: { text: "Do it, then draft a reply to ELITEX for me to send." },
+    },
+    {
+      id: start + 2,
+      at: at(-48 * 60_000),
+      revision: start + 2,
+      actor: { kind: "bot", id: "bot_main" },
+      kind: "state",
+      before: { state: "open" },
+      after: { state: "doing", work_kind: "chat" },
+    },
+    {
+      id: start + 3,
+      at: at(-40 * 60_000),
+      revision: start + 3,
+      actor: { kind: "bot", id: "bot_main" },
+      kind: "edited",
+      before: {},
+      after: { notes: "The total rounds the wrong way." },
+    },
+    {
+      id: start + 4,
+      at: at(-30 * 60_000),
+      revision: start + 4,
+      actor: { kind: "bot", id: "bot_main" },
+      kind: "edited",
+      before: {},
+      after: { evidence: [pr] },
+    },
+    {
+      id: start + 5,
+      at: at(-25 * 60_000),
+      revision: start + 5,
+      actor: { kind: "bot", id: "bot_main" },
+      kind: "edited",
+      before: {},
+      after: { draft: "Hi ELITEX team, the November invoice is attached." },
+    },
+    {
+      id: start + 6,
+      at: at(-20 * 60_000),
+      revision: start + 6,
+      actor: { kind: "bot", id: "bot_main" },
+      kind: "commented",
+      before: {},
+      after: { text: report },
+    },
+  ]
   const closed = (t: Todo) => ["done", "dropped", "duplicate"].includes(t.state)
   const sent: { path: string; body: unknown }[] = []
   // threads are each to-do's history past its creation: the hand-over, the comments (issue #1111).
-  const threads: Record<string, Record<string, unknown>[]> = passed
+  const threads: Record<string, Record<string, unknown>[]> = worked
     ? {
-        tdo_pilot: [
+        tdo_work: workedOn(2),
+        tdo_shipped: [
+          ...workedOn(2),
           {
-            id: 2,
-            at: at(-30 * 60_000),
-            revision: 2,
-            actor: { kind: "owner" },
-            kind: "edited",
-            before: {},
-            after: { assignee_kind: "bot", assignee: "bot_main" },
-          },
-          {
-            id: 3,
-            at: at(-20 * 60_000),
-            revision: 3,
+            id: 9,
+            at: at(-5 * 60_000),
+            revision: 9,
             actor: { kind: "bot", id: "bot_main" },
-            kind: "edited",
-            before: {},
-            after: { assignee_kind: "bot", assignee: "bot_beyond", passed_by: "bot_main" },
+            kind: "state",
+            before: { state: "doing" },
+            after: { state: "done", close_reason: "The total is fixed; PR #12 is merged." },
           },
         ],
       }
-    : {}
+    : passed
+      ? {
+          tdo_pilot: [
+            {
+              id: 2,
+              at: at(-30 * 60_000),
+              revision: 2,
+              actor: { kind: "owner" },
+              kind: "edited",
+              before: {},
+              after: { assignee_kind: "bot", assignee: "bot_main" },
+            },
+            {
+              id: 3,
+              at: at(-20 * 60_000),
+              revision: 3,
+              actor: { kind: "bot", id: "bot_main" },
+              kind: "edited",
+              before: {},
+              after: { assignee_kind: "bot", assignee: "bot_beyond", passed_by: "bot_main" },
+            },
+          ],
+        }
+      : {}
   const remember = (t: Todo, event: Record<string, unknown>) => {
     const thread = (threads[t.id] ??= [])
     thread.push({ id: thread.length + 2, at: at(0), revision: t.revision, before: {}, ...event })
@@ -345,6 +489,15 @@ function world({
           t.updated_at = at(0)
           if (acted[2] === "done") Object.assign(t, { state: "done", closed_at: at(0) })
           if (acted[2] === "accept") t.state = "open"
+          if (acted[2] === "reopen") {
+            remember(t, {
+              actor: { kind: "owner" },
+              kind: "state",
+              before: { state: t.state },
+              after: { state: "open" },
+            })
+            Object.assign(t, { state: "open", closed_at: undefined, close_reason: "" })
+          }
 
           return json(t)
         }
@@ -857,12 +1010,11 @@ test("e pressed twice sends done once", async ({ page }) => {
   await expect(page.getByText("Not changed")).toHaveCount(0)
 })
 
-// Scenario: issue #1111, sections 1 and 2. The owner hands the invoice to the main Bot from the item's top bar: a
-// quick prompt fills the box, he writes his own, and Ctrl+Enter hands it over. The item shows Hypo as who does it,
-// his prompt first in its thread and a link to the item's chat; his comment goes to the same thread.
-test("the owner hands an item to Hypo with a prompt and follows it in the thread", async ({
-  page,
-}) => {
+// Scenario: issue #1143, Logic 1 and 2 (the hand-over of issue #1111). The invoice is not handed yet: its comments
+// show where it came from and a composer that reads "Message Hypo…" with Hand to Hypo. The owner writes and sends:
+// the item is handed to the main Bot with his text as the prompt, his comment shows as a card, Hypo has the item,
+// and the button reads Send; what he writes next is a comment to Hypo.
+test("the owner hands an item to Hypo by writing, and his comment shows", async ({ page }) => {
   const w = world()
   await w.serve(page)
   await page.goto("/inbox?item=todo%3Atdo_invoice")
@@ -870,15 +1022,15 @@ test("the owner hands an item to Hypo with a prompt and follows it in the thread
   await expect(
     detail.getByRole("heading", { name: "Send the invoice to ELITEX", exact: true }),
   ).toBeVisible()
+  await expect(detail.getByRole("button", { name: /^Hand to/ })).toHaveCount(1)
+  await expect(page.getByRole("dialog")).toHaveCount(0)
 
-  await detail.getByRole("button", { name: "Hand to Hypo" }).click()
-  const dialog = page.getByRole("dialog", { name: "Hand to Hypo" })
-  const prompt = dialog.getByRole("textbox", { name: /What to do/ })
-  await dialog.getByRole("button", { name: "Draft a reply" }).click()
-  await expect(prompt).toHaveValue("Draft a reply")
-  await prompt.fill("Do it now, then draft a reply to ELITEX for me to send")
-  await shot(page, "inbox-hand")
-  await prompt.press("Control+Enter")
+  const comments = detail.getByRole("region", { name: "Comments" })
+  await expect(comments).toContainText("Thư ký added it from Lark · ELITEX")
+  const box = comments.getByRole("textbox", { name: "Message" })
+  await expect(box).toHaveAttribute("placeholder", "Message Hypo…")
+  await box.fill("Do it now, then draft a reply to ELITEX for me to send")
+  await comments.getByRole("button", { name: "Hand to Hypo" }).click()
 
   await expect
     .poll(() => w.sent)
@@ -890,25 +1042,48 @@ test("the owner hands an item to Hypo with a prompt and follows it in the thread
         prompt: "Do it now, then draft a reply to ELITEX for me to send",
       },
     })
-  await expect(dialog).toBeHidden()
-  const thread = detail.getByRole("region", { name: "Thread" })
-  await expect(thread).toContainText("You gave it to Hypo")
-  await expect(thread).toContainText("Do it now, then draft a reply to ELITEX for me to send")
+  await expect(comments).toContainText("You gave it to Hypo")
+  await expect(comments.getByRole("article", { name: "Comment by You" })).toContainText(
+    "Do it now, then draft a reply to ELITEX for me to send",
+  )
   await expect(detail).toContainText(/Who\s*Hypo/)
   await expect(
-    thread.getByRole("link", { name: "Open Hypo's chat for this item" }),
+    comments.getByRole("link", { name: "Open Hypo's chat for this item" }),
   ).toHaveAttribute("href", "/chats/cht_item")
 
-  await thread.getByRole("textbox", { name: "Comment" }).fill("Use the November rate.")
-  await thread.getByRole("button", { name: "Comment" }).click()
+  await box.fill("Use the November rate.")
+  await comments.getByRole("button", { name: "Send", exact: true }).click()
   await expect
     .poll(() => w.sent)
     .toContainEqual({
       path: "/inbox/tdo_invoice/comments",
       body: { text: "Use the November rate." },
     })
-  await expect(thread).toContainText("Use the November rate.")
+  await expect(comments).toContainText("Use the November rate.")
   await shot(page, "inbox-thread")
+})
+
+// Scenario: issue #1143, Logic 6. Hypo closed the fix as done: its line is the violet "closed it as done" with its
+// evidence; writing again reopens it and hands it back to Hypo with the text.
+test("writing on a done item reopens it and hands it back", async ({ page }) => {
+  const w = world({ worked: true })
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_shipped")
+  const comments = item(page).getByRole("region", { name: "Comments" })
+  await expect(comments).toContainText("Hypo closed it as done")
+  await expect(comments).toContainText("The total is fixed; PR #12 is merged.")
+
+  await comments.getByRole("textbox", { name: "Message" }).fill("The October one too, please.")
+  await comments.getByRole("button", { name: "Reopen and send" }).click()
+  await expect
+    .poll(() => w.sent.map((s) => s.path))
+    .toEqual(["/inbox/tdo_shipped/reopen", "/inbox/tdo_shipped/hand"])
+  expect(w.sent[1]?.body).toEqual({
+    revision: 2,
+    bot: "bot_main",
+    prompt: "The October one too, please.",
+  })
+  await expect(comments).toContainText("You reopened it")
 })
 
 // Scenario: issue #1118, section 4. Hypo passed an item the owner handed it to the BeyondPilot Bot: the item shows
@@ -923,7 +1098,7 @@ test("an item the main Bot passed shows who has it through whom", async ({ page 
   ).toBeVisible()
 
   await expect(detail).toContainText(/Who\s*Hypo → BeyondPilot/)
-  const thread = detail.getByRole("region", { name: "Thread" })
+  const thread = detail.getByRole("region", { name: "Comments" })
   await expect(thread).toContainText("You gave it to Hypo")
   await expect(thread).toContainText("Hypo passed it to BeyondPilot")
   await shot(page, "inbox-passed")
@@ -1031,24 +1206,52 @@ for (const theme of ["light", "dark"] as const) {
     await expect(
       item(page).getByRole("heading", { name: "Reply to Kai Yong", exact: true }),
     ).toBeVisible()
-    await expect(item(page).getByRole("region", { name: "Thread" })).toContainText(
+    await expect(item(page).getByRole("region", { name: "Comments" })).toContainText(
       "Thư ký added it",
     )
     await shot(page, `inbox-reply-${theme}`)
 
-    // Issue #1111: the hand-over's dialog and the Send's confirmation.
-    await item(page)
-      .getByRole("button", { name: /^Hand to/ })
-      .click()
-    await expect(page.getByRole("dialog", { name: /^Hand to/ })).toBeVisible()
-    await shot(page, `inbox-hand-${theme}`)
-    await page.keyboard.press("Escape")
-    await expect(page.getByRole("dialog", { name: /^Hand to/ })).toBeHidden()
+    // Issue #1111: the Send's confirmation.
     await item(page)
       .getByRole("region", { name: "Draft" })
       .getByRole("button", { name: "Send" })
       .click()
     await expect(page.getByRole("alertdialog", { name: /Send to Kai Yong/ })).toBeVisible()
     await shot(page, `inbox-send-${theme}`)
+  })
+}
+
+// The pictures of an item's comments in its four states (issue #1143): not handed, Hypo working with its steps and
+// its report, passed to the BeyondPilot Bot, and done; in the light and the dark theme.
+for (const theme of ["light", "dark"] as const) {
+  test(`an item's comments in the ${theme} theme`, async ({ page }) => {
+    await page.addInitScript((choice) => localStorage.setItem("theme", choice), theme)
+    const w = world({ passed: true, worked: true })
+    await w.serve(page)
+    const states = [
+      ["not-handed", "tdo_invoice", "Hand to Hypo"],
+      ["working", "tdo_work", "Send"],
+      ["passed", "tdo_pilot", "Send"],
+      ["done", "tdo_shipped", "Reopen and send"],
+    ] as const
+    for (const [state, id, button] of states) {
+      await page.goto(`/inbox?item=todo%3A${id}`)
+      const comments = item(page).getByRole("region", { name: "Comments" })
+      const send = comments.getByRole("button", { name: button, exact: true })
+      await expect(send).toBeVisible()
+      if (state === "working") {
+        await expect(comments.getByRole("button", { name: /^Hypo did 4 steps/ })).toBeVisible()
+        await expect(comments.getByRole("button", { name: "Risks" })).toHaveAttribute(
+          "aria-expanded",
+          "false",
+        )
+        await comments.getByRole("button", { name: "What was done" }).click()
+        await expect(comments).toContainText("Read the November figures from the sheet.")
+      }
+      await comments.getByRole("heading", { name: "Comments" }).scrollIntoViewIfNeeded()
+      await shot(page, `inbox-comments-${state}-${theme}`)
+      await send.scrollIntoViewIfNeeded()
+      await shot(page, `inbox-comments-${state}-composer-${theme}`)
+    }
   })
 }
