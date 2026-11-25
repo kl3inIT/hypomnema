@@ -307,28 +307,36 @@ SELECT count(*) FROM chat_queue WHERE chat_id = @chat_id;
 
 -- name: MarkChatTurn :exec
 -- A Bot's turn started in the chat (issue #716), in the pi process the token names; the attempts stay, so a
--- continued turn keeps its count.
-UPDATE chats SET turn_started_at = @now, turn_token = @token WHERE id = @id;
+-- continued turn keeps its count. A new turn is not cut yet (issue #1162).
+UPDATE chats SET turn_started_at = @now, turn_token = @token, turn_cut_at = NULL WHERE id = @id;
 
 -- name: SettleChatTurn :exec
 -- The turn of the pi process the token names ended: no mark, no attempts. A newer turn's mark, of another pi
 -- process, stays (Hermes's compare-and-swap clear).
-UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0, turn_cut_at = NULL
 WHERE id = @id AND turn_token = @token;
 
 -- name: ClearChatTurn :exec
 -- The chat's cut turn is not continued: no mark, no attempts, whoever marked it.
-UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0 WHERE id = @id;
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0, turn_cut_at = NULL WHERE id = @id;
 
 -- name: CutChatTurns :many
 -- The chats whose turn was marked and never settled: at start, the turns a restart cut.
-SELECT id, CAST(turn_started_at AS INTEGER) AS turn_started_at, turn_attempts FROM chats
+SELECT id, CAST(turn_started_at AS INTEGER) AS turn_started_at, turn_cut_at, turn_attempts FROM chats
 WHERE turn_started_at IS NOT NULL
 ORDER BY id;
 
+-- name: CutMarkedTurns :exec
+-- The control plane begins to stop (issue #1162): every marked turn is cut now, written before the wait for the
+-- turns, as Hermes's gateway marks its running sessions before its drain (gateway/run_shutdown.py). A later write
+-- of the same stop moves the cut to its own time, as Hermes marks again when the drain times out.
+UPDATE chats SET turn_cut_at = @now WHERE turn_started_at IS NOT NULL;
+
 -- name: ContinueChatTurn :exec
--- The chat is woken to continue its cut turn: one attempt more, and the mark starts again now, no pi's yet.
-UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = @now, turn_token = NULL WHERE id = @id;
+-- The chat is woken to continue its cut turn: one attempt more, and the mark starts again now, no pi's yet and not
+-- cut.
+UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = @now, turn_token = NULL, turn_cut_at = NULL
+WHERE id = @id;
 
 -- name: VoidChatContinuations :exec
 -- A line that woke pi to continue a cut turn and was never given to it goes to pi no more (issue #716): a later
