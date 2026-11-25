@@ -422,8 +422,9 @@ func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string, m
 
 // StartMainChat is CreateChatWithID for the web's New chat and the CLI's --new or /new (issue #471): the chat made
 // becomes its Bot's main chat, the one a click on the Bot opens, as OpenClaw's /new starts a new session under the
-// agent's main key (docs/concepts/session.md). The Bot's former main chat stays as it was, with its id and whatever
-// still runs in it; it is only no longer the Bot's row. Lark's chats and a Routine's never take this path.
+// agent's main key (docs/concepts/session.md). The Bot's former main chat stays as it was, with its id and its
+// history; it is only no longer the Bot's row, and its open Runs move to the chat made (issue #1169, moveMainRunsTx).
+// Lark's chats and a Routine's never take this path.
 func (s *Service) StartMainChat(ctx context.Context, id, bot, title string, m ChatModel) (Chat, error) {
 	chat, _, err := s.createChat(ctx, id, bot, title, m, moveMain)
 	return chat, err
@@ -527,6 +528,11 @@ func (s *Service) createChatTx(ctx context.Context, q *store.Queries, now int64,
 		if err := q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(id), Bot: bot}); err != nil {
 			return "", false, err
 		}
+
+		// The open Runs of the former main chat move with it (issue #1169).
+		if err := moveMainRunsTx(ctx, q, now, row.MainChat.String, id); err != nil {
+			return "", false, err
+		}
 	}
 
 	return id, true, nil
@@ -556,10 +562,12 @@ func (s *Service) GetChat(ctx context.Context, id string) (Chat, error) {
 // write to (issue #923): the owner's Set as main chat, as OpenMausBot's "Set as main thread" stores the bot's
 // mainThreadChoice (server/routes/bot-patch.ts). A chat that is not the Bot's, a Routine's chat and a Lark chat are
 // refused, as OpenMausBot refuses a routine's run, another bot's thread and one its resolver cannot pick, alike
-// (server/routes/bot-patch.test.ts). The Bot's former main chat stays as it was.
+// (server/routes/bot-patch.test.ts). The Bot's former main chat stays as it was, but for its open Runs, which move to
+// the chat set (issue #1169, moveMainRunsTx).
 func (s *Service) SetMainChat(ctx context.Context, bot, chatID string) (Bot, error) {
-	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
-		if _, err := q.GetBot(ctx, bot); err != nil {
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		former, err := q.GetBot(ctx, bot)
+		if err != nil {
 			return notFound(err, "bot", bot)
 		}
 
@@ -586,7 +594,12 @@ func (s *Service) SetMainChat(ctx context.Context, bot, chatID string) (Bot, err
 			return fmt.Errorf("%w: chat %s is a Lark chat, which is never a main chat", ErrInvalid, chatID)
 		}
 
-		return q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(chatID), Bot: bot})
+		if err := q.SetBotMainChat(ctx, store.SetBotMainChatParams{ChatID: nullString(chatID), Bot: bot}); err != nil {
+			return err
+		}
+
+		// The open Runs of the former main chat move with it (issue #1169).
+		return moveMainRunsTx(ctx, q, now, former.MainChat.String, chatID)
 	}); err != nil {
 		return Bot{}, fmt.Errorf("setting the main chat of bot %s: %w", bot, err)
 	}
