@@ -14,6 +14,7 @@ import {
   fromLineOf,
   fromText,
   groupRows,
+  lateBy,
   matches,
   nextAfter,
   noFilter,
@@ -250,6 +251,24 @@ test("a date is labelled Due or Chase, and says whether it is today or late", ()
     /^Due today 11:00/,
   )
   expect(dueOf(todo("d"), now)).toBeNull()
+})
+
+// Scenario: issue #1173, plan row 2. How late an item is: days since a date, counted in its zone; the minutes,
+// hours or days since a moment; nothing for one not late.
+test("an item says how late it is", () => {
+  const day = (n: number) =>
+    new Intl.DateTimeFormat("en-CA", { dateStyle: "short" }).format(now + n * 24 * hour)
+
+  expect(lateBy(todo("y", { due: { kind: "date", date: day(-1) } }), now)).toBe("1 day")
+  expect(lateBy(todo("w", { due: { kind: "date", date: day(-7) } }), now)).toBe("7 days")
+  expect(
+    lateBy(todo("i", { due: { kind: "instant", at: iso(now - 3 * hour - 60_000) } }), now),
+  ).toBe("3 hours")
+  expect(lateBy(todo("m", { due: { kind: "instant", at: iso(now - 5 * 60_000) } }), now)).toBe(
+    "5 minutes",
+  )
+  expect(lateBy(todo("a", { due: { kind: "date", date: day(0) } }), now)).toBeUndefined()
+  expect(lateBy(todo("d"), now)).toBeUndefined()
 })
 
 // Scenario: issue #1110. A row names where it came from by the chat's or the person's name, never the account's

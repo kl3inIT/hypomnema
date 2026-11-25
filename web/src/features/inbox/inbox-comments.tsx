@@ -21,15 +21,16 @@ import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Message, MessageContent, MessageHeader } from "@/components/ui/message"
 import { Composer } from "@/features/chat/composer"
-import Markdown from "@/features/chat/markdown"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
+import { InboxMarkdown } from "./inbox-markdown"
 import { actorName, eventLine, reportOf, threadOf, writeOf, type ThreadEntry } from "./inbox-thread"
 import { useWriteTodo } from "./use-inbox"
 
 // An Inbox item's comments (issue #1143), on a line as GitHub's issue timeline: ReUI's Timeline holds each entry
-// with its icon on the line; a comment is a card of the chat's message parts with the chat's Markdown; changes in a
+// with its icon on the line; a comment is a card of the chat's message parts with the chat's Markdown, its ids as
+// links (InboxMarkdown, issue #1173); changes in a
 // row by one actor fold into AI Elements' chain of thought, adapted in components/chain-of-thought.tsx; a Bot's
 // report folds its <details> sections in the app's Collapsible, as CodeRabbit's summary comment; and the chat's
 // composer writes, handing the item over when no Bot has it.
@@ -242,7 +243,7 @@ function Report({ text }: { text: string }) {
     <div className="flex flex-col gap-2">
       {reportOf(text).map((part, index) =>
         part.kind === "text" ? (
-          <Markdown key={index} text={part.text} streaming={false} />
+          <InboxMarkdown key={index} text={part.text} />
         ) : (
           <div key={index} className="rounded-md border">
             <Collapsible>
