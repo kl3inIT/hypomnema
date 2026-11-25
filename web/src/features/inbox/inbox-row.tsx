@@ -8,29 +8,25 @@ import {
   Lightbulb,
   MessageCircleQuestion,
   RotateCcw,
-  PenLine,
   ShieldQuestion,
   Trash2,
-  UserRound,
   X,
   type LucideIcon,
 } from "lucide-react"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { SnoozeMenu } from "./snooze-menu"
-import { SourceIcon } from "./source-icon"
+import { SourceAvatar } from "./source-icon"
 import {
   actionsOf,
-  askerOf,
   atOf,
+  botOf,
   dueOf,
-  initialsOf,
+  fromLineOf,
   isClosed,
-  placeOf,
   quoteOf,
   sourceOf,
   titleOf,
@@ -93,41 +89,10 @@ const actionLook: Record<Action, { Icon: LucideIcon; label: string }> = {
 
 const dueTone = { late: "text-failed", today: "text-needs-you", later: "text-muted-foreground" }
 
-// RowAvatar is who a row comes from, at its head, as Chatwoot's card shows its contact's Avatar with a status on it
-// (ConversationCard.vue:129-145) and OpenMausBot's row its sender with a dot (InboxRow.tsx): shadcn's Avatar with the
-// asker's initials, there being no picture to show, a pen for what the owner wrote down himself, and the row's kind
-// as a small badge on it. The badge is a kind's icon, larger than AvatarBadge's dot, so it is drawn here.
-function RowAvatar({ row, asker, now }: { row: Row; asker?: string; now: number }) {
-  const hand = row.kind === "todo" && sourceOf(row) === "hand"
-
-  return (
-    <span className="relative mt-0.5 inline-flex shrink-0" title={asker}>
-      <Avatar>
-        <AvatarFallback>
-          {hand ? (
-            <PenLine aria-hidden className="size-4" />
-          ) : asker ? (
-            <span aria-hidden className="text-xs font-medium">
-              {initialsOf(asker)}
-            </span>
-          ) : (
-            <UserRound aria-hidden className="size-4" />
-          )}
-        </AvatarFallback>
-      </Avatar>
-      <KindIcon
-        row={row}
-        now={now}
-        className="absolute -right-1 -bottom-1 rounded-full bg-background p-px [&>svg]:size-3.5"
-      />
-    </span>
-  )
-}
-
-// InboxRow is one line of the list, after OpenMausBot's InboxRowItem and Chatwoot's ConversationCard: who it comes
-// from, with its kind on the avatar; the title, bold while unread, on two lines on a phone; what was said, on one
-// muted line; the channel's mark and the chat's or the person's name, its date labelled and coloured when it is today
-// or late, and a draft chip; and the time of the message it came from. Pointed at or focused, its actions take the
+// InboxRow is one line of the list, after OpenMausBot's InboxRowItem and Chatwoot's ConversationCard: the platform
+// it came from as its avatar, with no state on it, which its group's heading says (issue #1140); the title, bold
+// while unread, on two lines on a phone; what was said, on one muted line; who said it and where, its date labelled
+// and coloured when it is today or late, and a draft chip; and the time of the message it came from. Pointed at or focused, its actions take the
 // time's place; a phone shows them in the detail instead. It is a row that opens, its own design rather than a
 // Button.
 export function InboxRow({
@@ -156,7 +121,8 @@ export function InboxRow({
   const todo = row.kind === "todo" ? row.todo : undefined
   const due = todo ? dueOf(todo, now) : null
   const quote = quoteOf(row)
-  const place = placeOf(row, origin, botName)
+  const from = fromLineOf(row, origin, botName)
+  const bot = botOf(row)
 
   return (
     <li
@@ -177,7 +143,11 @@ export function InboxRow({
         aria-label={title}
         className="flex min-w-0 flex-1 items-start gap-3 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
       >
-        <RowAvatar row={row} asker={askerOf(row, origin, botName)} now={now} />
+        <SourceAvatar
+          source={sourceOf(row)}
+          bot={bot ? botName(bot) : undefined}
+          className="mt-0.5"
+        />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex min-w-0 items-baseline gap-2">
             <span
@@ -204,9 +174,8 @@ export function InboxRow({
             </span>
           )}
           <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            {row.kind === "todo" && <SourceIcon source={sourceOf(row)} />}
             <span data-slot="from" className="min-w-0 truncate">
-              {place}
+              {from}
             </span>
             {due && (
               <span className={cn("shrink-0", dueTone[due.tone])}>

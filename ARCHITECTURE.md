@@ -3747,11 +3747,20 @@ capabilities do not exist yet.
     most 48 lines, 1 MiB or 20 s (CLIProxyAPI's bounds and the timeout it advises behind a proxy), then sent whole. A
     lack of capacity the backend reports before that inside its 200 (`server_is_overloaded`, a rate limit, a model at
     capacity; CLIProxyAPI #6856) is a 503 refusal of that account: the next account is tried, then the model's next
-    target, and the account rests for the `Retry-After` in the error's headers (outer first, `error.headers` too,
-    CLIProxyAPI #7600), else the chat route's growing wait. Any other failure before output, and any failure after
+    target; what rests, the model of the account or the whole account, is said below, and it rests for the
+    `Retry-After` in the error's headers (outer first, `error.headers` too, CLIProxyAPI #7600), else the chat route's
+    growing wait. Any other failure before output, and any failure after
     it, reaches the client in the stream as before; nothing is sent again once output started (CLIProxyAPI #7481).
-    The chat route translates and sends nothing before its first chunk, so it already moved on; it now rests the
-    account for the same `Retry-After`. When every account refuses, the usage row keeps the refusal's code, message
+    The chat route translates and sends nothing before its first chunk, so it already moved on; it rests the same
+    way, for the same `Retry-After`. A lack of capacity for the model (an overload, a model at capacity, a server
+    error the backend says to retry; `codex.Failure.ModelCapacity`), on either route and whether inside a 200 or as
+    its own status, rests only that model of the account (issue #1147; CLIProxyAPI's per-model `ModelState`,
+    OmniRoute's `lockExactModel` on a Codex `server_is_overloaded`): the account keeps serving its other models, is
+    passed over for that model without asking the backend, and no account cooldown is written; the rest is in memory
+    and logged as `modelgateway.model_rests` with its reason. While the model rests on every account the client gets
+    the 429 of a cooling model with the first time one is free. A rate limit, a usage limit or a refused token still
+    cools the whole account, and its cooldown's reason is the refusal's code (else its type, else `HTTP <status>`),
+    not `usage limit`. When every account refuses, the usage row keeps the refusal's code, message
     and the prompt's moderation flags from the `response.metadata` frame (paths and values, not the prompt), and
     counts the input as estimated with no output; a stream that ended before any output counts no output.
   - A run of answers that did not end ends the client's turn (issue #1052), whatever the prompt's size: a stream cut
@@ -4855,6 +4864,11 @@ its client API, its CLI and the Bots' tools.
   (`bots`) records the change with the reason; the created event still says who added it, who does it is otherwise
   unchanged, nothing is woken, and closed items stay as they were. The migration 00167 did
   the same for the items of Bots already removed (the Thư ký Bot's, #1107).
+- A removed Bot's name (`orchestration/bots.go`, `deleteBotRow`; issue #1139): every removal above keeps the Bot's id
+  and name in `removed_bots`, and an undo that puts the Bot back takes it out. `GET /bots` lists them as `removed`
+  to the tokens that read every Bot; the web client (`botNameOf`) names a Bot no longer there "<name> (removed)",
+  or "A removed Bot" when its name is not known, never by its id, and the gateway's usage by key the same way. The
+  Thư ký Bot, removed before names were kept, is given its name by the migration that made the table.
 - Handing over and the thread (`inboxstore/handoff.go`, `orchestration/inboxwake.go`; issue #1111, the owner's
   design of 2026-11-23, after GitHub's "Assign to Copilot" with additional instructions, Linear's agent assignment
   and Orca's bot items): `Hand` gives an item not closed nor in another Bot's attempt to a Bot with the owner's
@@ -6222,12 +6236,20 @@ Node (`internal/node`):
     meeting, at `/meetings/{id}?line=<n>`; issue #1105), the draft with Copy, its primary button, which says Copied
     once it copied, Edit and Send (issue #1111: a confirmation names the recipient and the place, "Send to Kai Yong
     on WhatsApp (main)?", and shows the text as it is on screen, edits included, which `POST /inbox/{id}/send`
-    sends), the draft's section left out when the item needs none, and its thread: the events as lines (a hand-over
-    says "You gave it to Hypo", "Hypo passed it to BeyondPilot" or "BeyondPilot gave it back to you") and the
-    comments as cards, a link to the item's chat, and a comment box (Ctrl+Enter). The top bar's "Hand to <main Bot>"
-    (an item not closed nor in review) opens a dialog with an optional multi-line prompt, the quick prompts Do it,
-    Only look into it, Draft a reply and Give it to a worker to fix the code, and Ctrl+Enter to hand it over (`POST
-    /inbox/{id}/hand`).
+    sends), the draft's section left out when the item needs none, and its Comments (issue #1143,
+    `inbox-comments.tsx`), on ReUI's timeline (`web/src/components/reui/timeline.tsx`) as GitHub's issue timeline:
+    each event a muted line with its icon on the line (the first says where the item came from, "Thư ký added it
+    from Lark · ELITEX"; a hand-over says "You gave it to Hypo", "Hypo passed it to BeyondPilot" or "BeyondPilot
+    gave it back to you"; a Run started, a pull request linked, reopened; closed as done in violet with its
+    reason), two or more changes in a row by one actor folded into "Hypo did 5 steps · 10:03–10:41" (AI Elements'
+    chain of thought, `web/src/components/chain-of-thought.tsx`), and each comment a card with its face, name, a
+    Bot tag and time, its Markdown rendered by the chat's renderer and each top-level `<details>` folded under its
+    `<summary>` in a Collapsible (`reportOf`, as CodeRabbit's summary comment). Under them a link to the item's chat
+    and the chat's composer (Enter sends): on an item no Bot has it reads "Message Hypo…" and **Hand to Hypo**
+    hands it to the main Bot with the text as its prompt (`POST /inbox/{id}/hand`); on one a Bot has, Send
+    comments (`POST /inbox/{id}/comments`), or hands it to that Bot again when the item has no chat; on a closed
+    one, **Reopen and send** reopens it (`POST /inbox/{id}/reopen`), then hands it back to its Bot with the text
+    (`writeOf`, `useWriteTodo`). The top bar has no "Hand to" of its own.
     An Approval shows its chat card (`ApprovalCard`) and a question its form (`QuestionForm`), the same calls as at
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
     (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on

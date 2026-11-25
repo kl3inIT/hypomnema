@@ -7,8 +7,8 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
-import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
-import { useBots } from "@/features/bots/use-bots"
+import { mainBotOf } from "@/features/bots/bots-state"
+import { useBotNames, useBots } from "@/features/bots/use-bots"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 
@@ -88,7 +88,7 @@ export function InboxScreen({
   const phone = useIsMobile()
   const { rows, loading, error } = useInbox(now)
   const bots = useBots()
-  const botName = (id: string) => botNameOf(bots.data, id)
+  const botName = useBotNames()
   const chats = useKeptChats()
   const { unread, markSeen } = useSeen()
   const [filter, setFilter] = useState<Filter>(noFilter)
@@ -102,15 +102,8 @@ export function InboxScreen({
   const [more, setMore] = useState<Partial<Record<GroupId, boolean>>>({})
 
   const shown = useMemo(
-    () =>
-      rows.filter((r) =>
-        matches(
-          r,
-          filter,
-          fromText(r, { chat: chatOf(r, chats) }, (id) => botNameOf(bots.data, id)),
-        ),
-      ),
-    [rows, filter, bots.data, chats],
+    () => rows.filter((r) => matches(r, filter, fromText(r, { chat: chatOf(r, chats) }, botName))),
+    [rows, filter, botName, chats],
   )
   const groups = useMemo(() => groupRows(shown, now), [shown, now])
   // On a computer, the first item of Needs you is open when none is chosen, as OpenMausBot's InboxPanel keeps an item

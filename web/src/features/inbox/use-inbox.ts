@@ -30,6 +30,7 @@ import { usePending } from "@/features/approvals/use-approvals"
 import { callsOf } from "@/lib/query-keys"
 
 import { rowsOf } from "./inbox-state"
+import type { Write } from "./inbox-thread"
 
 // The Inbox reads the to-dos (GET /inbox), the ones the server counts as needing the owner, the latest closed, and
 // the asks from their own lists (issue #1093, section 6). A to-do changes without an event on the stream, so the
@@ -163,31 +164,40 @@ export function useDecideById() {
   })
 }
 
-// useHandTodo hands a to-do to a Bot with the owner's prompt (POST /inbox/{id}/hand, issue #1111): the server gives
-// it to the Bot and wakes the Bot in the item's own chat; no Bot named is the main Bot.
-export function useHandTodo() {
+// useWriteTodo sends what the owner writes in an item's composer, as writeOf says (issue #1143): a hand-over to a Bot
+// with the text as its prompt (POST /inbox/{id}/hand, issue #1111), which gives the item to the Bot and wakes it in
+// the item's own chat, no Bot named being the main Bot; a comment (POST /inbox/{id}/comments), which reaches the Bot
+// in the item's chat; or, on a closed item, a reopen with the revision read, then the hand-over with the revision
+// it made.
+export function useWriteTodo() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ todo, bot, prompt }: { todo: Todo; bot?: string; prompt: string }) =>
-      (
-        await handTodo({
-          path: { todo_id: todo.id },
-          body: { revision: todo.revision, bot, prompt: prompt.trim() || undefined },
-        })
-      ).data,
-    onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),
-  })
-}
+    mutationFn: async ({
+      todo,
+      write,
+      text,
+    }: {
+      todo: Todo
+      write: Pick<Write, "act" | "bot">
+      text: string
+    }) => {
+      const path = { todo_id: todo.id }
+      const bot = write.bot || undefined
+      const prompt = text.trim() || undefined
 
-// useCommentTodo comments in a to-do's thread (POST /inbox/{id}/comments); the owner's reaches the Bot in the
-// item's chat.
-export function useCommentTodo() {
-  const queryClient = useQueryClient()
+      switch (write.act) {
+        case "comment":
+          return (await commentTodo({ path, body: { text } })).data
+        case "hand":
+          return (await handTodo({ path, body: { revision: todo.revision, bot, prompt } })).data
+        case "reopen": {
+          const open = (await reopenTodo({ path, body: { revision: todo.revision } })).data
 
-  return useMutation({
-    mutationFn: async ({ todo, text }: { todo: Todo; text: string }) =>
-      (await commentTodo({ path: { todo_id: todo.id }, body: { text } })).data,
+          return (await handTodo({ path, body: { revision: open.revision, bot, prompt } })).data
+        }
+      }
+    },
     onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),
   })
 }

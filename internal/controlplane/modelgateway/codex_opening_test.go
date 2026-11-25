@@ -3,8 +3,8 @@ package modelgateway_test
 import (
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +51,8 @@ func overloadedFor(refused ...string) http.HandlerFunc {
 // on: the backend answers 200, then refuses before any output. The gateway
 // sends the request to the next account, which answers; the client sees that
 // answer as one clean stream, and the first account rests for the Retry-After
-// the refusal named.
+// the refusal named, for that model only (issue #1147): no cooldown of the
+// whole account.
 func TestAnOverloadBeforeOutputMovesTheResponsesRequestToTheNextAccount(t *testing.T) {
 	t.Parallel()
 
@@ -66,7 +67,7 @@ func TestAnOverloadBeforeOutputMovesTheResponsesRequestToTheNextAccount(t *testi
 
 	sentHeaders, _ := got.last(t)
 	assert.Equal(t, "Bearer acc_2-access-0", sentHeaders.Get("Authorization"))
-	assert.Equal(t, []time.Duration{326 * time.Second}, subs.waited("acc_1"))
+	assert.Empty(t, subs.waited("acc_1"), "an overload of one model does not cool the whole account")
 	assert.Empty(t, subs.waited("acc_2"))
 
 	usage := g.lastUsage(t)
@@ -76,7 +77,8 @@ func TestAnOverloadBeforeOutputMovesTheResponsesRequestToTheNextAccount(t *testi
 }
 
 // Scenario: the same on the chat route, which already held a stream until its
-// first chunk: the first account now rests for the refusal's Retry-After.
+// first chunk: the first account now rests for the refusal's Retry-After, for
+// that model only.
 func TestAnOverloadBeforeOutputMovesTheChatToTheNextAccount(t *testing.T) {
 	t.Parallel()
 
@@ -88,7 +90,7 @@ func TestAnOverloadBeforeOutputMovesTheChatToTheNextAccount(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, body)
 	assert.NotContains(t, body, "overloaded")
 	assert.Equal(t, 2, got.calls())
-	assert.Equal(t, []time.Duration{326 * time.Second}, subs.waited("acc_1"))
+	assert.Empty(t, subs.waited("acc_1"))
 	assert.Equal(t, modelgateway.OutcomeOK, g.lastUsage(t).Outcome)
 }
 
@@ -123,8 +125,8 @@ func TestAnOverloadOnEveryAccountIsOneErrorAndARowWithItsFlags(t *testing.T) {
 			assert.NotContains(t, body, "response.created", "no frame of a refused stream reaches the client")
 			assert.NotEmpty(t, headers.Get("Retry-After"))
 			assert.Equal(t, 2, got.calls())
-			assert.Equal(t, []time.Duration{326 * time.Second}, subs.waited("acc_1"))
-			assert.Equal(t, []time.Duration{326 * time.Second}, subs.waited("acc_2"))
+			assert.Empty(t, subs.waited("acc_1"))
+			assert.Empty(t, subs.waited("acc_2"))
 
 			usage := g.lastUsage(t)
 			assert.Equal(t, modelgateway.OutcomeUpstreamError, usage.Outcome)
@@ -132,6 +134,102 @@ func TestAnOverloadOnEveryAccountIsOneErrorAndARowWithItsFlags(t *testing.T) {
 			assert.Zero(t, usage.Tokens.Completion, "a refusal's frames are no output")
 			assert.Positive(t, usage.Tokens.Prompt)
 			assert.True(t, usage.Tokens.Estimated)
+		})
+	}
+}
+
+// Scenario (issue #1147): two accounts serve two models, and the backend is
+// overloaded for model sol on the first account only. A refusal of sol before
+// output rests the first account for sol alone: sol goes to the second
+// account, now without asking the first; astra is still served by the first;
+// no account is cooled whole. Once the second is overloaded for sol too, the
+// client is told when an account is free for sol again.
+func TestAnOverloadRestsOnlyThatModelOfTheAccount(t *testing.T) {
+	t.Parallel()
+
+	for _, route := range []string{"responses", "chat"} {
+		t.Run(route, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				got        *seen
+				mu         sync.Mutex
+				overloaded = map[string]bool{"Bearer access-0": true}
+			)
+
+			backend, got := codexBackend(t, func(w http.ResponseWriter, r *http.Request) {
+				_, sent := got.last(t)
+
+				mu.Lock()
+				refuse := overloaded[r.Header.Get("Authorization")] && strings.Contains(sent, `"gpt-6.1-sol"`)
+				mu.Unlock()
+
+				if refuse {
+					stream(overloadedOpening...)(w, r)
+
+					return
+				}
+
+				stream(helloEvents...)(w, r)
+			})
+			subs := &accounts{ids: []string{"acc_1", "acc_2"}}
+			g := newCodexGateway(t, backend, subs)
+
+			_, err := g.svc.ApplyModel(t.Context(),
+				"name: astra\ntargets:\n  - {provider: codex-subscription, model: gpt-6-astra}\n")
+			require.NoError(t, err)
+
+			_, key, err := g.svc.AddKey(t.Context(), "two", []string{"sol", "astra"}, nil)
+			require.NoError(t, err)
+
+			ask := func(model string) (int, http.Header, string) {
+				if route == "responses" {
+					return g.respond(t, key, `{"model":"`+model+`","input":"hi"}`)
+				}
+
+				return g.call(t, key, `{"model":"`+model+`","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+			}
+			sentTo := func() string {
+				headers, _ := got.last(t)
+
+				return headers.Get("Authorization")
+			}
+
+			status, _, body := ask("sol")
+			require.Equal(t, http.StatusOK, status, body)
+			assert.Equal(t, 2, got.calls())
+			assert.Equal(t, "Bearer acc_2-access-0", sentTo(), "sol goes to the second account")
+
+			status, _, body = ask("astra")
+			require.Equal(t, http.StatusOK, status, body)
+			assert.Equal(t, 3, got.calls())
+			assert.Equal(t, "Bearer access-0", sentTo(), "the first account still serves astra")
+
+			status, _, body = ask("sol")
+			require.Equal(t, http.StatusOK, status, body)
+			assert.Equal(t, 4, got.calls(), "the first account is not asked for sol while sol rests on it")
+			assert.Equal(t, "Bearer acc_2-access-0", sentTo())
+
+			assert.Empty(t, subs.waited("acc_1"), "no cooldown of the whole account")
+			assert.Empty(t, subs.waited("acc_2"))
+
+			mu.Lock()
+			overloaded["Bearer acc_2-access-0"] = true
+			mu.Unlock()
+
+			status, _, body = ask("sol")
+			assert.Equal(t, http.StatusServiceUnavailable, status, body)
+			assert.Equal(t, 5, got.calls())
+
+			status, headers, body := ask("sol")
+			assert.Equal(t, http.StatusTooManyRequests, status, body)
+			assert.Contains(t, body, "account_unavailable")
+			assert.NotEmpty(t, headers.Get("Retry-After"))
+			assert.Equal(t, 5, got.calls(), "sol rests on every account: none is asked")
+
+			status, _, body = ask("astra")
+			require.Equal(t, http.StatusOK, status, body)
+			assert.Equal(t, "Bearer access-0", sentTo())
 		})
 	}
 }

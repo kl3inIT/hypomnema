@@ -29,7 +29,7 @@ import { ModelMark, ProviderMark } from "@/components/icons/model-mark"
 import { splitModel } from "@/features/agents/profiles-state"
 import { useModels } from "@/features/agents/use-profiles"
 import { defaultBotModel } from "@/features/bots/bots-state"
-import { useBots } from "@/features/bots/use-bots"
+import { useBotName, useBots } from "@/features/bots/use-bots"
 import { useGatewayModels } from "@/features/models/use-models"
 import { modelName } from "@/lib/model-name"
 
@@ -67,12 +67,13 @@ export function ChatModelControls({
   const models = piModels(useModels().data ?? [])
   const gateway = useGatewayModels().data ?? []
   const own = bots?.find((b) => b.id === bot)
+  const botName = useBotName(bot)
   const now = running(choice, own)
 
   return (
     <>
       <ModelButton
-        botName={own?.name ?? bot}
+        botName={botName}
         botModel={own?.model ?? ""}
         model={now.model}
         chosen={keyOf(choice)}

@@ -37,7 +37,7 @@ export function useUndoSetupChange() {
       (await undoSetupChange({ path: { change_id: change.id } })).data,
     onSuccess: async (change) => {
       said(
-        `${verb.undone[change.action]} ${what(change, botNameOf(queryClient.getQueryData<ListBotsResponse>(listBotsQueryKey())?.data, change.name))}`,
+        `${verb.undone[change.action]} ${what(change, botNameOf(queryClient.getQueryData<ListBotsResponse>(listBotsQueryKey()), change.name))}`,
       )
       await Promise.all([
         queryClient.invalidateQueries({

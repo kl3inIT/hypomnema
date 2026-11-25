@@ -419,7 +419,7 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 			return err
 		}
 
-		return q.DeleteBot(ctx, r.Name)
+		return deleteBotRow(ctx, q, row)
 	}
 
 	var before botSettings

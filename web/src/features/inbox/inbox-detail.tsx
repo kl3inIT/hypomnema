@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router"
 import {
-  Bot as BotIcon,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -12,7 +11,7 @@ import {
 } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 
-import type { Todo, TodoEvent } from "@/api/generated/types.gen"
+import type { Todo } from "@/api/generated/types.gen"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,7 +31,7 @@ import { useServices } from "@/features/settings/use-integrations"
 import { errorText } from "@/lib/server-error"
 import { since } from "@/lib/time"
 
-import { HandDialog } from "./hand-dialog"
+import { CommentComposer, CommentTimeline } from "./inbox-comments"
 import { KindIcon, RowActions } from "./inbox-row"
 import {
   detailActions,
@@ -46,25 +45,19 @@ import {
   type GroupId,
   type Origin,
   type Row,
+  type Source,
 } from "./inbox-state"
-import {
-  canHand,
-  canSend,
-  handoverWords,
-  sendQuestion,
-  threadOf,
-  throughWhom,
-} from "./inbox-thread"
+import { canSend, sendQuestion, throughWhom } from "./inbox-thread"
 import { SourceIcon } from "./source-icon"
-import { useCommentTodo, useSendDraft, useTodo } from "./use-inbox"
+import { useSendDraft, useTodo } from "./use-inbox"
 import { useOrigin, type KeptChats } from "./use-origin"
 import { copyDraft } from "./use-row-actions"
 
 // InboxDetail is the selected item, after OpenMausBot's InboxReading (its place in the list, stepping up and down)
 // and Chatwoot's conversation view beside its list: a top bar with the item's actions, then where it came from, its
 // fields, what was said, the draft to copy or send, and its thread. An Approval shows its card and a worker's
-// question its form, the same parts and calls as in the chat and on Team. A to-do is handed to the main Bot with a
-// prompt from the top bar (issue #1111). Send is the owner's own, through his account, after a confirmation: a Bot
+// question its form, the same parts and calls as in the chat and on Team. A to-do is handed to the main Bot by
+// writing to it under its comments (issue #1143). Send is the owner's own, through his account, after a confirmation: a Bot
 // never sends for him (owner, 2026-11-17; Send pressed by him, 2026-11-23).
 export function InboxDetail({
   row,
@@ -97,8 +90,6 @@ export function InboxDetail({
   onSaveDraft: (draft: string, onSaved: () => void) => void
 }) {
   const actions = detailActions(row, now)
-  const [handing, setHanding] = useState(false)
-  const handTo = mainBot ? botName(mainBot) : "Hypo"
 
   return (
     <article aria-label="Item" className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -134,33 +125,15 @@ export function InboxDetail({
             {position.index + 1} of {position.count} in {groupNames[position.group]}
           </span>
         )}
-        {row.kind === "todo" && canHand(row.todo) && (
-          <span className="ms-auto">
-            <Button variant="outline" size="sm" disabled={pending} onClick={() => setHanding(true)}>
-              <BotIcon data-icon="inline-start" />
-              Hand to {handTo}
-            </Button>
-          </span>
-        )}
         {actions.length > 0 && (
           <RowActions
-            className={
-              row.kind === "todo" && canHand(row.todo) ? "flex flex-wrap" : "ms-auto flex flex-wrap"
-            }
+            className="ms-auto flex flex-wrap"
             labelled
             actions={actions}
             onAction={(action, until) => !pending && onAction(action, until)}
           />
         )}
       </header>
-      {handing && row.kind === "todo" && (
-        <HandDialog
-          todo={row.todo}
-          bot={mainBot || undefined}
-          botName={handTo}
-          onClose={() => setHanding(false)}
-        />
-      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
         <div className="mx-auto flex max-w-2xl flex-col gap-5">
@@ -169,6 +142,7 @@ export function InboxDetail({
               row={row}
               now={now}
               botName={botName}
+              mainBot={mainBot}
               chats={chats}
               onAnswered={onAnswered}
               onSaveDraft={onSaveDraft}
@@ -354,6 +328,7 @@ function TodoBody({
   row,
   now,
   botName,
+  mainBot,
   chats,
   onAnswered,
   onSaveDraft,
@@ -361,6 +336,7 @@ function TodoBody({
   row: Extract<Row, { kind: "todo" }>
   now: number
   botName: (id: string) => string
+  mainBot: string
   chats: KeptChats
   onAnswered: () => void
   onSaveDraft: (draft: string, onSaved: () => void) => void
@@ -399,9 +375,7 @@ function TodoBody({
         path={
           <>
             <SourceIcon source={kind} className="[&>svg]:size-3.5" />
-            <span className="min-w-0 truncate">
-              {kind === "hand" ? source : [source, place].filter(Boolean).join(" › ")}
-            </span>
+            <span className="min-w-0 truncate">{place}</span>
           </>
         }
       >
@@ -426,52 +400,36 @@ function TodoBody({
         recipient={origin.chat || origin.sender}
         onSave={onSaveDraft}
       />
-      <Section title="Thread">
-        {detail.data?.events?.length ? (
-          <ol className="flex flex-col gap-2 text-sm">
-            {threadOf(detail.data.events).map((e) =>
-              e.kind === "comment" ? (
-                <li
-                  key={e.id}
-                  className="flex flex-col gap-1 rounded-lg border bg-surface-raised px-3 py-2"
-                >
-                  <span className="flex items-baseline gap-2 text-xs">
-                    <span className="font-medium text-foreground">
-                      {actorName(e.actor, botName)}
-                    </span>
-                    <span className="text-2xs text-muted-foreground tabular-nums">
-                      {since(e.at, now)}
-                    </span>
-                  </span>
-                  <p className="break-words whitespace-pre-wrap text-foreground/90">{e.text}</p>
-                </li>
-              ) : (
-                <li key={e.id} className="flex items-baseline gap-2 px-1">
-                  <span className="min-w-0 flex-1 text-muted-foreground">
-                    {eventWords(e.event, botName)}
-                  </span>
-                  <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
-                    {since(e.at, now)}
-                  </span>
-                </li>
-              ),
-            )}
-          </ol>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {detail.isPending ? "Reading…" : "Nothing yet."}
-          </p>
-        )}
+      <Section title="Comments">
+        <CommentTimeline
+          events={detail.data?.events}
+          loading={detail.isPending}
+          now={now}
+          from={fromOf(todo, kind, origin)}
+          botName={botName}
+        />
         {todo.chat_id && (
           <OpenChat chatId={todo.chat_id}>
             Open {todo.assignee.kind === "bot" ? `${botName(todo.assignee.name ?? "")}'s` : "the"}{" "}
             chat for this item
           </OpenChat>
         )}
-        <CommentBox key={todo.id} todo={todo} />
+        <CommentComposer key={todo.id} todo={todo} mainBot={mainBot} botName={botName} />
       </Section>
     </>
   )
+}
+
+// fromOf is where an item a Bot read came from, said on its first line: the place and who said it, or the chat's
+// or mail's name its message has ("Zalo · Laura Nguyen"); nothing for one written by hand, in a chat or by a
+// Routine.
+function fromOf(todo: Todo, kind: Source, origin: Origin) {
+  if (!["zalo", "whatsapp", "lark", "gmail", "meeting"].includes(kind)) return undefined
+  const who = origin.fromMe
+    ? "you"
+    : origin.sender || origin.speaker || origin.meeting || origin.chat || todo.source.ref?.label
+
+  return [sourceNames[kind], who].filter(Boolean).join(" · ")
 }
 
 function linkedOf(todo: Todo, botName: (id: string) => string): ReactNode {
@@ -638,82 +596,4 @@ function SendDraft({ todo, text, recipient }: { todo: Todo; text: string; recipi
       </AlertDialogContent>
     </AlertDialog>
   )
-}
-
-// CommentBox writes in the item's thread; the owner's comment reaches the Bot in the item's own chat when it has
-// one. Ctrl+Enter sends it, as in the hand-over.
-function CommentBox({ todo }: { todo: Todo }) {
-  const [text, setText] = useState("")
-  const comment = useCommentTodo()
-  const submit = () => {
-    if (!text.trim() || comment.isPending) return
-    comment.mutate(
-      { todo, text },
-      {
-        onSuccess: () => setText(""),
-        onError: (error) =>
-          toast.add({ title: "Not commented", description: errorText(error), type: "error" }),
-      },
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <Textarea
-        aria-label="Comment"
-        value={text}
-        rows={2}
-        maxLength={10_000}
-        placeholder={todo.chat_id ? "Answer the Bot, or add a note" : "Add a note"}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault()
-            submit()
-          }
-        }}
-      />
-      <span className="self-end">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!text.trim() || comment.isPending}
-          onClick={submit}
-        >
-          Comment
-        </Button>
-      </span>
-    </div>
-  )
-}
-
-// actorName names who wrote in the thread: the owner, a Bot by its name, or Hypomnema.
-function actorName(actor: TodoEvent["actor"], botName: (id: string) => string) {
-  if (actor.kind === "owner") return "You"
-
-  return actor.kind === "bot" ? botName(actor.id ?? "") : "Hypomnema"
-}
-
-// eventWords says one change of the item's history in words: who, and what.
-function eventWords(e: TodoEvent, botName: (id: string) => string) {
-  const who = actorName(e.actor, botName)
-  const after = e.after as Record<string, unknown>
-
-  switch (e.kind) {
-    case "created":
-      return `${who} added it`
-    case "state":
-      return `${who} moved it to ${String(after.state ?? "a new state")}`
-    case "snoozed":
-      return after.snoozed_until ? `${who} snoozed it` : `${who} brought it back`
-    case "linked_approval":
-      return `${who} asked for an Approval`
-    case "edited":
-      return (
-        handoverWords(after, who, botName) ??
-        `${who} changed ${Object.keys(after).join(", ") || "it"}`
-      )
-    default:
-      return `${who}: ${e.kind}`
-  }
 }

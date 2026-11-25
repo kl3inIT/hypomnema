@@ -104,12 +104,15 @@ func (s *Server) markTokenRefused(ctx context.Context, token AccountToken) {
 }
 
 // accountState is what the gateway remembers of accounts while it runs: how
-// many times in a row each was limited, and the last reading of its quota.
-// It is in memory, as the references keep theirs.
+// many times in a row each was limited, the last reading of its quota, and
+// the models each rests for. It is in memory, as the references keep theirs.
 type accountState struct {
 	mu     sync.Mutex
 	levels map[string]int
 	quotas map[string]quotaReading
+	// rests are the models an account rests for while it serves its others
+	// (issue #1147), by account and model, to when.
+	rests map[string]time.Time
 }
 
 type quotaReading struct {
@@ -121,7 +124,39 @@ type quotaReading struct {
 }
 
 func newAccountState() *accountState {
-	return &accountState{levels: map[string]int{}, quotas: map[string]quotaReading{}}
+	return &accountState{levels: map[string]int{}, quotas: map[string]quotaReading{}, rests: map[string]time.Time{}}
+}
+
+// rest keeps one model of an account out of use until a time, the account
+// serving its other models meanwhile (issue #1147): CLIProxyAPI's state of a
+// model on a credential (sdk/cliproxy/auth/types.go:396 ModelState, skipped by
+// the selector for that model only, selector.go:727) and OmniRoute's lock of
+// the exact model on a connection (open-sse/services/accountFallback/
+// exactModelLock.ts lockExactModel). A later rest only lengthens it.
+func (a *accountState) rest(account, model string, until time.Time) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if key := account + "\x00" + model; until.After(a.rests[key]) {
+		a.rests[key] = until
+	}
+}
+
+// restsUntil is until when a model of an account rests; zero or past when it does not.
+func (a *accountState) restsUntil(account, model string, now time.Time) time.Time {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	key := account + "\x00" + model
+
+	until := a.rests[key]
+	if !until.After(now) {
+		delete(a.rests, key)
+
+		return time.Time{}
+	}
+
+	return until
 }
 
 // underAccounts serves a request under the accounts of a runtime in their
@@ -334,6 +369,16 @@ func (s *Server) tokenAfterRefusal(ctx context.Context, refused AccountToken, mo
 func (s *Server) cool(
 	ctx context.Context, runtime string, token AccountToken, status int, quotaUsedUp bool, reset time.Time, reason string,
 ) {
+	if until, ok := s.coolingUntil(token, status, quotaUsedUp, reset); ok {
+		s.park(ctx, runtime, token, until, reason)
+	}
+}
+
+// coolingUntil is until when a failure keeps an account, or one model of it, out of use (cool); false when the
+// failure costs it nothing.
+func (s *Server) coolingUntil(
+	token AccountToken, status int, quotaUsedUp bool, reset time.Time,
+) (time.Time, bool) {
 	now := s.svc.clock.Now()
 
 	var wait time.Duration
@@ -341,9 +386,7 @@ func (s *Server) cool(
 	switch {
 	case reset.After(now) && reset.Sub(now) <= maxProviderReset:
 		// The provider's own moment, kept as it was given.
-		s.park(ctx, runtime, token, reset, reason)
-
-		return
+		return reset, true
 	case reset.After(now):
 		wait = maxProviderReset
 	case quotaUsedUp:
@@ -356,10 +399,10 @@ func (s *Server) cool(
 	case status >= http.StatusInternalServerError:
 		wait = transientCooldown
 	default:
-		return
+		return time.Time{}, false
 	}
 
-	s.park(ctx, runtime, token, now.Add(wait), reason)
+	return now.Add(wait), true
 }
 
 func (s *Server) park(ctx context.Context, runtime string, token AccountToken, until time.Time, reason string) {

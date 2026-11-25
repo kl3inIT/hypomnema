@@ -3876,6 +3876,15 @@ export type RoutineGrant = {
 
 export type BotList = {
   data: Array<Bot>;
+  /**
+   * The Bots removed since, by the name each had (issue #1139): their ids stay in what they did, the Inbox's items and the gateway's usage, which a client names "<name> (removed)", never by the id.
+   */
+  removed: Array<RemovedBot>;
+};
+
+export type RemovedBot = {
+  id: string;
+  name: string;
 };
 
 export type NewBot = {
