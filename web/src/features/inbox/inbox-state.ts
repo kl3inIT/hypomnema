@@ -239,15 +239,32 @@ export function askerOf(
   }
 }
 
-// initialsOf is a name's first letters, at most two, for an avatar without a picture, as Chatwoot's Avatar does.
-export function initialsOf(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean)
-  const letters = words.length > 1 ? [words[0] ?? "", words.at(-1) ?? ""] : words
+// fromLineOf is the line below a row's title, who then where, as Chatwoot's card names its contact and puts the
+// inbox's name below it (ConversationCard.vue, InboxName.vue): "Eugene · BeyondPilot Platform Discussion". The
+// platform is the row's avatar, so it is not named here; a name both sides give is shown once, and with only one
+// known, that one. An Approval, a worker's question and the owner's own item keep their place's words.
+export function fromLineOf(
+  row: Row,
+  origin: Origin = {},
+  botName: (id: string) => string = (id) => id,
+): string {
+  const place = placeOf(row, origin, botName)
+  if (row.kind !== "todo" || sourceOf(row) === "hand") return place
 
-  return letters
-    .map((w) => Array.from(w)[0] ?? "")
-    .join("")
-    .toUpperCase()
+  const asker = askerOf(row, origin, botName)
+
+  return [...new Set([asker, ...place.split(" · ")].filter(Boolean))].join(" · ")
+}
+
+// botOf is the Bot whose chat a row came from, for its avatar: the Bot that added a to-do in a chat, or asks for an
+// Approval from one.
+export function botOf(row: Row): string | undefined {
+  if (sourceOf(row) !== "chat") return undefined
+  if (row.kind === "approval") return row.approval.asked_by || undefined
+  if (row.kind === "todo" && row.todo.created_by.kind === "bot")
+    return row.todo.created_by.id || undefined
+
+  return undefined
 }
 
 // atOf is the time a row shows on its right, as Chatwoot shows its last message's: the message's own time when it is

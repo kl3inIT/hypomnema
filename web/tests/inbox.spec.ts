@@ -633,7 +633,7 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   await expect(rowsOf(page, "Needs you")).toHaveText([
     /Send mail: kai@example.com/,
     /Should \/health be public/,
-    /^KYTo-doReply to Kai Yong2h agoHi Dat, any news on the contract.*Kai YongDue todaydraft$/,
+    /^WhatsAppReply to Kai Yong2h agoHi Dat, any news on the contract.*Kai YongDue todaydraft$/,
     /Log in again: lark:me/,
   ])
   const kai = rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" })
