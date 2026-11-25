@@ -239,6 +239,19 @@ func (m *mirror) groupName(ctx context.Context, account, jid string) string {
 	return name
 }
 
+// chatName is a chat's kept name, a group's or a person's.
+func (m *mirror) chatName(ctx context.Context, account, jid string) string {
+	var name string
+
+	err := m.db.QueryRowContext(ctx, `SELECT name FROM wa_chats WHERE account = ? AND jid = ?`, account, jid).
+		Scan(&name)
+	if err != nil {
+		return ""
+	}
+
+	return name
+}
+
 func clampLimit(n int) int {
 	switch {
 	case n <= 0:

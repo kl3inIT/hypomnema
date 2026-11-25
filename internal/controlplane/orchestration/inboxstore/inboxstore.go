@@ -190,7 +190,8 @@ const (
 	// LinkZaloSent, LinkWhatsAppSent and LinkLarkSent are a message the owner sent himself in a chat of his own
 	// account there (issue #1004): Account the Connection, Chat the chat and Ref the message's id. It is the
 	// evidence a Bot gives when it records for the owner that he answered (Done), checked against what the server
-	// keeps of that account or what its API returns (Sent).
+	// keeps of that account or what its API returns (Sent): in the item's own chat, or in another chat of that
+	// account where the person who asked is a member (issue #1163).
 	LinkZaloSent     = "zalo_sent"
 	LinkWhatsAppSent = "whatsapp_sent"
 	LinkLarkSent     = "lark_sent"
@@ -223,10 +224,23 @@ type SentMessage struct {
 	FromMe bool
 }
 
+// ChatMembers are the people in a chat of the owner's own account now, as its service lists them (issue #1163): a
+// group's members, a direct chat's other party; each by every id the service knows him by, as it names a message's
+// sender. Name is the chat's, when it has one.
+type ChatMembers struct {
+	Name string
+	IDs  []string
+}
+
 // Sent reads a message of a chat of the owner's own account at a messaging service (FromZalo, FromWhatsApp,
 // FromLark) by its Connection's label, the chat and the message's id: storeerr.ErrNotFound when there is none.
 type Sent interface {
 	SentMessage(ctx context.Context, service, account, chat, id string) (SentMessage, error)
+	// Asker is who asked by message id of a chat (issue #1163): its sender when someone else sent it, else, in a
+	// direct chat, its other party; each by every id the service knows him by. storeerr.ErrNotFound when no one.
+	Asker(ctx context.Context, service, account, chat, id string) ([]string, error)
+	// Members reads who is in a chat now.
+	Members(ctx context.Context, service, account, chat string) (ChatMembers, error)
 }
 
 // The kinds of Work.

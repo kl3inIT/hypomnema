@@ -283,8 +283,15 @@ function stateLine(
         : { words: `${who} started on it`, icon: Play }
     case "review":
       return { words: `${who} waits for an Approval`, icon: ShieldCheck }
-    case "done":
-      return { words: `${who} closed it as done`, icon: CircleCheck, done: true }
+    case "done": {
+      // The owner's answer in another chat where the person who asked is (issue #1163) says that chat.
+      const where = typeof after.answered_in === "string" && after.answered_in
+      const words = where
+        ? `${who} closed it as done: answered in ${where}`
+        : `${who} closed it as done`
+
+      return { words, icon: CircleCheck, done: true }
+    }
     case "dropped":
       return { words: `${who} dropped it`, icon: CircleX }
     case "duplicate":

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { imageSize } from "../src/imagemeta.mjs";
-import { closed, failure, media, message, older, parseRequest, rejected } from "../src/protocol.mjs";
+import { closed, failure, media, members, message, older, parseRequest, rejected } from "../src/protocol.mjs";
 
 test("a line that is no request is said so, and a request keeps its id", () => {
   assert.equal(parseRequest("{").error, "not JSON");
@@ -82,4 +82,19 @@ test("an image's size is read from its header", () => {
   webp.writeUIntLE(599, 27, 3);
   assert.deepEqual(imageSize(webp), { width: 800, height: 600 });
   assert.equal(imageSize(Buffer.from("not an image")), null);
+});
+
+// zca-js's getGroupInfo (src/apis/getGroupInfo.ts): a group names its members in memberIds, in memVerList with
+// their versions, and in currentMems; each is one member (issue #1163).
+test("a group's members are every id Zalo names them by, once each", () => {
+  assert.deepEqual(
+    members({
+      name: "Nhóm dự án",
+      memberIds: ["200", " 300 "],
+      memVerList: ["200_3", "400_0"],
+      currentMems: [{ id: "500", dName: "Hoa" }, { id: "" }, null],
+    }),
+    { name: "Nhóm dự án", ids: ["200", "300", "400", "500"] },
+  );
+  assert.deepEqual(members(undefined), { name: "", ids: [] });
 });

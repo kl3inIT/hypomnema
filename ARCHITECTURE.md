@@ -4783,7 +4783,7 @@ gateway chat model writes its summary, decisions and actions.
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165, 00166, 00167 and
-00169; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124 and #1157, parts 1 to 3 of the
+00169; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124, #1157 and #1163, parts 1 to 3 of the
 Inbox, the sources a Bot reads, handing an item to a Bot, passing it from Bot to Bot, a removed Bot's items, and
 priority and projects): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
@@ -4850,7 +4850,14 @@ its client API, its CLI and the Bots' tools.
   later than the item: the control plane's `inboxSent` reads a Zalo or WhatsApp one from the server's store of that
   account (`messaging.Query.ID`) and a Lark one from Lark's API with his own sign-in, `GET
   /open-apis/im/v1/messages/:id` and `GET /open-apis/authen/v1/user_info`, since the server keeps none of his Lark
-  messages); a Bot closes or drops no item that is another Bot's (given to another, or added by another and not
+  messages); or one in another chat of that account where the person who asked is a member when it is read (issue
+  #1163): the asker is the sender of the item's source message, or, for the owner's own message in a direct chat,
+  its other party (`Sent.Asker`), and who is in the chat is read of the service (`Sent.Members`: a WhatsApp group's
+  participants by whatsmeow's `GetGroupInfo`, a Zalo group's by the bridge's `members`, zca-js `getGroupInfo`, a
+  direct chat's other party, through `messaging.MemberLister` of the held session, `integration.Service.Members`;
+  a Lark chat's by `GET /open-apis/im/v1/chats/:id` and `.../members`); what cannot be read is not evidence; the
+  closing event's `answered_in` says that chat's name, which the item's activity shows; another service is never
+  matched); a Bot closes or drops no item that is another Bot's (given to another, or added by another and not
   given to it); `closed_how`
   `ai` and `time` are refused; nothing in review is closed while it waits; a doing or review item is given to
   another only once its attempt ended (released, closed or its Approval answered); a duplicate's target exists, is

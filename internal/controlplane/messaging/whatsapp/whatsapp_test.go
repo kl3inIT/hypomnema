@@ -443,3 +443,38 @@ func TestAFileGivenUpBeforeIsAskedOfThePhone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []mediaJob{{account: "84900000001", chat: "120363@g.us", id: "gone"}}, pending)
 }
+
+// Scenario: issue #1163. Who is in a chat is read to tell whether the owner answered someone in another chat: a
+// group's participants as WhatsApp lists them, each by his JID, his number and his LID, once each, with the group's
+// name; a direct chat's other party by its JID and the LID whatsmeow learned for it, with the name kept. A chat that
+// is neither, such as the status broadcast, has no members to read.
+func TestAChatsMembersAreReadByEveryIDTheyHave(t *testing.T) {
+	t.Parallel()
+
+	lan := types.NewJID("84911111111", types.DefaultUserServer)
+	lanLID := types.NewJID("168453096898812", types.HiddenUserServer)
+	hoa := types.NewJID("84922222222", types.DefaultUserServer)
+
+	got := groupMembers(&types.GroupInfo{
+		GroupName: types.GroupName{Name: "Nhóm dự án"},
+		Participants: []types.GroupParticipant{
+			{JID: lanLID, PhoneNumber: lan, LID: lanLID},
+			{JID: hoa, PhoneNumber: hoa},
+		},
+	})
+	assert.Equal(t, messaging.Members{Name: "Nhóm dự án", IDs: []string{lanLID.String(), lan.String(), hoa.String()}},
+		got)
+
+	acc := linkedAccount(t)
+	ctx := t.Context()
+	acc.handle(incoming(lan, lan, "d1", "Lan", time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC),
+		&waE2E.Message{Conversation: proto.String("Anh xem giúp em?")}))
+	require.NoError(t, acc.client.Store.LIDs.PutLIDMapping(ctx, lanLID, lan))
+
+	direct, err := acc.Members(ctx, lan.String())
+	require.NoError(t, err)
+	assert.Equal(t, messaging.Members{Name: "Lan", Direct: true, IDs: []string{lan.String(), lanLID.String()}}, direct)
+
+	_, err = acc.Members(ctx, types.StatusBroadcastJID.String())
+	require.ErrorContains(t, err, "neither a group nor a person")
+}

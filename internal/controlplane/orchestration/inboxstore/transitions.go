@@ -547,7 +547,7 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 
 	// A message the owner sent is read before the write, from a store or an API outside this database; what it is
 	// checked against (the item's source and when it was made) never changes after the item is made.
-	sent := false
+	sent, answeredIn := false, ""
 
 	if forOwner && slices.ContainsFunc(cl.Evidence, func(l Link) bool { return sentService[l.Kind] != "" }) {
 		t, err := s.Get(ctx, c.ID)
@@ -555,7 +555,7 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 			return Todo{}, err
 		}
 
-		if sent, err = s.ownerSent(ctx, t, cl.Evidence); err != nil {
+		if answeredIn, sent, err = s.ownerSent(ctx, t, cl.Evidence); err != nil {
 			return Todo{}, err
 		}
 	}
@@ -587,6 +587,11 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 			next.State = Done
 			next.DoneByKind, next.DoneBy = nullString(cl.DoneBy.Kind), nullString(cl.DoneBy.Name)
 			closeFields(next, c.Actor, cl.How, cl.Reason, string(evidence), now)
+
+			// The chat he answered in, when it is not the item's own, so that its activity says where (issue #1163).
+			if answeredIn != "" {
+				return map[string]any{"answered_in": answeredIn}, nil
+			}
 
 			return nil, nil
 		})
@@ -651,18 +656,21 @@ func ownersMessage(ctx context.Context, q *store.Queries, c Change, cur store.To
 	}
 
 	return fmt.Errorf("%w: a Bot recording for the owner gives as evidence his message in the to-do's chat, or the "+
-		"message he sent himself in the to-do's Zalo, WhatsApp or Lark chat after it was made", storeerr.ErrInvalid)
+		"message he sent himself after it was made in the to-do's Zalo, WhatsApp or Lark chat, or in another chat of "+
+		"that account where the person who asked is a member", storeerr.ErrInvalid)
 }
 
 // ownerSent says whether a message the owner sent is evidence that he answered the item (issue #1004; owner,
-// 2026-11-21: done when he sends): a LinkZaloSent, LinkWhatsAppSent or LinkLarkSent in the item's own chat at that
-// service (its source, account and chat; an item without its account has none), that the server keeps of that account or the service's API returns, that
-// he sent himself and that is later than the item. claude-chief-of-staff reads the Sent mail to skip a thread
-// already answered (commands/triage.md:65); matching on the owner's own outgoing message is inference from the
-// business analysis.
-func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (bool, error) {
+// 2026-11-21: done when he sends): a LinkZaloSent, LinkWhatsAppSent or LinkLarkSent of the item's own account at
+// its service (an item without its account has none), that the server keeps of that account or the service's API
+// returns, that he sent himself and that is later than the item; in the item's own chat, or in another chat of that
+// account where the person who asked is a member when it is read (issue #1163; owner, 2026-11-25). For an answer in
+// another chat it says that chat, by its name when it has one. claude-chief-of-staff reads the Sent mail to skip a
+// thread already answered (commands/triage.md:65); matching on the owner's own outgoing message is inference from
+// the business analysis, and widening it to another chat where the asker is is the owner's.
+func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (answeredIn string, ok bool, err error) {
 	if s.sent == nil {
-		return false, fmt.Errorf("%w: the messages the owner sent cannot be read on this control plane",
+		return "", false, fmt.Errorf("%w: the messages the owner sent cannot be read on this control plane",
 			storeerr.ErrUnavailable)
 	}
 
@@ -670,8 +678,7 @@ func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (bool, e
 		// Bound to the item's own account: an item without one (a Lark source names it only optionally) is never
 		// closed so, since another of the owner's Connections in the same chat could show the message.
 		service := sentService[l.Kind]
-		if service == "" || t.Source.Kind != service || l.Chat != t.Source.ID || t.Source.Account == "" ||
-			l.Account != t.Source.Account {
+		if service == "" || t.Source.Kind != service || t.Source.Account == "" || l.Account != t.Source.Account {
 			continue
 		}
 
@@ -681,13 +688,45 @@ func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (bool, e
 		case errors.Is(err, storeerr.ErrNotFound):
 			continue
 		case err != nil:
-			return false, err
-		case m.FromMe && m.Chat == l.Chat && m.At.After(t.CreatedAt):
-			return true, nil
+			return "", false, err
+		case !m.FromMe || m.Chat != l.Chat || !m.At.After(t.CreatedAt):
+			continue
+		case l.Chat == t.Source.ID:
+			return "", true, nil
+		}
+
+		if name, ok := s.askerIn(ctx, t, service, l.Chat); ok {
+			return name, true, nil
 		}
 	}
 
-	return false, nil
+	return "", false, nil
+}
+
+// askerIn says whether the person who asked, the sender of the item's source message or the other party of its
+// direct chat, is a member of another chat of the item's account now, and that chat's name, else its id. What
+// cannot be read (who asked, who is in the chat) is not evidence: the item stays open, as for an item without its
+// account.
+func (s *Store) askerIn(ctx context.Context, t Todo, service, chat string) (string, bool) {
+	if t.Source.Ref == nil || t.Source.Ref.Kind != sourceMessage[service] {
+		return "", false
+	}
+
+	asker, err := s.sent.Asker(ctx, service, t.Source.Account, t.Source.ID, t.Source.Ref.Ref)
+	if err != nil {
+		return "", false
+	}
+
+	in, err := s.sent.Members(ctx, service, t.Source.Account, chat)
+	if err != nil || !slices.ContainsFunc(asker, func(id string) bool { return id != "" && slices.Contains(in.IDs, id) }) {
+		return "", false
+	}
+
+	if in.Name != "" {
+		return in.Name, true
+	}
+
+	return chat, true
 }
 
 // notAnotherBots refuses a Bot closing or dropping an item that is another Bot's: given to another, or added by

@@ -69,6 +69,22 @@ func TestFakeBridge(t *testing.T) {
 			write(map[string]any{"id": req.ID, "result": map[string]any{"uid": "100", "name": "Owner"}})
 		case "groups":
 			write(map[string]any{"id": req.ID, "result": []any{map[string]any{"id": "g1", "name": "Báo giá"}}})
+		// Who is in a group, as bridge.mjs's members gives it; a group Zalo does not give is an error.
+		case "members":
+			var p struct {
+				Params struct {
+					Group string `json:"group"`
+				} `json:"params"`
+			}
+			_ = json.Unmarshal(in.Bytes(), &p)
+
+			if p.Params.Group != "g1" {
+				write(map[string]any{"id": req.ID, "error": "Zalo gives no group " + p.Params.Group})
+
+				continue
+			}
+
+			write(map[string]any{"id": req.ID, "result": map[string]any{"name": "Báo giá", "ids": []string{"200", "300"}}})
 		// A group's past in two pages, the second its start; the first has a photo (zca-js getCloudMessage).
 		case "groupHistory":
 			var p struct {
@@ -673,4 +689,35 @@ func TestTheMirrorFindsAMessageByItsID(t *testing.T) {
 	found, err = svc.mirror.messages(ctx, "100", messaging.Query{Chat: "g2", ID: "m2"})
 	require.NoError(t, err)
 	assert.Empty(t, found)
+}
+
+// Scenario: issue #1163. Who is in a chat is read to tell whether the owner answered someone in another chat: a
+// group's members are asked of Zalo, with its name; a direct chat's other party is the chat's own id, with the name
+// kept; a chat not kept is not found.
+func TestAChatsMembersAreAskedOfZalo(t *testing.T) {
+	svc := fakeService(t, "plain")
+	ctx := t.Context()
+	require.NoError(t, svc.mirror.saveSession(ctx, "100", "Owner", []byte(`{"imei":"i1"}`)))
+
+	opened, err := svc.Open(ctx, "100")
+	require.NoError(t, err)
+	t.Cleanup(opened.Close)
+
+	acc, ok := opened.(messaging.MemberLister)
+	require.True(t, ok, "a Zalo account lists a chat's members")
+
+	eventually(t, "the group and the direct chat kept", func() bool {
+		return svc.mirror.chatKind(ctx, "100", "g1") == "group" && svc.mirror.chatName(ctx, "100", "u9") == "Minh"
+	})
+
+	group, err := acc.Members(ctx, "g1")
+	require.NoError(t, err)
+	assert.Equal(t, messaging.Members{Name: "Báo giá", IDs: []string{"200", "300"}}, group)
+
+	direct, err := acc.Members(ctx, "u9")
+	require.NoError(t, err)
+	assert.Equal(t, messaging.Members{Name: "Minh", Direct: true, IDs: []string{"u9"}}, direct)
+
+	_, err = acc.Members(ctx, "never-kept")
+	require.ErrorIs(t, err, orchestration.ErrNotFound)
 }
