@@ -1,13 +1,10 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: issue #1139. The owner removes the Thư ký Bot, the main Bot makes a Bot and the owner undoes it, and
@@ -72,14 +69,8 @@ func TestTheMigrationNamesTheRemovedThuKyBot(t *testing.T) {
 
 	for _, named := range []bool{true, false} {
 		ctx := t.Context()
-		db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = db.Close() })
-
-		p, err := provider(db)
-		require.NoError(t, err)
-		_, err = p.UpTo(ctx, migrationVersion(t, p, "_removed_bot_names.sql")-1)
-		require.NoError(t, err)
+		db, _ := databaseAt(t, migrationVersion(t, "_removed_bot_names.sql")-1)
+		var err error
 
 		if named {
 			_, err = db.ExecContext(ctx, `INSERT INTO todos (id, state, created_by_kind, created_by, assignee_kind,

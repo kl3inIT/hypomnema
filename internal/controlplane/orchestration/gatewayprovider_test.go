@@ -3,13 +3,10 @@ package orchestration
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // beforeGatewayKind is a database from before migration 00073 with the old
@@ -19,14 +16,8 @@ func beforeGatewayKind(t *testing.T, withModelGateway bool) *sql.DB {
 	t.Helper()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 72)
-	require.NoError(t, err)
+	db, _ := databaseAt(t, 72)
+	var err error
 
 	stmts := []string{
 		`INSERT INTO providers (name, kind, base_url, api_key_ref, source, created_at, updated_at)

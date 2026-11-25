@@ -1,14 +1,12 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: the owner writes to pi; the message waits until pi has it, and
@@ -297,16 +295,9 @@ func TestMigrationGivesSystemRowsTheirKind(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, p := databaseAt(t, 53)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 53)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot, created_at, updated_at)
+	_, err := db.ExecContext(ctx, `INSERT INTO chats (id, title, bot, created_at, updated_at)
 		VALUES ('cht_1', 'Chat', 'coordinator', 1, 1)`)
 	require.NoError(t, err)
 
@@ -411,16 +402,9 @@ func TestMigrationAddsAttachments(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, p := databaseAt(t, 63)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 63)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot, created_at, updated_at)
+	_, err := db.ExecContext(ctx, `INSERT INTO chats (id, title, bot, created_at, updated_at)
 		VALUES ('cht_1', 'Chat', 'coordinator', 1, 1)`)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO chat_messages (chat_id, role, text, created_at)
@@ -633,16 +617,9 @@ func TestMigrationGivesApprovalRowsTheirApproval(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, p := databaseAt(t, 82)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 82)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot, created_at, updated_at)
+	_, err := db.ExecContext(ctx, `INSERT INTO chats (id, title, bot, created_at, updated_at)
 		VALUES ('cht_1', 'Chat', 'coordinator', 1, 1)`)
 	require.NoError(t, err)
 

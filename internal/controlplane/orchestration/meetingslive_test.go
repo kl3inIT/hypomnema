@@ -1,14 +1,12 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/meetingstore"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: migration 00125 on a database with an uploaded meeting (issue #820): the meeting, its voices, lines,
@@ -18,14 +16,7 @@ func TestTheLiveMeetingsMigrationKeepsUploadedMeetings(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 116)
-	require.NoError(t, err)
+	db, _ := databaseAt(t, 116)
 
 	for _, stmt := range []string{
 		`INSERT INTO meetings (id, title, titled, language, people, file_name, media_type, size, duration_ms, state,

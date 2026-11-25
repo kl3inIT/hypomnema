@@ -1,7 +1,6 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -9,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: issue #1124, section 2. The Thư ký Bot added items to the owner's Inbox and was given one; then the
@@ -105,14 +103,8 @@ func TestTheMigrationPassesARemovedBotsItemsToTheMainBot(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, migrationVersion(t, p, "_inbox_removed_bots_items.sql")-1)
-	require.NoError(t, err)
+	db, _ := databaseAt(t, migrationVersion(t, "_inbox_removed_bots_items.sql")-1)
+	var err error
 
 	const gone = "bot_6lwjzodlaqoat2ktg47yztjfae"
 

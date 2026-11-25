@@ -1,13 +1,10 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: a database from when a git host had one token. After the
@@ -18,16 +15,9 @@ func TestMigrationTurnsAHostsTokenIntoItsDefaultConnection(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, p := databaseAt(t, 27)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 27)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO git_hosts (host, kind, token_secret, created_at) VALUES
+	_, err := db.ExecContext(ctx, `INSERT INTO git_hosts (host, kind, token_secret, created_at) VALUES
 		('github.com', 'github', 'git-host-github-com', 100),
 		('git.company.example', 'gitlab', 'git-host-git-company-example', 200),
 		('gitlab.other.example', 'gitlab', NULL, 300)`)
@@ -132,14 +122,8 @@ func TestMigrationMakesEachLarkConnectionTheAppItHad(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 60)
-	require.NoError(t, err)
+	db, p := databaseAt(t, 60)
+	var err error
 
 	for _, stmt := range []string{
 		`INSERT INTO integration_clients (integration, client_id, secret, created_at, updated_at)
