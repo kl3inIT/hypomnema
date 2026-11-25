@@ -1432,10 +1432,9 @@ func settleRoutine(ctx context.Context, q *store.Queries, now int64, row store.R
 	case r.Interrupted:
 		// The run is no failure. Its time was missed: the Routine is due now, and its next run is told what was cut
 		// (OpenClaw, src/cron/run-prompt.ts L84-87) and checks what was done before it does it again.
-		_ = catchUp
-		if retry := now + routineWait(row.Failures, len(routineBackoff)).Milliseconds(); on &&
-			row.Kind == string(RoutinePrompt) && (!row.NextRunAt.Valid || retry < row.NextRunAt.Int64) {
-			p.NextRunAt = sql.NullInt64{Int64: retry, Valid: true}
+		if on && !catchUp {
+			p.NextRunAt = sql.NullInt64{Int64: now, Valid: true}
+			p.ResumeRunID = sql.NullString{String: out.Run.ID, Valid: true}
 		}
 	default:
 		p.Failures++
