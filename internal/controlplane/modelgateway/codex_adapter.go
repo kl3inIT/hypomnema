@@ -300,6 +300,8 @@ func (s *Server) codexRefused(
 // that model of the account only, as OmniRoute locks only the exact model on a
 // Codex server_is_overloaded (src/sse/services/auth.ts:3460-3482); a usage
 // limit, a rate limit or a refused token cools the whole account as before.
+// The model rests for the delay the backend names, or the growing backoff, at
+// most maxModelRest (issue #1159).
 func (s *Server) codexCool(ctx context.Context, token AccountToken, model string, failure *codex.Failure) {
 	if model == "" || !failure.ModelCapacity() {
 		s.cool(ctx, codexRuntime, token, failure.Status, failure.UsageLimit(), failure.ResetsAt, failure.Reason())
@@ -310,6 +312,10 @@ func (s *Server) codexCool(ctx context.Context, token AccountToken, model string
 	until, ok := s.coolingUntil(token, failure.Status, false, failure.ResetsAt)
 	if !ok {
 		return
+	}
+
+	if latest := s.svc.clock.Now().Add(maxModelRest); until.After(latest) {
+		until = latest
 	}
 
 	s.accountState.rest(token.AccountID, model, until)

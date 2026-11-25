@@ -3758,8 +3758,10 @@ capabilities do not exist yet.
     its own status, rests only that model of the account (issue #1147; CLIProxyAPI's per-model `ModelState`,
     OmniRoute's `lockExactModel` on a Codex `server_is_overloaded`): the account keeps serving its other models, is
     passed over for that model without asking the backend, and no account cooldown is written; the rest is in memory
-    and logged as `modelgateway.model_rests` with its reason. While the model rests on every account the client gets
-    the 429 of a cooling model with the first time one is free. A rate limit, a usage limit or a refused token still
+    and logged as `modelgateway.model_rests` with its reason. That rest lasts the delay the backend names, else the
+    growing wait, but at most 60 s (issue #1159; OmniRoute clamps a Codex capacity refusal to 5-60 s, CLIProxyAPI's
+    transient cooldown is 60 s), though the backend names about six minutes. While the model rests on every account
+    the client gets the 429 of a cooling model with the first time one is free, so at most a minute away. A rate limit, a usage limit or a refused token still
     cools the whole account, and its cooldown's reason is the refusal's code (else its type, else `HTTP <status>`),
     not `usage limit`. When every account refuses, the usage row keeps the refusal's code, message
     and the prompt's moderation flags from the `response.metadata` frame (paths and values, not the prompt), and
