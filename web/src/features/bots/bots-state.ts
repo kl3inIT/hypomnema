@@ -23,7 +23,7 @@ type Named = Pick<Bot, "id" | "name">
 
 // removedBot is what a Bot removed since is called when its name is not known (issue #1139), as GitHub shows a
 // deleted account as "ghost": never its id.
-export const removedBot = "A removed Bot"
+const removedBot = "A removed Bot"
 
 // botNameOf is what the Bot of an id is called (issue #466): its name; a Bot removed since by the name it had,
 // "Thư ký (removed)", as Slack names a deactivated member, or "A removed Bot" when that is not known (issue #1139);
