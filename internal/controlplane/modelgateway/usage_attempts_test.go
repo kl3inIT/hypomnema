@@ -48,7 +48,9 @@ func TestARequestNoProviderWasAskedForLeavesNoRowTheDatabaseRefuses(t *testing.T
 		return rec.Code, rec.Body.String()
 	}
 
-	status, body := send("/v1/responses", `{"model":"gpt","input":"hi"}`)
+	// A Claude subscription's model, which /v1/responses does not reach (an OpenAI-compatible one it translates to
+	// chat since issue #1144).
+	status, body := send("/v1/responses", `{"model":"opus","input":"hi"}`)
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Contains(t, body, "model_not_served_here")
 	assert.NotContains(t, logs.String(), "usage_failed")

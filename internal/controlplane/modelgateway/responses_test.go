@@ -243,9 +243,9 @@ func TestAWorkerWhoseAccountsAllCoolGetsAUsageLimit(t *testing.T) {
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 }
 
-// Scenario: what the route refuses itself. It answers as a stream only; a
-// model served by another kind of provider is not passed on here; a key that
-// may not use the model, and no key, are refused as on the chat route.
+// Scenario: what the route refuses itself. It answers as a stream only; a key
+// that may not use the model, and no key, are refused as on the chat route. A
+// model it does not reach is refused in TestGoPassesARouteItsOwnWire.
 func TestWhatTheResponsesRouteRefuses(t *testing.T) {
 	t.Parallel()
 
@@ -266,14 +266,6 @@ func TestWhatTheResponsesRouteRefuses(t *testing.T) {
 	status, _, body = g.respond(t, g.key, `not json`)
 	assert.Equal(t, http.StatusBadRequest, status, body)
 	assert.Zero(t, got.calls())
-
-	router, reached := provider(t, plain(http.StatusOK, answer))
-	chat := newChatGateway(t, modelgateway.Config{}, router)
-
-	status, _, body = chat.respond(t, chat.key, `{"model":"gpt","input":"hi"}`)
-	assert.Equal(t, http.StatusBadRequest, status)
-	assert.Contains(t, body, "model_not_served_here")
-	assert.Zero(t, reached.calls())
 }
 
 func jsonInt(n int64) string {

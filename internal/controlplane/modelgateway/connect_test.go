@@ -34,9 +34,16 @@ func newConnectGateway(t *testing.T) (g, bare *modelgateway.Service) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
+	// kimi-k3 is served on Responses and passed the request, glm-5.3 on chat and translated (issue #1144); the rest
+	// of OpenCode's models on Messages, which /v1/responses does not reach.
 	wire := func(_ context.Context, kind, upstream string) (string, bool) {
-		if kind == "opencode_go" && upstream == "kimi-k3" {
+		switch {
+		case kind == "opencode_go" && upstream == "kimi-k3":
 			return "responses", true
+		case kind == "opencode_go" && upstream == "glm-5.3":
+			return "chat-completions", true
+		case kind == "opencode_go" || kind == "opencode_zen":
+			return "messages", true
 		}
 
 		return "", false
@@ -104,7 +111,8 @@ type catalogModel struct {
 // Scenario: Codex asks the gateway's catalog with a key (issue #907). It gets the key's models that /v1/responses
 // serves, under their gateway names, each with Codex's own entry for the model behind it, the gateway's window and
 // effort levels; a model of the key Codex cannot call, and a model the key may not use, are not listed; a model
-// Codex does not bundle has Codex's entry for an unknown model.
+// Codex does not bundle has Codex's entry for an unknown model, a chat model translated on /v1/responses too
+// (issue #1144).
 func TestTheCodexCatalogListsTheKeysModels(t *testing.T) {
 	t.Parallel()
 
@@ -124,9 +132,9 @@ func TestTheCodexCatalogListsTheKeysModels(t *testing.T) {
 	}
 
 	require.NoError(t, json.Unmarshal(body, &catalog))
-	require.Len(t, catalog.Models, 2, "only what the key may call on /v1/responses")
+	require.Len(t, catalog.Models, 3, "only what the key may call on /v1/responses, not the Claude model")
 
-	sol, kimi := catalog.Models[0], catalog.Models[1]
+	sol, glm, kimi := catalog.Models[0], catalog.Models[1], catalog.Models[2]
 
 	assert.Equal(t, "codex-subscription/gpt-6.1-sol", sol.Slug)
 	assert.Equal(t, "codex-subscription/GPT-6.1-Sol", sol.DisplayName)
@@ -155,6 +163,11 @@ func TestTheCodexCatalogListsTheKeysModels(t *testing.T) {
 	assert.Equal(t, int64(272000), kimi.ContextWindow, "Codex's window for a model it does not know")
 	assert.Equal(t, "unified_exec", kimi.ShellType)
 	assert.Empty(t, kimi.Levels)
+
+	assert.Equal(t, "opencode-go/glm-5.3", glm.Slug, "a chat model, which /v1/responses translates")
+	require.NotNil(t, glm.BaseInstructions)
+	assert.Equal(t, *kimi.BaseInstructions, *glm.BaseInstructions, "Codex's entry for a model it does not know")
+	assert.Equal(t, "unified_exec", glm.ShellType)
 
 	status, _ = serve(t, g, "/v1/codex/models", "")
 	assert.Equal(t, http.StatusUnauthorized, status)
@@ -458,7 +471,7 @@ func TestTheCodexCatalogStaysUnderOneMiB(t *testing.T) {
 	}
 
 	require.NoError(t, json.Unmarshal(body, &catalog))
-	require.Len(t, catalog.Models, 300+len(upstreams)+1, "the aliases, the Codex models and kimi-k3")
+	require.Len(t, catalog.Models, 300+len(upstreams)+2, "the aliases, the Codex models, kimi-k3 and glm-5.3")
 
 	full := 0
 
@@ -505,7 +518,7 @@ func TestTheCodexCatalogListsWhatFitsWhenEvenCompactIsTooBig(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &catalog))
 
-	total := 700 + len(upstreams) + 1 // the aliases, the Codex models and kimi-k3
+	total := 700 + len(upstreams) + 2 // the aliases, the Codex models, kimi-k3 and glm-5.3
 	listed := len(catalog.Models)
 	require.Less(t, listed, total, "some are left out")
 	assert.Equal(t, strconv.Itoa(total-listed), rec.Header().Get(modelgateway.CodexCatalogOmittedHeader))
@@ -534,8 +547,9 @@ func TestTheCodexCatalogListsWhatFitsWhenEvenCompactIsTooBig(t *testing.T) {
 	}
 
 	assert.True(t, slugs["opencode-go/kimi-k3"])
+	assert.True(t, slugs["opencode-go/glm-5.3"])
 
-	aliases := listed - len(upstreams) - 1
+	aliases := listed - len(upstreams) - 2
 	require.Positive(t, aliases)
 
 	for i := range 700 {

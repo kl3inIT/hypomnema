@@ -72,6 +72,9 @@ type chatCall struct {
 	keyID string
 	// model is the name the client knows the model by.
 	model string
+	// session is the conversation's session when the route knows it (/v1/responses translated to chat, issue
+	// #1144); chatSession reads it from the request otherwise.
+	session string
 }
 
 // chatAdapter serves a chat request from one kind of provider and answers in
