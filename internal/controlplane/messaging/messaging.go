@@ -179,6 +179,22 @@ type State struct {
 	PhoneSync *PhoneSync
 }
 
+// MemberLister is an account that reads who is in one of its chats now (issue #1163), so that the owner's answer
+// in a group where the person who asked is a member counts as his answer.
+type MemberLister interface {
+	// Members are the people in a chat now: a group's as the service lists them, asked of it each time; a direct
+	// chat's other party.
+	Members(ctx context.Context, chat string) (Members, error)
+}
+
+// Members are the people in a chat, each by every id the service knows him by, as Messages gives a sender's
+// (WhatsApp: his number's JID and his LID when known); Name is the chat's, Direct says it is a direct chat.
+type Members struct {
+	Name   string
+	Direct bool
+	IDs    []string
+}
+
 // PhoneSyncer is an account whose past comes from the owner's phone, as Zalo PC's "Sync messages" brings it
 // (issue #697).
 type PhoneSyncer interface {

@@ -178,7 +178,7 @@ func (q *Queries) ChatsWithUndelivered(ctx context.Context) ([]string, error) {
 }
 
 const clearChatTurn = `-- name: ClearChatTurn :exec
-UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0 WHERE id = ?1
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0, turn_cut_at = NULL WHERE id = ?1
 `
 
 // The chat's cut turn is not continued: no mark, no attempts, whoever marked it.
@@ -198,7 +198,8 @@ func (q *Queries) ClearMainChat(ctx context.Context, chatID string) error {
 }
 
 const continueChatTurn = `-- name: ContinueChatTurn :exec
-UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = ?1, turn_token = NULL WHERE id = ?2
+UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = ?1, turn_token = NULL, turn_cut_at = NULL
+WHERE id = ?2
 `
 
 type ContinueChatTurnParams struct {
@@ -206,7 +207,8 @@ type ContinueChatTurnParams struct {
 	ID  string
 }
 
-// The chat is woken to continue its cut turn: one attempt more, and the mark starts again now, no pi's yet.
+// The chat is woken to continue its cut turn: one attempt more, and the mark starts again now, no pi's yet and not
+// cut.
 func (q *Queries) ContinueChatTurn(ctx context.Context, arg ContinueChatTurnParams) error {
 	_, err := q.db.ExecContext(ctx, continueChatTurn, arg.Now, arg.ID)
 	return err
@@ -235,7 +237,7 @@ func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error
 }
 
 const cutChatTurns = `-- name: CutChatTurns :many
-SELECT id, CAST(turn_started_at AS INTEGER) AS turn_started_at, turn_attempts FROM chats
+SELECT id, CAST(turn_started_at AS INTEGER) AS turn_started_at, turn_cut_at, turn_attempts FROM chats
 WHERE turn_started_at IS NOT NULL
 ORDER BY id
 `
@@ -243,6 +245,7 @@ ORDER BY id
 type CutChatTurnsRow struct {
 	ID            string
 	TurnStartedAt int64
+	TurnCutAt     sql.NullInt64
 	TurnAttempts  int64
 }
 
@@ -256,7 +259,12 @@ func (q *Queries) CutChatTurns(ctx context.Context) ([]CutChatTurnsRow, error) {
 	items := []CutChatTurnsRow{}
 	for rows.Next() {
 		var i CutChatTurnsRow
-		if err := rows.Scan(&i.ID, &i.TurnStartedAt, &i.TurnAttempts); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.TurnStartedAt,
+			&i.TurnCutAt,
+			&i.TurnAttempts,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -268,6 +276,18 @@ func (q *Queries) CutChatTurns(ctx context.Context) ([]CutChatTurnsRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const cutMarkedTurns = `-- name: CutMarkedTurns :exec
+UPDATE chats SET turn_cut_at = ?1 WHERE turn_started_at IS NOT NULL
+`
+
+// The control plane begins to stop (issue #1162): every marked turn is cut now, written before the wait for the
+// turns, as Hermes's gateway marks its running sessions before its drain (gateway/run_shutdown.py). A later write
+// of the same stop moves the cut to its own time, as Hermes marks again when the drain times out.
+func (q *Queries) CutMarkedTurns(ctx context.Context, now sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, cutMarkedTurns, now)
+	return err
 }
 
 const deleteArtifactsOfChat = `-- name: DeleteArtifactsOfChat :exec
@@ -383,7 +403,7 @@ func (q *Queries) DetachRunsFromChat(ctx context.Context, chatID string) error {
 }
 
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_token, turn_attempts FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_token, turn_attempts, turn_cut_at FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -405,6 +425,7 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.TurnStartedAt,
 		&i.TurnToken,
 		&i.TurnAttempts,
+		&i.TurnCutAt,
 	)
 	return i, err
 }
@@ -1030,7 +1051,7 @@ func (q *Queries) ListChatQueue(ctx context.Context, chatID string) ([]ChatQueue
 }
 
 const listChats = `-- name: ListChats :many
-SELECT chats.id, chats.title, chats.created_at, chats.updated_at, chats.bot_id, chats.channel_group, chats.provider, chats.model, chats.effort, chats.context_tokens, chats.context_window, chats.context_percent, chats.turn_started_at, chats.turn_token, chats.turn_attempts,
+SELECT chats.id, chats.title, chats.created_at, chats.updated_at, chats.bot_id, chats.channel_group, chats.provider, chats.model, chats.effort, chats.context_tokens, chats.context_window, chats.context_percent, chats.turn_started_at, chats.turn_token, chats.turn_attempts, chats.turn_cut_at,
        CAST(EXISTS (SELECT 1 FROM routine_runs rr WHERE rr.chat_id = chats.id)
            OR EXISTS (
                SELECT 1 FROM chat_messages m
@@ -1129,6 +1150,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.Chat.TurnStartedAt,
 			&i.Chat.TurnToken,
 			&i.Chat.TurnAttempts,
+			&i.Chat.TurnCutAt,
 			&i.Routine,
 			&i.Channel,
 			&i.LastText,
@@ -1205,7 +1227,7 @@ func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMes
 }
 
 const markChatTurn = `-- name: MarkChatTurn :exec
-UPDATE chats SET turn_started_at = ?1, turn_token = ?2 WHERE id = ?3
+UPDATE chats SET turn_started_at = ?1, turn_token = ?2, turn_cut_at = NULL WHERE id = ?3
 `
 
 type MarkChatTurnParams struct {
@@ -1215,7 +1237,7 @@ type MarkChatTurnParams struct {
 }
 
 // A Bot's turn started in the chat (issue #716), in the pi process the token names; the attempts stay, so a
-// continued turn keeps its count.
+// continued turn keeps its count. A new turn is not cut yet (issue #1162).
 func (q *Queries) MarkChatTurn(ctx context.Context, arg MarkChatTurnParams) error {
 	_, err := q.db.ExecContext(ctx, markChatTurn, arg.Now, arg.Token, arg.ID)
 	return err
@@ -1284,7 +1306,7 @@ func (q *Queries) SetChatModel(ctx context.Context, arg SetChatModelParams) erro
 }
 
 const settleChatTurn = `-- name: SettleChatTurn :exec
-UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0, turn_cut_at = NULL
 WHERE id = ?1 AND turn_token = ?2
 `
 

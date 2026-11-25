@@ -96,8 +96,10 @@ The check names the conversations with new messages since the last check. For ea
 2. Already answered: when his own last message there comes after the last ask to him and does what was asked (the
    answer itself, the file, the report), add nothing for it, and close the open "Reply to …" item of that chat with
    `inbox_done`, `for_owner`, and his message as evidence (`zalo_sent`, `whatsapp_sent` or `lark_sent`, with the
-   account, the chat and the message's id). An answer that only promises it ("em gửi sau", "chiều em báo cô") is
-   not done: see 5.
+   account, the chat and the message's id). His answer may be in another chat of the same account where the person
+   who asked is a member (a group they are both in): it counts too, given the same way with that chat, and you
+   quote his answer in the `reason`; one in another service does not. An answer that only promises it ("em gửi
+   sau", "chiều em báo cô") is not done: see 5.
 3. Look with `inbox_list` (by source, and by assignee) before you add anything, so that nothing is added twice.
    One topic seen in several chats is one item: add the other places to its notes with `inbox_update`, each with
    its chat and message.

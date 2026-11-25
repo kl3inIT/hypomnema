@@ -16,6 +16,7 @@
 //   send {chat, group, text, path, quote}    a message as the owner, a file at path with text as its caption,
 //                         replying to quote (a kept message): {id}
 //   groups {}             every group the account is in: [{id, name}]
+//   members {group}       a group's name and who is in it now, asked of Zalo: {name, ids}
 //   stop {}               ends the listener and the process
 // Events: qr {image, code}, scanned {name}, declined, expired, credentials {imei, cookie, userAgent},
 //   connected, message {...}, closed {code, reason, replaced}, error {message}. A closed listener has stopped
@@ -28,7 +29,7 @@ import { LoginQRCallbackEventType, Zalo } from "zca-js";
 
 import { imageMeta } from "./imagemeta.mjs";
 import { backupKey, cancel, decode, download, frame, keys, noised, pull, step, syncEvents } from "./phonesync.mjs";
-import { answer, closed, event, failure, message, older, parseRequest, rejected } from "./protocol.mjs";
+import { answer, closed, event, failure, members as membersOf, message, older, parseRequest, rejected } from "./protocol.mjs";
 import { ThreadType } from "zca-js";
 
 // The listener reconnects a socket Zalo closed (zlog's zalo-client.ts starts it so); a session another Zalo Web took
@@ -147,6 +148,16 @@ async function groups() {
   }
 
   return out;
+}
+
+// members is who is in a group now (issue #1163), read of Zalo each time: a group it does not give is an error.
+async function members(p) {
+  const group = String(p.group ?? "");
+  const info = await api.getGroupInfo(group);
+  const g = info?.gridInfoMap?.[group];
+  if (!g) throw new Error(`Zalo gives no group ${group}`);
+
+  return membersOf(g);
 }
 
 function stop() {
@@ -374,7 +385,7 @@ const idOf = (v) => (v == null ? "" : String(v));
 
 const str = (v) => (typeof v === "string" ? v : "");
 
-const methods = { loginQR, login, listen, groups, groupHistory, oldMessages, users, phoneSync, phoneIds, send, stop };
+const methods = { loginQR, login, listen, groups, members, groupHistory, oldMessages, users, phoneSync, phoneIds, send, stop };
 
 const lines = createInterface({ input: process.stdin });
 

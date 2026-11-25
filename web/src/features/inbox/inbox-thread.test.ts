@@ -176,6 +176,13 @@ test("events say who did what, and closing as done is marked", () => {
   ).toBe("Hypo linked a pull request")
   const done = eventLine(event(4, { kind: "state", actor: bot, after: { state: "done" } }), nameOf)
   expect([done.words, done.done]).toEqual(["Hypo closed it as done", true])
+  // Issue #1163: the owner answered in another chat, where the person who asked is.
+  expect(
+    eventLine(
+      event(6, { kind: "state", actor: bot, after: { state: "done", answered_in: "Nhóm dự án" } }),
+      nameOf,
+    ).words,
+  ).toBe("Hypo closed it as done: answered in Nhóm dự án")
   expect(
     eventLine(
       event(5, { kind: "state", before: { state: "done" }, after: { state: "open" } }),

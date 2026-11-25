@@ -525,6 +525,22 @@ func (s *Service) SyncFromPhone(ctx context.Context, integration, label string) 
 	return syncer.SyncFromPhone(ctx)
 }
 
+// Members reads who is in a chat of a Connection of kind device now (issue #1163), of a service that lists them.
+func (s *Service) Members(ctx context.Context, integration, label, chat string) (messaging.Members, error) {
+	acc, err := s.heldAccount(ctx, integration, label)
+	if err != nil {
+		return messaging.Members{}, err
+	}
+
+	lister, ok := acc.(messaging.MemberLister)
+	if !ok {
+		return messaging.Members{}, fmt.Errorf("%w: %s does not list a chat's members", orchestration.ErrInvalid,
+			integration)
+	}
+
+	return lister.Members(ctx, chat)
+}
+
 // Messages lists the messages kept of a Connection of kind device, the latest first (issue #631).
 func (s *Service) Messages(ctx context.Context, integration, label string, q messaging.Query,
 ) ([]messaging.Message, error) {

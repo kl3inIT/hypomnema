@@ -567,7 +567,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 	// The Inbox checks the message the owner sent that a Bot gives as evidence that he answered (issue #1004).
 	svc.Inbox().WithSent(inboxSent{
-		messages: integrations.Messages, larkToken: larkToken,
+		messages: integrations.Messages, members: integrations.Members, larkToken: larkToken,
 		larkURL: "https://" + serviceproxy.LarkHost, client: &http.Client{Timeout: 30 * time.Second},
 	})
 	// The owner sends a reply from the Inbox through his own accounts (issue #1111).
