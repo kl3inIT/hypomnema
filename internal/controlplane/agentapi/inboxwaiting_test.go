@@ -24,7 +24,8 @@ func TestABotMovesAnItemToWaitingOnOthers(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	c := orchestration.Connection{Integration: "zalo", Label: "main", Account: "Hồng Đạt", Secret: "conn-zalo-main"}
+	c := orchestration.Connection{Integration: "zalo", Label: "main", Account: "Hồng Đạt"}
+	c.Secret = "conn-" + c.Integration + "-" + c.Label
 	_, err := w.svc.SaveServiceConnection(ctx, c)
 	require.NoError(t, err)
 	_, err = w.svc.SetConnectionChats(ctx, "zalo", "main", true)
@@ -37,11 +38,16 @@ func TestABotMovesAnItemToWaitingOnOthers(t *testing.T) {
 
 	pi, _ := w.inboxPi(bot)
 
-	var update, add map[string]any
+	type property struct {
+		Enum       []string       `json:"enum"`
+		Properties map[string]any `json:"properties"`
+	}
+
+	var update, add map[string]property
 
 	for _, tool := range w.tools(pi) {
 		var schema struct {
-			Properties map[string]any `json:"properties"`
+			Properties map[string]property `json:"properties"`
 		}
 		require.NoError(t, json.Unmarshal(tool.InputSchema, &schema))
 
@@ -55,8 +61,8 @@ func TestABotMovesAnItemToWaitingOnOthers(t *testing.T) {
 
 	require.Contains(t, update, "waiting_on")
 	require.Contains(t, add, "waiting_on")
-	assert.Contains(t, update["waiting_on"].(map[string]any)["properties"], "due_date", "a move takes its due")
-	assert.Contains(t, add["why_open"].(map[string]any)["enum"], inboxstore.Waiting)
+	assert.Contains(t, update["waiting_on"].Properties, "due_date", "a move takes its due")
+	assert.Contains(t, add["why_open"].Enum, inboxstore.Waiting)
 
 	zalo := map[string]any{"kind": inboxstore.FromZalo, "chat": "g_team", "account": "main"}
 	asked := w.inbox(pi, agenttool.ToolInboxAdd, map[string]any{

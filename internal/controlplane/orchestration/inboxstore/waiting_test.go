@@ -199,14 +199,12 @@ func TestWaitOnRefusesWhatIsNotTheBotsOwnFoundItem(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			before, err := w.inbox.Get(ctx, c.td.ID)
-			require.NoError(t, err)
+		before, err := w.inbox.Get(ctx, c.td.ID)
+		require.NoError(t, err, c.name)
 
-			_, err = w.inbox.WaitOn(ctx, by(c.actor, before), c.wo)
-			require.ErrorIs(t, err, c.want)
-			w.unchanged(t, before)
-		})
+		_, err = w.inbox.WaitOn(ctx, by(c.actor, before), c.wo)
+		require.ErrorIs(t, err, c.want, c.name)
+		w.unchanged(t, before)
 	}
 
 	moved, err := w.inbox.WaitOn(ctx, by(bot(w.kai), meeting), line("mtg_1/7"))
@@ -239,7 +237,8 @@ func TestABotAddsAnItemWaitingOnAPerson(t *testing.T) {
 	assert.Equal(t, inboxstore.Waiting, td.WhyOpen)
 	assert.Equal(t, inboxstore.Open, td.State)
 	assert.Equal(t, t0.Add(48*time.Hour), td.Due.At.UTC())
-	assert.Equal(t, "mtg_1/12", waitingOf(t, td.Events[0])["ref"].(map[string]any)["ref"])
+	ref, _ := waitingOf(t, td.Events[0])["ref"].(map[string]any)
+	assert.Equal(t, "mtg_1/12", ref["ref"])
 
 	same, err := w.inbox.Create(ctx, bot(w.kai), n)
 	require.NoError(t, err)
@@ -291,7 +290,7 @@ func TestGivingAWaitingItemToAnyoneElseClearsWaiting(t *testing.T) {
 	main := orchestration.DefaultBotID
 
 	waiting := func(botID string) inboxstore.Todo {
-		td, err := w.inbox.WaitOn(ctx, by(bot(botID), w.zaloAsk(t, botID)), took("Việt"))
+		td, err := w.inbox.WaitOn(t.Context(), by(bot(botID), w.zaloAsk(t, botID)), took("Việt"))
 		require.NoError(t, err)
 
 		return td
