@@ -69,10 +69,14 @@ export function sources(tools) {
     for (const label of labels) out.push({ kind: "messaging", service, label });
   }
   const read = tools.find((t) => t.name === "account_read");
-  const named = read?.description?.match(/account name \(([^)]*)\)/)?.[1] ?? "";
-  for (const account of named.split(",").map((a) => a.trim()).filter(Boolean)) {
+  const list = (pattern) =>
+    (read?.description?.match(pattern)?.[1] ?? "").split(",").map((a) => a.trim()).filter(Boolean);
+  // Only the Lark accounts that sign in as the owner are his chats; the others are other Bots' apps, which cannot
+  // read them (issue #1127), as a message an app sent is left out (dropLarkApps). The control plane names them.
+  const owners = list(/Lark accounts that sign in as the owner \(([^)]*)\)/);
+  for (const account of list(/account name \(([^)]*)\)/)) {
     const [integration, label] = account.split(":");
-    if (integration === "lark") out.push({ kind: "lark", account, label });
+    if (integration === "lark" && owners.includes(account)) out.push({ kind: "lark", account, label });
     if (integration === "google") out.push({ kind: "gmail", account, label });
   }
   if (tools.some((t) => t.name === "meeting_list")) out.push({ kind: "meetings" });

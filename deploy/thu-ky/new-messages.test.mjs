@@ -12,7 +12,7 @@ const tools = [
   { name: "zalo_messages" },
   {
     name: "account_read",
-    description: "Read a connected account using its service API. Use the account name (lark:me, google:me), API hostname",
+    description: "Read a connected account using its service API. Use the account name (lark:me, google:me), API hostname, method and path with query. Lark accounts that sign in as the owner (lark:me); any other Lark account is an app's bot.",
   },
   { name: "meeting_list" },
 ];
@@ -70,6 +70,31 @@ test("the sources are the accounts the run's tools name", () => {
     { kind: "gmail", account: "google:me", label: "me" },
     { kind: "meetings" },
   ]);
+});
+
+// Issue #1127: the Bot is given other Bots' Lark apps too; the owner's chats are read only through his own sign-in.
+test("only the Lark accounts that sign in as the owner are read", () => {
+  const read = (description) => sources([{ name: "account_read", description }]);
+  assert.deepEqual(
+    read(
+      "Use the account name (lark:work, lark:me, lark:report, google:me), API hostname, method and path with query. " +
+        "Lark accounts that sign in as the owner (lark:me); any other Lark account is an app's bot.",
+    ),
+    [
+      { kind: "lark", account: "lark:me", label: "me" },
+      { kind: "gmail", account: "google:me", label: "me" },
+    ],
+  );
+  assert.deepEqual(
+    read("Use the account name (lark:work, google:me), API hostname. Lark accounts that sign in as the owner (); any"),
+    [{ kind: "gmail", account: "google:me", label: "me" }],
+    "no Lark account signs in as the owner",
+  );
+  assert.deepEqual(
+    read("Use the account name (lark:work, google:me), API hostname."),
+    [{ kind: "gmail", account: "google:me", label: "me" }],
+    "a server that does not tell which is which: no Lark account is taken for the owner's",
+  );
 });
 
 test("nothing new wakes no model", async () => {
