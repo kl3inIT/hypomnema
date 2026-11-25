@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,6 +43,8 @@ type world struct {
 	url               string
 	home              string
 	coordinatorSecret string
+	// messageReads counts the pages of chat messages the CLI read.
+	messageReads *atomic.Int64
 }
 
 const testChatCoordinator = "cli-chat-coordinator"
@@ -86,10 +89,20 @@ func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clien
 
 	require.NoError(t, srv.Register(mux))
 
-	hs := httptest.NewServer(mux)
+	reads := &atomic.Int64{}
+	hs := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/messages") {
+			reads.Add(1)
+		}
+
+		mux.ServeHTTP(rw, r)
+	}))
 	t.Cleanup(hs.Close)
 
-	return &world{svc: svc, url: hs.URL, home: filepath.Join(t.TempDir(), "home"), coordinatorSecret: coordinatorSecret}
+	return &world{
+		svc: svc, url: hs.URL, home: filepath.Join(t.TempDir(), "home"), coordinatorSecret: coordinatorSecret,
+		messageReads: reads,
+	}
 }
 
 // login makes a token of kind and logs the CLI in with it.
@@ -1318,6 +1331,32 @@ func TestChatFromTheTerminal(t *testing.T) {
 	out, err = w.cmd(t, "chat", "--new", "a second topic")
 	require.NoError(t, err)
 	assert.NotContains(t, out, "chat "+chatID)
+}
+
+// Scenario: the owner shows the end of a long chat from the terminal (issue #1129). The CLI reads the chat from its
+// end, one page, rather than every page from its first message, which took a minute for a chat of 2,400 messages
+// on a slow link.
+func TestTheCLIShowsALongChatFromItsEnd(t *testing.T) {
+	t.Parallel()
+
+	w := newWorldWith(t, nil)
+	w.login(t, bearertoken.Owner)
+	ctx := t.Context()
+
+	chat, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	for i := range 250 {
+		_, err := w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatSystem, fmt.Sprintf("notice %03d", i))
+		require.NoError(t, err)
+	}
+
+	out, err := w.cmd(t, "chat", "--chat", chat.ID, "--last", "3")
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"notice 247", "notice 248", "notice 249"},
+		regexp.MustCompile(`notice \d+`).FindAllString(out, -1), "the last three, oldest first")
+	assert.Equal(t, int64(1), w.messageReads.Load(), "one page from the chat's end")
 }
 
 // Without a coordinator on the server, a message is kept and the CLI says so.

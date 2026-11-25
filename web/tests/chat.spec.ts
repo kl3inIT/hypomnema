@@ -1450,10 +1450,73 @@ test("messages written while the Bot works wait above the composer", async ({ pa
   await expect(strip).toHaveCount(0)
 })
 
-// Scenario: a long chat opens on its newest 200 messages (issue #502). Scrolling up brings the older ones, and the
-// row the owner was reading stays where it was; the stream follows from the newest message read.
+// Scenario: a long chat opens on a slow link (issue #1129). While its newest page is on its way the chat says it is
+// loading, never "Send a message to start."; once the page comes, the chat stands at its end at once, with no slide
+// down to it: every scroll the page makes lands at the bottom.
+test("a long chat says it is loading, then opens at its end without sliding", async ({ page }) => {
+  const older = Array.from({ length: 120 }, (_, i) =>
+    message(i + 1, { role: i % 2 ? "coordinator" : "owner", text: `message ${i + 1}` }),
+  )
+  await fakeServer(page, () => ({ status: 201, body: {} }), noWork(), botFolder(), chat, older)
+  let release = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  // Registered after the fake server, so it is asked first, and hands the request on once released.
+  await page.route(`**/api/v1/chats/${chat.id}/messages?*`, async (route) => {
+    if (route.request().method() === "GET") await held
+    await route.fallback()
+  })
+  // How far from the bottom the chat's scroller stands after each frame, once it has moved: sampled after the frame
+  // (a task the frame posts), when the scroller has followed that frame's growth, and not from scroll events, which
+  // a headless browser under load may not send for a scroller set before its first paint (a string: the tests have
+  // no DOM types).
+  await page.addInitScript(`
+    globalThis.fromBottom = []
+    let scroller
+    const sample = () => {
+      const log = document.querySelector('[role="log"]')
+      if (log && !(scroller && scroller.isConnected)) {
+        scroller = [log, ...log.querySelectorAll("div")].find((el) =>
+          ["auto", "scroll"].includes(getComputedStyle(el).overflowY))
+      }
+      if (scroller && scroller.isConnected && scroller.scrollTop > 0) {
+        globalThis.fromBottom.push(Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop))
+      }
+    }
+    const frame = () => {
+      setTimeout(sample, 0)
+      requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+  `)
+
+  await page.goto(`/chats/${chat.id}`)
+  await expect(page.getByRole("status").filter({ hasText: "Loading conversation" })).toBeVisible()
+  await expect(page.getByText("Send a message to start.")).toHaveCount(0)
+  await shot(page, "chat-loading")
+
+  release()
+  await expect.poll(() => streams(page)).toBe(1)
+  await write(page, state(false))
+
+  const log = page.getByRole("log")
+  await expect(log.getByText("message 120", { exact: true })).toBeInViewport()
+  await expect(page.getByText("Loading conversation")).toHaveCount(0)
+  // A smooth slide stands above the end for many frames on its way down; an instant one is at the end after each
+  // frame, but for a frame the late layout of a row (its markdown loading) may grow the chat before it follows.
+  await page.waitForTimeout(500)
+  const fromBottom = await page.evaluate(
+    () => (globalThis as unknown as { fromBottom: number[] }).fromBottom,
+  )
+  expect(fromBottom.length).toBeGreaterThan(0)
+  const offTwice = fromBottom.some((d, i) => d > 1 && (fromBottom[i + 1] ?? 0) > 1)
+  expect(offTwice, `distances from the bottom: ${fromBottom.join(" ")}`).toBe(false)
+})
+
+// Scenario: a long chat opens on its newest 50 messages (issues #502, #1129). Scrolling up brings the older ones a
+// page of 200 at a time, and the row the owner was reading stays where it was; the stream follows from the newest
+// message read.
 test("a long chat opens at its end and brings older messages on scroll", async ({ page }) => {
-  const older = Array.from({ length: 260 }, (_, i) =>
+  const older = Array.from({ length: 250 }, (_, i) =>
     message(i + 1, { role: i % 2 ? "coordinator" : "owner", text: `message ${i + 1}` }),
   )
   const calls = await fakeServer(
@@ -1469,9 +1532,9 @@ test("a long chat opens at its end and brings older messages on scroll", async (
 
   const log = page.getByRole("log")
   // The chat opens at its end before the owner scrolls.
-  await expect(log.getByText("message 260", { exact: true })).toBeInViewport()
-  await expect(log.getByText("message 61", { exact: true })).toHaveCount(1)
-  await expect(log.getByText("message 60", { exact: true })).toHaveCount(0)
+  await expect(log.getByText("message 250", { exact: true })).toBeInViewport()
+  await expect(log.getByText("message 201", { exact: true })).toHaveCount(1)
+  await expect(log.getByText("message 200", { exact: true })).toHaveCount(0)
   await expect(log.getByRole("button", { name: "Load earlier messages" })).toBeAttached()
   await shot(page, "chat-history-newest")
 
@@ -1482,11 +1545,11 @@ test("a long chat opens at its end and brings older messages on scroll", async (
   await expect(log.getByText("message 1", { exact: true })).toHaveCount(1)
   await expect(log.getByRole("button", { name: "Load earlier messages" })).toHaveCount(0)
   // The row read before the page came is still on the screen.
-  await expect(log.getByText("message 61", { exact: true })).toBeInViewport()
+  await expect(log.getByText("message 201", { exact: true })).toBeInViewport()
   await shot(page, "chat-history-earlier")
   expect(calls.filter((c) => c.startsWith("history"))).toEqual([
     `history before ${Number.MAX_SAFE_INTEGER}`,
-    "history before 61",
+    "history before 201",
   ])
 })
 
