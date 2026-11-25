@@ -1,0 +1,7 @@
+data: {"id":"c3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hi"}}]}
+
+data: {"error":{"message":"Rate limit reached for deepseek","type":"rate_limit_error","code":"rate_limit_exceeded"}}
+
+data: {"id":"c3","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":" again"}}]}
+
+data: [DONE]
