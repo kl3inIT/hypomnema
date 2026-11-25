@@ -1049,6 +1049,50 @@ test.describe("recording a meeting live", () => {
     await shot(page, "meetings-recorded")
   })
 
+  // Scenario: the owner pauses a meeting for a private moment (issue #1153): the bar says Paused with a still dot, the
+  // timer stops and the socket is finished; Resume opens a socket where the audio sent ended, so the transcript goes
+  // on in the same meeting without the pause, and the timer goes on. Stop ends the meeting while paused.
+  test("the owner pauses and resumes a recording", async ({ page }) => {
+    const { calls, sockets } = await fakeServer(page)
+    await page.goto("/meetings")
+    await page.getByRole("button", { name: "Record" }).first().click()
+    const dialog = page.getByRole("dialog", { name: "Record a meeting" })
+    await dialog.getByRole("radio", { name: /In person/ }).check()
+    await dialog.getByRole("button", { name: "Start recording" }).click()
+
+    const bar = page.getByRole("region", { name: "Recording" })
+    const timer = bar.getByRole("timer")
+    await expect(page.getByTestId("transcript-line")).toHaveCount(1)
+    await expect(timer).not.toHaveText("0:00")
+    await bar.getByRole("button", { name: "Pause" }).click()
+
+    await expect(bar).toContainText("Paused")
+    await expect(bar.getByRole("button", { name: "Pause" })).toHaveCount(0)
+    const paused = await timer.textContent()
+    await page.waitForTimeout(2_500)
+    await expect(timer).toHaveText(paused!)
+    expect(sockets).toHaveLength(1)
+    await shot(page, "meetings-recording-paused")
+
+    await bar.getByRole("button", { name: "Resume" }).click()
+    await expect(bar).toContainText("Recording")
+    await expect.poll(() => sockets.length).toBe(2)
+    const [pausedMin, pausedSec] = paused!.split(":").map(Number)
+    const offset = Number(sockets[1]!.split(" ")[2])
+    // The new socket starts where the audio sent ended, within the second the timer shows.
+    expect(offset).toBeGreaterThanOrEqual((pausedMin! * 60 + pausedSec!) * 1_000)
+    expect(offset).toBeLessThan((pausedMin! * 60 + pausedSec! + 1) * 1_000)
+    await expect(timer).not.toHaveText(paused!)
+    await expect(page.getByTestId("transcript-line")).toHaveCount(2)
+
+    await bar.getByRole("button", { name: "Pause" }).click()
+    await expect(bar).toContainText("Paused")
+    await bar.getByRole("button", { name: "Stop" }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Stop and end" }).click()
+    await expect(page.locator("[data-slot=meeting-player]")).toBeVisible()
+    expect(calls.filter((c) => c.endsWith("/end"))).toHaveLength(1)
+  })
+
   // Scenario: online, on a computer: the microphone and the shared tab are two tracks, each with its meter and its
   // socket; the microphone is the owner, "You", the tab's voice "Speaker 1"; the tab's line, said first, is read
   // first though it was kept second.
