@@ -4749,10 +4749,14 @@ gateway chat model writes its summary, decisions and actions.
 - On the web: Record, beside Upload recording, asks Online (only where a tab's sound can be shared, Chromium on a
   computer) or In person, the language and the people, asks for the tab then the microphone, and opens the
   meeting's page on a recording bar (time, a level meter a track, a warning when the tab is silent 20 s or no longer
-  shared, Pause and Resume, Stop asked first, paused or not, then "Saving the last words…") over the live
+  shared, Mute mic, Pause and Resume, Stop asked first, paused or not, then "Saving the last words…") over the live
   transcript in the turn layout with what is being said. Pause (issue #1153) finishes every track's socket and drops
   the audio until Resume, which opens new sockets where the audio sent ended, so the transcript, the saved audio and
-  the time recorded go on without the pause; the bar says Paused with a still dot. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
+  the time recorded go on without the pause; the bar says Paused with a still dot. Mute mic (issue #1155, MemoryOS's
+  `setMicMuted`; a toggle with `aria-pressed`, online and in person) finishes only the microphone's socket and stills
+  its meter while the tab records on and the clock runs; what the microphone hears meanwhile is never sent but counts
+  on its clock, so Unmute mic opens its socket at the meeting's current time and the server keeps the gap silent.
+  Resume leaves a muted microphone off. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
   tab closes and holds a screen wake lock; a socket that drops reconnects after 1/2/5/10/20 s with up to 30 s of
   audio queued, its offset the time of the first queued frame, which nothing is dropped before until the new
   socket is ready. A meeting left recording offers Resume recording or End; the player shows once it is transcribed.

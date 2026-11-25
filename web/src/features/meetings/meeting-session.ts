@@ -45,7 +45,13 @@ export function useRecordingFailure() {
   return useSyncExternalStore(subscribe, () => failure)
 }
 
-const idle: RecorderSnapshot = { phase: "stopped", elapsedMs: 0, tracks: [], previews: {} }
+const idle: RecorderSnapshot = {
+  phase: "stopped",
+  elapsedMs: 0,
+  tracks: [],
+  previews: {},
+  micMuted: false,
+}
 const unsubscribed = () => () => undefined
 
 // useRecorderValue is one value of the recorder, which publishes on every level reading: select returns a primitive or
