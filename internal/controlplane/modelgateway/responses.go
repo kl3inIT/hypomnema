@@ -24,10 +24,16 @@ import (
 // (translator/responses_usage.go), a refusal passed on with its status and
 // body (handlers/chat/responses.go).
 //
-// Left out, with where a reference has it: a model served by another kind of
-// provider, which 9router-go and CLIProxyAPI translate to chat and back;
-// /v1/responses/compact; an answer that is not a stream, which 9router-go
-// does not fold for Codex either; CLIProxyAPI's WebSocket.
+// A model served on chat (an OpenCode chat model, an OpenAI-compatible
+// provider) is asked through its chat adapter in chat's format and its answer
+// turned back into Responses events (package responseschat, issue #1144), as
+// CLIProxyAPI's openai→openai-responses translator and LiteLLM's bridge do.
+//
+// Left out, with where a reference has it: a Claude or Antigravity
+// subscription and an OpenCode model on Messages, which 9router-go and
+// CLIProxyAPI translate too; /v1/responses/compact; an answer that is not a
+// stream, which 9router-go does not fold for Codex either; CLIProxyAPI's
+// WebSocket.
 
 // sessionHeaders are where a client names its session, in the order
 // 9router-go reads them (handlerutil.SessionHeaderKeys); the Codex CLI sends
@@ -159,32 +165,53 @@ func (s *Server) serveResponses(
 ) {
 	ctx := r.Context()
 
-	var targets []upstream
+	var (
+		attempts []responsesAttempt
+		targets  []upstream
+	)
 
 	for _, target := range model.Targets {
-		u, _, err := s.svc.upstreamFor(ctx, target)
-		// An OpenCode Go or Zen model served on Responses is passed the request too (issues #854, #965).
-		if err == nil && s.svc.servedOnResponses(ctx, u.Kind, u.Model) {
-			targets = append(targets, u)
+		u, adapter, err := s.svc.upstreamFor(ctx, target)
+		if err != nil {
+			continue
 		}
+
+		way := s.svc.responsesWayOf(ctx, u.Kind, u.Model)
+		// Every target but an OpenAI-compatible provider runs under the accounts logged in on the control plane.
+		if way == responsesNotServed || (s.accounts == nil && !adapter.declared()) {
+			continue
+		}
+
+		attempts = append(attempts, responsesAttempt{upstream: u, adapter: adapter, way: way})
+		targets = append(targets, u)
 	}
 
-	if len(targets) == 0 || s.accounts == nil {
+	if len(attempts) == 0 {
 		writeError(w, http.StatusBadRequest, typeInvalidRequest, "model_not_served_here",
-			fmt.Sprintf("model %q is not served from a Codex subscription or an OpenCode model on Responses, "+
-				"the ones /v1/responses passes on to", model.Name))
+			fmt.Sprintf("model %q is not served from a Codex subscription, an OpenCode model on Responses or chat, "+
+				"or an OpenAI-compatible provider, the ones /v1/responses serves", model.Name))
 
 		return
 	}
 
 	var cooling modelCooling
-	for i, target := range targets {
-		last := i == len(targets)-1
+	for i, a := range attempts {
+		target := a.upstream
+		last := i == len(attempts)-1
 		noteServed(ctx, "")
 		record.Attempts, record.Provider, record.UpstreamModel = i+1, target.Provider, target.Model
 		record.Status = 0
 
-		resp, err := s.passResponses(ctx, raw, session, target)
+		var (
+			resp *http.Response
+			err  error
+		)
+
+		if a.way == responsesTranslated {
+			resp, err = s.responsesAsChat(ctx, raw, a, chatCall{keyID: record.KeyID, model: model.Name, session: session})
+		} else {
+			resp, err = s.passResponses(ctx, raw, session, target)
+		}
 
 		var bad *badMessagesError
 		if errors.As(err, &bad) {
@@ -253,6 +280,13 @@ func (s *Server) serveResponses(
 
 	writeError(w, http.StatusBadGateway, typeServer, "upstream_unavailable",
 		fmt.Sprintf("no provider of model %q could be reached", model.Name))
+}
+
+// responsesAttempt is one target /v1/responses can send a request to, and how.
+type responsesAttempt struct {
+	upstream upstream
+	adapter  chatAdapter
+	way      responsesWay
 }
 
 func (s *Server) recordResponsesCooling(

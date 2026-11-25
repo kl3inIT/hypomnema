@@ -147,9 +147,14 @@ func openCodeGoSession(session string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-// chatSession is a chat request's session: the client's prompt cache key,
-// else its gateway key, as the Codex adapter keeps one per key (cacheKey).
+// chatSession is a chat request's session: the route's own when it knows one,
+// else the client's prompt cache key, else its gateway key, as the Codex
+// adapter keeps one per key (cacheKey).
 func chatSession(call chatCall) string {
+	if call.session != "" {
+		return call.session
+	}
+
 	var key string
 	if raw, ok := call.req.fields["prompt_cache_key"]; ok && json.Unmarshal(raw, &key) == nil && key != "" {
 		return key

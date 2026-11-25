@@ -3730,7 +3730,8 @@ capabilities do not exist yet.
   format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets, and its
   `opencode_go` and `opencode_zen` targets whose model OpenCode serves on Responses (issues #854, #965; the body as
   the client sent it, the model's name at OpenCode and `stream` on, under the provider's keys as the chat route sends
-  it below):
+  it below). A target served on chat, an OpenCode model on chat or an `openai_compatible` provider, is asked in
+  chat's format and answered back in Responses events (issue #1144, below):
   - The client's body is passed on, not translated (`modelgateway/codex`, `PassThrough`): the model's name at the
     backend, `stream` on and `store` off, a string input as a user message, references to stored items and their ids
     taken out, `service_tier` `fast` as `priority`, the lite shape for the models that take it, the client's session
@@ -3765,8 +3766,30 @@ capabilities do not exist yet.
     answer may last longer; a run with nothing in flight 5 s after its last answer is forgotten. The runs are in
     memory. The gateway does not count a prompt's tokens before sending it (the owner's choice, 2026-11-22), as
     LiteLLM checks a prompt against the window only when asked to.
-  - Not served: a model with no such target (400 `model_not_served_here`), an answer that is not a stream (400),
-    `/v1/responses/compact`, a WebSocket.
+  - A chat target (issue #1144, `modelgateway/responseschat`, adapted with its MIT notice from CLIProxyAPI's
+    openai→openai-responses translator; LiteLLM bridges its Responses API to chat the same way): the request becomes a
+    streamed chat request sent through the target's chat adapter, as the chat route sends it (the conversation's
+    session as the OpenCode session, the one a Responses model of the same conversation gets). The instructions are
+    the system message and every role is kept, developer too; text alone is one string, an image an `image_url`
+    (Codex's `original` detail as `high`), a file by id or inline bytes; consecutive tool calls are one assistant
+    message, their outputs tool messages, a tool output's images and files the user message after them, and an output
+    no call asked for the user's text; a reasoning item's summary is the next assistant message's
+    `reasoning_content`, and a tool call whose reasoning was not kept gets `[reasoning unavailable]` in a session that
+    reasons (DeepSeek refuses a tool call's turn without one). A function tool is a chat function, a freeform tool a
+    function of one `input` string, a namespace's tools `<namespace>__<name>`, each name at most 64 bytes;
+    `tool_choice`, `parallel_tool_calls`, `max_output_tokens` (as `max_tokens`), `text.format` (as
+    `response_format`) and `reasoning.effort` (as `reasoning_effort`) go too. Dropped: other tool types (web search,
+    image generation, hosted MCP, local shell, tool search), audio and video parts, `store`, `include`,
+    `prompt_cache_key`, `previous_response_id` and the sampling and metadata fields the reference does not map. The
+    chat stream comes back as `response.created` and `in_progress`, reasoning as a reasoning item's summary (no
+    `encrypted_content`), text as a message, each tool call a `function_call` (or `custom_tool_call` for a freeform
+    tool, under its own name and namespace) whose arguments pass on as they come, the items closed when the choice
+    finishes, then `response.completed` with the usage after `[DONE]` or the stream's end (`response.incomplete` for
+    an answer cut at its limit or filtered). A chat error frame ends it with `response.failed`; a stream cut before
+    its choice finished gets no end; a refusal keeps the provider's status and body; an answer that is not a stream
+    is translated whole.
+  - Not served: a model with no such target, a Claude or Antigravity subscription and an OpenCode model on Messages
+    (400 `model_not_served_here`), an answer that is not a stream (400), `/v1/responses/compact`, a WebSocket.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
   [research](docs/research/2026-11-13-gateway-features.md)) are for a client that speaks Anthropic's Messages format,
   Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They try a
@@ -3903,7 +3926,8 @@ capabilities do not exist yet.
   `GetCodexModelCatalog`, tagged `gateway` with the `gatewayKey` scheme, which neither the client API's generated
   server nor the web client's SDK includes) is the key's catalog in Codex's own format (`{"models": [ModelInfo…]}`,
   codex-rs `protocol/src/openai_models.rs`), for a Codex provider's `model_catalog_url`: the models the key may use
-  that `/v1/responses` serves, in the gateway's order, each Codex's bundled entry for the model behind it
+  that `/v1/responses` serves, passed on or translated to chat (issue #1144), in the gateway's order, each Codex's
+  bundled entry for the model behind it
   (`modelgateway/codexmodels/models.json`, Codex `rust-v0.169.1`, third_party/codex, whose license and notice the
   control plane's release carries) or Codex's entry for a model it does not know, renamed to the gateway's name,
   listed in the picker, without an upgrade, notice or review model, and given the window, inputs and effort levels
@@ -4166,7 +4190,7 @@ capabilities do not exist yet.
     Claude translation without its disguise and without the gateway's cache breakpoints (`claude.Options.Plain`), a
     Responses model with the Codex translation without its lite shape (`codex.Options.Plain`); their answers become
     chat chunks as the subscriptions' do. `/v1/messages` and `/v1/responses` pass their own wire's models the body
-    (above).
+    (above); `/v1/responses` translates for a chat model (issue #1144, above).
   - Each call carries the key (`Authorization: Bearer`, or `x-api-key` with `anthropic-version: 2023-06-01` on
     Messages), `User-Agent: hypomnema/<version>` and `x-opencode-session`, a hash of the gateway's session: the
     client's `prompt_cache_key` or session header, else its gateway key. The session also picks the key, as for

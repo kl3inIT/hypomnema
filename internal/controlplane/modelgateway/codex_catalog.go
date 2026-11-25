@@ -142,16 +142,45 @@ func (e codexEntry) int64(key string) int64 {
 	return n
 }
 
-// servedOnResponses says /v1/responses passes a request on to a target of this kind and model: a Codex
-// subscription, or an OpenCode Go (issue #854) or Zen (issue #965) model served on Responses.
-func (s *Service) servedOnResponses(ctx context.Context, kind, model string) bool {
-	if kind == "codex_subscription" {
-		return true
+// responsesWay is how /v1/responses reaches a target.
+type responsesWay int
+
+const (
+	responsesNotServed responsesWay = iota
+	// responsesPassed: the request is passed on as it is.
+	responsesPassed
+	// responsesTranslated: the request is translated to chat and the answer back (issue #1144).
+	responsesTranslated
+)
+
+// responsesWayOf says how /v1/responses reaches a target of this kind and model: a Codex subscription, or an
+// OpenCode Go (issue #854) or Zen (issue #965) model served on Responses, is passed the request; an OpenCode model
+// served on chat, or an OpenAI-compatible provider, is asked in chat's format (issue #1144, as CLIProxyAPI and
+// LiteLLM serve Responses from a chat model). A Claude or Antigravity subscription, and an OpenCode model on
+// Messages, are not reached.
+func (s *Service) responsesWayOf(ctx context.Context, kind, model string) responsesWay {
+	switch kind {
+	case "codex_subscription":
+		return responsesPassed
+	case "openai_compatible":
+		return responsesTranslated
 	}
 
-	_, openCode := openCodeOf(kind)
+	if _, openCode := openCodeOf(kind); openCode {
+		switch s.openCodeWire(ctx, kind, model) {
+		case goWireResponses:
+			return responsesPassed
+		case goWireChat:
+			return responsesTranslated
+		}
+	}
 
-	return openCode && s.openCodeWire(ctx, kind, model) == goWireResponses
+	return responsesNotServed
+}
+
+// servedOnResponses says /v1/responses serves a target of this kind and model, passed on or translated.
+func (s *Service) servedOnResponses(ctx context.Context, kind, model string) bool {
+	return s.responsesWayOf(ctx, kind, model) != responsesNotServed
 }
 
 // responsesTarget is a model's first target /v1/responses serves, and its provider's kind.
