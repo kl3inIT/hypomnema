@@ -3,6 +3,8 @@ import { useRef } from "react"
 import { toast } from "@/components/ui/toast"
 import { errorText } from "@/lib/server-error"
 
+import { priorityOf } from "@/components/ui/priority"
+
 import { snoozeWords, type Action, type Row } from "./inbox-state"
 import { useDecideById, useTodoAct, type TodoAct } from "./use-inbox"
 
@@ -37,7 +39,7 @@ export function useRowActions({
     busy.current = false
   }
 
-  const change = (row: Row, todoAct: TodoAct, done: string) => {
+  const change = (row: Row, todoAct: TodoAct, done: string, moveOn = todoAct.act !== "draft") => {
     if (row.kind !== "todo" || !start()) return
     act.mutate(
       { todo: row.todo, change: todoAct },
@@ -45,7 +47,7 @@ export function useRowActions({
         onSettled: settled,
         onSuccess: () => {
           toast.add({ title: done, type: "success" })
-          if (todoAct.act !== "draft") after(row)
+          if (moveOn) after(row)
         },
         onError: (error) =>
           toast.add({ title: "Not changed", description: errorText(error), type: "error" }),
@@ -111,6 +113,24 @@ export function useRowActions({
 
   return {
     run,
+    // setPriority, setProject and hand are the changes the priority icon, the project picker and Cmd+K make
+    // (issue #1157); they leave the selection where it is.
+    setPriority: (row: Row, priority: number) =>
+      change(
+        row,
+        { act: "priority", priority },
+        `Priority set to ${priorityName(priority)}`,
+        false,
+      ),
+    setProject: (row: Row, project: string, name: string) =>
+      change(
+        row,
+        { act: "project", project },
+        project ? `Moved to ${name}` : "Removed from its project",
+        false,
+      ),
+    hand: (row: Row, bot: string, name: string) =>
+      change(row, { act: "hand", bot }, `Given to ${name}`, false),
     saveDraft: (row: Row, draft: string, onSaved: () => void) =>
       row.kind === "todo" &&
       start() &&
@@ -150,4 +170,8 @@ export function copyDraft(draft: string): Promise<boolean> {
       return false
     },
   )
+}
+
+function priorityName(priority: number) {
+  return priorityOf(priority).name.toLowerCase()
 }

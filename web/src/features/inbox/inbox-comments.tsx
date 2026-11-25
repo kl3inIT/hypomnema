@@ -50,6 +50,7 @@ export function CommentTimeline({
   now,
   from,
   botName,
+  projectName,
 }: {
   events?: readonly TodoEvent[]
   loading: boolean
@@ -57,6 +58,8 @@ export function CommentTimeline({
   // from is where the item came from, said on its first line ("Zalo · Laura Nguyen").
   from?: string
   botName: (id: string) => string
+  // projectName names a project by its id (issue #1157).
+  projectName?: (id: string) => string | undefined
 }) {
   const entries = threadOf(events)
   if (entries.length === 0) {
@@ -73,7 +76,7 @@ export function CommentTimeline({
           render={<li />}
           className={itemClass}
         >
-          <Entry entry={entry} now={now} from={from} botName={botName} />
+          <Entry entry={entry} now={now} from={from} botName={botName} projectName={projectName} />
         </TimelineItem>
       ))}
     </Timeline>
@@ -85,11 +88,13 @@ function Entry({
   now,
   from,
   botName,
+  projectName,
 }: {
   entry: ThreadEntry
   now: number
   from?: string
   botName: (id: string) => string
+  projectName?: (id: string) => string | undefined
 }) {
   switch (entry.kind) {
     case "comment":
@@ -109,6 +114,7 @@ function Entry({
         entry.event,
         botName,
         entry.event.kind === "created" ? from : undefined,
+        projectName,
       )
       const Icon = line.icon
       const reason = (entry.event.after as Record<string, unknown>).close_reason
@@ -161,7 +167,7 @@ function Entry({
               </ChainOfThoughtHeader>
               <ChainOfThoughtContent>
                 {entry.steps.map((step) => {
-                  const line = eventLine(step, botName)
+                  const line = eventLine(step, botName, undefined, projectName)
 
                   return (
                     <ChainOfThoughtStep

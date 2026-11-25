@@ -31,6 +31,8 @@ const todo = (m: Partial<Todo> = {}): Todo => ({
   close_reason: "",
   evidence: [],
   stale: false,
+  priority: 0,
+  priority_reason: "",
   created_at: "2026-11-25T03:00:00Z",
   updated_at: "2026-11-25T03:00:00Z",
   ...m,

@@ -188,7 +188,8 @@ func (s *Store) changeTx(
 			DoneByKind: next.DoneByKind, DoneBy: next.DoneBy,
 			RecordedByKind: next.RecordedByKind, RecordedBy: next.RecordedBy, ClosedHow: next.ClosedHow,
 			CloseReason: next.CloseReason, Evidence: next.Evidence, ClosedAt: next.ClosedAt,
-			DuplicateOf: next.DuplicateOf, Now: now, ID: cur.ID, Revision: cur.Revision, FromState: cur.State,
+			DuplicateOf: next.DuplicateOf, Priority: next.Priority, PriorityReason: next.PriorityReason,
+			ProjectID: next.ProjectID, Now: now, ID: cur.ID, Revision: cur.Revision, FromState: cur.State,
 		})
 		if err != nil {
 			return fmt.Errorf("changing to-do %s: %w", c.ID, err)
@@ -832,6 +833,12 @@ type Edit struct {
 	// Source points the item at what it was read in (issue #1105): one of FoundKinds, with its quote and message.
 	// A source the caller's token gives (the owner's hand, a chat, a Routine's run) is never set by an edit.
 	Source *Source
+	// Priority sets the priority with PriorityReason, its reason: a priority set without one has none, so that a
+	// reason never stays beside a priority it was not given for (issue #1157). PriorityReason alone is refused.
+	Priority       *int
+	PriorityReason *string
+	// Project puts the item in a project, by its id, or in none when empty.
+	Project *string
 }
 
 // Edit changes the fields of a to-do that is not closed. The owner edits any; a Bot only the items it created or
@@ -849,6 +856,16 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 	}
 
 	var ref sql.NullString
+
+	if e.PriorityReason != nil && e.Priority == nil {
+		return Todo{}, fmt.Errorf("%w: a priority's reason is given with the priority", storeerr.ErrInvalid)
+	}
+
+	if e.Priority != nil {
+		if err := checkPriority(*e.Priority, strings.TrimSpace(val(e.PriorityReason))); err != nil {
+			return Todo{}, err
+		}
+	}
 
 	if e.Source != nil {
 		if !Found(e.Source.Kind) {
@@ -971,6 +988,19 @@ func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, du
 		next.SourceQuote, next.SourceRef = e.Source.Quote, ref
 	}
 
+	if e.Priority != nil {
+		next.Priority, next.PriorityReason = int64(*e.Priority), strings.TrimSpace(val(e.PriorityReason))
+	}
+
+	if e.Project != nil {
+		project := strings.TrimSpace(*e.Project)
+		if err := checkProjectOf(ctx, q, project); err != nil {
+			return nil, err
+		}
+
+		next.ProjectID = nullString(project)
+	}
+
 	if e.Assignee != nil {
 		a := Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}
 		if (cur.State == Doing || cur.State == Review) && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
@@ -1028,7 +1058,7 @@ func fields(r store.Todo) map[string]any {
 	m := map[string]any{
 		"title": r.Title, "notes": r.Notes, "done_when": r.DoneWhen, "draft": r.Draft, "due_kind": r.DueKind,
 		"assignee_kind": r.AssigneeKind, "assignee": r.Assignee, "state": r.State, "source_kind": r.SourceKind,
-		"source_quote": r.SourceQuote,
+		"source_quote": r.SourceQuote, "priority": r.Priority, "priority_reason": r.PriorityReason,
 		"close_reason": r.CloseReason, "evidence": json.RawMessage(r.Evidence),
 	}
 
@@ -1038,7 +1068,7 @@ func fields(r store.Todo) map[string]any {
 		"work_bot": r.WorkBot, "work_started_at": r.WorkStartedAt, "approval_id": r.ApprovalID,
 		"done_by_kind": r.DoneByKind, "done_by": r.DoneBy, "recorded_by_kind": r.RecordedByKind,
 		"recorded_by": r.RecordedBy, "closed_how": r.ClosedHow, "closed_at": r.ClosedAt,
-		"duplicate_of": r.DuplicateOf, "why_open": r.WhyOpen, "passed_by": r.PassedBy,
+		"duplicate_of": r.DuplicateOf, "why_open": r.WhyOpen, "passed_by": r.PassedBy, "project_id": r.ProjectID,
 	} {
 		m[k] = v
 	}
@@ -1115,4 +1145,13 @@ func nullJSON(m map[string]any) map[string]any {
 	}
 
 	return out
+}
+
+func val[T any](p *T) T {
+	var zero T
+	if p == nil {
+		return zero
+	}
+
+	return *p
 }

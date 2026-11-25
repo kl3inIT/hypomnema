@@ -1,10 +1,11 @@
 -- name: InsertTodo :exec
 INSERT INTO todos (id, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
                    assignee, passed_by, state, source_kind, source_id, source_account, source_quote, source_ref,
-                   created_by_kind, created_by, why_open, idempotency_key, idempotency_hash, created_at, updated_at)
+                   created_by_kind, created_by, why_open, priority, priority_reason, project_id, idempotency_key,
+                   idempotency_hash, created_at, updated_at)
 VALUES (@id, @title, @notes, @done_when, @draft, @due_kind, @due_date, @due_zone, @due_at, @overdue_at, @assignee_kind,
         @assignee, @passed_by, @state, @source_kind, @source_id, @source_account, @source_quote, @source_ref, @created_by_kind,
-        @created_by, @why_open, @idempotency_key, @idempotency_hash, @now, @now);
+        @created_by, @why_open, @priority, @priority_reason, @project_id, @idempotency_key, @idempotency_hash, @now, @now);
 
 -- name: GetTodo :one
 SELECT * FROM todos WHERE id = @id;
@@ -28,6 +29,7 @@ SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_w
     approval_id = @approval_id, done_by_kind = @done_by_kind,
     done_by = @done_by, recorded_by_kind = @recorded_by_kind, recorded_by = @recorded_by, closed_how = @closed_how,
     close_reason = @close_reason, evidence = @evidence, closed_at = @closed_at, duplicate_of = @duplicate_of,
+    priority = @priority, priority_reason = @priority_reason, project_id = @project_id,
     updated_at = @now
 WHERE id = @id AND revision = @revision AND state = @from_state;
 
@@ -66,7 +68,8 @@ ORDER BY id DESC LIMIT @lim;
 
 -- name: ListTodos :many
 -- One page of the items that match, by due (those without one last), then created, then id, after the cursor of
--- the previous page when one is given. The filter is the same as CountTodos's. A proposal nobody touched since
+-- the previous page when one is given. The filter is the same as CountTodos's. With project_kind none, only the items
+-- without a project; one, only those of project (issue #1157). A proposal nobody touched since
 -- stale_before is stale (issue #966): left out unless with_stale, and never one that needs the owner. Touched is
 -- any event after created, and every event moves the revision on, so an untouched item is at revision 1. With
 -- has_owner_since, only the items the owner changed at or after owner_since (issue #1119).
@@ -74,6 +77,9 @@ SELECT t.* FROM todos t
 WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(@states AS TEXT))))
   AND (CAST(@assignee_kind AS TEXT) = '' OR (t.assignee_kind = @assignee_kind AND t.assignee = @assignee))
   AND (CAST(@source_kind AS TEXT) = '' OR t.source_kind = @source_kind)
+  AND (CAST(@project_kind AS TEXT) = ''
+    OR (CAST(@project_kind AS TEXT) = 'none' AND t.project_id IS NULL)
+    OR (CAST(@project_kind AS TEXT) = 'one' AND t.project_id = CAST(@project AS TEXT)))
   AND (CAST(@has_due_from AS INTEGER) = 0 OR t.due_at >= CAST(@due_from AS INTEGER))
   AND (CAST(@has_due_to AS INTEGER) = 0 OR t.due_at < CAST(@due_to AS INTEGER))
   AND (CAST(@with_snoozed AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
@@ -103,6 +109,9 @@ SELECT count(*) FROM todos t
 WHERE (CAST(@any_state AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(@states AS TEXT))))
   AND (CAST(@assignee_kind AS TEXT) = '' OR (t.assignee_kind = @assignee_kind AND t.assignee = @assignee))
   AND (CAST(@source_kind AS TEXT) = '' OR t.source_kind = @source_kind)
+  AND (CAST(@project_kind AS TEXT) = ''
+    OR (CAST(@project_kind AS TEXT) = 'none' AND t.project_id IS NULL)
+    OR (CAST(@project_kind AS TEXT) = 'one' AND t.project_id = CAST(@project AS TEXT)))
   AND (CAST(@has_due_from AS INTEGER) = 0 OR t.due_at >= CAST(@due_from AS INTEGER))
   AND (CAST(@has_due_to AS INTEGER) = 0 OR t.due_at < CAST(@due_to AS INTEGER))
   AND (CAST(@with_snoozed AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(@now AS INTEGER))
@@ -173,3 +182,27 @@ ORDER BY id;
 UPDATE todos
 SET revision = revision + 1, created_by = @created_by, assignee = @assignee, passed_by = @passed_by, updated_at = @now
 WHERE id = @id AND revision = @revision;
+
+-- name: ListInboxProjects :many
+-- The Inbox's projects (issue #1157), by name.
+SELECT * FROM inbox_projects ORDER BY name COLLATE NOCASE, id;
+
+-- name: GetInboxProject :one
+SELECT * FROM inbox_projects WHERE id = @id;
+
+-- name: InsertInboxProject :exec
+INSERT INTO inbox_projects (id, name, color, created_at, updated_at) VALUES (@id, @name, @color, @now, @now);
+
+-- name: UpdateInboxProject :execrows
+UPDATE inbox_projects SET name = @name, color = @color, updated_at = @now WHERE id = @id;
+
+-- name: DeleteInboxProject :execrows
+DELETE FROM inbox_projects WHERE id = @id;
+
+-- name: ListTodosOfProject :many
+-- The items of a project, in any state: those a removed project leaves without one.
+SELECT * FROM todos WHERE project_id = @project_id ORDER BY id;
+
+-- name: ClearTodoProject :execrows
+-- An item leaves a removed project (issue #1157), at the revision read, which it moves on.
+UPDATE todos SET revision = revision + 1, project_id = NULL, updated_at = @now WHERE id = @id AND revision = @revision;

@@ -592,6 +592,14 @@ type GitHost struct {
 	CreatedAt int64
 }
 
+type InboxProject struct {
+	ID        string
+	Name      string
+	Color     string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 type IntegrationClient struct {
 	Integration string
 	ClientID    string
@@ -1156,6 +1164,9 @@ type Todo struct {
 	WhyOpen         sql.NullString
 	ChatID          sql.NullString
 	PassedBy        sql.NullString
+	Priority        int64
+	PriorityReason  string
+	ProjectID       sql.NullString
 }
 
 type TodoEvent struct {

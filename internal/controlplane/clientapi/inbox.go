@@ -70,7 +70,7 @@ func (s *Server) ListTodos(ctx context.Context, req openapi.ListTodosRequestObje
 	f := inboxstore.Filter{
 		SourceKind: string(val(p.SourceKind)), NeedsYou: val(p.NeedsYou), WithSnoozed: val(p.IncludeSnoozed),
 		WithClosed: val(p.IncludeClosed), WithStale: val(p.IncludeStale),
-		DueFrom: val(p.DueFrom), DueTo: val(p.DueTo),
+		DueFrom: val(p.DueFrom), DueTo: val(p.DueTo), Project: val(p.Project),
 	}
 
 	for _, st := range val(p.State) {
@@ -126,6 +126,7 @@ func (s *Server) CreateTodo(ctx context.Context, req openapi.CreateTodoRequestOb
 	n := inboxstore.NewTodo{
 		Title: b.Title, Notes: val(b.Notes), DoneWhen: val(b.DoneWhen), Draft: val(b.Draft), Due: dueIn(b.Due),
 		Assignee: assigneeIn(b.Assignee), Source: src, WhyOpen: string(val(b.WhyOpen)),
+		Priority: val(b.Priority), PriorityReason: val(b.PriorityReason), Project: val(b.ProjectId),
 		IdempotencyKey: val(req.Params.IdempotencyKey),
 	}
 
@@ -208,7 +209,10 @@ func (s *Server) EditTodo(ctx context.Context, req openapi.EditTodoRequestObject
 	}
 
 	b := req.Body
-	e := inboxstore.Edit{Title: b.Title, Notes: b.Notes, DoneWhen: b.DoneWhen, Draft: b.Draft}
+	e := inboxstore.Edit{
+		Title: b.Title, Notes: b.Notes, DoneWhen: b.DoneWhen, Draft: b.Draft, Priority: b.Priority,
+		PriorityReason: b.PriorityReason, Project: b.ProjectId,
+	}
 
 	if b.Due != nil {
 		due := dueIn(b.Due)
@@ -451,7 +455,7 @@ func todoOut(t inboxstore.Todo, events bool) openapi.Todo {
 		CreatedBy: actorOut(t.CreatedBy), ApprovalId: ptr(t.ApprovalID), CloseReason: t.CloseReason,
 		Evidence: make([]openapi.TodoLink, 0, len(t.Evidence)), ClosedAt: t.ClosedAt, DuplicateOf: ptr(t.DuplicateOf),
 		Stale: t.Stale, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, ChatId: ptr(t.Chat),
-		PassedBy: ptr(t.PassedBy),
+		PassedBy: ptr(t.PassedBy), Priority: t.Priority, PriorityReason: t.PriorityReason, ProjectId: ptr(t.Project),
 	}
 
 	if t.Due.Date != "" {

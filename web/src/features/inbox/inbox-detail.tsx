@@ -23,6 +23,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { PrioritySelector } from "@/components/ui/priority"
+import { ProjectSelector, type ProjectChoice } from "@/components/ui/project-selector"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import { ApprovalCard } from "@/features/approvals/approval-card"
@@ -36,6 +38,7 @@ import { KindIcon, RowActions } from "./inbox-row"
 import {
   detailActions,
   dueOf,
+  isClosed,
   groupNames,
   placeOf,
   sourceNames,
@@ -73,6 +76,9 @@ export function InboxDetail({
   onAction,
   onAnswered,
   onSaveDraft,
+  projects = [],
+  onPriority,
+  onProject,
 }: {
   row: Row
   now: number
@@ -88,6 +94,9 @@ export function InboxDetail({
   onAction: (action: Action, until?: number) => void
   onAnswered: () => void
   onSaveDraft: (draft: string, onSaved: () => void) => void
+  projects?: ProjectChoice[]
+  onPriority?: (priority: number) => void
+  onProject?: (project: string | undefined) => void
 }) {
   const actions = detailActions(row, now)
 
@@ -146,6 +155,9 @@ export function InboxDetail({
               chats={chats}
               onAnswered={onAnswered}
               onSaveDraft={onSaveDraft}
+              projects={projects}
+              onPriority={onPriority}
+              onProject={onProject}
             />
           )}
           {row.kind === "approval" && (
@@ -332,6 +344,9 @@ function TodoBody({
   chats,
   onAnswered,
   onSaveDraft,
+  projects,
+  onPriority,
+  onProject,
 }: {
   row: Extract<Row, { kind: "todo" }>
   now: number
@@ -340,6 +355,9 @@ function TodoBody({
   chats: KeptChats
   onAnswered: () => void
   onSaveDraft: (draft: string, onSaved: () => void) => void
+  projects: ProjectChoice[]
+  onPriority?: (priority: number) => void
+  onProject?: (project: string | undefined) => void
 }) {
   const { todo } = row
   const detail = useTodo(todo.id)
@@ -353,7 +371,37 @@ function TodoBody({
     todo.done_when ||
     (todo.why_open === "asked_directly" ? "You answer in this chat; it closes by itself" : "")
   const linked = linkedOf(todo, botName)
+  // Its priority and project, each its own picker, as circle's issue properties panel (MIT, Copyright (c) 2025
+  // lndev-ui; components/common/issues/details/issue-properties-panel.tsx), with the reason the priority was set for
+  // (issue #1157). A closed item keeps them as they were.
+  const locked = isClosed(todo)
   const fields: [string, ReactNode][] = [
+    [
+      "Priority",
+      <span key="priority" className="flex flex-wrap items-center gap-2">
+        <PrioritySelector
+          labelled
+          value={todo.priority}
+          disabled={!onPriority || locked}
+          onChange={(priority) => onPriority?.(priority)}
+        />
+        {todo.priority_reason && (
+          <span data-slot="priority-reason" className="text-xs text-muted-foreground">
+            {todo.priority_reason}
+          </span>
+        )}
+      </span>,
+    ],
+    [
+      "Project",
+      <ProjectSelector
+        key="project"
+        projects={projects}
+        value={todo.project_id || undefined}
+        disabled={!onProject || locked}
+        onChange={(project) => onProject?.(project)}
+      />,
+    ],
     ["Who", throughWhom(todo, whoOf(todo, botName), botName)],
     ...(due ? ([["Date", due.text]] as [string, ReactNode][]) : []),
     ...(doneWhen ? ([["Done when", doneWhen]] as [string, ReactNode][]) : []),
@@ -407,6 +455,7 @@ function TodoBody({
           now={now}
           from={fromOf(todo, kind, origin)}
           botName={botName}
+          projectName={(id) => projects.find((p) => p.id === id)?.name}
         />
         {todo.chat_id && (
           <OpenChat chatId={todo.chat_id}>

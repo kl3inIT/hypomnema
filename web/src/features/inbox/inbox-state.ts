@@ -102,9 +102,17 @@ export function groupOf(row: Row, now: number): GroupId {
   return "open"
 }
 
+// priorityRank orders by priority (issue #1157), as Linear's "curated priority order" inside each group: urgent
+// first, then high, medium and low, no priority last; an ask has none.
+function priorityRank(row: Row) {
+  const priority = row.kind === "todo" ? row.todo.priority : 0
+
+  return priority > 0 ? priority : 5
+}
+
 // groupRows sorts the rows into their groups. Needs you lists the asks first, Approvals before questions, as Orca's
-// BotNeedsYouSection; to-dos keep the server's order, by due. Snoozed comes back soonest first; Done, the latest
-// closed first.
+// BotNeedsYouSection; inside each group the rows go by priority (issue #1157), then as before: to-dos keep the
+// server's order, by due; Snoozed comes back soonest first; Done, the latest closed first.
 export function groupRows(rows: Row[], now: number): Groups {
   const groups: Groups = {
     needs_you: [],
@@ -119,9 +127,13 @@ export function groupRows(rows: Row[], now: number): Groups {
 
   const at = (row: Row, field: "snoozed_until" | "closed_at") =>
     row.kind === "todo" ? Date.parse(row.todo[field] ?? "") || 0 : 0
-  groups.needs_you.sort((a, b) => askRank(a) - askRank(b))
-  groups.snoozed.sort((a, b) => at(a, "snoozed_until") - at(b, "snoozed_until"))
-  groups.done.sort((a, b) => at(b, "closed_at") - at(a, "closed_at"))
+  const byPriority = (a: Row, b: Row) => priorityRank(a) - priorityRank(b)
+  groups.needs_you.sort((a, b) => askRank(a) - askRank(b) || byPriority(a, b))
+  groups.working.sort(byPriority)
+  groups.open.sort(byPriority)
+  groups.proposed.sort(byPriority)
+  groups.snoozed.sort((a, b) => byPriority(a, b) || at(a, "snoozed_until") - at(b, "snoozed_until"))
+  groups.done.sort((a, b) => byPriority(a, b) || at(b, "closed_at") - at(a, "closed_at"))
 
   return groups
 }
@@ -502,9 +514,19 @@ function personOf(row: Row): Person {
   }
 }
 
-export type Filter = { query: string; sources: Source[]; people: Person[] }
+// Filter is what the list shows: the words searched, the sources and the people chosen, and the project (issue #1157):
+// every project (null), the items of none ("none"), or one by its id.
+export type Filter = { query: string; sources: Source[]; people: Person[]; project: string | null }
 
-export const noFilter: Filter = { query: "", sources: [], people: [] }
+export const noFilter: Filter = { query: "", sources: [], people: [], project: null }
+
+// noProject is the Filter's project of the items without one, as the API's project=none.
+export const noProject = "none"
+
+// projectOfRow is the project a row is in: a to-do's, by its id; an ask is in none.
+export function projectOfRow(row: Row): string | undefined {
+  return row.kind === "todo" ? row.todo.project_id || undefined : undefined
+}
 
 export function titleOf(row: Row): string {
   switch (row.kind) {
@@ -522,6 +544,7 @@ export function titleOf(row: Row): string {
 export function matches(row: Row, filter: Filter, from: string): boolean {
   if (filter.sources.length && !filter.sources.includes(sourceOf(row))) return false
   if (filter.people.length && !filter.people.includes(personOf(row))) return false
+  if (filter.project !== null && (projectOfRow(row) ?? noProject) !== filter.project) return false
 
   const words = filter.query.toLowerCase().split(/\s+/).filter(Boolean)
   const hay = `${titleOf(row)} ${from}`.toLowerCase()

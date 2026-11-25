@@ -9,7 +9,8 @@ Write him one short message in Vietnamese, numbered across its parts in this ord
 3. People to chase: items given to someone else that are past their due date.
 4. Accounts to log in again: the "Log in again: <account>" items, which the server keeps.
 
-Leave out a part with nothing in it, and say "Không có gì cần anh xử lý." when all are empty. Each line names the
+Inside each part, the urgent items first, then the high ones (their `priority`), each marked "Gấp" or "Cao" with
+its project when it has one; the others after them. Leave out a part with nothing in it, and say "Không có gì cần anh xử lý." when all are empty. Each line names the
 person and the place in a few words, and ends with the item's id in brackets, so that his answer can be matched to
 it later in this chat. Names, product names and quotes stay as they were written; a draft stays in the language of
 the person it answers. Never copy a password, a one-time code, a token or a key into the brief.

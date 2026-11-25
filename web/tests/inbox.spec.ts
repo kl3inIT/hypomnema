@@ -34,6 +34,8 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
   close_reason: "",
   evidence: [],
   stale: false,
+  priority: 0,
+  priority_reason: "",
   created_at: at(-5 * hour),
   updated_at: at(-hour),
   ...m,
@@ -46,7 +48,9 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // keep their chats, which name Kai Yong and Lan, and the message Kai sent (issue #1110). triage makes Thư ký the main
 // Bot with its triage Routine, last run 12 minutes ago; a run started by hand goes until endScan, which finds a new
 // to-do (issue #1115). passed adds a to-do Hypo passed to the BeyondPilot Bot (issue #1118). worked adds one Hypo
-// works on, with its steps and its report, and one it closed as done (issue #1143).
+// works on, with its steps and its report, and one it closed as done (issue #1143). projects keeps the owner's
+// projects VMAP and BeyondPilot, puts the reply to Kai in BeyondPilot and the invoice in VMAP, and gives the open
+// items their priorities (issue #1157).
 function world({
   review = false,
   sources = false,
@@ -54,6 +58,7 @@ function world({
   triage = false,
   passed = false,
   worked = false,
+  projects: withProjects = false,
 }: {
   review?: boolean
   sources?: boolean
@@ -61,6 +66,7 @@ function world({
   triage?: boolean
   passed?: boolean
   worked?: boolean
+  projects?: boolean
 } = {}) {
   let release = () => {}
   let held: Promise<void> | undefined
@@ -151,6 +157,35 @@ function world({
         },
       }),
     )
+  const projects: { id: string; name: string; color: string }[] = withProjects
+    ? [
+        { id: "prj_bp", name: "BeyondPilot", color: "#4cb782" },
+        { id: "prj_vmap", name: "VMAP", color: "#5e6ad2" },
+      ]
+    : []
+  if (withProjects) {
+    const set = (id: string, m: object) =>
+      Object.assign(
+        todos.find((t) => t.id === id)!,
+        m,
+      )
+    set("tdo_reply", {
+      priority: 1,
+      priority_reason: "Kai needs it before Friday",
+      project_id: "prj_bp",
+    })
+    set("tdo_invoice", { priority: 3, project_id: "prj_vmap" })
+    set("tdo_chase", { priority: 2, priority_reason: "Lan is a day late" })
+    todos.push(
+      todo("tdo_report", "Send Laura the weekly report", {
+        priority: 1,
+        priority_reason: "Due today",
+        project_id: "prj_vmap",
+        due: { kind: "date", date: dayIn(3), zone: "Asia/Ho_Chi_Minh" },
+        source: { kind: "owner" },
+      }),
+    )
+  }
   const needs = new Set(
     quiet ? [] : ["tdo_reply", "tdo_login", "tdo_idea", ...(review ? ["tdo_mail"] : [])],
   )
@@ -417,6 +452,23 @@ function world({
 
           return json({ data: list, total: list.length })
         }
+        if (path === "/inbox/projects") {
+          if (request.method() === "POST") {
+            const body = request.postDataJSON() as { name: string; color: string }
+            sent.push({ path, body })
+            const made = {
+              id: `prj_${projects.length + 1}`,
+              ...body,
+              created_at: at(0),
+              updated_at: at(0),
+            }
+            projects.push(made)
+
+            return json(made, 201)
+          }
+
+          return json({ data: projects })
+        }
         if (path === "/inbox/needs-you")
           return json({
             count:
@@ -427,6 +479,17 @@ function world({
         const acted = /^\/inbox\/(tdo_\w+)(?:\/(\w+))?$/.exec(path)
         if (acted) {
           const t = todos.find((x) => x.id === acted[1])!
+          // An edit (issue #1157): a priority set by the owner has no reason; an empty project takes it out.
+          if (!acted[2] && request.method() === "PATCH") {
+            const body = request.postDataJSON() as Record<string, unknown>
+            sent.push({ path, body })
+            t.revision += 1
+            if (typeof body.priority === "number")
+              Object.assign(t, { priority: body.priority, priority_reason: "" })
+            if (typeof body.project_id === "string") t.project_id = body.project_id || undefined
+
+            return json(t)
+          }
           if (!acted[2])
             return json({
               ...t,
@@ -1255,3 +1318,120 @@ for (const theme of ["light", "dark"] as const) {
     }
   })
 }
+
+// Scenario: issue #1157, decisions 1 and 2. Each to-do starts with its priority's icon, and Open lists the urgent
+// items first, then high and medium. The owner points at the reply's icon and reads the reason the Bot gave; he
+// changes the invoice's priority with one click on its icon: the change is sent with the revision read and no
+// reason, and the row moves up.
+test("the owner changes a priority with one click and the list orders by it", async ({ page }) => {
+  const w = world({ projects: true })
+  await w.serve(page)
+  await page.goto("/inbox")
+
+  const open = rowsOf(page, "Open")
+  await expect(open).toHaveCount(3)
+  await expect(open.nth(0)).toContainText("Send Laura the weekly report")
+  await expect(open.nth(1)).toContainText("Lan sends the signed contract")
+  await expect(open.nth(2)).toContainText("Send the invoice to ELITEX")
+  await expect(open.nth(0).getByRole("combobox", { name: "Priority: Urgent" })).toBeVisible()
+  await expect(open.nth(2)).toContainText("VMAP")
+
+  const reply = rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" })
+  await expect(reply.getByRole("combobox", { name: "Priority: Urgent" })).toHaveAttribute(
+    "title",
+    "Kai needs it before Friday",
+  )
+
+  await open.nth(2).getByRole("combobox", { name: "Priority: Medium" }).click()
+  await expect(page.getByRole("option", { name: "Urgent" })).toBeVisible()
+  await shot(page, "inbox-priority-picker")
+  await page.getByRole("option", { name: "Urgent" }).click()
+  await expect
+    .poll(() => w.sent.find((s) => s.path === "/inbox/tdo_invoice")?.body)
+    .toEqual({ revision: 1, priority: 1 })
+  await expect(open.nth(0)).toContainText("Send the invoice to ELITEX")
+  await shot(page, "inbox-priorities")
+})
+
+// Scenario: issue #1157, decision 5. On the open item, Cmd+K (Ctrl+K) names it in a chip and offers its commands:
+// the owner sets its priority, moves it to a project and gives it to Hypo, each in a few keys. With the chip cleared,
+// he types a title and the item he picks opens.
+test("Cmd+K changes the selected item and jumps to another", async ({ page }) => {
+  const w = world({ projects: true })
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_invoice")
+  await expect(
+    item(page).getByRole("heading", { name: "Send the invoice to ELITEX" }),
+  ).toBeVisible()
+
+  const menu = page.getByRole("dialog", { name: "Command menu" })
+  await page.keyboard.press("ControlOrMeta+k")
+  await expect(menu.getByTestId("command-context")).toContainText("Send the invoice to ELITEX")
+  await expect(menu.getByRole("option", { name: "Give to Hypo" })).toBeVisible()
+  await shot(page, "inbox-command-menu")
+  await menu.getByRole("option", { name: "Set priority…" }).click()
+  await menu.getByRole("option", { name: "Urgent" }).click()
+  await expect(menu).toBeHidden()
+  await expect
+    .poll(() => w.sent.find((s) => s.path === "/inbox/tdo_invoice")?.body)
+    .toEqual({ revision: 1, priority: 1 })
+
+  await page.keyboard.press("ControlOrMeta+k")
+  await expect(menu.getByRole("combobox")).toBeFocused()
+  await page.keyboard.type("project")
+  await page.keyboard.press("Enter")
+  await expect(menu.getByRole("option", { name: "BeyondPilot" })).toBeVisible()
+  await shot(page, "inbox-command-menu-project")
+  await menu.getByRole("option", { name: "BeyondPilot" }).click()
+  await expect
+    .poll(() => w.sent.filter((s) => s.path === "/inbox/tdo_invoice").at(-1)?.body)
+    .toEqual({ revision: 2, project_id: "prj_bp" })
+  await expect(item(page).getByRole("combobox", { name: "Project: BeyondPilot" })).toBeVisible()
+  await shot(page, "inbox-item-priority-project")
+
+  await page.keyboard.press("ControlOrMeta+k")
+  await menu.getByRole("option", { name: "Give to Hypo" }).click()
+  await expect
+    .poll(() => w.sent.find((s) => s.path === "/inbox/tdo_invoice/hand")?.body)
+    .toEqual({ revision: 3, bot: "bot_main" })
+
+  await page.keyboard.press("ControlOrMeta+k")
+  await menu.getByRole("button", { name: "Clear the item" }).click()
+  await expect(menu.getByRole("combobox")).toBeFocused()
+  await page.keyboard.type("renew")
+  await menu.getByRole("option", { name: /Renew the domain/ }).click()
+  await expect(item(page).getByRole("heading", { name: "Renew the domain" })).toBeVisible()
+})
+
+// Scenario: issue #1157, decision 4. The project filter, next to the other filter, shows every project at first; the
+// owner picks VMAP and sees its items only, then No project; and he adds a project from the same menu.
+test("the project filter shows one project's items, and the owner adds a project", async ({
+  page,
+}) => {
+  const w = world({ projects: true })
+  await w.serve(page)
+  await page.goto("/inbox")
+  await expect(rowsOf(page, "Open")).toHaveCount(3)
+
+  const filter = list(page).getByRole("button", { name: "Project: Every project" })
+  await filter.click()
+  await expect(page.getByRole("option", { name: /VMAP/ }).first()).toBeVisible()
+  await shot(page, "inbox-project-filter")
+  await page.getByRole("option", { name: /^VMAP/ }).click()
+  await expect(rowsOf(page, "Open")).toHaveCount(2)
+  await expect(group(page, "Needs you")).toHaveCount(0)
+
+  await list(page).getByRole("button", { name: "Project: VMAP" }).click()
+  await page.getByRole("option", { name: /^No project/ }).click()
+  await expect(rowsOf(page, "Open").filter({ hasText: "VMAP" })).toHaveCount(0)
+
+  await list(page).getByRole("button", { name: "Project: No project" }).click()
+  await page.getByRole("option", { name: "New project…" }).click()
+  await page.getByRole("textbox", { name: "Project name" }).fill("SecondBite")
+  await page.getByRole("button", { name: "#4cb782" }).click()
+  await shot(page, "inbox-project-new")
+  await page.getByRole("button", { name: "Add project" }).click()
+  await expect
+    .poll(() => w.sent.find((s) => s.path === "/inbox/projects")?.body)
+    .toEqual({ name: "SecondBite", color: "#4cb782" })
+})

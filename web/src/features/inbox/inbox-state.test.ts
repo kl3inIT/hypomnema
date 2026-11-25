@@ -17,6 +17,7 @@ import {
   matches,
   nextAfter,
   noFilter,
+  noProject,
   placeOf,
   rowsOf,
   snoozePresets,
@@ -46,6 +47,8 @@ const todo = (id: string, m: Partial<Todo> = {}): Todo => ({
   close_reason: "",
   evidence: [],
   stale: false,
+  priority: 0,
+  priority_reason: "",
   created_at: iso(now - 5 * hour),
   updated_at: iso(now - hour),
   ...m,
@@ -439,4 +442,54 @@ test("a mail and a meeting open where they were read", () => {
       row(todo("r", { source: { kind: "routine", id: "rrn_1", ref: { kind: "mail", ref: "x" } } })),
     ),
   ).toBe("gmail")
+})
+
+// Scenario: issue #1157, decision 2. Inside each group the rows go by priority, urgent first and no priority last,
+// then as before: Open keeps the server's order by due for one priority, Needs you its asks first, Done the latest
+// closed first.
+test("each group is ordered by priority, then as before", () => {
+  const due = (date: string) => ({ kind: "date" as const, date, zone: "Asia/Ho_Chi_Minh" })
+  const rows = rowsOf(
+    {
+      approvals: [approval("a")],
+      todos: [
+        todo("none-early", { due: due("2026-11-25") }),
+        todo("low", { priority: 4, due: due("2026-11-26") }),
+        todo("high-early", { priority: 2, due: due("2026-11-27") }),
+        todo("high-late", { priority: 2, due: due("2026-11-30") }),
+        todo("urgent", { priority: 1, due: due("2026-12-01") }),
+        todo("mine-urgent", { priority: 1 }),
+      ],
+      needsYou: ["mine-urgent"],
+      closedTodos: [
+        todo("closed-old", { state: "done", priority: 1, closed_at: iso(now - 2 * hour) }),
+        todo("closed-new", { state: "done", priority: 1, closed_at: iso(now - hour) }),
+        todo("closed-none", { state: "done", closed_at: iso(now) }),
+      ],
+    },
+    now,
+  )
+  const keys = (rs: Row[]) => rs.map((r) => r.key)
+  const groups = groupRows(rows, now)
+
+  expect(keys(groups.open)).toEqual([
+    "todo:urgent",
+    "todo:high-early",
+    "todo:high-late",
+    "todo:low",
+    "todo:none-early",
+  ])
+  expect(keys(groups.needs_you)).toEqual(["approval:a", "todo:mine-urgent"])
+  expect(keys(groups.done)).toEqual(["todo:closed-new", "todo:closed-old", "todo:closed-none"])
+})
+
+// Scenario: issue #1157, decision 4. The project filter keeps every project, the items of none, or one project's.
+test("the project filter keeps one project's items or those of none", () => {
+  const [inVmap, inNone] = rowsOf({ todos: [todo("v", { project_id: "prj_v" }), todo("n")] }, now)
+
+  expect(matches(inVmap!, { ...noFilter, project: "prj_v" }, "")).toBe(true)
+  expect(matches(inNone!, { ...noFilter, project: "prj_v" }, "")).toBe(false)
+  expect(matches(inNone!, { ...noFilter, project: noProject }, "")).toBe(true)
+  expect(matches(inVmap!, { ...noFilter, project: noProject }, "")).toBe(false)
+  expect(matches(inVmap!, noFilter, "")).toBe(true)
 })

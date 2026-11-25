@@ -313,9 +313,14 @@ type Todo struct {
 	Chat string
 	// PassedBy is the Bot that gave the item to the Bot it is given to (issue #1118): the main Bot that passed it to
 	// a project Bot, or the project Bot that gave it back to the main Bot; empty when the owner or the system gave it.
-	PassedBy  string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	PassedBy string
+	// Priority is NoPriority, Urgent, High, Medium or Low (issue #1157), PriorityReason why, in a line, as the Bot that
+	// set it said it; Project the id of its project, empty for none.
+	Priority       int
+	PriorityReason string
+	Project        string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 	// Events is its history, oldest first; filled by Get only.
 	Events []Event
 }
@@ -406,6 +411,11 @@ type NewTodo struct {
 	// WhyOpen is AskedDirectly or Promised when a Bot in a Routine's run, or reading the owner's Lark or Zalo
 	// chats, opens the item; it then gives the quote and the reference to the message too.
 	WhyOpen string
+	// Priority, its reason and the project's id (issue #1157) are left out of the request's hash when not given, so
+	// a key used before they existed still returns its item.
+	Priority       int    `json:",omitempty"`
+	PriorityReason string `json:",omitempty"`
+	Project        string `json:",omitempty"`
 	// IdempotencyKey, when given, makes a retried create return the first item.
 	IdempotencyKey string
 }
@@ -438,6 +448,11 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 	}
 
 	if err := checkDraft(n.Draft); err != nil {
+		return Todo{}, err
+	}
+
+	n.PriorityReason = strings.TrimSpace(n.PriorityReason)
+	if err := checkPriority(n.Priority, n.PriorityReason); err != nil {
 		return Todo{}, err
 	}
 
@@ -503,6 +518,10 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
+		if err := checkProjectOf(ctx, q, n.Project); err != nil {
+			return err
+		}
+
 		if n.DueIn != nil {
 			if due, err = dueRow(Due{Kind: DueInstant, At: time.UnixMilli(now).Add(n.DueIn.After),
 				Zone: n.DueIn.Zone}); err != nil {
@@ -518,6 +537,7 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			State: n.State, SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
 			SourceQuote: n.Source.Quote, SourceRef: ref,
 			CreatedByKind: actor.Kind, CreatedBy: actor.ID, WhyOpen: nullString(n.WhyOpen),
+			Priority: int64(n.Priority), PriorityReason: n.PriorityReason, ProjectID: nullString(n.Project),
 			IdempotencyKey: nullString(n.IdempotencyKey), IdempotencyHash: nullString(keyed(n.IdempotencyKey, hash)),
 			Now: now,
 		}); err != nil {
@@ -867,6 +887,8 @@ type Filter struct {
 	Assignee *Assignee
 	// SourceKind, when given, lists only the items from that kind of source.
 	SourceKind string
+	// Project, when given, lists only the items of that project, by its id; NoProject, only those without one.
+	Project string
 	// DueFrom and DueTo, when given, list only items due in [DueFrom, DueTo); a date is due from its first moment.
 	DueFrom, DueTo time.Time
 	// WithSnoozed lists snoozed items too.
@@ -908,7 +930,8 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 	p := store.ListTodosParams{
 		AnyState: cnt.AnyState, States: cnt.States, AssigneeKind: cnt.AssigneeKind, Assignee: cnt.Assignee,
-		SourceKind: cnt.SourceKind, HasDueFrom: cnt.HasDueFrom, DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
+		SourceKind: cnt.SourceKind, ProjectKind: cnt.ProjectKind, Project: cnt.Project, HasDueFrom: cnt.HasDueFrom,
+		DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
 		DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed, WithStale: cnt.WithStale, StaleBefore: cnt.StaleBefore,
 		Now: cnt.Now, NeedsYou: cnt.NeedsYou, HasOwnerSince: cnt.HasOwnerSince, OwnerSince: cnt.OwnerSince,
 		Lim: int64(limit) + 1,
@@ -1033,6 +1056,14 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 
 	p.SourceKind = f.SourceKind
 
+	switch f.Project {
+	case "":
+	case NoProject:
+		p.ProjectKind = NoProject
+	default:
+		p.ProjectKind, p.Project = "one", f.Project
+	}
+
 	// A bound is given when it is not the zero time; the Unix epoch is a bound like any other.
 	if !f.DueFrom.IsZero() {
 		p.HasDueFrom, p.DueFrom = 1, f.DueFrom.UnixMilli()
@@ -1116,7 +1147,8 @@ func fromRow(r store.Todo, now time.Time) (Todo, error) {
 		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy}, WhyOpen: r.WhyOpen.String, Stale: stale(r, now),
 		ApprovalID: r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
 		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String, Chat: r.ChatID.String,
-		PassedBy:  r.PassedBy.String,
+		PassedBy: r.PassedBy.String, Priority: int(r.Priority), PriorityReason: r.PriorityReason,
+		Project:   r.ProjectID.String,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
 

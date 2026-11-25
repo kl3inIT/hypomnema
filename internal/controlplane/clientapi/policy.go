@@ -386,6 +386,11 @@ var policies = map[string]policy{
 	"HandTodo":      {scope: scopeOwner},
 	"CommentTodo":   {scope: scopeActor},
 	"SendTodoDraft": {scope: scopeOwner},
+	// The Inbox's projects (issue #1157): every token reads them; the owner keeps them.
+	"ListInboxProjects":  {},
+	"CreateInboxProject": {scope: scopeOwner},
+	"EditInboxProject":   {scope: scopeOwner},
+	"DeleteInboxProject": {scope: scopeOwner},
 }
 
 var (

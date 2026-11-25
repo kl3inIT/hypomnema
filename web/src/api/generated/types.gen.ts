@@ -5392,12 +5392,51 @@ export type Todo = {
    * A proposal nobody touched for three days, left out of the list unless asked for.
    */
   stale: boolean;
+  priority: TodoPriority;
+  /**
+   * Why it has its priority, in a line, as who set it said it.
+   */
+  priority_reason: string;
+  /**
+   * The project it is in; left out when none.
+   */
+  project_id?: string;
   created_at: string;
   updated_at: string;
   /**
    * Its history, the oldest first; GET /inbox/{todo_id} only.
    */
   events?: Array<TodoEvent>;
+};
+
+/**
+ * 0 no priority, 1 urgent, 2 high, 3 medium, 4 low (Linear's scale).
+ */
+export type TodoPriority = number;
+
+export type InboxProject = {
+  id: string;
+  name: string;
+  /**
+   * #rrggbb.
+   */
+  color: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InboxProjectList = {
+  data: Array<InboxProject>;
+};
+
+export type NewInboxProject = {
+  name: string;
+  color: string;
+};
+
+export type InboxProjectEdit = {
+  name?: string;
+  color?: string;
 };
 
 export type TodoList = {
@@ -5443,6 +5482,12 @@ export type NewTodo = {
   state?: 'open' | 'proposed';
   why_open?: TodoWhyOpen;
   source?: NewTodoSource;
+  priority?: TodoPriority;
+  priority_reason?: string;
+  /**
+   * The project it is in; left out for none.
+   */
+  project_id?: string;
 };
 
 export type TodoChange = {
@@ -5465,6 +5510,15 @@ export type TodoEdit = {
   draft?: string;
   due?: TodoDue;
   assignee?: TodoAssignee;
+  priority?: TodoPriority;
+  /**
+   * Given with priority only; a priority set without one has no reason.
+   */
+  priority_reason?: string;
+  /**
+   * The project to put it in, by its id; empty takes it out of its project.
+   */
+  project_id?: string;
 };
 
 export type TodoDone = {
@@ -5626,6 +5680,8 @@ export type NewAccountImportWritable = {
 };
 
 export type TodoId = string;
+
+export type InboxProjectId = string;
 
 export type MeetingId = string;
 
@@ -13981,6 +14037,10 @@ export type ListTodosData = {
      */
     source_kind?: TodoSourceKind;
     /**
+     * Only the items of this project, by its id; none, only the items without one.
+     */
+    project?: string;
+    /**
      * Only the items due at or after this moment; a date is due from its first moment.
      */
     due_from?: string;
@@ -14049,6 +14109,110 @@ export type CreateTodoResponses = {
 };
 
 export type CreateTodoResponse = CreateTodoResponses[keyof CreateTodoResponses];
+
+export type ListInboxProjectsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/inbox/projects';
+};
+
+export type ListInboxProjectsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListInboxProjectsError = ListInboxProjectsErrors[keyof ListInboxProjectsErrors];
+
+export type ListInboxProjectsResponses = {
+  /**
+   * The projects.
+   */
+  200: InboxProjectList;
+};
+
+export type ListInboxProjectsResponse = ListInboxProjectsResponses[keyof ListInboxProjectsResponses];
+
+export type CreateInboxProjectData = {
+  body: NewInboxProject;
+  path?: never;
+  query?: never;
+  url: '/inbox/projects';
+};
+
+export type CreateInboxProjectErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateInboxProjectError = CreateInboxProjectErrors[keyof CreateInboxProjectErrors];
+
+export type CreateInboxProjectResponses = {
+  /**
+   * The project.
+   */
+  201: InboxProject;
+};
+
+export type CreateInboxProjectResponse = CreateInboxProjectResponses[keyof CreateInboxProjectResponses];
+
+export type DeleteInboxProjectData = {
+  body?: never;
+  path: {
+    project_id: string;
+  };
+  query?: never;
+  url: '/inbox/projects/{project_id}';
+};
+
+export type DeleteInboxProjectErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteInboxProjectError = DeleteInboxProjectErrors[keyof DeleteInboxProjectErrors];
+
+export type DeleteInboxProjectResponses = {
+  /**
+   * Removed.
+   */
+  204: void;
+};
+
+export type DeleteInboxProjectResponse = DeleteInboxProjectResponses[keyof DeleteInboxProjectResponses];
+
+export type EditInboxProjectData = {
+  body: InboxProjectEdit;
+  path: {
+    project_id: string;
+  };
+  query?: never;
+  url: '/inbox/projects/{project_id}';
+};
+
+export type EditInboxProjectErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type EditInboxProjectError = EditInboxProjectErrors[keyof EditInboxProjectErrors];
+
+export type EditInboxProjectResponses = {
+  /**
+   * The project.
+   */
+  200: InboxProject;
+};
+
+export type EditInboxProjectResponse = EditInboxProjectResponses[keyof EditInboxProjectResponses];
 
 export type GetInboxNeedsYouData = {
   body?: never;
