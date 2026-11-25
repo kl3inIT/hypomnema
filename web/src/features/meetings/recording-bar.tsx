@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { CircleAlert, Pause, Play, Square } from "lucide-react"
+import { CircleAlert, Mic, MicOff, Pause, Play, Square } from "lucide-react"
 import { useState } from "react"
 
 import type { MeetingKind, MeetingLiveTrack } from "@/api/generated/types.gen"
@@ -23,10 +23,11 @@ import { endMeeting, useRecorderValue } from "./meeting-session"
 import { clock } from "./meetings-state"
 
 // RecordingBar is the live controls over a meeting being recorded (issue #820), adapted from MemoryOS's
-// recording-bar.tsx without its mute and bookmark: the time recorded, a level meter a track, a warning when the
-// shared tab has been silent for 20 seconds (Nojoin) or is no longer shared, Pause and Resume beside Stop (issue
-// #1153, MemoryOS's bar and Meetily's RecordingControls.tsx), and Stop, asked first, paused or not, after which the
-// bar says the last words are being kept until every track is finished. The clock and each meter follow the recorder
+// recording-bar.tsx without its bookmark: the time recorded, a level meter a track, a warning when the shared tab has
+// been silent for 20 seconds (Nojoin) or is no longer shared, Mute mic (issue #1155, MemoryOS's bar: the microphone
+// alone stops, its meter shows as paused, the tab records on), Pause and Resume beside Stop (issue #1153, MemoryOS's
+// bar and Meetily's RecordingControls.tsx), and Stop, asked first, paused or not, after which the bar says the last
+// words are being kept until every track is finished. The clock and each meter follow the recorder
 // on their own, so a level reading repaints a meter and nothing else.
 export function RecordingBar({
   meetingId,
@@ -42,6 +43,7 @@ export function RecordingBar({
   const tracks = useRecorderValue(recorder, (s) => s.tracks.map((t) => t.track).join(","))
   const quiet = useRecorderValue(recorder, (s) => s.tracks.some((t) => t.quiet))
   const tabEnded = useRecorderValue(recorder, (s) => s.tracks.some((t) => t.ended))
+  const micMuted = useRecorderValue(recorder, (s) => s.micMuted)
   const saving = phase === "stopping"
   const paused = phase === "paused"
   const state = saving
@@ -89,11 +91,25 @@ export function RecordingBar({
               key={track}
               recorder={recorder}
               track={track as MeetingLiveTrack}
+              paused={paused || (track === "mic" && micMuted)}
               label={track === "tab" ? "Meeting tab" : kind === "online" ? "You" : "Microphone"}
             />
           ))}
         <span className="flex-1" />
         <span className="flex items-center gap-2">
+          {tracks.split(",").includes("mic") && (
+            <Button
+              size="sm"
+              // Muted reads as a call's muted microphone does, in the destructive tone (MemoryOS's danger tone).
+              variant={micMuted ? "destructive" : "outline"}
+              aria-pressed={micMuted}
+              disabled={phase !== "recording" && phase !== "paused"}
+              onClick={() => void recorder.setMicMuted(!micMuted)}
+            >
+              {micMuted ? <MicOff data-icon="inline-start" /> : <Mic data-icon="inline-start" />}
+              {micMuted ? "Unmute mic" : "Mute mic"}
+            </Button>
+          )}
           {paused ? (
             <Button size="sm" variant="outline" onClick={() => void recorder.resume()}>
               <Play data-icon="inline-start" />
@@ -135,10 +151,12 @@ const barHeights = ["h-2/5", "h-11/20", "h-7/10", "h-17/20", "h-full"]
 function Meter({
   recorder,
   track,
+  paused,
   label,
 }: {
   recorder: MeetingRecorder
   track: MeetingLiveTrack
+  paused: boolean
   label: string
 }) {
   // Speech rarely passes an RMS of 0.3; the meter is a sign of life, repainted only when a bar changes.
@@ -147,6 +165,7 @@ function Meter({
 
     return Math.round(Math.min(1, level / 0.15) * barHeights.length)
   })
+  const shown = paused ? 0 : lit
 
   return (
     <span
@@ -158,7 +177,7 @@ function Meter({
         {barHeights.map((h, i) => (
           <span
             key={h}
-            className={cn("w-1 rounded-sm", h, i < lit ? "bg-done" : "bg-muted-foreground/25")}
+            className={cn("w-1 rounded-sm", h, i < shown ? "bg-done" : "bg-muted-foreground/25")}
           />
         ))}
       </span>
