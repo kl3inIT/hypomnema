@@ -724,7 +724,10 @@ test("a mail opens in Gmail and a meeting's action at its line", async ({ page }
   await page.goto("/inbox?item=todo%3Atdo_tiles")
   await expect(detail.getByRole("heading", { name: "Check tiles", exact: true })).toBeVisible()
   // The meeting by its name, who said the line, and no empty field nor a note on a draft it does not need.
-  await expect(detail).toContainText("Meeting › Tiles review")
+  // The source line is the meeting's icon, labelled Meeting, then its name, not "Meeting › Tiles review" (issue #1137).
+  await expect(detail.locator('[data-source="meeting"]')).toHaveAttribute("aria-label", "Meeting")
+  await expect(detail).toContainText("Tiles review")
+  await expect(detail).not.toContainText("Meeting ›")
   await expect(detail.getByRole("region", { name: "Said" })).toContainText(
     "Hà · Tiles reviewĐể em check tiles.",
   )
