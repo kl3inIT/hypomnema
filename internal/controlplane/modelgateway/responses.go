@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/codex"
 )
@@ -142,6 +143,14 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 	serving, served := withServed(r)
 	s.serveResponses(w, serving, raw, session, model, &record, served)
 	s.noteOverflow(r.Context(), key, model, run, record)
+
+	if record.Attempts == 0 {
+		// Refused before any target was tried (model_not_served_here): nothing was served, so nothing is recorded,
+		// as an image or audio request refused before any provider is not (RecordImageCall, RecordAudioCall;
+		// issue #1147).
+		return
+	}
+
 	record.AccountID = served.id
 	record.Duration = s.svc.clock.Now().Sub(started)
 
@@ -234,7 +243,7 @@ func (s *Server) serveResponses(
 		var onFailure func(*codex.Failure)
 		if target.Kind == "codex_subscription" && served.id != "" {
 			onFailure = func(failure *codex.Failure) {
-				s.codexCool(ctx, AccountToken{AccountID: served.id}, failure)
+				s.codexCool(ctx, AccountToken{AccountID: served.id}, target.Model, failure)
 				s.recordResponsesCooling(ctx, r.URL.Path, model.Name, cooling, targets[i:])
 			}
 		}
@@ -267,7 +276,11 @@ func (s *Server) recordResponsesCooling(
 		if p, ok := openCodeOf(target.Kind); ok {
 			runtime = p.runtime
 		}
-		until, err := s.accounts.FirstFree(kept, runtime, nil)
+		var modelReset func(string) time.Time
+		if runtime == codexRuntime {
+			modelReset = s.codexModelReset(target.Model)
+		}
+		until, err := s.accounts.FirstFree(kept, runtime, modelReset)
 		if err != nil || until.IsZero() {
 			return
 		}
@@ -299,22 +312,28 @@ func (s *Server) passResponses(
 		return nil, &badMessagesError{err: err}
 	}
 
-	return s.underModelAccounts(ctx, codexRuntime, listedModel(target.Model), built.CacheKey, nil, nil,
+	return s.underModelAccounts(ctx, codexRuntime, listedModel(target.Model), built.CacheKey, nil,
+		s.codexModelReset(target.Model),
 		func(token AccountToken) (*http.Response, error) {
+			if resting := s.codexResting(token, target.Model); resting != nil {
+				return resting, nil
+			}
+
 			resp, err := s.codexCall(ctx, &token, listedModel(target.Model), built)
 			if err != nil {
 				return nil, err
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				return s.codexRefused(ctx, token, resp), nil
+				return s.codexRefused(ctx, token, target.Model, resp), nil
 			}
 
 			held, failure := s.holdCodexOpening(resp)
 			if failure != nil {
 				// Refused before any output: the next account is tried, as for a
-				// 503 (issue #1135).
-				s.codexCool(ctx, token, failure)
+				// 503 (issue #1135); an overload rests that model of the account
+				// only (issue #1147).
+				s.codexCool(ctx, token, target.Model, failure)
 				noteStreamRefusal(ctx, failure.Text())
 
 				return codexRefusal(failure, s.svc.clock.Now()), nil

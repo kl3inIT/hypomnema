@@ -3750,7 +3750,15 @@ capabilities do not exist yet.
     CLIProxyAPI #7600), else the chat route's growing wait. Any other failure before output, and any failure after
     it, reaches the client in the stream as before; nothing is sent again once output started (CLIProxyAPI #7481).
     The chat route translates and sends nothing before its first chunk, so it already moved on; it now rests the
-    account for the same `Retry-After`. When every account refuses, the usage row keeps the refusal's code, message
+    account for the same `Retry-After`. A lack of capacity for the model (an overload, a model at capacity, a server
+    error the backend says to retry; `codex.Failure.ModelCapacity`), on either route and whether inside a 200 or as
+    its own status, rests only that model of the account (issue #1147; CLIProxyAPI's per-model `ModelState`,
+    OmniRoute's `lockExactModel` on a Codex `server_is_overloaded`): the account keeps serving its other models, is
+    passed over for that model without asking the backend, and no account cooldown is written; the rest is in memory
+    and logged as `modelgateway.model_rests` with its reason. While the model rests on every account the client gets
+    the 429 of a cooling model with the first time one is free. A rate limit, a usage limit or a refused token still
+    cools the whole account, and its cooldown's reason is the refusal's code (else its type, else `HTTP <status>`),
+    not `usage limit`. When every account refuses, the usage row keeps the refusal's code, message
     and the prompt's moderation flags from the `response.metadata` frame (paths and values, not the prompt), and
     counts the input as estimated with no output; a stream that ended before any output counts no output.
   - A run of answers that did not end ends the client's turn (issue #1052), whatever the prompt's size: a stream cut
