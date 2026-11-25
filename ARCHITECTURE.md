@@ -4818,6 +4818,11 @@ its client API, its CLI and the Bots' tools.
   (`bots`) records the change with the reason; the created event still says who added it, who does it is otherwise
   unchanged, nothing is woken, and closed items stay as they were. The migration 00167 did
   the same for the items of Bots already removed (the Thư ký Bot's, #1107).
+- A removed Bot's name (`orchestration/bots.go`, `deleteBotRow`; issue #1139): every removal above keeps the Bot's id
+  and name in `removed_bots`, and an undo that puts the Bot back takes it out. `GET /bots` lists them as `removed`
+  to the tokens that read every Bot; the web client (`botNameOf`) names a Bot no longer there "<name> (removed)",
+  or "A removed Bot" when its name is not known, never by its id, and the gateway's usage by key the same way. The
+  Thư ký Bot, removed before names were kept, is given its name by the migration that made the table.
 - Handing over and the thread (`inboxstore/handoff.go`, `orchestration/inboxwake.go`; issue #1111, the owner's
   design of 2026-11-23, after GitHub's "Assign to Copilot" with additional instructions, Linear's agent assignment
   and Orca's bot items): `Hand` gives an item not closed nor in another Bot's attempt to a Bot with the owner's

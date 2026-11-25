@@ -18,9 +18,25 @@ export function mainBotOf(bots: Pick<Bot, "id" | "main">[] | undefined) {
   return bots?.find((bot) => bot.main)?.id ?? ""
 }
 
-// botNameOf is what the Bot of an id is called (issue #466): its name, or its id when it is not among those read.
-export function botNameOf(bots: Pick<Bot, "id" | "name">[] | undefined, id: string) {
-  return bots?.find((bot) => bot.id === id)?.name ?? id
+// A Named is a Bot or a removed Bot as the Bots' list gives it: its id and its name.
+type Named = Pick<Bot, "id" | "name">
+
+// removedBot is what a Bot removed since is called when its name is not known (issue #1139), as GitHub shows a
+// deleted account as "ghost": never its id.
+export const removedBot = "A removed Bot"
+
+// botNameOf is what the Bot of an id is called (issue #466): its name; a Bot removed since by the name it had,
+// "Thư ký (removed)", as Slack names a deactivated member, or "A removed Bot" when that is not known (issue #1139);
+// its id only while the Bots are read, and nothing for no id.
+export function botNameOf(bots: { data: Named[]; removed?: Named[] } | undefined, id: string) {
+  if (!bots || !id) return id
+
+  const live = bots.data.find((bot) => bot.id === id)
+  if (live) return live.name
+
+  const gone = bots.removed?.find((bot) => bot.id === id)
+
+  return gone ? `${gone.name} (removed)` : removedBot
 }
 
 // maxName is the longest a Bot's name may be, as the server's rule (orchestration/bots.go, botName): trimmed, 1 to
