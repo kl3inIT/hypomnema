@@ -121,6 +121,24 @@ func (q *Queries) ListEvents(ctx context.Context, arg ListEventsParams) ([]Event
 	return items, nil
 }
 
+const notePullRequestLookup = `-- name: NotePullRequestLookup :exec
+INSERT INTO pull_request_lookups (dispatch_id, url, since) VALUES (?1, ?2, ?3)
+ON CONFLICT (dispatch_id) DO UPDATE SET url = excluded.url WHERE excluded.url <> ''
+`
+
+type NotePullRequestLookupParams struct {
+	DispatchID string
+	Url        string
+	Now        int64
+}
+
+// Keeps what a lookup found: since stays the first lookup's time, and a found pull request is not forgotten by a
+// later lookup that found none (issue #1168).
+func (q *Queries) NotePullRequestLookup(ctx context.Context, arg NotePullRequestLookupParams) error {
+	_, err := q.db.ExecContext(ctx, notePullRequestLookup, arg.DispatchID, arg.Url, arg.Now)
+	return err
+}
+
 const pullRequestEscalationOf = `-- name: PullRequestEscalationOf :one
 SELECT CAST(count(*) AS INTEGER) AS n FROM events
 WHERE task_id = ?1 AND dispatch_id = ?2 AND kind = 'escalation' AND json_extract(payload, '$.kind') = 'pull_request'
@@ -138,4 +156,16 @@ func (q *Queries) PullRequestEscalationOf(ctx context.Context, arg PullRequestEs
 	var n int64
 	err := row.Scan(&n)
 	return n, err
+}
+
+const pullRequestLookupOf = `-- name: PullRequestLookupOf :one
+SELECT dispatch_id, url, since FROM pull_request_lookups WHERE dispatch_id = ?1
+`
+
+// The pull request found on a Dispatch's Task's branch, and when it was first looked up (issue #1168).
+func (q *Queries) PullRequestLookupOf(ctx context.Context, dispatchID string) (PullRequestLookup, error) {
+	row := q.db.QueryRowContext(ctx, pullRequestLookupOf, dispatchID)
+	var i PullRequestLookup
+	err := row.Scan(&i.DispatchID, &i.Url, &i.Since)
+	return i, err
 }

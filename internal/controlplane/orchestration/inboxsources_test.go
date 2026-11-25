@@ -1,13 +1,10 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // beforeInboxSources is the last migration before the Gmail and meeting sources (00164, issue #1105).
@@ -20,14 +17,7 @@ func TestMigrationAddsTheGmailAndMeetingSources(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, beforeInboxSources)
-	require.NoError(t, err)
+	db, p := databaseAt(t, beforeInboxSources)
 
 	exec := func(stmts ...string) {
 		t.Helper()
@@ -53,7 +43,7 @@ func TestMigrationAddsTheGmailAndMeetingSources(t *testing.T) {
 			VALUES ('tdo_hand', 'Renew the passport', 'open', 'owner', 'owner', 1, 1)`,
 		`INSERT INTO todo_events (todo_id, at, revision, actor_kind, kind) VALUES ('tdo_wa', 1, 1, 'bot', 'created')`)
 
-	_, err = db.ExecContext(ctx, `INSERT INTO todos (id, title, state, source_kind, source_id, source_account,
+	_, err := db.ExecContext(ctx, `INSERT INTO todos (id, title, state, source_kind, source_id, source_account,
 		source_ref, created_by_kind, created_at, updated_at) VALUES ('tdo_x', 'x', 'open', 'gmail', 't_1', 'work',
 		'{"kind":"mail","ref":"m_1"}', 'bot', 1, 1)`)
 	require.Error(t, err, "no gmail source before")

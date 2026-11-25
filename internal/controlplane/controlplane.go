@@ -823,7 +823,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	go func() {
 		defer close(pullRequestsDone)
 
-		followPullRequests(ctx, svc, tokens, logger, followPullRequestsEvery)
+		followPullRequests(ctx, svc, tokens, logger, orchestration.LookUpEvery, followPullRequestsEvery)
 	}()
 
 	supDone := make(chan struct{})

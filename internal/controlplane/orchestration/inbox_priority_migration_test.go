@@ -2,15 +2,12 @@ package orchestration
 
 import (
 	"io/fs"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // inboxPriorityVersions are the version of the migration of issue #1157 and of the one before it, found by its name:
@@ -44,18 +41,10 @@ func TestMigrationAddsPriorityAndProjects(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
 	before, own := inboxPriorityVersions(t)
+	db, p := databaseAt(t, before)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, before)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO todos (id, title, state, source_kind, created_by_kind, created_at,
+	_, err := db.ExecContext(ctx, `INSERT INTO todos (id, title, state, source_kind, created_by_kind, created_at,
 		updated_at) VALUES ('tdo_a', 'a', 'open', 'owner', 'owner', 1, 1)`)
 	require.NoError(t, err)
 

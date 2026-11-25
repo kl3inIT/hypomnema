@@ -94,7 +94,8 @@ func newBoxWorld(t *testing.T, bwrap, script string) *boxWorld {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "node", "bin"), 0o700))
 
 	// The script the control plane keeps, which its CLI writes into the run's folder with the run's key, as
-	// `hypomnema routines script` does, and the limit the test's caller names.
+	// `hypomnema routines script` does, the limit the test's caller names, and whether the run catches up a run a
+	// restart cut.
 	boxWrite(t, filepath.Join(root, "kept", "sync.sh"), script, 0o600)
 	boxWrite(t, filepath.Join(root, "bin", "hypomnema"), `#!/bin/sh
 if [ "$1 $2 $3" = "bots show `+orchestration.DefaultBotID+`" ]; then
@@ -110,6 +111,7 @@ chmod 700 "$dir/sync.sh"
 echo "key-of-$3-for-$5" > "$dir/.run-$3"
 echo sync.sh
 echo "${ROUTINE_LIMIT:-60}"
+echo "${ROUTINE_RESUMED:-0}"
 `, 0o700)
 
 	w.outside = filepath.Join(t.TempDir(), "outside")
@@ -170,12 +172,12 @@ func held(t *testing.T, cmd *exec.Cmd, stdin string) error {
 	return cmd.Wait()
 }
 
-// run runs the launcher to its end with stdin, and returns what the script
-// printed, a line each, and how it ended.
-func (w *boxWorld) run(t *testing.T, stdin string) (map[string]string, string, error) {
+// run runs the launcher to its end with stdin and the caller's environment,
+// and returns what the script printed, a line each, and how it ended.
+func (w *boxWorld) run(t *testing.T, stdin string, env ...string) (map[string]string, string, error) {
 	t.Helper()
 
-	cmd := w.command(t)
+	cmd := w.command(t, env...)
 
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
@@ -252,6 +254,7 @@ func TestARoutinesScriptRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.Equal(t, "seen", seen["tools"])
 	assert.Contains(t, seen["env"], "HYPOMNEMA_ROUTINE ")
 	assert.Contains(t, seen["env"], "HYPOMNEMA_ROUTINE_RUN_FILE ")
+	assert.NotContains(t, seen["env"], "HYPOMNEMA_ROUTINE_RESUMED", "a run that catches up nothing is not told so")
 	assert.NotContains(t, seen["env"], "HYPOMNEMA_SECRET_OF_THE_CALLER", "nothing of the caller's environment")
 
 	written, err := os.ReadFile(filepath.Join(work, "written")) //nolint:gosec // A path of the test's own.
@@ -314,6 +317,20 @@ func TestARoutinesScriptIsStoppedWithItsBox(t *testing.T) {
 	time.Sleep(4 * time.Second)
 	assert.NoFileExists(t, filepath.Join(work(limited), "late"), "the box ended at the limit")
 	assert.NoFileExists(t, filepath.Join(work(stopped), "late"), "the box ended with its run")
+}
+
+// Scenario: the run catches up a run a restart of the control plane cut
+// (issue #1170). The control plane says so to the launcher, which tells the
+// script with HYPOMNEMA_ROUTINE_RESUMED=1.
+func TestARoutinesScriptIsToldItCatchesUpACutRun(t *testing.T) {
+	t.Parallel()
+	needBox(t)
+
+	w := newBoxWorld(t, bwrapPath, "#!/bin/sh\necho \"resumed=${HYPOMNEMA_ROUTINE_RESUMED:-unset}\"\n")
+
+	seen, stderr, err := w.run(t, "hyp_bot_v1_run\n", "ROUTINE_RESUMED=1")
+	require.NoError(t, err, stderr)
+	assert.Equal(t, "1", seen["resumed"])
 }
 
 // Scenario: no script runs without the run's token, nor without a box.

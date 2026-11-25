@@ -1,13 +1,10 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: the owner gives a node a second token and revokes the first. Each
@@ -108,18 +105,11 @@ func TestMigrationKeepsNodeTokens(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 15)
-	require.NoError(t, err)
+	db, _ := databaseAt(t, 15)
 
 	const token = "hyn_from_before"
 
-	_, err = db.ExecContext(ctx, `INSERT INTO nodes (id, name, token_hash, status, max_dispatches, runtimes,
+	_, err := db.ExecContext(ctx, `INSERT INTO nodes (id, name, token_hash, status, max_dispatches, runtimes,
 		created_at, updated_at) VALUES ('nod_old', 'zm', ?, 'drained', 3, '[]', 100, 100)`, tokenHash(token))
 	require.NoError(t, err)
 
@@ -253,16 +243,9 @@ func TestMigrationClearsCapsAndKeepsBotsNumbers(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, _ := databaseAt(t, 113)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 113)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO nodes (id, name, status, max_dispatches, runtimes, created_at, updated_at)
+	_, err := db.ExecContext(ctx, `INSERT INTO nodes (id, name, status, max_dispatches, runtimes, created_at, updated_at)
 		VALUES ('nod_elitex', 'elitex', 'active', 1, '[]', 100, 100)`)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `UPDATE bots SET max_dispatches = 8 WHERE id = ?`, DefaultBotID)

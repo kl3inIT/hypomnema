@@ -1,13 +1,10 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: zm keeps the provider ninerouter, 9router that nothing has used
@@ -18,14 +15,8 @@ func TestMigrationRemovesTheUnusedNinerouterProvider(t *testing.T) {
 
 	for _, used := range []bool{false, true} {
 		ctx := t.Context()
-		db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = db.Close() })
-
-		p, err := provider(db)
-		require.NoError(t, err)
-		_, err = p.UpTo(ctx, 73)
-		require.NoError(t, err)
+		db, _ := databaseAt(t, 73)
+		var err error
 
 		stmts := []string{
 			`INSERT INTO providers (name, kind, base_url, api_key_ref, source, created_at, updated_at)

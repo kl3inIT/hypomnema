@@ -1,13 +1,10 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: a database from before the video looks (issue #937). Every revision, the queued one included, gets the
@@ -17,14 +14,8 @@ func TestMigrationGivesEveryRevisionItsLegacyLook(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 147)
-	require.NoError(t, err)
+	db, p := databaseAt(t, 147)
+	var err error
 
 	for _, stmt := range []string{
 		`INSERT INTO videos (id, take_id, title, made_by, created_at) VALUES ('vid_1', 'tk_1', 'Một', 'owner', 1)`,
