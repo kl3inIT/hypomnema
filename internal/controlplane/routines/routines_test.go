@@ -834,8 +834,9 @@ func TestRemovingARoutineStopsItsRun(t *testing.T) {
 
 // Scenario: the control plane restarts while a script runs, while a prompt
 // run works and while another waits for the owner. Each is recorded as
-// failed and is no failure of its Routine. The prompts are run again after
-// the backoff; the script waits for its schedule and is not run at once.
+// failed and is no failure of its Routine. The time of each counts as
+// missed: each Routine is due at once, for its catch-up, and nothing runs
+// before the start-up's catch-up begins it.
 func TestARestartEndsTheRunsItInterrupted(t *testing.T) {
 	t.Parallel()
 
@@ -865,16 +866,160 @@ func TestARestartEndsTheRunsItInterrupted(t *testing.T) {
 		failed := w.ended(id, 1, routinestore.RunFailed)
 		assert.Equal(t, "the control plane restarted while it ran", failed.Error)
 		assert.Zero(t, w.routine(id).Failures, "an interrupted run is no failure of the routine")
+		assert.Equal(t, w.clock.Now(), *w.routine(id).NextRunAt, "its missed time is caught up at once")
+		assert.Equal(t, failed.ID, w.routine(id).ResumeRunID)
 	}
 
-	assert.Empty(t, w.script.ran(), "a script is not run again")
-	assert.Equal(t, t0.Add(time.Hour), *w.routine(sync.ID).NextRunAt, "it waits for its schedule")
-	assert.Equal(t, w.clock.Now().Add(30*time.Second), *w.routine(brief.ID).NextRunAt, "a prompt is run again")
-	assert.Equal(t, w.clock.Now().Add(30*time.Second), *w.routine(weekly.ID).NextRunAt)
+	assert.Empty(t, w.script.ran(), "nothing runs before the catch-up")
 
 	open, err := w.svc.ListApprovals(t.Context(), orchestration.ApprovalFilter{Status: orchestration.ApprovalPending})
 	require.NoError(t, err)
 	assert.Empty(t, open, "what the interrupted run asked is refused with it")
+}
+
+// prompt is what a prompt run's chat begins with: the prompt the Bot is
+// given.
+func (w *world) prompt(chatID string) string {
+	w.t.Helper()
+
+	msgs, err := w.svc.ListChatMessages(w.t.Context(), chatID, 0, 0)
+	require.NoError(w.t, err)
+	require.NotEmpty(w.t, msgs)
+
+	return msgs[0].Text
+}
+
+// launched is a stand-in script that asks for its launch as the launcher
+// does, and says whether it was told it catches up a cut run.
+func (w *world) launched(routineID string, resumed chan<- bool) answer {
+	return func(ctx context.Context) (string, int, error) {
+		launch, err := w.svc.Routines().ClaimRoutineScript(ctx, routineID, orchestration.DefaultBotID)
+		if err != nil {
+			return "", 0, err
+		}
+
+		resumed <- launch.Resumed
+
+		return "3 rows written\n", 0, nil
+	}
+}
+
+// Scenario (issue #1170): the control plane starts and finds a prompt run
+// and a script run left running. Each is failed, and each Routine gets one
+// catch-up run in the start-up's catch-up: the prompt's chat tells the Bot
+// that the run before was cut and to check what it did before doing it
+// again; the script is told so by its launch. A Routine whose run was not
+// cut is not told.
+func TestARunARestartCutGetsOneCatchUpThatIsToldSo(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	sync := w.hourly("sync", "")
+	brief := w.daily("brief", "")
+
+	cutSync, err := w.svc.RunRoutineNow(t.Context(), sync.ID)
+	require.NoError(t, err)
+
+	cutBrief, err := w.svc.RunRoutineNow(t.Context(), brief.ID)
+	require.NoError(t, err)
+
+	resumed := make(chan bool, 2)
+	w.script.then(w.launched(sync.ID, resumed))
+
+	w.clock.add(10 * time.Minute)
+	w.runner.Interrupted(t.Context())
+	w.runner.CatchUp(t.Context())
+
+	for _, id := range []string{sync.ID, brief.ID} {
+		assert.Equal(t, "the control plane restarted while it ran", cutRun(t, w, id).Error)
+	}
+
+	catchUp := w.ended(brief.ID, 2, routinestore.RunRunning)
+	assert.Equal(t, cutBrief.Run.ID, catchUp.ResumesRunID)
+	assert.Equal(t, routinestore.StartedBySchedule, catchUp.StartedBy)
+	assert.Contains(t, w.prompt(catchUp.ChatID), "Summarize what changed overnight.")
+	assert.Contains(t, w.prompt(catchUp.ChatID), "The previous run of this routine ("+cutBrief.Run.ID+") was cut "+
+		"off by a restart of the control plane before it ended. Check what it already did before you do any of it "+
+		"again")
+	assert.NotContains(t, w.prompt(cutBrief.Run.ChatID), "cut off by a restart", "the cut run was told nothing")
+	assert.Empty(t, w.routine(brief.ID).ResumeRunID, "the catch-up is taken")
+	assert.Equal(t, t0.Add(24*time.Hour), *w.routine(brief.ID).NextRunAt, "then its schedule")
+
+	assert.True(t, <-resumed, "the script is told that it catches up a cut run")
+	assert.Equal(t, cutSync.Run.ID, w.ended(sync.ID, 2, routinestore.RunSucceeded).ResumesRunID)
+	assert.Len(t, w.script.ran(), 1, "one catch-up")
+
+	// The next run is no catch-up and is told nothing.
+	w.says(catchUp.ChatID, "Two pull requests were merged overnight.")
+	w.runner.Follow(t.Context())
+	w.ended(brief.ID, 2, routinestore.RunSucceeded)
+
+	next, err := w.runner.RunNow(t.Context(), brief.ID)
+	require.NoError(t, err)
+	assert.Empty(t, next.ResumesRunID)
+	assert.NotContains(t, w.prompt(next.ChatID), "cut off by a restart")
+
+	w.script.then(w.launched(sync.ID, resumed))
+	_, err = w.runner.RunNow(t.Context(), sync.ID)
+	require.NoError(t, err)
+	assert.False(t, <-resumed, "a run that catches up nothing is not told so")
+}
+
+// cutRun is a Routine's oldest run, the one the restart cut.
+func cutRun(t *testing.T, w *world, routineID string) routinestore.RoutineRun {
+	t.Helper()
+
+	runs, err := w.svc.Routines().ListRoutineRuns(t.Context(), routineID, 0)
+	require.NoError(t, err)
+
+	return runs[len(runs)-1]
+}
+
+// Scenario (issue #1170): the control plane restarts in a loop. The first
+// restart cuts a run and begins its catch-up; the second cuts the catch-up,
+// which gets none of its own: the Routine waits for its schedule. A restart
+// that comes before the catch-up began starts it once, not twice.
+func TestTwoRestartsInARowStartOneCatchUpNotTwo(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	brief := w.daily("brief", "")
+
+	_, err := w.svc.RunRoutineNow(t.Context(), brief.ID)
+	require.NoError(t, err)
+
+	w.clock.add(10 * time.Minute)
+	w.runner.Interrupted(t.Context())
+	w.runner.CatchUp(t.Context())
+	w.ended(brief.ID, 2, routinestore.RunRunning)
+
+	w.clock.add(time.Minute)
+
+	again := w.runnerWith("sudo", "-n", "-u", "coordinator", "/usr/local/bin/hypomnema-routine")
+	again.Interrupted(t.Context())
+	again.CatchUp(t.Context())
+
+	cut := w.ended(brief.ID, 2, routinestore.RunFailed)
+	assert.Equal(t, "the control plane restarted while it ran", cut.Error)
+	assert.NotEmpty(t, cut.ResumesRunID, "the cut run was the catch-up")
+	assert.Empty(t, w.routine(brief.ID).ResumeRunID, "a cut catch-up gets none")
+	assert.Equal(t, t0.Add(24*time.Hour), *w.routine(brief.ID).NextRunAt, "it waits for its schedule")
+
+	again.CatchUp(t.Context())
+	w.ended(brief.ID, 2, routinestore.RunFailed)
+
+	// A restart before the catch-up began: the Routine still waits for it, and it begins once.
+	sync := w.hourly("sync", "")
+	_, err = w.svc.RunRoutineNow(t.Context(), sync.ID)
+	require.NoError(t, err)
+
+	w.runner.Interrupted(t.Context())
+	again.Interrupted(t.Context())
+	again.CatchUp(t.Context())
+	w.runner.CatchUp(t.Context())
+
+	w.ended(sync.ID, 2, routinestore.RunSucceeded)
+	assert.Len(t, w.script.ran(), 1, "one catch-up, not two")
 }
 
 // Scenario: the control plane starts and finds seven Routines overdue. Five

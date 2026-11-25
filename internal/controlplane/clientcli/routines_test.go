@@ -170,7 +170,8 @@ func TestRoutinesFromTheCLI(t *testing.T) {
 
 	out, err = pi.cmd(t, "routines", "script", sync.Id, "--bot", "coordinator", "--into", into)
 	require.NoError(t, err)
-	assert.Equal(t, "sync.sh\n7200\n", out, "the file's name and the seconds it may run, and never the key")
+	assert.Equal(t, "sync.sh\n7200\n0\n", out,
+		"the file's name, the seconds it may run and that it catches up no cut run, and never the key")
 
 	written, err := os.ReadFile(filepath.Join(into, "sync.sh")) //nolint:gosec // the test's own directory
 	require.NoError(t, err)
@@ -281,7 +282,7 @@ func TestAPromptRoutineWithACheckFromTheCLI(t *testing.T) {
 	into := filepath.Join(dir, "routines")
 	out, err = pi.cmd(t, "routines", "script", watch.Id, "--bot", "coordinator", "--into", into)
 	require.NoError(t, err)
-	assert.Equal(t, "d9-check.sh\n120\n", out, "the launcher runs the check as a script")
+	assert.Equal(t, "d9-check.sh\n120\n0\n", out, "the launcher runs the check as a script")
 
 	var plain openapi.Routine
 	w.jsonCmd(t, &plain, "", "routines", "set", "d9-watch", "--prompt-file", promptFile)

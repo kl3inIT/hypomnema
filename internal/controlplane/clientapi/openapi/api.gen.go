@@ -6341,7 +6341,10 @@ type RoutineSchedulePreview struct {
 // RoutineScriptLaunch defines model for RoutineScriptLaunch.
 type RoutineScriptLaunch struct {
 	// Key The run's key, given once.
-	Key            string `json:"key"`
+	Key string `json:"key"`
+
+	// Resumed The run catches up a run of the Routine that a restart of the control plane cut; the script is told with HYPOMNEMA_ROUTINE_RESUMED=1, to check what was done already before it does it again.
+	Resumed        *bool  `json:"resumed,omitempty"`
 	Script         string `json:"script"`
 	ScriptText     string `json:"script_text"`
 	TimeoutSeconds int    `json:"timeout_seconds"`

@@ -191,9 +191,12 @@ type Routine struct {
 	LastSkippedAt *time.Time
 	CreatedBy     string
 	// CanUndo says the last change was a Bot's and can be undone.
-	CanUndo   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	CanUndo bool
+	// ResumeRunID is the run a restart of the control plane cut while the Routine waits for that run's catch-up,
+	// which its next run is (issue #1170); empty otherwise.
+	ResumeRunID string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // RoutineRun is one run of a Routine.
@@ -220,6 +223,9 @@ type RoutineRun struct {
 	Script     string
 	ScriptText string
 	Timeout    time.Duration
+	// ResumesRunID is the run a restart of the control plane cut that this run catches up, and is told of (issue
+	// #1170); empty for any other run.
+	ResumesRunID string
 }
 
 // RoutineSpec is what a Routine is made or changed with.
@@ -306,6 +312,9 @@ type ScriptLaunch struct {
 	Timeout time.Duration
 	// Key is the run's own: a request that presents it is this run's.
 	Key string
+	// Resumed says the run catches up a run a restart of the control plane cut (issue #1170): the script is told,
+	// to check what was done already before it does it again.
+	Resumed bool
 }
 
 // routineUndo is what undoes a Bot's last change of a Routine.
@@ -361,8 +370,8 @@ func routineFromRow(r store.Routine) Routine {
 		Revision: int(r.Revision), State: RoutineState(r.State), PausedReason: r.PausedReason, Summary: r.Summary,
 		ChatID: r.ChatID.String, Announce: r.Announce == 1, NextRunAt: storeutil.OptionalMillis(r.NextRunAt),
 		Failures: int(r.Failures), Skipped: int(r.Skipped), LastSkippedAt: storeutil.OptionalMillis(r.LastSkippedAt),
-		CreatedBy: r.CreatedBy, CanUndo: undoOf(r) != nil, CreatedAt: storeutil.Millis(r.CreatedAt),
-		UpdatedAt: storeutil.Millis(r.UpdatedAt),
+		CreatedBy: r.CreatedBy, CanUndo: undoOf(r) != nil, ResumeRunID: r.ResumeRunID.String,
+		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
 }
 
@@ -396,7 +405,7 @@ func routineRunFromRow(r store.RoutineRun) RoutineRun {
 		StartedAt: storeutil.Millis(r.StartedAt), EndedAt: storeutil.OptionalMillis(r.EndedAt),
 		Output: r.Output, Error: r.Error, ChatID: r.ChatID.String, Access: r.Access,
 		Prompt: r.Prompt, Script: r.Script, ScriptText: r.ScriptText,
-		Timeout: time.Duration(r.TimeoutSeconds) * time.Second,
+		Timeout: time.Duration(r.TimeoutSeconds) * time.Second, ResumesRunID: r.ResumesRunID.String,
 	}
 
 	if r.ExitCode.Valid {
@@ -1022,14 +1031,25 @@ func LiveRunTx(ctx context.Context, q *store.Queries, routineID string) (*Routin
 // StartRunTx records a run of a Routine that has none live, with the
 // caller's queries. A prompt run's chat, which chatID names, was opened by
 // the caller in the same transaction; chatID is empty for a script's run
-// and for a prompt run whose script checks first (OpenRunChatTx).
+// and for a prompt run whose script checks first (OpenRunChatTx). The run
+// that starts while the Routine waits for a catch-up, by the schedule or by
+// hand, is that catch-up, and the only one (issue #1170).
 func StartRunTx(ctx context.Context, q *store.Queries, now int64, r Routine, id, by, chatID string,
 ) (StartedRun, error) {
 	if err := q.InsertRoutineRun(ctx, store.InsertRoutineRunParams{
 		ID: id, RoutineID: r.ID, StartedBy: by, Now: now, ChatID: nullString(chatID), Access: cmp.Or(r.Access, AccessFull),
 		Prompt: r.Prompt, Script: r.Script, ScriptText: r.ScriptText, TimeoutSeconds: int64(r.Timeout / time.Second),
+		ResumesRunID: nullString(r.ResumeRunID),
 	}); err != nil {
 		return StartedRun{}, fmt.Errorf("recording a run of routine %s: %w", r.ID, err)
+	}
+
+	if r.ResumeRunID != "" {
+		if err := q.TakeRoutineResume(ctx, r.ID); err != nil {
+			return StartedRun{}, fmt.Errorf("starting the catch-up of routine %s: %w", r.ID, err)
+		}
+
+		r.ResumeRunID = ""
 	}
 
 	run, err := q.GetRoutineRun(ctx, id)
@@ -1171,6 +1191,7 @@ func (s *Store) ClaimRoutineScript(ctx context.Context, routineID, bot string) (
 		}
 
 		out.Script, out.Text, out.Timeout = live.Script, live.ScriptText, live.Timeout
+		out.Resumed = live.ResumesRunID != ""
 
 		return nil
 	})
@@ -1350,9 +1371,12 @@ func EndRunTx(ctx context.Context, q *store.Queries, now int64, runID string, r 
 // the schedule or by hand, adds to the failures in a row and moves the next
 // run (afterFailure); a success resets the count. A run ended by a restart
 // of the control plane is recorded as failed and is no failure of the
-// Routine (L179-182); a prompt Routine is then run again after the backoff,
-// a script is not (service/jobs-scheduling.ts L31-49). A canceled run
-// changes nothing. After RoutineAlertAfter failures in a row the owner is to
+// Routine (L179-182); its time counts as missed, and a Routine that is on
+// is due at once for one catch-up run (issue #1170; Hermes,
+// cron/missed_runs.py: the missed slots collapse into one run), which the
+// start-up's spread begins. A catch-up a restart cut gets none: a restart
+// loop does not repeat it, and the Routine waits for its schedule. A
+// canceled run changes nothing. After RoutineAlertAfter failures in a row the owner is to
 // be told, at most once every RoutineAlertEvery; after RoutinePauseAfter the
 // Routine is paused with the reason.
 func SettleRunTx(ctx context.Context, q *store.Queries, now int64, runID string, r RunResult) (Settled, error) {
@@ -1370,7 +1394,7 @@ func SettleRunTx(ctx context.Context, q *store.Queries, now int64, runID string,
 
 	out.Run = routineRunFromRow(run)
 
-	if err := settleRoutine(ctx, q, now, row, r, &out); err != nil {
+	if err := settleRoutine(ctx, q, now, row, r, run.ResumesRunID.Valid, &out); err != nil {
 		return Settled{}, err
 	}
 
@@ -1385,11 +1409,13 @@ func SettleRunTx(ctx context.Context, q *store.Queries, now int64, runID string,
 }
 
 // settleRoutine applies a run's end to its Routine.
-func settleRoutine(ctx context.Context, q *store.Queries, now int64, row store.Routine, r RunResult, out *Settled,
+// A catch-up run, one that resumes a cut run, is not caught up again.
+func settleRoutine(ctx context.Context, q *store.Queries, now int64, row store.Routine, r RunResult, catchUp bool,
+	out *Settled,
 ) error {
 	p := store.SettleRoutineParams{
 		ID: row.ID, State: row.State, PausedReason: row.PausedReason, NextRunAt: row.NextRunAt,
-		Failures: row.Failures, AlertedAt: row.AlertedAt,
+		Failures: row.Failures, AlertedAt: row.AlertedAt, ResumeRunID: row.ResumeRunID,
 	}
 	on := row.State == string(RoutineOn)
 
@@ -1404,8 +1430,9 @@ func settleRoutine(ctx context.Context, q *store.Queries, now int64, row store.R
 	case r.State == RunSucceeded:
 		p.Failures, p.AlertedAt = 0, sql.NullInt64{}
 	case r.Interrupted:
-		// The run is no failure. A prompt is run again after the wait the streak asks for; a script that was cut
-		// off may have done part of its work and waits for its schedule.
+		// The run is no failure. Its time was missed: the Routine is due now, and its next run is told what was cut
+		// (OpenClaw, src/cron/run-prompt.ts L84-87) and checks what was done before it does it again.
+		_ = catchUp
 		if retry := now + routineWait(row.Failures, len(routineBackoff)).Milliseconds(); on &&
 			row.Kind == string(RoutinePrompt) && (!row.NextRunAt.Valid || retry < row.NextRunAt.Int64) {
 			p.NextRunAt = sql.NullInt64{Int64: retry, Valid: true}

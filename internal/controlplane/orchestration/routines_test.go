@@ -371,8 +371,9 @@ func TestTheNextRunAfterAFailure(t *testing.T) {
 // the schedule. After the second failure in a row the owner is to be told,
 // and again only an hour later. After the tenth the Routine is paused with
 // the reason. A canceled run and a run a restart interrupted are recorded
-// and not counted; an interrupted prompt is run again after the backoff, a
-// script is not. Resumed, it starts clean.
+// and not counted; the interrupted run's Routine is due at once for its
+// catch-up, which, interrupted in turn, gets none (issue #1170). Resumed, it
+// starts clean.
 func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 	t.Parallel()
 
@@ -396,7 +397,7 @@ func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 	assert.Equal(t, 1,
 		byHand(runResult{State: routinestore.RunFailed, Interrupted: true, Error: "restarted"}).Routine.Failures,
 		"nor is one a restart interrupted")
-	assert.Equal(t, t0.Add(time.Hour), *w.theRoutine(sync.ID).NextRunAt, "an interrupted script waits for its schedule")
+	assert.Equal(t, w.clock.now, *w.theRoutine(sync.ID).NextRunAt, "an interrupted script is caught up at once")
 
 	assert.True(t, byHand(failed("boom")).Alert, "the second failure in a row tells the owner")
 
@@ -435,7 +436,7 @@ func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 	assert.Equal(t, "paused by the owner", paused.PausedReason)
 	assert.Nil(t, paused.NextRunAt)
 
-	// A prompt run a restart interrupted is run again after the backoff of its streak.
+	// A prompt run a restart interrupted is caught up at once, by its next run, once.
 	brief := w.routine(daily("brief"))
 
 	run, err := w.s.RunRoutineNow(t.Context(), brief.ID)
@@ -443,7 +444,16 @@ func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 
 	again := w.end(run.Run.ID, runResult{State: routinestore.RunFailed, Interrupted: true, Error: "restarted"})
 	assert.Zero(t, again.Routine.Failures)
-	assert.Equal(t, w.clock.now.Add(30*time.Second), *again.Routine.NextRunAt)
+	assert.Equal(t, w.clock.now, *again.Routine.NextRunAt)
+	assert.Equal(t, run.Run.ID, again.Routine.ResumeRunID)
+
+	catchUp := w.tick()
+	require.Len(t, catchUp, 1)
+	assert.Equal(t, run.Run.ID, catchUp[0].Run.ResumesRunID)
+
+	cut := w.end(catchUp[0].Run.ID, runResult{State: routinestore.RunFailed, Interrupted: true, Error: "restarted"})
+	assert.Empty(t, cut.Routine.ResumeRunID, "a cut catch-up gets none")
+	assert.True(t, cut.Routine.NextRunAt.After(w.clock.now), "it waits for its schedule")
 }
 
 // Scenario: a Bot makes a Routine from its chat with the owner's command. It
