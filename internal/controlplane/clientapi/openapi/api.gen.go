@@ -2252,16 +2252,19 @@ func (e TodoState) Valid() bool {
 
 // Defines values for TodoWhyOpen.
 const (
-	AskedDirectly TodoWhyOpen = "asked_directly"
-	Promised      TodoWhyOpen = "promised"
+	TodoWhyOpenAskedDirectly TodoWhyOpen = "asked_directly"
+	TodoWhyOpenPromised      TodoWhyOpen = "promised"
+	TodoWhyOpenWaiting       TodoWhyOpen = "waiting"
 )
 
 // Valid indicates whether the value is a known member of the TodoWhyOpen enum.
 func (e TodoWhyOpen) Valid() bool {
 	switch e {
-	case AskedDirectly:
+	case TodoWhyOpenAskedDirectly:
 		return true
-	case Promised:
+	case TodoWhyOpenPromised:
+		return true
+	case TodoWhyOpenWaiting:
 		return true
 	default:
 		return false
@@ -5733,7 +5736,7 @@ type NewTodo struct {
 	State  *NewTodoState  `json:"state,omitempty"`
 	Title  string         `json:"title"`
 
-	// WhyOpen Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself.
+	// WhyOpen Why an item a Bot found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself; waiting, he waits on a person, given the item: he gave it to them, it was promised to him, or someone took it in his place. The message that shows it is in the item's history (the event's after.waiting_on); giving the item to anyone else clears it.
 	WhyOpen *TodoWhyOpen `json:"why_open,omitempty"`
 }
 
@@ -7220,7 +7223,7 @@ type Todo struct {
 	Title     string    `json:"title"`
 	UpdatedAt time.Time `json:"updated_at"`
 
-	// WhyOpen Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself.
+	// WhyOpen Why an item a Bot found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself; waiting, he waits on a person, given the item: he gave it to them, it was promised to him, or someone took it in his place. The message that shows it is in the item's history (the event's after.waiting_on); giving the item to anyone else clears it.
 	WhyOpen *TodoWhyOpen `json:"why_open,omitempty"`
 
 	// Work The Bot's current attempt, while doing or review.
@@ -7332,7 +7335,7 @@ type TodoEdit struct {
 type TodoEvent struct {
 	Actor TodoActor `json:"actor"`
 
-	// After The fields that changed, after.
+	// After The fields that changed, after. A Bot's created or edited event that put the item in Waiting on others holds waiting_on too: {by, quote, ref}, the person, their words and the message of the item's own source that shows it (a TodoLink).
 	After map[string]interface{} `json:"after"`
 	At    time.Time              `json:"at"`
 
@@ -7445,7 +7448,7 @@ type TodoSourceKind string
 // TodoState proposed waits for the owner; open is to be done; doing, a Bot is on it; review, the Bot's action waits for an Approval; done, dropped and duplicate are closed.
 type TodoState string
 
-// TodoWhyOpen Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself.
+// TodoWhyOpen Why an item a Bot found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself; waiting, he waits on a person, given the item: he gave it to them, it was promised to him, or someone took it in his place. The message that shows it is in the item's history (the event's after.waiting_on); giving the item to anyone else clears it.
 type TodoWhyOpen string
 
 // TodoWork The Bot's current attempt, while doing or review.

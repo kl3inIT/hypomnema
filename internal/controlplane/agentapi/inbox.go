@@ -127,9 +127,12 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		"state": map[string]any{"type": "string", "enum": []string{inboxstore.Open, inboxstore.Proposed},
 			"description": "Left out: open when it comes from this chat; proposed when it comes from this " +
 				"Routine's run or from what you read (source), or open there with why_open."},
-		"why_open": map[string]any{"type": "string", "enum": []string{inboxstore.AskedDirectly, inboxstore.Promised},
-			"description": "For an item from what you read or from a Routine's run: why it opens, with quote and " +
-				"the message."},
+		"why_open": map[string]any{"type": "string", "enum": []string{inboxstore.AskedDirectly, inboxstore.Promised,
+			inboxstore.Waiting}, "description": "For an item from what you read or from a Routine's run: why it " +
+			"opens, with quote and the message. asked_directly: someone asked or tagged the owner; promised: he " +
+			"promised it; waiting: he waits on a person (he gave it to them, they promised it to him, or they took " +
+			"an ask to him), from what you read only, with waiting_on: it is given to that person."},
+		"waiting_on": waitingOnSchema(false),
 		"key": map[string]any{"type": "string", "maxLength": inboxstore.MaxKey,
 			"description": "The same key again returns the item it made."},
 	}
@@ -193,18 +196,22 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			map[string]any{"id": id}, []string{"id"}},
 		{agenttool.ToolInboxAdd, "Add a to-do, from this chat, this Routine's run, or what of the owner's you " +
 			"read (source). Use it for each direct ask to the owner and each promise he makes: give the quote " +
-			"and the message it came from. An item given to a person without a due is due in 2 days, the day " +
+			"and the message it came from; and with why_open waiting and waiting_on for what he waits on a " +
+			"person for. An item given to a person without a due is due 48 hours after it is added, the day " +
 			"to chase them.", merged(fields, due, add, read), []string{"title"}},
 		{agenttool.ToolInboxUpdate, "Change a to-do you added or were given: its fields, the reply you drafted " +
 			"(draft), where you read it (source, with quote and message), hand_back to give it to the " +
 			"owner, where it waits in Needs you, or pass_to to give it to another Bot. An item you are doing is " +
-			"released first. Use it to attach a reply you drafted and give it to him to send.",
+			"released first. Use it to attach a reply you drafted and give it to him to send; and, with waiting_on " +
+			"and only id and revision beside it, to move an item you added from what you read to Waiting on " +
+			"others once a message shows someone took it, promised it to him, or was given it by him.",
 			merged(fields, due, read, map[string]any{
 				"id": id, "revision": revision,
 				"hand_back": map[string]any{"type": "boolean", "description": "Give it back to the owner."},
 				"pass_to": map[string]any{"type": "string", "description": "Give it to this Bot, by its id; it is " +
 					"woken with it. The main Bot passes it to the project Bot whose accounts or context the work " +
 					"needs; a project Bot gives it back only to the main Bot."},
+				"waiting_on": waitingOnSchema(true),
 			}), []string{"id"}},
 		{agenttool.ToolInboxStart, "Start an open to-do given to you: it is doing, here, until you close or " +
 			"release it. Use it before you work on one.", map[string]any{"id": id, "revision": revision}, []string{"id"}},
@@ -241,6 +248,33 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 	}
 
 	return out
+}
+
+// waitingOnSchema is whom the owner waits on and the message that shows it (issue #1142); when it moves an item
+// (inbox_update), with the due, which is 48 hours after the move when none is given.
+func waitingOnSchema(move bool) map[string]any {
+	props := map[string]any{
+		"name": map[string]any{"type": "string", "maxLength": inboxstore.MaxName, "description": "The person, " +
+			"as the owner's context names them, else as the chat does."},
+		"quote": map[string]any{"type": "string", "maxLength": inboxstore.MaxQuote, "description": "Their " +
+			"words, or his, that show it: \"em nhận\", \"Đức Anh làm nhé\", \"I'll send you the deck\"."},
+		"message": inboxLinkSchema("The message of the item's own chat, thread or meeting that shows it: " +
+			"lark_message, zalo_message or whatsapp_message, mail, or meeting_line \"<meeting id>/<line>\"."),
+	}
+	about := "Whom the owner waits on, with why_open waiting: the item is given to them."
+
+	if move {
+		props["due_date"] = map[string]any{"type": "string", "description": "The day they gave, YYYY-MM-DD, in " +
+			"timezone."}
+		props["due_at"] = map[string]any{"type": "string", "description": "The moment they gave, RFC 3339, " +
+			"instead of due_date."}
+		props["timezone"] = map[string]any{"type": "string", "description": "The owner's IANA time zone."}
+		about = "Move the item to Waiting on others: given to this person, open, why_open waiting, without " +
+			"its draft; due when they said, else 48 hours after the move, the day to chase them."
+	}
+
+	return map[string]any{"type": "object", "description": about, "required": []string{"name", "quote", "message"},
+		"properties": props}
 }
 
 func merged(parts ...map[string]any) map[string]any {
@@ -281,6 +315,8 @@ type inboxArgs struct {
 	Source  *inboxSourceArgs `json:"source"`
 	Quote   string           `json:"quote"`
 	Message *inboxstore.Link `json:"message"`
+	// inbox_add and inbox_update: whom the owner waits on (issue #1142).
+	WaitingOn *inboxWaitingArgs `json:"waiting_on"`
 	// inbox_comment.
 	Text string `json:"text"`
 	// inbox_release, inbox_done, inbox_drop.
@@ -306,6 +342,26 @@ type inboxListArgs struct {
 	OwnerChangedSince string `json:"owner_changed_since"`
 	Cursor            string `json:"cursor"`
 	Limit             int    `json:"limit"`
+}
+
+// inboxWaitingArgs is waiting_on: the due only when it moves an item.
+type inboxWaitingArgs struct {
+	Name     string           `json:"name"`
+	Quote    string           `json:"quote"`
+	Message  *inboxstore.Link `json:"message"`
+	DueDate  string           `json:"due_date"`
+	DueAt    string           `json:"due_at"`
+	Timezone string           `json:"timezone"`
+}
+
+// waitingOn is whom the item waits on, as the store takes it.
+func (w inboxWaitingArgs) waitingOn() (inboxstore.WaitingOn, error) {
+	if w.Message == nil {
+		return inboxstore.WaitingOn{}, fmt.Errorf("%w: waiting_on gives the message that shows it",
+			orchestration.ErrInvalid)
+	}
+
+	return inboxstore.WaitingOn{By: strings.TrimSpace(w.Name), Quote: w.Quote, Ref: *w.Message}, nil
 }
 
 type inboxSourceArgs struct {
@@ -445,6 +501,16 @@ func (s *Server) inboxCall(w http.ResponseWriter, r *http.Request, a agent, call
 		return
 	}
 
+	// A move to Waiting on others is one change of its own (issue #1142): beside it only the item and its revision.
+	if call.Tool == agenttool.ToolInboxUpdate && in.WaitingOn != nil {
+		if other := otherKeys(raw, "id", "revision", "waiting_on"); len(other) > 0 {
+			answerTool(w, "inbox_update with waiting_on takes only id and revision beside it, not "+
+				strings.Join(other, ", "), true)
+
+			return
+		}
+	}
+
 	ctx := r.Context()
 
 	c, err := s.inboxCallerOf(ctx, a)
@@ -487,6 +553,25 @@ func (s *Server) inboxCall(w http.ResponseWriter, r *http.Request, a agent, call
 	default:
 		s.fail(w, r, err)
 	}
+}
+
+// otherKeys are the keys of a JSON object other than those allowed, sorted.
+func otherKeys(raw []byte, allowed ...string) []string {
+	var m map[string]json.RawMessage
+
+	_ = json.Unmarshal(raw, &m)
+
+	var other []string
+
+	for k := range m {
+		if !slices.Contains(allowed, k) {
+			other = append(other, k)
+		}
+	}
+
+	slices.Sort(other)
+
+	return other
 }
 
 func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
@@ -604,6 +689,26 @@ func (s *Server) inboxAdd(ctx context.Context, a agent, c inboxCaller, in inboxA
 		n.Assignee = inboxstore.Assignee{Kind: in.AssigneeKind, Name: in.Assignee}
 	}
 
+	// Waiting on a person (issue #1142): given to that person unless the Bot names whom itself, which the store
+	// checks is the same.
+	if in.WaitingOn != nil {
+		if in.WaitingOn.DueDate != "" || in.WaitingOn.DueAt != "" || in.WaitingOn.Timezone != "" {
+			return nil, fmt.Errorf("%w: inbox_add takes the due beside waiting_on, as due_date or due_at",
+				orchestration.ErrInvalid)
+		}
+
+		wo, err := in.WaitingOn.waitingOn()
+		if err != nil {
+			return nil, err
+		}
+
+		n.WaitingOn = &wo
+
+		if in.AssigneeKind == "" {
+			n.Assignee = inboxstore.Assignee{Kind: inboxstore.Person, Name: wo.By}
+		}
+	}
+
 	due, given, err := inboxDue(in)
 	if err != nil {
 		return nil, err
@@ -678,8 +783,10 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 
 	var t inboxstore.Todo
 
-	switch tool {
-	case agenttool.ToolInboxUpdate:
+	switch {
+	case tool == agenttool.ToolInboxUpdate && in.WaitingOn != nil:
+		t, err = s.inboxWaitOn(ctx, ch, *in.WaitingOn)
+	case tool == agenttool.ToolInboxUpdate:
 		e := inboxstore.Edit{
 			Title: in.Title, Notes: in.Notes, DoneWhen: in.DoneWhen, Draft: in.Draft, Priority: in.Priority,
 			PriorityReason: in.PriorityReason,
@@ -728,11 +835,11 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 		}
 
 		t, err = inbox.Edit(ctx, ch, e)
-	case agenttool.ToolInboxStart:
+	case tool == agenttool.ToolInboxStart:
 		t, err = inbox.Start(ctx, ch, c.work)
-	case agenttool.ToolInboxRelease:
+	case tool == agenttool.ToolInboxRelease:
 		t, err = inbox.Release(ctx, ch, in.Reason)
-	case agenttool.ToolInboxDone:
+	case tool == agenttool.ToolInboxDone:
 		cl := inboxstore.Closing{
 			DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: a.bot}, How: inboxstore.ClosedByBot,
 			Reason: in.Reason, Evidence: in.Evidence,
@@ -743,7 +850,7 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 		}
 
 		t, err = inbox.Done(ctx, ch, cl)
-	case agenttool.ToolInboxDrop:
+	case tool == agenttool.ToolInboxDrop:
 		t, err = inbox.Drop(ctx, ch, in.Reason, in.Evidence)
 	default:
 		return nil, fmt.Errorf("%w: no tool %s", orchestration.ErrNotFound, tool)
@@ -754,6 +861,30 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 	}
 
 	return s.todoViewOf(ctx, t, false)
+}
+
+// inboxWaitOn moves an item to Waiting on others (issue #1142), due when the person said, else when an item added for
+// a person is: inboxDefaultChase after the move.
+func (s *Server) inboxWaitOn(ctx context.Context, ch inboxstore.Change, in inboxWaitingArgs) (inboxstore.Todo, error) {
+	wo, err := in.waitingOn()
+	if err != nil {
+		return inboxstore.Todo{}, err
+	}
+
+	w := inboxstore.WaitOn{WaitingOn: wo}
+
+	due, given, err := inboxDue(inboxArgs{DueDate: in.DueDate, DueAt: in.DueAt, Timezone: in.Timezone})
+	if err != nil {
+		return inboxstore.Todo{}, err
+	}
+
+	if given {
+		w.Due = &due
+	} else {
+		w.DueIn = inboxChase(inboxArgs{Timezone: in.Timezone})
+	}
+
+	return s.store.Inbox().WaitOn(ctx, ch, w)
 }
 
 // projectID is the id of the project a Bot names by its name (or id), or NoProject for none.

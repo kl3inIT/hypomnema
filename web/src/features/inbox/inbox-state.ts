@@ -14,7 +14,17 @@ export type Row =
   // needsYou: the server counts it in Needs you (GET /inbox?needs_you); approval, the pending Approval it waits for.
   | { key: string; kind: "todo"; todo: Todo; needsYou: boolean; approval?: Approval }
 
-export const groupIds = ["needs_you", "working", "open", "proposed", "snoozed", "done"] as const
+// waiting (issue #1142): what the owner waits on a person for, given to them, after Omi's waiting-on loops and
+// claudia's "Others Owe You" (BasedHardware/omi@a07ab041 backend/utils/open_loops/prompts.py:14-24).
+export const groupIds = [
+  "needs_you",
+  "working",
+  "open",
+  "waiting",
+  "proposed",
+  "snoozed",
+  "done",
+] as const
 export type GroupId = (typeof groupIds)[number]
 export type Groups = Record<GroupId, Row[]>
 
@@ -22,13 +32,15 @@ export const groupNames: Record<GroupId, string> = {
   needs_you: "Needs you",
   working: "Working",
   open: "Open",
+  waiting: "Waiting on others",
   proposed: "Proposed",
   snoozed: "Snoozed",
   done: "Done",
 }
 
 // Groups that start folded, as Orca's BOT_ITEM_GROUPS_FOLDED_BY_DEFAULT: what is out of the way until asked for.
-export const foldedByDefault: ReadonlySet<GroupId> = new Set(["snoozed", "done"])
+// Waiting on others is someone else's to do until its chase day (issue #1142).
+export const foldedByDefault: ReadonlySet<GroupId> = new Set(["waiting", "snoozed", "done"])
 
 const closed = new Set(["done", "dropped", "duplicate"])
 
@@ -88,7 +100,8 @@ export function rowsOf(
 }
 
 // groupOf places a row. Asks wait on the owner; a to-do the server counts as needing him is his, unless it is a
-// proposal, which has its own group; what a Bot does is Working; anything else not closed is Open.
+// proposal, which has its own group; what a Bot does is Working; an open item given to a person is Waiting on others
+// (issue #1142), one given to nobody known stays Open; anything else not closed is Open.
 export function groupOf(row: Row, now: number): GroupId {
   if (row.kind !== "todo") return "needs_you"
 
@@ -98,6 +111,7 @@ export function groupOf(row: Row, now: number): GroupId {
   if (todo.state === "proposed") return "proposed"
   if (row.needsYou) return "needs_you"
   if (todo.state === "doing" || todo.state === "review") return "working"
+  if (waitsOnSomeone(todo)) return "waiting"
 
   return "open"
 }
@@ -112,12 +126,14 @@ function priorityRank(row: Row) {
 
 // groupRows sorts the rows into their groups. Needs you lists the asks first, Approvals before questions, as Orca's
 // BotNeedsYouSection; inside each group the rows go by priority (issue #1157), then as before: to-dos keep the
-// server's order, by due; Snoozed comes back soonest first; Done, the latest closed first.
+// server's order, by due, so Waiting on others has the soonest chase day first; Snoozed comes back soonest first;
+// Done, the latest closed first.
 export function groupRows(rows: Row[], now: number): Groups {
   const groups: Groups = {
     needs_you: [],
     working: [],
     open: [],
+    waiting: [],
     proposed: [],
     snoozed: [],
     done: [],
@@ -131,6 +147,7 @@ export function groupRows(rows: Row[], now: number): Groups {
   groups.needs_you.sort((a, b) => askRank(a) - askRank(b) || byPriority(a, b))
   groups.working.sort(byPriority)
   groups.open.sort(byPriority)
+  groups.waiting.sort(byPriority)
   groups.proposed.sort(byPriority)
   groups.snoozed.sort((a, b) => byPriority(a, b) || at(a, "snoozed_until") - at(b, "snoozed_until"))
   groups.done.sort((a, b) => byPriority(a, b) || at(b, "closed_at") - at(a, "closed_at"))
@@ -345,10 +362,13 @@ export type Action =
   | "drop"
   | "reopen"
   | "unsnooze"
+  // take_back gives an item the owner waits on a person for back to him (issue #1142).
+  | "take_back"
 
 // actionsOf is what a row offers on hover or focus, by its kind, its own answer first, as OpenMausBot's
 // quickActions: an Approval's Approve and Decline (also on the to-do that waits for it), a question's Answer, a
-// to-do's Copy draft, Done and Snooze, a proposal's Accept and Drop, and a snoozed or closed item's way back.
+// to-do's Copy draft, Done and Snooze, a proposal's Accept and Drop, a snoozed or closed item's way back, and an item
+// given to a person, Take it back first (issue #1142).
 export function actionsOf(row: Row, now: number): Action[] {
   if (row.kind === "approval") return ["approve", "decline"]
   if (row.kind === "question") return ["answer"]
@@ -363,13 +383,14 @@ export function actionsOf(row: Row, now: number): Action[] {
   // In review, the Approval it waits for is answered first: the server closes neither done nor dropped.
   if (todo.state === "review") return draft
   if (todo.state === "doing") return [...draft, "done"]
+  if (waitsOnSomeone(todo)) return ["take_back", "done", "snooze"]
 
   return [...draft, "done", "snooze"]
 }
 
 // detailActions is what the detail's top bar offers (issue #1093, section 4): a to-do's Snooze, Drop and Done, a
 // proposal's Accept and Drop, a snoozed or closed item's way back. An Approval and a question are answered on their
-// own card below it, and a draft is copied beside it.
+// own card below it, and a draft is copied beside it. An item given to a person offers Take it back too.
 export function detailActions(row: Row, now: number): Action[] {
   if (row.kind !== "todo" || row.approval) return []
 
@@ -377,9 +398,25 @@ export function detailActions(row: Row, now: number): Action[] {
   if (isClosed(todo)) return ["reopen"]
   if (isSnoozed(todo, now)) return ["unsnooze"]
   if (todo.state === "proposed") return ["accept", "drop"]
+  if (waitsOnSomeone(todo)) return ["take_back", "snooze", "drop", "done"]
   if (todo.state === "open") return ["snooze", "drop", "done"]
 
   return todo.state === "doing" ? ["drop", "done"] : []
+}
+
+// doneWhenOf is when an item is done, as the detail says it: what was written, else, for an ask to the owner, that
+// his answer in its chat closes it. An item waiting on a person needs no answer from him (issue #1142).
+export function doneWhenOf(todo: Pick<Todo, "done_when" | "why_open">) {
+  return (
+    todo.done_when ||
+    (todo.why_open === "asked_directly" ? "You answer in this chat; it closes by itself" : "")
+  )
+}
+
+// waitsOnSomeone says an open item is given to a person, whom the owner waits on (issue #1142): Take it back gives it
+// back to him, as Otter's "assign it back to yourself" and Chatwoot's "Assign to me".
+function waitsOnSomeone(todo: Pick<Todo, "state" | "assignee">) {
+  return todo.state === "open" && todo.assignee.kind === "person"
 }
 
 // nextAfter is where the selection goes once a row is acted on, as OpenMausBot's: the next row down, else the one
@@ -449,7 +486,7 @@ export type SourceTarget = { chat: string } | { href: string } | { meeting: stri
 // the action's line; or the message's own link when it is a web address. A Zalo, WhatsApp or Lark chat has no web
 // address to open.
 export function sourceTarget(
-  todo: Todo,
+  todo: Pick<Todo, "source">,
   mailOf: (label: string) => string | undefined,
 ): SourceTarget | null {
   const { source } = todo

@@ -171,3 +171,65 @@ test("a report's details render folded, and steps group", async () => {
   await userEvent.click(steps)
   expect(await screen.findByText("Hypo started a Run")).toBeVisible()
 })
+
+// Scenario: issue #1142. A Bot's move to Waiting on others shows on its own line with the words that show it under
+// it: for a Zalo item, with the sender and time the server keeps of the message, read in the item's own account and
+// chat; for a Lark item, whose messages the server does not keep, with the name alone and no read.
+test("a move to Waiting on others shows the quote with who wrote it", async () => {
+  const reads: string[] = []
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = new URL((input as Request).url)
+    reads.push(`${url.pathname.replace("/api/v1", "")}${url.search}`)
+
+    return json({
+      data: [
+        {
+          id: "m_2",
+          chat: "g_team",
+          sender_name: "Việt Nguyễn",
+          from_me: false,
+          at: "2026-11-25T03:30:00Z",
+          text: "em nhận",
+        },
+      ],
+    })
+  })
+  const moved = (ref: { kind: "zalo_message" | "lark_message"; ref: string }) =>
+    event(2, {
+      after: {
+        assignee: "Việt",
+        assignee_kind: "person",
+        waiting_on: { by: "Việt", quote: "em nhận", ref },
+      },
+    })
+  const timeline = (source: Todo["source"], ref: Parameters<typeof moved>[0]) => (
+    <CommentTimeline
+      loading={false}
+      now={Date.parse("2026-11-25T04:00:00Z")}
+      botName={botName}
+      source={source}
+      chats={new Map([["zalo:g_team", { name: "Team", label: "work" }]])}
+      events={[moved(ref)]}
+    />
+  )
+
+  const { unmount } = render(
+    wrap(
+      timeline(
+        { kind: "zalo", id: "g_team", account: "main" },
+        { kind: "zalo_message", ref: "m_2" },
+      ),
+    ),
+  )
+
+  expect(screen.getByText("Hypo moved it to Waiting on Việt")).toBeVisible()
+  expect(screen.getByText("em nhận")).toBeVisible()
+  expect(await screen.findByText("Việt Nguyễn")).toBeVisible()
+  expect(reads).toEqual(["/integrations/zalo/connections/work/messages?chat=g_team&id=m_2&limit=1"])
+  unmount()
+
+  reads.length = 0
+  render(wrap(timeline({ kind: "lark", id: "oc_1" }, { kind: "lark_message", ref: "om_1" })))
+  expect(screen.getByText("Việt")).toBeVisible()
+  expect(reads).toEqual([])
+})

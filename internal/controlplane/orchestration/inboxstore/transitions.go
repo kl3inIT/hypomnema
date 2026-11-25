@@ -27,8 +27,10 @@ type move struct{ from, to string }
 // A change missing here is refused: in particular review to done, dropped or duplicate, since the Approval must be
 // rejected first.
 var transitions = map[move][]string{
-	// The owner accepts, drops or marks duplicate a proposal; nothing accepts one by itself (Plane, Omi).
-	{Proposed, Open}:      {Owner},
+	// The owner accepts, drops or marks duplicate a proposal; nothing accepts one by itself (Plane, Omi). A Bot
+	// opens one only through WaitOn, when a message shows the owner waits on a person for it (issue #1142; owner,
+	// 2026-11-25): Accept is the owner's alone.
+	{Proposed, Open}:      {Owner, Bot},
 	{Proposed, Dropped}:   {Owner, Bot},
 	{Proposed, Duplicate}: {Owner},
 	// The Bot assigned starts (Chatwoot's assignee_agent_bot_id, Hermes kanban's running).
@@ -189,7 +191,8 @@ func (s *Store) changeTx(
 			RecordedByKind: next.RecordedByKind, RecordedBy: next.RecordedBy, ClosedHow: next.ClosedHow,
 			CloseReason: next.CloseReason, Evidence: next.Evidence, ClosedAt: next.ClosedAt,
 			DuplicateOf: next.DuplicateOf, Priority: next.Priority, PriorityReason: next.PriorityReason,
-			ProjectID: next.ProjectID, Now: now, ID: cur.ID, Revision: cur.Revision, FromState: cur.State,
+			ProjectID: next.ProjectID, WhyOpen: next.WhyOpen, Now: now, ID: cur.ID, Revision: cur.Revision,
+			FromState: cur.State,
 		})
 		if err != nil {
 			return fmt.Errorf("changing to-do %s: %w", c.ID, err)
@@ -228,8 +231,12 @@ func (s *Store) changeTx(
 // applyFunc makes the next row of a change from the row read, or refuses it; extra goes into the event's after.
 type applyFunc = func(q *store.Queries, cur store.Todo, next *store.Todo, now int64) (extra map[string]any, err error)
 
-// Accept opens a proposed to-do; only the owner does.
+// Accept opens a proposed to-do; only the owner does. A Bot opens one only by WaitOn (issue #1142).
 func (s *Store) Accept(ctx context.Context, c Change) (Todo, error) {
+	if c.Actor.Kind != Owner {
+		return Todo{}, fmt.Errorf("%w: only the owner accepts a proposed to-do", storeerr.ErrForbidden)
+	}
+
 	return s.change(ctx, c, EventState,
 		func(_ *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
 			if cur.State != Proposed {
@@ -1012,10 +1019,20 @@ func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, du
 			return nil, err
 		}
 
-		next.AssigneeKind, next.Assignee = a.Kind, a.Name
+		give(cur, next, a)
 	}
 
 	return map[string]any{}, nil
+}
+
+// give gives the item to a. An item that waited on a person waits no more once someone else has it, the owner
+// taking it back or a Bot (issue #1142): its why_open is cleared in the same write.
+func give(cur store.Todo, next *store.Todo, a Assignee) {
+	next.AssigneeKind, next.Assignee = a.Kind, a.Name
+
+	if cur.WhyOpen.String == Waiting && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
+		next.WhyOpen = sql.NullString{}
+	}
 }
 
 // closeFields records who closed a to-do, how and why.

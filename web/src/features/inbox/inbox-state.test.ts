@@ -8,11 +8,15 @@ import {
   atOf,
   botOf,
   detailActions,
+  doneWhenOf,
   dueOf,
   firstWaiting,
   fold,
+  foldedByDefault,
   fromLineOf,
   fromText,
+  groupIds,
+  groupNames,
   groupRows,
   matches,
   nextAfter,
@@ -129,7 +133,8 @@ test("the Inbox groups its items, the asks first in Needs you, each once", () =>
     "todo:reply",
   ])
   expect(keys(groups.working)).toEqual(["todo:doing"])
-  expect(keys(groups.open)).toEqual(["todo:chase", "todo:mine"])
+  expect(keys(groups.open)).toEqual(["todo:mine"])
+  expect(keys(groups.waiting)).toEqual(["todo:chase"])
   expect(keys(groups.proposed)).toEqual(["todo:idea"])
   expect(keys(groups.snoozed)).toEqual(["todo:sooner", "todo:later"])
   expect(keys(groups.done)).toEqual(["todo:new", "todo:old"])
@@ -492,4 +497,55 @@ test("the project filter keeps one project's items or those of none", () => {
   expect(matches(inNone!, { ...noFilter, project: noProject }, "")).toBe(true)
   expect(matches(inVmap!, { ...noFilter, project: noProject }, "")).toBe(false)
   expect(matches(inVmap!, noFilter, "")).toBe(true)
+})
+
+// Scenario: issue #1142. An open item given to a person waits on them, in its own group, with its chase day; one
+// given to nobody known stays Open; a proposal, a snoozed or a closed one stays where it was. The group starts folded,
+// after Open, and its rows offer Take it back; no hint says the owner answers in its chat.
+test("an item given to a person is in Waiting on others, with Take it back", () => {
+  const waiting = todo("viet", {
+    assignee: { kind: "person", name: "Việt" },
+    why_open: "waiting",
+    due: { kind: "instant", at: iso(now - hour), zone: "Asia/Ho_Chi_Minh" },
+  })
+  const rows = rowsOf(
+    {
+      todos: [
+        waiting,
+        todo("nobody", { assignee: { kind: "unknown" } }),
+        todo("proposal", { state: "proposed", assignee: { kind: "person", name: "Lan" } }),
+        todo("later", {
+          assignee: { kind: "person", name: "Lan" },
+          snoozed_until: iso(now + hour),
+        }),
+      ],
+      closedTodos: [
+        todo("closed", {
+          state: "done",
+          assignee: { kind: "person", name: "Lan" },
+          closed_at: iso(now),
+        }),
+      ],
+    },
+    now,
+  )
+  const groups = groupRows(rows, now)
+  const keys = (rs: Row[]) => rs.map((r) => r.key)
+
+  expect(keys(groups.waiting)).toEqual(["todo:viet"])
+  expect(keys(groups.open)).toEqual(["todo:nobody"])
+  expect(keys(groups.proposed)).toEqual(["todo:proposal"])
+  expect(keys(groups.snoozed)).toEqual(["todo:later"])
+  expect(keys(groups.done)).toEqual(["todo:closed"])
+  expect(groupIds.indexOf("waiting")).toBe(groupIds.indexOf("open") + 1)
+  expect(groupNames.waiting).toBe("Waiting on others")
+  expect(foldedByDefault.has("waiting")).toBe(true)
+
+  expect(dueOf(waiting, now)).toEqual({ text: expect.stringMatching(/^Chase /), tone: "late" })
+  expect(actionsOf(rows[0]!, now)).toEqual(["take_back", "done", "snooze"])
+  expect(detailActions(rows[0]!, now)).toEqual(["take_back", "snooze", "drop", "done"])
+  expect(actionsOf(rows[1]!, now)).not.toContain("take_back")
+
+  expect(doneWhenOf(waiting)).toBe("")
+  expect(doneWhenOf({ done_when: "", why_open: "asked_directly" })).toMatch(/^You answer/)
 })

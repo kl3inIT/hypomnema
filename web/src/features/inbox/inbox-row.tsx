@@ -10,6 +10,7 @@ import {
   RotateCcw,
   ShieldQuestion,
   Trash2,
+  Undo2,
   X,
   type LucideIcon,
 } from "lucide-react"
@@ -87,6 +88,7 @@ const actionLook: Record<Action, { Icon: LucideIcon; label: string }> = {
   drop: { Icon: Trash2, label: "Drop" },
   reopen: { Icon: RotateCcw, label: "Reopen" },
   unsnooze: { Icon: RotateCcw, label: "Unsnooze" },
+  take_back: { Icon: Undo2, label: "Take it back" },
 }
 
 const dueTone = { late: "text-failed", today: "text-needs-you", later: "text-muted-foreground" }

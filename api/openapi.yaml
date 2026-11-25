@@ -11605,9 +11605,11 @@ components:
     TodoWhyOpen:
       type: string
       description: >-
-        Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he
-        has not answered; promised, the owner promised it himself.
-      enum: [asked_directly, promised]
+        Why an item a Bot found starts open: asked_directly, someone tagged or messaged the owner and he has not
+        answered; promised, the owner promised it himself; waiting, he waits on a person, given the item: he gave it
+        to them, it was promised to him, or someone took it in his place. The message that shows it is in the
+        item's history (the event's after.waiting_on); giving the item to anyone else clears it.
+      enum: [asked_directly, promised, waiting]
     TodoActorKind:
       type: string
       enum: [owner, bot, system]
@@ -11639,7 +11641,13 @@ components:
           type: string
           description: "created, edited, state, snoozed, linked_approval or commented (after.text is the comment)."
         before: { type: object, additionalProperties: true, description: "The fields that changed, before." }
-        after: { type: object, additionalProperties: true, description: "The fields that changed, after." }
+        after:
+          type: object
+          additionalProperties: true
+          description: >-
+            The fields that changed, after. A Bot's created or edited event that put the item in Waiting on others
+            holds waiting_on too: {by, quote, ref}, the person, their words and the message of the item's own
+            source that shows it (a TodoLink).
     Todo:
       type: object
       required:

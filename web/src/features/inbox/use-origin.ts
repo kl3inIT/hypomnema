@@ -48,6 +48,24 @@ export function useKeptChats(): KeptChats {
   })
 }
 
+// MessageAt names one message of a chat the server keeps of the owner's Zalo or WhatsApp account: the service, the
+// account's label, the chat and the message's id. A part left out reads nothing.
+export type MessageAt = { integration?: string; label?: string; chat?: string; id?: string }
+
+// useMessage reads one kept message, its sender and time; a message does not change, so it is read once.
+export function useMessage({ integration, label, chat, id }: MessageAt) {
+  return useQuery({
+    ...listMessagingMessagesOptions({
+      path: { integration: integration ?? "", label: label ?? "" },
+      query: { chat, id, limit: 1 },
+    }),
+    enabled: !!integration && !!label && !!chat && !!id,
+    staleTime: Infinity,
+    retry: false,
+    select: (page) => page.data.find((m) => m.id === id),
+  })
+}
+
 // useOrigin reads what the server keeps of one row's source: its chat's name among the kept chats, its message's
 // sender and time, its meeting's title and who said its line.
 export function useOrigin(row: Row, chats: KeptChats): Origin {
@@ -60,16 +78,7 @@ export function useOrigin(row: Row, chats: KeptChats): Origin {
   const messageId = service && ref?.kind === `${service}_message` ? ref.ref : undefined
   // The account a chat was found in, else the one the item names: the Connection's label (issue #1105).
   const label = chat?.label ?? todo?.source.account
-  const message = useQuery({
-    ...listMessagingMessagesOptions({
-      path: { integration: service ?? "", label: label ?? "" },
-      query: { chat: chatId, id: messageId, limit: 1 },
-    }),
-    enabled: !!service && !!label && !!chatId && !!messageId,
-    staleTime: Infinity,
-    retry: false,
-    select: (page) => page.data.find((m) => m.id === messageId),
-  })
+  const message = useMessage({ integration: service, label, chat: chatId, id: messageId })
 
   const meetingId = todo && source === "meeting" ? meetingOf(todo) : undefined
   const meeting = useQuery({

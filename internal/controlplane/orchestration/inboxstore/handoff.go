@@ -258,7 +258,7 @@ func (s *Store) Hand(ctx context.Context, c Change, bot, prompt string) (Todo, e
 					return nil, err
 				}
 
-				next.AssigneeKind, next.Assignee = to.Kind, to.Name
+				give(cur, next, to)
 				next.SnoozedUntil.Valid = false
 
 				if cur.State == Proposed {
