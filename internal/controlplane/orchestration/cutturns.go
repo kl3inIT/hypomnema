@@ -12,9 +12,9 @@ import (
 
 // A Bot's turn that a restart cut (issue #716), after Hermes's interrupted-turn markers (tui_gateway/turn_marker.py,
 // session_auto_continue.py): the chat is marked when its pi starts a turn and the mark goes when the turn settles,
-// so only the control plane's death leaves one. At start the coordinator reads the marks, wakes each fresh chat to
-// continue its turn with one line the owner sees, and clears the others with a line that says the turn was cut. The
-// partial transcript stays as it was kept.
+// so only the control plane's death leaves one; as it begins to stop it writes when it cut each (issue #1162). At
+// start the coordinator reads the marks, wakes each fresh chat to continue its turn with one line the owner sees,
+// and clears the others with a line that says the turn was cut. The partial transcript stays as it was kept.
 
 // Lines a chat gets when the control plane starts and finds its turn cut, of kinds ChatContinued and ChatCut.
 const (
@@ -27,8 +27,11 @@ const (
 // CutTurn is a chat whose turn was marked and never settled.
 type CutTurn struct {
 	ChatID string
-	// Age is how long ago the turn started, or was last woken to continue.
+	// Age is how long ago the control plane began to stop and cut the turn (issue #1162). When it wrote no cut (it
+	// crashed), how long ago the turn started, or was last woken to continue.
 	Age time.Duration
+	// Cut says Age is measured from the cut, not from the turn's start.
+	Cut bool
 	// Attempts is how many times the chat was woken to continue this turn.
 	Attempts int
 }
@@ -70,12 +73,31 @@ func (s *Service) CutTurns(ctx context.Context) ([]CutTurn, error) {
 	out := make([]CutTurn, 0, len(rows))
 
 	for _, r := range rows {
+		from := r.TurnStartedAt
+		if r.TurnCutAt.Valid {
+			from = r.TurnCutAt.Int64
+		}
+
 		out = append(out, CutTurn{
-			ChatID: r.ID, Age: now.Sub(time.UnixMilli(r.TurnStartedAt)), Attempts: int(r.TurnAttempts),
+			ChatID: r.ID, Age: now.Sub(time.UnixMilli(from)), Cut: r.TurnCutAt.Valid, Attempts: int(r.TurnAttempts),
 		})
 	}
 
 	return out, nil
+}
+
+// CutMarkedTurns writes that every marked turn is cut now (issue #1162): the control plane begins to stop, and this
+// is written before it waits for the turns, as Hermes's gateway marks its running sessions resume-pending before its
+// drain wait so that a process killed during the drain still leaves the marker (gateway/run_shutdown.py
+// _mark_running_sessions_resume_pending). A turn that settles during the wait clears it with its mark.
+func (s *Service) CutMarkedTurns(ctx context.Context) error {
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.CutMarkedTurns(ctx, sql.NullInt64{Int64: now, Valid: true})
+	}); err != nil {
+		return fmt.Errorf("cutting the marked turns: %w", err)
+	}
+
+	return nil
 }
 
 // ContinueCutTurn wakes the chat to continue its cut turn: one attempt more, the mark from now, and ContinuedText in

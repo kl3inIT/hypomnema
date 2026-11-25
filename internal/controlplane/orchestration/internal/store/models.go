@@ -240,6 +240,7 @@ type Chat struct {
 	TurnStartedAt  sql.NullInt64
 	TurnToken      sql.NullString
 	TurnAttempts   int64
+	TurnCutAt      sql.NullInt64
 }
 
 type ChatBackgroundCommand struct {

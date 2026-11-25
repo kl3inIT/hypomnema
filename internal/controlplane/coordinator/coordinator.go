@@ -131,12 +131,20 @@ func (s *Supervisor) updating() bool { return s.cfg.Updating != nil && s.cfg.Upd
 
 // BeginUpdate runs mark, which names the update in its marker (selfupdate), under the lock every pi start holds from
 // its last look for an update until pi has its token (issue #716): a start that looked before the update began
-// finishes first, and every start after it sees the marker. So no pi starts once the update has begun.
+// finishes first, and every start after it sees the marker. So no pi starts once the update has begun. Once it has,
+// every running turn is cut, before the update waits for the turns (issue #1162, cutturns.go).
 func (s *Supervisor) BeginUpdate(mark func() error) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	err := mark()
+	s.mu.Unlock()
 
-	return mark()
+	if err != nil {
+		return err
+	}
+
+	s.cutTurns(context.Background())
+
+	return nil
 }
 
 // errUpdating refuses to start pi while the control plane is updated.
@@ -230,7 +238,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	s.continueCutTurns(ctx)
 
 	defer t.Stop()
-	defer s.stopAll()
+	defer s.stopAll(ctx)
 
 	for {
 		s.pass(ctx)
@@ -597,8 +605,11 @@ func (s *Supervisor) reapIdle() {
 	}
 }
 
-func (s *Supervisor) stopAll() {
+// stopAll stops every pi, once Run's context ended: the turns that run are cut first, before the wait for pi to
+// exit (issue #1162).
+func (s *Supervisor) stopAll(ctx context.Context) {
 	s.stopping.Store(true)
+	s.cutTurns(ctx)
 
 	s.mu.Lock()
 	procs := s.procs
