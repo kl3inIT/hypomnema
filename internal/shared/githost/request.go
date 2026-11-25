@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,12 +27,127 @@ const (
 // RequestState is what the control plane reads of a pull request it follows (issue #1053): where it is, its head,
 // whether it conflicts with its base, and the required checks of its head that failed. It is the facts pstack's
 // watch-pr reads before it decides (skills/poteto-mode/scripts/watch-pr/policy.ts:59-140: merged, closed, a
-// conflict, failed checks).
+// conflict, failed checks). Branch is its head branch and AutoMerge whether auto-merge is armed on it, read from
+// the host rather than from a worker's summary (issue #1168), as Coder reads the head branch of a pull request
+// (coderd/x/gitsync/gitsync.go:327-331).
 type RequestState struct {
-	Status   RequestStatus
-	Head     string
-	Conflict bool
-	Failed   []string
+	Status    RequestStatus
+	Head      string
+	Branch    string
+	AutoMerge bool
+	Conflict  bool
+	Failed    []string
+}
+
+// ErrNoRequest says a branch has no open pull request (yet).
+var ErrNoRequest = errors.New("the branch has no open pull request")
+
+// FindRequest finds and reads the pull request of branch in repo, as Coder's gitsync refreshes a chat's: a known
+// request, the hint, is read first and kept unless its head branch is another one; else, or then, the branch's
+// open pull request is resolved at the host and read (coderd/x/gitsync/gitsync.go:282-343). It returns
+// ErrNoRequest when the branch has none open.
+func FindRequest(ctx context.Context, client *http.Client, kind Kind, repo Repo, branch string, hint *Request,
+	token string,
+) (Request, RequestState, error) {
+	if hint != nil {
+		st, err := ReadRequest(ctx, client, kind, *hint, token)
+		if err != nil {
+			return Request{}, RequestState{}, err
+		}
+
+		if st.Branch == "" || st.Branch == branch {
+			return *hint, st, nil
+		}
+	}
+
+	r, err := branchRequest(ctx, client, kind, repo, branch, token)
+	if err != nil {
+		return Request{}, RequestState{}, err
+	}
+
+	st, err := ReadRequest(ctx, client, kind, r, token)
+	if err != nil {
+		return Request{}, RequestState{}, err
+	}
+
+	return r, st, nil
+}
+
+// branchRequest resolves the open pull request whose head is branch, the most recently updated: on GitHub GET
+// /repos/:owner/:repo/pulls?head=owner:branch&state=open, as Coder's ResolveBranchPullRequest asks it
+// (coderd/externalauth/gitprovider/github.go:207-225), under api.github.com or a GitHub Enterprise host's /api/v3;
+// on GitLab GET /projects/:id/merge_requests?source_branch=branch&state=opened.
+func branchRequest(ctx context.Context, client *http.Client, kind Kind, repo Repo, branch, token string,
+) (Request, error) {
+	if branch == "" {
+		return Request{}, ErrNoRequest
+	}
+
+	var u *url.URL
+
+	switch kind {
+	case GitHub:
+		owner, _, ok := strings.Cut(repo.Path, "/")
+		if !ok {
+			return Request{}, fmt.Errorf("%s is not owner/name", repo.Path)
+		}
+
+		u = &url.URL{Scheme: "https", Host: "api.github.com", Path: "/repos/" + repo.Path + "/pulls"}
+		if repo.Host != GitHubHost {
+			u = &url.URL{Scheme: "https", Host: repo.Host, Path: "/api/v3/repos/" + repo.Path + "/pulls"}
+		}
+
+		u.RawQuery = url.Values{
+			"head": {owner + ":" + branch}, "state": {"open"}, "sort": {"updated"}, "direction": {"desc"},
+			"per_page": {"1"},
+		}.Encode()
+	case GitLab:
+		u = &url.URL{
+			Scheme: "https", Host: repo.Host,
+			Path:    "/api/v4/projects/" + repo.Path + "/merge_requests",
+			RawPath: "/api/v4/projects/" + url.PathEscape(repo.Path) + "/merge_requests",
+			RawQuery: url.Values{
+				"source_branch": {branch}, "state": {"opened"}, "order_by": {"updated_at"}, "sort": {"desc"},
+				"per_page": {"1"},
+			}.Encode(),
+		}
+	default:
+		return Request{}, fmt.Errorf("unknown kind of host %q", kind)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return Request{}, fmt.Errorf("asking %s for a pull request: %w", repo.Host, err)
+	}
+
+	body, err := ask(client, req, token, repo.Host)
+	if err != nil {
+		return Request{}, err
+	}
+
+	var found []struct {
+		Number int `json:"number"`
+		IID    int `json:"iid"`
+	}
+
+	if err := json.Unmarshal(body, &found); err != nil {
+		return Request{}, fmt.Errorf("reading %s's pull requests of a branch: %w", repo.Host, err)
+	}
+
+	if len(found) == 0 {
+		return Request{}, ErrNoRequest
+	}
+
+	n := found[0].Number
+	if kind == GitLab {
+		n = found[0].IID
+	}
+
+	if n <= 0 {
+		return Request{}, fmt.Errorf("%s answered a pull request without a number", repo.Host)
+	}
+
+	return Request{Repo: repo, Number: n}, nil
 }
 
 // maxRequestBytes bounds the host's answer about a pull request; one page of 100 checks is far smaller.
@@ -42,9 +158,11 @@ const maxRequestBytes = 4 << 20
 // reads it for `gh pr checks --required` (cli/cli api/query_builder.go:279-310, pkg/cmd/pr/checks/aggregate.go:38);
 // a required check failed when its state or conclusion is in gh's fail or cancel bucket (ERROR, FAILURE,
 // TIMED_OUT, ACTION_REQUIRED, or GitHub's spelling of canceled; aggregate.go:70-84), and a check run again counts
-// by its newest run only (eliminateDuplicates, aggregate.go:96-120). On GitLab it is the merge request (GET
-// /projects/:id/merge_requests/:iid): its state, has_conflicts, sha and head pipeline, which is the required check
-// when "Pipelines must succeed" is on, as the worker's auto-merge step checks (githost.go, gitlab AutoMerge).
+// by its newest run only (eliminateDuplicates, aggregate.go:96-120); its head branch is headRefName and auto-merge
+// is armed when autoMergeRequest is not null, the fields gh's `pr view --json headRefName,autoMergeRequest`
+// reads. On GitLab it is the merge request (GET /projects/:id/merge_requests/:iid): its state, has_conflicts, sha,
+// source_branch, merge_when_pipeline_succeeds and head pipeline, which is the required check when "Pipelines must
+// succeed" is on, as the worker's auto-merge step checks (githost.go, gitlab AutoMerge).
 //
 // As ReadIdentity, the token goes to the host alone, and no error holds what the host answered beyond its status.
 func ReadRequest(ctx context.Context, client *http.Client, kind Kind, r Request, token string) (RequestState, error) {
@@ -164,6 +282,8 @@ const githubRequestGraphQL = `query($owner: String!, $name: String!, $number: In
       state
       mergeable
       headRefOid
+      headRefName
+      autoMergeRequest { enabledAt }
       commits(last: 1) {
         nodes {
           commit {
@@ -247,10 +367,12 @@ func githubRequestPage(body []byte) (RequestState, []githubCheck, string, error)
 		Data struct {
 			Repository struct {
 				PullRequest *struct {
-					State      string `json:"state"`
-					Mergeable  string `json:"mergeable"`
-					HeadRefOid string `json:"headRefOid"`
-					Commits    struct {
+					State            string    `json:"state"`
+					Mergeable        string    `json:"mergeable"`
+					HeadRefOid       string    `json:"headRefOid"`
+					HeadRefName      string    `json:"headRefName"`
+					AutoMergeRequest *struct{} `json:"autoMergeRequest"`
+					Commits          struct {
 						Nodes []struct {
 							Commit struct {
 								StatusCheckRollup *struct {
@@ -280,7 +402,10 @@ func githubRequestPage(body []byte) (RequestState, []githubCheck, string, error)
 		return RequestState{}, nil, "", fmt.Errorf("GitHub answered no pull request (%d errors)", len(answer.Errors))
 	}
 
-	state := RequestState{Head: pr.HeadRefOid, Conflict: pr.Mergeable == "CONFLICTING"}
+	state := RequestState{
+		Head: pr.HeadRefOid, Branch: pr.HeadRefName, Conflict: pr.Mergeable == "CONFLICTING",
+		AutoMerge: pr.AutoMergeRequest != nil,
+	}
 
 	switch pr.State {
 	case "MERGED":
@@ -367,6 +492,8 @@ func gitlabRequestState(body []byte) (RequestState, error) {
 		State        string `json:"state"`
 		HasConflicts bool   `json:"has_conflicts"`
 		SHA          string `json:"sha"`
+		SourceBranch string `json:"source_branch"`
+		AutoMerge    bool   `json:"merge_when_pipeline_succeeds"`
 		HeadPipeline *struct {
 			Status string `json:"status"`
 		} `json:"head_pipeline"`
@@ -376,7 +503,7 @@ func gitlabRequestState(body []byte) (RequestState, error) {
 		return RequestState{}, fmt.Errorf("reading GitLab's merge request: %w", err)
 	}
 
-	state := RequestState{Head: mr.SHA, Conflict: mr.HasConflicts}
+	state := RequestState{Head: mr.SHA, Branch: mr.SourceBranch, AutoMerge: mr.AutoMerge, Conflict: mr.HasConflicts}
 
 	switch mr.State {
 	case "merged":

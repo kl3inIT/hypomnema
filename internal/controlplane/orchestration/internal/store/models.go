@@ -843,6 +843,12 @@ type Provider struct {
 	UpdatedAt int64
 }
 
+type PullRequestLookup struct {
+	DispatchID string
+	Url        string
+	Since      int64
+}
+
 type PushOutbox struct {
 	Seq       int64
 	Kind      string

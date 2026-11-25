@@ -5583,27 +5583,37 @@ The owner's commands:
   nothing waits for and which is never a merge condition (issue #766; owner, 2026-11-17); the model is the profile's unless the owner names one; and a profile or model that cannot be served is
   reported, not replaced. The skill's files hold no source comments, since a coordinator turn reads them whole;
   each rule's source is in `docs/role-routing.md` (issue #1051).
-  A worker that turned auto-merge on finishes without waiting for CI, its summary saying "auto-merge on at
-  <sha>", and the control plane follows its pull request (issue #1053, `orchestration/pullrequests.go`, after
-  pstack's watcher, `shipping.md:8-9` and `scripts/watch-pr/policy.ts:59-140`): once a minute
-  (`followPullRequests`, pstack's 60 s, `cli.ts:110`) it lists the succeeded, non-review Tasks of open Runs whose
-  last Dispatch's summary says so and names one pull request, and reads each at its host with the token of its
+  A worker that turned auto-merge on finishes without waiting for CI, and the control plane follows its pull
+  request (issue #1053, `orchestration/pullrequests.go`, after pstack's watcher, `shipping.md:8-9` and
+  `scripts/watch-pr/policy.ts:59-140`). It finds the pull request by the Task's branch at the host, not by the
+  worker's summary (issue #1168, after Coder's gitsync, `coderd/x/gitsync/gitsync.go:282-343`; Orca, t3code and
+  Hermes also find one by its head branch): for each succeeded, non-review Task of an open Run with a repository,
+  by its last Dispatch, it reads the pull request found before, else the one the Dispatch's `pull_request`
+  evidence names in the Run's repository, kept only when its head branch is the Task's push branch, else the
+  branch's open pull request (`githost.FindRequest`; on GitHub `GET /repos/:owner/:repo/pulls?head=owner:branch&
+  state=open`, as Coder's `ResolveBranchPullRequest`, `coderd/externalauth/gitprovider/github.go:207-225`; on
+  GitLab `merge_requests?source_branch=`). What it found is kept in `pull_request_lookups` (by Dispatch: `url`,
+  `since`), as Coder keeps the URL, so a pull request that merged and left its branch's open list is still read.
+  A branch without one is looked up every 15 s for 2 minutes from its first lookup, then dropped (Coder's
+  `NoPRBackoff` and `NoPRRetryWindow`, `coderd/x/gitsync/worker.go:38-53`); a pull request found is read once a
+  minute (`followPullRequests`, pstack's 60 s, `cli.ts:110`). Each read is at its host with the token of its
   repository's Connection, by the Connection's route (`githost.ReadRequest`): on GitHub one GraphQL query for its
-  state, `mergeable`, head and the status check rollup of its last commit with `isRequired`, a check counted by
-  its newest run and failed in gh's fail and cancel buckets (cli/cli `api/query_builder.go:279-310`,
-  `pkg/cmd/pr/checks/aggregate.go:38-120`); on GitLab the merge request's state, `has_conflicts`, `sha` and head
-  pipeline. A conflict, before a failed required check (pstack's `babysit.md:8`), sends the worker a follow-up on
-  its succeeded Task, asked by the coordinator, to fix it, push, turn auto-merge on again and finish; merged,
-  closed, and a follow-up sent or refused each write one `escalation` event of kind `pull_request` on that
-  Dispatch (`state`, `pull_request`, `head`, `reason`, `follow_up` or `follow_up_refused`), which wakes the Run's
-  chat and marks the report settled; a follow-up's new Dispatch reports again. The follow-up and its escalation
-  are written in one transaction, which first reads again that the Run is open, the Task succeeded, its last
-  Dispatch is the one read and the report is not settled; GitHub's checks are read page by page, 100 a page, as gh
-  does (`pkg/cmd/pr/checks/checks.go:257-300`). A repository without a token is not read: its Dispatch's
-  worker, given no token, used the node's login and was told to wait for the required checks itself, as before
-  #1053, and the pass writes one escalation in state `unfollowed` for it (review round 2, the coordinator's
-  choice). The coordinator keeps the Run open until that wake says the pull request merged, was closed or is not
-  followed.
+  state, `mergeable`, head, `headRefName`, `autoMergeRequest` and the status check rollup of its last commit with
+  `isRequired`, a check counted by its newest run and failed in gh's fail and cancel buckets (cli/cli
+  `api/query_builder.go:279-310`, `pkg/cmd/pr/checks/aggregate.go:38-120`); on GitLab the merge request's state,
+  `has_conflicts`, `sha`, `source_branch`, `merge_when_pipeline_succeeds` and head pipeline. With auto-merge
+  armed, a conflict, before a failed required check (pstack's `babysit.md:8`), sends the worker a follow-up on
+  its succeeded Task, asked by the coordinator, to fix it, push, turn auto-merge on again and finish; without it
+  (a review comes first, the owner merges) nothing is sent. Merged, closed, and a follow-up sent or refused each
+  write one `escalation` event of kind `pull_request` on that Dispatch (`state`, `pull_request`, `head`,
+  `reason`, `follow_up` or `follow_up_refused`), which wakes the Run's chat and marks the report settled; a
+  follow-up's new Dispatch reports again. The follow-up and its escalation are written in one transaction, which
+  first reads again that the Run is open, the Task succeeded, its last Dispatch is the one read and the report is
+  not settled; GitHub's checks are read page by page, 100 a page, as gh does (`pkg/cmd/pr/checks/checks.go:257-300`).
+  A repository without a token is not read: its Dispatch's worker, given no token, used the node's login and was
+  told to wait for the required checks itself, as before #1053, and when its evidence names a pull request the
+  pass writes one escalation in state `unfollowed` for it (review round 2, the coordinator's choice). The
+  coordinator keeps the Run open until that wake says the pull request merged, was closed or is not followed.
   A reviewer-profile Task identifies its PR or MR from its result or evidence before falling back to the target
   in the spec. The result summary reports the verdict, mergeability, merge state and required checks (issue #869).
   A head gets one verdict (issue #953, after pstack's "a verdict covers a patch",
