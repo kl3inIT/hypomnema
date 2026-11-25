@@ -6,13 +6,14 @@ import {
   actionsOf,
   askerOf,
   atOf,
+  botOf,
   detailActions,
   dueOf,
   firstWaiting,
   fold,
+  fromLineOf,
   fromText,
   groupRows,
-  initialsOf,
   matches,
   nextAfter,
   noFilter,
@@ -309,10 +310,34 @@ test("a row names the chat and the person, not the account's number", () => {
       line: 37,
     },
   )
+})
 
-  expect(initialsOf("Vân Anh")).toBe("VA")
-  expect(initialsOf("Kai")).toBe("K")
-  expect(initialsOf("Phan Hồng Đạt")).toBe("PĐ")
+// Scenario: issue #1140. The line below a row's title is who then where, without the platform, which its avatar
+// shows; a name both give once; with one known, that one.
+test("a row's line names the person and the place, not the platform", () => {
+  const one = (t: Todo) => rowsOf({ todos: [t] }, now)[0]!
+  const bots = (id: string) => (id === "thu-ky" ? "Thư ký" : id)
+  const group = one(
+    todo("z", {
+      source: { kind: "zalo", id: "1", ref: { kind: "zalo_message", ref: "m1" } },
+      created_by: { kind: "bot", id: "thu-ky" },
+    }),
+  )
+
+  expect(
+    fromLineOf(group, { chat: "BeyondPilot Platform Discussion", sender: "Eugene" }, bots),
+  ).toBe("Eugene · BeyondPilot Platform Discussion")
+  expect(fromLineOf(group, { chat: "Vân Anh", sender: "Vân Anh" }, bots)).toBe("Vân Anh")
+  expect(fromLineOf(group, { chat: "Dự Án Ma" }, bots)).toBe("Dự Án Ma")
+  expect(fromLineOf(group, {}, bots)).toBe("")
+  expect(fromLineOf(one(todo("h")))).toBe("Added by you")
+  const chat = one(
+    todo("c", { source: { kind: "chat", id: "cht_1" }, created_by: { kind: "bot", id: "thu-ky" } }),
+  )
+  expect(fromLineOf(chat, {}, bots)).toBe("Thư ký")
+  expect(botOf(chat)).toBe("thu-ky")
+  expect(botOf(group)).toBeUndefined()
+  expect(botOf(rowsOf({ approvals: [approval("a", { chat_id: "cht_1" })] }, now)[0]!)).toBe("pi")
 })
 
 // Scenario: issue #1110. The time on a row's right is the message's own, else when the item was added.
