@@ -1215,6 +1215,7 @@ var commands = []command{
 				"dropped, duplicate")
 			fs.String("who", "", "only those of me, unknown, bot:<bot id> or a person's name")
 			fs.String("source", "", "only those from owner, chat, routine, lark or zalo")
+			fs.String("project", "", "only those of this project, by its name or id; none for those without one")
 			fs.String("due-from", "", "only those due from this time (YYYY-MM-DD[ HH:MM], this machine's zone)")
 			fs.String("due-to", "", "only those due before this time")
 			fs.Bool("needs-you", false, "only those that need you now")
@@ -1242,7 +1243,7 @@ var commands = []command{
 		run: inboxAdd,
 	},
 	{
-		name: "inbox edit", args: "<todo_id>", min: 1, max: 1, summary: "change a to-do's title, notes, due or who",
+		name: "inbox edit", args: "<todo_id>", min: 1, max: 1, summary: "change a to-do's title, notes, due, who, priority or project",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("title", "", "the title")
 			inboxFlags(fs)

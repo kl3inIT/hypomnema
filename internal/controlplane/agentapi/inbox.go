@@ -109,6 +109,14 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		"done_when": map[string]any{"type": "string", "maxLength": inboxstore.MaxDoneWhen},
 		"draft": map[string]any{"type": "string", "maxLength": inboxstore.MaxDraft, "description": "The reply " +
 			"you drafted for the owner to send himself."},
+		// Priority and project (issue #1157), on Linear's scale, as its MCP's save_issue takes it.
+		"priority": map[string]any{"type": "integer", "minimum": inboxstore.NoPriority, "maximum": inboxstore.Low,
+			"description": "0 no priority, 1 urgent, 2 high, 3 medium, 4 low: how much it matters to the owner " +
+				"now. Give priority_reason with it."},
+		"priority_reason": map[string]any{"type": "string", "maxLength": inboxstore.MaxPriorityReason,
+			"description": "Why it has that priority, in one line the owner reads beside it."},
+		"project": map[string]any{"type": "string", "description": "The owner's project it belongs to, by its " +
+			"name as inbox_list's projects give them; none takes it out of its project."},
 	}
 
 	add := map[string]any{
@@ -154,15 +162,18 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		props       map[string]any
 		required    []string
 	}{
-		{agenttool.ToolInboxList, "List the owner's to-dos, by due then age: open ones by default. Filter by " +
-			"state, who does them, where they came from, when they are due, needs_you (what waits for the owner), and include closed, " +
-			"snoozed or stale proposals; cursor pages on. Use it before you add one, so as never to add it twice.", map[string]any{
+		{agenttool.ToolInboxList, "List the owner's to-dos, by due then age: open ones by default, with the " +
+			"owner's projects. Filter by state, who does them, where they came from, their project, when they are " +
+			"due, needs_you (what waits for the owner), and include closed, snoozed or stale proposals; cursor pages " +
+			"on. Use it before you add one, so as never to add it twice.", map[string]any{
 			"state": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{
 				inboxstore.Proposed, inboxstore.Open, inboxstore.Doing, inboxstore.Review, inboxstore.Done,
 				inboxstore.Dropped, inboxstore.Duplicate}}},
-			"assignee_kind":   add["assignee_kind"],
-			"assignee":        add["assignee"],
-			"source_kind":     map[string]any{"type": "string"},
+			"assignee_kind": add["assignee_kind"],
+			"assignee":      add["assignee"],
+			"source_kind":   map[string]any{"type": "string"},
+			"project": map[string]any{"type": "string", "description": "Only the items of this project, by " +
+				"its name; none, only the items without one."},
 			"needs_you":       map[string]any{"type": "boolean"},
 			"include_closed":  map[string]any{"type": "boolean"},
 			"include_snoozed": map[string]any{"type": "boolean"},
@@ -251,11 +262,15 @@ type inboxArgs struct {
 	Notes    *string `json:"notes"`
 	DoneWhen *string `json:"done_when"`
 	Draft    *string `json:"draft"`
-	DueDate  string  `json:"due_date"`
-	DueAt    string  `json:"due_at"`
-	Timezone string  `json:"timezone"`
-	HandBack bool    `json:"hand_back"`
-	PassTo   string  `json:"pass_to"`
+	// Priority, its reason and the project's name (issue #1157).
+	Priority       *int    `json:"priority"`
+	PriorityReason *string `json:"priority_reason"`
+	Project        string  `json:"project"`
+	DueDate        string  `json:"due_date"`
+	DueAt          string  `json:"due_at"`
+	Timezone       string  `json:"timezone"`
+	HandBack       bool    `json:"hand_back"`
+	PassTo         string  `json:"pass_to"`
 	// inbox_add.
 	AssigneeKind string `json:"assignee_kind"`
 	Assignee     string `json:"assignee"`
@@ -280,6 +295,7 @@ type inboxListArgs struct {
 	AssigneeKind   string   `json:"assignee_kind"`
 	Assignee       string   `json:"assignee"`
 	SourceKind     string   `json:"source_kind"`
+	Project        string   `json:"project"`
 	NeedsYou       bool     `json:"needs_you"`
 	IncludeClosed  bool     `json:"include_closed"`
 	IncludeSnoozed bool     `json:"include_snoozed"`
@@ -446,14 +462,14 @@ func (s *Server) inboxCall(w http.ResponseWriter, r *http.Request, a agent, call
 	case agenttool.ToolInboxGet:
 		var t inboxstore.Todo
 		if t, err = s.store.Inbox().Get(ctx, strings.TrimSpace(in.ID)); err == nil {
-			out = todoView(t, true)
+			out, err = s.todoViewOf(ctx, t, true)
 		}
 	case agenttool.ToolInboxAdd:
 		out, err = s.inboxAdd(ctx, a, c, in)
 	case agenttool.ToolInboxComment:
 		var t inboxstore.Todo
 		if t, err = s.store.Inbox().Comment(ctx, c.actor, strings.TrimSpace(in.ID), in.Text); err == nil {
-			out = todoView(t, true)
+			out, err = s.todoViewOf(ctx, t, true)
 		}
 	default:
 		out, err = s.inboxChange(ctx, a, c, call.Tool, in)
@@ -477,6 +493,17 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 	f := inboxstore.Filter{
 		States: in.States, SourceKind: in.SourceKind, NeedsYou: in.NeedsYou, WithClosed: in.IncludeClosed,
 		WithSnoozed: in.IncludeSnoozed, WithStale: in.IncludeStale,
+	}
+
+	projects, err := s.store.Inbox().Projects(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if in.Project != "" {
+		if f.Project, err = s.projectID(ctx, in.Project); err != nil {
+			return nil, err
+		}
 	}
 
 	if in.AssigneeKind != "" {
@@ -508,12 +535,19 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 		return nil, err
 	}
 
+	names := projectNames(projects)
 	items := make([]todoOut, 0, len(page.Items))
+
 	for _, t := range page.Items {
-		items = append(items, todoView(t, !f.OwnerChangedSince.IsZero()))
+		items = append(items, todoView(t, !f.OwnerChangedSince.IsZero(), names))
 	}
 
-	return map[string]any{"total": page.Total, "next_cursor": page.Next, "items": items}, nil
+	known := make([]string, 0, len(projects))
+	for _, p := range projects {
+		known = append(known, p.Name)
+	}
+
+	return map[string]any{"total": page.Total, "next_cursor": page.Next, "items": items, "projects": known}, nil
 }
 
 // inboxDue is the due a call gives: none, a date or a moment in its time zone.
@@ -551,7 +585,19 @@ func (s *Server) inboxAdd(ctx context.Context, a agent, c inboxCaller, in inboxA
 	n := inboxstore.NewTodo{
 		Title: val(in.Title), Notes: val(in.Notes), DoneWhen: val(in.DoneWhen), Draft: val(in.Draft),
 		Assignee: inboxstore.Assignee{Kind: inboxstore.Me}, WhyOpen: in.WhyOpen, IdempotencyKey: in.Key,
-		Source: inboxstore.Source{Quote: in.Quote, Ref: in.Message},
+		Source: inboxstore.Source{Quote: in.Quote, Ref: in.Message}, Priority: val(in.Priority),
+		PriorityReason: val(in.PriorityReason),
+	}
+
+	if in.PriorityReason != nil && in.Priority == nil {
+		return nil, fmt.Errorf("%w: a priority's reason is given with the priority", orchestration.ErrInvalid)
+	}
+
+	if in.Project != "" && !strings.EqualFold(strings.TrimSpace(in.Project), inboxstore.NoProject) {
+		var err error
+		if n.Project, err = s.projectID(ctx, in.Project); err != nil {
+			return nil, err
+		}
 	}
 
 	if in.AssigneeKind != "" {
@@ -603,7 +649,7 @@ func (s *Server) inboxAdd(ctx context.Context, a agent, c inboxCaller, in inboxA
 		return nil, err
 	}
 
-	return todoView(t, false), nil
+	return s.todoViewOf(ctx, t, false)
 }
 
 // inboxChange runs a change of an item: it reads the item, and writes at the revision the Bot gave or the one read,
@@ -634,7 +680,23 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 
 	switch tool {
 	case agenttool.ToolInboxUpdate:
-		e := inboxstore.Edit{Title: in.Title, Notes: in.Notes, DoneWhen: in.DoneWhen, Draft: in.Draft}
+		e := inboxstore.Edit{
+			Title: in.Title, Notes: in.Notes, DoneWhen: in.DoneWhen, Draft: in.Draft, Priority: in.Priority,
+			PriorityReason: in.PriorityReason,
+		}
+
+		if in.Project != "" {
+			project, projectErr := s.projectID(ctx, in.Project)
+			if projectErr != nil {
+				return nil, projectErr
+			}
+
+			if project == inboxstore.NoProject {
+				project = ""
+			}
+
+			e.Project = &project
+		}
 
 		due, given, dueErr := inboxDue(in)
 		if dueErr != nil {
@@ -691,7 +753,40 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 		return nil, err
 	}
 
-	return todoView(t, false), nil
+	return s.todoViewOf(ctx, t, false)
+}
+
+// projectID is the id of the project a Bot names by its name (or id), or NoProject for none.
+func (s *Server) projectID(ctx context.Context, named string) (string, error) {
+	if strings.EqualFold(strings.TrimSpace(named), inboxstore.NoProject) {
+		return inboxstore.NoProject, nil
+	}
+
+	p, err := s.store.Inbox().ProjectNamed(ctx, named)
+	if err != nil {
+		return "", err
+	}
+
+	return p.ID, nil
+}
+
+func projectNames(all []inboxstore.Project) map[string]string {
+	names := make(map[string]string, len(all))
+	for _, p := range all {
+		names[p.ID] = p.Name
+	}
+
+	return names
+}
+
+// todoViewOf is todoView with the names of the owner's projects.
+func (s *Server) todoViewOf(ctx context.Context, t inboxstore.Todo, events bool) (todoOut, error) {
+	all, err := s.store.Inbox().Projects(ctx)
+	if err != nil {
+		return todoOut{}, err
+	}
+
+	return todoView(t, events, projectNames(all)), nil
 }
 
 // todoOut is a to-do as a Bot reads it: what it needs to act, without the attempt it never handles.
@@ -706,6 +801,9 @@ type todoOut struct {
 	Due         string            `json:"due,omitempty"`
 	Assignee    string            `json:"assignee"`
 	PassedBy    string            `json:"passed_by,omitempty"`
+	Priority    string            `json:"priority,omitempty"`
+	PriorityWhy string            `json:"priority_reason,omitempty"`
+	Project     string            `json:"project,omitempty"`
 	Source      map[string]any    `json:"source"`
 	WhyOpen     string            `json:"why_open,omitempty"`
 	CreatedBy   string            `json:"created_by"`
@@ -730,7 +828,7 @@ func who(kind, name string) string {
 	return kind + " " + name
 }
 
-func todoView(t inboxstore.Todo, events bool) todoOut {
+func todoView(t inboxstore.Todo, events bool, projects map[string]string) todoOut {
 	out := todoOut{
 		ID: t.ID, Revision: t.Revision, Title: t.Title, State: t.State, Notes: t.Notes, DoneWhen: t.DoneWhen,
 		Draft: t.Draft, Assignee: who(t.Assignee.Kind, t.Assignee.Name), WhyOpen: t.WhyOpen,
@@ -763,6 +861,14 @@ func todoView(t inboxstore.Todo, events bool) todoOut {
 
 	if t.PassedBy != "" {
 		out.PassedBy = who(inboxstore.Bot, t.PassedBy)
+	}
+
+	if t.Priority > inboxstore.NoPriority && t.Priority < len(inboxstore.PriorityNames) {
+		out.Priority, out.PriorityWhy = inboxstore.PriorityNames[t.Priority], t.PriorityReason
+	}
+
+	if t.Project != "" {
+		out.Project = projects[t.Project]
 	}
 
 	if t.Work != nil {

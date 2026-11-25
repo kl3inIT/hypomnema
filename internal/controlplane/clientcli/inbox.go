@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +25,53 @@ func inboxFlags(fs *flag.FlagSet) {
 	fs.String("who", "", "who does it: me, unknown, bot:<bot id> or a person's name")
 	fs.String("notes", "", "notes")
 	fs.String("done-when", "", "what done looks like")
+	fs.String("priority", "", "how much it matters: none, urgent, high, medium or low (or 0 to 4)")
+	fs.String("priority-reason", "", "why it has that priority, in a line, with --priority")
+	fs.String("project", "", "the project it is in, by its name or id; none for no project")
+}
+
+// priorityNames are Linear's priorities, by their value 0 to 4.
+var priorityNames = []string{"none", "urgent", "high", "medium", "low"}
+
+// priorityOf reads --priority: a name or Linear's 0-4.
+func priorityOf(s string) (int, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	for i, name := range priorityNames {
+		if s == name || s == strconv.Itoa(i) {
+			return i, nil
+		}
+	}
+
+	return 0, fmt.Errorf("--priority %q is none, urgent, high, medium or low", s)
+}
+
+// projectOf is the id of the project --project names, by its id or its name in any case; none is "".
+func projectOf(ctx context.Context, e *env, named string) (string, error) {
+	named = strings.TrimSpace(named)
+	if strings.EqualFold(named, "none") {
+		return "", nil
+	}
+
+	resp, err := e.api.ListInboxProjectsWithResponse(ctx)
+	if err != nil {
+		return "", fmt.Errorf("listing the inbox's projects: %w", err)
+	}
+
+	if resp.JSON200 == nil {
+		return "", apiError("listing the inbox's projects", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	names := make([]string, 0, len(resp.JSON200.Data))
+
+	for _, p := range resp.JSON200.Data {
+		if p.Id == named || strings.EqualFold(p.Name, named) {
+			return p.Id, nil
+		}
+
+		names = append(names, p.Name)
+	}
+
+	return "", fmt.Errorf("--project %q is none of the projects: %s", named, strings.Join(names, ", "))
 }
 
 func inboxList(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -50,6 +98,19 @@ func inboxList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	if s := str(fs, "source"); s != "" {
 		kind := openapi.TodoSourceKind(s)
 		p.SourceKind = &kind
+	}
+
+	if s := str(fs, "project"); s != "" {
+		id, err := projectOf(ctx, e, s)
+		if err != nil {
+			return err
+		}
+
+		if id == "" {
+			id = "none"
+		}
+
+		p.Project = &id
 	}
 
 	for name, into := range map[string]**time.Time{"due-from": &p.DueFrom, "due-to": &p.DueTo} {
@@ -185,6 +246,20 @@ func printTodo(e *env, t openapi.Todo) {
 
 	e.printf("From: %s\n", src)
 
+	if t.Priority > 0 && t.Priority < len(priorityNames) {
+		e.printf("Priority: %s", priorityNames[t.Priority])
+
+		if t.PriorityReason != "" {
+			e.printf(", %s", t.PriorityReason)
+		}
+
+		e.printf("\n")
+	}
+
+	if id := val(t.ProjectId); id != "" {
+		e.printf("Project: %s\n", id)
+	}
+
 	if q := val(t.Source.Quote); q != "" {
 		e.printf("  %q\n", q)
 	}
@@ -260,6 +335,26 @@ func inboxAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		n.Assignee = &a
 	}
 
+	if s := str(fs, "priority"); s != "" {
+		p, err := priorityOf(s)
+		if err != nil {
+			return err
+		}
+
+		n.Priority, n.PriorityReason = &p, optional(fs, "priority-reason")
+	}
+
+	if s := str(fs, "project"); s != "" {
+		id, err := projectOf(ctx, e, s)
+		if err != nil {
+			return err
+		}
+
+		if id != "" {
+			n.ProjectId = &id
+		}
+	}
+
 	resp, err := e.api.CreateTodoWithResponse(ctx, &openapi.CreateTodoParams{IdempotencyKey: key(fs)}, n)
 	if err != nil {
 		return fmt.Errorf("adding a to-do: %w", err)
@@ -309,8 +404,27 @@ func inboxEdit(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		b.Due = &due
 	}
 
+	if s := str(fs, "priority"); s != "" {
+		p, err := priorityOf(s)
+		if err != nil {
+			return err
+		}
+
+		b.Priority, b.PriorityReason = &p, optional(fs, "priority-reason")
+	}
+
+	if s := str(fs, "project"); s != "" {
+		id, err := projectOf(ctx, e, s)
+		if err != nil {
+			return err
+		}
+
+		b.ProjectId = &id
+	}
+
 	if b == (openapi.TodoEdit{Revision: t.Revision}) {
-		return errors.New("nothing to change: give --title, --notes, --done-when, --due or --who")
+		return errors.New("nothing to change: give --title, --notes, --done-when, --due, --who, --priority or " +
+			"--project")
 	}
 
 	resp, err := e.api.EditTodoWithResponse(ctx, t.Id, b)

@@ -4719,6 +4719,27 @@ type InboxNeedsYou struct {
 	Count int `json:"count"`
 }
 
+// InboxProject defines model for InboxProject.
+type InboxProject struct {
+	// Color #rrggbb.
+	Color     string    `json:"color"`
+	CreatedAt time.Time `json:"created_at"`
+	Id        string    `json:"id"`
+	Name      string    `json:"name"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// InboxProjectEdit defines model for InboxProjectEdit.
+type InboxProjectEdit struct {
+	Color *string `json:"color,omitempty"`
+	Name  *string `json:"name,omitempty"`
+}
+
+// InboxProjectList defines model for InboxProjectList.
+type InboxProjectList struct {
+	Data []InboxProject `json:"data"`
+}
+
 // Integration A service that signs in with an account or is an app, and what the owner set up for it.
 type Integration struct {
 	// ClientId The id of the OAuth client it signs in with; absent until one is set, and for an app, whose Connections each have their own. Not secret.
@@ -5527,6 +5548,12 @@ type NewGitHostToken struct {
 	Token *string `json:"token,omitempty"`
 }
 
+// NewInboxProject defines model for NewInboxProject.
+type NewInboxProject struct {
+	Color string `json:"color"`
+	Name  string `json:"name"`
+}
+
 // NewIntegrationClient defines model for NewIntegrationClient.
 type NewIntegrationClient struct {
 	ClientId     string  `json:"client_id"`
@@ -5693,6 +5720,13 @@ type NewTodo struct {
 	// Due none; unknown (due, when is not known); a calendar date in zone, with no time made up for it; or a moment with its zone.
 	Due   *TodoDue `json:"due,omitempty"`
 	Notes *string  `json:"notes,omitempty"`
+
+	// Priority 0 no priority, 1 urgent, 2 high, 3 medium, 4 low (Linear's scale).
+	Priority       *TodoPriority `json:"priority,omitempty"`
+	PriorityReason *string       `json:"priority_reason,omitempty"`
+
+	// ProjectId The project it is in; left out for none.
+	ProjectId *string `json:"project_id,omitempty"`
 
 	// Source Where a Bot in a Routine's run found it: kind routine, or lark, zalo or whatsapp with the chat's id there, gmail with the thread's id, meeting with the meeting's id (and the account but for a meeting). The owner's and a chat's come from the token.
 	Source *NewTodoSource `json:"source,omitempty"`
@@ -7161,7 +7195,16 @@ type Todo struct {
 	Notes    string       `json:"notes"`
 
 	// PassedBy The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
-	PassedBy   *string    `json:"passed_by,omitempty"`
+	PassedBy *string `json:"passed_by,omitempty"`
+
+	// Priority 0 no priority, 1 urgent, 2 high, 3 medium, 4 low (Linear's scale).
+	Priority TodoPriority `json:"priority"`
+
+	// PriorityReason Why it has its priority, in a line, as who set it said it.
+	PriorityReason string `json:"priority_reason"`
+
+	// ProjectId The project it is in; left out when none.
+	ProjectId  *string    `json:"project_id,omitempty"`
 	RecordedBy *TodoActor `json:"recorded_by,omitempty"`
 
 	// Revision Starts at 1 and grows with every change; a change carries it.
@@ -7270,10 +7313,19 @@ type TodoEdit struct {
 	Draft    *string       `json:"draft,omitempty"`
 
 	// Due none; unknown (due, when is not known); a calendar date in zone, with no time made up for it; or a moment with its zone.
-	Due      *TodoDue `json:"due,omitempty"`
-	Notes    *string  `json:"notes,omitempty"`
-	Revision int      `json:"revision"`
-	Title    *string  `json:"title,omitempty"`
+	Due   *TodoDue `json:"due,omitempty"`
+	Notes *string  `json:"notes,omitempty"`
+
+	// Priority 0 no priority, 1 urgent, 2 high, 3 medium, 4 low (Linear's scale).
+	Priority *TodoPriority `json:"priority,omitempty"`
+
+	// PriorityReason Given with priority only; a priority set without one has no reason.
+	PriorityReason *string `json:"priority_reason,omitempty"`
+
+	// ProjectId The project to put it in, by its id; empty takes it out of its project.
+	ProjectId *string `json:"project_id,omitempty"`
+	Revision  int     `json:"revision"`
+	Title     *string `json:"title,omitempty"`
 }
 
 // TodoEvent defines model for TodoEvent.
@@ -7334,6 +7386,9 @@ type TodoList struct {
 	// Total How many items the filter matches, every page together.
 	Total int `json:"total"`
 }
+
+// TodoPriority 0 no priority, 1 urgent, 2 high, 3 medium, 4 low (Linear's scale).
+type TodoPriority = int
 
 // TodoRelease defines model for TodoRelease.
 type TodoRelease struct {
@@ -8205,6 +8260,9 @@ type DepartmentID = string
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
+// InboxProjectID defines model for InboxProjectID.
+type InboxProjectID = string
+
 // IntegrationID defines model for IntegrationID.
 type IntegrationID = string
 
@@ -8520,6 +8578,9 @@ type ListTodosParams struct {
 
 	// SourceKind Only the items from this kind of source.
 	SourceKind *TodoSourceKind `form:"source_kind,omitempty" json:"source_kind,omitempty"`
+
+	// Project Only the items of this project, by its id; none, only the items without one.
+	Project *string `form:"project,omitempty" json:"project,omitempty"`
 
 	// DueFrom Only the items due at or after this moment; a date is due from its first moment.
 	DueFrom *time.Time `form:"due_from,omitempty" json:"due_from,omitempty"`
@@ -9029,6 +9090,12 @@ type GenerateImagesJSONRequestBody = ImageRequest
 
 // CreateTodoJSONRequestBody defines body for CreateTodo for application/json ContentType.
 type CreateTodoJSONRequestBody = NewTodo
+
+// CreateInboxProjectJSONRequestBody defines body for CreateInboxProject for application/json ContentType.
+type CreateInboxProjectJSONRequestBody = NewInboxProject
+
+// EditInboxProjectJSONRequestBody defines body for EditInboxProject for application/json ContentType.
+type EditInboxProjectJSONRequestBody = InboxProjectEdit
 
 // EditTodoJSONRequestBody defines body for EditTodo for application/json ContentType.
 type EditTodoJSONRequestBody = TodoEdit
@@ -10895,6 +10962,50 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /inbox/needs-you (the `GetInboxNeedsYou` operationId).
 	GetInboxNeedsYou(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListInboxProjects The Inbox's projects, by name
+	//
+	// Corresponds with GET /inbox/projects (the `ListInboxProjects` operationId).
+	ListInboxProjects(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateInboxProjectWithBody Add a project to the Inbox (owner only)
+	//
+	// A name no other project has, in any case, and a colour.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/projects (the `CreateInboxProject` operationId).
+	CreateInboxProjectWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateInboxProject Add a project to the Inbox (owner only)
+	//
+	// A name no other project has, in any case, and a colour.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/projects (the `CreateInboxProject` operationId).
+	CreateInboxProject(ctx context.Context, body CreateInboxProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteInboxProject Remove a project (owner only)
+	//
+	// Its items, in any state, are left without a project, each with an event that says so.
+	//
+	// Corresponds with DELETE /inbox/projects/{project_id} (the `DeleteInboxProject` operationId).
+	DeleteInboxProject(ctx context.Context, projectId InboxProjectID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EditInboxProjectWithBody Rename a project or change its colour (owner only)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /inbox/projects/{project_id} (the `EditInboxProject` operationId).
+	EditInboxProjectWithBody(ctx context.Context, projectId InboxProjectID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EditInboxProject Rename a project or change its colour (owner only)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /inbox/projects/{project_id} (the `EditInboxProject` operationId).
+	EditInboxProject(ctx context.Context, projectId InboxProjectID, body EditInboxProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetTodo A to-do with its history
 	//
@@ -15828,6 +15939,110 @@ func (c *Client) CreateTodo(ctx context.Context, params *CreateTodoParams, body 
 // Corresponds with GET /inbox/needs-you (the `GetInboxNeedsYou` operationId).
 func (c *Client) GetInboxNeedsYou(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetInboxNeedsYouRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListInboxProjects The Inbox's projects, by name
+//
+// Corresponds with GET /inbox/projects (the `ListInboxProjects` operationId).
+func (c *Client) ListInboxProjects(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListInboxProjectsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateInboxProjectWithBody Add a project to the Inbox (owner only)
+//
+// A name no other project has, in any case, and a colour.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/projects (the `CreateInboxProject` operationId).
+func (c *Client) CreateInboxProjectWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateInboxProjectRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateInboxProject Add a project to the Inbox (owner only)
+//
+// A name no other project has, in any case, and a colour.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/projects (the `CreateInboxProject` operationId).
+func (c *Client) CreateInboxProject(ctx context.Context, body CreateInboxProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateInboxProjectRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteInboxProject Remove a project (owner only)
+//
+// Its items, in any state, are left without a project, each with an event that says so.
+//
+// Corresponds with DELETE /inbox/projects/{project_id} (the `DeleteInboxProject` operationId).
+func (c *Client) DeleteInboxProject(ctx context.Context, projectId InboxProjectID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteInboxProjectRequest(c.Server, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EditInboxProjectWithBody Rename a project or change its colour (owner only)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /inbox/projects/{project_id} (the `EditInboxProject` operationId).
+func (c *Client) EditInboxProjectWithBody(ctx context.Context, projectId InboxProjectID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditInboxProjectRequestWithBody(c.Server, projectId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EditInboxProject Rename a project or change its colour (owner only)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /inbox/projects/{project_id} (the `EditInboxProject` operationId).
+func (c *Client) EditInboxProject(ctx context.Context, projectId InboxProjectID, body EditInboxProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEditInboxProjectRequest(c.Server, projectId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -25953,6 +26168,18 @@ func NewListTodosRequest(server string, params *ListTodosParams) (*http.Request,
 
 		}
 
+		if params.Project != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "project", *params.Project, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
 		if params.DueFrom != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "due_from", *params.DueFrom, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "date-time"}); err != nil {
@@ -26141,6 +26368,154 @@ func NewGetInboxNeedsYouRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListInboxProjectsRequest constructs an http.Request for the ListInboxProjects method
+func NewListInboxProjectsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/projects")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateInboxProjectRequest calls the generic CreateInboxProject builder with application/json body
+func NewCreateInboxProjectRequest(server string, body CreateInboxProjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateInboxProjectRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateInboxProjectRequestWithBody constructs an http.Request for the CreateInboxProject method, with any body, and a specified content type
+func NewCreateInboxProjectRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/projects")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteInboxProjectRequest constructs an http.Request for the DeleteInboxProject method
+func NewDeleteInboxProjectRequest(server string, projectId InboxProjectID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/projects/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewEditInboxProjectRequest calls the generic EditInboxProject builder with application/json body
+func NewEditInboxProjectRequest(server string, projectId InboxProjectID, body EditInboxProjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEditInboxProjectRequestWithBody(server, projectId, "application/json", bodyReader)
+}
+
+// NewEditInboxProjectRequestWithBody constructs an http.Request for the EditInboxProject method, with any body, and a specified content type
+func NewEditInboxProjectRequestWithBody(server string, projectId InboxProjectID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/projects/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -35351,6 +35726,54 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /inbox/needs-you (the `GetInboxNeedsYou` operationId).
 	GetInboxNeedsYouWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetInboxNeedsYouResponse, error)
 
+	// ListInboxProjectsWithResponse The Inbox's projects, by name
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /inbox/projects (the `ListInboxProjects` operationId).
+	ListInboxProjectsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListInboxProjectsResponse, error)
+
+	// CreateInboxProjectWithBodyWithResponse Add a project to the Inbox (owner only)
+	//
+	// A name no other project has, in any case, and a colour.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/projects (the `CreateInboxProject` operationId).
+	CreateInboxProjectWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateInboxProjectResponse, error)
+
+	// CreateInboxProjectWithResponse Add a project to the Inbox (owner only)
+	//
+	// A name no other project has, in any case, and a colour.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/projects (the `CreateInboxProject` operationId).
+	CreateInboxProjectWithResponse(ctx context.Context, body CreateInboxProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateInboxProjectResponse, error)
+
+	// DeleteInboxProjectWithResponse Remove a project (owner only)
+	//
+	// Its items, in any state, are left without a project, each with an event that says so.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /inbox/projects/{project_id} (the `DeleteInboxProject` operationId).
+	DeleteInboxProjectWithResponse(ctx context.Context, projectId InboxProjectID, reqEditors ...RequestEditorFn) (*DeleteInboxProjectResponse, error)
+
+	// EditInboxProjectWithBodyWithResponse Rename a project or change its colour (owner only)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /inbox/projects/{project_id} (the `EditInboxProject` operationId).
+	EditInboxProjectWithBodyWithResponse(ctx context.Context, projectId InboxProjectID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditInboxProjectResponse, error)
+
+	// EditInboxProjectWithResponse Rename a project or change its colour (owner only)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /inbox/projects/{project_id} (the `EditInboxProject` operationId).
+	EditInboxProjectWithResponse(ctx context.Context, projectId InboxProjectID, body EditInboxProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*EditInboxProjectResponse, error)
+
 	// GetTodoWithResponse A to-do with its history
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -43502,6 +43925,191 @@ func (r GetInboxNeedsYouResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetInboxNeedsYouResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListInboxProjectsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxProjectList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListInboxProjectsResponse) GetJSON200() *InboxProjectList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListInboxProjectsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListInboxProjectsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListInboxProjectsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListInboxProjectsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListInboxProjectsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateInboxProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *InboxProject
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateInboxProjectResponse) GetJSON201() *InboxProject {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateInboxProjectResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateInboxProjectResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateInboxProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateInboxProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateInboxProjectResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteInboxProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteInboxProjectResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteInboxProjectResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteInboxProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteInboxProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteInboxProjectResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type EditInboxProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxProject
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r EditInboxProjectResponse) GetJSON200() *InboxProject {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r EditInboxProjectResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r EditInboxProjectResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r EditInboxProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EditInboxProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r EditInboxProjectResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -54069,6 +54677,90 @@ func (c *ClientWithResponses) GetInboxNeedsYouWithResponse(ctx context.Context, 
 	return ParseGetInboxNeedsYouResponse(rsp)
 }
 
+// ListInboxProjectsWithResponse The Inbox's projects, by name
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /inbox/projects (the `ListInboxProjects` operationId).
+func (c *ClientWithResponses) ListInboxProjectsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListInboxProjectsResponse, error) {
+	rsp, err := c.ListInboxProjects(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListInboxProjectsResponse(rsp)
+}
+
+// CreateInboxProjectWithBodyWithResponse Add a project to the Inbox (owner only)
+//
+// A name no other project has, in any case, and a colour.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/projects (the `CreateInboxProject` operationId).
+func (c *ClientWithResponses) CreateInboxProjectWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateInboxProjectResponse, error) {
+	rsp, err := c.CreateInboxProjectWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateInboxProjectResponse(rsp)
+}
+
+// CreateInboxProjectWithResponse Add a project to the Inbox (owner only)
+//
+// A name no other project has, in any case, and a colour.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/projects (the `CreateInboxProject` operationId).
+func (c *ClientWithResponses) CreateInboxProjectWithResponse(ctx context.Context, body CreateInboxProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateInboxProjectResponse, error) {
+	rsp, err := c.CreateInboxProject(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateInboxProjectResponse(rsp)
+}
+
+// DeleteInboxProjectWithResponse Remove a project (owner only)
+//
+// Its items, in any state, are left without a project, each with an event that says so.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /inbox/projects/{project_id} (the `DeleteInboxProject` operationId).
+func (c *ClientWithResponses) DeleteInboxProjectWithResponse(ctx context.Context, projectId InboxProjectID, reqEditors ...RequestEditorFn) (*DeleteInboxProjectResponse, error) {
+	rsp, err := c.DeleteInboxProject(ctx, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteInboxProjectResponse(rsp)
+}
+
+// EditInboxProjectWithBodyWithResponse Rename a project or change its colour (owner only)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /inbox/projects/{project_id} (the `EditInboxProject` operationId).
+func (c *ClientWithResponses) EditInboxProjectWithBodyWithResponse(ctx context.Context, projectId InboxProjectID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EditInboxProjectResponse, error) {
+	rsp, err := c.EditInboxProjectWithBody(ctx, projectId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditInboxProjectResponse(rsp)
+}
+
+// EditInboxProjectWithResponse Rename a project or change its colour (owner only)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /inbox/projects/{project_id} (the `EditInboxProject` operationId).
+func (c *ClientWithResponses) EditInboxProjectWithResponse(ctx context.Context, projectId InboxProjectID, body EditInboxProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*EditInboxProjectResponse, error) {
+	rsp, err := c.EditInboxProject(ctx, projectId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEditInboxProjectResponse(rsp)
+}
+
 // GetTodoWithResponse A to-do with its history
 //
 // Returns a wrapper object for the known response body format(s).
@@ -61646,6 +62338,134 @@ func ParseGetInboxNeedsYouResponse(rsp *http.Response) (*GetInboxNeedsYouRespons
 	return response, nil
 }
 
+// ParseListInboxProjectsResponse parses an HTTP response from a ListInboxProjectsWithResponse call
+func ParseListInboxProjectsResponse(rsp *http.Response) (*ListInboxProjectsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListInboxProjectsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxProjectList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateInboxProjectResponse parses an HTTP response from a CreateInboxProjectWithResponse call
+func ParseCreateInboxProjectResponse(rsp *http.Response) (*CreateInboxProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateInboxProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest InboxProject
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteInboxProjectResponse parses an HTTP response from a DeleteInboxProjectWithResponse call
+func ParseDeleteInboxProjectResponse(rsp *http.Response) (*DeleteInboxProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteInboxProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEditInboxProjectResponse parses an HTTP response from a EditInboxProjectWithResponse call
+func ParseEditInboxProjectResponse(rsp *http.Response) (*EditInboxProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EditInboxProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxProject
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetTodoResponse parses an HTTP response from a GetTodoWithResponse call
 func ParseGetTodoResponse(rsp *http.Response) (*GetTodoResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -67485,6 +68305,18 @@ type ServerInterface interface {
 	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	// (GET /inbox/needs-you)
 	GetInboxNeedsYou(w http.ResponseWriter, r *http.Request)
+	// ListInboxProjects The Inbox's projects, by name
+	// (GET /inbox/projects)
+	ListInboxProjects(w http.ResponseWriter, r *http.Request)
+	// CreateInboxProject Add a project to the Inbox (owner only)
+	// (POST /inbox/projects)
+	CreateInboxProject(w http.ResponseWriter, r *http.Request)
+	// DeleteInboxProject Remove a project (owner only)
+	// (DELETE /inbox/projects/{project_id})
+	DeleteInboxProject(w http.ResponseWriter, r *http.Request, projectId InboxProjectID)
+	// EditInboxProject Rename a project or change its colour (owner only)
+	// (PATCH /inbox/projects/{project_id})
+	EditInboxProject(w http.ResponseWriter, r *http.Request, projectId InboxProjectID)
 	// GetTodo A to-do with its history
 	// (GET /inbox/{todo_id})
 	GetTodo(w http.ResponseWriter, r *http.Request, todoId TodoID)
@@ -72043,6 +72875,19 @@ func (siw *ServerInterfaceWrapper) ListTodos(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "project" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project", r.URL.Query(), &params.Project, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "due_from" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "due_from", r.URL.Query(), &params.DueFrom, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
@@ -72204,6 +73049,86 @@ func (siw *ServerInterfaceWrapper) GetInboxNeedsYou(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetInboxNeedsYou(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListInboxProjects operation middleware
+func (siw *ServerInterfaceWrapper) ListInboxProjects(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInboxProjects(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateInboxProject operation middleware
+func (siw *ServerInterfaceWrapper) CreateInboxProject(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateInboxProject(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteInboxProject operation middleware
+func (siw *ServerInterfaceWrapper) DeleteInboxProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId InboxProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", r.PathValue("project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteInboxProject(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EditInboxProject operation middleware
+func (siw *ServerInterfaceWrapper) EditInboxProject(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId InboxProjectID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", r.PathValue("project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EditInboxProject(w, r, projectId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -77906,6 +78831,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats/{chat_id}/queue/{queue_id}/send", wrapper.SendQueuedChatMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox", wrapper.ListTodos)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox", wrapper.CreateTodo)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/projects", wrapper.ListInboxProjects)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/projects", wrapper.CreateInboxProject)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/inbox/projects/{project_id}", wrapper.DeleteInboxProject)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/inbox/projects/{project_id}", wrapper.EditInboxProject)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/needs-you", wrapper.GetInboxNeedsYou)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.GetTodo)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.EditTodo)
@@ -83248,6 +84177,156 @@ type GetInboxNeedsYoudefaultJSONResponse struct {
 }
 
 func (response GetInboxNeedsYoudefaultJSONResponse) VisitGetInboxNeedsYouResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxProjectsRequestObject struct {
+}
+
+type ListInboxProjectsResponseObject interface {
+	VisitListInboxProjectsResponse(w http.ResponseWriter) error
+}
+
+type ListInboxProjects200JSONResponse InboxProjectList
+
+func (response ListInboxProjects200JSONResponse) VisitListInboxProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxProjectsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListInboxProjectsdefaultJSONResponse) VisitListInboxProjectsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInboxProjectRequestObject struct {
+	Body *CreateInboxProjectJSONRequestBody
+}
+
+type CreateInboxProjectResponseObject interface {
+	VisitCreateInboxProjectResponse(w http.ResponseWriter) error
+}
+
+type CreateInboxProject201JSONResponse InboxProject
+
+func (response CreateInboxProject201JSONResponse) VisitCreateInboxProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInboxProjectdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateInboxProjectdefaultJSONResponse) VisitCreateInboxProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteInboxProjectRequestObject struct {
+	ProjectId InboxProjectID `json:"project_id"`
+}
+
+type DeleteInboxProjectResponseObject interface {
+	VisitDeleteInboxProjectResponse(w http.ResponseWriter) error
+}
+
+type DeleteInboxProject204Response struct {
+}
+
+func (response DeleteInboxProject204Response) VisitDeleteInboxProjectResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteInboxProjectdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteInboxProjectdefaultJSONResponse) VisitDeleteInboxProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditInboxProjectRequestObject struct {
+	ProjectId InboxProjectID `json:"project_id"`
+	Body      *EditInboxProjectJSONRequestBody
+}
+
+type EditInboxProjectResponseObject interface {
+	VisitEditInboxProjectResponse(w http.ResponseWriter) error
+}
+
+type EditInboxProject200JSONResponse InboxProject
+
+func (response EditInboxProject200JSONResponse) VisitEditInboxProjectResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EditInboxProjectdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response EditInboxProjectdefaultJSONResponse) VisitEditInboxProjectResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -90365,6 +91444,18 @@ type StrictServerInterface interface {
 	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	// (GET /inbox/needs-you)
 	GetInboxNeedsYou(ctx context.Context, request GetInboxNeedsYouRequestObject) (GetInboxNeedsYouResponseObject, error)
+	// ListInboxProjects The Inbox's projects, by name
+	// (GET /inbox/projects)
+	ListInboxProjects(ctx context.Context, request ListInboxProjectsRequestObject) (ListInboxProjectsResponseObject, error)
+	// CreateInboxProject Add a project to the Inbox (owner only)
+	// (POST /inbox/projects)
+	CreateInboxProject(ctx context.Context, request CreateInboxProjectRequestObject) (CreateInboxProjectResponseObject, error)
+	// DeleteInboxProject Remove a project (owner only)
+	// (DELETE /inbox/projects/{project_id})
+	DeleteInboxProject(ctx context.Context, request DeleteInboxProjectRequestObject) (DeleteInboxProjectResponseObject, error)
+	// EditInboxProject Rename a project or change its colour (owner only)
+	// (PATCH /inbox/projects/{project_id})
+	EditInboxProject(ctx context.Context, request EditInboxProjectRequestObject) (EditInboxProjectResponseObject, error)
 	// GetTodo A to-do with its history
 	// (GET /inbox/{todo_id})
 	GetTodo(ctx context.Context, request GetTodoRequestObject) (GetTodoResponseObject, error)
@@ -94727,6 +95818,120 @@ func (sh *strictHandler) GetInboxNeedsYou(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetInboxNeedsYouResponseObject); ok {
 		if err := validResponse.VisitGetInboxNeedsYouResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListInboxProjects operation middleware
+func (sh *strictHandler) ListInboxProjects(w http.ResponseWriter, r *http.Request) {
+	var request ListInboxProjectsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInboxProjects(ctx, request.(ListInboxProjectsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInboxProjects")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListInboxProjectsResponseObject); ok {
+		if err := validResponse.VisitListInboxProjectsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateInboxProject operation middleware
+func (sh *strictHandler) CreateInboxProject(w http.ResponseWriter, r *http.Request) {
+	var request CreateInboxProjectRequestObject
+
+	var body CreateInboxProjectJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateInboxProject(ctx, request.(CreateInboxProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateInboxProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateInboxProjectResponseObject); ok {
+		if err := validResponse.VisitCreateInboxProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteInboxProject operation middleware
+func (sh *strictHandler) DeleteInboxProject(w http.ResponseWriter, r *http.Request, projectId InboxProjectID) {
+	var request DeleteInboxProjectRequestObject
+
+	request.ProjectId = projectId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteInboxProject(ctx, request.(DeleteInboxProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteInboxProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteInboxProjectResponseObject); ok {
+		if err := validResponse.VisitDeleteInboxProjectResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EditInboxProject operation middleware
+func (sh *strictHandler) EditInboxProject(w http.ResponseWriter, r *http.Request, projectId InboxProjectID) {
+	var request EditInboxProjectRequestObject
+
+	request.ProjectId = projectId
+
+	var body EditInboxProjectJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EditInboxProject(ctx, request.(EditInboxProjectRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EditInboxProject")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EditInboxProjectResponseObject); ok {
+		if err := validResponse.VisitEditInboxProjectResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
