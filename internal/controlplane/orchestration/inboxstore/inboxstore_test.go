@@ -1449,6 +1449,42 @@ func (m sentMessages) SentMessage(_ context.Context, service, account, chat, id 
 	return got, nil
 }
 
+// Asker and Members of the server that keeps only messages: who asked and who is in a chat cannot be read.
+func (sentMessages) Asker(context.Context, string, string, string, string) ([]string, error) {
+	return nil, storeerr.ErrNotFound
+}
+
+func (sentMessages) Members(context.Context, string, string, string) (inboxstore.ChatMembers, error) {
+	return inboxstore.ChatMembers{}, storeerr.ErrUnavailable
+}
+
+// withMembers is that server where who asked, by service, account, chat and message, and who is in each chat, by
+// service, account and chat, can be read too.
+type withMembers struct {
+	sentMessages
+
+	askers  map[string][]string
+	members map[string]inboxstore.ChatMembers
+}
+
+func (w withMembers) Asker(_ context.Context, service, account, chat, id string) ([]string, error) {
+	got, ok := w.askers[service+"/"+account+"/"+chat+"/"+id]
+	if !ok {
+		return nil, storeerr.ErrNotFound
+	}
+
+	return got, nil
+}
+
+func (w withMembers) Members(_ context.Context, service, account, chat string) (inboxstore.ChatMembers, error) {
+	got, ok := w.members[service+"/"+account+"/"+chat]
+	if !ok {
+		return inboxstore.ChatMembers{}, storeerr.ErrUnavailable
+	}
+
+	return got, nil
+}
+
 // replyTo is "Reply to Lan", a reply owed in Lan's chat at a messaging service, found by kai in a Routine's run.
 func (w *world) replyTo(t *testing.T, service string) inboxstore.Todo {
 	t.Helper()
@@ -1526,6 +1562,72 @@ func TestTheOwnersSentMessageClosesTheReply(t *testing.T) {
 			require.ErrorIs(t, err, storeerr.ErrForbidden, "another Bot does not close kai's item")
 		})
 	}
+}
+
+// Scenario: issue #1163. Lan asks the owner in her direct chat and he answers her in a group of the same account
+// where she is a member: kai records it with his message there, and the item closes, its closing saying the group.
+// His message in a group without her, in a group whose members cannot be read, of another account or service, or
+// older than the item, is refused and writes nothing.
+func TestTheOwnersAnswerInAGroupWhereTheAskerIsClosesTheReply(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	service := inboxstore.FromWhatsApp
+	item := w.replyTo(t, service)
+
+	later, earlier := t0.Add(time.Minute), t0.Add(-time.Minute)
+	mine := inboxstore.SentMessage{At: later, FromMe: true}
+	in := func(chat string, m inboxstore.SentMessage) inboxstore.SentMessage { m.Chat = chat; return m }
+	w.inbox.WithSent(withMembers{
+		sentMessages: sentMessages{
+			service + "/main/team/mine":             in("team", mine),
+			service + "/main/team/before":           {Chat: "team", At: earlier, FromMe: true},
+			service + "/main/others/mine":           in("others", mine),
+			service + "/main/unreadable/mine":       in("unreadable", mine),
+			service + "/work/team/mine":             in("team", mine),
+			inboxstore.FromZalo + "/main/team/mine": in("team", mine),
+		},
+		askers: map[string][]string{service + "/main/lan/asked": {"84911111111@s.whatsapp.net", "1684@lid"}},
+		members: map[string]inboxstore.ChatMembers{
+			service + "/main/team":   {Name: "Nhóm dự án", IDs: []string{"84922222222@s.whatsapp.net", "1684@lid"}},
+			service + "/main/others": {Name: "Khác", IDs: []string{"84922222222@s.whatsapp.net"}},
+			service + "/work/team":   {Name: "Nhóm dự án", IDs: []string{"1684@lid"}},
+		},
+	})
+
+	closing := func(kind, account, chat, id string) inboxstore.Closing {
+		return inboxstore.Closing{DoneBy: me, How: inboxstore.ClosedByBot,
+			Evidence: []inboxstore.Link{{Kind: kind, Ref: id, Account: account, Chat: chat}}}
+	}
+	sent := inboxstore.LinkWhatsAppSent
+
+	for name, cl := range map[string]inboxstore.Closing{
+		"a group without Lan":              closing(sent, "main", "others", "mine"),
+		"a group whose members are unread": closing(sent, "main", "unreadable", "mine"),
+		"his message from before":          closing(sent, "main", "team", "before"),
+		"another account's group":          closing(sent, "work", "team", "mine"),
+		"another service's group":          closing(inboxstore.LinkZaloSent, "main", "team", "mine"),
+	} {
+		_, err := w.inbox.Done(ctx, by(bot(w.kai), item), cl)
+		require.ErrorIs(t, err, storeerr.ErrInvalid, name)
+	}
+
+	w.unchanged(t, item)
+
+	done, err := w.inbox.Done(ctx, by(bot(w.kai), item), closing(sent, "main", "team", "mine"))
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Done, done.State)
+	assert.Equal(t, closing(sent, "main", "team", "mine").Evidence, done.Evidence)
+
+	got, err := w.inbox.Get(ctx, done.ID)
+	require.NoError(t, err)
+
+	closed := got.Events[len(got.Events)-1]
+	assert.Equal(t, inboxstore.EventState, closed.Kind)
+	var after map[string]any
+	require.NoError(t, json.Unmarshal(closed.After, &after))
+	assert.Equal(t, "Nhóm dự án", after["answered_in"], "the closing says the group he answered in")
 }
 
 // Scenario: issue #1004, section 3. kai drafts the reply on its item and hands it back to the owner: the item, his

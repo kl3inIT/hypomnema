@@ -212,8 +212,9 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"when you cannot finish it.",
 			map[string]any{"id": id, "revision": revision, "reason": reason}, []string{"id", "reason"}},
 		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did, or, with for_owner, his " +
-			"own message that he did it (in this chat, or one he sent in the item's Zalo, WhatsApp or Lark chat " +
-			"after it was made: zalo_sent, whatsapp_sent, lark_sent). Use it once the work is done or he answered.", map[string]any{
+			"own message that he did it (in this chat, or one he sent after it was made in the item's Zalo, " +
+			"WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: " +
+			"zalo_sent, whatsapp_sent, lark_sent). Use it once the work is done or he answered.", map[string]any{
 			"id": id, "revision": revision, "evidence": evidence, "reason": reason,
 			"for_owner": map[string]any{"type": "boolean", "description": "The owner did it; you record it."},
 		}, []string{"id", "evidence"}},
