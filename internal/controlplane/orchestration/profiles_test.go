@@ -1,14 +1,11 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: a fresh control plane has the starting set, and applying a
@@ -300,16 +297,9 @@ func TestMigrationRemovesClaudesShortNames(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, p := databaseAt(t, 69)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 69)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO gateway_models (name, capability, source, created_at, updated_at)
 		VALUES ('opus', 'chat', 'name: opus', 1, 1), ('top', 'chat', 'name: top', 1, 1);
 		INSERT INTO gateway_model_targets (model, position, provider, upstream_model)

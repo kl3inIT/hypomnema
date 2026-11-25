@@ -1,13 +1,10 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario (issue #468, rule 7): a chat where the owner writes, then someone
@@ -101,14 +98,8 @@ func TestMigrationRecordsWhoWroteTheLarkMessagesOfBefore(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 86)
-	require.NoError(t, err)
+	db, _ := databaseAt(t, 86)
+	var err error
 
 	for _, stmt := range []string{
 		`INSERT INTO channels (name, app_id, secret, bot_id, mode, owner_id, enabled, created_at, updated_at)

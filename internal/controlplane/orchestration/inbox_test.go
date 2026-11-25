@@ -1,14 +1,12 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: the Inbox's migration on a database that already holds data (issue #845): a Bot, a chat and a pending
@@ -18,17 +16,10 @@ func TestInboxMigrationOnADatabaseWithData(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
 	// Every migration before the Inbox's, wherever main's last one is.
-	_, err = p.UpTo(ctx, migrationVersion(t, p, "_inbox.sql")-1)
-	require.NoError(t, err)
+	db, _ := databaseAt(t, migrationVersion(t, "_inbox.sql")-1)
 
-	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot_id, created_at, updated_at)
+	_, err := db.ExecContext(ctx, `INSERT INTO chats (id, title, bot_id, created_at, updated_at)
 		VALUES ('cht_1', 'Chat', ?, 1, 1)`, DefaultBotID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO approvals (id, integration, label, action, action_name, chat_id,
