@@ -4,6 +4,7 @@ import type {
   VideoChrome,
   VideoLook,
   VideoLookInput,
+  VideoPreview,
 } from "@/api/generated/types.gen"
 
 // What the Look section works out (issue #908, row 16; #938): the fields it starts from, a look's default or a
@@ -15,11 +16,14 @@ import type {
 // back is not changed.
 
 // LookFields are the fields the web shows. Padding and radius are only in the API and the CLI (row 16): a frame
-// sent from here takes their reference defaults, as each field a sent section leaves out does.
+// sent from here takes their reference defaults, as each field a sent section leaves out does. The music is a
+// track's id or none, with its gain (#910, row 15): sent, it carries both, since a section sent without its track is
+// refused.
 export type LookFields = {
   captions: { preset: string; position: VideoCaptionPosition }
   frame: { chrome: VideoChrome; shadow: boolean; safe_top: boolean }
   background: VideoBackground
+  music: { track: string; gain_db: number }
 }
 
 // fieldsOf are a stored look's fields. A look made before the looks has no background, which the server reads as
@@ -35,10 +39,35 @@ export function fieldsOf(look: VideoLook): LookFields {
     background: look.background?.colors
       ? { colors: [look.background.colors[0], look.background.colors[1]] }
       : { preset: look.background?.preset ?? "midnight" },
+    // A look without music has none (absent); one whose track was deleted before it was made has none too, with
+    // fell_back_from (videos/music.go, fitMusic).
+    music: { track: look.music?.track ?? "none", gain_db: look.music?.gain_db ?? 0 },
   }
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
+const sections = ["captions", "frame", "background", "music"] as const
+
+// LookEdits are the sections the owner edited, each whole, kept apart from the fields they started from (#1082, from
+// the review of #1078): where the start can be read again while the dialog is open, as Make video's saved default,
+// a section left alone follows the new start rather than staying the old one. Its music would otherwise stay a
+// track deleted meanwhile, which a make sent with any other section changed would carry, and the server refuse.
+export type LookEdits = Partial<LookFields>
+
+// withEdits are the fields shown: the start's, with each section the owner edited in its place.
+export const withEdits = (start: LookFields, edits: LookEdits): LookFields => ({
+  ...start,
+  ...edits,
+})
+
+// editsOf are the edits after the owner changed the fields shown, now, to next: each section that differs joins them.
+export function editsOf(edits: LookEdits, now: LookFields, next: LookFields): LookEdits {
+  const out = { ...edits }
+  for (const k of sections) if (!same(now[k], next[k])) Object.assign(out, { [k]: next[k] })
+
+  return out
+}
 
 // sentLook is the sections changed from the start, or undefined when none was: a request then carries no look.
 export function sentLook(start: LookFields, now: LookFields): VideoLookInput | undefined {
@@ -46,6 +75,7 @@ export function sentLook(start: LookFields, now: LookFields): VideoLookInput | u
   if (!same(start.captions, now.captions)) out.captions = { ...now.captions }
   if (!same(start.frame, now.frame)) out.frame = { ...now.frame }
   if (!same(start.background, now.background)) out.background = { ...now.background }
+  if (!same(start.music, now.music)) out.music = { ...now.music }
 
   return Object.keys(out).length > 0 ? out : undefined
 }
@@ -81,3 +111,14 @@ export const backgroundName = (id: string) =>
     : id === "macos-light"
       ? "macOS light"
       : id[0]!.toUpperCase() + id.slice(1)
+
+// sampleOf is a look sample's request without the music: the sample is a still picture, which the music does not
+// change and the server does not read (videos/preview.go), so choosing a track asks no new sample.
+export function sampleOf(body: VideoPreview): VideoPreview {
+  if (!body.look?.music) return body
+
+  const { music: _music, ...look } = body.look
+  const { look: _look, ...rest } = body
+
+  return Object.keys(look).length > 0 ? { ...rest, look } : rest
+}

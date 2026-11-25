@@ -203,7 +203,7 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
-	case asked.Tool == agenttool.ToolAccountRead && a.readRun && s.relay != nil:
+	case asked.Tool == agenttool.ToolAccountRead && a.readLive && s.relay != nil:
 		s.readAccount(w, r, a, asked)
 	case asked.Tool == agenttool.ToolMemory && s.memoryOfferedNow(r.Context(), a):
 		s.memoryCall(w, r, a, asked)
@@ -281,7 +281,7 @@ func (a agent) allowsTool(switches agenttool.ToolSwitches, tool string) bool {
 		return false
 	}
 
-	return (tool == agenttool.ToolAccountRead && a.readRun) || switches.Allows(tool)
+	return (tool == agenttool.ToolAccountRead && a.readLive) || switches.Allows(tool)
 }
 
 // switchedOff refuses a call of a tool the agent's switches take away, with

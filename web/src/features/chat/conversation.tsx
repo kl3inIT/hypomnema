@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Spinner } from "@/components/ui/spinner"
 
 import { ChatItemView } from "./chat-items"
@@ -13,6 +14,11 @@ import { chatItems, type ChatView, type Local, type Setup } from "./chat-state"
 // padding, a "Working for 12s" line while pi works. It follows new text while the reader is at the bottom, with a
 // button back down when they scroll up (ai-elements' Conversation). Older history is brought as the reader nears the
 // top (issue #502).
+//
+// Until the chat's newest page is read it shows the shape of a conversation, never the empty text (issue #1129,
+// assistant-ui's history skeleton). The scroller mounts with the page in it, so it opens at its end at once
+// (use-stick-to-bottom's initial); later growth, late layout of the history included, follows at once too, and only
+// what the stream brings while the chat is open is followed smoothly.
 export function Conversation({
   view,
   local,
@@ -37,11 +43,13 @@ export function Conversation({
 }) {
   const items = chatItems(view, local, setups)
 
+  if (!view.loaded) return <HistorySkeleton />
+
   return (
     <StickToBottom
       className="relative min-h-0 flex-1 overflow-y-hidden"
       initial="instant"
-      resize="smooth"
+      resize={view.streamed ? "smooth" : "instant"}
       role="log"
     >
       {/* The browser's own scroll anchoring is off: History keeps the place itself, as Safari has none. */}
@@ -70,6 +78,47 @@ export function Conversation({
       </StickToBottom.Content>
       <ScrollDown />
     </StickToBottom>
+  )
+}
+
+// HistorySkeleton is a conversation in the shape it will take while its newest page is on its way: an owner's
+// message on the right, a reply under it, twice. Adapted from assistant-ui's ThreadHistorySkeleton (MIT, Copyright
+// (c) 2026 AgentbaseAI Inc., https://github.com/assistant-ui/assistant-ui;
+// packages/ui/src/components/react/assistant-ui/elements/thread.aui.tsx), in this chat's lane and with Skeleton's
+// own shape (sized by a parent, as PreviewSkeleton); it fades in after a moment, so a page that comes quickly shows
+// none. An output is a status to a screen reader, which reads its hidden line.
+function HistorySkeleton() {
+  return (
+    <div className="min-h-0 flex-1 overflow-hidden">
+      <output className="chat-content-lane flex animate-in flex-col gap-y-6 px-3 pt-4 pb-6 duration-200 fill-mode-both [animation-delay:150ms] fade-in sm:px-12">
+        <span className="sr-only">Loading conversation</span>
+        <div className="ml-auto flex h-9 w-2/5">
+          <Skeleton style={{ flex: 1 }} />
+        </div>
+        <div className="flex flex-col gap-y-2">
+          <div className="flex h-4 w-11/12">
+            <Skeleton style={{ flex: 1 }} />
+          </div>
+          <div className="flex h-4 w-4/5">
+            <Skeleton style={{ flex: 1 }} />
+          </div>
+          <div className="flex h-4 w-3/5">
+            <Skeleton style={{ flex: 1 }} />
+          </div>
+        </div>
+        <div className="ml-auto flex h-9 w-1/3">
+          <Skeleton style={{ flex: 1 }} />
+        </div>
+        <div className="flex flex-col gap-y-2">
+          <div className="flex h-4 w-10/12">
+            <Skeleton style={{ flex: 1 }} />
+          </div>
+          <div className="flex h-4 w-2/3">
+            <Skeleton style={{ flex: 1 }} />
+          </div>
+        </div>
+      </output>
+    </div>
   )
 }
 

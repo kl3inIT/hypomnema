@@ -8,6 +8,8 @@
     "src/api/generated/**",
     // shadcn's primitives, kept whole even where unused, as the CLI installs them.
     "src/components/ui/**",
+    // ReUI's components, kept whole as its registry installs them (issue #1143).
+    "src/components/reui/**",
     // The pages the control plane of the browser tests shows (tests/server), files of an artifact, not modules.
     "tests/server/pages/**",
     // The service worker (issue #1047), registered by its URL at the root, never imported.

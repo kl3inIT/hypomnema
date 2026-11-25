@@ -713,6 +713,8 @@ func (s *Service) deleteChatTx(ctx context.Context, tx *sql.Tx, q *store.Queries
 		q.DeleteSetupChangesOfChat,
 		q.DeleteConnectionRequestsOfChat,
 		func(ctx context.Context, id string) error { return channelstore.DeleteChannelChatOfChatTx(ctx, q, id) },
+		// An Inbox item's own chat is no more (issue #1111): the next hand-over opens another.
+		func(ctx context.Context, id string) error { return q.ClearTodoChats(ctx, nullString(id)) },
 		q.ClearMainChat, q.DeleteArtifactsOfChat, q.DeleteChatQueue, q.DeleteChatMessages, q.DeleteChat,
 	}
 

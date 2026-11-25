@@ -490,6 +490,11 @@ func storedLimit(n int) sql.NullInt64 {
 // settings and its name.
 func restoreBot(ctx context.Context, q *store.Queries, now int64, b Bot, removed bool) error {
 	if removed {
+		// Put back, it is no longer named as removed (issue #1139).
+		if err := q.ForgetRemovedBotName(ctx, b.ID); err != nil {
+			return err
+		}
+
 		return insertBot(ctx, q, now, b)
 	}
 
@@ -672,19 +677,55 @@ func (s *Service) ForceDeleteBot(ctx context.Context, id string) ([]Chat, error)
 
 // removeBotRow removes a Bot's row; the Bots after it move up a place, so the order stays 0 to n-1 (issue #470), as
 // OpenMausBot's fleet is one list a removed bot leaves. Its gateway keys end in the same transaction (issue #996);
-// its pi's tokens, kept in memory, end after the commit (endBotTokens).
+// its pi's tokens, kept in memory, end after the commit (endBotTokens). Its Inbox items not closed become the main
+// Bot's (issue #1124).
 func (s *Service) removeBotRow(ctx context.Context, tx *sql.Tx, q *store.Queries, row store.Bot, now int64) error {
+	if err := s.inbox.TakeOverTx(ctx, q, now, row.ID, row.Name, DefaultBotID); err != nil {
+		return err
+	}
+
 	if s.gatewayKeys != nil {
 		if err := s.gatewayKeys.RevokeBotKeysTx(ctx, tx, row.ID, now); err != nil {
 			return err
 		}
 	}
 
-	if err := q.DeleteBot(ctx, row.ID); err != nil {
+	if err := deleteBotRow(ctx, q, row); err != nil {
 		return err
 	}
 
 	return q.CloseBotPosition(ctx, row.Position)
+}
+
+// deleteBotRow deletes a Bot's row and keeps its name with its id (issue #1139): its id stays in what it did, the
+// Inbox's items and the gateway's usage, which name it by that name, as Slack names a deactivated member.
+func deleteBotRow(ctx context.Context, q *store.Queries, row store.Bot) error {
+	if err := q.KeepRemovedBotName(ctx, store.KeepRemovedBotNameParams{ID: row.ID, Name: row.Name}); err != nil {
+		return fmt.Errorf("keeping the name of bot %s: %w", row.ID, err)
+	}
+
+	return q.DeleteBot(ctx, row.ID)
+}
+
+// RemovedBot is a Bot removed since, with the name it had when it was removed (issue #1139).
+type RemovedBot struct {
+	ID   string
+	Name string
+}
+
+// ListRemovedBots returns the Bots removed since, so that what they did is named by their name, never by their id.
+func (s *Service) ListRemovedBots(ctx context.Context) ([]RemovedBot, error) {
+	rows, err := s.read().ListRemovedBots(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing removed bots: %w", err)
+	}
+
+	out := make([]RemovedBot, len(rows))
+	for i, r := range rows {
+		out[i] = RemovedBot{ID: r.ID, Name: r.Name}
+	}
+
+	return out, nil
 }
 
 // ReorderBots moves Bots in the one order the sidebar lists them in (issue #470) and returns every Bot's id in the

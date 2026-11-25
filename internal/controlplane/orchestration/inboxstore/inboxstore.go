@@ -121,22 +121,39 @@ const (
 	// FromWhatsApp: a chat of the owner's own WhatsApp (issue #1004), named by its account and chat as Zalo's is
 	// (messaging/whatsapp/store.go, wa_messages); Ref a LinkWhatsAppMessage.
 	FromWhatsApp = "whatsapp"
+	// FromGmail: a thread of the owner's own Gmail (issue #1105): Account his Google Connection, ID the thread's id
+	// and Ref the mail, a LinkMail with the message's id, as inbox-zero and Zero Mail key a mail by thread and
+	// message.
+	FromGmail = "gmail"
+	// FromMeeting: a meeting the owner recorded (issue #1105): ID the meeting and Ref, when the action has one, its
+	// line, a LinkMeetingLine "<meeting>/<line>". It names no account: meetings are the control plane's own.
+	FromMeeting = "meeting"
 )
 
-// sourceMessage is the kind of Link a source at a messaging service names its message by.
+// sourceMessage is the kind of Link a source a Bot reads at a service names its message by, which it must give.
 var sourceMessage = map[string]string{
-	FromLark: LinkLarkMessage, FromZalo: LinkZaloMessage, FromWhatsApp: LinkWhatsAppMessage,
+	FromLark: LinkLarkMessage, FromZalo: LinkZaloMessage, FromWhatsApp: LinkWhatsAppMessage, FromGmail: LinkMail,
 }
 
-// fromMessaging says whether a source is a chat of the owner's own account at a messaging service.
-func fromMessaging(kind string) bool { return sourceMessage[kind] != "" }
+// FoundKinds are the sources a Bot names for what it read (issue #1105): a chat of the owner's Lark, Zalo or
+// WhatsApp, a thread of his Gmail, or a meeting he recorded. The others come from who adds the item: the owner's
+// hand, a Bot's chat or a Routine's run.
+var FoundKinds = []string{FromLark, FromZalo, FromWhatsApp, FromGmail, FromMeeting}
+
+// Found says whether a source is one a Bot names for what it read.
+func Found(kind string) bool { return slices.Contains(FoundKinds, kind) }
+
+// namesAccount says whether a source names the owner's Connection it was read through: required for Zalo, WhatsApp
+// and Gmail, whose items are keyed or linked by account; optional for Lark.
+func namesAccount(kind string) bool { return Found(kind) && kind != FromMeeting }
 
 // Source is where a to-do came from, with the words it came from and a typed reference to them.
 type Source struct {
 	Kind string
 	ID   string
-	// Account is the owner's Connection (its label) the chat is in: set for FromZalo and FromWhatsApp, whose stores
-	// key a message by account, chat and id; optional for FromLark; empty for any other.
+	// Account is the owner's Connection (its label) the chat or thread is in: set for FromZalo and FromWhatsApp,
+	// whose stores key a message by account, chat and id, and for FromGmail, whose thread opens in that account;
+	// optional for FromLark; empty for any other.
 	Account string
 	Quote   string
 	Ref     *Link
@@ -173,7 +190,8 @@ const (
 	// LinkZaloSent, LinkWhatsAppSent and LinkLarkSent are a message the owner sent himself in a chat of his own
 	// account there (issue #1004): Account the Connection, Chat the chat and Ref the message's id. It is the
 	// evidence a Bot gives when it records for the owner that he answered (Done), checked against what the server
-	// keeps of that account or what its API returns (Sent).
+	// keeps of that account or what its API returns (Sent): in the item's own chat, or in another chat of that
+	// account where the person who asked is a member (issue #1163).
 	LinkZaloSent     = "zalo_sent"
 	LinkWhatsAppSent = "whatsapp_sent"
 	LinkLarkSent     = "lark_sent"
@@ -206,10 +224,23 @@ type SentMessage struct {
 	FromMe bool
 }
 
+// ChatMembers are the people in a chat of the owner's own account now, as its service lists them (issue #1163): a
+// group's members, a direct chat's other party; each by every id the service knows him by, as it names a message's
+// sender. Name is the chat's, when it has one.
+type ChatMembers struct {
+	Name string
+	IDs  []string
+}
+
 // Sent reads a message of a chat of the owner's own account at a messaging service (FromZalo, FromWhatsApp,
 // FromLark) by its Connection's label, the chat and the message's id: storeerr.ErrNotFound when there is none.
 type Sent interface {
 	SentMessage(ctx context.Context, service, account, chat, id string) (SentMessage, error)
+	// Asker is who asked by message id of a chat (issue #1163): its sender when someone else sent it, else, in a
+	// direct chat, its other party; each by every id the service knows him by. storeerr.ErrNotFound when no one.
+	Asker(ctx context.Context, service, account, chat, id string) ([]string, error)
+	// Members reads who is in a chat now.
+	Members(ctx context.Context, service, account, chat string) (ChatMembers, error)
 }
 
 // The kinds of Work.
@@ -291,8 +322,19 @@ type Todo struct {
 	Evidence    []Link
 	ClosedAt    *time.Time
 	DuplicateOf string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Chat is the item's own chat with the Bot it was given to (issue #1111), where that Bot was woken with it and
+	// is woken by the owner's comments; empty before it was given to a Bot, or once that chat is deleted.
+	Chat string
+	// PassedBy is the Bot that gave the item to the Bot it is given to (issue #1118): the main Bot that passed it to
+	// a project Bot, or the project Bot that gave it back to the main Bot; empty when the owner or the system gave it.
+	PassedBy string
+	// Priority is NoPriority, Urgent, High, Medium or Low (issue #1157), PriorityReason why, in a line, as the Bot that
+	// set it said it; Project the id of its project, empty for none.
+	Priority       int
+	PriorityReason string
+	Project        string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 	// Events is its history, oldest first; filled by Get only.
 	Events []Event
 }
@@ -303,7 +345,7 @@ type Event struct {
 	At       time.Time
 	Revision int
 	Actor    Actor
-	// Kind is created, edited, state, snoozed or linked_approval.
+	// Kind is created, edited, state, snoozed, linked_approval or commented.
 	Kind string
 	// Before and After are JSON objects of the fields that changed.
 	Before json.RawMessage
@@ -329,6 +371,11 @@ type Store struct {
 	// sent reads the messages the owner sent in his own accounts' chats, the evidence that he answered; nil reads
 	// none.
 	sent Sent
+	// waker wakes a Bot an item is given to (issue #1111); nil wakes none.
+	waker Waker
+	// mainBot is the id of the main Bot, the one Bot that passes an item to another (issue #1118); empty, no Bot
+	// passes one.
+	mainBot string
 }
 
 // WithSent lets the store check a message the owner sent, given as evidence that he answered (issue #1004).
@@ -378,6 +425,11 @@ type NewTodo struct {
 	// WhyOpen is AskedDirectly or Promised when a Bot in a Routine's run, or reading the owner's Lark or Zalo
 	// chats, opens the item; it then gives the quote and the reference to the message too.
 	WhyOpen string
+	// Priority, its reason and the project's id (issue #1157) are left out of the request's hash when not given, so
+	// a key used before they existed still returns its item.
+	Priority       int    `json:",omitempty"`
+	PriorityReason string `json:",omitempty"`
+	Project        string `json:",omitempty"`
 	// IdempotencyKey, when given, makes a retried create return the first item.
 	IdempotencyKey string
 }
@@ -389,8 +441,8 @@ type DueIn struct {
 }
 
 // Create adds a to-do. The owner adds open items by hand; a Bot adds open items in a chat with the owner (Source
-// FromChat) and proposed ones in a Routine's run or from the owner's Lark or Zalo chats (Source FromRoutine,
-// FromLark, FromZalo), or open ones there with WhyOpen, a quote and a reference. A create retried with the same
+// FromChat) and proposed ones in a Routine's run or from what it read of the owner's (Source FromRoutine, or one of
+// FoundKinds), or open ones there with WhyOpen, a quote and a reference. A create retried with the same
 // IdempotencyKey and the same request returns the first item and writes nothing; with another request it is a
 // conflict (docs/conventions.md, "Idempotency").
 func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error) {
@@ -410,6 +462,11 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 	}
 
 	if err := checkDraft(n.Draft); err != nil {
+		return Todo{}, err
+	}
+
+	n.PriorityReason = strings.TrimSpace(n.PriorityReason)
+	if err := checkPriority(n.Priority, n.PriorityReason); err != nil {
 		return Todo{}, err
 	}
 
@@ -471,6 +528,14 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
+		if err := s.mayGive(actor, n.Assignee); err != nil {
+			return err
+		}
+
+		if err := checkProjectOf(ctx, q, n.Project); err != nil {
+			return err
+		}
+
 		if n.DueIn != nil {
 			if due, err = dueRow(Due{Kind: DueInstant, At: time.UnixMilli(now).Add(n.DueIn.After),
 				Zone: n.DueIn.Zone}); err != nil {
@@ -482,10 +547,11 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		if err := q.InsertTodo(ctx, store.InsertTodoParams{
 			ID: id, Title: n.Title, Notes: n.Notes, DoneWhen: n.DoneWhen, Draft: n.Draft,
 			DueKind: due.kind, DueDate: due.date, DueZone: due.zone, DueAt: due.at, OverdueAt: due.overdueAt,
-			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, State: n.State,
-			SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
+			AssigneeKind: n.Assignee.Kind, Assignee: n.Assignee.Name, PassedBy: passedBy(actor, n.Assignee),
+			State: n.State, SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
 			SourceQuote: n.Source.Quote, SourceRef: ref,
 			CreatedByKind: actor.Kind, CreatedBy: actor.ID, WhyOpen: nullString(n.WhyOpen),
+			Priority: int64(n.Priority), PriorityReason: n.PriorityReason, ProjectID: nullString(n.Project),
 			IdempotencyKey: nullString(n.IdempotencyKey), IdempotencyHash: nullString(keyed(n.IdempotencyKey, hash)),
 			Now: now,
 		}); err != nil {
@@ -505,6 +571,11 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
+		// An item added for a Bot wakes it (issue #1111).
+		if err := s.givenTx(ctx, q, now, actor, id, nil, n.Assignee); err != nil {
+			return err
+		}
+
 		made, err = s.get(ctx, q, id)
 
 		return err
@@ -518,16 +589,17 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 
 // mayCreate is the creation rows of the transitions (issue #845) with the owner's triage of 2026-11-20 (issue
 // #966): the owner adds open items by hand; a Bot adds open items in a chat with the owner; in a Routine's run or
-// from the owner's Lark or Zalo chats it adds proposed ones (Plane's intake: what is found waits as pending), or open
-// ones when it says why (WhyOpen) and gives the quote and the reference to the message.
+// from what it read of the owner's (FoundKinds, in any chat or run: issue #1105) it adds proposed ones (Plane's
+// intake: what is found waits as pending), or open ones when it says why (WhyOpen) and gives the quote and the
+// reference to the message.
 func mayCreate(actor Actor, n NewTodo) error {
 	state, source := n.State, n.Source.Kind
-	found := source == FromRoutine || fromMessaging(source)
+	found := source == FromRoutine || Found(source)
 
 	switch {
 	case state != Open && state != Proposed:
 		return fmt.Errorf("%w: a to-do starts open or proposed", storeerr.ErrInvalid)
-	case !slices.Contains([]string{ByHand, FromChat, FromRoutine, FromLark, FromZalo, FromWhatsApp}, source):
+	case source != ByHand && source != FromChat && !found:
 		return fmt.Errorf("%w: unknown source %q", storeerr.ErrInvalid, source)
 	case n.WhyOpen != "" && n.WhyOpen != AskedDirectly && n.WhyOpen != Promised:
 		return fmt.Errorf("%w: why a to-do opens is %s or %s, not %q", storeerr.ErrInvalid, AskedDirectly, Promised,
@@ -582,17 +654,20 @@ func checkSource(src Source) error {
 		return fmt.Errorf("%w: a to-do written by hand names no chat or run", storeerr.ErrInvalid)
 	case src.Kind != ByHand && (src.ID == "" || len(src.ID) > MaxID):
 		return fmt.Errorf("%w: a to-do from a %s names it", storeerr.ErrInvalid, src.Kind)
-	case (src.Kind == FromZalo || src.Kind == FromWhatsApp) && src.Account == "":
-		return fmt.Errorf("%w: a to-do from %s names the owner's account the chat is in", storeerr.ErrInvalid, src.Kind)
+	case namesAccount(src.Kind) && src.Kind != FromLark && src.Account == "":
+		return fmt.Errorf("%w: a to-do from %s names the owner's account it was read in", storeerr.ErrInvalid,
+			src.Kind)
 	case len(src.Account) > MaxID:
 		return fmt.Errorf("%w: an account is at most %d characters", storeerr.ErrInvalid, MaxID)
-	case !fromMessaging(src.Kind) && src.Account != "":
-		return fmt.Errorf("%w: only a to-do from Lark, Zalo or WhatsApp names an account", storeerr.ErrInvalid)
+	case !namesAccount(src.Kind) && src.Account != "":
+		return fmt.Errorf("%w: only a to-do from Lark, Zalo, WhatsApp or Gmail names an account", storeerr.ErrInvalid)
 	case utf8.RuneCountInString(src.Quote) > MaxQuote:
 		return fmt.Errorf("%w: a quote is at most %d characters", storeerr.ErrInvalid, MaxQuote)
 	case sourceMessage[src.Kind] != "" && (src.Ref == nil || src.Ref.Kind != sourceMessage[src.Kind]):
 		return fmt.Errorf("%w: a to-do from %s names its message as a %s", storeerr.ErrInvalid, src.Kind,
 			sourceMessage[src.Kind])
+	case src.Kind == FromMeeting && src.Ref != nil && src.Ref.Kind != LinkMeetingLine:
+		return fmt.Errorf("%w: a to-do from a meeting names its line as a %s", storeerr.ErrInvalid, LinkMeetingLine)
 	case src.Ref != nil:
 		return checkLink(*src.Ref)
 	}
@@ -799,15 +874,22 @@ func (s *Store) get(ctx context.Context, q *store.Queries, id string) (Todo, err
 		return Todo{}, fmt.Errorf("reading the history of to-do %s: %w", id, err)
 	}
 
-	t.Events = make([]Event, 0, len(rows))
+	t.Events = eventsOf(rows)
+
+	return t, nil
+}
+
+// eventsOf is an item's events, oldest first, from rows read newest first.
+func eventsOf(rows []store.TodoEvent) []Event {
+	out := make([]Event, 0, len(rows))
 	for _, r := range slices.Backward(rows) {
-		t.Events = append(t.Events, Event{
+		out = append(out, Event{
 			ID: r.ID, At: storeutil.Millis(r.At), Revision: int(r.Revision), Actor: Actor{Kind: r.ActorKind, ID: r.Actor},
 			Kind: r.Kind, Before: json.RawMessage(r.Before), After: json.RawMessage(r.After),
 		})
 	}
 
-	return t, nil
+	return out
 }
 
 // Filter is which to-dos List returns and counts.
@@ -819,6 +901,8 @@ type Filter struct {
 	Assignee *Assignee
 	// SourceKind, when given, lists only the items from that kind of source.
 	SourceKind string
+	// Project, when given, lists only the items of that project, by its id; NoProject, only those without one.
+	Project string
 	// DueFrom and DueTo, when given, list only items due in [DueFrom, DueTo); a date is due from its first moment.
 	DueFrom, DueTo time.Time
 	// WithSnoozed lists snoozed items too.
@@ -827,6 +911,10 @@ type Filter struct {
 	NeedsYou bool
 	// WithStale lists the stale proposals too: proposed, untouched for StaleAfter.
 	WithStale bool
+	// OwnerChangedSince, when given, lists only the items the owner changed at or after it (created, edited,
+	// closed, reopened, snoozed…), in any state, snoozed or stale, each with his own changes since then in Events
+	// (issue #1119): what the triage Routine learns from. States still narrows it.
+	OwnerChangedSince time.Time
 }
 
 // Page is one page of List.
@@ -856,9 +944,11 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 	p := store.ListTodosParams{
 		AnyState: cnt.AnyState, States: cnt.States, AssigneeKind: cnt.AssigneeKind, Assignee: cnt.Assignee,
-		SourceKind: cnt.SourceKind, HasDueFrom: cnt.HasDueFrom, DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
+		SourceKind: cnt.SourceKind, ProjectKind: cnt.ProjectKind, Project: cnt.Project, HasDueFrom: cnt.HasDueFrom,
+		DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
 		DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed, WithStale: cnt.WithStale, StaleBefore: cnt.StaleBefore,
-		Now: cnt.Now, NeedsYou: cnt.NeedsYou, Lim: int64(limit) + 1,
+		Now: cnt.Now, NeedsYou: cnt.NeedsYou, HasOwnerSince: cnt.HasOwnerSince, OwnerSince: cnt.OwnerSince,
+		Lim: int64(limit) + 1,
 	}
 
 	if cursor != "" {
@@ -869,11 +959,12 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 	}
 
 	var (
-		rows  []store.Todo
-		total int64
+		rows   []store.Todo
+		total  int64
+		events = map[string][]store.TodoEvent{}
 	)
 
-	// The page and its total are read together, so the total counts the items the page shows.
+	// The page, its total and the owner's changes are read together, so the total counts the items the page shows.
 	err = s.snapshot(ctx, func(q *store.Queries) error {
 		if rows, err = q.ListTodos(ctx, p); err != nil {
 			return fmt.Errorf("listing the to-dos: %w", err)
@@ -881,6 +972,18 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 		if total, err = q.CountTodos(ctx, cnt); err != nil {
 			return fmt.Errorf("counting the to-dos: %w", err)
+		}
+
+		if cnt.HasOwnerSince == 0 {
+			return nil
+		}
+
+		for _, row := range rows[:min(len(rows), limit)] {
+			if events[row.ID], err = q.ListOwnerTodoEvents(ctx, store.ListOwnerTodoEventsParams{
+				TodoID: row.ID, Since: cnt.OwnerSince, Lim: MaxEvents,
+			}); err != nil {
+				return fmt.Errorf("reading the owner's changes of to-do %s: %w", row.ID, err)
+			}
 		}
 
 		return nil
@@ -905,6 +1008,10 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 			return Page{}, err
 		}
 
+		if mine, ok := events[row.ID]; ok {
+			t.Events = eventsOf(mine)
+		}
+
 		page.Items = append(page.Items, t)
 	}
 
@@ -913,7 +1020,7 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 // NeedsYou is how many distinct to-dos need the owner at now: not closed, not snoozed, and proposed but not stale,
 // or in review with a pending Approval, or his own and overdue, or his own with a reply drafted for him to send
-// (issue #1004). List's NeedsYou filter is the same predicate.
+// (issue #1004), or his own "log in again" item (issue #1093). List's NeedsYou filter is the same predicate.
 func (s *Store) NeedsYou(ctx context.Context, now time.Time) (int, error) {
 	n, err := store.New(s.db).CountTodos(ctx, store.CountTodosParams{
 		AnyState: 1, Now: now.UnixMilli(), NeedsYou: 1, StaleBefore: now.Add(-StaleAfter).UnixMilli(),
@@ -929,8 +1036,10 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 	now := s.clock.Now()
 	p := store.CountTodosParams{Now: now.UnixMilli(), States: "[]", StaleBefore: now.Add(-StaleAfter).UnixMilli()}
 
+	owner := !f.OwnerChangedSince.IsZero()
+
 	states := f.States
-	if len(states) == 0 && !f.WithClosed {
+	if len(states) == 0 && !f.WithClosed && !owner {
 		states = []string{Proposed, Open, Doing, Review}
 	}
 
@@ -961,6 +1070,14 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 
 	p.SourceKind = f.SourceKind
 
+	switch f.Project {
+	case "":
+	case NoProject:
+		p.ProjectKind = NoProject
+	default:
+		p.ProjectKind, p.Project = "one", f.Project
+	}
+
 	// A bound is given when it is not the zero time; the Unix epoch is a bound like any other.
 	if !f.DueFrom.IsZero() {
 		p.HasDueFrom, p.DueFrom = 1, f.DueFrom.UnixMilli()
@@ -980,6 +1097,10 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 
 	if f.WithStale {
 		p.WithStale = 1
+	}
+
+	if owner {
+		p.HasOwnerSince, p.OwnerSince, p.WithSnoozed, p.WithStale = 1, f.OwnerChangedSince.UnixMilli(), 1, 1
 	}
 
 	return p, nil
@@ -1039,7 +1160,9 @@ func fromRow(r store.Todo, now time.Time) (Todo, error) {
 		Source:       Source{Kind: r.SourceKind, ID: r.SourceID, Account: r.SourceAccount, Quote: r.SourceQuote},
 		CreatedBy:    Actor{Kind: r.CreatedByKind, ID: r.CreatedBy}, WhyOpen: r.WhyOpen.String, Stale: stale(r, now),
 		ApprovalID: r.ApprovalID.String, ClosedHow: r.ClosedHow.String, CloseReason: r.CloseReason,
-		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String,
+		ClosedAt: storeutil.OptionalMillis(r.ClosedAt), DuplicateOf: r.DuplicateOf.String, Chat: r.ChatID.String,
+		PassedBy: r.PassedBy.String, Priority: int(r.Priority), PriorityReason: r.PriorityReason,
+		Project:   r.ProjectID.String,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
 

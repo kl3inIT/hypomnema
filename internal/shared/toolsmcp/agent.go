@@ -30,6 +30,10 @@ const (
 	// command on a node (issue #543), 5 minutes and its node's answer
 	// (nodeproto.ExecTimeoutMax and ExecAnswerSlack).
 	CallTimeout = 7 * time.Minute
+	// NodeCallTimeout is longer than a command on a node may take at the
+	// control plane: the phone's node's machine woken first (2 minutes, issue
+	// #1083), then the command and its node's answer, as CallTimeout.
+	NodeCallTimeout = CallTimeout + 2*time.Minute
 	// DeviceCallTimeout is longer than a phone's call may take at the control
 	// plane: its machine woken (2 minutes), then the node's answer
 	// (nodeproto.DeviceAnswerWithin and half a minute).

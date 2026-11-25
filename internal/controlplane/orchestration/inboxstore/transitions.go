@@ -172,16 +172,24 @@ func (s *Store) changeTx(
 			}
 		}
 
+		// Who the item went through is set again with each change of who has it (issue #1118).
+		if next.AssigneeKind != cur.AssigneeKind || next.Assignee != cur.Assignee {
+			next.PassedBy = passedBy(c.Actor, Assignee{Kind: next.AssigneeKind, Name: next.Assignee})
+		}
+
 		n, err := q.UpdateTodo(ctx, store.UpdateTodoParams{
 			Title: next.Title, Notes: next.Notes, DoneWhen: next.DoneWhen, Draft: next.Draft, DueKind: next.DueKind,
 			DueDate: next.DueDate, DueZone: next.DueZone, DueAt: next.DueAt, OverdueAt: next.OverdueAt,
-			AssigneeKind: next.AssigneeKind, Assignee: next.Assignee, State: next.State,
+			AssigneeKind: next.AssigneeKind, Assignee: next.Assignee, PassedBy: next.PassedBy, State: next.State,
+			SourceKind: next.SourceKind, SourceID: next.SourceID, SourceAccount: next.SourceAccount,
+			SourceQuote: next.SourceQuote, SourceRef: next.SourceRef,
 			SnoozedUntil: next.SnoozedUntil, WorkAttempt: next.WorkAttempt, WorkKind: next.WorkKind, WorkID: next.WorkID,
 			WorkBot: next.WorkBot, WorkStartedAt: next.WorkStartedAt, ApprovalID: next.ApprovalID,
 			DoneByKind: next.DoneByKind, DoneBy: next.DoneBy,
 			RecordedByKind: next.RecordedByKind, RecordedBy: next.RecordedBy, ClosedHow: next.ClosedHow,
 			CloseReason: next.CloseReason, Evidence: next.Evidence, ClosedAt: next.ClosedAt,
-			DuplicateOf: next.DuplicateOf, Now: now, ID: cur.ID, Revision: cur.Revision, FromState: cur.State,
+			DuplicateOf: next.DuplicateOf, Priority: next.Priority, PriorityReason: next.PriorityReason,
+			ProjectID: next.ProjectID, Now: now, ID: cur.ID, Revision: cur.Revision, FromState: cur.State,
 		})
 		if err != nil {
 			return fmt.Errorf("changing to-do %s: %w", c.ID, err)
@@ -198,6 +206,12 @@ func (s *Store) changeTx(
 
 		before, after := diff(fields(cur), fields(written))
 		maps.Copy(after, extra)
+
+		// A change of who has the item says whom in full, the kind with the name, so that the thread shows a
+		// hand-over from one Bot to another as one (issue #1118).
+		if _, ok := after["assignee"]; ok {
+			before["assignee_kind"], after["assignee_kind"] = cur.AssigneeKind, written.AssigneeKind
+		}
 
 		if err := addEvent(ctx, q, c.ID, now, written.Revision, c.Actor, kind, before, after); err != nil {
 			return err
@@ -533,7 +547,7 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 
 	// A message the owner sent is read before the write, from a store or an API outside this database; what it is
 	// checked against (the item's source and when it was made) never changes after the item is made.
-	sent := false
+	sent, answeredIn := false, ""
 
 	if forOwner && slices.ContainsFunc(cl.Evidence, func(l Link) bool { return sentService[l.Kind] != "" }) {
 		t, err := s.Get(ctx, c.ID)
@@ -541,7 +555,7 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 			return Todo{}, err
 		}
 
-		if sent, err = s.ownerSent(ctx, t, cl.Evidence); err != nil {
+		if answeredIn, sent, err = s.ownerSent(ctx, t, cl.Evidence); err != nil {
 			return Todo{}, err
 		}
 	}
@@ -573,6 +587,11 @@ func (s *Store) Done(ctx context.Context, c Change, cl Closing) (Todo, error) {
 			next.State = Done
 			next.DoneByKind, next.DoneBy = nullString(cl.DoneBy.Kind), nullString(cl.DoneBy.Name)
 			closeFields(next, c.Actor, cl.How, cl.Reason, string(evidence), now)
+
+			// The chat he answered in, when it is not the item's own, so that its activity says where (issue #1163).
+			if answeredIn != "" {
+				return map[string]any{"answered_in": answeredIn}, nil
+			}
 
 			return nil, nil
 		})
@@ -637,18 +656,21 @@ func ownersMessage(ctx context.Context, q *store.Queries, c Change, cur store.To
 	}
 
 	return fmt.Errorf("%w: a Bot recording for the owner gives as evidence his message in the to-do's chat, or the "+
-		"message he sent himself in the to-do's Zalo, WhatsApp or Lark chat after it was made", storeerr.ErrInvalid)
+		"message he sent himself after it was made in the to-do's Zalo, WhatsApp or Lark chat, or in another chat of "+
+		"that account where the person who asked is a member", storeerr.ErrInvalid)
 }
 
 // ownerSent says whether a message the owner sent is evidence that he answered the item (issue #1004; owner,
-// 2026-11-21: done when he sends): a LinkZaloSent, LinkWhatsAppSent or LinkLarkSent in the item's own chat at that
-// service (its source, account and chat; an item without its account has none), that the server keeps of that account or the service's API returns, that
-// he sent himself and that is later than the item. claude-chief-of-staff reads the Sent mail to skip a thread
-// already answered (commands/triage.md:65); matching on the owner's own outgoing message is inference from the
-// business analysis.
-func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (bool, error) {
+// 2026-11-21: done when he sends): a LinkZaloSent, LinkWhatsAppSent or LinkLarkSent of the item's own account at
+// its service (an item without its account has none), that the server keeps of that account or the service's API
+// returns, that he sent himself and that is later than the item; in the item's own chat, or in another chat of that
+// account where the person who asked is a member when it is read (issue #1163; owner, 2026-11-25). For an answer in
+// another chat it says that chat, by its name when it has one. claude-chief-of-staff reads the Sent mail to skip a
+// thread already answered (commands/triage.md:65); matching on the owner's own outgoing message is inference from
+// the business analysis, and widening it to another chat where the asker is is the owner's.
+func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (answeredIn string, ok bool, err error) {
 	if s.sent == nil {
-		return false, fmt.Errorf("%w: the messages the owner sent cannot be read on this control plane",
+		return "", false, fmt.Errorf("%w: the messages the owner sent cannot be read on this control plane",
 			storeerr.ErrUnavailable)
 	}
 
@@ -656,8 +678,7 @@ func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (bool, e
 		// Bound to the item's own account: an item without one (a Lark source names it only optionally) is never
 		// closed so, since another of the owner's Connections in the same chat could show the message.
 		service := sentService[l.Kind]
-		if service == "" || t.Source.Kind != service || l.Chat != t.Source.ID || t.Source.Account == "" ||
-			l.Account != t.Source.Account {
+		if service == "" || t.Source.Kind != service || t.Source.Account == "" || l.Account != t.Source.Account {
 			continue
 		}
 
@@ -667,13 +688,45 @@ func (s *Store) ownerSent(ctx context.Context, t Todo, evidence []Link) (bool, e
 		case errors.Is(err, storeerr.ErrNotFound):
 			continue
 		case err != nil:
-			return false, err
-		case m.FromMe && m.Chat == l.Chat && m.At.After(t.CreatedAt):
-			return true, nil
+			return "", false, err
+		case !m.FromMe || m.Chat != l.Chat || !m.At.After(t.CreatedAt):
+			continue
+		case l.Chat == t.Source.ID:
+			return "", true, nil
+		}
+
+		if name, ok := s.askerIn(ctx, t, service, l.Chat); ok {
+			return name, true, nil
 		}
 	}
 
-	return false, nil
+	return "", false, nil
+}
+
+// askerIn says whether the person who asked, the sender of the item's source message or the other party of its
+// direct chat, is a member of another chat of the item's account now, and that chat's name, else its id. What
+// cannot be read (who asked, who is in the chat) is not evidence: the item stays open, as for an item without its
+// account.
+func (s *Store) askerIn(ctx context.Context, t Todo, service, chat string) (string, bool) {
+	if t.Source.Ref == nil || t.Source.Ref.Kind != sourceMessage[service] {
+		return "", false
+	}
+
+	asker, err := s.sent.Asker(ctx, service, t.Source.Account, t.Source.ID, t.Source.Ref.Ref)
+	if err != nil {
+		return "", false
+	}
+
+	in, err := s.sent.Members(ctx, service, t.Source.Account, chat)
+	if err != nil || !slices.ContainsFunc(asker, func(id string) bool { return id != "" && slices.Contains(in.IDs, id) }) {
+		return "", false
+	}
+
+	if in.Name != "" {
+		return in.Name, true
+	}
+
+	return chat, true
 }
 
 // notAnotherBots refuses a Bot closing or dropping an item that is another Bot's: given to another, or added by
@@ -816,6 +869,15 @@ type Edit struct {
 	Draft    *string
 	Due      *Due
 	Assignee *Assignee
+	// Source points the item at what it was read in (issue #1105): one of FoundKinds, with its quote and message.
+	// A source the caller's token gives (the owner's hand, a chat, a Routine's run) is never set by an edit.
+	Source *Source
+	// Priority sets the priority with PriorityReason, its reason: a priority set without one has none, so that a
+	// reason never stays beside a priority it was not given for (issue #1157). PriorityReason alone is refused.
+	Priority       *int
+	PriorityReason *string
+	// Project puts the item in a project, by its id, or in none when empty.
+	Project *string
 }
 
 // Edit changes the fields of a to-do that is not closed. The owner edits any; a Bot only the items it created or
@@ -832,6 +894,34 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 		return Todo{}, fmt.Errorf("%w: the system does not edit a to-do", storeerr.ErrForbidden)
 	}
 
+	var ref sql.NullString
+
+	if e.PriorityReason != nil && e.Priority == nil {
+		return Todo{}, fmt.Errorf("%w: a priority's reason is given with the priority", storeerr.ErrInvalid)
+	}
+
+	if e.Priority != nil {
+		if err := checkPriority(*e.Priority, strings.TrimSpace(val(e.PriorityReason))); err != nil {
+			return Todo{}, err
+		}
+	}
+
+	if e.Source != nil {
+		if !Found(e.Source.Kind) {
+			return Todo{}, fmt.Errorf("%w: an item is pointed only at what was read: %s, not %q", storeerr.ErrInvalid,
+				strings.Join(FoundKinds, ", "), e.Source.Kind)
+		}
+
+		if err := checkSource(*e.Source); err != nil {
+			return Todo{}, err
+		}
+
+		var err error
+		if ref, err = optionalJSON(e.Source.Ref); err != nil {
+			return Todo{}, err
+		}
+	}
+
 	var due *dueColumns
 
 	if e.Due != nil {
@@ -843,66 +933,128 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 		due = &d
 	}
 
-	return s.change(ctx, c, EventEdited,
-		func(q *store.Queries, cur store.Todo, next *store.Todo, _ int64) (map[string]any, error) {
-			if Closed(cur.State) {
-				return nil, fmt.Errorf("%w: a %s to-do is reopened before it is edited", storeerr.ErrConflict, cur.State)
-			}
+	if err := checkActor(c.Actor); err != nil {
+		return Todo{}, err
+	}
 
-			if c.Actor.Kind == Bot {
-				mine := (cur.CreatedByKind == Bot && cur.CreatedBy == c.Actor.ID) ||
-					(cur.AssigneeKind == ABot && cur.Assignee == c.Actor.ID)
-				if !mine || (e.Assignee != nil && e.Assignee.Kind != Me) {
-					return nil, fmt.Errorf("%w: a Bot edits only the to-dos it added or is given, and gives them only "+
-						"back to the owner", storeerr.ErrForbidden)
-				}
-			}
+	var got Todo
 
-			if e.Title != nil {
-				next.Title = strings.TrimSpace(*e.Title)
-			}
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		var before *Assignee
 
-			if e.Notes != nil {
-				next.Notes = *e.Notes
-			}
+		t, err := s.changeTx(ctx, q, now, c, EventEdited, func(q *store.Queries, cur store.Todo, next *store.Todo,
+			_ int64,
+		) (map[string]any, error) {
+			before = &Assignee{Kind: cur.AssigneeKind, Name: cur.Assignee}
 
-			if e.DoneWhen != nil {
-				next.DoneWhen = *e.DoneWhen
-			}
+			return s.edit(ctx, q, c, e, due, ref, cur, next)
+		})
+		if err != nil {
+			return err
+		}
 
-			if e.Draft != nil {
-				if err := checkDraft(*e.Draft); err != nil {
-					return nil, err
-				}
+		// An item given to a Bot wakes it (issue #1111).
+		if err := s.givenTx(ctx, q, now, c.Actor, t.ID, before, t.Assignee); err != nil {
+			return err
+		}
 
-				next.Draft = *e.Draft
-			}
+		got, err = s.get(ctx, q, t.ID)
 
-			if err := checkText(next.Title, next.Notes, next.DoneWhen); err != nil {
+		return err
+	})
+	if err != nil {
+		return Todo{}, err
+	}
+
+	return got, nil
+}
+
+// edit makes the next row of an Edit from the row read, or refuses it.
+func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, due *dueColumns, ref sql.NullString,
+	cur store.Todo, next *store.Todo,
+) (map[string]any, error) {
+	if Closed(cur.State) {
+		return nil, fmt.Errorf("%w: a %s to-do is reopened before it is edited", storeerr.ErrConflict, cur.State)
+	}
+
+	if c.Actor.Kind == Bot {
+		mine := (cur.CreatedByKind == Bot && cur.CreatedBy == c.Actor.ID) ||
+			(cur.AssigneeKind == ABot && cur.Assignee == c.Actor.ID)
+		if !mine || (e.Assignee != nil && e.Assignee.Kind != Me && e.Assignee.Kind != ABot) {
+			return nil, fmt.Errorf("%w: a Bot edits only the to-dos it added or is given, and gives them only "+
+				"back to the owner or to a Bot", storeerr.ErrForbidden)
+		}
+
+		// Who a Bot may pass an item to (issue #1118).
+		if e.Assignee != nil {
+			if err := s.mayPass(c.Actor, Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}); err != nil {
 				return nil, err
 			}
+		}
+	}
 
-			if due != nil {
-				next.DueKind, next.DueDate, next.DueZone = due.kind, due.date, due.zone
-				next.DueAt, next.OverdueAt = due.at, due.overdueAt
-			}
+	if e.Title != nil {
+		next.Title = strings.TrimSpace(*e.Title)
+	}
 
-			if e.Assignee != nil {
-				a := Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}
-				if (cur.State == Doing || cur.State == Review) && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
-					return nil, fmt.Errorf("%w: a Bot's attempt is on to-do %s; it ends before the item is given to "+
-						"another", storeerr.ErrConflict, cur.ID)
-				}
+	if e.Notes != nil {
+		next.Notes = *e.Notes
+	}
 
-				if err := checkAssignee(ctx, q, a); err != nil {
-					return nil, err
-				}
+	if e.DoneWhen != nil {
+		next.DoneWhen = *e.DoneWhen
+	}
 
-				next.AssigneeKind, next.Assignee = a.Kind, a.Name
-			}
+	if e.Draft != nil {
+		if err := checkDraft(*e.Draft); err != nil {
+			return nil, err
+		}
 
-			return nil, nil
-		})
+		next.Draft = *e.Draft
+	}
+
+	if err := checkText(next.Title, next.Notes, next.DoneWhen); err != nil {
+		return nil, err
+	}
+
+	if due != nil {
+		next.DueKind, next.DueDate, next.DueZone = due.kind, due.date, due.zone
+		next.DueAt, next.OverdueAt = due.at, due.overdueAt
+	}
+
+	if e.Source != nil {
+		next.SourceKind, next.SourceID, next.SourceAccount = e.Source.Kind, e.Source.ID, e.Source.Account
+		next.SourceQuote, next.SourceRef = e.Source.Quote, ref
+	}
+
+	if e.Priority != nil {
+		next.Priority, next.PriorityReason = int64(*e.Priority), strings.TrimSpace(val(e.PriorityReason))
+	}
+
+	if e.Project != nil {
+		project := strings.TrimSpace(*e.Project)
+		if err := checkProjectOf(ctx, q, project); err != nil {
+			return nil, err
+		}
+
+		next.ProjectID = nullString(project)
+	}
+
+	if e.Assignee != nil {
+		a := Assignee{Kind: e.Assignee.Kind, Name: strings.TrimSpace(e.Assignee.Name)}
+		if (cur.State == Doing || cur.State == Review) && (a.Kind != cur.AssigneeKind || a.Name != cur.Assignee) {
+			return nil, fmt.Errorf("%w: a Bot's attempt is on to-do %s; it ends before the item is given to "+
+				"another", storeerr.ErrConflict, cur.ID)
+		}
+
+		if err := checkAssignee(ctx, q, a); err != nil {
+			return nil, err
+		}
+
+		next.AssigneeKind, next.Assignee = a.Kind, a.Name
+	}
+
+	return map[string]any{}, nil
 }
 
 // closeFields records who closed a to-do, how and why.
@@ -945,6 +1097,7 @@ func fields(r store.Todo) map[string]any {
 	m := map[string]any{
 		"title": r.Title, "notes": r.Notes, "done_when": r.DoneWhen, "draft": r.Draft, "due_kind": r.DueKind,
 		"assignee_kind": r.AssigneeKind, "assignee": r.Assignee, "state": r.State, "source_kind": r.SourceKind,
+		"source_quote": r.SourceQuote, "priority": r.Priority, "priority_reason": r.PriorityReason,
 		"close_reason": r.CloseReason, "evidence": json.RawMessage(r.Evidence),
 	}
 
@@ -954,9 +1107,14 @@ func fields(r store.Todo) map[string]any {
 		"work_bot": r.WorkBot, "work_started_at": r.WorkStartedAt, "approval_id": r.ApprovalID,
 		"done_by_kind": r.DoneByKind, "done_by": r.DoneBy, "recorded_by_kind": r.RecordedByKind,
 		"recorded_by": r.RecordedBy, "closed_how": r.ClosedHow, "closed_at": r.ClosedAt,
-		"duplicate_of": r.DuplicateOf, "why_open": r.WhyOpen,
+		"duplicate_of": r.DuplicateOf, "why_open": r.WhyOpen, "passed_by": r.PassedBy, "project_id": r.ProjectID,
 	} {
 		m[k] = v
+	}
+
+	m["source_ref"] = nil
+	if r.SourceRef.Valid {
+		m["source_ref"] = json.RawMessage(r.SourceRef.String)
 	}
 
 	return nullJSON(m)
@@ -1026,4 +1184,13 @@ func nullJSON(m map[string]any) map[string]any {
 	}
 
 	return out
+}
+
+func val[T any](p *T) T {
+	var zero T
+	if p == nil {
+		return zero
+	}
+
+	return *p
 }

@@ -68,6 +68,11 @@ sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's id and the Routine's id appended to it; unset, a script Routine's run fails and says so.
 `HYPOMNEMA_CHAT_RM_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm`) removes a
 deleted chat's files of pi for the chat's id appended to it (issue #484); unset, they stay and the deletion says so.
+`HYPOMNEMA_BACKGROUND_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-background`) runs a
+Bot's background commands as systemd user units of the coordinator (issue #1084, below); unset, it is
+`HYPOMNEMA_COORDINATOR_COMMAND` with `hypomnema-background` in place of a final `.../hypomnema-pi`, the launcher
+`setup-coordinator.sh` installs beside it, so an update needs no new line in the env; with neither, a background
+command is refused and says so.
 `HYPOMNEMA_PPROF_ADDR` (unset by default) serves Go's profiles (`net/http/pprof`, under `/debug/pprof/`) on a
 listener and mux of their own, never on `HYPOMNEMA_HTTP_ADDR` (issue #586, as Coder's `--pprof-address`); only a
 loopback `host:port` such as `127.0.0.1:6060` is taken, anything else stops the start. A profiler that cannot
@@ -117,7 +122,7 @@ flowchart TB
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
 (`--provider`, `--model`, `--thinking`),
-and stops it after 30 min idle by closing its stdin, unless it runs a background command (below); it starts again with the same session id. pi's own retries are off. Owner
+and stops it after 30 min idle by closing its stdin, whatever background commands its chat runs (below); it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt` when pi is idle and are marked delivered once pi accepted them. An owner
 message written while pi works, from the web, the CLI or Lark, or while others still wait, goes into the chat's
 queue (`chat_queue`, issue #497, after OpenMausBot's `server/channel-queue.ts`): off the transcript until the turn
@@ -140,8 +145,14 @@ interrupted-turn markers, `tui_gateway/turn_marker.py` and `session_auto_continu
 chat in the store as that pi process's (`chats.turn_started_at`, `turn_token`, `turn_attempts`, migration 112) and
 `agent_settled` clears the mark, as does a pi that exits while the control plane runs; each pi clears only a mark
 with its own token, so an old pi's exit never clears the turn of the chat's next pi (Hermes's compare-and-swap
-clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
-and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
+clear). A pi the control plane stops keeps it. As the control plane begins to stop, at the update's begin
+(`BeginUpdate`, once its marker is written) and again when the supervisor stops every pi, it writes
+`chats.turn_cut_at` for every marked turn before it waits for the turns (issue #1162, migration
+170, after Hermes's gateway, which marks its running sessions resume-pending before its drain wait,
+`gateway/run_shutdown.py` `_mark_running_sessions_resume_pending`); a new turn's mark, a continuation and a cleared
+mark clear it. As the supervisor starts, a chat whose turn was cut at most an hour ago, or, with no cut written (a
+crash), whose mark is at most an hour old (Hermes's gateway freshness, `gateway/run.py`
+`_AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT`), and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
 `continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
 check the current state before redoing anything, then finish the task", and lists its commands on a node with
 `node_process` before running one again, issue #1060: pi reads this prompt in place of the line, which is the
@@ -150,7 +161,8 @@ that was the owner's stays his for `OwnerTurn`), one attempt more and its mark f
 with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
 line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
 for the chat or holds the cut turns. The partial transcript stays as kept; both lines reach a Channel's chat as a
-message of their own. A start that finds marks is recorded (`restart_boots`); when it is the third of starts no
+message of their own. Each cut turn is logged (`event=coordinator.cut_turn`) with `continued`, `attempts`, `age`
+and `age_from`, which says whether the age runs from the cut (`cut`) or from the turn's start (`start`). A start that finds marks is recorded (`restart_boots`); when it is the third of starts no
 more than 5 minutes apart (Hermes's restart-loop guard, `gateway/restart_loop_guard.py`), nothing is continued, the
 marks stay and every undelivered `continued` line is voided. The supervisor lists the chats whose pi works on a
 turn (`WorkingChats`), which the control socket gives `hypomnema update`, and while an update runs
@@ -236,27 +248,55 @@ but a read run's, replaces pi's `bash` with pi's own plus that flag, as OpenClaw
 a backgrounded command exits (`tools.exec.notifyOnExit`, on by default, `src/config/schema.help.runtime.ts:467-470`, `docs/tools/exec.md:171-173`), opencode's
 shell says "You will be notified when it completes. DO NOT poll" and Claude Code's `run_in_background` re-invokes the
 agent. Before a Bot polled its own `setsid nohup … &` jobs with `sleep 240; cat …log`, a new turn of its whole context
-each time. The command starts in the box in a process group of its own and the tool answers at once with its id
-(`bg_…`), group and deadline, telling the Bot to end its turn if only waiting is left. Its deadline is OpenClaw's 1,800 s unless the call gives a `timeout` (`exec.md:192`); then the group gets SIGTERM and, 5 s later, SIGKILL, as OpenClaw stops a process (`src/process/supervisor/released-processes.ts:97-125`), and the wake says the time ran out, with OpenClaw's advice on retrying (`bash-tools.exec-output.ts:117-118`). So every command ends and wakes the chat, and no pi is kept for one forever. Output a child writes after the end was reported is let go of. The extension
-reports it on `POST /agent/v1/background` with pi's own token (`started`, then `ended` with its exit code or signal,
-the last 2,000 characters of its output, how many it wrote, and its file when the end is only part of it), and a
-command the control plane did not record is not started. All its output goes to an owner-only file of the box's
-`/tmp`, at most 64 MiB, kept only when the wake leaves part of it out: OpenClaw's file for a Gateway-host command (`exec.md:174`); keeping it in the box is this extension's choice, where the plan said `node_exec`'s 32 KB head and tail. The control
-plane keeps a row per running command (`chat_background_commands`: chat, id, a hash of the pi's token, start; no
-command text, as OpenClaw's `bash-process-durable.ts:83-129`). The end takes the row out and adds one wake-up to the
-chat ("Background command bg_… exited with code 3 after 4m12s:" and the output's end, after
-`bash-tools.exec-notify.ts:245-260`), once: a second report, or one from another pi of the chat, wakes nothing. Like
-every wake-up it waits for a turn that runs and goes with the others as the next prompt (OpenClaw's
-`session-event-batch.ts:34-58`). The box ends its commands with pi (`--unshare-pid`, `--die-with-parent`), so the
-supervisor does not stop an idle pi whose chat has a row, and when a pi exits its own rows become a wake-up saying the
-command was killed because the chat's pi stopped; at the supervisor's start every row left is reported killed by the
-restart (OpenClaw reports what the last Gateway lost, `bash-process-durable.ts:132-161, 200-225`). A deleted chat takes its
-rows. `node_exec`'s `background` is unchanged: it still answers through `node_process`. On
+each time. Since issue #1084 the command is not pi's child: every restart of the control plane stops its service's
+whole cgroup (`KillMode=control-group`, kept so that no pi is orphaned) and every pi with it, and with them the jobs a
+Bot ran. The extension asks `POST /agent/v1/background` (`{kind: "start", command, cwd, timeout_seconds}`, pi's own
+token, pi's shell prefix before the command), and the supervisor runs it as a transient systemd user unit of the
+coordinator user, outside the control plane's cgroup, as OpenClaw keeps a durable command across Gateway restarts
+(`docs/tools/exec.md:94-100`, `docs/gateway/background-process.md:140-235`, `src/agents/bash-process-systemd.ts`).
+It does so through a root-owned launcher, `deploy/coordinator/hypomnema-background`, run as the coordinator
+(`HYPOMNEMA_BACKGROUND_COMMAND`, by default beside `hypomnema-pi`): `start` writes the command to
+`run/<chat>/background/<id>.sh` and starts
+`hypomnema-bg-<chat>-<id>.service` with OpenClaw's properties (`Type=exec`, `RemainAfterExit=yes`,
+`KillMode=control-group`, `TimeoutStopSec=5s`, `RuntimeMaxSec` its deadline, output appended to
+`run/<chat>/background/<id>.log`), running it as pi's bash does, `<shell> -c <command>` in pi's shell (its
+`shellPath`, else `/bin/bash`), in a bubblewrap box like a Routine's script's (the Bot's
+directory read-write, the tools read-only, a private `/tmp`) with no token: pi's ends with pi, as OpenClaw's durable
+commands launch without the Gateway's credentials (`exec.md:94`). `ExitType=cgroup` is left out: the box's PID
+namespace ends what the command started when its shell ends. It starts only in the Bot's directory or below; pi never
+reaches the user manager, which would let a command out of every box. The coordinator lingers
+(`loginctl enable-linger`, `setup-coordinator.sh`), so its manager runs without a login. The tool answers at once
+with the command's id (`bg_…`), its deadline and its output file, which pi's box reads (the run folder is bound
+read-only), telling the Bot to end its turn if only waiting is left; `background_stop {id}` stops one (`stop`: SIGTERM
+to the whole unit, SIGKILL 5 s later), as OpenClaw's `process kill` does. Its deadline is OpenClaw's 1,800 s unless the
+call gives a `timeout` (`exec.md:192`). A control plane without the launcher refuses the call, saying so, as OpenClaw
+never falls back to a command a restart would end. The control plane keeps a row per running command
+(`chat_background_commands`: chat, id, a hash of the pi's token, start; no command text, as OpenClaw's
+`bash-process-durable.ts:83-129`), written before the unit starts and taken out when it cannot start. The supervisor's
+pass observes the units every 5 s while a row is there, and once after each start of the control plane (`list`: the
+units' `systemctl show`), as OpenClaw's registry observes its durable units (`bash-process-registry.ts:809-814`), so
+the first pass after a restart finds every command again by its unit's name. A unit that ended wakes its chat with
+how it ended (its exit code, the signal, or that its timeout ran out, with OpenClaw's advice on retrying,
+`bash-tools.exec-output.ts:117-118`), how long it ran by the unit's own clock, and the last 2,000 characters of its
+output (`read`: the last 8,000 bytes), with its file when that is only its end ("Background command bg_… exited with
+code 3 after 4m12s:" and the output's end, after `bash-tools.exec-notify.ts:245-260`); the row goes in the same write,
+once, and only then is the unit let go of (`cleanup`: stop and reset-failed, OpenClaw's order,
+`bash-process-durable.ts:445-449`), with its file unless the wake named it. A command whose unit is gone (the machine
+restarted) is reported lost with its output's file (OpenClaw's missing unit, `bash-process-durable.ts:420-425`); a unit
+no row names (its chat was deleted, or the control plane stopped between a wake and the let-go) is let go of; the pass
+lists the units again while the last list had any, so the last command of a deleted chat is stopped too. Every 10
+minutes, and at each start, the pass prunes every chat's files of commands that ended more than 3 hours ago (`prune`;
+OpenClaw keeps an ended command's log at most 3 hours, `bash-process-registry.ts:24-26`). Like every wake-up it waits for a turn that runs and goes with the others as the
+next prompt (OpenClaw's `session-event-batch.ts:34-58`). A pi is stopped when idle whatever its chat runs, and a
+command is its chat's: the next pi of the chat stops it or is woken by it. A turn a restart cut is told that a command
+its bash was running stopped with the restart and that a background one goes on (`cutturns.go`). A deleted chat takes
+its rows. `node_exec`'s `background` is unchanged: it still answers through `node_process`. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's id and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), a third that removes a deleted chat's `run/<chat>`
 and `sessions/<chat>` (`hypomnema-chat-rm`, accepting only a chat id of the shape the control plane makes; issue
-#484), one sudoers rule limited to the three, the instructions
+#484), a fourth that runs a Bot's background commands as systemd user units (`hypomnema-background`, issue #1084,
+above), one sudoers rule limited to the four, the instructions
 every Bot gets, pi's version with its lockfile (`package.json`, which Dependabot updates; the setup installs it with
 `npm ci`), and the setup script the owner runs with sudo. Each pi, and each Routine's script, runs in a bubblewrap box
 with a token of its own (issues #260 and #211, see Bots).
@@ -841,18 +881,28 @@ sequenceDiagram
     screen: the agent looks again (the issue's "never runs on another's half-done screen").
   - A call that finds the phone's node offline and its machine `stopped` starts the machine with the path of
     `hypomnema machines start` (`machines.Manager.Start`) and waits up to 2 minutes for the node's hello; one
-    whose machine is `starting` waits the same. After that the call is refused (503) with "the phone is waking …
+    whose machine is `starting` waits the same. The hello waited for is one since the start: the node's socket is
+    open and its record no longer says `stopped` or `starting` (its hello clears `starting`), so a socket still open
+    from before the stop, while the provider shuts the machine down, is not taken for it. After that the call is refused (503) with "the phone is waking …
     try again in a minute", and the machine keeps starting. A node installed by the owner, or whose machine is on,
     is reported offline.
   - The phone's machine is stopped when it has been idle (`idle.go`; inference, for cost: no reference stops a
     whole machine for a device): every minute the control plane looks at the node that holds the phone, and stops
     its machine with the path of `hypomnema machines stop` (`machines.Manager.Stop`) once, for 30 minutes, the
     machine was one a provider made and on, its node connected and saying its phone `stopped`, `absent` or
-    `failed`, with no agent's call running and no view open. The 30 minutes count from the first look that finds
-    all of that; a call or a view, its start and its end, and a look that finds any of it otherwise, end the count. A stop that is refused (the node runs a Dispatch)
+    `failed`, with no agent's call running, no view open and no agent's `node_exec` or `node_process` on that node
+    running. The 30 minutes count from the first look that finds all of that; a call, a view or such a command, its
+    start and its end, and a look that finds any of it otherwise, end the count. A stop that is refused (the node runs a Dispatch)
     or fails is logged as `phone.machine_stop_failed` and asked again at the next look; one that succeeded is
-    `phone.machine_stopped`. The next call or view starts the machine again (above); a node the owner
-    drained stays drained through both.
+    `phone.machine_stopped`. The next call or view starts the machine again (above), and so does a `node_exec` or
+    `node_process` on the phone's node (`command.go`, `Phone.Use`, issue #1083, as Coder's tools start a stopped
+    workspace they name): its machine only, not the phone, which a phone call starts. It is woken when the node's
+    record says its machine is `stopped` or `starting`, even while the node's socket is still open after a stop; it
+    waits for the hello as a call does and then runs; when the machine does not come up, its answer says the machine
+    was stopped because the phone was idle and that a phone tool's call starts it, not that the node is not
+    connected. The look's decision to stop and a command's admission share one lock: a command admitted first keeps
+    the machine on, and one that comes while the stop runs is refused with "being stopped; try again in a minute".
+    A node the owner drained stays drained through both.
   - An agent is told of the phone when one is there: the node API marks an offer with `device: android`, and
     the phone's line of the "Tools" block, which a worker and a Bot get while a node holds the phone (issue #789),
     gives the rules that matter most: look before acting, act by box number, sign in only with what the owner gave, never pay. Its guide, `android-device` (`internal/controlplane/clientcli/skills/android-device`), is a built-in
@@ -1191,7 +1241,18 @@ sequenceDiagram
     source's (a default frame on a turned take falls back to full; a frame sent is refused with its 409 shown). The
     look sample (`POST /videos/preview`, with `rev` for Change look) is a query keyed by its body: a change aborts
     the sample being drawn and only the latest answer is shown; a refusal (429, 503, 504) shows the server's
-    message. Change look is disabled until a section changed.
+    message. Change look is disabled until a section changed. The Look's last group is Music (#910 part 3, #1041;
+    `music-group.tsx`, `music-state.ts`, `use-music.ts`): the library of `GET /videos/music` as rows to pick from,
+    No music first, with each track's length and size and what the library holds of its 5 GB; a track plays from
+    its audio endpoint in one `<audio>` of the group, a type the browser's `canPlayType` refuses, or a file it fails
+    to play, showing the track's error state; a track's delete asks first and shows a refusal (409); "Add music…"
+    uploads a file to `POST /api/v1/videos/music?name=<the file's name without its extension>` as
+    `application/octet-stream` through the web's client and picks it, a refusal (411, 413, 429, 507) shown in the
+    server's words, or in the route's when the answer is not the server's (a proxy's page). A track the look names
+    that the library lost is listed as "(deleted)", with what the server does with it, a missing file as
+    "missing", and a look that fell back says so. The level moves the gain from −20 to +10 dB. The music is sent as
+    `{track, gain_db}` only when changed, and never to the look sample, which it does not change. Its browser tests
+    write their own test audio (`web/tests/audio.ts`: WAV, MP3, FLAC, Ogg Opus; an m4a by the browser's recorder).
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1650,6 +1711,14 @@ sequenceDiagram
     - Every other file is a note (`memory_notes`, migration 00117): at most 200 notes of 8,192 bytes, Coder's
       limits; a path at most two levels below `/memories`, each part letters, digits, `.`, `_` and `-` with no
       leading dot; `..`, `%` and backslashes refused, as Anthropic asks.
+    - A Bot's note `context/owner.md` is the **owner's context** (issue #1119): what the Bot learned of his people,
+      recurring processes, links, projects and teams, each entry with where it was learned. Every prompt run of the
+      Bot's Routines begins with it, as it was when the run's chat opened (`orchestration` `promptNotice`, after
+      the run's notice and before its check's output and prompt; Hermes gives `USER.md` as a frozen snapshot,
+      `tools/memory_tool.py:1-5`), and it is the one part of the memory a Routine's read run changes
+      (`memorystore.ReadRunMayChange`: `create`, `str_replace`, `insert` of that note; Hermes's cron jobs keep their
+      memory tool, `cron/scheduler.py:2471`). It keeps a note's limit. The owner reads and edits it with the Bot's
+      other notes.
     An edit of `MEMORY.md` or `USER.md` keeps their rule (an entry a line, empty and repeated lines dropped, the
     limit), and a change over a limit is refused and changes nothing. `view` lists a directory two levels deep
     with sizes, or a file's numbered lines (`view_range`), cut at 16,000 characters. Each command reads the
@@ -1933,7 +2002,8 @@ flowchart LR
     two apart: `routines.New(svc, svc.Routines(), cfg)`.
   - **What it is.** A row of `routines`: its Bot, a name of its own among the Bot's, a kind, a schedule, on or
     paused (with the reason), when it runs next, the chat it was made in, and whether a run's result is told
-    there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
+    there. A `prompt` Routine gives the Bot its text in a new chat each run, after the Bot's note of the owner's
+    context when it has one (issue #1119, under Memories). A `script` Routine names a file
     under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
     and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads and what
     runs. Longer code stays in a file of the Bot's folder that a short stored script runs, as a Hermes job points
@@ -1953,11 +2023,15 @@ flowchart LR
     what the check printed as records. A run is one snapshot of its Routine when it starts (`routine_runs.access`,
     `prompt`, `script`, `script_text`, `timeout_seconds`): the launch (`ClaimRoutineScript`), the wake
     (`WakeRoutineRun`) and every check of the run's token (`orchestration.RoutineScriptReads`) read only that copy,
-    so the owner's switch or a Bot's edit meanwhile changes nothing of the run that goes on. A script's token is
+    so the owner's switch or a Bot's edit meanwhile changes nothing of the run that goes on; the run's end is
+    settled by that copy too (`routines.Runner` `Follow` and `finish`: a run is a prompt run by its `prompt`, and a
+    check that woke nobody is told nowhere, issue #1071). A script's token is
     bound to its run (`Token.RoutineRun`) and stops working when the run ends, in the run's own transaction, before
-    it is revoked (reviews of #1037). The wake-up in each run's new chat records the access then; it is still no owner
+    it is revoked (reviews of #1037). The pi of a read run's chat reads the owner's accounts only while the run is
+    live (`agentapi` `readLive`: no `account_read`, no user Connection off his turn once it ended; issue #1071). The wake-up in each run's new chat records the access then; it is still no owner
     turn. The chat remains confined for follow-ups and restarts. Read runs get the catalogued account reads and
-    the allowed messaging, Superset and memory reads. pi disables extension discovery but explicitly loads
+    the allowed messaging, Superset and memory reads, and may write one note of the memory, the owner's context
+    (issue #1119, under Memories). pi disables extension discovery but explicitly loads
     `builtin:mcp` to read the chat's `mcp.json` (issue #963). It has no Bash or project extensions and can read and
     write its private notes, not other files. Nothing asks for approval. Results stay in the run's chat, not in its run
     record, the chat it was made in, or an alert. See the [morning brief](docs/morning-brief.md).
@@ -2608,6 +2682,8 @@ flowchart LR
         ([research](docs/research/2026-11-19-scheduled-runs-and-owner-accounts.md)). The
         agent API applies it in its list of accounts and so in the service proxy's check of every request.
         An owner-marked read run may use a Connection the Bot may use, through `account_read` without Bash.
+        The tool's description names those accounts and which Lark ones sign in as the owner, the rest being apps;
+        the triage's check reads the owner's Lark chats only through those (issue #1127).
         The proxy allows only catalogued reads that do not need approval; writes never create a card in a read run.
   - Superset is an Integration of kind `account` ([issue #203](https://github.com/kl3inIT/hypomnema/issues/203),
     [research](docs/research/2026-11-12-superset-integration.md)): a third kind beside `oauth` and `app`, for a
@@ -2930,8 +3006,8 @@ flowchart LR
       whatsmeow knows it. The mirror is `wa_chats`, `wa_messages` with `wa_messages_fts` (FTS5) and `wa_groups` in
       `whatsapp.db`, keyed by the number, so a number linked again keeps its history; disconnecting removes it.
       The shape and the parsing follow wacli (`internal/store/schema.sql`, `internal/wa/messages.go`, MIT).
-    - `GET /integrations/whatsapp/connections/{label}/chats` and `…/messages` (`chat`, `q` for a search, `before`,
-      `limit`) read the mirror, the latest first, for the owner only.
+    - `GET /integrations/whatsapp/connections/{label}/chats` and `…/messages` (`chat`, `id` for one message, `q` for
+      a search, `before`, `limit`) read the mirror, the latest first, for the owner only.
     - **A Bot reads it with tools** ([issue #638](https://github.com/kl3inIT/hypomnema/issues/638)): a WhatsApp
       Connection is the owner's own account (`orchestration.Connection.User`, as his Lark sign-in), so only a
       Bot's pi given it gets `whatsapp_chats`, `whatsapp_messages` (as `zalo_messages`, with `offset` beside
@@ -3664,7 +3740,8 @@ capabilities do not exist yet.
   format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets, and its
   `opencode_go` and `opencode_zen` targets whose model OpenCode serves on Responses (issues #854, #965; the body as
   the client sent it, the model's name at OpenCode and `stream` on, under the provider's keys as the chat route sends
-  it below):
+  it below). A target served on chat, an OpenCode model on chat or an `openai_compatible` provider, is asked in
+  chat's format and answered back in Responses events (issue #1144, below):
   - The client's body is passed on, not translated (`modelgateway/codex`, `PassThrough`): the model's name at the
     backend, `stream` on and `store` off, a string input as a user message, references to stored items and their ids
     taken out, `service_tier` `fast` as `priority`, the lite shape for the models that take it, the client's session
@@ -3672,8 +3749,33 @@ capabilities do not exist yet.
   - None of the client's headers goes to the backend but its session (`session-id`, `session_id` or
     `x-session-id`; one per gateway key without). The account, the Codex CLI's identity, a refused token, a usage
     limit and the next account are the chat route's.
-  - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
-    keeps its status and body.
+  - The backend's event stream goes back line for line; the usage is read from `response.completed`, or
+    `response.incomplete` for an answer that ended at its limit or was filtered (an answer too, recorded `ok`). A
+    refusal keeps its status and body.
+  - A Codex stream's opening is held (issue #1135, CLIProxyAPI's stream bootstrap buffering): the frames that say
+    nothing has happened yet (`response.created`, `response.in_progress`, `response.metadata`, keepalives, an item or
+    part announced empty; `codex.Opening`, CLIProxyAPI's closed list) are kept back until the first other frame, at
+    most 48 lines, 1 MiB or 20 s (CLIProxyAPI's bounds and the timeout it advises behind a proxy), then sent whole. A
+    lack of capacity the backend reports before that inside its 200 (`server_is_overloaded`, a rate limit, a model at
+    capacity; CLIProxyAPI #6856) is a 503 refusal of that account: the next account is tried, then the model's next
+    target; what rests, the model of the account or the whole account, is said below, and it rests for the
+    `Retry-After` in the error's headers (outer first, `error.headers` too, CLIProxyAPI #7600), else the chat route's
+    growing wait. Any other failure before output, and any failure after
+    it, reaches the client in the stream as before; nothing is sent again once output started (CLIProxyAPI #7481).
+    The chat route translates and sends nothing before its first chunk, so it already moved on; it rests the same
+    way, for the same `Retry-After`. A lack of capacity for the model (an overload, a model at capacity, a server
+    error the backend says to retry; `codex.Failure.ModelCapacity`), on either route and whether inside a 200 or as
+    its own status, rests only that model of the account (issue #1147; CLIProxyAPI's per-model `ModelState`,
+    OmniRoute's `lockExactModel` on a Codex `server_is_overloaded`): the account keeps serving its other models, is
+    passed over for that model without asking the backend, and no account cooldown is written; the rest is in memory
+    and logged as `modelgateway.model_rests` with its reason. That rest lasts the delay the backend names, else the
+    growing wait, but at most 60 s (issue #1159; OmniRoute clamps a Codex capacity refusal to 5-60 s, CLIProxyAPI's
+    transient cooldown is 60 s), though the backend names about six minutes. While the model rests on every account
+    the client gets the 429 of a cooling model with the first time one is free, so at most a minute away. A rate limit, a usage limit or a refused token still
+    cools the whole account, and its cooldown's reason is the refusal's code (else its type, else `HTTP <status>`),
+    not `usage limit`. When every account refuses, the usage row keeps the refusal's code, message
+    and the prompt's moderation flags from the `response.metadata` frame (paths and values, not the prompt), and
+    counts the input as estimated with no output; a stream that ended before any output counts no output.
   - A run of answers that did not end ends the client's turn (issue #1052), whatever the prompt's size: a stream cut
     short (silently or on an error the provider sent, which Codex retries), a client gone before anything came, or
     the provider saying the prompt did not fit the context window; a stream the provider ended on an invalid
@@ -3686,8 +3788,30 @@ capabilities do not exist yet.
     answer may last longer; a run with nothing in flight 5 s after its last answer is forgotten. The runs are in
     memory. The gateway does not count a prompt's tokens before sending it (the owner's choice, 2026-11-22), as
     LiteLLM checks a prompt against the window only when asked to.
-  - Not served: a model with no such target (400 `model_not_served_here`), an answer that is not a stream (400),
-    `/v1/responses/compact`, a WebSocket.
+  - A chat target (issue #1144, `modelgateway/responseschat`, adapted with its MIT notice from CLIProxyAPI's
+    openai→openai-responses translator; LiteLLM bridges its Responses API to chat the same way): the request becomes a
+    streamed chat request sent through the target's chat adapter, as the chat route sends it (the conversation's
+    session as the OpenCode session, the one a Responses model of the same conversation gets). The instructions are
+    the system message and every role is kept, developer too; text alone is one string, an image an `image_url`
+    (Codex's `original` detail as `high`), a file by id or inline bytes; consecutive tool calls are one assistant
+    message, their outputs tool messages, a tool output's images and files the user message after them, and an output
+    no call asked for the user's text; a reasoning item's summary is the next assistant message's
+    `reasoning_content`, and a tool call whose reasoning was not kept gets `[reasoning unavailable]` in a session that
+    reasons (DeepSeek refuses a tool call's turn without one). A function tool is a chat function, a freeform tool a
+    function of one `input` string, a namespace's tools `<namespace>__<name>`, each name at most 64 bytes;
+    `tool_choice`, `parallel_tool_calls`, `max_output_tokens` (as `max_tokens`), `text.format` (as
+    `response_format`) and `reasoning.effort` (as `reasoning_effort`) go too. Dropped: other tool types (web search,
+    image generation, hosted MCP, local shell, tool search), audio and video parts, `store`, `include`,
+    `prompt_cache_key`, `previous_response_id` and the sampling and metadata fields the reference does not map. The
+    chat stream comes back as `response.created` and `in_progress`, reasoning as a reasoning item's summary (no
+    `encrypted_content`), text as a message, each tool call a `function_call` (or `custom_tool_call` for a freeform
+    tool, under its own name and namespace) whose arguments pass on as they come, the items closed when the choice
+    finishes, then `response.completed` with the usage after `[DONE]` or the stream's end (`response.incomplete` for
+    an answer cut at its limit or filtered). A chat error frame ends it with `response.failed`; a stream cut before
+    its choice finished gets no end; a refusal keeps the provider's status and body; an answer that is not a stream
+    is translated whole.
+  - Not served: a model with no such target, a Claude or Antigravity subscription and an OpenCode model on Messages
+    (400 `model_not_served_here`), an answer that is not a stream (400), `/v1/responses/compact`, a WebSocket.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
   [research](docs/research/2026-11-13-gateway-features.md)) are for a client that speaks Anthropic's Messages format,
   Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They try a
@@ -3824,7 +3948,8 @@ capabilities do not exist yet.
   `GetCodexModelCatalog`, tagged `gateway` with the `gatewayKey` scheme, which neither the client API's generated
   server nor the web client's SDK includes) is the key's catalog in Codex's own format (`{"models": [ModelInfo…]}`,
   codex-rs `protocol/src/openai_models.rs`), for a Codex provider's `model_catalog_url`: the models the key may use
-  that `/v1/responses` serves, in the gateway's order, each Codex's bundled entry for the model behind it
+  that `/v1/responses` serves, passed on or translated to chat (issue #1144), in the gateway's order, each Codex's
+  bundled entry for the model behind it
   (`modelgateway/codexmodels/models.json`, Codex `rust-v0.169.1`, third_party/codex, whose license and notice the
   control plane's release carries) or Codex's entry for a model it does not know, renamed to the gateway's name,
   listed in the picker, without an upgrade, notice or review model, and given the window, inputs and effort levels
@@ -4087,7 +4212,7 @@ capabilities do not exist yet.
     Claude translation without its disguise and without the gateway's cache breakpoints (`claude.Options.Plain`), a
     Responses model with the Codex translation without its lite shape (`codex.Options.Plain`); their answers become
     chat chunks as the subscriptions' do. `/v1/messages` and `/v1/responses` pass their own wire's models the body
-    (above).
+    (above); `/v1/responses` translates for a chat model (issue #1144, above).
   - Each call carries the key (`Authorization: Bearer`, or `x-api-key` with `anthropic-version: 2023-06-01` on
     Messages), `User-Agent: hypomnema/<version>` and `x-opencode-session`, a hash of the gateway's session: the
     client's `prompt_cache_key` or session header, else its gateway key. The session also picks the key, as for
@@ -4200,8 +4325,8 @@ waits on the owner reaches his browsers and the iPhone Home Screen app (iOS 16.4
   `push_outbox` (kind, item id; one per item); one the owner writes himself queues nothing.
 - The sender runs while the control plane serves. It reads the queue at start and after every commit
   (`orchestration.Subscribe`), reads each item's words then (`QueuedPushes`: title naming the Bot, or the Run by its
-  objective; the item's own text cut to 1500 bytes, and cut again to what fits once JSON-encoded (3800 bytes); the page, the item's chat or the start page; the Inbox has no
-  page yet), drops one that no longer waits (answered, decided, gone), and sends it to every subscription at once,
+  objective; the item's own text cut to 1500 bytes, and cut again to what fits once JSON-encoded (3800 bytes); the page, the item's chat or the start page; a to-do's push
+  still opens its chat or the start page), drops one that no longer waits (answered, decided, gone), and sends it to every subscription at once,
   then deletes the row. A push is a Declarative Web Push message (`{web_push: 8030, notification: {title, body,
   navigate, tag}}`), encrypted with `SherClockHolmes/webpush-go`, with TTL 300 s, urgency high, the tag
   `hypomnema-<kind>-<id>` and a Topic hashed from it, so a newer push of the same item replaces a pending one. 429,
@@ -4210,7 +4335,11 @@ waits on the owner reaches his browsers and the iPhone Home Screen app (iOS 16.4
 - Subscriptions are `push_subscriptions`, one row per browser endpoint with its keys and label, no user column (the
   owner alone uses the app); a browser subscribing again keeps its row and takes the new keys. The client API's
   `GET|PUT /push/subscriptions`, `DELETE /push/subscriptions/{id}` and `POST /push/subscriptions/{id}/test` are the
-  owner's alone; the list carries the VAPID public key.
+  owner's alone; the list carries the VAPID public key. A PUT with `previous_endpoint` renews the device in
+  one transaction. Normally it replaces the endpoint and keys in place, so removal by id still works after
+  renewal. If Settings already registered the replacement, the PUT keeps that row, refreshes its keys and removes
+  the previous row. A nonempty label carries over from the previous row. If the previous endpoint is no longer
+  registered, the PUT returns 404 (issue #1063).
 - The VAPID key pair is made on first use and its private half kept in the vault as the secret
   `web-push-vapid-key` (generic); the public half is read from it. The VAPID subject is `HYPOMNEMA_PUBLIC_URL`;
   without an https one the control plane serves no key and drops what is queued. `hypomnema push regenerate-keys`
@@ -4632,30 +4761,41 @@ gateway chat model writes its summary, decisions and actions.
 - On the web: Record, beside Upload recording, asks Online (only where a tab's sound can be shared, Chromium on a
   computer) or In person, the language and the people, asks for the tab then the microphone, and opens the
   meeting's page on a recording bar (time, a level meter a track, a warning when the tab is silent 20 s or no longer
-  shared, Stop asked first, then "Saving the last words…") over the live transcript in the turn layout with what
-  is being said. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
+  shared, Mute mic, Pause and Resume, Stop asked first, paused or not, then "Saving the last words…") over the live
+  transcript in the turn layout with what is being said. Pause (issue #1153) finishes every track's socket and drops
+  the audio until Resume, which opens new sockets where the audio sent ended, so the transcript, the saved audio and
+  the time recorded go on without the pause; the bar says Paused with a still dot. Mute mic (issue #1155, MemoryOS's
+  `setMicMuted`; a toggle with `aria-pressed`, online and in person) finishes only the microphone's socket and stills
+  its meter while the tab records on and the clock runs; what the microphone hears meanwhile is never sent but counts
+  on its clock, so Unmute mic opens its socket at the meeting's current time and the server keeps the gap silent.
+  Resume leaves a muted microphone off. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
   tab closes and holds a screen wake lock; a socket that drops reconnects after 1/2/5/10/20 s with up to 30 s of
   audio queued, its offset the time of the first queued frame, which nothing is dropped before until the new
   socket is ready. A meeting left recording offers Resume recording or End; the player shows once it is transcribed.
   The sidebar's Meetings (`/meetings`) lists them grouped Today, Yesterday, Earlier as the Machines
   page's cards (When, Speakers, Actions, From and the state) or a table, with a search and an Actions tab across
   meetings filtered by who and state. Upload recording asks the file and language, and behind More details the
-  title and people; it points to Settings → Dictionary for the words. A meeting's page (`/meetings/{id}`) has the player (adapted from
+  title and people; it links the meeting settings' Dictionary for the words. A meeting's page (`/meetings/{id}`, and
+  `?line=<n>` to open its Transcript at that line, brought into view and marked, as an Inbox item from a meeting
+  links it; issue #1105) has the player (adapted from
   assistant-ui's AudioPlayer, MIT) that any time on the page seeks, the steps while it is worked on or why it
   failed, and Summary and Transcript tabs with Write again; the transcript colours each voice, shows
   its share of the talk and opens the speaker picker (this line or the whole meeting); each line has a fix for a
   word heard wrong (opened with the words selected in it; this line or the whole meeting), after which the page
-  offers Write again. Settings' Meetings group (out of Gateway since issue #762, as Hyprnote's Settings has
-  Dictionary and AI) has Dictionary, the words (the owner's as chips to remove, the found ones marked speaker, Bot or
-  repository), and Notes model, picked with the single-model picker the Bots use
-  (`features/agents/model-picker.tsx`). Settings' "Back to app"
+  offers Write again. A gear on the Meetings page opens the meeting settings (`/meetings/settings`, issue #1121;
+  Settings' group Meetings until then, issue #762), out of the Settings menu as Hyprnote keeps its dictionary and AI
+  settings out of its meeting list: Dictionary, the words (the owner's as chips to remove, the found ones marked
+  speaker, Bot or repository), and Notes model, picked with the single-model picker the Bots use
+  (`features/agents/model-picker.tsx`). The old `/settings/dictionary` and `/settings/notes-model` redirect there. Settings' "Back to app"
   returns to the last page outside Settings, kept for the tab (`web/src/lib/back-from-settings.ts`), else home.
   Old Agents and Machines list URLs redirect into Settings and are skipped as return destinations.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143, 00148 and 00151; issues #838, #845, #966 and
-#1004, parts 1 to 3 of the Inbox): the store of the to-dos that have to happen, whoever does them, its state machine,
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165, 00166, 00167 and
+00169; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124, #1157 and #1163, parts 1 to 3 of the
+Inbox, the sources a Bot reads, handing an item to a Bot, passing it from Bot to Bot, a removed Bot's items, and
+priority and projects): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000), `draft` (≤ 20,000, the reply a Bot drafted for the owner to send
@@ -4666,9 +4806,12 @@ its client API, its CLI and the Bots' tools.
   `person` (a name ≤ 100), `bot` (an existing Bot's id) or `unknown`; `state` `proposed`, `open`, `doing`, `review`,
   `done`, `dropped`, `duplicate`; `snoozed_until` (proposed or open only); the source (`owner`, `chat` with its chat,
   `routine` with its run, `lark`, `zalo` or `whatsapp` with the chat's id at the service and its message as a
-  `lark_message`, `zalo_message` or `whatsapp_message` reference, and for `zalo` and `whatsapp` the owner's account
-  (its Connection's label) the chat is in (`source_account`, optional for `lark`), as their stores key a message by
-  account, chat and id; a quote ≤ 2,000 and a typed reference); who created it; the Bot's attempt
+  `lark_message`, `zalo_message` or `whatsapp_message` reference, `gmail` with the thread's id and its mail as a
+  `mail` reference (the Gmail message's id), `meeting` with the meeting's id and, when the action has one, its line
+  as a `meeting_line` reference `<meeting>/<line>` (issue #1105); for `zalo`, `whatsapp` and `gmail` the owner's
+  account (its Connection's label) the chat or thread is in (`source_account`, optional for `lark`, never for a
+  meeting), as their stores key a message by account, chat and id and a thread opens in its account; a quote ≤ 2,000
+  and a typed reference); who created it; the Bot's attempt
   while doing or review (`work_attempt`, its own id given by `Start`; `work_kind` `chat` or `run` and `work_id`,
   where it works, which may hold attempts at other items too; `work_bot`, the Bot that started it, and
   `work_started_at`); `approval_id` while review, the Approval linked, which was pending and asked by the item's
@@ -4678,15 +4821,27 @@ its client API, its CLI and the Bots' tools.
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
   `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
   `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`;
-  `closed_at`); `duplicate_of`; `why_open`
-  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); a create's idempotency key,
+  `closed_at`); `duplicate_of`; `chat_id`, the item's own chat with the Bot it was given to (migration 00165, issue
+  #1111; cleared in `deleteChatTx` when that chat is deleted); `passed_by`, the Bot that gave the item to the Bot it
+  is given to (issue #1118), set again with every change of the assignee: the acting Bot when a Bot gives it to
+  another Bot, else NULL; `why_open`
+  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); `priority` 0 none, 1 urgent, 2
+  high, 3 medium, 4 low (Linear's scale) with `priority_reason` (one line ≤ 300, set with the priority: an edit that
+  sets the priority without one clears it) and `project_id`, one of `inbox_projects` (name ≤ 60, unique in any case,
+  and a `#rrggbb` colour) or none, named without a foreign key (issue #1157, `inboxstore/projects.go`): the owner and
+  a Bot set them as the item's other fields (a Bot on the items it added or was given), each change an `edited`
+  event; removing a project leaves each of its items, in any state, without one, with an `edited` event of the
+  owner's that names the project, in the removal's transaction; a create's idempotency key,
   unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
-  `edited`, `state`, `snoozed` or `linked_approval`, the revision it made, JSON of the fields before and after, and the
-  reason when one is given), written in the change's transaction.
+  `edited`, `state`, `snoozed`, `linked_approval` or `commented` (its text in `after.text`), the revision it made, JSON of the fields before and after, and the
+  reason when one is given), written in the change's transaction; a change of the assignee carries
+  `assignee_kind` with `assignee` and, when it changed, `passed_by`, so a hand-over from Bot to Bot reads as one.
 - Transitions (`inboxstore/transitions.go`, the `transitions` table lists every move and who may make it): the
-  owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from the owner's
-  Lark or Zalo chats adds proposed ones, which stay proposed until the owner accepts, drops or marks them duplicate;
+  owner adds open items by hand, a Bot in a chat with the owner, and a Bot in a Routine's run or from what it read
+  of the owner's (`inboxstore.FoundKinds`: his Lark, Zalo or WhatsApp chat, his Gmail thread, his meeting; in any
+  of its chats or runs, issue #1105) adds proposed ones, which stay proposed until the owner accepts, drops or marks
+  them duplicate;
   by the owner's triage of 2026-11-20 (issue #966) that Bot adds an open item instead only when it gives `why_open`
   (`asked_directly`: someone tagged or messaged the owner and he has not answered; `promised`: the owner promised
   it), a quote and a reference to the message, and `why_open` is kept in the item and its created event;
@@ -4705,14 +4860,25 @@ its client API, its CLI and the Bots' tools.
   later than the item: the control plane's `inboxSent` reads a Zalo or WhatsApp one from the server's store of that
   account (`messaging.Query.ID`) and a Lark one from Lark's API with his own sign-in, `GET
   /open-apis/im/v1/messages/:id` and `GET /open-apis/authen/v1/user_info`, since the server keeps none of his Lark
-  messages); a Bot closes or drops no item that is another Bot's (given to another, or added by another and not
+  messages); or one in another chat of that account where the person who asked is a member when it is read (issue
+  #1163): the asker is the sender of the item's source message, or, for the owner's own message in a direct chat,
+  its other party (`Sent.Asker`), and who is in the chat is read of the service (`Sent.Members`: a WhatsApp group's
+  participants by whatsmeow's `GetGroupInfo`, a Zalo group's by the bridge's `members`, zca-js `getGroupInfo`, a
+  direct chat's other party, through `messaging.MemberLister` of the held session, `integration.Service.Members`;
+  a Lark chat's by `GET /open-apis/im/v1/chats/:id` and `.../members`); what cannot be read is not evidence; the
+  closing event's `answered_in` says that chat's name, which the item's activity shows; another service is never
+  matched); a Bot closes or drops no item that is another Bot's (given to another, or added by another and not
   given to it); `closed_how`
   `ai` and `time` are refused; nothing in review is closed while it waits; a doing or review item is given to
   another only once its attempt ended (released, closed or its Approval answered); a duplicate's target exists, is
   not the item nor a duplicate, and the item is the target of none;
   the owner reopens a closed item, which clears its close; only the owner snoozes, to a time to come; the owner
-  edits any item not closed, a Bot only those it added or is given, and changes their assignee only to give the item
-  back to the owner (`me`). The system's transitions run in the transaction of what causes them
+  edits any item not closed, a Bot only those it added or is given, and changes their assignee only to the owner
+  (`me`) or to a Bot it may pass the item to (issue #1118, `inboxstore/pass.go`): the main Bot (`WithMainBot`,
+  `DefaultBotID`) to any Bot, and any Bot back to the main Bot, so a project Bot passes an item to no other project
+  Bot, as Paperclip's manager hands work down its chain; a Bot adds an item for another Bot by the same rule (for
+  itself, the owner, a person or nobody known as before); an edit points an item at what it was read in (`Edit.Source`, one of `FoundKinds` with
+  its quote and message, never a chat, a run or the owner's hand, which only the token gives), and keeps its state. The system's transitions run in the transaction of what causes them
   (`LinkApprovalTx`, `ApprovalAnsweredTx`, `EndAttemptsTx`): `AskApproval` recording a new Approval with an
   `AttemptID` puts the item of that attempt in review; `DecideApproval` puts it back to doing, or open with the
   reason when rejected; `ExpireApproval` and a Routine's run ending (`FinishRoutineRun`, which refuses what the run
@@ -4724,42 +4890,117 @@ its client API, its CLI and the Bots' tools.
   another attempt's id is a conflict and writes nothing, and a Bot other than the attempt's is forbidden. Leaving doing or review clears the attempt, and any change
   of state the snooze. A create retried with its idempotency key and the same request (actor and every field)
   returns the first item and writes nothing; the key with another request is a conflict and writes nothing.
+- A removed Bot's items (`inboxstore/removed.go`, issue #1124): removing a Bot (`removeBotRow`, for `DeleteBot`,
+  its removal from a chat and `ForceDeleteBot`, and undoing the setup change that made it) gives, in the removal's
+  transaction, the items not closed that it added or was given to the main Bot (`TakeOverTx`): `created_by` and the
+  assignee that named it become the main Bot's (a changed assignee clears `passed_by`), the revision moves on, and an `edited` event by the system
+  (`bots`) records the change with the reason; the created event still says who added it, who does it is otherwise
+  unchanged, nothing is woken, and closed items stay as they were. The migration 00167 did
+  the same for the items of Bots already removed (the Thư ký Bot's, #1107).
+- A removed Bot's name (`orchestration/bots.go`, `deleteBotRow`; issue #1139): every removal above keeps the Bot's id
+  and name in `removed_bots`, and an undo that puts the Bot back takes it out. `GET /bots` lists them as `removed`
+  to the tokens that read every Bot; the web client (`botNameOf`) names a Bot no longer there "<name> (removed)",
+  or "A removed Bot" when its name is not known, never by its id, and the gateway's usage by key the same way. The
+  Thư ký Bot, removed before names were kept, is given its name by the migration that made the table.
+- Handing over and the thread (`inboxstore/handoff.go`, `orchestration/inboxwake.go`; issue #1111, the owner's
+  design of 2026-11-23, after GitHub's "Assign to Copilot" with additional instructions, Linear's agent assignment
+  and Orca's bot items): `Hand` gives an item not closed nor in another Bot's attempt to a Bot with the owner's
+  optional prompt; only the owner does. A proposal handed over is accepted and a snoozed item brought back; the
+  prompt is the first comment. Whatever gives an item to a Bot wakes that Bot (`Create` for a Bot, `Edit` to another
+  Bot, `Hand`), in the change's transaction, through the store's `Waker` (`WithWaker`, the root's `inboxWaker`): the
+  item's own chat with that Bot, opened when it has none ("Inbox: <title>", as Orca's item keeps its `chat_id`),
+  gets a wake-up of the control plane (`InsertTodoWake`, role `system`, kind `wake`, as a Routine's prompt) with the
+  prompt in `<owner_prompt>`, the item's state, due, source, notes, quote and draft (each in its tag, the quote
+  marked as a record), and what to do: do it (`inbox_start`), start a Run, or ask the owner; post progress with
+  `inbox_comment`; close with evidence or hand it back with a draft. `Comment` adds a comment at the item's
+  revision, which it moves on (`TouchTodo`): the owner on any item, his comment waking the Bot in the item's chat in
+  `<owner_comment>` when it has one (Orca's item mail); a Bot on the items it added, is given or has the chat of,
+  waking nobody.
+- Passing from Bot to Bot (issue #1118, the owner's request of 2026-11-23, after Paperclip's manager agent handing
+  issues to its reports and Linear's assignee shown with the agent it is delegated to): the wake-up names the Bot
+  that passed the item ("<Bot> passed you Inbox item …", read its thread with `inbox_get`). The main Bot given an
+  item is told the project Bots, each with its id, the first paragraph of its persona (≤ 300 characters) and its
+  Connections (`every Connection` when not limited), and to pass the item (`inbox_update pass_to`) when the work
+  needs that Bot's accounts or context, else to do it itself or start a Run. A project Bot is told to give it back
+  to the owner (`hand_back`) or to the main Bot (`pass_to`), and to no other Bot. Each Bot an item is passed to is
+  woken in its own chat for the item; the item keeps one `chat_id`, that of the Bot it is given to now.
 - Reads: `Get` with its latest 500 events, read in one transaction with the item, as every mutation returns the
   item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
   created, pages of at most 200 with a cursor and the filter's total, read in one transaction with the page; `NeedsYou(now)`, the distinct items not closed nor snoozed that are proposed, in
-  review with a pending Approval, or the owner's own and overdue or with a draft, the same predicate as `List`'s
-  needs-you filter.
+  review with a pending Approval, or the owner's own and overdue, with a draft, or a "log in again" item (issue
+  #1093), the same predicate as `List`'s needs-you filter and the push's `TodoNeedsYou`.
   A stale proposal, proposed and untouched (at revision 1, no event after `created`) for `StaleAfter` (3 days, a
   constant), is left out of `List` unless asked for (`WithStale`), never counted by `NeedsYou` nor listed by the
   needs-you filter, and shown with `Stale`; it is neither accepted nor deleted, and any change makes it fresh.
 - Client API (`clientapi/inbox.go`, issue #966): `GET /inbox` (`ListTodos`, the filters of `List` with
   `include_snoozed`, `include_closed`, `include_stale`, `cursor`, `limit` ≤ 200 and `total`), `GET /inbox/needs-you`
-  (`GetInboxNeedsYou`), `POST /inbox` (`CreateTodo`, with an optional `Idempotency-Key`), `GET /inbox/{todo_id}`
+  (`GetInboxNeedsYou`, `orchestration.InboxNeedsYou`: `NeedsYou` plus the pending Approvals and the open questions
+  to the owner, the query `CountOwnerAsks`; an Approval that a counted item in review waits for counts once, as
+  that item; issue #1093), `POST /inbox` (`CreateTodo`, with an optional `Idempotency-Key`), `GET /inbox/{todo_id}`
   (`GetTodo`, with its events), `PATCH /inbox/{todo_id}` (`EditTodo`), and `POST /inbox/{todo_id}/accept`, `done`,
   `drop`, `duplicate`, `reopen`, `snooze`, `start`, `release`, each carrying the `revision` read and a Bot's
   `attempt`. Who acts comes from the token, never the body: the owner (token or web session) acts as `owner` and
   writes by hand; a Bot token bound to a chat acts as its Bot, from that chat, which is also the chat its owner's
   message is looked up in; a Bot token of a Routine's run (a script's token, or the pi of a prompt run's chat while
-  that run is live, `orchestration.RoutineRunOf`) acts as the Routine's Bot, from the run, or from a Lark or Zalo
-  chat the body names; such a Bot proposes by default and opens with `why_open`. A Bot starts an item in its chat,
+  that run is live, `orchestration.RoutineRunOf`) acts as the Routine's Bot, from the run, or from what of the
+  owner's the body names (a Lark, Zalo or WhatsApp chat, a Gmail thread, a meeting); such a Bot proposes by default
+  and opens with `why_open`. A Bot starts an item in its chat,
   or in the Routine's run. A coordinator token only reads: the writes have the policy `scopeActor`
   (`clientapi/policy.go`). The store's errors map as elsewhere: invalid 400, forbidden 403, not found 404, a stale
-  revision or another attempt 409. The system transitions are not served.
+  revision or another attempt 409. The system transitions are not served. Issue #1111: `POST
+  /inbox/{todo_id}/hand` (`HandTodo`, the owner only; `bot`, the main Bot when absent, and `prompt`), `POST
+  /inbox/{todo_id}/comments` (`CommentTodo`, the owner or a Bot, `scopeActor`), and `POST /inbox/{todo_id}/send`
+  (`SendTodoDraft`, the owner only, policy `scopeOwner` and a check of the principal: a Bot's token never sends as
+  him): at the revision read, one send at a time per item, it sends the text given to the item's own Zalo, WhatsApp
+  or Lark chat or Gmail thread, never a chat the request names, and closes the item done by him, by hand, with the
+  message sent as evidence (a proposal is accepted first; an item in review stays as it is), answering `{sent,
+  todo}`. A closed item, another revision (409) or a source with no chat of his (400) sends nothing. The control
+  plane's `inboxSender` (`controlplane/inboxsend.go`) sends through his own accounts: a Zalo or WhatsApp chat of the
+  Connection the item names (`integration.Service.Send`), a Lark chat with his Lark sign-in (`lark:me` when the item
+  names none; `POST /open-apis/im/v1/messages?receive_id_type=chat_id`), and a reply in the Gmail thread to the
+  Reply-To or From of the item's mail, "Re:" its subject, `In-Reply-To` and `References` its Message-ID (inbox-zero's
+  `replyToEmail`), header values kept on one line; the evidence is a `zalo_sent`, `whatsapp_sent`, `lark_sent` or
+  `mail` link. `Todo.chat_id` is the item's chat, and `Todo.passed_by` the Bot it was passed through (issue #1118).
+  Issue #1157: `Todo.priority`, `priority_reason` and `project_id`, given in `POST /inbox` and `PATCH /inbox/{id}`
+  (an empty `project_id` takes the item out); `GET /inbox?project=<id>|none`; `GET /inbox/projects`
+  (`ListInboxProjects`, every token) and, for the owner only, `POST /inbox/projects`, `PATCH` and `DELETE
+  /inbox/projects/{project_id}`.
 - CLI (`clientcli/inbox.go`): `hypomnema inbox list` (the API's filters; one line an item), `show`, `add "<title>"
   [--due <date|date time|none|unknown> --tz <zone>] [--who me|unknown|bot:<id>|<name>] [--notes …] [--done-when …]`,
   `edit`, `accept`, `done [--evidence url] [--reason …]`, `drop <id> "<reason>"`, `duplicate <id> <of>`,
-  `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision.
+  `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision. `add` and `edit` take
+  `--priority none|urgent|high|medium|low` (or 0–4) with `--priority-reason`, and `--project <name or id|none>`;
+  `list` takes `--project` (issue #1157).
 - Bot tools (`agentapi/inbox.go`, the family `inbox` of `agenttool/switches.go`, in the `full` preset only; issue
-  #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`), `inbox_start`,
-  `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, for a Bot's pi only. Who acts and
+  #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`, `source`, and
+  `pass_to` a Bot's id, issue #1118; not with `hand_back`), `inbox_start`,
+  `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, `inbox_comment` (a comment in the
+  item's thread, issue #1111), for a Bot's pi only. Who acts and
   where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
   the chat was opened for while it is live); each call reads the item and writes at the revision read (or the one
-  given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. A Routine's
-  run adds from the run, or from the owner's Zalo, WhatsApp or Lark chat it names, never as a chat with the owner.
+  given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. An item
+  comes from the chat, or from the Routine's run, never from a chat with the owner a run names; or, in any of the
+  Bot's chats or runs, from what of the owner's it read (issue #1105, the owner's decision of 2026-11-23): `source`
+  with `kind` `zalo`, `whatsapp` or `lark` and the `chat`, `gmail` and the `thread`, or `meeting` and the `meeting`,
+  with the `account` (the label of `<integration>:<label>`, `google` for Gmail) for all but a meeting, and its
+  `quote` and `message`. It is accepted only when the Bot may use that account now as its reads (`agentapi`'s
+  `readSource`: the Connections its tools are offered, `Bot.MayUse`), named by its label or by the account's own id
+  (issue #1124, `accountLabel`: what its Connection records, such as the phone number, or what its session held
+  knows, `Messaging.AccountID`, such as the Zalo id; a `+`, spaces and a WhatsApp JID's device and server aside),
+  and the item keeps the label; the `zalo_*` and `whatsapp_*` reads name the label in their answers (`account`), or, for a meeting, when it reads meetings and
+  the meeting is there; `inbox_update` points an item at it by the same check. The triage of #966 holds wherever
+  the Bot is: what it read opens with `why_open`, a quote and the message, else it is proposed; what the owner tells
+  it in its chat, with no `source`, opens.
   An item given to a person without a due is due 48 hours after it is first added (`NewTodo.DueIn`, counted by the
   store, so a retry with the same key is the same request; an empty draft stays out of the request's hash), the day
-  to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included. A Routine's run that reads
+  to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included, and `owner_changed_since`
+  (issue #1119): only the items the owner himself changed at or after a moment (an event of his), in any state,
+  snoozed or stale, each with his changes since then as its history, which the triage Routine learns from
+  (`inboxstore.Filter.OwnerChangedSince`). `inbox_list` also answers the owner's `projects` by name and filters by
+  `project` (a name, or `none`); `inbox_add` and `inbox_update` take `priority` (0–4, as Linear's MCP takes it),
+  `priority_reason` and `project` by name (`none` takes it out), and an item reads its priority's name, reason and
+  project (issue #1157). A Routine's run that reads
   only (#956) gets the family too (`agenttool.ReadRunAllows`), which writes only in the Inbox, and still no tool
   that sends as the owner: `zalo_send` and `whatsapp_send` are refused there by the agent API, and every write
   through the service proxy (a Lark message, a mail) by its read-only check; so the Bot that reads his messages
@@ -4791,14 +5032,24 @@ its client API, its CLI and the Bots' tools.
   the Bot and by the workers of its Runs, whatever his answers or grants say; reads stay. The agent API carries it
   on the agent (`ownerReadOnly`: no `zalo_send` or `whatsapp_send`), and the service proxy refuses every action of
   such a Connection that is not a read (`readsOnly`, `serviceproxy.Caller.OwnerReadOnly`), reading the caller again
-  at each request of an open connection, so the owner's change applies from the next request. Only the owner makes a
+  at each request of an open connection, so the owner's change applies from the next request, and again when an
+  Approval a request or an act (`serviceproxy.Act.Opened`) waited for is answered, so one approved after the change
+  is refused unspent (issue #1071). Only the owner makes a
   Bot use them again: a change from the main Bot's chat is forbidden, `UpdateBot`, which a Bot's change uses, never
   writes it (`SetBotOwnerAccounts`), and an undo, of a change or of a removal, puts back `read` from the copy it
   kept (`botSettings.OwnerAccounts`) and never `use`.
-- The "Thư ký" Bot (issue #1023, part 4): its prompt, switches, model and Routines are set by the owner with
-  `deploy/thu-ky/setup.sh` (`hypomnema bots set`, `routines set`), not seeded by a migration. `triage` reads only,
-  every 15 minutes, behind its check `new-messages.mjs`; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark
-  chat with the Bot.
+- The secretary Routines (issue #1023, part 4): `triage` and `brief` of the main Bot, which keeps its own persona
+  (issue #1107; a "Thư ký" Bot of their own until 2026-11-23), are set by the owner with `deploy/thu-ky/setup.sh`
+  (`hypomnema routines set`, `--bot` for another Bot; it makes no Bot), not seeded by a migration. Their prompts
+  carry the secretary's rules. `triage` reads only, every 15 minutes, behind its check `new-messages.mjs`, so its
+  runs send nothing; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark chat with the Bot. A check past its cap keeps the rest of a span by what it read, never by a position: the second it
+  stopped in and the messages of it counted (Zalo, WhatsApp), the mails read (Gmail), the chats read and the one it
+  stopped in (Lark, whose cap is checked at each page); issue #1071. A run gets at most 15 conversations (`perRun`),
+  direct chats and those that tag or name the owner first, then groups, mail and meetings; the rest is carried in the
+  check's state, named first next time and waking the Bot even with nothing new (issue #1101). A conversation of
+  Zalo or WhatsApp is named `<integration>:<label>`, the label the reads' answers give when the Bot has one account
+  and its tools' schemas name none (issue #1124). The Routine's
+  `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
 
@@ -4877,7 +5128,8 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
 `run_command`, Nezha's `server.exec` and Coder's `coder_workspace_execute`:
 
 - `node_exec {node, command, cwd, timeout_seconds, background}` runs `sh -c <command>` on the node named (its name or
-  id, drained or not; one not connected is refused with the names of those that are), as the node's own user, in
+  id, drained or not; one not connected is refused with the names of those that are, except the phone's node whose
+  machine is stopped, which is started first, above), as the node's own user, in
   `cwd` or the user's home, with stdin empty and Coder's non-interactive environment (`PAGER=cat`, `TERM=dumb`,
   `GIT_TERMINAL_PROMPT=0`, editors `true`). It runs at once, with no approval (owner, 2026-11-15). In the
   foreground it is killed with its process group after `timeout_seconds` (60, at most 300); the answer is the exit
@@ -4899,9 +5151,11 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
   on a command line. A node with none runs `sudo` as it is: it works where sudo needs no password, else fails.
 - The control plane sends `exec` on the node's socket (`run`, `start`, `output`, `kill`, `list`) and waits for the answer on
   `POST /node/v1/exec?request=` for the command's time and 30 s; a node that goes away meanwhile fails the call at
-  once, as a phone call does. Each call is logged with the agent, the node and the action, not the command.
-- MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), longer than the 300 s
-  and the node's answer.
+  once, as a phone call does. A node tool's call lifts the agent API's 30 s write timeout, as a phone call does, so
+  that the answer of a longer command, or of a wait for the phone's machine, reaches the agent (issue #1083). Each call is logged with the agent, the node and the action, not the command.
+- MCP clients wait 7 minutes for one of the control plane's tools (`toolsmcp.CallTimeout`), and 9 for a node tool
+  (`toolsmcp.NodeCallTimeout`): longer than the 300 s and the node's answer, after the 2 minutes a phone's stopped
+  machine may take to wake (issue #1083).
 - A restart of the control plane, as at an update, does not lose a command's result (issue #1060). The tools server
   (`toolsmcp.NodeCall`, a worker's and a Bot's) names each `node_exec`'s process before it asks (`process_id`, not
   in the tool's schema: `proc_` and hex, the shape the node makes), as Coder's agent names a process after its tool
@@ -4909,7 +5163,7 @@ Commands on a node's machine (`internal/controlplane/agentapi/nodes.go`, `intern
   it ended. When the answer's connection ends without it, or a proxy answers 502, 503 or 504 without the control
   plane's own message (not a connection that could not be opened: that command never ran), the tools server asks
   `node_process` for that id, waiting as long as the command may run, from half a second apart doubled up to eight
-  (OpenClaw's Control UI retries), within the 7 minutes, as Coder's execute tool reads a process again after a
+  (OpenClaw's Control UI retries), within the 9 minutes, as Coder's execute tool reads a process again after a
   transport error; it never runs the command again. It asks again past a node not reconnected yet: one the control
   plane lists, whose socket is not back (its last heartbeat still counts), is answered as not connected. The
   result read says first that the control plane restarted, with the node and the `process_id`; none within the 7
@@ -5912,10 +6166,14 @@ Node (`internal/node`):
   profiles' are, shows no age. Not there: deleting, renaming or duplicating a profile (the API has no delete), and
   a check that nobody else saved meanwhile.
 - Chats with pi (issue #41 PR 4, after Omnara; learned from assistant-ui, ai-elements and pi-web): a list of chats
-  beside the open one. A chat reads its newest 200 messages (`GET /chats/{id}/messages?before=`, issue #502, after
-  OpenMausBot's `message-history.ts`), then follows `GET /chats/{id}/stream` from the newest seq read: kept messages,
-  then pi's live frames, reopened after the last kept message when the server ends it. Scrolling up brings the
-  page of 200 before the oldest message read, from a sentinel 600 px ahead or a "Load earlier messages" button; the
+  beside the open one. A chat reads its newest 50 messages (`GET /chats/{id}/messages?before=`, issue #502, after
+  OpenMausBot's `message-history.ts`; 50 since issue #1129, so a long chat opens in under a second on a slow link),
+  then follows `GET /chats/{id}/stream` from the newest seq read: kept messages, then pi's live frames, reopened
+  after the last kept message when the server ends it. Until the first page is read the chat shows a skeleton of a
+  conversation (assistant-ui's history skeleton), never its empty text; the scroller mounts with the page in it and
+  opens at its end at once, and only what the stream brings while the chat is open is followed with a smooth scroll
+  (use-stick-to-bottom's `initial` and `resize`, issue #1129). Scrolling up brings the page of 200 before the
+  oldest message read, from a sentinel 600 px ahead or a "Load earlier messages" button; the
   page keeps the reader's row by adding the growth of the scroll height back (OpenMausBot's
   `use-transcript-viewport.ts`), as Safari has no scroll anchoring. There is no virtual list. pi's thoughts and tools between replies form one line that opens,
   with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
@@ -5956,7 +6214,9 @@ Node (`internal/node`):
     OpenMausBot's `src/lib/drafts.ts` and opencode's history walk): what is written in a chat's composer, with the
     files that are up (their place in the folder, not their bytes), is kept for that chat in localStorage
     (`hypomnema:chat-drafts:v1`), saved 300 ms after a write and when the page hides or the composer goes, and held
-    in memory where the storage throws; it is there again after switching chats or reloading, and goes when sent, before the chat made opens (issue #1080).
+    in memory where the storage throws; it is there again after switching chats or reloading. It goes as a message
+    is sent, before the send ends (as t3code's `useComposerSend.ts` and assistant-ui's composer clear it at send;
+    issue #1080), and its text and files come back if the message was not sent.
     The New chat page and a new chat's tab keep theirs with the chat's id they chose and the Bot picked; a restored
     file cannot move to another Bot's folder and asks to be attached again. In an empty box with the caret
     at its start, ↑ brings back the owner's messages of this chat, newest first; while walking, ↑ and ↓ step from
@@ -5985,6 +6245,71 @@ Node (`internal/node`):
     /chats/{id}/compact`), disabled while pi works, "Compacting…" while it is asked. No ring shows before pi
     reported, as in Orca; after a compaction it shows "–" until pi's next answer. A `usage` frame on the chat's
     stream updates the chat as the page holds it.
+- The Inbox page (issue #1093, part 5 of #838, `web/src/features/inbox`, route `/inbox?item=<kind>:<id>`): the
+  sidebar's place under New chat, with the count of `GET /inbox/needs-you`. On a computer the list (520 px) is on
+  the left and the selected item on the right, as Chatwoot's conversation view; on a phone one pane at a time, the
+  item full screen with Inbox to go back. The list reads `GET /inbox` (open and snoozed), `GET /inbox?needs_you`
+  (which to-dos the server counts) and the closed items, with the pending Approvals and the open questions to the
+  owner from their own lists, every 10 seconds; an Approval and a question are never copied into to-dos.
+  - Groups, after Orca's Items tab (`bot-item-groups.ts`): Needs you (the Approvals, a to-do in review shown with
+    its Approval as one row, the questions, then the to-dos the server counts but proposals), Working (a Bot's),
+    Open, Proposed, Snoozed and Done, the last two folded. A group shows five rows and "Show N more", the asks never
+    hidden (Orca's `needs-you-fold.ts`). The sidebar's count also holds the proposals not yet triaged, which the
+    server's predicate counts.
+  - A row (issue #1110, after Chatwoot's `ConversationCard` and OpenMausBot's `InboxRow`): the asker's avatar
+    (shadcn `Avatar`, initials, a pen for the owner's own) with the kind's icon as its badge; the title, bold until
+    the row is opened once in this browser (kept in `localStorage`; a Bot's later edit does not make it unread),
+    on two lines on a phone; the quote on one muted line; the channel's mark (16 px, named in a tooltip) and the
+    chat's or the person's name, never the account's number, "Added by you" for the owner's own; the date labelled
+    "Due 25/11", or "Chase 25/11" for an item given to someone else, coloured today or late; a draft chip; and the
+    source message's time, else when the item was added. Names come from what the server keeps
+    (`features/inbox/use-origin.ts`): the chats of each Zalo and WhatsApp Connection (`…/chats`, the chat found by its
+    id in any of them), the message by its id (`…/messages?chat=&id=`: sender and time), the meeting (`GET
+    /meetings/{id}`: title and the line's speaker); without them, the reference's label. Pointed at or focused on a
+    computer, its actions by kind, as OpenMausBot's `quickActions`: Approve and Decline, Answer, Copy draft, Done and
+    Snooze, Accept and Drop, Reopen or Unsnooze. On a computer the first item of Needs you is open when none is
+    chosen; when nothing waits, the right pane says so with the to-dos added and closed today.
+  - The detail: previous and next with "n of N in <group>"; a to-do's Snooze (Later today, Tomorrow, Monday, Next
+    week, Pick a time; Orca's presets), Drop and Done, a proposal's Accept and Drop; the channel's mark and name and
+    the chat's, the person's or the meeting's name; Who (with the Bot it was passed through, "Hypo → BeyondPilot";
+    issue #1118), and the Date, Done when, Linked only when said; what was
+    said under who said it (the message's sender, the meeting's speaker and the meeting's name), with Open in its
+    chat (a Gmail thread opens in Gmail in the account it was read with,
+    `https://mail.google.com/mail/u/<address>/#all/<thread>` after inbox-zero's `getGmailUrl`, the address from `GET
+    /integrations`; a meeting's item, also one a Routine's run found by its `meeting_line` reference, says Open
+    meeting, at `/meetings/{id}?line=<n>`; issue #1105), the draft with Copy, its primary button, which says Copied
+    once it copied, Edit and Send (issue #1111: a confirmation names the recipient and the place, "Send to Kai Yong
+    on WhatsApp (main)?", and shows the text as it is on screen, edits included, which `POST /inbox/{id}/send`
+    sends), the draft's section left out when the item needs none, and its Comments (issue #1143,
+    `inbox-comments.tsx`), on ReUI's timeline (`web/src/components/reui/timeline.tsx`) as GitHub's issue timeline:
+    each event a muted line with its icon on the line (the first says where the item came from, "Thư ký added it
+    from Lark · ELITEX"; a hand-over says "You gave it to Hypo", "Hypo passed it to BeyondPilot" or "BeyondPilot
+    gave it back to you"; a Run started, a pull request linked, reopened; closed as done in violet with its
+    reason), two or more changes in a row by one actor folded into "Hypo did 5 steps · 10:03–10:41" (AI Elements'
+    chain of thought, `web/src/components/chain-of-thought.tsx`), and each comment a card with its face, name, a
+    Bot tag and time, its Markdown rendered by the chat's renderer and each top-level `<details>` folded under its
+    `<summary>` in a Collapsible (`reportOf`, as CodeRabbit's summary comment). Under them a link to the item's chat
+    and the chat's composer (Enter sends): on an item no Bot has it reads "Message Hypo…" and **Hand to Hypo**
+    hands it to the main Bot with the text as its prompt (`POST /inbox/{id}/hand`); on one a Bot has, Send
+    comments (`POST /inbox/{id}/comments`), or hands it to that Bot again when the item has no chat; on a closed
+    one, **Reopen and send** reopens it (`POST /inbox/{id}/reopen`), then hands it back to its Bot with the text
+    (`writeOf`, `useWriteTodo`). The top bar has no "Hand to" of its own.
+    An Approval shows its chat card (`ApprovalCard`) and a question its form (`QuestionForm`), the same calls as at
+    their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
+    (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on
+    a phone.
+  - Priority and projects (issue #1157), copied from circle (MIT, `ln-dev7/circle` b0ba7dd) with its notice in each
+    file: a to-do's row starts with its priority's icon (`web/src/components/ui/priority.tsx`: circle's icons and
+    `PrioritySelector`), one click to change it, its reason in the icon's tooltip; its project is a coloured chip
+    on the row's second line; the detail's Priority and Project fields are pickers
+    (`components/ui/project-selector.tsx`), with the priority's reason beside it. Inside each group the rows go by
+    priority, urgent first and none last, then as before (`groupRows`). Next to the filter, the project filter
+    (`features/inbox/project-filter.tsx`, after circle's `headers/projects/filter.tsx`): Every project, No project
+    or one, with counts, and pages to add a project and to rename, recolour or remove one. ⌘K or Ctrl+K opens the
+    command menu (`features/inbox/command-menu.tsx`, after circle's `command-palette.tsx`): on the selected to-do,
+    named in a chip that ⌫ clears, Set priority…, Move to project…, Give to the main Bot, Snooze…, Mark done and
+    Drop; with none, the items to search by title and open. The thread says a priority set with its reason and a
+    project changed.
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,
@@ -6202,8 +6527,9 @@ Node (`internal/node`):
   gives way to the settings sections under headings, with a way back (the headings are t3code's, the swap is
   Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
   on a phone `/settings` lists the sections and each page leads back to it ("‹ Settings", issue #604). The groups
-  are Gateway, Meetings, Agents, Connections and, last, Workers: the Agents and the Machines, moved out of the main
-  sidebar (issue #857, as OpenClaw's Settings holds its agents and devices with the system's plumbing last).
+  are Preferences, Gateway, Agents, Connections and, last, Workers: the Agents and the Machines, moved out of the main
+  sidebar (issue #857, as OpenClaw's Settings holds its agents and devices with the system's plumbing last). The
+  meetings' settings are not a group: they open from a gear on the Meetings page (issue #1121).
   - `/settings/integrations` (under Connections) lists the git hosts as one card a product, GitHub and GitLab,
     after Orca's integration card (MIT), with each host of that product a row, as Coder lists each configured
     instance (issue #379): its address ("server" beside a company's own), a "Connected" or "No token" badge, and
@@ -6365,8 +6691,8 @@ Node (`internal/node`):
     worker registered at the root from `main.tsx`, shows a push the browser hands it (Safari shows a Declarative
     Web Push message itself, so there a push for the chat in view still shows), skips one for the chat the owner has
     focused (only a chat: the test push, which opens Settings, shows there), opens the push's page on a click
-    (focusing a window on it, else taking an open one, else opening one) and keeps a renewed subscription under its
-    new endpoint only while the control plane still lists the old one, deleting the old row; it handles no fetch and
+    (focusing a window on it, else taking an open one, else opening one) and sends the old endpoint with the
+    renewed subscription so the control plane can renew the device atomically; it handles no fetch and
     caches nothing. Settings, Preferences, Notifications turns them on for this browser (permission is
     asked only from that button), lists the owner's devices with a test push and a remove, and on an iPhone or iPad
     not opened from the Home Screen shows the steps to add it. A chat where something waits offers the same button
@@ -6387,7 +6713,8 @@ Node (`internal/node`):
       `/s/`, a view-only link's page (issue #745), also `X-Robots-Tag: noindex, nofollow` and `no-store`;
     - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`);
     - gzipped, at level 5, to a browser that accepts it: HTML, CSS, JavaScript, JSON and SVG, through chi's
-      `middleware.Compressor`, as Coder's site is (issue #510). The API's answers are not compressed.
+      `middleware.Compressor`, as Coder's site is (issue #510). The client API's JSON answers go gzipped the same way
+      (issue #1129, as Kubernetes' API server does by default); its streams and files are not compressed.
   - A binary built without the client (only `dist/.gitkeep`) serves none.
 - In development, `pnpm dev` forwards `/api`, `/livez` and `/readyz` to the control plane (`HYPOMNEMA_API_URL`,
   default `http://127.0.0.1:8080`).

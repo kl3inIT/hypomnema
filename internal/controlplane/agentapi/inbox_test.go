@@ -24,9 +24,13 @@ type inboxItem struct {
 	Draft    string `json:"draft"`
 	Due      string `json:"due"`
 	Assignee string `json:"assignee"`
+	PassedBy string `json:"passed_by"`
+	WhyOpen  string `json:"why_open"`
 	Source   struct {
-		Kind string `json:"kind"`
-		ID   string `json:"id"`
+		Kind    string           `json:"kind"`
+		ID      string           `json:"id"`
+		Account string           `json:"account"`
+		Message *inboxstore.Link `json:"message"`
 	} `json:"source"`
 }
 
@@ -182,10 +186,6 @@ func TestABotKeepsTheOwnersInbox(t *testing.T) {
 	assert.Contains(t, listed, chase.ID)
 	assert.Contains(t, listed, first.ID)
 	assert.NotContains(t, listed, reply.ID)
-
-	_, text, isError := w.use(pi, agenttool.ToolInboxAdd, `{"title":"x","source":{"kind":"zalo","chat":"g_1"}}`)
-	assert.True(t, isError)
-	assert.Contains(t, text, "only a Routine's run", "in a chat, an item comes from that chat")
 
 	bot.ToolsOff = []string{"inbox"}
 	_, err = w.svc.PutBot(ctx, bot)
@@ -352,4 +352,171 @@ func TestAReadingRoutineKeepsTheInboxButCannotSend(t *testing.T) {
 	items, err := w.svc.Inbox().List(ctx, inboxstore.Filter{States: []string{inboxstore.Open}}, "", 0)
 	require.NoError(t, err)
 	assert.Zero(t, items.Total, "nothing it only inferred is open")
+}
+
+// Scenario: issue #1111, section 2. The owner hands an item to a Bot; its pi posts its progress in the item's thread
+// with inbox_comment, which the owner reads with the item's history. Another Bot's pi cannot post on it.
+func TestABotPostsItsProgressInTheItemsThread(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "thu-ky"})
+	require.NoError(t, err)
+
+	other, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "other"})
+	require.NoError(t, err)
+
+	pi, _ := w.inboxPi(bot)
+	otherPi, _ := w.inboxPi(other)
+
+	owner := inboxstore.Actor{Kind: inboxstore.Owner}
+	td, err := w.svc.Inbox().Create(ctx, owner, inboxstore.NewTodo{
+		Title: "Fix the login page", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand},
+		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
+	})
+	require.NoError(t, err)
+
+	_, err = w.svc.Inbox().Hand(ctx, inboxstore.Change{Actor: owner, ID: td.ID, Revision: td.Revision}, bot.ID,
+		"Give it to a worker.")
+	require.NoError(t, err)
+
+	w.inbox(pi, agenttool.ToolInboxComment, map[string]any{"id": td.ID, "text": "Started: Run run_1 fixes it."})
+
+	got, err := w.svc.Inbox().Get(ctx, td.ID)
+	require.NoError(t, err)
+
+	last := got.Events[len(got.Events)-1]
+	assert.Equal(t, inboxstore.EventCommented, last.Kind)
+	assert.Equal(t, inboxstore.Actor{Kind: inboxstore.Bot, ID: bot.ID}, last.Actor)
+	assert.JSONEq(t, `{"text":"Started: Run run_1 fixes it."}`, string(last.After))
+
+	status, text, isError := w.use(otherPi, agenttool.ToolInboxComment,
+		`{"id":"`+td.ID+`","text":"Mine now."}`)
+	assert.Equal(t, http.StatusOK, status, text)
+	assert.True(t, isError, "another Bot's item: %s", text)
+}
+
+// Scenario: issue #1118. The main Bot's pi passes an item the owner handed it to a project Bot with inbox_update
+// pass_to, and reads through whom that Bot has it; the project Bot's pi passes it to no other project Bot, and gives
+// it back to the main Bot the same way.
+func TestTheMainBotPassesAnItemWithTheUpdateTool(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	main, err := w.svc.GetBot(ctx, orchestration.DefaultBotID)
+	require.NoError(t, err)
+
+	beyond, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "BeyondPilot"})
+	require.NoError(t, err)
+
+	vmap, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "VMAP"})
+	require.NoError(t, err)
+
+	mainPi, _ := w.inboxPi(main)
+	beyondPi, _ := w.inboxPi(beyond)
+
+	owner := inboxstore.Actor{Kind: inboxstore.Owner}
+	td, err := w.svc.Inbox().Create(ctx, owner, inboxstore.NewTodo{
+		Title: "Send Kai the pilot's report", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand},
+		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
+	})
+	require.NoError(t, err)
+
+	_, err = w.svc.Inbox().Hand(ctx, inboxstore.Change{Actor: owner, ID: td.ID, Revision: td.Revision}, main.ID, "")
+	require.NoError(t, err)
+
+	passed := w.inbox(mainPi, agenttool.ToolInboxUpdate, map[string]any{"id": td.ID, "pass_to": beyond.ID})
+	assert.Equal(t, "bot "+beyond.ID, passed.Assignee)
+	assert.Equal(t, "bot "+main.ID, passed.PassedBy)
+
+	status, text, isError := w.use(beyondPi, agenttool.ToolInboxUpdate,
+		`{"id":"`+td.ID+`","pass_to":"`+vmap.ID+`"}`)
+	assert.Equal(t, http.StatusOK, status, text)
+	assert.True(t, isError, "a project Bot passes to no other project Bot: %s", text)
+
+	back := w.inbox(beyondPi, agenttool.ToolInboxUpdate, map[string]any{"id": td.ID, "pass_to": main.ID})
+	assert.Equal(t, "bot "+main.ID, back.Assignee)
+	assert.Equal(t, "bot "+beyond.ID, back.PassedBy)
+
+	status, text, isError = w.use(mainPi, agenttool.ToolInboxUpdate,
+		`{"id":"`+td.ID+`","pass_to":"`+vmap.ID+`","hand_back":true}`)
+	assert.Equal(t, http.StatusOK, status, text)
+	assert.True(t, isError, "an item goes to one place: %s", text)
+}
+
+// Scenario: issue #1124, section 1, as seen on zm on 2026-11-23. The owner's Zalo and WhatsApp are linked as "main":
+// the Connections record his Zalo name and his phone number, and the sessions held know his Zalo id and his
+// WhatsApp number's JID. The Bot names the account as it saw it: its label, or the id of the account, the Zalo id
+// or the phone number, with or without its +. Each is accepted and the item keeps the label, which the read tools
+// name in their answers, so the Bot copies the right one. An id of an account the Bot was not given is refused.
+func TestASourceNamedByTheAccountsIDKeepsItsLabel(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	w.whatsapp.ids = map[string]string{
+		"zalo:main": "2223515701293677881", "whatsapp:main": "84369230426:12@s.whatsapp.net",
+		"zalo:work": "1111111111111111111",
+	}
+
+	for _, c := range []orchestration.Connection{
+		{Integration: "zalo", Label: "main", Account: "Hồng Đạt"},
+		{Integration: "whatsapp", Label: "main", Account: "+84369230426"},
+		{Integration: "zalo", Label: "work", Account: "Đạt VTII"},
+	} {
+		c.Secret = "conn-" + c.Integration + "-" + c.Label
+		_, err := w.svc.SaveServiceConnection(ctx, c)
+		require.NoError(t, err)
+		_, err = w.svc.SetConnectionChats(ctx, c.Integration, c.Label, true)
+		require.NoError(t, err)
+	}
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "hypo", Connections: orchestration.AllowList{Limited: true, Names: []string{"zalo:main", "whatsapp:main"}},
+	})
+	require.NoError(t, err)
+
+	pi, chat := w.inboxPi(bot)
+
+	for name, src := range map[string]struct{ kind, chat, account string }{
+		"zalo by its id":               {inboxstore.FromZalo, "g_laura", "2223515701293677881"},
+		"zalo by its label":            {inboxstore.FromZalo, "g_laura", "main"},
+		"whatsapp by its number":       {inboxstore.FromWhatsApp, "8491@s.whatsapp.net", "84369230426"},
+		"whatsapp by its number and +": {inboxstore.FromWhatsApp, "8491@s.whatsapp.net", "+84369230426"},
+	} {
+		item := w.inbox(pi, agenttool.ToolInboxAdd, map[string]any{
+			"title":   "Reply: " + name,
+			"source":  map[string]any{"kind": src.kind, "chat": src.chat, "account": src.account},
+			"quote":   "Anh xem giúp em nhé",
+			"message": map[string]any{"kind": src.kind + "_message", "ref": "m_1"},
+		})
+		assert.Equal(t, src.kind, item.Source.Kind, name)
+		assert.Equal(t, "main", item.Source.Account, "%s: the item keeps the label", name)
+	}
+
+	_, text, failed := w.use(pi, agenttool.ToolInboxAdd, mustJSON(t, map[string]any{
+		"title":   "Reply to the team",
+		"source":  map[string]any{"kind": inboxstore.FromZalo, "chat": "g_team", "account": "1111111111111111111"},
+		"message": map[string]any{"kind": inboxstore.LinkZaloMessage, "ref": "m_2"},
+	}))
+	assert.True(t, failed, "the id of an account it was not given: %s", text)
+
+	_, err = w.svc.AddChatMessage(ctx, chat, orchestration.ChatOwner, "what is new on Zalo?")
+	require.NoError(t, err)
+
+	for _, tool := range []string{agenttool.ToolZaloChats, agenttool.ToolWhatsAppMessages} {
+		_, text, failed := w.use(pi, tool, `{"chat":"g_laura"}`)
+		require.False(t, failed, text)
+
+		var answer struct {
+			Account string `json:"account"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(text), &answer), text)
+		assert.Equal(t, "main", answer.Account, "%s names the account by its label", tool)
+	}
 }

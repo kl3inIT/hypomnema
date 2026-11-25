@@ -121,7 +121,7 @@ func (s *Server) complete(ctx context.Context, req chatRequest, model Model, key
 
 		if resp.StatusCode < http.StatusOK || resp.StatusCode > 299 {
 			record.Outcome = OutcomeUpstreamError
-			record.Error = errorText(body)
+			recordRefusal(ctx, record, body, len(req.raw))
 
 			return nil, &CompletionError{Status: resp.StatusCode, Message: record.Error}
 		}

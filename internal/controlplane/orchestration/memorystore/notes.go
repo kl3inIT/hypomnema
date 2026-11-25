@@ -42,6 +42,49 @@ const (
 	OwnerFile = "USER.md"
 )
 
+// ContextFile is a Bot's note of the owner's context (issue #1119): his people, recurring processes, links,
+// projects and teams, as the Bot learned them, each entry with where it was learned. Every prompt run of the Bot's
+// Routines begins with it (orchestration's promptNotice), a frozen snapshot as Hermes gives USER.md
+// (tools/memory_tool.py:1-5), and it is the one note a Routine's read run may change (ReadRunMayChange): what the
+// triage learns at its end. It keeps a note's limit, MaxNoteBytes. Asked for as "a profile" in the issue; Profile
+// is a worker's recipe (docs/glossary.md).
+const (
+	ContextFile = Root + "/" + contextNote
+	contextNote = "context/owner.md"
+)
+
+// ReadRunMayChange says whether a Routine's read run, which otherwise only views its memory, may run a command: it
+// writes its Bot's context note (create, str_replace, insert), and nothing else. MEMORY.md, which is in every chat's
+// prompt, USER.md and the other notes stay as they are, and the note is not removed or moved (issue #1119; Hermes's
+// cron jobs keep their memory tool, cron/scheduler.py:2471 skip_memory=False).
+func ReadRunMayChange(c Command) bool {
+	switch c.Command {
+	case View:
+		return true
+	case Create, StrReplace, Insert:
+		rel, err := relPath(c.Path)
+
+		return err == nil && rel == contextNote
+	default:
+		return false
+	}
+}
+
+// BotContextTx is a Bot's context note, empty when it has none, with the caller's queries: what a prompt run of its
+// Routines begins with.
+func BotContextTx(ctx context.Context, q *store.Queries, id string) (string, error) {
+	row, err := q.GetMemoryNote(ctx, store.GetMemoryNoteParams{Kind: ofBot, Name: id, Path: contextNote})
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return "", nil
+	case err != nil:
+		return "", fmt.Errorf("reading the context note of bot %s: %w", id, err)
+	}
+
+	return row.Text, nil
+}
+
 // Limits of the notes: Coder's (MaxMemories, MaxMemoryBodyBytes), and the view's cut, Anthropic's ("truncates the
 // text view of files longer than 16,000 characters").
 const (

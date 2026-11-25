@@ -69,12 +69,14 @@ const (
 	ToolInboxRelease = "inbox_release"
 	ToolInboxDone    = "inbox_done"
 	ToolInboxDrop    = "inbox_drop"
+	// ToolInboxComment posts in an item's thread (issue #1111): the Bot's progress, read by the owner on the item.
+	ToolInboxComment = "inbox_comment"
 )
 
 // InboxTools are the Inbox's tools.
 var InboxTools = []string{
 	ToolInboxList, ToolInboxGet, ToolInboxAdd, ToolInboxUpdate, ToolInboxStart, ToolInboxRelease, ToolInboxDone,
-	ToolInboxDrop,
+	ToolInboxDrop, ToolInboxComment,
 }
 
 // The meetings' tools (issue #1023, part 4 of #838): a Bot reads the meetings the owner recorded, their notes,
@@ -219,7 +221,9 @@ var ToolFamilies = []ToolFamily{
 			"waits in Needs you: never send a message to a client or a boss yourself. Close an item with " +
 			"inbox_done and evidence of what was done; close his item only with his own message: in this chat, " +
 			"or the one he sent in the item's Zalo, WhatsApp or Lark chat after it was made (zalo_sent, " +
-			"whatsapp_sent, lark_sent). Edit and close only your own items. A send you make while working on an " +
+			"whatsapp_sent, lark_sent). Edit and close only your own items. An item given to you wakes you in its " +
+			"own chat: post your progress there with inbox_comment (started, the Run, the pull request, done), and " +
+			"the owner's comments reach you there. A send you make while working on an " +
 			"item names it (todo, or HYPOMNEMA_TODO=<id> before the command) and waits for his approval in " +
 			"review."},
 	{Name: "meetings", Description: "Read the owner's recorded meetings (a Bot only)", Pattern: "meeting_*",
@@ -296,7 +300,8 @@ var ToolFamilies = []ToolFamily{
 			devicetool.VideoMake, devicetool.VideoGet},
 		WhenToUse: "An Android phone a node holds is shared by every agent; drive it with the device_* tools, one " +
 			"call at a time, after loading the `android-device` skill. Look with device_screen before each action " +
-			"and tap its numbered boxes. Sign in only with a password or code the owner gave you, and never buy " +
+			"and tap its numbered boxes. A phone or machine stopped for idleness is started by any device_* call; " +
+			"node_exec on the phone's node starts its machine only, not the phone. Sign in only with a password or code the owner gave you, and never buy " +
 			"or pay: ask the owner. " +
 			"To film a demo of an app, video_start a take, call video_say right before each action, then video_stop; " +
 			"make the take into a video for the owner to review with video_make, and follow it with video_get."},

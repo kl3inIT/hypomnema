@@ -151,9 +151,41 @@ Each adapted file names its source.
   Baydalka), its output sanitized by DOMPurify (Apache License 2.0 or MPL 2.0, Copyright Cure53 and other
   contributors). The control plane reads a workbook with excelize (github.com/xuri/excelize, BSD 3-Clause,
   Copyright (c) 2016-2026 The excelize Authors, Copyright (c) 2011-2017 Geoffrey J. Teale).
+- An Inbox item's comments (`src/features/inbox/inbox-comments.tsx`, issue #1143) are on ReUI's timeline
+  (`src/components/reui/timeline.tsx`, installed whole with `shadcn add @reui/timeline`;
+  https://github.com/keenthemes/reui, MIT, Copyright (c) 2025 Keenthemes Inc, its license below), and their grouped
+  steps (`src/components/chain-of-thought.tsx`) are adapted from AI Elements' packages/elements/src/
+  chain-of-thought.tsx (https://github.com/vercel/ai-elements, Apache License 2.0, Copyright 2023 Vercel, Inc.);
+  the file says what was changed.
 - The YAML editor of an agent (`src/features/agents/yaml-editor.tsx`, `monaco-environment.ts`, `yaml.worker.js`)
   is adapted from Omnara (frontend/apps/web/src/components/agents/AgentConfigYamlEditor.tsx,
   monacoEnvironment.ts, yaml.worker.js, and src/styles/editor.ts), Apache License 2.0.
+
+## ReUI
+
+```text
+MIT License
+
+Copyright (c) 2025 Keenthemes Inc
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
 
 ## LobeHub
 
@@ -665,3 +697,10 @@ OpenMausBot's license:
   outlines of Fredoka Bold (https://github.com/google/fonts/tree/main/ofl/fredoka), Copyright 2016 The Fredoka
   Project Authors (https://github.com/hafontia/Fredoka-One), SIL Open Font License 1.1
   (https://openfontlicense.org). The font itself is not shipped.
+- The Inbox's priority icons and picker (`src/components/ui/priority.tsx`), its project picker
+  (`src/components/ui/project-selector.tsx`), the project filter (`src/features/inbox/project-filter.tsx`) and the
+  command menu (`src/features/inbox/command-menu.tsx`) are copied and adapted from circle
+  (https://github.com/ln-dev7/circle, commit b0ba7dd; mock-data/priorities.tsx,
+  components/common/projects/priority-selector.tsx, components/layout/sidebar/create-new-issue/priority-selector.tsx
+  and project-selector.tsx, components/layout/headers/projects/filter.tsx, components/layout/command-palette.tsx),
+  MIT, Copyright (c) 2025 lndev-ui | Circle Template; each file keeps the notice.

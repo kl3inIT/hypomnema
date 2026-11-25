@@ -9,6 +9,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
@@ -21,8 +22,11 @@ import (
 // promptNotice is what a prompt run's chat begins with. It goes to the Bot
 // as a wake-up of the control plane, since nobody wrote it there. What the
 // Routine's script printed, when it woke the Bot, goes before the prompt
-// (issue #656; Hermes, cron/scheduler_prompt.py L38-40, L344-350).
-func promptNotice(r routinestore.Routine, by, scriptOutput string) string {
+// (issue #656; Hermes, cron/scheduler_prompt.py L38-40, L344-350), and the
+// Bot's note of the owner's context before both (issue #1119): as it was when
+// the chat opened, a frozen snapshot as Hermes gives USER.md
+// (tools/memory_tool.py:1-5).
+func promptNotice(r routinestore.Routine, by, ownerContext, scriptOutput string) string {
 	how := "by its schedule"
 	if by == routinestore.StartedByHand {
 		how = "by hand, now"
@@ -33,6 +37,12 @@ func promptNotice(r routinestore.Routine, by, scriptOutput string) string {
 		prompt = fmt.Sprintf("## Script Output\nThe following data was collected by the routine's script %s, which "+
 			"woke you. Use it as context for the work.\n\n```\n%s\n```\n\n%s", r.Script,
 			strings.TrimRight(scriptOutput, "\n"), prompt)
+	}
+
+	if ownerContext = strings.TrimSpace(ownerContext); ownerContext != "" {
+		prompt = fmt.Sprintf("## The owner's context\nWhat you learned of the owner's people, recurring processes, "+
+			"links, projects and teams, from your note %s as it was when this run began.\n\n%s\n\n%s",
+			memorystore.ContextFile, ownerContext, prompt)
 	}
 	// A read Routine's check reads the owner's accounts as its run does (owner, 2026-11-21 on #1023): what it
 	// printed is records like any tool's result.
@@ -84,8 +94,13 @@ func (s *Service) openRunChat(ctx context.Context, q *store.Queries, now int64, 
 		readRun = 1
 	}
 
+	ownerContext, err := memorystore.BotContextTx(ctx, q, r.Bot)
+	if err != nil {
+		return "", err
+	}
+
 	if err := q.InsertRoutinePrompt(ctx, store.InsertRoutinePromptParams{
-		ChatID: chatID, Text: promptNotice(r, by, scriptOutput), Now: now, ReadRun: readRun,
+		ChatID: chatID, Text: promptNotice(r, by, ownerContext, scriptOutput), Now: now, ReadRun: readRun,
 	}); err != nil {
 		return "", fmt.Errorf("giving the prompt of routine %s: %w", r.ID, err)
 	}

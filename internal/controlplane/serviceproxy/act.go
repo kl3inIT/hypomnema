@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
@@ -31,6 +32,9 @@ type Act struct {
 	Hash string
 	// AttemptID is the attempt at an Inbox item the act is made in (issue #1004), which its Approval records.
 	AttemptID string
+	// Opened is the agent's request the act is made in, whose credential is read again when an Approval the act
+	// waited for is answered (issue #1071); nil keeps Caller as it is.
+	Opened *http.Request
 }
 
 // Judge answers an act: nil when it may be done now, a *RefusedError with what the caller is told otherwise.
@@ -47,7 +51,7 @@ func (p *Proxy) Judge(ctx context.Context, a Act) error {
 
 	s := session{
 		caller: a.Caller, integration: a.Integration, label: a.Label, chatID: a.ChatID, catalog: catalog,
-		attempt: a.AttemptID,
+		attempt: a.AttemptID, opened: a.Opened,
 	}
 
 	if err := p.readsOnly(ctx, &s); err != nil {

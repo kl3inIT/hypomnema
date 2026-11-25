@@ -134,3 +134,24 @@ export function older(ids) {
 
   return out;
 }
+
+// members is a group's name and its members' ids as zca-js's getGroupInfo gives the group (GroupInfoResponse's
+// gridInfoMap): every id of memberIds, memVerList ("<id>_<version>") and currentMems, once each, as OpenClaw's
+// zalouser lists a group's members (MIT, Copyright (c) 2026 OpenClaw Foundation, https://github.com/openclaw/openclaw;
+// extensions/zalouser/src/zalo-js.ts, listZaloGroupMembers and toNumberId).
+export function members(info) {
+  const id = (v) => {
+    if (typeof v === "number" && Number.isFinite(v)) return String(Math.trunc(v));
+    if (typeof v === "string") return v.trim().replace(/_\d+$/, "");
+
+    return "";
+  };
+  const list = (v) => (Array.isArray(v) ? v : []);
+  const ids = [
+    ...list(info?.memberIds).map(id),
+    ...list(info?.memVerList).map(id),
+    ...list(info?.currentMems).map((m) => id(m?.id)),
+  ].filter(Boolean);
+
+  return { name: typeof info?.name === "string" ? info.name : "", ids: [...new Set(ids)] };
+}

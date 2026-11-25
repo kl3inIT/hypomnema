@@ -5,7 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -247,14 +249,23 @@ func followChat(ctx context.Context, e *env, chatID string, after int64, timeout
 	return nil
 }
 
-func showChat(ctx context.Context, e *env, c openapi.Chat, last int) error {
-	var (
-		after int64
-		all   []openapi.ChatMessage
-	)
+// chatPageMax is the most messages one read of a chat's history brings, the contract's maximum (ListChatMessages).
+const chatPageMax = 500
 
-	for {
-		r, err := e.api.ListChatMessagesWithResponse(ctx, c.Id, &openapi.ListChatMessagesParams{After: &after})
+// showChat prints a chat's last messages. It reads the chat from its end, as the web does (issue #502): the newest
+// page, then the one before it, only until enough are shown, never every page from the chat's first message, which
+// took a minute for a chat of 2,400 messages on a slow link (issue #1129). A page counts the messages the Bot's tool
+// display hides, so it may show fewer than it read.
+func showChat(ctx context.Context, e *env, c openapi.Chat, last int) error {
+	var shown []openapi.ChatMessage
+
+	before := int64(math.MaxInt64)
+	limit := min(max(last, 1), chatPageMax)
+
+	for len(shown) < last {
+		r, err := e.api.ListChatMessagesWithResponse(ctx, c.Id, &openapi.ListChatMessagesParams{
+			Before: &before, Limit: &limit,
+		})
 		if err != nil {
 			return fmt.Errorf("reading the chat: %w", err)
 		}
@@ -263,17 +274,18 @@ func showChat(ctx context.Context, e *env, c openapi.Chat, last int) error {
 			return apiError("reading the chat", r.StatusCode(), r.JSONDefault)
 		}
 
-		if len(r.JSON200.Data) == 0 {
+		shown = slices.Concat(r.JSON200.Data, shown)
+
+		if !r.JSON200.HasMore || r.JSON200.NextBefore == nil {
 			break
 		}
 
-		all = append(all, r.JSON200.Data...)
-		after = r.JSON200.NextAfter
+		before = *r.JSON200.NextBefore
 	}
 
 	e.printf("chat %s: %s\n", c.Id, c.Title)
 
-	for _, m := range all[max(0, len(all)-last):] {
+	for _, m := range shown[max(0, len(shown)-last):] {
 		printChatMessage(e, m)
 	}
 

@@ -72,6 +72,9 @@ type chatCall struct {
 	keyID string
 	// model is the name the client knows the model by.
 	model string
+	// session is the conversation's session when the route knows it (/v1/responses translated to chat, issue
+	// #1144); chatSession reads it from the request otherwise.
+	session string
 }
 
 // chatAdapter serves a chat request from one kind of provider and answers in
@@ -464,7 +467,7 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request, req chatRequest, 
 			w.Header().Set("Retry-After", retry)
 		}
 
-		record.Error = errorText(copyBody(w, resp, contentType, maxErrorBytes))
+		recordRefusal(r.Context(), record, copyBody(w, resp, contentType, maxErrorBytes), len(req.raw))
 	case req.stream && strings.HasPrefix(contentType, "text/event-stream"):
 		s.relayStream(w, r, req, resp, record)
 	default:

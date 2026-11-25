@@ -98,6 +98,10 @@ type Phone struct {
 	// and views that find it offline meanwhile wait for its hello.
 	mu     sync.Mutex
 	waking map[string]time.Time
+	// commands counts the agents' commands running on the phone's node, and stopping is set while a sweep stops
+	// its machine: a command is not admitted then (command.go, idle.go).
+	commands int
+	stopping bool
 	// idleSince is when a sweep first found the phone's machine idle, zero while it is not (idle.go).
 	idleSince time.Time
 	// lease is the take that holds the phone, nil when none does; ending are takes whose end did not reach their
@@ -266,7 +270,7 @@ func (p *Phone) wake(ctx context.Context, n orchestration.Node) error {
 
 	switch n.Machine.Power {
 	case orchestration.MachineStopping:
-		return fmt.Errorf("%w: the phone's machine is being stopped; try again in a minute", ErrUnavailable)
+		return errBeingStopped
 	case orchestration.MachineStopped:
 		if p.cfg.Machines == nil {
 			return fmt.Errorf("%w: the phone's machine is stopped", ErrUnavailable)
@@ -302,7 +306,7 @@ func (p *Phone) hello(ctx context.Context, n orchestration.Node) error {
 	tick := time.NewTicker(p.cfg.Poll)
 	defer tick.Stop()
 
-	for !p.cfg.Link.Online(n.ID) {
+	for !p.back(ctx, n.ID) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -315,6 +319,23 @@ func (p *Phone) hello(ctx context.Context, n orchestration.Node) error {
 
 	return nil
 }
+
+// back says whether the phone's node said hello since its machine was started: its socket is open, and its record
+// no longer says its machine is stopped or starting, which the node's hello clears (NodeHello). A socket still open
+// from before a stop, as while the provider shuts the machine down, is not that (review of PR #1085, round 2): a
+// call or a command sent on it would be lost with the machine.
+func (p *Phone) back(ctx context.Context, nodeID string) bool {
+	if !p.cfg.Link.Online(nodeID) {
+		return false
+	}
+
+	n, err := p.node(ctx)
+
+	return err == nil && n.ID == nodeID && (n.Machine == nil || n.Machine.Power == "")
+}
+
+// errBeingStopped is a machine whose stop has begun: it is started again once it is off.
+var errBeingStopped = fmt.Errorf("%w: the phone's machine is being stopped; try again in a minute", ErrUnavailable)
 
 // errWaking is a wait for a machine's hello that gave up while the machine is
 // still starting.

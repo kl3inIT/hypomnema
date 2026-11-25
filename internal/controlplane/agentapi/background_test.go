@@ -1,85 +1,119 @@
 package agentapi_test
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// Scenario (issue #1058): a Bot's pi reports a background command started and ended with its own token, and the end
-// wakes its chat once; the pi that follows in the chat cannot end it, and no other agent reports one.
-func TestABotsPiReportsItsBackgroundCommandsAndTheEndWakesItsChat(t *testing.T) {
+// commands plays the coordinator's background commands: it records what it was asked, and fails with err when set.
+type commands struct {
+	mu    sync.Mutex
+	asked []string
+	err   error
+}
+
+func (c *commands) StartBackground(_ context.Context, chatID, bot, pi string, in agenttool.BackgroundRequest,
+) (agenttool.BackgroundAnswer, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.asked = append(c.asked, fmt.Sprintf("start %s %s %s %q %s %d", chatID, bot, pi, in.Command, in.Cwd,
+		in.TimeoutSeconds))
+
+	return agenttool.BackgroundAnswer{ID: "bg_0123456789ab", OutputFile: "/run/bg_0123456789ab.log",
+		TimeoutSeconds: 1800}, c.err
+}
+
+func (c *commands) StopBackground(_ context.Context, chatID, id string) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.asked = append(c.asked, "stop "+chatID+" "+id)
+
+	return true, c.err
+}
+
+// Scenario (issues #1058, #1084): a Bot's pi starts a background command for its chat as its Bot, with its own token,
+// and the next pi of the chat stops it; no other agent runs one.
+func TestABotsPiStartsAndStopsBackgroundCommandsOfItsChat(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	bg := &commands{}
+	w := newWorldWith(t, 0, func(s *agentapi.Server) { s.WithBackground(bg) })
 	ctx := t.Context()
 
 	pi, chatID := w.botPi(orchestration.Bot{Name: "maps"})
-	next, err := w.svc.AddBotToken(ctx, "pi", chatID, w.mustBotOf(chatID))
+	chat, err := w.svc.GetChat(ctx, chatID)
+	require.NoError(t, err)
+	next, err := w.svc.AddBotToken(ctx, "pi", chatID, chat.Bot)
 	require.NoError(t, err)
 	_, owner, err := w.svc.AddToken(ctx, "laptop", bearertoken.Owner)
 	require.NoError(t, err)
 
-	started := agenttool.BackgroundReport{Kind: agenttool.BackgroundStarted, ID: "bg_0123456789ab"}
-	status, body := w.call(http.MethodPost, agenttool.PathBackground, owner, started)
+	start := agenttool.BackgroundRequest{Kind: agenttool.BackgroundStart, Command: "make all", Cwd: "/bots/maps"}
+	status, body := w.call(http.MethodPost, agenttool.PathBackground, owner, start)
 	assert.Equal(t, http.StatusForbidden, status, string(body))
 
-	status, body = w.call(http.MethodPost, agenttool.PathBackground, pi, started)
+	status, body = w.call(http.MethodPost, agenttool.PathBackground, pi, start)
 	require.Equal(t, http.StatusOK, status, string(body))
 
-	code := 0
-	ended := agenttool.BackgroundReport{Kind: agenttool.BackgroundEnded, ID: "bg_0123456789ab", ExitCode: &code,
-		Output: "fetched 29530 places\n", OutputChars: 21}
+	var got agenttool.BackgroundAnswer
+	require.NoError(t, json.Unmarshal(body, &got))
+	assert.Equal(t, agenttool.BackgroundAnswer{ID: "bg_0123456789ab", OutputFile: "/run/bg_0123456789ab.log",
+		TimeoutSeconds: 1800}, got)
 
-	status, body = w.call(http.MethodPost, agenttool.PathBackground, next, ended)
-	require.Equal(t, http.StatusOK, status, string(body))
-	assert.Empty(t, w.wakes(chatID), "another pi's report wakes nothing")
-
-	status, body = w.call(http.MethodPost, agenttool.PathBackground, pi, ended)
-	require.Equal(t, http.StatusOK, status, string(body))
-	status, body = w.call(http.MethodPost, agenttool.PathBackground, pi, ended)
+	status, body = w.call(http.MethodPost, agenttool.PathBackground, next,
+		agenttool.BackgroundRequest{Kind: agenttool.BackgroundStop, ID: "bg_0123456789ab"})
 	require.Equal(t, http.StatusOK, status, string(body))
 
-	assert.Equal(t, []string{"Background command bg_0123456789ab exited with code 0 after 0s:\nfetched 29530 places"},
-		w.wakes(chatID), "the end wakes the chat once")
+	var stopped agenttool.BackgroundAnswer
+	require.NoError(t, json.Unmarshal(body, &stopped))
+	assert.Equal(t, agenttool.BackgroundAnswer{ID: "bg_0123456789ab", Stopped: true}, stopped)
 
-	status, body = w.call(http.MethodPost, agenttool.PathBackground, pi,
-		agenttool.BackgroundReport{Kind: agenttool.BackgroundEnded, ID: "bg_0123456789ab"})
-	assert.Equal(t, http.StatusUnprocessableEntity, status, string(body))
+	assert.Equal(t, []string{
+		fmt.Sprintf("start %s %s %s %q /bots/maps 0", chatID, chat.Bot, bearertoken.Hash(pi), "make all"),
+		"stop " + chatID + " bg_0123456789ab",
+	}, bg.asked)
 
-	status, body = w.call(http.MethodPost, agenttool.PathBackground, pi, agenttool.BackgroundReport{Kind: "paused"})
+	status, body = w.call(http.MethodPost, agenttool.PathBackground, pi, agenttool.BackgroundRequest{Kind: "paused"})
 	assert.Equal(t, http.StatusBadRequest, status, string(body))
 }
 
-func (w *world) mustBotOf(chatID string) string {
-	w.t.Helper()
+// Scenario (issue #1084): a request the coordinator refuses as invalid answers 422; a launcher that failed, or none,
+// answers 503 with why, so the Bot can run the command in the foreground.
+func TestABackgroundCommandThatCannotRunSaysWhy(t *testing.T) {
+	t.Parallel()
 
-	chat, err := w.svc.GetChat(w.t.Context(), chatID)
-	require.NoError(w.t, err)
+	bg := &commands{err: fmt.Errorf("%w: a background command's timeout is 1 to 2147483 seconds",
+		orchestration.ErrInvalid)}
+	w := newWorldWith(t, 0, func(s *agentapi.Server) { s.WithBackground(bg) })
+	pi, _ := w.botPi(orchestration.Bot{Name: "maps"})
+	start := agenttool.BackgroundRequest{Kind: agenttool.BackgroundStart, Command: "make", Cwd: "/w"}
 
-	return chat.Bot
-}
+	status, body := w.call(http.MethodPost, agenttool.PathBackground, pi, start)
+	assert.Equal(t, http.StatusUnprocessableEntity, status, string(body))
+	assert.Contains(t, string(body), "timeout is 1 to 2147483 seconds")
 
-// wakes are the texts of the chat's wake-ups pi has not had yet.
-func (w *world) wakes(chatID string) []string {
-	w.t.Helper()
+	bg.err = fmt.Errorf("%w: the background launcher's start failed", orchestration.ErrUnavailable)
+	status, body = w.call(http.MethodPost, agenttool.PathBackground, pi, start)
+	assert.Equal(t, http.StatusServiceUnavailable, status, string(body))
+	assert.Contains(t, string(body), "the background launcher's start failed")
 
-	msgs, err := w.svc.Undelivered(w.t.Context(), chatID)
-	require.NoError(w.t, err)
-
-	var out []string
-
-	for _, m := range msgs {
-		if m.Kind == orchestration.ChatWake {
-			out = append(out, m.Text)
-		}
-	}
-
-	return out
+	none := newWorld(t)
+	pi, _ = none.botPi(orchestration.Bot{Name: "maps"})
+	status, body = none.call(http.MethodPost, agenttool.PathBackground, pi, start)
+	assert.Equal(t, http.StatusServiceUnavailable, status, string(body))
+	assert.Contains(t, string(body), "runs no background commands")
 }

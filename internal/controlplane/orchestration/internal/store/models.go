@@ -240,6 +240,7 @@ type Chat struct {
 	TurnStartedAt  sql.NullInt64
 	TurnToken      sql.NullString
 	TurnAttempts   int64
+	TurnCutAt      sql.NullInt64
 }
 
 type ChatBackgroundCommand struct {
@@ -592,6 +593,14 @@ type GitHost struct {
 	CreatedAt int64
 }
 
+type InboxProject struct {
+	ID        string
+	Name      string
+	Color     string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 type IntegrationClient struct {
 	Integration string
 	ClientID    string
@@ -880,6 +889,11 @@ type Receipt struct {
 	CreatedAt   int64
 }
 
+type RemovedBot struct {
+	ID   string
+	Name string
+}
+
 type Repo struct {
 	Name       string
 	Host       string
@@ -1149,6 +1163,11 @@ type Todo struct {
 	CreatedAt       int64
 	UpdatedAt       int64
 	WhyOpen         sql.NullString
+	ChatID          sql.NullString
+	PassedBy        sql.NullString
+	Priority        int64
+	PriorityReason  string
+	ProjectID       sql.NullString
 }
 
 type TodoEvent struct {

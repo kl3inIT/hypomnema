@@ -51,6 +51,10 @@ type Config struct {
 	// Tokens makes the token each pi calls the control plane with (issue
 	// #260); nil when pi is given none, as in tests that play pi.
 	Tokens Tokens
+	// Background runs a Bot's background commands as systemd user units (issue #1084), with the launcher's
+	// arguments appended, such as [sudo -n -u coordinator /usr/local/bin/hypomnema-background]. Empty: a
+	// background command is refused, saying so.
+	Background []string
 	// Updating says an update of the control plane runs (issue #716,
 	// selfupdate.Updating): no pi is started and an idle pi is given no new
 	// turn until it ends; a turn that runs goes on, steers included. Nil: none.
@@ -97,6 +101,8 @@ type Supervisor struct {
 	// running is Run's context, which ends when the control plane stops (SIGTERM): a pi started for a request, such
 	// as a compaction, reads with a context of its own, which does not (cutturns.go exitedMidTurn).
 	running atomic.Pointer[context.Context]
+	// bg runs the Bots' background commands (background.go).
+	bg background
 }
 
 // New returns a Supervisor; Run starts it.
@@ -109,10 +115,15 @@ func New(svc *orchestration.Service, cfg Config) *Supervisor {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 
-	return &Supervisor{
+	s := &Supervisor{
 		svc: svc, cfg: cfg, procs: map[string]*proc{}, watchers: map[string]map[watcher]struct{}{},
 		kick: make(chan struct{}, 1),
 	}
+	if len(cfg.Background) > 0 {
+		s.bg.run = backgroundLauncher(cfg.Background)
+	}
+
+	return s
 }
 
 // updating says an update runs, during which no pi starts and no new turn begins.
@@ -120,12 +131,20 @@ func (s *Supervisor) updating() bool { return s.cfg.Updating != nil && s.cfg.Upd
 
 // BeginUpdate runs mark, which names the update in its marker (selfupdate), under the lock every pi start holds from
 // its last look for an update until pi has its token (issue #716): a start that looked before the update began
-// finishes first, and every start after it sees the marker. So no pi starts once the update has begun.
+// finishes first, and every start after it sees the marker. So no pi starts once the update has begun. Once it has,
+// every running turn is cut, before the update waits for the turns (issue #1162, cutturns.go).
 func (s *Supervisor) BeginUpdate(mark func() error) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	err := mark()
+	s.mu.Unlock()
 
-	return mark()
+	if err != nil {
+		return err
+	}
+
+	s.cutTurns(context.Background())
+
+	return nil
 }
 
 // errUpdating refuses to start pi while the control plane is updated.
@@ -216,11 +235,10 @@ func (s *Supervisor) Run(ctx context.Context) error {
 	t := time.NewTicker(tick)
 
 	s.running.Store(&ctx)
-	s.loseAllBackground(ctx)
 	s.continueCutTurns(ctx)
 
 	defer t.Stop()
-	defer s.stopAll()
+	defer s.stopAll(ctx)
 
 	for {
 		s.pass(ctx)
@@ -270,7 +288,8 @@ func (s *Supervisor) pass(ctx context.Context) {
 		}
 	}
 
-	s.reapIdle(ctx)
+	s.observeBackground(ctx)
+	s.reapIdle()
 }
 
 // deliver gives pi what the chat has for it and marks it delivered once pi accepted it. While pi works, only the
@@ -570,12 +589,7 @@ func (s *Supervisor) settled() {
 	}
 }
 
-func (s *Supervisor) reapIdle(ctx context.Context) {
-	keep, ok := s.runningBackground(ctx)
-	if !ok {
-		return
-	}
-
+func (s *Supervisor) reapIdle() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -583,7 +597,7 @@ func (s *Supervisor) reapIdle(ctx context.Context) {
 		switch {
 		case p.exited():
 			delete(s.procs, id)
-		case p.idleFor() > s.cfg.IdleAfter && !slices.Contains(keep, id):
+		case p.idleFor() > s.cfg.IdleAfter:
 			go p.stop()
 
 			delete(s.procs, id)
@@ -591,8 +605,11 @@ func (s *Supervisor) reapIdle(ctx context.Context) {
 	}
 }
 
-func (s *Supervisor) stopAll() {
+// stopAll stops every pi, once Run's context ended: the turns that run are cut first, before the wait for pi to
+// exit (issue #1162).
+func (s *Supervisor) stopAll(ctx context.Context) {
 	s.stopping.Store(true)
+	s.cutTurns(ctx)
 
 	s.mu.Lock()
 	procs := s.procs

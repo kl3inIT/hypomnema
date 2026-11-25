@@ -157,4 +157,224 @@ describe("a meeting recorded live", () => {
     )
     recorder.dispose()
   })
+
+  // Pause sends nothing more and finishes the sockets; the clock stops. Resume opens a socket where the audio sent
+  // ended, so the transcript and the saved audio join without the pause; Stop still ends it (issue #1153, MemoryOS's
+  // "pausing stores what was said and drops audio").
+  it("pauses, resumes on the same clock, then stops", async () => {
+    const second = 24_000 * 2
+    let onChunk: (pcm: ArrayBuffer) => void = () => undefined
+    let onLevel: (level: number) => void = () => undefined
+    // Each chunk is followed by its level reading, which publishes the clock, as the capture does.
+    const speak = (seconds: number) => {
+      for (let i = 0; i < seconds; i++) {
+        onChunk(new ArrayBuffer(second))
+        onLevel(0.1)
+      }
+    }
+    const opened: { offsetMs: number; sent: number; finished: boolean }[] = []
+    const recorder = new MeetingRecorder({
+      meetingId: "mtg_1",
+      issueTicket: () => Promise.resolve("ticket"),
+      onLine: () => undefined,
+      openSocket: (options) => {
+        const socket = { offsetMs: options.offsetMs, sent: 0, finished: false }
+        opened.push(socket)
+
+        return Promise.resolve({
+          send: () => void socket.sent++,
+          finish: () => {
+            socket.finished = true
+
+            return Promise.resolve()
+          },
+          close: () => undefined,
+        })
+      },
+      capture: (_stream, handlers) => {
+        onChunk = handlers.onChunk
+        onLevel = handlers.onLevel
+
+        return Promise.resolve({ stop: () => undefined })
+      },
+      now: () => 0,
+    })
+    const phases: string[] = []
+    recorder.subscribe(() => {
+      const { phase } = recorder.getSnapshot()
+      if (phases.at(-1) !== phase) phases.push(phase)
+    })
+    await recorder.start([{ track: "mic", stream: {} as MediaStream, offsetMs: 5_000 }])
+
+    speak(2)
+    await recorder.pause()
+    expect(opened[0]).toMatchObject({ sent: 2, finished: true })
+    speak(3)
+    expect(opened[0]?.sent).toBe(2)
+    expect(recorder.getSnapshot()).toMatchObject({ phase: "paused", elapsedMs: 7_000 })
+    expect(recorder.getSnapshot().tracks[0]?.level).toBe(0)
+
+    await recorder.resume()
+    expect(opened).toHaveLength(2)
+    expect(opened[1]?.offsetMs).toBe(7_000)
+    speak(1)
+    expect(opened[1]?.sent).toBe(1)
+    expect(recorder.getSnapshot().elapsedMs).toBe(8_000)
+
+    await recorder.pause()
+    await recorder.stop()
+    expect(phases).toEqual(["recording", "paused", "recording", "paused", "stopping", "stopped"])
+    recorder.dispose()
+  })
+})
+
+describe("muting the microphone while a meeting records", () => {
+  const second = 24_000 * 2
+
+  type FakeSocket = {
+    track: string
+    offsetMs: number
+    sent: number
+    finished: boolean
+    open: () => void
+  }
+
+  // rig records a meeting's microphone and tab; a socket opens at once unless held, then opens when let go.
+  async function rig(tracks: ("mic" | "tab")[], hold = () => false) {
+    const handlers = new Map<
+      MediaStream,
+      { onChunk: (pcm: ArrayBuffer) => void; onLevel: (level: number) => void }
+    >()
+    const streams = new Map(
+      tracks.map((t) => [t, { getAudioTracks: () => [] } as unknown as MediaStream]),
+    )
+    const opened: FakeSocket[] = []
+    const recorder = new MeetingRecorder({
+      meetingId: "mtg_1",
+      issueTicket: () => Promise.resolve("ticket"),
+      onLine: () => undefined,
+      openSocket: (options) =>
+        new Promise((resolve) => {
+          const socket: FakeSocket = {
+            track: options.track,
+            offsetMs: options.offsetMs,
+            sent: 0,
+            finished: false,
+            open: () =>
+              resolve({
+                send: () => void socket.sent++,
+                finish: () => {
+                  socket.finished = true
+
+                  return Promise.resolve()
+                },
+                close: () => undefined,
+              }),
+          }
+          opened.push(socket)
+          if (!hold()) socket.open()
+        }),
+      capture: (stream, h) => {
+        handlers.set(stream, h)
+
+        return Promise.resolve({ stop: () => undefined })
+      },
+      now: () => 0,
+    })
+    await recorder.start(
+      tracks.map((track) => ({ track, stream: streams.get(track)!, offsetMs: 0 })),
+    )
+    // speak sends a second of audio on every track, each followed by its level, as the capture does.
+    const speak = (seconds: number) => {
+      for (let i = 0; i < seconds; i++)
+        for (const h of handlers.values()) {
+          h.onChunk(new ArrayBuffer(second))
+          h.onLevel(0.1)
+        }
+    }
+    const sockets = (track: string) => opened.filter((s) => s.track === track)
+    const level = (track: string) =>
+      recorder.getSnapshot().tracks.find((t) => t.track === track)?.level
+
+    return { recorder, speak, sockets, level }
+  }
+
+  // Muting finishes only the microphone's socket: the tab's goes on and the clock runs, nothing the microphone hears
+  // is sent and its meter is still. Unmuting opens a microphone socket at the meeting's current time, so its words
+  // after the mute land where they were said (issue #1155, MemoryOS's setMicMuted).
+  it("stops only the microphone, then opens it again at the meeting's time", async () => {
+    const { recorder, speak, sockets, level } = await rig(["mic", "tab"])
+    speak(2)
+
+    await recorder.setMicMuted(true)
+    expect(sockets("mic")[0]).toMatchObject({ sent: 2, finished: true })
+    expect(sockets("tab")[0]).toMatchObject({ sent: 2, finished: false })
+    speak(3)
+    expect(sockets("mic")).toHaveLength(1)
+    expect(sockets("mic")[0]?.sent).toBe(2)
+    expect(sockets("tab")[0]?.sent).toBe(5)
+    expect(level("mic")).toBe(0)
+    expect(level("tab")).toBe(0.1)
+    expect(recorder.getSnapshot()).toMatchObject({ micMuted: true, elapsedMs: 5_000 })
+
+    await recorder.setMicMuted(false)
+    expect(sockets("mic")).toHaveLength(2)
+    expect(sockets("mic")[1]?.offsetMs).toBe(5_000)
+    speak(1)
+    expect(sockets("mic")[1]?.sent).toBe(1)
+    expect(level("mic")).toBe(0.1)
+    expect(recorder.getSnapshot()).toMatchObject({ micMuted: false, elapsedMs: 6_000 })
+    recorder.dispose()
+  })
+
+  // Resume opens the tab again but leaves a muted microphone off; unmuted later, it opens where the meeting is. A
+  // meeting held in person, the microphone alone, records nothing while muted though its clock goes on.
+  it("keeps the microphone muted across a pause", async () => {
+    const online = await rig(["mic", "tab"])
+    online.speak(1)
+    await online.recorder.setMicMuted(true)
+    await online.recorder.pause()
+    online.speak(2)
+    await online.recorder.resume()
+    expect(online.sockets("tab")).toHaveLength(2)
+    expect(online.sockets("mic")).toHaveLength(1)
+    online.speak(2)
+    expect(online.sockets("mic")[0]?.sent).toBe(1)
+    await online.recorder.setMicMuted(false)
+    expect(online.sockets("mic")[1]?.offsetMs).toBe(3_000)
+    online.recorder.dispose()
+
+    const inPerson = await rig(["mic"])
+    await inPerson.recorder.setMicMuted(true)
+    inPerson.speak(4)
+    expect(inPerson.sockets("mic")[0]?.sent).toBe(0)
+    expect(inPerson.recorder.getSnapshot()).toMatchObject({ phase: "recording", elapsedMs: 4_000 })
+    inPerson.recorder.dispose()
+  })
+
+  // Muted and unmuted while its socket opens: that socket's offset was chosen before audio went unsent, so it is let
+  // go and another opens at the meeting's current time (the reconnect rule above: no frame may go missing once a
+  // socket's offset is chosen).
+  it("does not use a socket opened before a mute", async () => {
+    let holding = false
+    const { recorder, speak, sockets } = await rig(["mic"], () => holding)
+    speak(1)
+    await recorder.setMicMuted(true)
+    holding = true
+    const unmuted = recorder.setMicMuted(false)
+    await vi.waitFor(() => expect(sockets("mic")).toHaveLength(2))
+    await recorder.setMicMuted(true)
+    speak(2)
+    const unmutedAgain = recorder.setMicMuted(false)
+    holding = false
+    sockets("mic")[1]!.open()
+    await unmuted
+    await unmutedAgain
+    await vi.waitFor(() => expect(sockets("mic")).toHaveLength(3))
+    expect(sockets("mic")[2]?.offsetMs).toBe(3_000)
+    speak(1)
+    expect(sockets("mic")[1]?.sent).toBe(0)
+    expect(sockets("mic")[2]?.sent).toBe(1)
+    recorder.dispose()
+  })
 })

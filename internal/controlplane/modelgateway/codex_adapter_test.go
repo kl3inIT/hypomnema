@@ -220,6 +220,14 @@ func (a *accounts) cooledUntil() time.Time {
 	return a.cooling
 }
 
+// lastReason is what the last cooldown said.
+func (a *accounts) lastReason() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.reason
+}
+
 // waited returns how long each cooldown of an account was, in order.
 func (a *accounts) waited(id string) []time.Duration {
 	a.mu.Lock()
@@ -493,6 +501,7 @@ func TestAUsageLimitCoolsTheAccountDownAndTheNextTargetServes(t *testing.T) {
 	assert.Contains(t, body, "account_unavailable")
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.Equal(t, resets, subs.cooledUntil())
+	assert.Equal(t, "usage_limit_reached", subs.lastReason())
 
 	status, headers, body = g.call(t, g.key, askSol+`}`)
 	assert.Equal(t, http.StatusTooManyRequests, status)
@@ -620,6 +629,7 @@ func TestTheNextAccountServesWhenOneIsLimited(t *testing.T) {
 	assert.Equal(t, "Bearer acc_2-access-0", sentHeaders.Get("Authorization"))
 	assert.Equal(t, []time.Duration{2 * time.Second}, subs.waited("acc_1"))
 	assert.Empty(t, subs.waited("acc_2"))
+	assert.Equal(t, "rate_limit_exceeded", subs.lastReason(), "the cooldown names the refusal (issue #1147)")
 
 	status, _, _ = g.call(t, g.key, askSol+`}`)
 	require.Equal(t, http.StatusOK, status)
@@ -648,7 +658,8 @@ func TestTheNextAccountServesWhenOneIsLimited(t *testing.T) {
 // permission refusal cools it two minutes and the next account is tried; a
 // server error that is no overload cools it thirty seconds and reaches the
 // client, since another account would not help; a request the backend finds
-// wrong costs nothing.
+// wrong costs nothing. A cooldown names the refusal: its status when the
+// backend gave no code (issue #1147).
 func TestARefusalCoolsTheAccountByItsKind(t *testing.T) {
 	t.Parallel()
 
@@ -673,6 +684,10 @@ func TestARefusalCoolsTheAccountByItsKind(t *testing.T) {
 			assert.Equal(t, c.status, status)
 			assert.Equal(t, c.wait, subs.waited("acc_1"))
 			assert.Equal(t, c.calls, got.calls())
+
+			if c.wait != nil {
+				assert.Equal(t, "HTTP "+strconv.Itoa(c.status), subs.lastReason())
+			}
 		})
 	}
 }

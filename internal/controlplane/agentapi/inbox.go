@@ -109,6 +109,14 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		"done_when": map[string]any{"type": "string", "maxLength": inboxstore.MaxDoneWhen},
 		"draft": map[string]any{"type": "string", "maxLength": inboxstore.MaxDraft, "description": "The reply " +
 			"you drafted for the owner to send himself."},
+		// Priority and project (issue #1157), on Linear's scale, as its MCP's save_issue takes it.
+		"priority": map[string]any{"type": "integer", "minimum": inboxstore.NoPriority, "maximum": inboxstore.Low,
+			"description": "0 no priority, 1 urgent, 2 high, 3 medium, 4 low: how much it matters to the owner " +
+				"now. Give priority_reason with it."},
+		"priority_reason": map[string]any{"type": "string", "maxLength": inboxstore.MaxPriorityReason,
+			"description": "Why it has that priority, in one line the owner reads beside it."},
+		"project": map[string]any{"type": "string", "description": "The owner's project it belongs to, by its " +
+			"name as inbox_list's projects give them; none takes it out of its project."},
 	}
 
 	add := map[string]any{
@@ -117,26 +125,36 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"person he waits on; a Bot, by its id in assignee."},
 		"assignee": map[string]any{"type": "string", "description": "The person's name, or the Bot's id."},
 		"state": map[string]any{"type": "string", "enum": []string{inboxstore.Open, inboxstore.Proposed},
-			"description": "Left out: open in this chat; in a Routine's run proposed, or open with why_open."},
+			"description": "Left out: open when it comes from this chat; proposed when it comes from this " +
+				"Routine's run or from what you read (source), or open there with why_open."},
 		"why_open": map[string]any{"type": "string", "enum": []string{inboxstore.AskedDirectly, inboxstore.Promised},
-			"description": "In a Routine's run: why it opens, with quote and the message."},
+			"description": "For an item from what you read or from a Routine's run: why it opens, with quote and " +
+				"the message."},
+		"key": map[string]any{"type": "string", "maxLength": inboxstore.MaxKey,
+			"description": "The same key again returns the item it made."},
+	}
+	// Where it was read: the same in inbox_add and in inbox_update, which points an item at it.
+	read := map[string]any{
 		"source": map[string]any{
-			"type": "object", "description": "In a Routine's run, the owner's Zalo, WhatsApp or Lark chat it was " +
-				"found in; left out, this chat or this run.",
+			"type": "object", "required": []string{"kind"},
+			"description": "What of the owner's you read it in, in this chat or a Routine's run: his Zalo, " +
+				"WhatsApp or Lark chat, his Gmail thread, or a meeting he recorded. Left out, this chat or this run.",
 			"properties": map[string]any{
-				"kind": map[string]any{"type": "string", "enum": []string{inboxstore.FromZalo, inboxstore.FromWhatsApp,
-					inboxstore.FromLark}},
-				"chat": map[string]any{"type": "string", "description": "The chat's id at the service."},
-				"account": map[string]any{"type": "string", "description": "The owner's account the chat is in; " +
-					"without it, his message there never closes the item."},
+				"kind": map[string]any{"type": "string", "enum": inboxstore.FoundKinds},
+				"chat": map[string]any{"type": "string", "description": "zalo, whatsapp, lark: the chat's id at " +
+					"the service."},
+				"thread":  map[string]any{"type": "string", "description": "gmail: the thread's id."},
+				"meeting": map[string]any{"type": "string", "description": "meeting: the meeting's id."},
+				"account": map[string]any{"type": "string", "description": "The owner's account you read it " +
+					"with, as your tools name it (the label of zalo:<label>, google:<label>…); every kind but " +
+					"meeting. One you may not use is refused."},
 			},
 		},
 		"quote": map[string]any{"type": "string", "maxLength": inboxstore.MaxQuote,
 			"description": "The words it came from."},
 		"message": inboxLinkSchema("The message it came from: lark_message, zalo_message or whatsapp_message " +
-			"for a chat there, chat_message for this chat's."),
-		"key": map[string]any{"type": "string", "maxLength": inboxstore.MaxKey,
-			"description": "The same key again returns the item it made."},
+			"for a chat there; mail, the Gmail message's id; meeting_line, \"<meeting id>/<line>\"; chat_message " +
+			"for this chat's."),
 	}
 
 	tools := []struct {
@@ -144,15 +162,18 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		props       map[string]any
 		required    []string
 	}{
-		{agenttool.ToolInboxList, "List the owner's to-dos, by due then age: open ones by default. Filter by " +
-			"state, who does them, where they came from, when they are due, needs_you (what waits for the owner), and include closed, " +
-			"snoozed or stale proposals; cursor pages on. Use it before you add one, so as never to add it twice.", map[string]any{
+		{agenttool.ToolInboxList, "List the owner's to-dos, by due then age: open ones by default, with the " +
+			"owner's projects. Filter by state, who does them, where they came from, their project, when they are " +
+			"due, needs_you (what waits for the owner), and include closed, snoozed or stale proposals; cursor pages " +
+			"on. Use it before you add one, so as never to add it twice.", map[string]any{
 			"state": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{
 				inboxstore.Proposed, inboxstore.Open, inboxstore.Doing, inboxstore.Review, inboxstore.Done,
 				inboxstore.Dropped, inboxstore.Duplicate}}},
-			"assignee_kind":   add["assignee_kind"],
-			"assignee":        add["assignee"],
-			"source_kind":     map[string]any{"type": "string"},
+			"assignee_kind": add["assignee_kind"],
+			"assignee":      add["assignee"],
+			"source_kind":   map[string]any{"type": "string"},
+			"project": map[string]any{"type": "string", "description": "Only the items of this project, by " +
+				"its name; none, only the items without one."},
 			"needs_you":       map[string]any{"type": "boolean"},
 			"include_closed":  map[string]any{"type": "boolean"},
 			"include_snoozed": map[string]any{"type": "boolean"},
@@ -161,32 +182,47 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 				"moment, RFC 3339; a date is due from its first moment."},
 			"due_to": map[string]any{"type": "string", "description": "Only the items due before this moment, " +
 				"RFC 3339."},
+			"owner_changed_since": map[string]any{"type": "string", "description": "Only the items the owner " +
+				"himself added, edited, closed, reopened or snoozed at or after this moment, RFC 3339, in any " +
+				"state, each with his changes since then as its history: what he corrected of yours."},
 			"cursor": map[string]any{"type": "string"},
 			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": inboxstore.MaxPage},
 		}, nil},
 		{agenttool.ToolInboxGet, "Read one to-do with its draft, evidence and latest history. Use it before you " +
 			"change one you have not just read.",
 			map[string]any{"id": id}, []string{"id"}},
-		{agenttool.ToolInboxAdd, "Add a to-do, from this chat or this Routine's run. Use it for each direct ask " +
-			"to the owner and each promise he makes: give the quote and the message it came from. An item given " +
-			"to a person without a due is due in 2 days, the day to chase them.", merged(fields, due, add), []string{"title"}},
+		{agenttool.ToolInboxAdd, "Add a to-do, from this chat, this Routine's run, or what of the owner's you " +
+			"read (source). Use it for each direct ask to the owner and each promise he makes: give the quote " +
+			"and the message it came from. An item given to a person without a due is due in 2 days, the day " +
+			"to chase them.", merged(fields, due, add, read), []string{"title"}},
 		{agenttool.ToolInboxUpdate, "Change a to-do you added or were given: its fields, the reply you drafted " +
-			"(draft), and hand_back to give it to the owner, where it waits in Needs you. An item you are doing " +
-			"is released first. Use it to attach a reply you drafted and give it to him to send.", merged(fields, due, map[string]any{
-			"id": id, "revision": revision,
-			"hand_back": map[string]any{"type": "boolean", "description": "Give it back to the owner."},
-		}), []string{"id"}},
+			"(draft), where you read it (source, with quote and message), hand_back to give it to the " +
+			"owner, where it waits in Needs you, or pass_to to give it to another Bot. An item you are doing is " +
+			"released first. Use it to attach a reply you drafted and give it to him to send.",
+			merged(fields, due, read, map[string]any{
+				"id": id, "revision": revision,
+				"hand_back": map[string]any{"type": "boolean", "description": "Give it back to the owner."},
+				"pass_to": map[string]any{"type": "string", "description": "Give it to this Bot, by its id; it is " +
+					"woken with it. The main Bot passes it to the project Bot whose accounts or context the work " +
+					"needs; a project Bot gives it back only to the main Bot."},
+			}), []string{"id"}},
 		{agenttool.ToolInboxStart, "Start an open to-do given to you: it is doing, here, until you close or " +
 			"release it. Use it before you work on one.", map[string]any{"id": id, "revision": revision}, []string{"id"}},
 		{agenttool.ToolInboxRelease, "Give up a to-do you are doing, with the reason: it is open again. Use it " +
 			"when you cannot finish it.",
 			map[string]any{"id": id, "revision": revision, "reason": reason}, []string{"id", "reason"}},
 		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did, or, with for_owner, his " +
-			"own message that he did it (in this chat, or one he sent in the item's Zalo, WhatsApp or Lark chat " +
-			"after it was made: zalo_sent, whatsapp_sent, lark_sent). Use it once the work is done or he answered.", map[string]any{
+			"own message that he did it (in this chat, or one he sent after it was made in the item's Zalo, " +
+			"WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: " +
+			"zalo_sent, whatsapp_sent, lark_sent). Use it once the work is done or he answered.", map[string]any{
 			"id": id, "revision": revision, "evidence": evidence, "reason": reason,
 			"for_owner": map[string]any{"type": "boolean", "description": "The owner did it; you record it."},
 		}, []string{"id", "evidence"}},
+		{agenttool.ToolInboxComment, "Post a comment in a to-do's thread, which the owner reads on the item: " +
+			"what you started, the Run's link, the pull request, what you need from him, done. Use it on an item " +
+			"you added or were given, to tell him where its work is; his comments on it reach you in its chat.",
+			map[string]any{"id": id, "text": map[string]any{"type": "string", "maxLength": inboxstore.MaxComment}},
+			[]string{"id", "text"}},
 		{agenttool.ToolInboxDrop, "Drop a to-do the owner said is not needed, with his message as evidence and " +
 			"the reason. Use it only on his word.", map[string]any{"id": id, "revision": revision, "reason": reason, "evidence": evidence},
 			[]string{"id", "reason", "evidence"}},
@@ -227,19 +263,27 @@ type inboxArgs struct {
 	Notes    *string `json:"notes"`
 	DoneWhen *string `json:"done_when"`
 	Draft    *string `json:"draft"`
-	DueDate  string  `json:"due_date"`
-	DueAt    string  `json:"due_at"`
-	Timezone string  `json:"timezone"`
-	HandBack bool    `json:"hand_back"`
+	// Priority, its reason and the project's name (issue #1157).
+	Priority       *int    `json:"priority"`
+	PriorityReason *string `json:"priority_reason"`
+	Project        string  `json:"project"`
+	DueDate        string  `json:"due_date"`
+	DueAt          string  `json:"due_at"`
+	Timezone       string  `json:"timezone"`
+	HandBack       bool    `json:"hand_back"`
+	PassTo         string  `json:"pass_to"`
 	// inbox_add.
-	AssigneeKind string           `json:"assignee_kind"`
-	Assignee     string           `json:"assignee"`
-	State        string           `json:"state"`
-	WhyOpen      string           `json:"why_open"`
-	Source       *inboxSourceArgs `json:"source"`
-	Quote        string           `json:"quote"`
-	Message      *inboxstore.Link `json:"message"`
-	Key          string           `json:"key"`
+	AssigneeKind string `json:"assignee_kind"`
+	Assignee     string `json:"assignee"`
+	State        string `json:"state"`
+	WhyOpen      string `json:"why_open"`
+	Key          string `json:"key"`
+	// inbox_add and inbox_update: where it was read.
+	Source  *inboxSourceArgs `json:"source"`
+	Quote   string           `json:"quote"`
+	Message *inboxstore.Link `json:"message"`
+	// inbox_comment.
+	Text string `json:"text"`
 	// inbox_release, inbox_done, inbox_drop.
 	Reason   string            `json:"reason"`
 	Evidence []inboxstore.Link `json:"evidence"`
@@ -252,20 +296,133 @@ type inboxListArgs struct {
 	AssigneeKind   string   `json:"assignee_kind"`
 	Assignee       string   `json:"assignee"`
 	SourceKind     string   `json:"source_kind"`
+	Project        string   `json:"project"`
 	NeedsYou       bool     `json:"needs_you"`
 	IncludeClosed  bool     `json:"include_closed"`
 	IncludeSnoozed bool     `json:"include_snoozed"`
 	IncludeStale   bool     `json:"include_stale"`
 	DueFrom        string   `json:"due_from"`
 	DueTo          string   `json:"due_to"`
-	Cursor         string   `json:"cursor"`
-	Limit          int      `json:"limit"`
+	// OwnerChangedSince lists the items the owner changed since a moment, each with his changes (issue #1119).
+	OwnerChangedSince string `json:"owner_changed_since"`
+	Cursor            string `json:"cursor"`
+	Limit             int    `json:"limit"`
 }
 
 type inboxSourceArgs struct {
 	Kind    string `json:"kind"`
 	Chat    string `json:"chat"`
+	Thread  string `json:"thread"`
+	Meeting string `json:"meeting"`
 	Account string `json:"account"`
+}
+
+// sourceIntegration is the Integration whose Connection a source names its account by.
+var sourceIntegration = map[string]string{
+	inboxstore.FromZalo: "zalo", inboxstore.FromWhatsApp: "whatsapp", inboxstore.FromLark: "lark",
+	inboxstore.FromGmail: "google",
+}
+
+// readSource is where a Bot read an item, as it names it (issue #1105): what of the owner's it read, in any of its
+// chats or runs, accepted only when it may read it now as its reads are: an account it may use (Bot.MayUse, as
+// agentapi's tools and the service proxy check it), or a meeting that is there for a Bot that reads meetings. The
+// provenance is the token's still: the Bot names only what it may read, as the client API's newSource takes the
+// chat or run from the token (issue #966).
+func (s *Server) readSource(ctx context.Context, a agent, in inboxArgs) (inboxstore.Source, error) {
+	src := inboxstore.Source{Kind: in.Source.Kind, Account: strings.TrimSpace(in.Source.Account), Quote: in.Quote,
+		Ref: in.Message}
+
+	switch src.Kind {
+	case inboxstore.FromZalo, inboxstore.FromWhatsApp, inboxstore.FromLark:
+		src.ID = in.Source.Chat
+	case inboxstore.FromGmail:
+		src.ID = in.Source.Thread
+	case inboxstore.FromMeeting:
+		src.ID = in.Source.Meeting
+	default:
+		return inboxstore.Source{}, fmt.Errorf("%w: a to-do you read comes from %s, not %q; left out, it comes "+
+			"from this run or this chat", orchestration.ErrForbidden, strings.Join(inboxstore.FoundKinds, ", "),
+			src.Kind)
+	}
+
+	src.ID = strings.TrimSpace(src.ID)
+	if src.ID == "" {
+		return inboxstore.Source{}, fmt.Errorf("%w: a to-do from %s names its chat, thread or meeting",
+			orchestration.ErrInvalid, src.Kind)
+	}
+
+	if src.Kind == inboxstore.FromMeeting {
+		if !s.readsMeetings(a) {
+			return inboxstore.Source{}, fmt.Errorf("%w: you do not read the owner's meetings", orchestration.ErrForbidden)
+		}
+
+		if _, err := s.meetings.Get(ctx, src.ID); err != nil {
+			return inboxstore.Source{}, err
+		}
+
+		return src, nil
+	}
+
+	integration := sourceIntegration[src.Kind]
+	if src.Account == "" {
+		return inboxstore.Source{}, fmt.Errorf("%w: a to-do from %s names the owner's account you read it with, "+
+			"the label of %s:<label>", orchestration.ErrInvalid, src.Kind, integration)
+	}
+
+	label, err := s.accountLabel(ctx, a, integration, src.Account)
+	if err != nil {
+		return inboxstore.Source{}, err
+	}
+
+	src.Account = label
+
+	return src, nil
+}
+
+// accountLabel is the label of the owner's account a Bot names, by its label or by the account's own id (issue
+// #1124): the Zalo id or the phone number its Connection records or its session held knows, as the Bot saw it in
+// what it read. Only an account the Bot may use is found; the item keeps its label, as everything else names a
+// Connection by it.
+func (s *Server) accountLabel(ctx context.Context, a agent, integration, named string) (string, error) {
+	may, err := s.offeredTo(ctx, a, integration)
+	if err != nil {
+		return "", err
+	}
+
+	if slices.ContainsFunc(may, func(c orchestration.Connection) bool { return c.Label == named }) {
+		return named, nil
+	}
+
+	for _, c := range may {
+		if sameAccount(named, c.Account) {
+			return c.Label, nil
+		}
+
+		if s.messaging == nil {
+			continue
+		}
+
+		// A session not held knows no id: the account is then named by its label.
+		if id, err := s.messaging.AccountID(ctx, integration, c.Label); err == nil && sameAccount(named, id) {
+			return c.Label, nil
+		}
+	}
+
+	return "", fmt.Errorf("%w: you may not use %s:%s, so nothing is added from it", orchestration.ErrForbidden,
+		integration, named)
+}
+
+// sameAccount says whether two names of an account are one: a phone number with or without its + and spaces, and
+// a WhatsApp JID by its user (84369230426:12@s.whatsapp.net is 84369230426).
+func sameAccount(named, id string) bool {
+	key := func(s string) string {
+		s, _, _ = strings.Cut(s, "@")
+		s, _, _ = strings.Cut(s, ":")
+
+		return strings.TrimPrefix(strings.ReplaceAll(strings.TrimSpace(s), " ", ""), "+")
+	}
+
+	return key(id) != "" && key(named) == key(id)
 }
 
 // inboxCall runs one of the Inbox's tools. What the Bot can act on (its arguments, a conflict, a refusal) is its
@@ -306,10 +463,15 @@ func (s *Server) inboxCall(w http.ResponseWriter, r *http.Request, a agent, call
 	case agenttool.ToolInboxGet:
 		var t inboxstore.Todo
 		if t, err = s.store.Inbox().Get(ctx, strings.TrimSpace(in.ID)); err == nil {
-			out = todoView(t, true)
+			out, err = s.todoViewOf(ctx, t, true)
 		}
 	case agenttool.ToolInboxAdd:
-		out, err = s.inboxAdd(ctx, c, in)
+		out, err = s.inboxAdd(ctx, a, c, in)
+	case agenttool.ToolInboxComment:
+		var t inboxstore.Todo
+		if t, err = s.store.Inbox().Comment(ctx, c.actor, strings.TrimSpace(in.ID), in.Text); err == nil {
+			out, err = s.todoViewOf(ctx, t, true)
+		}
 	default:
 		out, err = s.inboxChange(ctx, a, c, call.Tool, in)
 	}
@@ -334,6 +496,17 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 		WithSnoozed: in.IncludeSnoozed, WithStale: in.IncludeStale,
 	}
 
+	projects, err := s.store.Inbox().Projects(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if in.Project != "" {
+		if f.Project, err = s.projectID(ctx, in.Project); err != nil {
+			return nil, err
+		}
+	}
+
 	if in.AssigneeKind != "" {
 		f.Assignee = &inboxstore.Assignee{Kind: in.AssigneeKind, Name: strings.TrimSpace(in.Assignee)}
 	}
@@ -341,7 +514,10 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 	for _, bound := range []struct {
 		name, value string
 		into        *time.Time
-	}{{"due_from", in.DueFrom, &f.DueFrom}, {"due_to", in.DueTo, &f.DueTo}} {
+	}{
+		{"due_from", in.DueFrom, &f.DueFrom}, {"due_to", in.DueTo, &f.DueTo},
+		{"owner_changed_since", in.OwnerChangedSince, &f.OwnerChangedSince},
+	} {
 		if bound.value == "" {
 			continue
 		}
@@ -360,12 +536,19 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 		return nil, err
 	}
 
+	names := projectNames(projects)
 	items := make([]todoOut, 0, len(page.Items))
+
 	for _, t := range page.Items {
-		items = append(items, todoView(t, false))
+		items = append(items, todoView(t, !f.OwnerChangedSince.IsZero(), names))
 	}
 
-	return map[string]any{"total": page.Total, "next_cursor": page.Next, "items": items}, nil
+	known := make([]string, 0, len(projects))
+	for _, p := range projects {
+		known = append(known, p.Name)
+	}
+
+	return map[string]any{"total": page.Total, "next_cursor": page.Next, "items": items, "projects": known}, nil
 }
 
 // inboxDue is the due a call gives: none, a date or a moment in its time zone.
@@ -399,11 +582,23 @@ func inboxChase(in inboxArgs) *inboxstore.DueIn {
 	return &inboxstore.DueIn{After: inboxDefaultChase, Zone: zone}
 }
 
-func (s *Server) inboxAdd(ctx context.Context, c inboxCaller, in inboxArgs) (any, error) {
+func (s *Server) inboxAdd(ctx context.Context, a agent, c inboxCaller, in inboxArgs) (any, error) {
 	n := inboxstore.NewTodo{
 		Title: val(in.Title), Notes: val(in.Notes), DoneWhen: val(in.DoneWhen), Draft: val(in.Draft),
 		Assignee: inboxstore.Assignee{Kind: inboxstore.Me}, WhyOpen: in.WhyOpen, IdempotencyKey: in.Key,
-		Source: inboxstore.Source{Quote: in.Quote, Ref: in.Message},
+		Source: inboxstore.Source{Quote: in.Quote, Ref: in.Message}, Priority: val(in.Priority),
+		PriorityReason: val(in.PriorityReason),
+	}
+
+	if in.PriorityReason != nil && in.Priority == nil {
+		return nil, fmt.Errorf("%w: a priority's reason is given with the priority", orchestration.ErrInvalid)
+	}
+
+	if in.Project != "" && !strings.EqualFold(strings.TrimSpace(in.Project), inboxstore.NoProject) {
+		var err error
+		if n.Project, err = s.projectID(ctx, in.Project); err != nil {
+			return nil, err
+		}
 	}
 
 	if in.AssigneeKind != "" {
@@ -422,29 +617,29 @@ func (s *Server) inboxAdd(ctx context.Context, c inboxCaller, in inboxArgs) (any
 		n.DueIn = inboxChase(in)
 	}
 
-	// Where it came from is the token's: this chat, or this Routine's run, which may name the owner's chat at a
-	// messaging service instead, and nothing else (clientapi's newSource): a run naming a chat with the owner would
-	// open what it only infers.
+	// Where it came from: what of the owner's the Bot read, in any of its chats or runs (issue #1105), or else the
+	// token's chat or Routine's run, and nothing else: a run naming a chat with the owner would open what it only
+	// infers (clientapi's newSource).
 	switch {
-	case in.Source != nil && c.work.Kind != inboxstore.WorkRun:
-		return nil, fmt.Errorf("%w: only a Routine's run adds a to-do from the owner's Zalo, WhatsApp or Lark chat; "+
-			"in this chat it comes from this chat", orchestration.ErrForbidden)
-	case in.Source != nil && in.Source.Kind != inboxstore.FromZalo && in.Source.Kind != inboxstore.FromWhatsApp &&
-		in.Source.Kind != inboxstore.FromLark:
-		return nil, fmt.Errorf("%w: a to-do this Routine's run adds comes from this run, or from the owner's Zalo, "+
-			"WhatsApp or Lark chat it names, not from %q", orchestration.ErrForbidden, in.Source.Kind)
 	case in.Source != nil:
-		n.Source.Kind, n.Source.ID, n.Source.Account = in.Source.Kind, in.Source.Chat, in.Source.Account
+		src, err := s.readSource(ctx, a, in)
+		if err != nil {
+			return nil, err
+		}
+
+		n.Source = src
 	case c.work.Kind == inboxstore.WorkRun:
 		n.Source.Kind, n.Source.ID = inboxstore.FromRoutine, c.work.ID
 	default:
 		n.Source.Kind, n.Source.ID = inboxstore.FromChat, c.work.ID
 	}
 
+	// The triage of #966 wherever the Bot is: what it read opens with why_open, else it is proposed; what the owner
+	// tells it in its chat opens.
 	switch {
 	case in.State != "":
 		n.State = in.State
-	case n.WhyOpen != "" || c.work.Kind == inboxstore.WorkChat:
+	case n.WhyOpen != "" || n.Source.Kind == inboxstore.FromChat:
 		n.State = inboxstore.Open
 	default:
 		n.State = inboxstore.Proposed
@@ -455,7 +650,7 @@ func (s *Server) inboxAdd(ctx context.Context, c inboxCaller, in inboxArgs) (any
 		return nil, err
 	}
 
-	return todoView(t, false), nil
+	return s.todoViewOf(ctx, t, false)
 }
 
 // inboxChange runs a change of an item: it reads the item, and writes at the revision the Bot gave or the one read,
@@ -486,7 +681,23 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 
 	switch tool {
 	case agenttool.ToolInboxUpdate:
-		e := inboxstore.Edit{Title: in.Title, Notes: in.Notes, DoneWhen: in.DoneWhen, Draft: in.Draft}
+		e := inboxstore.Edit{
+			Title: in.Title, Notes: in.Notes, DoneWhen: in.DoneWhen, Draft: in.Draft, Priority: in.Priority,
+			PriorityReason: in.PriorityReason,
+		}
+
+		if in.Project != "" {
+			project, projectErr := s.projectID(ctx, in.Project)
+			if projectErr != nil {
+				return nil, projectErr
+			}
+
+			if project == inboxstore.NoProject {
+				project = ""
+			}
+
+			e.Project = &project
+		}
 
 		due, given, dueErr := inboxDue(in)
 		if dueErr != nil {
@@ -497,8 +708,24 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 			e.Due = &due
 		}
 
-		if in.HandBack {
+		pass := strings.TrimSpace(in.PassTo)
+
+		switch {
+		case in.HandBack && pass != "":
+			return nil, fmt.Errorf("%w: hand_back or pass_to, not both", orchestration.ErrInvalid)
+		case in.HandBack:
 			e.Assignee = &inboxstore.Assignee{Kind: inboxstore.Me}
+		case pass != "":
+			e.Assignee = &inboxstore.Assignee{Kind: inboxstore.ABot, Name: pass}
+		}
+
+		if in.Source != nil {
+			src, srcErr := s.readSource(ctx, a, in)
+			if srcErr != nil {
+				return nil, srcErr
+			}
+
+			e.Source = &src
 		}
 
 		t, err = inbox.Edit(ctx, ch, e)
@@ -527,7 +754,40 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 		return nil, err
 	}
 
-	return todoView(t, false), nil
+	return s.todoViewOf(ctx, t, false)
+}
+
+// projectID is the id of the project a Bot names by its name (or id), or NoProject for none.
+func (s *Server) projectID(ctx context.Context, named string) (string, error) {
+	if strings.EqualFold(strings.TrimSpace(named), inboxstore.NoProject) {
+		return inboxstore.NoProject, nil
+	}
+
+	p, err := s.store.Inbox().ProjectNamed(ctx, named)
+	if err != nil {
+		return "", err
+	}
+
+	return p.ID, nil
+}
+
+func projectNames(all []inboxstore.Project) map[string]string {
+	names := make(map[string]string, len(all))
+	for _, p := range all {
+		names[p.ID] = p.Name
+	}
+
+	return names
+}
+
+// todoViewOf is todoView with the names of the owner's projects.
+func (s *Server) todoViewOf(ctx context.Context, t inboxstore.Todo, events bool) (todoOut, error) {
+	all, err := s.store.Inbox().Projects(ctx)
+	if err != nil {
+		return todoOut{}, err
+	}
+
+	return todoView(t, events, projectNames(all)), nil
 }
 
 // todoOut is a to-do as a Bot reads it: what it needs to act, without the attempt it never handles.
@@ -541,6 +801,10 @@ type todoOut struct {
 	Draft       string            `json:"draft,omitempty"`
 	Due         string            `json:"due,omitempty"`
 	Assignee    string            `json:"assignee"`
+	PassedBy    string            `json:"passed_by,omitempty"`
+	Priority    string            `json:"priority,omitempty"`
+	PriorityWhy string            `json:"priority_reason,omitempty"`
+	Project     string            `json:"project,omitempty"`
 	Source      map[string]any    `json:"source"`
 	WhyOpen     string            `json:"why_open,omitempty"`
 	CreatedBy   string            `json:"created_by"`
@@ -565,7 +829,7 @@ func who(kind, name string) string {
 	return kind + " " + name
 }
 
-func todoView(t inboxstore.Todo, events bool) todoOut {
+func todoView(t inboxstore.Todo, events bool, projects map[string]string) todoOut {
 	out := todoOut{
 		ID: t.ID, Revision: t.Revision, Title: t.Title, State: t.State, Notes: t.Notes, DoneWhen: t.DoneWhen,
 		Draft: t.Draft, Assignee: who(t.Assignee.Kind, t.Assignee.Name), WhyOpen: t.WhyOpen,
@@ -594,6 +858,18 @@ func todoView(t inboxstore.Todo, events bool) todoOut {
 
 	if t.Source.Ref != nil {
 		out.Source["message"] = t.Source.Ref
+	}
+
+	if t.PassedBy != "" {
+		out.PassedBy = who(inboxstore.Bot, t.PassedBy)
+	}
+
+	if t.Priority > inboxstore.NoPriority && t.Priority < len(inboxstore.PriorityNames) {
+		out.Priority, out.PriorityWhy = inboxstore.PriorityNames[t.Priority], t.PriorityReason
+	}
+
+	if t.Project != "" {
+		out.Project = projects[t.Project]
 	}
 
 	if t.Work != nil {

@@ -343,6 +343,12 @@ async function fakeServer(
           },
           201,
         )
+      // The chat's newest page, read before its stream (issue #502): until it comes, the chat is loading.
+      case "GET /chats/cht_1/messages": {
+        const kept = opts.messages ?? []
+
+        return json({ data: kept, next_after: kept.at(-1)?.seq ?? 0, has_more: false })
+      }
       case "GET /chats/cht_1/stream":
         return route.fulfill({
           status: 200,

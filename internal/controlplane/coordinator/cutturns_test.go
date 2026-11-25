@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -188,8 +189,9 @@ func TestATurnThatEndedLeavesNoMark(t *testing.T) {
 	assert.Empty(t, marked(t, svc))
 }
 
-// Scenario: at start, a cut turn older than 15 minutes, or one already continued twice, is not continued: its mark
-// is cleared and the chat says a restart cut the turn. That line is not given to pi.
+// Scenario: at start, a cut turn with no cut written (a crash) that started more than an hour ago, or one already
+// continued twice, is not continued: its mark is cleared and the chat says a restart cut the turn. That line is not
+// given to pi.
 func TestAStaleCutTurnIsClearedWithALine(t *testing.T) {
 	t.Parallel()
 
@@ -197,7 +199,7 @@ func TestAStaleCutTurnIsClearedWithALine(t *testing.T) {
 		age      time.Duration
 		attempts int
 	}{
-		"stale":              {age: 16 * time.Minute},
+		"stale":              {age: 61 * time.Minute},
 		"no attempts left":   {age: time.Minute, attempts: 2},
 		"stale and attempts": {age: time.Hour, attempts: 1},
 	} {
@@ -229,7 +231,7 @@ func TestAFreshCutTurnIsContinuedOnceMore(t *testing.T) {
 	t.Parallel()
 
 	svc, clock := newStore(t)
-	chat := cutTurn(t, svc, clock, 14*time.Minute, 1, false)
+	chat := cutTurn(t, svc, clock, 59*time.Minute, 1, false)
 
 	runSupervisor(t, svc, Config{})
 
@@ -240,6 +242,130 @@ func TestAFreshCutTurnIsContinuedOnceMore(t *testing.T) {
 		"system/continued: " + orchestration.ContinuedText,
 		"system/continued: " + orchestration.ContinuedText,
 	}, transcript(t, svc, chat))
+}
+
+// cutAt writes that the control plane began to stop ago: every marked turn is cut then.
+func cutAt(t *testing.T, svc *orchestration.Service, clock *testClock, ago time.Duration) {
+	t.Helper()
+
+	clock.set(time.Now().Add(-ago))
+	defer clock.set(time.Time{})
+
+	require.NoError(t, svc.CutMarkedTurns(t.Context()))
+}
+
+// Scenario (issue #1162): a cut turn is continued within an hour of the cut, however long it ran before, as Hermes's
+// gateway measures from the resume-pending mark written before its drain (gateway/run.py
+// _AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT); a turn with no cut written (a crash) within an hour of its start; one
+// continued twice is not continued again. The log says what the age is measured from.
+func TestACutTurnIsContinuedWithinAnHourOfTheCut(t *testing.T) {
+	t.Parallel()
+
+	for name, c := range map[string]struct {
+		started  time.Duration
+		cut      time.Duration // 0: no cut written
+		attempts int
+		want     bool
+		from     string
+	}{
+		"a long turn cut a minute ago":          {started: 33 * time.Minute, cut: time.Minute, want: true, from: "cut"},
+		"cut more than an hour ago":             {started: 70 * time.Minute, cut: 61 * time.Minute, from: "cut"},
+		"no cut, started within the hour":       {started: 50 * time.Minute, want: true, from: "start"},
+		"no cut, started more than an hour ago": {started: 61 * time.Minute, from: "start"},
+		"cut a minute ago, no attempts left": {
+			started: 33 * time.Minute, cut: time.Minute, attempts: 2, from: "cut",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			svc, clock := newStore(t)
+			chat := cutTurn(t, svc, clock, c.started, c.attempts, false)
+
+			if c.cut > 0 {
+				cutAt(t, svc, clock, c.cut)
+			}
+
+			log := &lockedBuffer{}
+			runSupervisor(t, svc, Config{Logger: slog.New(slog.NewTextHandler(log, nil))})
+
+			want := orchestration.CutText
+			if c.want {
+				want = orchestration.ContinuedText
+			}
+
+			waitFor(t, svc, chat, orchestration.ChatSystem, want)
+			require.Eventually(t, func() bool {
+				return strings.Contains(log.String(), "event=coordinator.cut_turn")
+			}, 10*time.Second, 10*time.Millisecond)
+			assert.Contains(t, log.String(), fmt.Sprintf("continued=%t", c.want))
+			assert.Contains(t, log.String(), "age_from="+c.from)
+		})
+	}
+}
+
+// Scenario (issue #1162): the cut is written as the control plane begins to stop, before it waits for the turns: at
+// the update's begin, and when the supervisor stops every pi. A turn that settles during the wait clears it with its
+// mark, and a turn that starts after it is not cut.
+func TestTheCutIsWrittenBeforeTheWaitForTheTurns(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newStore(t)
+	ctx := t.Context()
+
+	sup, stop := runSupervisor(t, svc, Config{})
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hang settled")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return len(marked(t, svc)) == 1 }, 10*time.Second, 10*time.Millisecond)
+	assert.False(t, cutTurns(t, svc)[0].Cut, "a running turn is not cut")
+
+	require.NoError(t, sup.BeginUpdate(func() error { return nil }))
+	assert.True(t, cutTurns(t, svc)[0].Cut, "the update's begin cuts the running turn")
+
+	require.NoError(t, svc.MarkChatTurn(ctx, chat.ID, "a-newer-turn"))
+	assert.False(t, cutTurns(t, svc)[0].Cut, "a turn that starts after the cut is not cut")
+
+	stop()
+
+	cut := cutTurns(t, svc)
+	require.Len(t, cut, 1)
+	assert.True(t, cut[0].Cut, "the stop cuts it")
+
+	require.NoError(t, svc.SettleChatTurn(ctx, chat.ID, "a-newer-turn"))
+	require.NoError(t, svc.MarkChatTurn(ctx, chat.ID, "a-later-turn"))
+	assert.False(t, cutTurns(t, svc)[0].Cut, "a turn that settled took its cut with its mark")
+}
+
+// A failed update's begin writes no cut.
+func TestAnUpdateThatFailsToBeginCutsNothing(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newStore(t)
+	ctx := t.Context()
+	sup := New(svc, Config{})
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	require.NoError(t, svc.MarkChatTurn(ctx, chat.ID, "pi"))
+
+	failed := errors.New("no marker")
+	require.ErrorIs(t, sup.BeginUpdate(func() error { return failed }), failed)
+	assert.False(t, cutTurns(t, svc)[0].Cut)
+}
+
+func cutTurns(t *testing.T, svc *orchestration.Service) []orchestration.CutTurn {
+	t.Helper()
+
+	cut, err := svc.CutTurns(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, cut)
+
+	return cut
 }
 
 // Scenario: the third start in a row, each a few minutes after the last, finds cut turns again: restarts are in a
@@ -316,7 +442,7 @@ func TestALineAnEarlierStartLeftIsNotGivenWhenTheTurnIsNotContinued(t *testing.T
 		attempts int
 		loop     bool
 	}{
-		"stale":            {age: 16 * time.Minute, attempts: 1},
+		"stale":            {age: 61 * time.Minute, attempts: 1},
 		"no attempts left": {age: time.Minute, attempts: 2},
 		"restart loop":     {age: time.Minute, attempts: 1, loop: true},
 	} {

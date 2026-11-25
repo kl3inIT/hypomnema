@@ -218,6 +218,7 @@ test("the sidebar lists the Bots, each opening its main chat", async ({ page }) 
   // The places are the daily ones; the agents and the machines are in Settings (issue #857).
   await expect(page.getByRole("navigation", { name: "Places" }).getByRole("link")).toHaveText([
     "New chat",
+    "Inbox",
     "Team",
     "Routines",
     "Meetings",

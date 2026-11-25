@@ -109,6 +109,11 @@ const SaveToProperty = `{"type":"string","description":"a .png, .jpg or .jpeg pa
 const SaveToHelp = "To keep the picture as a file, for an artifact or a page, give save_to: it is written " +
 	"there and the answer is its path. Do not write a script of your own to save a screenshot."
 
+// Wakes is what the phone's tools say of a phone stopped for idleness (issue #1083): any call starts it, and its
+// machine, as node_exec on the phone's node does; a Bot that read only "not connected" waited hours for it.
+const Wakes = "When the phone, or its node's machine, was stopped because it was idle, any phone tool's call " +
+	"starts it and answers once it is up, in about a minute; do not wait for it to come back by itself."
+
 // Tools are the tools an agent is offered: the phone's, then filming it (video.go).
 func Tools() []Tool { return append(phoneTools(), videoTools()...) }
 
@@ -116,7 +121,7 @@ func phoneTools() []Tool {
 	return []Tool{
 		tool(Screen, "Take a picture of the phone's screen. Look at it before acting and again after each "+
 			"action. With boxes, what can be tapped is marked by numbered boxes, which device_tap takes by "+
-			"number; that takes a second or two longer. "+SaveToHelp,
+			"number; that takes a second or two longer. "+Wakes+" "+SaveToHelp,
 			`{"boxes":{"type":"boolean","description":"mark what can be tapped with numbered boxes"},`+
 				`"`+SaveTo+`":`+SaveToProperty+`}`, nil),
 		tool(Layout, "Read the views of the app on the phone's screen as JSON: text, descriptions, ids and "+

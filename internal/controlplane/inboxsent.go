@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -19,9 +20,12 @@ import (
 // answered an Inbox item (issue #1004): a Zalo or WhatsApp message from what the server keeps of that account (its
 // messaging store, by the Connection's label, the chat and the id); a Lark message from Lark's API with the owner's
 // own sign-in, since the server keeps none of his Lark messages (checked on zm on 2026-11-20: no table holds them;
-// channel_messages keeps only the ids of the events a Lark app's bot took).
+// channel_messages keeps only the ids of the events a Lark app's bot took). It reads too who asked and who is in a
+// chat now, for his answer in another chat where the asker is (issue #1163): from the service, through the session
+// the server holds of a Zalo or WhatsApp account, and from Lark's API.
 type inboxSent struct {
 	messages func(ctx context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error)
+	members  func(ctx context.Context, integration, label, chat string) (messaging.Members, error)
 	// larkToken is the access token of the owner's Lark Connection label, his own sign-in.
 	larkToken func(ctx context.Context, label string) (string, error)
 	// larkURL is Lark's API, https://open.larksuite.com.
@@ -34,31 +38,150 @@ func (s inboxSent) SentMessage(ctx context.Context, service, account, chat, id s
 ) (inboxstore.SentMessage, error) {
 	switch service {
 	case inboxstore.FromZalo, inboxstore.FromWhatsApp:
-		msgs, err := s.messages(ctx, service, account, messaging.Query{Chat: chat, ID: id, Limit: 1})
+		m, err := s.kept(ctx, service, account, chat, id)
 		if err != nil {
 			return inboxstore.SentMessage{}, err
 		}
 
-		if len(msgs) == 0 || msgs[0].ID != id {
-			return inboxstore.SentMessage{}, fmt.Errorf("%w: message %s of chat %s", storeerr.ErrNotFound, id, chat)
+		return inboxstore.SentMessage{Chat: m.Chat, At: m.At, FromMe: m.FromMe}, nil
+	case inboxstore.FromLark:
+		token, err := s.larkToken(ctx, account)
+		if err != nil {
+			return inboxstore.SentMessage{}, err
 		}
 
-		return inboxstore.SentMessage{Chat: msgs[0].Chat, At: msgs[0].At, FromMe: msgs[0].FromMe}, nil
-	case inboxstore.FromLark:
-		return s.lark(ctx, account, id)
+		me, err := s.larkMe(ctx, token)
+		if err != nil {
+			return inboxstore.SentMessage{}, err
+		}
+
+		m, err := s.larkMessage(ctx, token, id)
+		if err != nil {
+			return inboxstore.SentMessage{}, err
+		}
+
+		return inboxstore.SentMessage{Chat: m.chat, At: m.at, FromMe: me != "" && m.from == me}, nil
 	}
 
 	return inboxstore.SentMessage{}, fmt.Errorf("%w: %s keeps no messages of the owner", storeerr.ErrInvalid, service)
 }
 
-// lark reads a message with the owner's own Lark sign-in (GET /open-apis/im/v1/messages/:message_id) and who he is
-// (GET /open-apis/authen/v1/user_info): his message is one whose sender is that user.
-func (s inboxSent) lark(ctx context.Context, account, id string) (inboxstore.SentMessage, error) {
-	token, err := s.larkToken(ctx, account)
-	if err != nil {
-		return inboxstore.SentMessage{}, err
+// Asker is who asked by a message of a chat of the owner's account (issue #1163): its sender when someone else sent
+// it; else, the owner's own message in a direct chat (his promise there), that chat's other party.
+func (s inboxSent) Asker(ctx context.Context, service, account, chat, id string) ([]string, error) {
+	var (
+		sender, me string
+		fromMe     bool
+	)
+
+	switch service {
+	case inboxstore.FromZalo, inboxstore.FromWhatsApp:
+		m, err := s.kept(ctx, service, account, chat, id)
+		if err != nil {
+			return nil, err
+		}
+
+		sender, fromMe = m.Sender, m.FromMe
+	case inboxstore.FromLark:
+		token, err := s.larkToken(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+
+		if me, err = s.larkMe(ctx, token); err != nil {
+			return nil, err
+		}
+
+		if me == "" {
+			return nil, fmt.Errorf("%w: the owner's Lark sign-in does not say who he is", storeerr.ErrNotFound)
+		}
+
+		m, err := s.larkMessage(ctx, token, id)
+		if err != nil {
+			return nil, err
+		}
+
+		if m.chat != chat {
+			return nil, fmt.Errorf("%w: Lark message %s of chat %s", storeerr.ErrNotFound, id, chat)
+		}
+
+		sender, fromMe = m.from, m.from == me
+	default:
+		return nil, fmt.Errorf("%w: %s keeps no messages of the owner", storeerr.ErrInvalid, service)
 	}
 
+	if !fromMe && sender != "" {
+		return []string{sender}, nil
+	}
+
+	in, err := s.chatMembers(ctx, service, account, chat)
+	if err != nil {
+		return nil, err
+	}
+
+	if in.direct {
+		others := slices.DeleteFunc(in.IDs, func(id string) bool { return id == me })
+		if len(others) > 0 {
+			return others, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%w: no one but the owner asked in chat %s", storeerr.ErrNotFound, chat)
+}
+
+// Members reads who is in a chat of the owner's account now (issue #1163): of a Zalo or WhatsApp account through the
+// session the server holds of it, of Lark with his own sign-in.
+func (s inboxSent) Members(ctx context.Context, service, account, chat string) (inboxstore.ChatMembers, error) {
+	in, err := s.chatMembers(ctx, service, account, chat)
+
+	return in.ChatMembers, err
+}
+
+// chatMembers are a chat's members and whether it is a direct chat.
+type chatMembers struct {
+	inboxstore.ChatMembers
+
+	direct bool
+}
+
+func (s inboxSent) chatMembers(ctx context.Context, service, account, chat string) (chatMembers, error) {
+	switch service {
+	case inboxstore.FromZalo, inboxstore.FromWhatsApp:
+		m, err := s.members(ctx, service, account, chat)
+		if err != nil {
+			return chatMembers{}, err
+		}
+
+		return chatMembers{ChatMembers: inboxstore.ChatMembers{Name: m.Name, IDs: m.IDs}, direct: m.Direct}, nil
+	case inboxstore.FromLark:
+		token, err := s.larkToken(ctx, account)
+		if err != nil {
+			return chatMembers{}, err
+		}
+
+		return s.larkMembers(ctx, token, chat)
+	}
+
+	return chatMembers{}, fmt.Errorf("%w: %s lists no members", storeerr.ErrInvalid, service)
+}
+
+// kept is one message of a chat that the server keeps of a Zalo or WhatsApp account.
+func (s inboxSent) kept(ctx context.Context, service, account, chat, id string) (messaging.Message, error) {
+	msgs, err := s.messages(ctx, service, account, messaging.Query{Chat: chat, ID: id, Limit: 1})
+	if err != nil {
+		return messaging.Message{}, err
+	}
+
+	if len(msgs) == 0 || msgs[0].ID != id {
+		return messaging.Message{}, fmt.Errorf("%w: message %s of chat %s", storeerr.ErrNotFound, id, chat)
+	}
+
+	return msgs[0], nil
+}
+
+// larkMe is who the owner is at Lark, his open_id (GET /open-apis/authen/v1/user_info); empty when it does not say,
+// and then no message is known to be his.
+func (s inboxSent) larkMe(ctx context.Context, token string) (string, error) {
 	var me struct {
 		Data struct {
 			OpenID string `json:"open_id"`
@@ -66,9 +189,20 @@ func (s inboxSent) lark(ctx context.Context, account, id string) (inboxstore.Sen
 	}
 
 	if err := s.larkGet(ctx, token, "/open-apis/authen/v1/user_info", &me); err != nil {
-		return inboxstore.SentMessage{}, err
+		return "", err
 	}
 
+	return me.Data.OpenID, nil
+}
+
+// larkMessage is a Lark message as the owner's sign-in reads it (GET /open-apis/im/v1/messages/:message_id): its
+// chat, when it was sent and its sender's open_id, a person's only.
+type larkMessage struct {
+	chat, from string
+	at         time.Time
+}
+
+func (s inboxSent) larkMessage(ctx context.Context, token, id string) (larkMessage, error) {
 	var got struct {
 		Data struct {
 			Items []struct {
@@ -84,7 +218,7 @@ func (s inboxSent) lark(ctx context.Context, account, id string) (inboxstore.Sen
 	}
 
 	if err := s.larkGet(ctx, token, "/open-apis/im/v1/messages/"+url.PathEscape(id), &got); err != nil {
-		return inboxstore.SentMessage{}, err
+		return larkMessage{}, err
 	}
 
 	for _, m := range got.Data.Items {
@@ -94,16 +228,78 @@ func (s inboxSent) lark(ctx context.Context, account, id string) (inboxstore.Sen
 
 		ms, err := strconv.ParseInt(m.CreateTime, 10, 64)
 		if err != nil {
-			return inboxstore.SentMessage{}, fmt.Errorf("lark: message %s has no time: %w", id, err)
+			return larkMessage{}, fmt.Errorf("lark: message %s has no time: %w", id, err)
 		}
 
-		return inboxstore.SentMessage{
-			Chat: m.ChatID, At: time.UnixMilli(ms).UTC(),
-			FromMe: me.Data.OpenID != "" && m.Sender.SenderType == "user" && m.Sender.ID == me.Data.OpenID,
-		}, nil
+		out := larkMessage{chat: m.ChatID, at: time.UnixMilli(ms).UTC()}
+		if m.Sender.SenderType == "user" {
+			out.from = m.Sender.ID
+		}
+
+		return out, nil
 	}
 
-	return inboxstore.SentMessage{}, fmt.Errorf("%w: Lark message %s", storeerr.ErrNotFound, id)
+	return larkMessage{}, fmt.Errorf("%w: Lark message %s", storeerr.ErrNotFound, id)
+}
+
+// larkMemberPages bounds the pages of a Lark chat's members read, a hundred each: a group larger is not read whole,
+// and its members are not known.
+const larkMemberPages = 100
+
+// larkMembers are a Lark chat's name, whether it is a direct chat (GET /open-apis/im/v1/chats/:chat_id, chat_mode
+// p2p) and its members by their open_id (GET /open-apis/im/v1/chats/:chat_id/members, page after page), read with
+// the owner's own sign-in.
+func (s inboxSent) larkMembers(ctx context.Context, token, chat string) (chatMembers, error) {
+	var info struct {
+		Data struct {
+			Name     string `json:"name"`
+			ChatMode string `json:"chat_mode"`
+		} `json:"data"`
+	}
+
+	path := "/open-apis/im/v1/chats/" + url.PathEscape(chat)
+	if err := s.larkGet(ctx, token, path, &info); err != nil {
+		return chatMembers{}, err
+	}
+
+	out := chatMembers{ChatMembers: inboxstore.ChatMembers{Name: info.Data.Name, IDs: []string{}},
+		direct: info.Data.ChatMode == "p2p"}
+	page := ""
+
+	for range larkMemberPages {
+		q := url.Values{"member_id_type": {"open_id"}, "page_size": {"100"}}
+		if page != "" {
+			q.Set("page_token", page)
+		}
+
+		var got struct {
+			Data struct {
+				Items []struct {
+					MemberID string `json:"member_id"`
+				} `json:"items"`
+				HasMore   bool   `json:"has_more"`
+				PageToken string `json:"page_token"`
+			} `json:"data"`
+		}
+
+		if err := s.larkGet(ctx, token, path+"/members?"+q.Encode(), &got); err != nil {
+			return chatMembers{}, err
+		}
+
+		for _, m := range got.Data.Items {
+			if m.MemberID != "" {
+				out.IDs = append(out.IDs, m.MemberID)
+			}
+		}
+
+		if !got.Data.HasMore || got.Data.PageToken == "" {
+			return out, nil
+		}
+
+		page = got.Data.PageToken
+	}
+
+	return chatMembers{}, fmt.Errorf("lark: chat %s has more than %d members to read", chat, larkMemberPages*100)
 }
 
 // larkAnswer is the envelope of every Lark answer: code 0 when it succeeded.

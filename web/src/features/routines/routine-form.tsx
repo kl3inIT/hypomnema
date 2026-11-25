@@ -26,8 +26,7 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { botNameOf } from "@/features/bots/bots-state"
-import { useBots } from "@/features/bots/use-bots"
+import { useBotNames, useBots } from "@/features/bots/use-bots"
 import { ErrorAlert } from "@/components/error-alert"
 import { TextField } from "@/components/text-field"
 
@@ -174,6 +173,7 @@ function Body({
   onSaved: (routine: Routine) => void
 }) {
   const bots = useBots()
+  const botName = useBotNames()
   const put = usePutRoutine()
   const form = useForm({
     defaultValues: valuesOf(routine, bot || (bots.data?.[0]?.id ?? "")),
@@ -214,7 +214,7 @@ function Body({
                       >
                         <SelectTrigger id="routine-bot" width="full">
                           <SelectValue placeholder="Choose a Bot">
-                            {(value: string) => botNameOf(bots.data, value)}
+                            {(value: string) => botName(value)}
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent>

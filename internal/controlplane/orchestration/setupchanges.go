@@ -414,7 +414,12 @@ func (s *Service) undoBot(ctx context.Context, q *store.Queries, now int64, r st
 			return err
 		}
 
-		return q.DeleteBot(ctx, r.Name)
+		// Its Inbox items not closed become the main Bot's, as in removeBotRow (issue #1124).
+		if err := s.inbox.TakeOverTx(ctx, q, now, row.ID, row.Name, DefaultBotID); err != nil {
+			return err
+		}
+
+		return deleteBotRow(ctx, q, row)
 	}
 
 	var before botSettings

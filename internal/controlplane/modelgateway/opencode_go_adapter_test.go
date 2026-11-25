@@ -290,6 +290,8 @@ func TestAUsedUpGoKeyRestsAndTheNextKeyServes(t *testing.T) {
 // /v1/messages, and the Codex CLI a Go model served on Responses through
 // /v1/responses. Each body is passed on as the client sent it, under the
 // model's name at Go, and the answer comes back in the client's own format.
+// A Go model on Messages is not reached from /v1/responses; one on chat is
+// translated (responses_translated_test.go).
 func TestGoPassesARouteItsOwnWire(t *testing.T) {
 	t.Parallel()
 
@@ -327,8 +329,9 @@ func TestGoPassesARouteItsOwnWire(t *testing.T) {
 	_, sent = backend.got.last(t)
 	assert.JSONEq(t, `{"model":"gpt-6-luna","input":"hi","stream":true}`, sent)
 
-	status, _, body = g.respond(t, g.key, `{"model":"opencode-go/glm-5.3","input":"hi"}`)
-	assert.Equal(t, http.StatusBadRequest, status, "a chat-only Go model is not served on /v1/responses: %s", body)
+	status, _, body = g.respond(t, g.key, `{"model":"opencode-go/minimax-m3","input":"hi"}`)
+	assert.Equal(t, http.StatusBadRequest, status, "a Messages Go model is not served on /v1/responses: %s", body)
+	assert.Contains(t, body, "model_not_served_here")
 }
 
 // Scenario: Go's refusals, as omniroute and opencode read them. A 429 naming

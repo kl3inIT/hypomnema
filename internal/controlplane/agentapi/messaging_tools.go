@@ -97,6 +97,9 @@ type Messaging interface {
 	Media(ctx context.Context, integration, label, chat, id string) (messaging.Media, error)
 	Backfill(ctx context.Context, integration, label, chat string, count int) (messaging.Backfilled, error)
 	Send(ctx context.Context, integration, label string, out messaging.Outgoing) (messaging.Message, error)
+	// AccountID is the account's own id at the service, as its session held knows it: the Zalo id, the WhatsApp
+	// number's JID (issue #1124).
+	AccountID(ctx context.Context, integration, label string) (string, error)
 }
 
 // Judge decides an act an agent asks for, as the service proxy decides a request (serviceproxy.Proxy.Judge): nil
@@ -214,7 +217,8 @@ func (m messagingService) tools(labels []string, relayMentions bool) []agenttool
 		{
 			Name: m.chats,
 			Description: "List the owner's " + m.name + " chats, groups and people, the latest first: each one's " +
-				"id, kind (dm, group, broadcast), name and when its last message came. " + m.chatsAbout +
+				"id, kind (dm, group, broadcast), name and when its last message came, and the account's label, " +
+				"which an Inbox item's source names. " + m.chatsAbout +
 				" Use it first, to find a chat's id.",
 			InputSchema: with(map[string]any{"limit": limit}),
 		},
@@ -223,7 +227,7 @@ func (m messagingService) tools(labels []string, relayMentions bool) []agenttool
 			Description: "Read the owner's " + m.name + " messages, the latest first: of one chat, or matching a search " +
 				"of their text, caption, file name, chat or sender, or both. Each has its id, chat, " + sender +
 				", time, text, what it replies to, its media (type, caption, file name, whether its file is kept), and " +
-				"whether it was edited or deleted. Use it to read a chat or find a message; before (RFC 3339) pages " +
+				"whether it was edited or deleted; the answer names the account's label. Use it to read a chat or find a message; before (RFC 3339) pages " +
 				"back, and for what is older than the oldest kept, use " + m.history + " first. " + untrusted,
 			InputSchema: with(map[string]any{
 				"chat":   chat,
@@ -332,7 +336,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 	case m.chats:
 		chats, err := s.messaging.Chats(ctx, m.integration, label, in.Limit)
 		s.messagingSignIn(ctx, a, m, label, err)
-		s.answerJSON(w, r, map[string]any{"note": untrusted, "chats": chats}, err)
+		s.answerJSON(w, r, map[string]any{"note": untrusted, "account": label, "chats": chats}, err)
 	case m.messages:
 		q := messaging.Query{Chat: strings.TrimSpace(in.Chat), Search: in.Search, Limit: in.Limit, Offset: in.Offset}
 		if in.Before != "" {
@@ -348,7 +352,7 @@ func (s *Server) messagingCall(w http.ResponseWriter, r *http.Request, a agent, 
 
 		msgs, err := s.messaging.Messages(ctx, m.integration, label, q)
 		s.messagingSignIn(ctx, a, m, label, err)
-		s.answerJSON(w, r, map[string]any{"note": untrusted, "messages": msgs}, err)
+		s.answerJSON(w, r, map[string]any{"note": untrusted, "account": label, "messages": msgs}, err)
 	case m.media:
 		s.messagingMedia(w, r, a, m, label, in)
 	case m.send:
@@ -655,7 +659,7 @@ func (s *Server) messagingSend(w http.ResponseWriter, r *http.Request, a agent, 
 	err := s.judge.Judge(ctx, serviceproxy.Act{
 		Caller:      a.proxyCaller(),
 		Integration: m.integration, Label: label, ChatID: a.chatID, Action: m.integration + ".send",
-		Subject: name, Fields: fields, Hash: hex.EncodeToString(hash[:]), AttemptID: attempt,
+		Subject: name, Fields: fields, Hash: hex.EncodeToString(hash[:]), AttemptID: attempt, Opened: r,
 	})
 
 	var refused *serviceproxy.RefusedError

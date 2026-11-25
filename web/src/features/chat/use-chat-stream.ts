@@ -19,8 +19,12 @@ import { chatReducer, emptyChat, type ChatAction } from "./chat-state"
 
 // reopenAfter is the pause before the stream is opened again once the server ended it (a restart).
 const reopenAfter = 2000
-// page is how many messages one read of history brings (OpenMausBot's MESSAGE_PAGE_SIZE, Orca's history pages).
+// page is how many messages one read of older history brings (OpenMausBot's MESSAGE_PAGE_SIZE, Orca's history pages).
 const page = 200
+// first is how many the chat opens on (issue #1129): its newest, which fill the screen, so a long chat on a slow link
+// shows in under a second (200 of a Bot's chat, mostly tool results, are 41 to 60 KB gzipped, 50 about 16 KB); the
+// older ones come a page at a time as the reader scrolls up.
+const first = 50
 // relistAfter gathers the lines that come close together into one new read of the lists of chats.
 const relistAfter = 1000
 // newest is a seq above every message, to read a chat from its end.
@@ -92,7 +96,7 @@ export function useChatStream(chatId: string) {
           if (!read) {
             const { data } = await listChatMessages({
               path: { chat_id: chatId },
-              query: { before: newest, limit: page },
+              query: { before: newest, limit: first },
               signal: controller.signal,
             })
             after = data.next_after

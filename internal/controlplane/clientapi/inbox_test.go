@@ -219,6 +219,15 @@ func TestEachTokenActsAsItsCaller(t *testing.T) {
 			return c.ReleaseTodoWithResponse(ctx, td.Id, openapi.TodoRelease{Revision: td.Revision,
 				Attempt: &td.Work.Attempt, Reason: "Stuck"})
 		}, [4]int{403, 200, 200, 403}},
+		// Issue #1111: only the owner hands an item to a Bot; a Bot comments on its own item.
+		{"HandTodo", func(t *testing.T, _ inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Hand", toOwner) },
+			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
+				return c.HandTodoWithResponse(ctx, td.Id, openapi.TodoHand{Revision: td.Revision, Prompt: ptr("Do it")})
+			}, [4]int{200, 403, 403, 403}},
+		{"CommentTodo", func(t *testing.T, c inboxCallerCase) openapi.Todo { return w.add(ctx, t, "Say", c.bot) },
+			func(c *openapi.ClientWithResponses, td openapi.Todo) (any, error) {
+				return c.CommentTodoWithResponse(ctx, td.Id, openapi.TodoComment{Text: "On it"})
+			}, [4]int{200, 200, 200, 403}},
 	}
 
 	covered := map[string]bool{}
@@ -369,6 +378,22 @@ func TestARoutineBotOpensOnlyWhatIsClear(t *testing.T) {
 	require.NotNil(t, got.Events)
 	assert.Equal(t, string(asked), (*got.Events)[0].After["why_open"])
 
+	// A Gmail thread and a meeting are named the same way (issue #1105).
+	gmail, meeting := openapi.TodoSourceKindGmail, openapi.TodoSourceKindMeeting
+	mail := openapi.TodoLink{Kind: openapi.TodoLinkKindMail, Ref: "18c2f0a9b1d2e3f5"}
+	line := openapi.TodoLink{Kind: openapi.TodoLinkKindMeetingLine, Ref: "mtg_1/12"}
+
+	for kind, src := range map[openapi.TodoSourceKind]openapi.NewTodoSource{
+		gmail:   {Kind: &gmail, Id: ptr("18c2f0a9b1d2e3f4"), Account: ptr("work"), Quote: &quote, Ref: &mail},
+		meeting: {Kind: &meeting, Id: ptr("mtg_1"), Quote: &quote, Ref: &line},
+	} {
+		r := create(openapi.NewTodo{Title: "Check the contract", WhyOpen: &asked, Source: &src})
+		require.Equal(t, http.StatusCreated, r.StatusCode(), string(r.Body))
+		assert.Equal(t, openapi.TodoStateOpen, r.JSON201.State, kind)
+		assert.Equal(t, openapi.TodoSource{Kind: kind, Id: src.Id, Account: src.Account, Quote: &quote,
+			Ref: src.Ref}, r.JSON201.Source)
+	}
+
 	// A prompt Routine's run, with its own chat.
 	prompt, every := "Read my Lark chats.", 60
 	made, err := w.owner.PutRoutineWithResponse(ctx, orchestration.DefaultBotID, "brief",
@@ -498,4 +523,30 @@ func TestInboxErrorsAndRetries(t *testing.T) {
 		openapi.NewTodo{Title: "Answer Minh"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusConflict, other.StatusCode(), string(other.Body))
+}
+
+// Scenario: issue #1118, through the client API. The main Bot's token passes an item to a project Bot and the item
+// reads through whom that Bot has it; the project Bot's token passes it to no other project Bot.
+func TestTheMainBotsTokenPassesAnItemToAProjectBot(t *testing.T) {
+	t.Parallel()
+
+	w := newInboxWorld(t)
+	ctx := t.Context()
+
+	beyond, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "BeyondPilot"})
+	require.NoError(t, err)
+
+	td := w.add(ctx, t, "Send Kai the pilot's report", toMain)
+	assert.Nil(t, td.PassedBy, "the owner gave it himself")
+
+	passed, err := w.chatBot.EditTodoWithResponse(ctx, td.Id, openapi.TodoEdit{Revision: td.Revision, Assignee: &w.vmap})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, passed.StatusCode(), string(passed.Body))
+	assert.Equal(t, w.vmap, passed.JSON200.Assignee)
+	assert.Equal(t, ptr(orchestration.DefaultBotID), w.get(t, td.Id).PassedBy)
+
+	round, err := w.routineBot.EditTodoWithResponse(ctx, td.Id, openapi.TodoEdit{Revision: passed.JSON200.Revision,
+		Assignee: &openapi.TodoAssignee{Kind: openapi.TodoAssigneeKindBot, Name: &beyond.ID}})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, round.StatusCode(), string(round.Body))
 }

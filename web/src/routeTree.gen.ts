@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as GridRouteImport } from './routes/grid'
+import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as MeetingsRouteImport } from './routes/meetings'
 import { Route as RoutinesRouteImport } from './routes/routines'
@@ -25,6 +26,7 @@ import { Route as BotsIdRouteImport } from './routes/bots.$id'
 import { Route as BotsNewRouteImport } from './routes/bots.new'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as MeetingsMeetingIdRouteImport } from './routes/meetings_.$meetingId'
+import { Route as MeetingsSettingsRouteImport } from './routes/meetings_.settings'
 import { Route as STokenRouteImport } from './routes/s.$token'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAboutYouRouteImport } from './routes/settings.about-you'
@@ -62,6 +64,11 @@ const IndexRoute = IndexRouteImport.update({
 const GridRoute = GridRouteImport.update({
   id: '/grid',
   path: '/grid',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InboxRoute = InboxRouteImport.update({
+  id: '/inbox',
+  path: '/inbox',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MachinesRoute = MachinesRouteImport.update({
@@ -132,6 +139,11 @@ const ChatsChatIdRoute = ChatsChatIdRouteImport.update({
 const MeetingsMeetingIdRoute = MeetingsMeetingIdRouteImport.update({
   id: '/meetings_/$meetingId',
   path: '/meetings/$meetingId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MeetingsSettingsRoute = MeetingsSettingsRouteImport.update({
+  id: '/meetings_/settings',
+  path: '/meetings/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const STokenRoute = STokenRouteImport.update({
@@ -278,6 +290,7 @@ const StudioVideosVideoIdRoute = StudioVideosVideoIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
+  '/inbox': typeof InboxRoute
   '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
@@ -290,6 +303,7 @@ export interface FileRoutesByFullPath {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
+  '/meetings/settings': typeof MeetingsSettingsRoute
   '/s/$token': typeof STokenRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
@@ -324,6 +338,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
+  '/inbox': typeof InboxRoute
   '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
@@ -336,6 +351,7 @@ export interface FileRoutesByTo {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
+  '/meetings/settings': typeof MeetingsSettingsRoute
   '/s/$token': typeof STokenRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
@@ -371,6 +387,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/grid': typeof GridRoute
+  '/inbox': typeof InboxRoute
   '/machines': typeof MachinesRoute
   '/meetings': typeof MeetingsRoute
   '/routines': typeof RoutinesRoute
@@ -383,6 +400,7 @@ export interface FileRoutesById {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/meetings_/$meetingId': typeof MeetingsMeetingIdRoute
+  '/meetings_/settings': typeof MeetingsSettingsRoute
   '/s/$token': typeof STokenRoute
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/audio': typeof SettingsAudioRoute
@@ -419,6 +437,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/grid'
+    | '/inbox'
     | '/machines'
     | '/meetings'
     | '/routines'
@@ -431,6 +450,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/meetings/$meetingId'
+    | '/meetings/settings'
     | '/s/$token'
     | '/settings/about-you'
     | '/settings/audio'
@@ -465,6 +485,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/grid'
+    | '/inbox'
     | '/machines'
     | '/meetings'
     | '/routines'
@@ -477,6 +498,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/meetings/$meetingId'
+    | '/meetings/settings'
     | '/s/$token'
     | '/settings/about-you'
     | '/settings/audio'
@@ -511,6 +533,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/grid'
+    | '/inbox'
     | '/machines'
     | '/meetings'
     | '/routines'
@@ -523,6 +546,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/meetings_/$meetingId'
+    | '/meetings_/settings'
     | '/s/$token'
     | '/settings/about-you'
     | '/settings/audio'
@@ -558,6 +582,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   GridRoute: typeof GridRoute
+  InboxRoute: typeof InboxRoute
   MachinesRoute: typeof MachinesRoute
   MeetingsRoute: typeof MeetingsRoute
   RoutinesRoute: typeof RoutinesRoute
@@ -570,6 +595,7 @@ export interface RootRouteChildren {
   BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   MeetingsMeetingIdRoute: typeof MeetingsMeetingIdRoute
+  MeetingsSettingsRoute: typeof MeetingsSettingsRoute
   STokenRoute: typeof STokenRoute
   SettingsAboutYouRoute: typeof SettingsAboutYouRoute
   SettingsAudioRoute: typeof SettingsAudioRoute
@@ -616,6 +642,13 @@ declare module '@tanstack/react-router' {
       path: '/grid'
       fullPath: '/grid'
       preLoaderRoute: typeof GridRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/inbox': {
+      id: '/inbox'
+      path: '/inbox'
+      fullPath: '/inbox'
+      preLoaderRoute: typeof InboxRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/machines': {
@@ -714,6 +747,13 @@ declare module '@tanstack/react-router' {
       path: '/meetings/$meetingId'
       fullPath: '/meetings/$meetingId'
       preLoaderRoute: typeof MeetingsMeetingIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/meetings_/settings': {
+      id: '/meetings_/settings'
+      path: '/meetings/settings'
+      fullPath: '/meetings/settings'
+      preLoaderRoute: typeof MeetingsSettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/s/$token': {
@@ -918,6 +958,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   GridRoute: GridRoute,
+  InboxRoute: InboxRoute,
   MachinesRoute: MachinesRoute,
   MeetingsRoute: MeetingsRoute,
   RoutinesRoute: RoutinesRoute,
@@ -930,6 +971,7 @@ const rootRouteChildren: RootRouteChildren = {
   BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   MeetingsMeetingIdRoute: MeetingsMeetingIdRoute,
+  MeetingsSettingsRoute: MeetingsSettingsRoute,
   STokenRoute: STokenRoute,
   SettingsAboutYouRoute: SettingsAboutYouRoute,
   SettingsAudioRoute: SettingsAudioRoute,

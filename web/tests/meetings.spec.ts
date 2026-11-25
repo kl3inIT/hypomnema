@@ -4,8 +4,8 @@ import { shot } from "./shot.js"
 
 // The Meetings pages (issues #721, #747), built, against a fake client API, on a phone and a desktop: the list
 // grouped by day, the upload dialog, a meeting's page with its player, notes and transcript, the speaker picker, a
-// word fixed in the transcript, the Actions tab, Settings' Meetings group (issue #762: the dictionary and the notes
-// model) and the way back from Settings. The notes have no format to pick: they are sectioned by topic (issue #771).
+// word fixed in the transcript, the Actions tab, the meetings' settings behind the gear (issue #1121: the dictionary
+// and the notes model, Settings' group Meetings until then) and the way back from Settings. The notes have no format to pick: they are sectioned by topic (issue #771).
 
 // Recording live (issue #820) uses the browser's microphone, which Chromium fakes with a tone, granted without asking;
 // a page's launch options are the file's, as each forces its own browser.
@@ -552,8 +552,9 @@ async function fakeServer(page: Page) {
   })
 
   // A track's socket: ready, then for the first audio a preview and a line kept, at the meeting's time of the
-  // socket's offset; the end is answered finished.
+  // socket's offset; the end is answered finished, and the socket is listed as finished.
   const sockets: string[] = []
+  const finished: string[] = []
   await page.routeWebSocket(/\/api\/v1\/meetings\/[^/]+\/stream\//, (ws) => {
     const url = new URL(ws.url())
     const id = url.pathname.split("/")[4]!
@@ -565,6 +566,7 @@ async function fakeServer(page: Page) {
     ws.onMessage((message) => {
       if (typeof message === "string") {
         if ((JSON.parse(message) as { type: string }).type === "end") {
+          finished.push(`${id} ${track} ${offset}`)
           ws.send(JSON.stringify({ type: "finished" }))
           void ws.close()
         }
@@ -610,7 +612,7 @@ async function fakeServer(page: Page) {
     })
   })
 
-  return { calls, sockets, world: w }
+  return { calls, sockets, finished, world: w }
 }
 
 const fits = (page: Page) =>
@@ -670,7 +672,7 @@ test("the owner sees the meetings by day, as cards or a table", async ({ page, i
 
 // Scenario: the owner uploads a recording: the file and its language, then under More details a title and the
 // people; no notes format is asked (issue #771). The words to hear right are not asked: they are set once on
-// Settings → Dictionary, which the dialog says. They are sent with the recording, and the meeting's page opens on
+// the meetings' settings, which the dialog links. They are sent with the recording, and the meeting's page opens on
 // its steps: uploaded, transcribing.
 test("the owner uploads a recording with its details", async ({ page }) => {
   const { calls } = await fakeServer(page)
@@ -847,11 +849,34 @@ test("the owner follows the actions across meetings", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Weekly sync with Kai", level: 2 })).toBeVisible()
 })
 
-// Scenario: Settings → Notes model has no model yet; the owner picks one of the gateway's chat models with the
-// one-model picker the Bots use, then sets it back to none.
+// Scenario: the gear on the Meetings page opens the meetings' settings, its two sections the dictionary and the notes
+// model, out of the Settings menu (issue #1121). The old addresses of those Settings pages lead there.
+test("the gear opens the meeting settings, where the old Settings pages lead", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/meetings")
+
+  await page.getByRole("link", { name: "Meeting settings" }).click()
+  await expect(page).toHaveURL(/\/meetings\/settings$/)
+  await expect(page.getByRole("heading", { name: "Meeting settings", level: 1 })).toBeVisible()
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText(["Dictionary", "Notes model"])
+  await expect(page.getByRole("list", { name: "Your words" })).toBeVisible()
+  await expect(page.getByTestId("notes-model").getByRole("combobox")).toBeVisible()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "meetings-settings")
+
+  await page.goto("/settings/dictionary")
+  await expect(page).toHaveURL(/\/meetings\/settings#dictionary$/)
+  await expect(page.getByRole("heading", { name: "Meeting settings", level: 1 })).toBeVisible()
+  await page.goto("/settings/notes-model")
+  await expect(page).toHaveURL(/\/meetings\/settings#notes-model$/)
+  await expect(page.getByRole("heading", { name: "Notes model", level: 2 })).toBeInViewport()
+})
+
+// Scenario: the notes model has no model yet; the owner picks one of the gateway's chat models with the one-model
+// picker the Bots use, then sets it back to none.
 test("the owner picks the model that writes notes", async ({ page }) => {
   const { calls } = await fakeServer(page)
-  await page.goto("/settings/notes-model")
+  await page.goto("/meetings/settings")
 
   const model = page.getByTestId("notes-model").getByRole("combobox")
   await expect(model).toContainText("None: notes are not written")
@@ -872,8 +897,8 @@ test("the owner picks the model that writes notes", async ({ page }) => {
 // the owner's whole list.
 test("the owner keeps the dictionary", async ({ page }) => {
   const { calls } = await fakeServer(page)
-  await page.goto("/settings/dictionary")
-  await expect(page.getByRole("heading", { name: "Dictionary", level: 1 })).toBeVisible()
+  await page.goto("/meetings/settings")
+  await expect(page.getByRole("heading", { name: "Dictionary", level: 2 })).toBeVisible()
 
   const own = page.getByRole("list", { name: "Your words" })
   await expect(own.getByRole("listitem")).toHaveText(["MapOps", "ĐKSD"])
@@ -934,10 +959,10 @@ test("the owner fixes a word heard wrong in the transcript", async ({ page }) =>
   await expect(behind).toHaveCount(0)
 })
 
-// Scenario: from the Meetings page, the owner follows the upload dialog's link into Settings → Dictionary; "Back to
-// app" returns to Meetings, not home (moving between Settings' own pages keeps it: back-from-settings.test.ts).
-// Settings opened straight away goes back home. The sidebar of Settings is a desktop's; a phone goes back with its
-// drawer.
+// Scenario: the upload dialog's link opens the meetings' settings at the dictionary. From the Meetings page, the owner
+// opens Settings; "Back to app" returns to Meetings, not home (moving between Settings' own pages keeps it:
+// back-from-settings.test.ts). Settings opened straight away goes back home. The sidebar of Settings is a desktop's;
+// a phone goes back with its drawer.
 test("Back to app returns to the page the owner came from", async ({ page, isMobile }) => {
   test.skip(isMobile, "Settings' sidebar, with Back to app, is a desktop's")
   await fakeServer(page)
@@ -946,17 +971,44 @@ test("Back to app returns to the page the owner came from", async ({ page, isMob
   const dialog = page.getByRole("dialog", { name: "Upload a recording" })
   await page.getByRole("button", { name: "Upload recording" }).first().click()
   await dialog.getByRole("link", { name: "Dictionary" }).click()
-  await expect(page).toHaveURL(/\/settings\/dictionary$/)
+  await expect(page).toHaveURL(/\/meetings\/settings#dictionary$/)
+  await page.getByRole("link", { name: "Meetings" }).first().click()
+  await expect(page).toHaveURL(/\/meetings$/)
+
+  await page.goto("/settings/shared-links")
   await shot(page, "settings-back-to-app")
   await page.getByRole("link", { name: "Back to app" }).click()
   await expect(page).toHaveURL(/\/meetings$/)
   await expect(page.getByRole("heading", { name: "Meetings", level: 1 })).toBeVisible()
 
   await page.evaluate("sessionStorage.clear()")
-  await page.goto("/settings/dictionary")
+  await page.goto("/settings/shared-links")
   await page.getByRole("link", { name: "Back to app" }).click()
   await expect(page).toHaveURL(/127\.0\.0\.1:4173\/$/)
 })
+
+// The share picker stands for a tab that plays a tone, as Chromium's fake devices give no tab.
+const sharedTab = `navigator.mediaDevices.getDisplayMedia = async () => {
+  const context = new AudioContext()
+  const tone = context.createOscillator()
+  const out = context.createMediaStreamDestination()
+  tone.connect(out)
+  tone.start()
+  const video = document.createElement("canvas").captureStream(1).getVideoTracks()
+  return new MediaStream([...video, ...out.stream.getAudioTracks()])
+}`
+
+// Chromium's fake microphone beeps for 20 ms every half second, which lights the microphone's meter for the one 100 ms
+// chunk the beep falls in. A locator check, polled about once a second, can land between beeps every time, so the page
+// counts each change of the page that leaves the meter lit, however short; micLit reads the count since the last reset.
+const micMeterWatch = `window.__micLit = 0
+new MutationObserver(() => {
+  if (document.querySelector('[data-testid="meter-mic"] .bg-done')) window.__micLit++
+}).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] })`
+const micLit = (page: Page, reset = false) =>
+  page.evaluate(
+    reset ? "(() => { window.__micLit = 0; return 0 })()" : "window.__micLit",
+  ) as Promise<number>
 
 // Recording a meeting live (issue #820).
 test.describe("recording a meeting live", () => {
@@ -1022,23 +1074,134 @@ test.describe("recording a meeting live", () => {
     await shot(page, "meetings-recorded")
   })
 
+  // Scenario: the owner pauses a meeting for a private moment (issue #1153): the bar says Paused with a still dot, the
+  // timer stops and the socket is finished; Resume opens a socket where the audio sent ended, so the transcript goes
+  // on in the same meeting without the pause, and the timer goes on. Stop ends the meeting while paused.
+  test("the owner pauses and resumes a recording", async ({ page }) => {
+    const { calls, sockets } = await fakeServer(page)
+    await page.goto("/meetings")
+    await page.getByRole("button", { name: "Record" }).first().click()
+    const dialog = page.getByRole("dialog", { name: "Record a meeting" })
+    await dialog.getByRole("radio", { name: /In person/ }).check()
+    await dialog.getByRole("button", { name: "Start recording" }).click()
+
+    const bar = page.getByRole("region", { name: "Recording" })
+    const timer = bar.getByRole("timer")
+    await expect(page.getByTestId("transcript-line")).toHaveCount(1)
+    await expect(timer).not.toHaveText("0:00")
+    await bar.getByRole("button", { name: "Pause" }).click()
+
+    await expect(bar).toContainText("Paused")
+    await expect(bar.getByRole("button", { name: "Pause" })).toHaveCount(0)
+    const paused = await timer.textContent()
+    await page.waitForTimeout(2_500)
+    await expect(timer).toHaveText(paused!)
+    expect(sockets).toHaveLength(1)
+    await shot(page, "meetings-recording-paused")
+
+    await bar.getByRole("button", { name: "Resume" }).click()
+    await expect(bar).toContainText("Recording")
+    await expect.poll(() => sockets.length).toBe(2)
+    const [pausedMin, pausedSec] = paused!.split(":").map(Number)
+    const offset = Number(sockets[1]!.split(" ")[2])
+    // The new socket starts where the audio sent ended, within the second the timer shows.
+    expect(offset).toBeGreaterThanOrEqual((pausedMin! * 60 + pausedSec!) * 1_000)
+    expect(offset).toBeLessThan((pausedMin! * 60 + pausedSec! + 1) * 1_000)
+    await expect(timer).not.toHaveText(paused!)
+    await expect(page.getByTestId("transcript-line")).toHaveCount(2)
+
+    await bar.getByRole("button", { name: "Pause" }).click()
+    await expect(bar).toContainText("Paused")
+    await bar.getByRole("button", { name: "Stop" }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Stop and end" }).click()
+    await expect(page.locator("[data-slot=meeting-player]")).toBeVisible()
+    expect(calls.filter((c) => c.endsWith("/end"))).toHaveLength(1)
+  })
+
+  // Scenario: the owner mutes their microphone while the meeting records (issue #1155): Mute mic finishes only the
+  // microphone's socket and stills its meter; online the tab's socket goes on and the timer runs. Pause and Resume
+  // leave the microphone muted, Resume opening the tab only; Unmute mic opens a microphone socket at the meeting's
+  // time, so its words land where they were said. On a phone, which records the microphone alone, the button is
+  // there too.
+  test("the owner mutes the microphone while the meeting records", async ({ page, isMobile }) => {
+    if (!isMobile) await page.addInitScript({ content: sharedTab })
+    await page.addInitScript({ content: micMeterWatch })
+    const { sockets, finished } = await fakeServer(page)
+    await page.goto("/meetings")
+    await page.getByRole("button", { name: "Record" }).first().click()
+    await page
+      .getByRole("dialog", { name: "Record a meeting" })
+      .getByRole("button", { name: "Start recording" })
+      .click()
+
+    const bar = page.getByRole("region", { name: "Recording" })
+    const timer = bar.getByRole("timer")
+    const tabs = () => sockets.filter((x) => x.includes(" tab "))
+    const mics = () => sockets.filter((x) => x.includes(" mic "))
+    await expect(page.getByTestId("transcript-line")).toHaveCount(isMobile ? 1 : 2)
+    // The fake microphone's beeps light its meter.
+    await expect.poll(() => micLit(page), { timeout: 10_000 }).toBeGreaterThan(0)
+    await expect(bar.getByRole("button", { name: "Mute mic" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    )
+    expect(await fits(page)).toBe(true)
+    await shot(page, "meetings-recording-mic-on")
+
+    await bar.getByRole("button", { name: "Mute mic" }).click()
+    const unmute = bar.getByRole("button", { name: "Unmute mic" })
+    await expect(unmute).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => finished).toEqual(mics())
+    expect(finished).toHaveLength(1)
+    await expect(bar).toContainText("Recording")
+    const muted = await timer.textContent()
+    // Over a few beeps the microphone's meter never lights while the timer runs on.
+    await micLit(page, true)
+    await page.waitForTimeout(2_400)
+    expect(await micLit(page)).toBe(0)
+    await expect(timer).not.toHaveText(muted!)
+    expect(mics()).toHaveLength(1)
+    expect(await fits(page)).toBe(true)
+    await shot(page, "meetings-recording-mic-muted")
+
+    await bar.getByRole("button", { name: "Pause" }).click()
+    await expect(bar).toContainText("Paused")
+    await expect(unmute).toHaveAttribute("aria-pressed", "true")
+    await shot(page, "meetings-recording-paused-muted")
+    await bar.getByRole("button", { name: "Resume" }).click()
+    await expect(bar).toContainText("Recording")
+    if (!isMobile) await expect.poll(() => tabs().length).toBe(2)
+    await page.waitForTimeout(500)
+    expect(mics()).toHaveLength(1)
+
+    await unmute.click()
+    await expect(bar.getByRole("button", { name: "Mute mic" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    )
+    await expect.poll(() => mics().length).toBe(2)
+    const shown = (await timer.textContent())!.split(":").map(Number)
+    const offset = Number(mics()[1]!.split(" ")[2])
+    // The microphone opens at the meeting's time: the timer's, not where its audio was muted.
+    expect(offset).toBeGreaterThan((shown[0]! * 60 + shown[1]! - 2) * 1_000)
+    expect(offset).toBeLessThan((shown[0]! * 60 + shown[1]! + 1) * 1_000)
+    await micLit(page, true)
+    await expect.poll(() => micLit(page), { timeout: 10_000 }).toBeGreaterThan(0)
+
+    await bar.getByRole("button", { name: "Pause" }).click()
+    await expect(bar).toContainText("Paused")
+    await shot(page, "meetings-recording-paused-mic-on")
+    await bar.getByRole("button", { name: "Stop" }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Stop and end" }).click()
+    await expect(page.locator("[data-slot=meeting-player]")).toBeVisible()
+  })
+
   // Scenario: online, on a computer: the microphone and the shared tab are two tracks, each with its meter and its
   // socket; the microphone is the owner, "You", the tab's voice "Speaker 1"; the tab's line, said first, is read
   // first though it was kept second.
   test("the owner records an online meeting with the shared tab", async ({ page, isMobile }) => {
     test.skip(isMobile, "a phone cannot share a tab's sound")
-    // The share picker stands for a tab that plays a tone, as Chromium's fake devices give no tab.
-    await page.addInitScript({
-      content: `navigator.mediaDevices.getDisplayMedia = async () => {
-        const context = new AudioContext()
-        const tone = context.createOscillator()
-        const out = context.createMediaStreamDestination()
-        tone.connect(out)
-        tone.start()
-        const video = document.createElement("canvas").captureStream(1).getVideoTracks()
-        return new MediaStream([...video, ...out.stream.getAudioTracks()])
-      }`,
-    })
+    await page.addInitScript({ content: sharedTab })
     const { calls, sockets } = await fakeServer(page)
     await page.goto("/meetings")
 

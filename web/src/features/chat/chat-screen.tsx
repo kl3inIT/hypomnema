@@ -9,8 +9,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { AvatarName } from "@/components/agent-avatar"
-import { botNameOf, pickedBotOf } from "@/features/bots/bots-state"
-import { useBots } from "@/features/bots/use-bots"
+import { pickedBotOf } from "@/features/bots/bots-state"
+import { useBotNames, useBots } from "@/features/bots/use-bots"
 import { AppSidebar } from "@/features/shell/app-shell"
 import { MenuButton, PageHeader } from "@/components/page-header"
 import { useSoloChat } from "@/features/workbench/solo-chat"
@@ -50,6 +50,7 @@ function NewChat({ initialBot }: { initialBot?: string }) {
   // The page's draft (issue #433) keeps the chat's id it chose and the Bot picked, whose folder holds its files.
   const [saved] = useState(() => readDraft(newChatDraft))
   const listed = useBots().data
+  const botName = useBotNames()
   const bots = listed ?? []
   const [picked, setPicked] = useState(initialBot ?? saved.bot ?? "")
   const choice = bots.length > 1
@@ -64,6 +65,7 @@ function NewChat({ initialBot }: { initialBot?: string }) {
     chatId,
     (read) => (read.length > 1 ? pickedBotOf(read, picked) : undefined),
     model,
+    (chat) => navigate({ to: "/chats/$chatId", params: { chatId: chat.id } }),
   )
 
   return (
@@ -83,7 +85,7 @@ function NewChat({ initialBot }: { initialBot?: string }) {
               <Select value={bot} onValueChange={(value) => value && setPicked(value)}>
                 <SelectTrigger aria-label="Bot" size="sm">
                   <SelectValue>
-                    {(value: string) => <AvatarName name={botNameOf(bots, value)} />}
+                    {(value: string) => <AvatarName name={botName(value)} />}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -99,10 +101,9 @@ function NewChat({ initialBot }: { initialBot?: string }) {
           <Composer
             onSend={start.send}
             ready={start.ready}
-            onSent={(chat) => navigate({ to: "/chats/$chatId", params: { chatId: chat.id } })}
             onStop={() => {}}
             working={false}
-            botName={botNameOf(bots, bot)}
+            botName={botName(bot)}
             attachments={attachments}
             draft={{ key: newChatDraft, chat: chatId, bot }}
             controls={<ChatModelControls bot={bot} choice={model} onChange={setModel} />}

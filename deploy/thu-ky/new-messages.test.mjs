@@ -12,7 +12,7 @@ const tools = [
   { name: "zalo_messages" },
   {
     name: "account_read",
-    description: "Read a connected account using its service API. Use the account name (lark:me, google:me), API hostname",
+    description: "Read a connected account using its service API. Use the account name (lark:me, google:me), API hostname, method and path with query. Lark accounts that sign in as the owner (lark:me); any other Lark account is an app's bot.",
   },
   { name: "meeting_list" },
 ];
@@ -70,6 +70,31 @@ test("the sources are the accounts the run's tools name", () => {
     { kind: "gmail", account: "google:me", label: "me" },
     { kind: "meetings" },
   ]);
+});
+
+// Issue #1127: the Bot is given other Bots' Lark apps too; the owner's chats are read only through his own sign-in.
+test("only the Lark accounts that sign in as the owner are read", () => {
+  const read = (description) => sources([{ name: "account_read", description }]);
+  assert.deepEqual(
+    read(
+      "Use the account name (lark:work, lark:me, lark:report, google:me), API hostname, method and path with query. " +
+        "Lark accounts that sign in as the owner (lark:me); any other Lark account is an app's bot.",
+    ),
+    [
+      { kind: "lark", account: "lark:me", label: "me" },
+      { kind: "gmail", account: "google:me", label: "me" },
+    ],
+  );
+  assert.deepEqual(
+    read("Use the account name (lark:work, google:me), API hostname. Lark accounts that sign in as the owner (); any"),
+    [{ kind: "gmail", account: "google:me", label: "me" }],
+    "no Lark account signs in as the owner",
+  );
+  assert.deepEqual(
+    read("Use the account name (lark:work, google:me), API hostname."),
+    [{ kind: "gmail", account: "google:me", label: "me" }],
+    "a server that does not tell which is which: no Lark account is taken for the owner's",
+  );
 });
 
 test("nothing new wakes no model", async () => {
@@ -166,7 +191,7 @@ test("every chat with new messages is found, however many there are", async () =
     }));
   }
   const w = world({ chats, messages });
-  const got = await check({ tools, call: w.call, state, now });
+  const got = await check({ tools, call: w.call, state, now, config: { perRun: 1e9 } });
 
   assert.equal(got.wake, true);
   for (let i = 0; i < 60; i++) assert.match(got.text, new RegExp(`chat "Group ${i}" \\(id g_${i}\\): 9 new`));
@@ -176,6 +201,52 @@ test("every chat with new messages is found, however many there are", async () =
   const capped = await check({ tools, call: world({ chats, messages }).call, state, now, config: { scanMessages: 100 } });
   assert.equal(capped.state.sources["zalo:main"].gaps.length, 1, "past the cap the account keeps what is left");
   assert.equal(capped.state.sources["zalo:main"].gaps[0].after, since);
-  assert.equal(capped.state.sources["zalo:main"].gaps[0].offset, 100, "and where it stopped in them");
+  // The 101st newest of 540, one a second, is the 440th: the rest ends a second after it, none of that second counted.
+  assert.equal(capped.state.sources["zalo:main"].gaps[0].before,
+    new Date(Date.parse("2026-11-21T01:46:00Z") + 440 * 1000).toISOString(), "and what it read of them");
+  assert.deepEqual(capped.state.sources["zalo:main"].gaps[0].seen, []);
   assert.match(capped.text, /could not read zalo:main: more than 100 new messages/);
+});
+
+// Issue #1124: a Bot given one Zalo account has no account in its tools' schemas, and the Bot copied the account's id
+// from what it read instead of its label. The check names the label the reads' answers give.
+test("one account is named by the label its reads give", async () => {
+  const w = world({
+    chats: [{ ID: "g_pmo", Kind: "group", Name: "PMO", LastMessageAt: "2026-11-21T01:55:00Z" }],
+    messages: { g_pmo: [{ ID: "m3", At: "2026-11-21T01:55:00Z", FromMe: false, SenderName: "Lan", Text: "anh xem" }] },
+  });
+  const call = async (name, args) => {
+    const answer = await w.call(name, args);
+    return name.startsWith("zalo_") ? { account: "main", ...answer } : answer;
+  };
+  const one = [{ name: "zalo_chats", inputSchema: { properties: { limit: {} } } }, { name: "zalo_messages" }];
+  const got = await check({ tools: one, call, state: { sources: { zalo: since } }, now });
+
+  assert.equal(got.wake, true);
+  assert.match(got.text, /zalo:main chat "PMO" \(id g_pmo\): 1 new from Lan/);
+  assert.ok(got.state.sources.zalo, "its state stays under the key it had");
+});
+
+// Issue #1119, item 4: the owner corrects the Bot in his Inbox between runs (adds, drops, edits, reopens). The check
+// cannot read the Inbox, so it names the moment the Bot was last woken, and the Bot lists his changes since then with
+// inbox_list's owner_changed_since. A check that wakes no one keeps that moment, so that no change is missed.
+test("a wake names the moment of the last one, for the owner's changes since", async () => {
+  const quiet = world();
+  const lastWake = "2026-11-21T01:30:00.000Z";
+  const asleep = await check({ tools, call: quiet.call, state: { ...state, woke: lastWake }, now });
+  assert.equal(asleep.wake, false);
+  assert.equal(asleep.state.woke, lastWake, "no wake, the moment stays");
+
+  const w = world({
+    chats: [{ ID: "g_pmo", Kind: "group", Name: "PMO", LastMessageAt: "2026-11-21T01:55:00Z" }],
+    messages: { g_pmo: [{ ID: "m3", At: "2026-11-21T01:55:00Z", FromMe: false, SenderName: "Lan", Text: "anh ơi" }] },
+  });
+  const got = await check({ tools, call: w.call, state: { ...state, woke: asleep.state.woke }, now });
+  assert.equal(got.wake, true);
+  assert.match(got.text, new RegExp(`inbox_list with owner_changed_since ${lastWake}`));
+  assert.equal(got.state.woke, now.toISOString());
+
+  const first = await check({ tools, call: w.call, state: {}, now });
+  assert.match(first.text, /inbox_list with owner_changed_since 2026-11-21T01:00:00.000Z/,
+    "a first wake looks back as far as the first look at the messages");
 });

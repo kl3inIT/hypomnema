@@ -13,7 +13,8 @@ import (
 // the node stops the emulator 15 minutes after its last call or view
 // (internal/node/device), and the control plane stops the machine
 // MachineIdle after that, through the same path as `hypomnema machines stop`.
-// A call or a view that finds it stopped starts it again (phone.go, wake).
+// A call, a view or an agent's command on the phone's node that finds it stopped starts it again (phone.go, wake;
+// command.go).
 // This is inference, for cost, as the issue's "Machine lifecycle" row says: no
 // reference stops a whole machine when its device is idle. Its shape is the
 // browser's Sweep (internal/controlplane/browser, engine.go), which closes
@@ -29,7 +30,7 @@ const (
 	SweepEvery = time.Minute
 )
 
-// busy notes that the phone is in use now: a call or a view began or ended,
+// busy notes that the phone is in use now: a call, a view or a command began or ended,
 // or a sweep found the machine not idle. Its idle time starts at the next
 // sweep that finds it idle.
 func (p *Phone) busy() {
@@ -56,17 +57,27 @@ func (p *Phone) Sweep(ctx context.Context) {
 
 	now := p.cfg.Clock.Now()
 
+	// The decision to stop and the admission of an agent's command are made under one lock (command.go, issue
+	// #1083): a command admitted first keeps the machine on, and one that comes while the machine is being stopped
+	// is refused, not run on a machine about to go off.
 	p.mu.Lock()
 	if p.idleSince.IsZero() {
 		p.idleSince = now
 	}
 
-	since := p.idleSince
+	p.stopping = now.Sub(p.idleSince) >= MachineIdle && p.commands == 0
+	stop := p.stopping
 	p.mu.Unlock()
 
-	if now.Sub(since) < MachineIdle {
+	if !stop {
 		return
 	}
+
+	defer func() {
+		p.mu.Lock()
+		p.stopping = false
+		p.mu.Unlock()
+	}()
 
 	// A stop the registry refuses (the node runs a Dispatch) or the provider fails is logged, and asked again at
 	// the next sweep: the idle time is not started again.
@@ -92,8 +103,13 @@ func (p *Phone) idle(n orchestration.Node) bool {
 		return false
 	}
 
-	// A call holds the phone while it runs, and a view is counted from its opening to its close.
-	if len(p.holder) > 0 || p.hold.Viewing() {
+	// A call holds the phone while it runs, a view is counted from its opening to its close, and an agent's command
+	// on the node while it runs (command.go).
+	p.mu.Lock()
+	commands := p.commands
+	p.mu.Unlock()
+
+	if len(p.holder) > 0 || p.hold.Viewing() || commands > 0 {
 		return false
 	}
 

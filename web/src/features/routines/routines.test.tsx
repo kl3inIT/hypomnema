@@ -156,7 +156,13 @@ function server(
     const refused = opts.refuse?.[call]
     if (refused) return json({ code: "conflict", message: refused }, 409)
 
-    if (call === "GET /bots") return json({ data: [{ name: "coordinator" }, { name: "maps" }] })
+    if (call === "GET /bots")
+      return json({
+        data: [
+          { id: "coordinator", name: "coordinator" },
+          { id: "maps", name: "maps" },
+        ],
+      })
     if (call === "GET /routines") {
       const q = url.searchParams
 

@@ -38,8 +38,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { AgentAvatar } from "@/components/agent-avatar"
-import { botNameOf, mainBotOf } from "@/features/bots/bots-state"
-import { useBotName, useBots } from "@/features/bots/use-bots"
+import { mainBotOf } from "@/features/bots/bots-state"
+import { useBotName, useBotNames, useBots } from "@/features/bots/use-bots"
 import { chatTabs, ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
 import { BrowserStrip } from "@/features/browser/browser-strip"
 import { BrowserView } from "@/features/browser/browser-view"
@@ -112,7 +112,7 @@ export function PaneView({
 
   // The browser tabs of the chats in this pane, a worker's or a Bot's (issue #557).
   const theirs = chatTabs(browser.data?.tabs, new Set(paneChats(pane)))
-  const botName = (id: string) => botNameOf(bots, id)
+  const botName = useBotNames()
   const known = (tab: string): BrowserTab =>
     browser.data?.tabs.find((t) => t.id === tab) ?? {
       id: tab,
@@ -182,7 +182,7 @@ export function PaneView({
                     {...common}
                   >
                     <AgentAvatar
-                      name={botNameOf(bots, tab.bot || mainBotOf(bots))}
+                      name={botName(tab.bot || mainBotOf(bots))}
                       className="size-5 shrink-0"
                     />
                     <span className="truncate">New chat</span>

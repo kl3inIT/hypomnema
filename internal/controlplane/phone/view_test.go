@@ -97,7 +97,7 @@ func viewPhone(link *fakeLink, machines Machines, end *fakeEnd, n orchestration.
 	c := &clock{now: time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)}
 
 	return New(Config{
-		Nodes: &fakeNodes{nodes: []orchestration.Node{n}}, Link: link, Machines: machines, Clock: c,
+		Nodes: &fakeNodes{nodes: []orchestration.Node{n}, link: link}, Link: link, Machines: machines, Clock: c,
 		Views:      func(context.Context, string) (ViewEnd, error) { return end, nil },
 		WakeWithin: 300 * time.Millisecond, Poll: 5 * time.Millisecond,
 	}), c

@@ -35,6 +35,20 @@ type Nodes interface {
 	ListNodes(ctx context.Context) ([]orchestration.Node, error)
 }
 
+// NodeUse readies a node for an agent's command and counts the command as its use until done is called
+// (phone.Phone.Use, issue #1083): the phone's node whose machine the control plane stopped for idleness is started and
+// its hello waited for, and woken says its node is connected now. A node it does not keep is left as it is.
+type NodeUse interface {
+	Use(ctx context.Context, nodeID string) (done func(), woken bool, err error)
+}
+
+// WithNodeUse has the node tools start the phone's stopped machine, as a phone call does (issue #1083).
+func (s *Server) WithNodeUse(u NodeUse) *Server {
+	s.nodeUse = u
+
+	return s
+}
+
 // SudoPassword is a node's sudo password from the owner's vault; "" when the
 // owner keeps none for it.
 type SudoPassword func(ctx context.Context, node orchestration.Node) (string, error)
@@ -211,9 +225,37 @@ func (s *Server) nodeCall(w http.ResponseWriter, r *http.Request, a agent, asked
 	// A process is the agent's that ran it, a chat's or a worker's (issue #1060), as a phone's last screen is.
 	e.Agent = a.key
 
+	// A command runs up to five minutes, node_process waits as long, and the phone's stopped machine takes up to two
+	// to wake (issue #1083): longer than the server's write timeout. The answer must still reach the agent, as a
+	// phone call's does (device.go), or the tools server reads the lost answer as a restart of the control plane.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+
 	n, connected, err := s.findNode(ctx, nodeRef)
 	if err != nil {
 		answerTool(w, err.Error(), true)
+
+		return
+	}
+
+	// The phone's node whose machine was stopped because the phone was idle is started, as a phone call starts it,
+	// and the command counts as the phone's use while it runs (issue #1083), as Coder's tools start a stopped
+	// workspace they name (codersdk/toolsdk/workspaceagent.go:31-70) and count an open session as its activity
+	// (coderd/workspacestats/reporter.go:156-194).
+	if s.nodeUse != nil {
+		done, woken, err := s.nodeUse.Use(ctx, n.ID)
+		if err != nil {
+			answerTool(w, err.Error(), true)
+
+			return
+		}
+
+		defer done()
+
+		n.Connected = n.Connected || woken
+	}
+
+	if !n.Connected {
+		answerTool(w, agenttool.NodeNotConnected(nodeRef, connected), true)
 
 		return
 	}
@@ -282,7 +324,7 @@ func listText(processes []nodeproto.ExecProcess) string {
 	return b.String()
 }
 
-// findNode is the node named, by name or id, and the names of those connected; one that is not connected is
+// findNode is the node named, by name or id, connected or not, and the names of those connected; one not known is
 // refused with them.
 func (s *Server) findNode(ctx context.Context, ref string) (orchestration.Node, string, error) {
 	nodes, err := s.exec.nodes.ListNodes(ctx)
@@ -303,14 +345,11 @@ func (s *Server) findNode(ctx context.Context, ref string) (orchestration.Node, 
 	i := slices.IndexFunc(nodes, func(n orchestration.Node) bool { return n.Name == ref || n.ID == ref })
 	names := strings.Join(connected, ", ")
 
-	switch {
-	case i < 0:
+	if i < 0 {
 		return orchestration.Node{}, names, fmt.Errorf("no node %q; connected now: %s", ref, names)
-	case !nodes[i].Connected:
-		return orchestration.Node{}, names, errors.New(agenttool.NodeNotConnected(ref, names))
-	default:
-		return nodes[i], names, nil
 	}
+
+	return nodes[i], names, nil
 }
 
 // execText is a node's answer as the agent reads it, and whether it failed:

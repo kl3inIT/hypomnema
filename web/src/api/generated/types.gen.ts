@@ -2192,10 +2192,17 @@ export type PushSubscriptionList = {
 
 export type NewPushSubscription = {
   endpoint: string;
+  /**
+   * The device's existing endpoint, supplied by the service worker when renewing.
+   */
+  previous_endpoint?: string;
   keys: {
     p256dh: string;
     auth: string;
   };
+  /**
+   * The device's label when registering.
+   */
   label?: string;
 };
 
@@ -3869,6 +3876,15 @@ export type RoutineGrant = {
 
 export type BotList = {
   data: Array<Bot>;
+  /**
+   * The Bots removed since, by the name each had (issue #1139): their ids stay in what they did, the Inbox's items and the gateway's usage, which a client names "<name> (removed)", never by the id.
+   */
+  removed: Array<RemovedBot>;
+};
+
+export type RemovedBot = {
+  id: string;
+  name: string;
 };
 
 export type NewBot = {
@@ -5253,18 +5269,18 @@ export type TodoLink = {
 };
 
 /**
- * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there.
+ * owner, written by hand; chat, a Bot in a chat with the owner; routine, a Bot in a Routine's run; lark, zalo and whatsapp, a Bot reading a chat of the owner's own account there; gmail, a Bot reading a thread of his Gmail; meeting, a Bot reading a meeting he recorded.
  */
-export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo' | 'whatsapp';
+export type TodoSourceKind = 'owner' | 'chat' | 'routine' | 'lark' | 'zalo' | 'whatsapp' | 'gmail' | 'meeting';
 
 export type TodoSource = {
   kind: TodoSourceKind;
   /**
-   * The chat, the Routine's run, or the chat's id at Lark or Zalo.
+   * The chat, the Routine's run, the chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting.
    */
   id?: string;
   /**
-   * The owner's account the chat is in; zalo and whatsapp, and lark when given.
+   * The owner's account the chat or thread is in; zalo, whatsapp and gmail, and lark when given.
    */
   account?: string;
   /**
@@ -5315,7 +5331,7 @@ export type TodoEvent = {
   revision: number;
   actor: TodoActor;
   /**
-   * created, edited, state, snoozed or linked_approval.
+   * created, edited, state, snoozed, linked_approval or commented (after.text is the comment).
    */
   kind: string;
   /**
@@ -5365,15 +5381,62 @@ export type Todo = {
   closed_at?: string;
   duplicate_of?: string;
   /**
+   * The item's own chat with the Bot it was given to, where the owner's comments reach it.
+   */
+  chat_id?: string;
+  /**
+   * The Bot the item reached its Bot through: the main Bot that passed it to a project Bot, or the project Bot that gave it back to the main Bot. Left out when the owner or the system gave it.
+   */
+  passed_by?: string;
+  /**
    * A proposal nobody touched for three days, left out of the list unless asked for.
    */
   stale: boolean;
+  priority: TodoPriority;
+  /**
+   * Why it has its priority, in a line, as who set it said it.
+   */
+  priority_reason: string;
+  /**
+   * The project it is in; left out when none.
+   */
+  project_id?: string;
   created_at: string;
   updated_at: string;
   /**
    * Its history, the oldest first; GET /inbox/{todo_id} only.
    */
   events?: Array<TodoEvent>;
+};
+
+/**
+ * 0 no priority, 1 urgent, 2 high, 3 medium, 4 low (Linear's scale).
+ */
+export type TodoPriority = number;
+
+export type InboxProject = {
+  id: string;
+  name: string;
+  /**
+   * #rrggbb.
+   */
+  color: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InboxProjectList = {
+  data: Array<InboxProject>;
+};
+
+export type NewInboxProject = {
+  name: string;
+  color: string;
+};
+
+export type InboxProjectEdit = {
+  name?: string;
+  color?: string;
 };
 
 export type TodoList = {
@@ -5393,16 +5456,16 @@ export type InboxNeedsYou = {
 };
 
 /**
- * Where a Bot in a Routine's run found it: kind routine, or lark, zalo or whatsapp with the chat's id there (and the account). The owner's and a chat's come from the token.
+ * Where a Bot in a Routine's run found it: kind routine, or lark, zalo or whatsapp with the chat's id there, gmail with the thread's id, meeting with the meeting's id (and the account but for a meeting). The owner's and a chat's come from the token.
  */
 export type NewTodoSource = {
   kind?: TodoSourceKind;
   /**
-   * The chat's id at Lark, Zalo or WhatsApp; those only.
+   * The chat's id at Lark, Zalo or WhatsApp, the Gmail thread's id, or the meeting's; those only.
    */
   id?: string;
   /**
-   * The owner's account the chat is in; required for zalo and whatsapp.
+   * The owner's account the chat or thread is in; required for zalo, whatsapp and gmail.
    */
   account?: string;
   quote?: string;
@@ -5419,6 +5482,12 @@ export type NewTodo = {
   state?: 'open' | 'proposed';
   why_open?: TodoWhyOpen;
   source?: NewTodoSource;
+  priority?: TodoPriority;
+  priority_reason?: string;
+  /**
+   * The project it is in; left out for none.
+   */
+  project_id?: string;
 };
 
 export type TodoChange = {
@@ -5441,6 +5510,15 @@ export type TodoEdit = {
   draft?: string;
   due?: TodoDue;
   assignee?: TodoAssignee;
+  priority?: TodoPriority;
+  /**
+   * Given with priority only; a priority set without one has no reason.
+   */
+  priority_reason?: string;
+  /**
+   * The project to put it in, by its id; empty takes it out of its project.
+   */
+  project_id?: string;
 };
 
 export type TodoDone = {
@@ -5478,6 +5556,38 @@ export type TodoRelease = {
   revision: number;
   attempt?: string;
   reason: string;
+};
+
+export type TodoHand = {
+  revision: number;
+  /**
+   * The Bot's id; absent, the main Bot.
+   */
+  bot?: string;
+  /**
+   * What the owner asks of the Bot, its first comment; optional.
+   */
+  prompt?: string;
+};
+
+export type TodoComment = {
+  text: string;
+};
+
+export type TodoSend = {
+  /**
+   * The revision read; another is a conflict and sends nothing.
+   */
+  revision: number;
+  /**
+   * What is sent: the draft as shown, edits included.
+   */
+  text: string;
+};
+
+export type TodoSent = {
+  sent: TodoLink;
+  todo: Todo;
 };
 
 export type LarkChannelSettingsWritable = {
@@ -5570,6 +5680,8 @@ export type NewAccountImportWritable = {
 };
 
 export type TodoId = string;
+
+export type InboxProjectId = string;
 
 export type MeetingId = string;
 
@@ -8015,6 +8127,10 @@ export type ListMessagingMessagesData = {
   };
   query?: {
     chat?: string;
+    /**
+     * The service's id of one message.
+     */
+    id?: string;
     q?: string;
     before?: string;
     limit?: number;
@@ -13921,6 +14037,10 @@ export type ListTodosData = {
      */
     source_kind?: TodoSourceKind;
     /**
+     * Only the items of this project, by its id; none, only the items without one.
+     */
+    project?: string;
+    /**
      * Only the items due at or after this moment; a date is due from its first moment.
      */
     due_from?: string;
@@ -13989,6 +14109,110 @@ export type CreateTodoResponses = {
 };
 
 export type CreateTodoResponse = CreateTodoResponses[keyof CreateTodoResponses];
+
+export type ListInboxProjectsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/inbox/projects';
+};
+
+export type ListInboxProjectsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListInboxProjectsError = ListInboxProjectsErrors[keyof ListInboxProjectsErrors];
+
+export type ListInboxProjectsResponses = {
+  /**
+   * The projects.
+   */
+  200: InboxProjectList;
+};
+
+export type ListInboxProjectsResponse = ListInboxProjectsResponses[keyof ListInboxProjectsResponses];
+
+export type CreateInboxProjectData = {
+  body: NewInboxProject;
+  path?: never;
+  query?: never;
+  url: '/inbox/projects';
+};
+
+export type CreateInboxProjectErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateInboxProjectError = CreateInboxProjectErrors[keyof CreateInboxProjectErrors];
+
+export type CreateInboxProjectResponses = {
+  /**
+   * The project.
+   */
+  201: InboxProject;
+};
+
+export type CreateInboxProjectResponse = CreateInboxProjectResponses[keyof CreateInboxProjectResponses];
+
+export type DeleteInboxProjectData = {
+  body?: never;
+  path: {
+    project_id: string;
+  };
+  query?: never;
+  url: '/inbox/projects/{project_id}';
+};
+
+export type DeleteInboxProjectErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteInboxProjectError = DeleteInboxProjectErrors[keyof DeleteInboxProjectErrors];
+
+export type DeleteInboxProjectResponses = {
+  /**
+   * Removed.
+   */
+  204: void;
+};
+
+export type DeleteInboxProjectResponse = DeleteInboxProjectResponses[keyof DeleteInboxProjectResponses];
+
+export type EditInboxProjectData = {
+  body: InboxProjectEdit;
+  path: {
+    project_id: string;
+  };
+  query?: never;
+  url: '/inbox/projects/{project_id}';
+};
+
+export type EditInboxProjectErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type EditInboxProjectError = EditInboxProjectErrors[keyof EditInboxProjectErrors];
+
+export type EditInboxProjectResponses = {
+  /**
+   * The project.
+   */
+  200: InboxProject;
+};
+
+export type EditInboxProjectResponse = EditInboxProjectResponses[keyof EditInboxProjectResponses];
 
 export type GetInboxNeedsYouData = {
   body?: never;
@@ -14284,3 +14508,84 @@ export type ReleaseTodoResponses = {
 };
 
 export type ReleaseTodoResponse = ReleaseTodoResponses[keyof ReleaseTodoResponses];
+
+export type HandTodoData = {
+  body: TodoHand;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/hand';
+};
+
+export type HandTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type HandTodoError = HandTodoErrors[keyof HandTodoErrors];
+
+export type HandTodoResponses = {
+  /**
+   * The to-do, given to the Bot, with chat_id its chat.
+   */
+  200: Todo;
+};
+
+export type HandTodoResponse = HandTodoResponses[keyof HandTodoResponses];
+
+export type CommentTodoData = {
+  body: TodoComment;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/comments';
+};
+
+export type CommentTodoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CommentTodoError = CommentTodoErrors[keyof CommentTodoErrors];
+
+export type CommentTodoResponses = {
+  /**
+   * The to-do, with its history.
+   */
+  200: Todo;
+};
+
+export type CommentTodoResponse = CommentTodoResponses[keyof CommentTodoResponses];
+
+export type SendTodoDraftData = {
+  body: TodoSend;
+  path: {
+    todo_id: string;
+  };
+  query?: never;
+  url: '/inbox/{todo_id}/send';
+};
+
+export type SendTodoDraftErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SendTodoDraftError = SendTodoDraftErrors[keyof SendTodoDraftErrors];
+
+export type SendTodoDraftResponses = {
+  /**
+   * The message sent and the to-do.
+   */
+  200: TodoSent;
+};
+
+export type SendTodoDraftResponse = SendTodoDraftResponses[keyof SendTodoDraftResponses];

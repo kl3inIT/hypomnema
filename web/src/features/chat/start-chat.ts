@@ -35,6 +35,7 @@ export function useStartChat(
   id: string,
   botOf: (bots: Bot[]) => string | undefined,
   choice: ChatChoice,
+  onStarted: (chat: Chat) => Promise<void> | void,
 ) {
   const queryClient = useQueryClient()
   const refreshBots = useRefreshBots()
@@ -73,7 +74,10 @@ export function useStartChat(
       // The Bots are read again without waiting: their main chat may have moved.
       void refreshBots()
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: everyCall(listChatsQueryKey()) }),
+    onSuccess: async (chat) => {
+      await queryClient.invalidateQueries({ queryKey: everyCall(listChatsQueryKey()) })
+      await onStarted(chat)
+    },
   })
 
   return {

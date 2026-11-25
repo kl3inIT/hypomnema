@@ -19,8 +19,10 @@ import (
 
 // served is the account that took a request's last attempt, filled by
 // underAccounts on the request's context, as 9router-go's tracker takes the
-// connection that served (usagetracker/tracker.go).
-type served struct{ id string }
+// connection that served (usagetracker/tracker.go). refusal is what the
+// backend of that attempt said when it refused inside a stream it had answered
+// 200 to, before any output (issue #1135).
+type served struct{ id, refusal string }
 
 type servedKey struct{}
 
@@ -35,8 +37,33 @@ func withServed(r *http.Request) (*http.Request, *served) {
 // subscription, so an earlier target's account is not kept.
 func noteServed(ctx context.Context, id string) {
 	if s, ok := ctx.Value(servedKey{}).(*served); ok {
-		s.id = id
+		s.id, s.refusal = id, ""
 	}
+}
+
+// noteStreamRefusal notes that the attempt's backend refused inside its
+// stream before any output: the request reached it, so the row counts the
+// input, and says what the refusal said (issue #1135).
+func noteStreamRefusal(ctx context.Context, text string) {
+	if s, ok := ctx.Value(servedKey{}).(*served); ok {
+		s.refusal = clip(text, maxErrorText)
+	}
+}
+
+// recordRefusal fills the record of a request answered with an error: the
+// error body's message, or, when the last attempt was refused inside its
+// stream, what that refusal said, with the input counted and no output, the
+// output being the frames of a refusal (issue #1135, #1052's estimate).
+func recordRefusal(ctx context.Context, record *Usage, body []byte, asked int) {
+	s, ok := ctx.Value(servedKey{}).(*served)
+	if !ok || s.refusal == "" {
+		record.Error = errorText(body)
+
+		return
+	}
+
+	record.Error = s.refusal
+	record.Tokens.estimate(asked, 0)
 }
 
 // maxErrorText is how much of a provider's error message a usage row keeps.

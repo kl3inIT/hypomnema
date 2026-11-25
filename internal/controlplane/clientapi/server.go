@@ -18,10 +18,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
+	"github.com/go-chi/chi/v5/middleware"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
 	"github.com/kl3inIT/hypomnema/api"
@@ -47,6 +49,9 @@ const (
 	// heartbeatEvery is the SSE comment interval; Omnara's SDK treats 35 s of
 	// silence as a stall.
 	heartbeatEvery = 10 * time.Second
+	// compressionLevel is gzip's for the contract's JSON answers, Coder's for its site (coderd/coderd.go
+	// compressHandler), as webui's.
+	compressionLevel = 5
 )
 
 // Server serves the client API over the orchestration service.
@@ -118,7 +123,11 @@ type Server struct {
 	integrations Integrations
 	// messaging reads the kept chats of the messaging accounts linked as devices (issue #631).
 	messaging Messaging
-	approvals Approvals
+	// inboxSender sends the owner's replies from the Inbox (issue #1111); nil when the control plane wired none.
+	inboxSender InboxSender
+	// inboxSends holds one Send at a time for each Inbox item, by its id.
+	inboxSends sync.Map
+	approvals  Approvals
 	// relay sends requests to a Connection that has its own address; nil when the control plane wired none.
 	relay        Relay
 	larkChannels LarkChannels
@@ -353,7 +362,14 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	// contract's validator would read whole first.
 	mux.HandleFunc("POST "+musicUploadPath, s.uploadMusic)
 
-	contract := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// The contract's JSON answers go gzipped to a client that accepts it (issue #1129): a long chat's newest page of
+	// history, mostly tool results, is five times smaller on the wire (218 KB to 41 KB), which a slow link takes
+	// seconds to bring. Kubernetes' API server gzips its JSON answers by default (APIResponseCompression), through the
+	// compressor the site uses here (webui, Coder's level). Only JSON: a stream (text/event-stream) and a file keep
+	// their bytes as written.
+	compress := middleware.NewCompressor(compressionLevel, "application/json")
+
+	contract := compress.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := bodyLimit(r)
 		if limit > maxBodyBytes {
 			// A file (a recording, a skill's archive, an artifact's files) takes longer to arrive than the server's
@@ -364,7 +380,7 @@ func (s *Server) Register(mux *http.ServeMux) error {
 
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		validate(api).ServeHTTP(w, r)
-	})
+	}))
 
 	mux.Handle(BasePath+"/", contract)
 	// What a link shows is read without sign-in, never indexed, cached or framed (shareHeaders).

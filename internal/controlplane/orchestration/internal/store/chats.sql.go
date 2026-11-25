@@ -95,33 +95,6 @@ func (q *Queries) ChatWokenAfter(ctx context.Context, chatID string) (int64, err
 	return woken, err
 }
 
-const chatsWithBackground = `-- name: ChatsWithBackground :many
-SELECT DISTINCT chat_id FROM chat_background_commands
-`
-
-func (q *Queries) ChatsWithBackground(ctx context.Context) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, chatsWithBackground)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var chat_id string
-		if err := rows.Scan(&chat_id); err != nil {
-			return nil, err
-		}
-		items = append(items, chat_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const chatsWithQueue = `-- name: ChatsWithQueue :many
 SELECT DISTINCT chat_id FROM chat_queue
 `
@@ -205,7 +178,7 @@ func (q *Queries) ChatsWithUndelivered(ctx context.Context) ([]string, error) {
 }
 
 const clearChatTurn = `-- name: ClearChatTurn :exec
-UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0 WHERE id = ?1
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0, turn_cut_at = NULL WHERE id = ?1
 `
 
 // The chat's cut turn is not continued: no mark, no attempts, whoever marked it.
@@ -225,7 +198,8 @@ func (q *Queries) ClearMainChat(ctx context.Context, chatID string) error {
 }
 
 const continueChatTurn = `-- name: ContinueChatTurn :exec
-UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = ?1, turn_token = NULL WHERE id = ?2
+UPDATE chats SET turn_attempts = turn_attempts + 1, turn_started_at = ?1, turn_token = NULL, turn_cut_at = NULL
+WHERE id = ?2
 `
 
 type ContinueChatTurnParams struct {
@@ -233,7 +207,8 @@ type ContinueChatTurnParams struct {
 	ID  string
 }
 
-// The chat is woken to continue its cut turn: one attempt more, and the mark starts again now, no pi's yet.
+// The chat is woken to continue its cut turn: one attempt more, and the mark starts again now, no pi's yet and not
+// cut.
 func (q *Queries) ContinueChatTurn(ctx context.Context, arg ContinueChatTurnParams) error {
 	_, err := q.db.ExecContext(ctx, continueChatTurn, arg.Now, arg.ID)
 	return err
@@ -262,7 +237,7 @@ func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error
 }
 
 const cutChatTurns = `-- name: CutChatTurns :many
-SELECT id, CAST(turn_started_at AS INTEGER) AS turn_started_at, turn_attempts FROM chats
+SELECT id, CAST(turn_started_at AS INTEGER) AS turn_started_at, turn_cut_at, turn_attempts FROM chats
 WHERE turn_started_at IS NOT NULL
 ORDER BY id
 `
@@ -270,6 +245,7 @@ ORDER BY id
 type CutChatTurnsRow struct {
 	ID            string
 	TurnStartedAt int64
+	TurnCutAt     sql.NullInt64
 	TurnAttempts  int64
 }
 
@@ -283,7 +259,12 @@ func (q *Queries) CutChatTurns(ctx context.Context) ([]CutChatTurnsRow, error) {
 	items := []CutChatTurnsRow{}
 	for rows.Next() {
 		var i CutChatTurnsRow
-		if err := rows.Scan(&i.ID, &i.TurnStartedAt, &i.TurnAttempts); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.TurnStartedAt,
+			&i.TurnCutAt,
+			&i.TurnAttempts,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -297,39 +278,16 @@ func (q *Queries) CutChatTurns(ctx context.Context) ([]CutChatTurnsRow, error) {
 	return items, nil
 }
 
-const deleteAllChatBackground = `-- name: DeleteAllChatBackground :many
-DELETE FROM chat_background_commands
-RETURNING chat_id, id, started_at
+const cutMarkedTurns = `-- name: CutMarkedTurns :exec
+UPDATE chats SET turn_cut_at = ?1 WHERE turn_started_at IS NOT NULL
 `
 
-type DeleteAllChatBackgroundRow struct {
-	ChatID    string
-	ID        string
-	StartedAt int64
-}
-
-// Takes out every row, which a start of the control plane asks, when no pi runs yet.
-func (q *Queries) DeleteAllChatBackground(ctx context.Context) ([]DeleteAllChatBackgroundRow, error) {
-	rows, err := q.db.QueryContext(ctx, deleteAllChatBackground)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []DeleteAllChatBackgroundRow{}
-	for rows.Next() {
-		var i DeleteAllChatBackgroundRow
-		if err := rows.Scan(&i.ChatID, &i.ID, &i.StartedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// The control plane begins to stop (issue #1162): every marked turn is cut now, written before the wait for the
+// turns, as Hermes's gateway marks its running sessions before its drain (gateway/run_shutdown.py). A later write
+// of the same stop moves the cut to its own time, as Hermes marks again when the drain times out.
+func (q *Queries) CutMarkedTurns(ctx context.Context, now sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, cutMarkedTurns, now)
+	return err
 }
 
 const deleteArtifactsOfChat = `-- name: DeleteArtifactsOfChat :exec
@@ -352,19 +310,18 @@ func (q *Queries) DeleteChat(ctx context.Context, id string) error {
 }
 
 const deleteChatBackground = `-- name: DeleteChatBackground :one
-DELETE FROM chat_background_commands WHERE chat_id = ?1 AND id = ?2 AND pi = ?3
+DELETE FROM chat_background_commands WHERE chat_id = ?1 AND id = ?2
 RETURNING started_at
 `
 
 type DeleteChatBackgroundParams struct {
 	ChatID string
 	ID     string
-	Pi     string
 }
 
-// Takes out the row of a command that ended, when the pi that ran it still has it.
+// Takes out the row of a command that ended or was lost (issue #1084: a command is its chat's, whichever pi runs).
 func (q *Queries) DeleteChatBackground(ctx context.Context, arg DeleteChatBackgroundParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, deleteChatBackground, arg.ChatID, arg.ID, arg.Pi)
+	row := q.db.QueryRowContext(ctx, deleteChatBackground, arg.ChatID, arg.ID)
 	var started_at int64
 	err := row.Scan(&started_at)
 	return started_at, err
@@ -403,46 +360,6 @@ func (q *Queries) DeleteChatQueued(ctx context.Context, arg DeleteChatQueuedPara
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const deleteLostChatBackground = `-- name: DeleteLostChatBackground :many
-DELETE FROM chat_background_commands WHERE chat_id = ?1 AND pi = ?2
-RETURNING chat_id, id, started_at
-`
-
-type DeleteLostChatBackgroundParams struct {
-	ChatID string
-	Pi     string
-}
-
-type DeleteLostChatBackgroundRow struct {
-	ChatID    string
-	ID        string
-	StartedAt int64
-}
-
-// Takes out the rows of the commands a pi had when it stopped.
-func (q *Queries) DeleteLostChatBackground(ctx context.Context, arg DeleteLostChatBackgroundParams) ([]DeleteLostChatBackgroundRow, error) {
-	rows, err := q.db.QueryContext(ctx, deleteLostChatBackground, arg.ChatID, arg.Pi)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []DeleteLostChatBackgroundRow{}
-	for rows.Next() {
-		var i DeleteLostChatBackgroundRow
-		if err := rows.Scan(&i.ChatID, &i.ID, &i.StartedAt); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const deleteRestartBoots = `-- name: DeleteRestartBoots :exec
@@ -486,7 +403,7 @@ func (q *Queries) DetachRunsFromChat(ctx context.Context, chatID string) error {
 }
 
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_token, turn_attempts FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent, turn_started_at, turn_token, turn_attempts, turn_cut_at FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -508,6 +425,7 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.TurnStartedAt,
 		&i.TurnToken,
 		&i.TurnAttempts,
+		&i.TurnCutAt,
 	)
 	return i, err
 }
@@ -916,6 +834,40 @@ func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) (
 	return items, nil
 }
 
+const listChatBackground = `-- name: ListChatBackground :many
+SELECT chat_id, id, started_at FROM chat_background_commands ORDER BY started_at, chat_id, id
+`
+
+type ListChatBackgroundRow struct {
+	ChatID    string
+	ID        string
+	StartedAt int64
+}
+
+// The commands that run, which the coordinator finds again among the units of the machine (issue #1084).
+func (q *Queries) ListChatBackground(ctx context.Context) ([]ListChatBackgroundRow, error) {
+	rows, err := q.db.QueryContext(ctx, listChatBackground)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListChatBackgroundRow{}
+	for rows.Next() {
+		var i ListChatBackgroundRow
+		if err := rows.Scan(&i.ChatID, &i.ID, &i.StartedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatIDsOfBot = `-- name: ListChatIDsOfBot :many
 SELECT id FROM chats WHERE bot_id = ?1 ORDER BY id
 `
@@ -1099,7 +1051,7 @@ func (q *Queries) ListChatQueue(ctx context.Context, chatID string) ([]ChatQueue
 }
 
 const listChats = `-- name: ListChats :many
-SELECT chats.id, chats.title, chats.created_at, chats.updated_at, chats.bot_id, chats.channel_group, chats.provider, chats.model, chats.effort, chats.context_tokens, chats.context_window, chats.context_percent, chats.turn_started_at, chats.turn_token, chats.turn_attempts,
+SELECT chats.id, chats.title, chats.created_at, chats.updated_at, chats.bot_id, chats.channel_group, chats.provider, chats.model, chats.effort, chats.context_tokens, chats.context_window, chats.context_percent, chats.turn_started_at, chats.turn_token, chats.turn_attempts, chats.turn_cut_at,
        CAST(EXISTS (SELECT 1 FROM routine_runs rr WHERE rr.chat_id = chats.id)
            OR EXISTS (
                SELECT 1 FROM chat_messages m
@@ -1198,6 +1150,7 @@ func (q *Queries) ListChats(ctx context.Context, arg ListChatsParams) ([]ListCha
 			&i.Chat.TurnStartedAt,
 			&i.Chat.TurnToken,
 			&i.Chat.TurnAttempts,
+			&i.Chat.TurnCutAt,
 			&i.Routine,
 			&i.Channel,
 			&i.LastText,
@@ -1274,7 +1227,7 @@ func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMes
 }
 
 const markChatTurn = `-- name: MarkChatTurn :exec
-UPDATE chats SET turn_started_at = ?1, turn_token = ?2 WHERE id = ?3
+UPDATE chats SET turn_started_at = ?1, turn_token = ?2, turn_cut_at = NULL WHERE id = ?3
 `
 
 type MarkChatTurnParams struct {
@@ -1284,7 +1237,7 @@ type MarkChatTurnParams struct {
 }
 
 // A Bot's turn started in the chat (issue #716), in the pi process the token names; the attempts stay, so a
-// continued turn keeps its count.
+// continued turn keeps its count. A new turn is not cut yet (issue #1162).
 func (q *Queries) MarkChatTurn(ctx context.Context, arg MarkChatTurnParams) error {
 	_, err := q.db.ExecContext(ctx, markChatTurn, arg.Now, arg.Token, arg.ID)
 	return err
@@ -1353,7 +1306,7 @@ func (q *Queries) SetChatModel(ctx context.Context, arg SetChatModelParams) erro
 }
 
 const settleChatTurn = `-- name: SettleChatTurn :exec
-UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0
+UPDATE chats SET turn_started_at = NULL, turn_token = NULL, turn_attempts = 0, turn_cut_at = NULL
 WHERE id = ?1 AND turn_token = ?2
 `
 

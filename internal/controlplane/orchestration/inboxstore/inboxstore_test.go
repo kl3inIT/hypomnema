@@ -1449,6 +1449,42 @@ func (m sentMessages) SentMessage(_ context.Context, service, account, chat, id 
 	return got, nil
 }
 
+// Asker and Members of the server that keeps only messages: who asked and who is in a chat cannot be read.
+func (sentMessages) Asker(context.Context, string, string, string, string) ([]string, error) {
+	return nil, storeerr.ErrNotFound
+}
+
+func (sentMessages) Members(context.Context, string, string, string) (inboxstore.ChatMembers, error) {
+	return inboxstore.ChatMembers{}, storeerr.ErrUnavailable
+}
+
+// withMembers is that server where who asked, by service, account, chat and message, and who is in each chat, by
+// service, account and chat, can be read too.
+type withMembers struct {
+	sentMessages
+
+	askers  map[string][]string
+	members map[string]inboxstore.ChatMembers
+}
+
+func (w withMembers) Asker(_ context.Context, service, account, chat, id string) ([]string, error) {
+	got, ok := w.askers[service+"/"+account+"/"+chat+"/"+id]
+	if !ok {
+		return nil, storeerr.ErrNotFound
+	}
+
+	return got, nil
+}
+
+func (w withMembers) Members(_ context.Context, service, account, chat string) (inboxstore.ChatMembers, error) {
+	got, ok := w.members[service+"/"+account+"/"+chat]
+	if !ok {
+		return inboxstore.ChatMembers{}, storeerr.ErrUnavailable
+	}
+
+	return got, nil
+}
+
 // replyTo is "Reply to Lan", a reply owed in Lan's chat at a messaging service, found by kai in a Routine's run.
 func (w *world) replyTo(t *testing.T, service string) inboxstore.Todo {
 	t.Helper()
@@ -1526,6 +1562,72 @@ func TestTheOwnersSentMessageClosesTheReply(t *testing.T) {
 			require.ErrorIs(t, err, storeerr.ErrForbidden, "another Bot does not close kai's item")
 		})
 	}
+}
+
+// Scenario: issue #1163. Lan asks the owner in her direct chat and he answers her in a group of the same account
+// where she is a member: kai records it with his message there, and the item closes, its closing saying the group.
+// His message in a group without her, in a group whose members cannot be read, of another account or service, or
+// older than the item, is refused and writes nothing.
+func TestTheOwnersAnswerInAGroupWhereTheAskerIsClosesTheReply(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	service := inboxstore.FromWhatsApp
+	item := w.replyTo(t, service)
+
+	later, earlier := t0.Add(time.Minute), t0.Add(-time.Minute)
+	mine := inboxstore.SentMessage{At: later, FromMe: true}
+	in := func(chat string, m inboxstore.SentMessage) inboxstore.SentMessage { m.Chat = chat; return m }
+	w.inbox.WithSent(withMembers{
+		sentMessages: sentMessages{
+			service + "/main/team/mine":             in("team", mine),
+			service + "/main/team/before":           {Chat: "team", At: earlier, FromMe: true},
+			service + "/main/others/mine":           in("others", mine),
+			service + "/main/unreadable/mine":       in("unreadable", mine),
+			service + "/work/team/mine":             in("team", mine),
+			inboxstore.FromZalo + "/main/team/mine": in("team", mine),
+		},
+		askers: map[string][]string{service + "/main/lan/asked": {"84911111111@s.whatsapp.net", "1684@lid"}},
+		members: map[string]inboxstore.ChatMembers{
+			service + "/main/team":   {Name: "Nhóm dự án", IDs: []string{"84922222222@s.whatsapp.net", "1684@lid"}},
+			service + "/main/others": {Name: "Khác", IDs: []string{"84922222222@s.whatsapp.net"}},
+			service + "/work/team":   {Name: "Nhóm dự án", IDs: []string{"1684@lid"}},
+		},
+	})
+
+	closing := func(kind, account, chat, id string) inboxstore.Closing {
+		return inboxstore.Closing{DoneBy: me, How: inboxstore.ClosedByBot,
+			Evidence: []inboxstore.Link{{Kind: kind, Ref: id, Account: account, Chat: chat}}}
+	}
+	sent := inboxstore.LinkWhatsAppSent
+
+	for name, cl := range map[string]inboxstore.Closing{
+		"a group without Lan":              closing(sent, "main", "others", "mine"),
+		"a group whose members are unread": closing(sent, "main", "unreadable", "mine"),
+		"his message from before":          closing(sent, "main", "team", "before"),
+		"another account's group":          closing(sent, "work", "team", "mine"),
+		"another service's group":          closing(inboxstore.LinkZaloSent, "main", "team", "mine"),
+	} {
+		_, err := w.inbox.Done(ctx, by(bot(w.kai), item), cl)
+		require.ErrorIs(t, err, storeerr.ErrInvalid, name)
+	}
+
+	w.unchanged(t, item)
+
+	done, err := w.inbox.Done(ctx, by(bot(w.kai), item), closing(sent, "main", "team", "mine"))
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Done, done.State)
+	assert.Equal(t, closing(sent, "main", "team", "mine").Evidence, done.Evidence)
+
+	got, err := w.inbox.Get(ctx, done.ID)
+	require.NoError(t, err)
+
+	closed := got.Events[len(got.Events)-1]
+	assert.Equal(t, inboxstore.EventState, closed.Kind)
+	var after map[string]any
+	require.NoError(t, json.Unmarshal(closed.After, &after))
+	assert.Equal(t, "Nhóm dự án", after["answered_in"], "the closing says the group he answered in")
 }
 
 // Scenario: issue #1004, section 3. kai drafts the reply on its item and hands it back to the owner: the item, his
@@ -1608,4 +1710,167 @@ func TestALarkReplyClosesOnlyWithItsOwnAccountsMessage(t *testing.T) {
 	done, err := w.inbox.Done(ctx, by(bot(w.kai), bound), closing("me"))
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.Done, done.State)
+}
+
+// Scenario: issue #1105, section 2. A Bot that read the owner's Gmail adds an item that names his Google account,
+// the thread and the mail it came from; one that read a meeting names the meeting and, when the action has one, its
+// line. Both are kept as given and listed by their source, and open only when the Bot says why, as every source it
+// reads. A Gmail item without its account or its mail, or a meeting item with another kind of reference or an
+// account, is refused.
+func TestAMailAndAMeetingAreSources(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+
+	mail := inboxstore.Source{Kind: inboxstore.FromGmail, ID: "18c2f0a9b1d2e3f4", Account: "work",
+		Quote: "Could you confirm the PoC scope by Friday?", Ref: &inboxstore.Link{Kind: inboxstore.LinkMail,
+			Ref: "18c2f0a9b1d2e3f5", Label: "Alibaba Cloud"}}
+	meeting := inboxstore.Source{Kind: inboxstore.FromMeeting, ID: "mtg_1", Quote: "Để em check tiles.",
+		Ref: &inboxstore.Link{Kind: inboxstore.LinkMeetingLine, Ref: "mtg_1/12"}}
+	noLine := inboxstore.Source{Kind: inboxstore.FromMeeting, ID: "mtg_1", Quote: "Lan sends the deck."}
+
+	for _, src := range []inboxstore.Source{mail, meeting, noLine} {
+		td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "From " + src.Kind,
+			State: inboxstore.Proposed, Source: src, Assignee: me})
+		require.NoError(t, err, src.Kind)
+		assert.Equal(t, src, td.Source)
+	}
+
+	for _, src := range []inboxstore.Source{mail, meeting} {
+		_, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Open from " + src.Kind,
+			State: inboxstore.Open, Source: src, Assignee: me})
+		require.ErrorIs(t, err, storeerr.ErrForbidden, "open from %s without why", src.Kind)
+
+		td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: "Open from " + src.Kind,
+			State: inboxstore.Open, Source: src, Assignee: me, WhyOpen: inboxstore.Promised})
+		require.NoError(t, err, src.Kind)
+		assert.Equal(t, inboxstore.Promised, td.WhyOpen)
+	}
+
+	for kind, want := range map[string]int{inboxstore.FromGmail: 2, inboxstore.FromMeeting: 3} {
+		page, err := w.inbox.List(ctx, inboxstore.Filter{SourceKind: kind}, "", 0)
+		require.NoError(t, err)
+		assert.Equal(t, want, page.Total, kind)
+	}
+
+	noAccount := mail
+	noAccount.Account = ""
+	noMail := mail
+	noMail.Ref = nil
+	lineAsURL := meeting
+	lineAsURL.Ref = &inboxstore.Link{Kind: inboxstore.LinkURL, Ref: "https://example.com"}
+	meetingAccount := meeting
+	meetingAccount.Account = "work"
+
+	for name, src := range map[string]inboxstore.Source{
+		"gmail without its account": noAccount, "gmail without its mail": noMail,
+		"a meeting with another reference": lineAsURL, "a meeting with an account": meetingAccount,
+	} {
+		_, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{Title: name, State: inboxstore.Proposed,
+			Source: src, Assignee: me})
+		require.ErrorIs(t, err, storeerr.ErrInvalid, name)
+	}
+}
+
+// Scenario: issue #1105, section 1. A Bot points an item it added in its chat at the Zalo message it came from: the
+// item keeps its state, and the change is an event with the source before and after. A source only the token gives
+// (a chat, a Routine's run, the owner's hand) is never set by an edit, and a Bot does not repoint another Bot's item.
+func TestABotPointsItsItemAtWhereItCameFrom(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	td := w.fromChat(t)
+
+	zalo := inboxstore.Source{Kind: inboxstore.FromZalo, ID: "g_laura", Account: "main",
+		Quote: "tầm chiều tối em gửi cô cái báo cáo", Ref: &inboxstore.Link{Kind: inboxstore.LinkZaloMessage, Ref: "z_20"}}
+
+	moved, err := w.inbox.Edit(ctx, by(bot(w.kai), td), inboxstore.Edit{Source: &zalo})
+	require.NoError(t, err)
+	assert.Equal(t, zalo, moved.Source)
+	assert.Equal(t, inboxstore.Open, moved.State)
+
+	last := moved.Events[len(moved.Events)-1]
+	assert.Equal(t, inboxstore.EventEdited, last.Kind)
+	assert.JSONEq(t, `{"source_kind":"zalo","source_id":"g_laura","source_account":"main",`+
+		`"source_quote":"tầm chiều tối em gửi cô cái báo cáo","source_ref":{"kind":"zalo_message","ref":"z_20"}}`,
+		string(last.After))
+
+	for _, kind := range []string{inboxstore.FromChat, inboxstore.FromRoutine, inboxstore.ByHand} {
+		_, err := w.inbox.Edit(ctx, by(bot(w.kai), moved), inboxstore.Edit{Source: &inboxstore.Source{Kind: kind,
+			ID: "chat_x"}})
+		require.ErrorIs(t, err, storeerr.ErrInvalid, kind)
+	}
+
+	_, err = w.inbox.Edit(ctx, by(bot(w.lan), moved), inboxstore.Edit{Source: &zalo})
+	require.ErrorIs(t, err, storeerr.ErrForbidden, "another Bot's item")
+}
+
+// Scenario: issue #1119, item 4: the owner corrects what a Bot did. Before the last triage run he added an item; since
+// then he added another by hand, dropped one the Bot proposed and edited a third, and the Bot changed a fourth itself.
+// Listed by what the owner changed since that run: the three he touched since, whatever their state, each with only
+// his own changes since, oldest first, so the next run learns the rule it missed; not the one he touched before, nor
+// the one only the Bot changed.
+func TestTheOwnersChangesSinceAMoment(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	before := w.open(t)
+	w.clock.now = w.clock.now.Add(time.Minute)
+	since := w.clock.now
+
+	dropped := w.proposed(t)
+	edited := w.fromChat(t)
+	botOnly := w.fromChat(t)
+	byHand := w.open(t)
+
+	w.clock.now = w.clock.now.Add(time.Minute)
+	_, err := w.inbox.Drop(ctx, by(owner, dropped), "Not mine: Linh's mail goes to Lan.", nil)
+	require.NoError(t, err)
+
+	title := "Renew the passport before the Singapore trip"
+	_, err = w.inbox.Edit(ctx, by(owner, edited), inboxstore.Edit{Title: &title})
+	require.NoError(t, err)
+
+	notes := "Office hours are 8 to 5."
+	_, err = w.inbox.Edit(ctx, by(bot(w.kai), botOnly), inboxstore.Edit{Notes: &notes})
+	require.NoError(t, err)
+
+	page, err := w.inbox.List(ctx, inboxstore.Filter{OwnerChangedSince: since}, "", 0)
+	require.NoError(t, err)
+
+	got := map[string]inboxstore.Todo{}
+	for _, td := range page.Items {
+		got[td.ID] = td
+	}
+
+	assert.Equal(t, 3, page.Total)
+	assert.ElementsMatch(t, []string{dropped.ID, edited.ID, byHand.ID}, keysOf(got))
+	assert.NotContains(t, got, before.ID, "changed before the moment")
+	assert.NotContains(t, got, botOnly.ID, "only the Bot changed it")
+
+	assert.Equal(t, inboxstore.Dropped, got[dropped.ID].State, "a closed item is listed too")
+	require.Len(t, got[dropped.ID].Events, 1)
+	assert.Equal(t, inboxstore.EventState, got[dropped.ID].Events[0].Kind)
+	assert.Equal(t, owner, got[dropped.ID].Events[0].Actor)
+	assert.Contains(t, string(got[dropped.ID].Events[0].After), "Linh's mail goes to Lan")
+
+	require.Len(t, got[edited.ID].Events, 1, "the Bot's create is not his change")
+	assert.Equal(t, inboxstore.EventEdited, got[edited.ID].Events[0].Kind)
+	assert.Contains(t, string(got[edited.ID].Events[0].After), "Singapore trip")
+
+	require.Len(t, got[byHand.ID].Events, 1)
+	assert.Equal(t, inboxstore.EventCreated, got[byHand.ID].Events[0].Kind)
+}
+
+func keysOf(m map[string]inboxstore.Todo) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+
+	return out
 }

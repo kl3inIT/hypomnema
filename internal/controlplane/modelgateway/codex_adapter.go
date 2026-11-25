@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync/atomic"
@@ -187,15 +188,22 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.underModelAccounts(ctx, codexRuntime, listedModel(call.upstream.Model), built.CacheKey, nil, nil,
+	model := call.upstream.Model
+
+	resp, err := s.underModelAccounts(ctx, codexRuntime, listedModel(model), built.CacheKey, nil,
+		s.codexModelReset(model),
 		func(token AccountToken) (*http.Response, error) {
-			resp, err := s.codexCall(ctx, &token, listedModel(call.upstream.Model), built)
+			if resting := s.codexResting(token, model); resting != nil {
+				return resting, nil
+			}
+
+			resp, err := s.codexCall(ctx, &token, listedModel(model), built)
 			if err != nil {
 				return nil, err
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				return s.codexRefused(ctx, token, resp), nil
+				return s.codexRefused(ctx, token, model, resp), nil
 			}
 
 			s.accountState.served(token.AccountID)
@@ -260,15 +268,17 @@ func (s *Server) codexPost(ctx context.Context, token AccountToken, built codex.
 	return resp, nil
 }
 
-// codexRefused passes on a request the backend refused: its status and its
-// body, as 9router-go does. The account cools down for as long as the kind of
-// failure calls for (accounts.go).
-func (s *Server) codexRefused(ctx context.Context, token AccountToken, resp *http.Response) *http.Response {
+// codexRefused passes on a request for model the backend refused: its status
+// and its body, as 9router-go does. The account, or that model of it, cools
+// down for as long as the kind of failure calls for (codexCool).
+func (s *Server) codexRefused(
+	ctx context.Context, token AccountToken, model string, resp *http.Response,
+) *http.Response {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
 	_ = resp.Body.Close()
 
 	failure := codex.ParseFailure(resp.StatusCode, body)
-	s.codexCool(ctx, token, failure)
+	s.codexCool(ctx, token, model, failure)
 
 	out := &http.Response{
 		StatusCode: failure.Status, Header: http.Header{"Content-Type": {"application/json"}},
@@ -284,9 +294,55 @@ func (s *Server) codexRefused(ctx context.Context, token AccountToken, resp *htt
 	return out
 }
 
-func (s *Server) codexCool(ctx context.Context, token AccountToken, failure *codex.Failure) {
-	s.cool(ctx, codexRuntime, token, failure.Status, failure.UsageLimit(), failure.ResetsAt,
-		"usage limit")
+// codexCool keeps an account out of use after the backend refused it a request
+// for model, as long as the failure calls for (accounts.go), and names the
+// refusal (issue #1147). A lack of capacity for the model (an overload) rests
+// that model of the account only, as OmniRoute locks only the exact model on a
+// Codex server_is_overloaded (src/sse/services/auth.ts:3460-3482); a usage
+// limit, a rate limit or a refused token cools the whole account as before.
+// The model rests for the delay the backend names, or the growing backoff, at
+// most maxModelRest (issue #1159).
+func (s *Server) codexCool(ctx context.Context, token AccountToken, model string, failure *codex.Failure) {
+	if model == "" || !failure.ModelCapacity() {
+		s.cool(ctx, codexRuntime, token, failure.Status, failure.UsageLimit(), failure.ResetsAt, failure.Reason())
+
+		return
+	}
+
+	until, ok := s.coolingUntil(token, failure.Status, false, failure.ResetsAt)
+	if !ok {
+		return
+	}
+
+	if latest := s.svc.clock.Now().Add(maxModelRest); until.After(latest) {
+		until = latest
+	}
+
+	s.accountState.rest(token.AccountID, model, until)
+	s.logger.WarnContext(ctx, "a model of an account rests",
+		slog.String("event", "modelgateway.model_rests"), slog.String("account_id", token.AccountID),
+		slog.String("model", model), slog.Time("until", until), slog.String("reason", failure.Reason()))
+}
+
+// codexResting is the answer of an account whose model rests (codexCool): a
+// 429 the backend is not asked for, so the request goes on to the next account,
+// as an Antigravity model that waits answers (antigravityAttempt); nil when the
+// model does not rest.
+func (s *Server) codexResting(token AccountToken, model string) *http.Response {
+	now := s.svc.clock.Now()
+
+	until := s.accountState.restsUntil(token.AccountID, model, now)
+	if until.IsZero() {
+		return nil
+	}
+
+	return openAIError(http.StatusTooManyRequests, "rate_limit_error", "model_resting",
+		fmt.Sprintf("the Codex account rests for model %s after the backend refused it", model), until.Sub(now))
+}
+
+// codexModelReset is until when model rests on an account, for FirstFree.
+func (s *Server) codexModelReset(model string) func(string) time.Time {
+	return func(account string) time.Time { return s.accountState.restsUntil(account, model, s.svc.clock.Now()) }
 }
 
 // codexAnswer turns the backend's event stream into the answer.
@@ -308,7 +364,9 @@ func (s *Server) codexAnswer(
 				}
 			}
 
-			s.codexCool(ctx, token, failure)
+			s.codexCool(ctx, token, call.upstream.Model, failure)
+			// Read only when the refusal is the answer, before any output.
+			noteStreamRefusal(ctx, failure.Text())
 
 			return codexRefusal(failure, now)
 		},

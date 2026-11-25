@@ -24,8 +24,8 @@ import (
 // inboxCaller is who a request acts as in the Inbox, and where an item it adds comes from.
 type inboxCaller struct {
 	actor inboxstore.Actor
-	// source is the kind of source the token adds from: by hand, a chat, or a Routine's run (which may name a chat
-	// at Lark or Zalo instead).
+	// source is the kind of source the token adds from: by hand, a chat, or a Routine's run (which may name what of
+	// the owner's it read instead).
 	source string
 	// chat is the chat with the owner a Bot acts in; run the Routine's run.
 	chat, run string
@@ -70,7 +70,7 @@ func (s *Server) ListTodos(ctx context.Context, req openapi.ListTodosRequestObje
 	f := inboxstore.Filter{
 		SourceKind: string(val(p.SourceKind)), NeedsYou: val(p.NeedsYou), WithSnoozed: val(p.IncludeSnoozed),
 		WithClosed: val(p.IncludeClosed), WithStale: val(p.IncludeStale),
-		DueFrom: val(p.DueFrom), DueTo: val(p.DueTo),
+		DueFrom: val(p.DueFrom), DueTo: val(p.DueTo), Project: val(p.Project),
 	}
 
 	for _, st := range val(p.State) {
@@ -96,7 +96,8 @@ func (s *Server) ListTodos(ctx context.Context, req openapi.ListTodosRequestObje
 	return openapi.ListTodos200JSONResponse(out), nil
 }
 
-// GetInboxNeedsYou counts the to-dos that need the owner now.
+// GetInboxNeedsYou counts what in the Inbox needs the owner now: the to-dos, the pending Approvals and the open
+// questions to him.
 func (s *Server) GetInboxNeedsYou(ctx context.Context, _ openapi.GetInboxNeedsYouRequestObject,
 ) (openapi.GetInboxNeedsYouResponseObject, error) {
 	n, err := s.svc.InboxNeedsYou(ctx)
@@ -125,6 +126,7 @@ func (s *Server) CreateTodo(ctx context.Context, req openapi.CreateTodoRequestOb
 	n := inboxstore.NewTodo{
 		Title: b.Title, Notes: val(b.Notes), DoneWhen: val(b.DoneWhen), Draft: val(b.Draft), Due: dueIn(b.Due),
 		Assignee: assigneeIn(b.Assignee), Source: src, WhyOpen: string(val(b.WhyOpen)),
+		Priority: val(b.Priority), PriorityReason: val(b.PriorityReason), Project: val(b.ProjectId),
 		IdempotencyKey: val(req.Params.IdempotencyKey),
 	}
 
@@ -147,7 +149,8 @@ func (s *Server) CreateTodo(ctx context.Context, req openapi.CreateTodoRequestOb
 }
 
 // newSource is where an item the caller adds comes from: the token says the kind and its chat or run; a Bot in a
-// Routine's run may name a chat at Lark or Zalo instead. A kind the token does not add from is refused, and so is
+// Routine's run may name what of the owner's it read instead (inboxstore.FoundKinds: a chat at Lark, Zalo or
+// WhatsApp, a Gmail thread, a meeting). A kind the token does not add from is refused, and so is
 // an id the token gives itself.
 func (c inboxCaller) newSource(b openapi.NewTodoSource) (inboxstore.Source, error) {
 	src := inboxstore.Source{Kind: c.source, Quote: val(b.Quote), Account: val(b.Account), Ref: linkIn(b.Ref)}
@@ -158,8 +161,7 @@ func (c inboxCaller) newSource(b openapi.NewTodoSource) (inboxstore.Source, erro
 
 	switch {
 	case src.Kind == c.source:
-	case c.source == inboxstore.FromRoutine && (src.Kind == inboxstore.FromLark || src.Kind == inboxstore.FromZalo ||
-		src.Kind == inboxstore.FromWhatsApp):
+	case c.source == inboxstore.FromRoutine && inboxstore.Found(src.Kind):
 		src.ID = val(b.Id)
 
 		return src, nil
@@ -207,7 +209,10 @@ func (s *Server) EditTodo(ctx context.Context, req openapi.EditTodoRequestObject
 	}
 
 	b := req.Body
-	e := inboxstore.Edit{Title: b.Title, Notes: b.Notes, DoneWhen: b.DoneWhen, Draft: b.Draft}
+	e := inboxstore.Edit{
+		Title: b.Title, Notes: b.Notes, DoneWhen: b.DoneWhen, Draft: b.Draft, Priority: b.Priority,
+		PriorityReason: b.PriorityReason, Project: b.ProjectId,
+	}
 
 	if b.Due != nil {
 		due := dueIn(b.Due)
@@ -449,7 +454,8 @@ func todoOut(t inboxstore.Todo, events bool) openapi.Todo {
 		},
 		CreatedBy: actorOut(t.CreatedBy), ApprovalId: ptr(t.ApprovalID), CloseReason: t.CloseReason,
 		Evidence: make([]openapi.TodoLink, 0, len(t.Evidence)), ClosedAt: t.ClosedAt, DuplicateOf: ptr(t.DuplicateOf),
-		Stale: t.Stale, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Stale: t.Stale, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, ChatId: ptr(t.Chat),
+		PassedBy: ptr(t.PassedBy), Priority: t.Priority, PriorityReason: t.PriorityReason, ProjectId: ptr(t.Project),
 	}
 
 	if t.Due.Date != "" {

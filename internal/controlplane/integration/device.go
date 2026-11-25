@@ -465,6 +465,17 @@ func (s *Service) Chats(ctx context.Context, integration, label string, limit in
 	return acc.Chats(ctx, limit)
 }
 
+// AccountID is the account's own id at the service, as the session held of a Connection of kind device knows it:
+// the Zalo id, the WhatsApp number's JID (issue #1124). Its Connection records its name, which for Zalo is not it.
+func (s *Service) AccountID(ctx context.Context, integration, label string) (string, error) {
+	acc, err := s.heldAccount(ctx, integration, label)
+	if err != nil {
+		return "", err
+	}
+
+	return acc.ID(), nil
+}
+
 // Media is a kept message's image or file, downloaded first when it is not kept yet (issue #634).
 func (s *Service) Media(ctx context.Context, integration, label, chat, id string) (messaging.Media, error) {
 	acc, err := s.heldAccount(ctx, integration, label)
@@ -512,6 +523,22 @@ func (s *Service) SyncFromPhone(ctx context.Context, integration, label string) 
 	}
 
 	return syncer.SyncFromPhone(ctx)
+}
+
+// Members reads who is in a chat of a Connection of kind device now (issue #1163), of a service that lists them.
+func (s *Service) Members(ctx context.Context, integration, label, chat string) (messaging.Members, error) {
+	acc, err := s.heldAccount(ctx, integration, label)
+	if err != nil {
+		return messaging.Members{}, err
+	}
+
+	lister, ok := acc.(messaging.MemberLister)
+	if !ok {
+		return messaging.Members{}, fmt.Errorf("%w: %s does not list a chat's members", orchestration.ErrInvalid,
+			integration)
+	}
+
+	return lister.Members(ctx, chat)
 }
 
 // Messages lists the messages kept of a Connection of kind device, the latest first (issue #631).

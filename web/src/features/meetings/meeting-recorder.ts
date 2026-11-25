@@ -9,11 +9,18 @@ import {
 } from "./meeting-socket"
 
 // Recording a meeting's tracks in the browser (issue #820), adapted from MemoryOS's MeetingRecorder
-// (web/src/features/meetings/meeting-recorder.ts), without its pause and mute, which the issue leaves out. Each track
-// has its own capture and socket; while a socket reconnects its audio is queued, at most 30 seconds, and the new
+// (web/src/features/meetings/meeting-recorder.ts). Each track has its own capture and socket; while a socket reconnects its audio is queued, at most 30 seconds, and the new
 // socket starts at the meeting's time of its first unsent sample, so the clock goes on. Once that time is in the new
 // socket's address nothing is dropped from the queue until the socket is ready (or fails, at most openTimeoutMs
-// later): a frame dropped then would move every later frame earlier on the meeting's clock.
+// later): a frame dropped then would move every later frame earlier on the meeting's clock. Pausing (issue #1153) drops
+// the audio and finishes every socket, as MemoryOS's pause does and Meetily's recording state drops audio while paused
+// (frontend/src-tauri/src/audio/recording_state.rs); resuming opens new sockets where the audio sent ends, so the
+// transcript and the saved audio join without the pause, and the clock, counted from the audio, stops while paused.
+// A socket kept open would not do: the server ends a track that has had no audio for 60 seconds. Muting the microphone
+// (issue #1155, MemoryOS's setMicMuted after anarlog's set_mic_muted) finishes only its socket while the tab records
+// on: what it hears meanwhile is never sent, but counts on its clock, so its socket opens again at the meeting's
+// current time, and the server keeps the gap silent. Resume leaves a muted microphone closed, as MemoryOS's connect
+// does.
 
 // bytesPerMs is PCM16 mono at 24 kHz.
 const bytesPerMs = 48
@@ -23,7 +30,7 @@ const reconnectDelaysMs = [1_000, 2_000, 5_000, 10_000, 20_000]
 const quietLevel = 6 / 180
 const quietAfterMs = 20_000
 
-type RecorderPhase = "recording" | "stopping" | "stopped" | "failed"
+type RecorderPhase = "recording" | "paused" | "stopping" | "stopped" | "failed"
 
 type TrackSnapshot = {
   track: MeetingLiveTrack
@@ -41,6 +48,8 @@ export type RecorderSnapshot = {
   elapsedMs: number
   tracks: TrackSnapshot[]
   previews: Partial<Record<MeetingLiveTrack, { speaker: string; text: string }>>
+  // micMuted: the microphone is off; the tab keeps recording and the clock keeps running.
+  micMuted: boolean
   error?: string
 }
 
@@ -71,6 +80,9 @@ type Pipe = {
   level: number
   lastLoudAt: number
   ended: boolean
+  muted: boolean
+  // mutes counts the times the pipe was muted: a socket whose offset was chosen before a mute is not used.
+  mutes: number
 }
 
 export class MeetingRecorder {
@@ -82,6 +94,7 @@ export class MeetingRecorder {
     elapsedMs: 0,
     tracks: [],
     previews: {},
+    micMuted: false,
   }
   private wakeLock?: { release: () => Promise<void> }
 
@@ -122,6 +135,8 @@ export class MeetingRecorder {
         level: 0,
         lastLoudAt: this.deps.now(),
         ended: false,
+        muted: false,
+        mutes: 0,
       }
       this.pipes.push(pipe)
       added.push(pipe)
@@ -133,6 +148,43 @@ export class MeetingRecorder {
     }
     await Promise.all(added.map((pipe) => this.connect(pipe)))
     if (!this.wakeLock) void this.lockScreen()
+    this.publish()
+  }
+
+  // pause keeps what was said and sends nothing more until resume: the sockets are finished, and audio is dropped.
+  async pause() {
+    if (this.snapshot.phase !== "recording") return
+    for (const pipe of this.pipes) pipe.level = 0
+    this.update({ phase: "paused", previews: {} })
+    await Promise.all(this.pipes.map((pipe) => this.closeSocket(pipe)))
+    this.publish()
+  }
+
+  // resume opens each shared track's socket again where its audio sent ends.
+  async resume() {
+    if (this.snapshot.phase !== "paused") return
+    const now = this.deps.now()
+    for (const pipe of this.pipes) pipe.lastLoudAt = now
+    this.update({ phase: "recording" })
+    await Promise.all(this.pipes.filter((pipe) => !pipe.ended).map((pipe) => this.connect(pipe)))
+    this.publish()
+  }
+
+  // setMicMuted turns the microphone off or back on while the tab keeps recording: muted, its socket is finished and
+  // nothing it hears is sent; unmuted, a socket opens at the meeting's current time (MemoryOS's setMicMuted).
+  async setMicMuted(muted: boolean) {
+    const mic = this.pipes.find((pipe) => pipe.track === "mic")
+    if (!mic || mic.muted === muted) return
+    mic.muted = muted
+    if (muted) mic.mutes++
+    mic.level = 0
+    // Audio still waiting for a reconnect is dropped, and its time is kept.
+    mic.deliveredBytes += mic.queuedBytes
+    mic.queue = []
+    mic.queuedBytes = 0
+    this.update({ micMuted: muted, previews: { ...this.snapshot.previews, mic: undefined } })
+    if (muted) await this.closeSocket(mic)
+    else await this.connect(mic)
     this.publish()
   }
 
@@ -174,6 +226,12 @@ export class MeetingRecorder {
   private chunk(pipe: Pipe, pcm: ArrayBuffer) {
     if (this.snapshot.phase !== "recording" || pipe.ended) return
     pipe.capturedBytes += pcm.byteLength
+    if (pipe.muted) {
+      // Never sent, but the clock goes on, so the microphone unmuted speaks at the meeting's true time.
+      pipe.deliveredBytes += pcm.byteLength
+
+      return
+    }
     if (pipe.socket) {
       pipe.socket.send(pcm)
       pipe.deliveredBytes += pcm.byteLength
@@ -196,19 +254,21 @@ export class MeetingRecorder {
   }
 
   private level(pipe: Pipe, level: number) {
-    pipe.level = level
+    pipe.level = this.snapshot.phase === "paused" || pipe.muted ? 0 : level
     if (level >= quietLevel) pipe.lastLoudAt = this.deps.now()
     this.publish()
   }
 
-  private async connect(pipe: Pipe) {
-    if (pipe.socket || pipe.connecting || this.snapshot.phase !== "recording") return
+  private async connect(pipe: Pipe): Promise<void> {
+    if (pipe.socket || pipe.connecting || pipe.muted || this.snapshot.phase !== "recording") return
     pipe.connecting = true
     pipe.timer = undefined
     this.publish()
+    let unmutedMeanwhile = false
     try {
       const ticket = await this.deps.issueTicket(pipe.track)
       pipe.handshaking = true
+      const mutes = pipe.mutes
       const socket = await this.deps.openSocket({
         meetingId: this.deps.meetingId,
         track: pipe.track,
@@ -227,19 +287,21 @@ export class MeetingRecorder {
         },
         onFailure: (error) => this.socketFailed(pipe, error),
       })
-      if (this.snapshot.phase !== "recording") {
+      if (this.snapshot.phase !== "recording" || pipe.mutes !== mutes) {
         socket.close()
-
-        return
+        // Muted and unmuted while it opened: the audio muted meanwhile was not sent, so a socket opens again at the
+        // meeting's current time once this one is let go.
+        unmutedMeanwhile = this.snapshot.phase === "recording" && !pipe.muted
+      } else {
+        pipe.socket = socket
+        pipe.attempt = 0
+        for (const pcm of pipe.queue) {
+          socket.send(pcm)
+          pipe.deliveredBytes += pcm.byteLength
+        }
+        pipe.queue = []
+        pipe.queuedBytes = 0
       }
-      pipe.socket = socket
-      pipe.attempt = 0
-      for (const pcm of pipe.queue) {
-        socket.send(pcm)
-        pipe.deliveredBytes += pcm.byteLength
-      }
-      pipe.queue = []
-      pipe.queuedBytes = 0
     } catch (error) {
       this.socketFailed(
         pipe,
@@ -251,11 +313,12 @@ export class MeetingRecorder {
       pipe.connecting = false
       this.publish()
     }
+    if (unmutedMeanwhile) await this.connect(pipe)
   }
 
   private socketFailed(pipe: Pipe, error: MeetingStreamError) {
     pipe.socket = undefined
-    if (this.snapshot.phase !== "recording") return
+    if (this.snapshot.phase !== "recording" || pipe.muted) return
     if (terminalCodes.has(error.code) || pipe.attempt >= reconnectDelaysMs.length) {
       this.release()
       for (const other of this.pipes) other.socket?.close()

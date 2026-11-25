@@ -172,52 +172,88 @@ test("a test push shows on the page it opens; a push for the chat in view does n
   expect(await pushTo(page, "/chats/cht_2", "writer asks")).toEqual(["writer asks"])
 })
 
-// renew hands the page's service worker the event a push service sends when it changes a subscription's endpoint,
-// with the device list the control plane answers, and returns the calls the worker made.
-async function renew(page: Page, listed: string[]) {
-  const context = page.context()
-  const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
-  await page.evaluate("navigator.serviceWorker.ready")
-  const list = JSON.stringify({
-    public_key: publicKey,
-    data: listed.map((endpoint, i) => ({ id: `psb_${i}`, endpoint, label: "iPhone · Safari" })),
-  })
+test.describe("renewal against the control plane", () => {
+  test.use({ baseURL: "http://127.0.0.1:4180" })
 
-  return worker.evaluate(`(async () => {
-    const calls = []
-    self.fetch = async (url, init = {}) => {
-      calls.push((init.method || "GET") + " " + new URL(url, location.origin).pathname)
-      return new Response(${JSON.stringify(list)}, { status: 200, headers: { "Content-Type": "application/json" } })
-    }
-    const sub = (endpoint) => ({
-      endpoint,
-      options: { applicationServerKey: new Uint8Array(65).buffer },
-      toJSON: () => ({ endpoint, keys: { p256dh: "BKey", auth: "auth" } }),
+  for (const removeFirst of [true, false]) {
+    const order = removeFirst ? "removal before the renewal write" : "renewal before removal"
+    test(order, async ({ page }) => {
+      const login = await page.request.post("/api/v1/session", {
+        data: { username: "owner", password: "browser tests" },
+      })
+      expect(login.status()).toBe(204)
+
+      const path = "/api/v1/push/subscriptions"
+      const endpoint = `https://push.example/${crypto.randomUUID()}`
+      const old = `${endpoint}/old`
+      const next = `${endpoint}/new`
+      const label = "iPhone · Safari"
+      const added = await page.request.put(path, {
+        data: { endpoint: old, label, keys: { p256dh: "oldKey", auth: "oldAuth" } },
+      })
+      expect(added.status()).toBe(200)
+      const { id } = (await added.json()) as PushSubscription
+      const removePath = `${path}/${id}`
+
+      await page.goto("/settings/notifications")
+      const context = page.context()
+      const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
+      await page.evaluate("navigator.serviceWorker.ready")
+
+      // Hold the renewal write while the owner removes the device. On the old worker this is
+      // after it has already read the device list. Every request still goes to the real API.
+      const result = (await worker.evaluate(`(async () => {
+        const { path, removePath, old, next, removeFirst } =
+          ${JSON.stringify({ path, removePath, old, next, removeFirst })}
+        const fetch = self.fetch.bind(self)
+        const result = {}
+        self.fetch = async (url, init) => {
+          if (url !== path || init?.method !== "PUT") return fetch(url, init)
+          if (removeFirst) {
+            result.removal = (await fetch(removePath, { method: "DELETE" })).status
+          }
+          const response = await fetch(url, init)
+          result.renewal = response.status
+          return response
+        }
+        const sub = (endpoint) => ({
+          endpoint,
+          options: { applicationServerKey: new Uint8Array(65).buffer },
+          toJSON: () => ({ endpoint, keys: { p256dh: "newKey", auth: "newAuth" } }),
+        })
+        const event = new Event("pushsubscriptionchange")
+        Object.defineProperty(event, "oldSubscription", { value: sub(old) })
+        Object.defineProperty(event, "newSubscription", { value: sub(next) })
+        let done = Promise.resolve()
+        event.waitUntil = (promise) => { done = promise }
+        try {
+          self.dispatchEvent(event)
+          await done
+          return result
+        } finally {
+          self.fetch = fetch
+        }
+      })()`)) as { removal?: number; renewal?: number }
+
+      const devices = async () => {
+        const response = await page.request.get(path)
+        expect(response.status()).toBe(200)
+        const { data } = (await response.json()) as { data: PushSubscription[] }
+        return data.filter((d) => d.endpoint === old || d.endpoint === next)
+      }
+
+      if (removeFirst) {
+        expect(result.removal).toBe(204)
+        expect(await devices()).toEqual([])
+        expect(result.renewal).toBe(404)
+      } else {
+        expect(result.renewal).toBe(200)
+        expect(await devices()).toEqual([expect.objectContaining({ id, endpoint: next, label })])
+        expect((await page.request.delete(removePath)).status()).toBe(204)
+        expect(await devices()).toEqual([])
+      }
     })
-    const event = new Event("pushsubscriptionchange")
-    Object.defineProperty(event, "oldSubscription", { value: sub("https://push.example/old") })
-    Object.defineProperty(event, "newSubscription", { value: sub("https://push.example/new") })
-    let done = Promise.resolve()
-    event.waitUntil = (p) => { done = p }
-    self.dispatchEvent(event)
-    await done
-    return calls
-  })()`) as Promise<string[]>
-}
-
-// Scenario: the push service gives a device a new endpoint (an iOS reinstall). A device the owner still has is kept
-// under its new endpoint and its old row goes, as Coder's pushsubscriptionchange handler posts the new one and
-// deletes the old (site/src/serviceWorker.ts). One he removed stays removed (review of #1050).
-test("a renewed subscription is kept only for a device the owner still has", async ({ page }) => {
-  await fakeServer(page, [laptop])
-  await page.goto("/settings/notifications")
-
-  expect(await renew(page, ["https://push.example/old"])).toEqual([
-    "GET /api/v1/push/subscriptions",
-    "PUT /api/v1/push/subscriptions",
-    "DELETE /api/v1/push/subscriptions/psb_0",
-  ])
-  expect(await renew(page, [laptop.endpoint])).toEqual(["GET /api/v1/push/subscriptions"])
+  }
 })
 
 test.describe("on an iPhone in Safari", () => {

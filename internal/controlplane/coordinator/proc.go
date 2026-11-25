@@ -225,7 +225,6 @@ func (p *proc) read(ctx context.Context, stdout io.Reader) {
 		p.setWorking(false)
 		p.s.exitedMidTurn(ctx, p)
 		p.s.revoke(ctx, p.chatID, p.gatewayKey())
-		p.s.loseBackground(ctx, p)
 		p.s.cfg.Logger.InfoContext(ctx, "pi exited", slog.String("event", "coordinator.exited"),
 			slog.String("chat_id", p.chatID), slog.String("stderr", p.stderrTail()))
 		p.s.settled()

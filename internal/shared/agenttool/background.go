@@ -1,32 +1,36 @@
 package agenttool
 
-// PathBackground is where a Bot's pi says what its background commands do (issue #1058): the box's pi-background
-// extension posts a BackgroundReport when one starts and when it ends, with pi's own token. The control plane keeps
-// the running ones and wakes the chat when one ends, as OpenClaw's exec continues the conversation when a
-// backgrounded command exits (docs/tools/exec.md:171-173).
+// PathBackground is where a Bot's pi runs and stops its background commands (issues #1058, #1084): the box's
+// pi-background extension posts a BackgroundRequest with pi's own token. The control plane starts the command as a
+// unit of its own outside pi's box, which a restart of the control plane leaves running, and wakes the chat when it
+// ends, as OpenClaw's durable exec does (docs/tools/exec.md:94-100, 171-173).
 const PathBackground = "/agent/v1/background"
 
-// The kinds of BackgroundReport.
+// The kinds of BackgroundRequest.
 const (
-	BackgroundStarted = "started"
-	BackgroundEnded   = "ended"
+	BackgroundStart = "start"
+	BackgroundStop  = "stop"
 )
 
-// BackgroundReport is one report of a background command. An ended one carries its exit code or the signal that
-// killed it, and its output's end; it was started by the pi that reports it.
-type BackgroundReport struct {
+// BackgroundRequest starts a command in the background or stops one.
+type BackgroundRequest struct {
 	Kind string `json:"kind"`
-	ID   string `json:"id"`
-	// ExitCode is set when it exited, Signal when a signal ended it.
-	ExitCode *int   `json:"exit_code,omitempty"`
-	Signal   string `json:"signal,omitempty"`
-	// TimedOut says it was killed because its deadline passed.
-	TimedOut bool `json:"timed_out,omitempty"`
-	// Output is the end of its output, at most 2,000 characters; OutputChars how many it wrote in all.
-	Output      string `json:"output,omitempty"`
-	OutputChars int64  `json:"output_chars,omitempty"`
-	// OutputFile has all its output in the box, when Output is only its end; Dropped says output past the file's
-	// limit was discarded.
-	OutputFile string `json:"output_file,omitempty"`
-	Dropped    bool   `json:"dropped,omitempty"`
+	// Command is the script to start, pi's shell prefix included; Cwd is where it starts, the Bot's directory or
+	// below; TimeoutSeconds is its deadline, the default when zero; Shell is pi's shell, which runs it with -c as
+	// pi's bash does, /bin/bash when empty.
+	Command        string `json:"command,omitempty"`
+	Cwd            string `json:"cwd,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	Shell          string `json:"shell,omitempty"`
+	// ID is the command to stop.
+	ID string `json:"id,omitempty"`
+}
+
+// BackgroundAnswer is what a started command is called, the file its output goes to and its deadline; for a stop,
+// whether it was running.
+type BackgroundAnswer struct {
+	ID             string `json:"id"`
+	OutputFile     string `json:"output_file,omitempty"`
+	TimeoutSeconds int    `json:"timeout_seconds,omitempty"`
+	Stopped        bool   `json:"stopped,omitempty"`
 }

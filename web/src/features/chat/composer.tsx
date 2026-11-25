@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import type { ChatAttachment } from "@/api/generated/types.gen"
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 
 import { AttachmentStrip } from "./attachment-strip"
@@ -30,10 +31,12 @@ import { recall, type Walk } from "./recall"
 // What is written, with the files that are up, is kept as the chat's draft (issue #433, drafts.ts) and is there
 // again when the owner comes back to the chat or reloads; it goes when it is sent. ↑ in the empty box brings back
 // what this chat sent, newest first, and ↓ goes back to the empty box (recall.ts).
-export function Composer<T>({
+//
+// An Inbox item's comments write with it too (issue #1143): placeholder and submit name what writing there does,
+// "Hand to Hypo", and Send is then a button with those words.
+export function Composer({
   onSend,
   ready,
-  onSent,
   onStop,
   working,
   disabled,
@@ -43,14 +46,13 @@ export function Composer<T>({
   draft,
   sent,
   put,
+  placeholder,
+  submit,
 }: {
-  onSend: (text: string, files: ChatAttachment[]) => Promise<T>
+  onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
   // ready is what the message waits for before it leaves the box and the draft, such as a new chat's Bots (issue
   // #1055); a refusal leaves it there and says why.
   ready?: () => Promise<unknown>
-  // onSent is told what onSend answered once the draft went with the message, so that what it does next, such as
-  // opening the chat made, finds no draft left (issue #1080).
-  onSent?: (sent: T) => void
   onStop: () => void
   working: boolean
   disabled?: boolean
@@ -67,6 +69,10 @@ export function Composer<T>({
   // put is a text to put in the box, once for each at: a queued message taken back to edit (issue #497, Omnigent's
   // Edit). It goes after what is typed already.
   put?: { text: string; at: number }
+  // placeholder is what the empty box says, in place of the chat's.
+  placeholder?: string
+  // submit is the words of the send button, in place of the round arrow.
+  submit?: string
 }) {
   const [text, setText] = useState(() => (draft ? readDraft(draft.key).text : ""))
   const [sending, setSending] = useState(false)
@@ -91,9 +97,10 @@ export function Composer<T>({
       writeDraft(key, { text: next, ...(chat && { chat }), ...(draftBot && { bot: draftBot }) })
   }
 
-  // The files that are up are the draft's; those uploading or not uploaded are not kept.
+  // The files that are up are the draft's; those uploading or not uploaded are not kept. While a message is sent its
+  // files are not: they go with it, and come back into the draft if it is not sent.
   useEffect(() => {
-    if (!key || !items) return
+    if (!key || !items || sending) return
     const up = items
       .filter((item) => item.state === "done")
       .map((item) => ({
@@ -103,7 +110,7 @@ export function Composer<T>({
         ...(item.type && { type: item.type }),
       }))
     writeDraft(key, { files: up, ...(chat && { chat }), ...(draftBot && { bot: draftBot }) })
-  }, [key, items, chat, draftBot])
+  }, [key, items, chat, draftBot, sending])
 
   // The draft is saved as the composer goes, to another chat or page.
   useEffect(() => saveDrafts, [])
@@ -149,19 +156,17 @@ export function Composer<T>({
     }
     attachments?.dismiss()
     walk.current = null
-    type("")
+    setText("")
+    // The draft goes as the message is sent, not once the send has ended, which on the New chat page is after the
+    // chat's page has opened: a page going meanwhile would keep the sent message's files as the next draft (issue
+    // #1080). As t3code's useComposerSend clears the draft's content before it dispatches the message, and
+    // assistant-ui's composer detaches its text and attachments at send. What is typed meanwhile is the next draft.
+    if (key) clearDraft(key)
 
     try {
       const files = attachments ? await attachments.draft.ready() : []
-      const sent = await onSend(message, files)
+      await onSend(message, files)
       attachments?.draft.clear()
-      if (key) {
-        clearDraft(key)
-        // What was typed while it was sent is the next draft.
-        const typed = box.current?.value ?? ""
-        if (typed !== "") type(typed)
-      }
-      onSent?.(sent)
     } catch (err) {
       // A send whose answer was lost may have reached the server, and a page that goes (a reload) loses it so: it
       // goes back after a pause, which a page going away does not live through, so it is not kept as the draft
@@ -220,7 +225,8 @@ export function Composer<T>({
           <textarea
             aria-label="Message"
             placeholder={
-              working ? `Add to what ${botName} is doing` : `Ask ${botName} to build something`
+              placeholder ??
+              (working ? `Add to what ${botName} is doing` : `Ask ${botName} to build something`)
             }
             rows={1}
             value={text}
@@ -322,6 +328,15 @@ export function Composer<T>({
                 <rect x="2" y="2" width="8" height="8" rx="1.5" />
               </svg>
             </button>
+          ) : submit ? (
+            <Button
+              type="submit"
+              size="sm"
+              disabled={disabled || sending || (!text.trim() && files === 0)}
+            >
+              {sending && <Spinner data-icon="inline-start" />}
+              {submit}
+            </Button>
           ) : (
             <button
               type="submit"

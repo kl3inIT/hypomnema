@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/codex"
 )
@@ -24,10 +25,16 @@ import (
 // (translator/responses_usage.go), a refusal passed on with its status and
 // body (handlers/chat/responses.go).
 //
-// Left out, with where a reference has it: a model served by another kind of
-// provider, which 9router-go and CLIProxyAPI translate to chat and back;
-// /v1/responses/compact; an answer that is not a stream, which 9router-go
-// does not fold for Codex either; CLIProxyAPI's WebSocket.
+// A model served on chat (an OpenCode chat model, an OpenAI-compatible
+// provider) is asked through its chat adapter in chat's format and its answer
+// turned back into Responses events (package responseschat, issue #1144), as
+// CLIProxyAPI's openai→openai-responses translator and LiteLLM's bridge do.
+//
+// Left out, with where a reference has it: a Claude or Antigravity
+// subscription and an OpenCode model on Messages, which 9router-go and
+// CLIProxyAPI translate too; /v1/responses/compact; an answer that is not a
+// stream, which 9router-go does not fold for Codex either; CLIProxyAPI's
+// WebSocket.
 
 // sessionHeaders are where a client names its session, in the order
 // 9router-go reads them (handlerutil.SessionHeaderKeys); the Codex CLI sends
@@ -142,6 +149,14 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 	serving, served := withServed(r)
 	s.serveResponses(w, serving, raw, session, model, &record, served)
 	s.noteOverflow(r.Context(), key, model, run, record)
+
+	if record.Attempts == 0 {
+		// Refused before any target was tried (model_not_served_here): nothing was served, so nothing is recorded,
+		// as an image or audio request refused before any provider is not (RecordImageCall, RecordAudioCall;
+		// issue #1147).
+		return
+	}
+
 	record.AccountID = served.id
 	record.Duration = s.svc.clock.Now().Sub(started)
 
@@ -159,32 +174,53 @@ func (s *Server) serveResponses(
 ) {
 	ctx := r.Context()
 
-	var targets []upstream
+	var (
+		attempts []responsesAttempt
+		targets  []upstream
+	)
 
 	for _, target := range model.Targets {
-		u, _, err := s.svc.upstreamFor(ctx, target)
-		// An OpenCode Go or Zen model served on Responses is passed the request too (issues #854, #965).
-		if err == nil && s.svc.servedOnResponses(ctx, u.Kind, u.Model) {
-			targets = append(targets, u)
+		u, adapter, err := s.svc.upstreamFor(ctx, target)
+		if err != nil {
+			continue
 		}
+
+		way := s.svc.responsesWayOf(ctx, u.Kind, u.Model)
+		// Every target but an OpenAI-compatible provider runs under the accounts logged in on the control plane.
+		if way == responsesNotServed || (s.accounts == nil && !adapter.declared()) {
+			continue
+		}
+
+		attempts = append(attempts, responsesAttempt{upstream: u, adapter: adapter, way: way})
+		targets = append(targets, u)
 	}
 
-	if len(targets) == 0 || s.accounts == nil {
+	if len(attempts) == 0 {
 		writeError(w, http.StatusBadRequest, typeInvalidRequest, "model_not_served_here",
-			fmt.Sprintf("model %q is not served from a Codex subscription or an OpenCode model on Responses, "+
-				"the ones /v1/responses passes on to", model.Name))
+			fmt.Sprintf("model %q is not served from a Codex subscription, an OpenCode model on Responses or chat, "+
+				"or an OpenAI-compatible provider, the ones /v1/responses serves", model.Name))
 
 		return
 	}
 
 	var cooling modelCooling
-	for i, target := range targets {
-		last := i == len(targets)-1
+	for i, a := range attempts {
+		target := a.upstream
+		last := i == len(attempts)-1
 		noteServed(ctx, "")
 		record.Attempts, record.Provider, record.UpstreamModel = i+1, target.Provider, target.Model
 		record.Status = 0
 
-		resp, err := s.passResponses(ctx, raw, session, target)
+		var (
+			resp *http.Response
+			err  error
+		)
+
+		if a.way == responsesTranslated {
+			resp, err = s.responsesAsChat(ctx, raw, a, chatCall{keyID: record.KeyID, model: model.Name, session: session})
+		} else {
+			resp, err = s.passResponses(ctx, raw, session, target)
+		}
 
 		var bad *badMessagesError
 		if errors.As(err, &bad) {
@@ -225,7 +261,7 @@ func (s *Server) serveResponses(
 				w.Header().Set("Retry-After", retry)
 			}
 
-			record.Error = errorText(copyBody(w, resp, resp.Header.Get("Content-Type"), maxErrorBytes))
+			recordRefusal(ctx, record, copyBody(w, resp, resp.Header.Get("Content-Type"), maxErrorBytes), len(raw))
 			_ = resp.Body.Close()
 
 			return
@@ -234,7 +270,7 @@ func (s *Server) serveResponses(
 		var onFailure func(*codex.Failure)
 		if target.Kind == "codex_subscription" && served.id != "" {
 			onFailure = func(failure *codex.Failure) {
-				s.codexCool(ctx, AccountToken{AccountID: served.id}, failure)
+				s.codexCool(ctx, AccountToken{AccountID: served.id}, target.Model, failure)
 				s.recordResponsesCooling(ctx, r.URL.Path, model.Name, cooling, targets[i:])
 			}
 		}
@@ -255,6 +291,13 @@ func (s *Server) serveResponses(
 		fmt.Sprintf("no provider of model %q could be reached", model.Name))
 }
 
+// responsesAttempt is one target /v1/responses can send a request to, and how.
+type responsesAttempt struct {
+	upstream upstream
+	adapter  chatAdapter
+	way      responsesWay
+}
+
 func (s *Server) recordResponsesCooling(
 	ctx context.Context, route, model string, cooling modelCooling, targets []upstream,
 ) {
@@ -267,7 +310,11 @@ func (s *Server) recordResponsesCooling(
 		if p, ok := openCodeOf(target.Kind); ok {
 			runtime = p.runtime
 		}
-		until, err := s.accounts.FirstFree(kept, runtime, nil)
+		var modelReset func(string) time.Time
+		if runtime == codexRuntime {
+			modelReset = s.codexModelReset(target.Model)
+		}
+		until, err := s.accounts.FirstFree(kept, runtime, modelReset)
 		if err != nil || until.IsZero() {
 			return
 		}
@@ -299,20 +346,36 @@ func (s *Server) passResponses(
 		return nil, &badMessagesError{err: err}
 	}
 
-	return s.underModelAccounts(ctx, codexRuntime, listedModel(target.Model), built.CacheKey, nil, nil,
+	return s.underModelAccounts(ctx, codexRuntime, listedModel(target.Model), built.CacheKey, nil,
+		s.codexModelReset(target.Model),
 		func(token AccountToken) (*http.Response, error) {
+			if resting := s.codexResting(token, target.Model); resting != nil {
+				return resting, nil
+			}
+
 			resp, err := s.codexCall(ctx, &token, listedModel(target.Model), built)
 			if err != nil {
 				return nil, err
 			}
 
 			if resp.StatusCode != http.StatusOK {
-				return s.codexRefused(ctx, token, resp), nil
+				return s.codexRefused(ctx, token, target.Model, resp), nil
+			}
+
+			held, failure := s.holdCodexOpening(resp)
+			if failure != nil {
+				// Refused before any output: the next account is tried, as for a
+				// 503 (issue #1135); an overload rests that model of the account
+				// only (issue #1147).
+				s.codexCool(ctx, token, target.Model, failure)
+				noteStreamRefusal(ctx, failure.Text())
+
+				return codexRefusal(failure, s.svc.clock.Now()), nil
 			}
 
 			s.accountState.served(token.AccountID)
 
-			return resp, nil
+			return held, nil
 		})
 }
 
@@ -347,8 +410,10 @@ func (s *Server) relayResponses(
 		completed, clientGone bool
 		// answered is when the event that completes the answer was passed on (issue #635).
 		answered bool
-		sent     int
-		failure  string
+		// output says an event past the stream's opening was passed on (codex.Opening).
+		output  bool
+		sent    int
+		failure string
 	)
 
 	// searches are the model's own web searches, by their item's id (issue #723).
@@ -362,6 +427,7 @@ func (s *Server) relayResponses(
 		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData {
 			noteSearch(payload, searches)
 			noteStreamFailure(&failure, payload)
+			output = output || !codex.Opening(payload) && failure == ""
 			if onFailure != nil && !completed && bytes.Contains(payload, []byte(`"response.failed"`)) {
 				if parsed := codex.ParseResponseFailure(payload, s.svc.clock.Now()); parsed != nil && parsed.UsageLimit() {
 					onFailure(parsed)
@@ -370,10 +436,15 @@ func (s *Server) relayResponses(
 			}
 		}
 
+		// response.incomplete ends an answer too, one cut at its token limit or filtered (the Responses API's
+		// terminal events; package responseschat sends it for a chat finish_reason length or content_filter): the
+		// answer was passed on whole and its usage is read from it.
 		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData &&
-			bytes.Contains(payload, []byte(`"response.completed"`)) {
+			(bytes.Contains(payload, []byte(`"response.completed"`)) ||
+				bytes.Contains(payload, []byte(`"response.incomplete"`))) {
 			var event responsesCompleted
-			if json.Unmarshal(payload, &event) == nil && event.Type == "response.completed" {
+			if json.Unmarshal(payload, &event) == nil &&
+				(event.Type == "response.completed" || event.Type == "response.incomplete") {
 				completed = true
 				usage := event.Response.Usage
 				record.Tokens = Tokens{
@@ -412,6 +483,12 @@ func (s *Server) relayResponses(
 		record.Outcome = OutcomeClientGone
 	default:
 		record.Outcome, record.Error = OutcomeTruncated, idle.endReason(scanner.Err(), "response.completed")
+	}
+
+	if !output {
+		// A stream that ended before any output gave none: its frames echo the
+		// request, they are no answer (issue #1135).
+		sent = 0
 	}
 
 	record.Tokens.estimate(asked, sent)

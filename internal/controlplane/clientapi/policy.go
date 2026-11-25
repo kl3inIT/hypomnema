@@ -382,6 +382,15 @@ var policies = map[string]policy{
 	"SnoozeTodo":       {scope: scopeActor},
 	"StartTodo":        {scope: scopeActor},
 	"ReleaseTodo":      {scope: scopeActor},
+	// Handing an item to a Bot and sending as the owner are his alone; a Bot comments on its own items (issue #1111).
+	"HandTodo":      {scope: scopeOwner},
+	"CommentTodo":   {scope: scopeActor},
+	"SendTodoDraft": {scope: scopeOwner},
+	// The Inbox's projects (issue #1157): every token reads them; the owner keeps them.
+	"ListInboxProjects":  {},
+	"CreateInboxProject": {scope: scopeOwner},
+	"EditInboxProject":   {scope: scopeOwner},
+	"DeleteInboxProject": {scope: scopeOwner},
 }
 
 var (

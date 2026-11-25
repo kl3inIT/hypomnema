@@ -1251,3 +1251,102 @@ func TestAWokenRunKeepsTheAccessItStartedWith(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, read, "the chat reads only, as its run started")
 }
+
+// Scenario: issue #1071, finding 2 of the fourth review of #1037: a check woke the Bot, and while the Bot works the
+// owner makes the Routine a script alone. The run still ends when the Bot has answered, as the prompt run it started
+// as: it does not stay running and block every later run.
+func TestAWokenRunEndsAsItStartedWhenTheRoutineBecomesAScript(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	home := w.chat()
+	triage := w.watched("triage", home)
+
+	w.script.then(exits("zalo:main g_pmo \"PMO\": 2 new\n", 0))
+	_, err := w.runner.RunNow(ctx, triage.ID)
+	require.NoError(t, err)
+
+	var run routinestore.RoutineRun
+
+	require.Eventually(t, func() bool {
+		runs, err := w.svc.Routines().ListRoutineRuns(ctx, triage.ID, 1)
+		if err != nil || len(runs) != 1 {
+			return false
+		}
+
+		run = runs[0]
+
+		return run.ChatID != ""
+	}, eventual, every, "the check never woke the bot")
+
+	_, err = w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBotID, Name: "triage", Kind: routinestore.RoutineScript, Script: "sync.sh",
+		ScriptText: "#!/bin/sh\necho 3 rows written\n", EveryMinutes: 60, ChatID: home, Announce: true,
+	}, owner)
+	require.NoError(t, err)
+
+	w.work(run.ChatID, true)
+	w.says(run.ChatID, "Two items added.")
+	w.work(run.ChatID, false)
+	w.runner.Follow(ctx)
+
+	ended := w.ended(triage.ID, 1, routinestore.RunSucceeded)
+	assert.Equal(t, "Two items added.", ended.Output)
+}
+
+// Scenario: issue #1071, finding 2: the check of a Routine that reads only finds nothing new, and while it runs the
+// owner makes the Routine a script alone that tells its chat what it printed. What the read check printed stays on
+// its run: it is told nowhere, as the quiet check it started as.
+func TestAQuietCheckStaysQuietWhenTheRoutineChangesMeanwhile(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	ended := endedTokens{revoked: make(chan struct{})}
+	w.tokens = ended
+	w.runner = w.runnerWith("hypomnema-routine")
+	home := w.chat()
+	triage := w.watched("triage", home)
+	_, err := w.svc.Routines().SetRoutineAccess(ctx, triage.ID, routinestore.AccessRead)
+	require.NoError(t, err)
+
+	held := make(chan struct{})
+	w.script.then(func(context.Context) (string, int, error) {
+		<-held
+
+		return "lark:me oc_1 \"Lan\": báo giá tháng 11\n{\"wakeAgent\": false}\n", 0, nil
+	})
+
+	_, err = w.runner.RunNow(ctx, triage.ID)
+	require.NoError(t, err)
+
+	_, err = w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBotID, Name: "triage", Kind: routinestore.RoutineScript, Access: routinestore.AccessFull,
+		Script: "sync.sh", ScriptText: "#!/bin/sh\necho 3 rows written\n", EveryMinutes: 60, ChatID: home,
+		Announce: true,
+	}, owner)
+	require.NoError(t, err)
+	close(held)
+
+	quiet := w.ended(triage.ID, 1, routinestore.RunSucceeded)
+	assert.Empty(t, quiet.ChatID, "nothing new wakes no model")
+
+	select {
+	case <-ended.revoked:
+	case <-time.After(eventual):
+		require.FailNow(t, "the run's script never ended")
+	}
+
+	msgs, err := w.svc.ListChatMessages(ctx, home, 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, msgs, "what the read check printed is told nowhere")
+}
+
+// endedTokens gives a script run a token and says when the run is over: its token is revoked last, after the run was
+// ended and told.
+type endedTokens struct{ revoked chan struct{} }
+
+func (endedTokens) AddRoutineToken(context.Context, string) (string, error) { return "hbt_run", nil }
+
+func (e endedTokens) RevokeBotToken(string) { close(e.revoked) }

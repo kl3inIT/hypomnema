@@ -10,6 +10,35 @@ import (
 	"database/sql"
 )
 
+const clearTodoChats = `-- name: ClearTodoChats :exec
+UPDATE todos SET chat_id = NULL WHERE chat_id = ?1
+`
+
+// A chat deleted is no item's own chat any more.
+func (q *Queries) ClearTodoChats(ctx context.Context, chatID sql.NullString) error {
+	_, err := q.db.ExecContext(ctx, clearTodoChats, chatID)
+	return err
+}
+
+const clearTodoProject = `-- name: ClearTodoProject :execrows
+UPDATE todos SET revision = revision + 1, project_id = NULL, updated_at = ?1 WHERE id = ?2 AND revision = ?3
+`
+
+type ClearTodoProjectParams struct {
+	Now      int64
+	ID       string
+	Revision int64
+}
+
+// An item leaves a removed project (issue #1157), at the revision read, which it moves on.
+func (q *Queries) ClearTodoProject(ctx context.Context, arg ClearTodoProjectParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearTodoProject, arg.Now, arg.ID, arg.Revision)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countDuplicatesOf = `-- name: CountDuplicatesOf :one
 SELECT count(*) FROM todos WHERE duplicate_of = ?1 AND state = 'duplicate'
 `
@@ -22,41 +51,71 @@ func (q *Queries) CountDuplicatesOf(ctx context.Context, id sql.NullString) (int
 	return count, err
 }
 
+const countOwnerAsks = `-- name: CountOwnerAsks :one
+SELECT CAST(
+  (SELECT count(*) FROM approvals a
+    WHERE a.status = 'pending'
+      AND NOT EXISTS (SELECT 1 FROM todos t WHERE t.approval_id = a.id AND t.state = 'review'
+        AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?1 AS INTEGER))))
+  + (SELECT count(*) FROM questions q WHERE q.status = 'open' AND q.addressed_to = 'owner')
+AS INTEGER) AS asks
+`
+
+// What else waits on the owner in the Inbox's Needs you (issue #1093): the pending Approvals and the open questions
+// workers asked him. An Approval that a to-do in review waits for is counted once, as that to-do, unless the to-do
+// is snoozed.
+func (q *Queries) CountOwnerAsks(ctx context.Context, now int64) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countOwnerAsks, now)
+	var asks int64
+	err := row.Scan(&asks)
+	return asks, err
+}
+
 const countTodos = `-- name: CountTodos :one
 SELECT count(*) FROM todos t
 WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?2 AS TEXT))))
   AND (CAST(?3 AS TEXT) = '' OR (t.assignee_kind = ?3 AND t.assignee = ?4))
   AND (CAST(?5 AS TEXT) = '' OR t.source_kind = ?5)
-  AND (CAST(?6 AS INTEGER) = 0 OR t.due_at >= CAST(?7 AS INTEGER))
-  AND (CAST(?8 AS INTEGER) = 0 OR t.due_at < CAST(?9 AS INTEGER))
-  AND (CAST(?10 AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?11 AS INTEGER))
-  AND (CAST(?12 AS INTEGER) = 1
-    OR NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(?13 AS INTEGER)))
-  AND (CAST(?14 AS INTEGER) = 0 OR (
+  AND (CAST(?6 AS TEXT) = ''
+    OR (CAST(?6 AS TEXT) = 'none' AND t.project_id IS NULL)
+    OR (CAST(?6 AS TEXT) = 'one' AND t.project_id = CAST(?7 AS TEXT)))
+  AND (CAST(?8 AS INTEGER) = 0 OR t.due_at >= CAST(?9 AS INTEGER))
+  AND (CAST(?10 AS INTEGER) = 0 OR t.due_at < CAST(?11 AS INTEGER))
+  AND (CAST(?12 AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?13 AS INTEGER))
+  AND (CAST(?14 AS INTEGER) = 1
+    OR NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(?15 AS INTEGER)))
+  AND (CAST(?16 AS INTEGER) = 0 OR (
         t.state NOT IN ('done', 'dropped', 'duplicate')
-    AND NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(?13 AS INTEGER))
-    AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?11 AS INTEGER))
+    AND NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(?15 AS INTEGER))
+    AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?13 AS INTEGER))
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
-      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?11 AS INTEGER)))))
+      OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
+      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?13 AS INTEGER)))))
+  AND (CAST(?17 AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(?18 AS INTEGER)))
 `
 
 type CountTodosParams struct {
-	AnyState     int64
-	States       string
-	AssigneeKind string
-	Assignee     string
-	SourceKind   string
-	HasDueFrom   int64
-	DueFrom      int64
-	HasDueTo     int64
-	DueTo        int64
-	WithSnoozed  int64
-	Now          int64
-	WithStale    int64
-	StaleBefore  int64
-	NeedsYou     int64
+	AnyState      int64
+	States        string
+	AssigneeKind  string
+	Assignee      string
+	SourceKind    string
+	ProjectKind   string
+	Project       string
+	HasDueFrom    int64
+	DueFrom       int64
+	HasDueTo      int64
+	DueTo         int64
+	WithSnoozed   int64
+	Now           int64
+	WithStale     int64
+	StaleBefore   int64
+	NeedsYou      int64
+	HasOwnerSince int64
+	OwnerSince    int64
 }
 
 // How many items match the filter of ListTodos, every page together.
@@ -67,6 +126,8 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 		arg.AssigneeKind,
 		arg.Assignee,
 		arg.SourceKind,
+		arg.ProjectKind,
+		arg.Project,
 		arg.HasDueFrom,
 		arg.DueFrom,
 		arg.HasDueTo,
@@ -76,14 +137,45 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 		arg.WithStale,
 		arg.StaleBefore,
 		arg.NeedsYou,
+		arg.HasOwnerSince,
+		arg.OwnerSince,
 	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
 }
 
+const deleteInboxProject = `-- name: DeleteInboxProject :execrows
+DELETE FROM inbox_projects WHERE id = ?1
+`
+
+func (q *Queries) DeleteInboxProject(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteInboxProject, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getInboxProject = `-- name: GetInboxProject :one
+SELECT id, name, color, created_at, updated_at FROM inbox_projects WHERE id = ?1
+`
+
+func (q *Queries) GetInboxProject(ctx context.Context, id string) (InboxProject, error) {
+	row := q.db.QueryRowContext(ctx, getInboxProject, id)
+	var i InboxProject
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Color,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getTodo = `-- name: GetTodo :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE id = ?1
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE id = ?1
 `
 
 func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
@@ -132,12 +224,17 @@ func (q *Queries) GetTodo(ctx context.Context, id string) (Todo, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.WhyOpen,
+		&i.ChatID,
+		&i.PassedBy,
+		&i.Priority,
+		&i.PriorityReason,
+		&i.ProjectID,
 	)
 	return i, err
 }
 
 const getTodoByIdempotencyKey = `-- name: GetTodoByIdempotencyKey :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE idempotency_key = ?1
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE idempotency_key = ?1
 `
 
 func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sql.NullString) (Todo, error) {
@@ -186,8 +283,25 @@ func (q *Queries) GetTodoByIdempotencyKey(ctx context.Context, idempotencyKey sq
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.WhyOpen,
+		&i.ChatID,
+		&i.PassedBy,
+		&i.Priority,
+		&i.PriorityReason,
+		&i.ProjectID,
 	)
 	return i, err
+}
+
+const getTodoChatBot = `-- name: GetTodoChatBot :one
+SELECT bot_id FROM chats WHERE id = ?1
+`
+
+// The Bot of a chat, read for an item's own chat: none when the chat was deleted.
+func (q *Queries) GetTodoChatBot(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getTodoChatBot, id)
+	var bot_id string
+	err := row.Scan(&bot_id)
+	return bot_id, err
 }
 
 const getTodoChatMessage = `-- name: GetTodoChatMessage :one
@@ -209,7 +323,7 @@ func (q *Queries) GetTodoChatMessage(ctx context.Context, seq int64) (GetTodoCha
 }
 
 const getTodoOfApproval = `-- name: GetTodoOfApproval :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE approval_id = ?1 AND state = 'review'
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE approval_id = ?1 AND state = 'review'
 `
 
 // The item that waits for an Approval.
@@ -259,12 +373,17 @@ func (q *Queries) GetTodoOfApproval(ctx context.Context, approvalID sql.NullStri
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.WhyOpen,
+		&i.ChatID,
+		&i.PassedBy,
+		&i.Priority,
+		&i.PriorityReason,
+		&i.ProjectID,
 	)
 	return i, err
 }
 
 const getTodoOfAttempt = `-- name: GetTodoOfAttempt :one
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE work_attempt = ?1 AND state IN ('doing', 'review')
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE work_attempt = ?1 AND state IN ('doing', 'review')
 `
 
 // The item a Bot's attempt is on.
@@ -314,17 +433,44 @@ func (q *Queries) GetTodoOfAttempt(ctx context.Context, workAttempt sql.NullStri
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.WhyOpen,
+		&i.ChatID,
+		&i.PassedBy,
+		&i.Priority,
+		&i.PriorityReason,
+		&i.ProjectID,
 	)
 	return i, err
 }
 
+const insertInboxProject = `-- name: InsertInboxProject :exec
+INSERT INTO inbox_projects (id, name, color, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)
+`
+
+type InsertInboxProjectParams struct {
+	ID    string
+	Name  string
+	Color string
+	Now   int64
+}
+
+func (q *Queries) InsertInboxProject(ctx context.Context, arg InsertInboxProjectParams) error {
+	_, err := q.db.ExecContext(ctx, insertInboxProject,
+		arg.ID,
+		arg.Name,
+		arg.Color,
+		arg.Now,
+	)
+	return err
+}
+
 const insertTodo = `-- name: InsertTodo :exec
 INSERT INTO todos (id, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
-                   assignee, state, source_kind, source_id, source_account, source_quote, source_ref,
-                   created_by_kind, created_by, why_open, idempotency_key, idempotency_hash, created_at, updated_at)
+                   assignee, passed_by, state, source_kind, source_id, source_account, source_quote, source_ref,
+                   created_by_kind, created_by, why_open, priority, priority_reason, project_id, idempotency_key,
+                   idempotency_hash, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-        ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19,
-        ?20, ?21, ?22, ?23, ?24, ?24)
+        ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
+        ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?28)
 `
 
 type InsertTodoParams struct {
@@ -340,6 +486,7 @@ type InsertTodoParams struct {
 	OverdueAt       sql.NullInt64
 	AssigneeKind    string
 	Assignee        string
+	PassedBy        sql.NullString
 	State           string
 	SourceKind      string
 	SourceID        string
@@ -349,6 +496,9 @@ type InsertTodoParams struct {
 	CreatedByKind   string
 	CreatedBy       string
 	WhyOpen         sql.NullString
+	Priority        int64
+	PriorityReason  string
+	ProjectID       sql.NullString
 	IdempotencyKey  sql.NullString
 	IdempotencyHash sql.NullString
 	Now             int64
@@ -368,6 +518,7 @@ func (q *Queries) InsertTodo(ctx context.Context, arg InsertTodoParams) error {
 		arg.OverdueAt,
 		arg.AssigneeKind,
 		arg.Assignee,
+		arg.PassedBy,
 		arg.State,
 		arg.SourceKind,
 		arg.SourceID,
@@ -377,6 +528,9 @@ func (q *Queries) InsertTodo(ctx context.Context, arg InsertTodoParams) error {
 		arg.CreatedByKind,
 		arg.CreatedBy,
 		arg.WhyOpen,
+		arg.Priority,
+		arg.PriorityReason,
+		arg.ProjectID,
 		arg.IdempotencyKey,
 		arg.IdempotencyHash,
 		arg.Now,
@@ -412,6 +566,182 @@ func (q *Queries) InsertTodoEvent(ctx context.Context, arg InsertTodoEventParams
 		arg.After,
 	)
 	return err
+}
+
+const insertTodoWake = `-- name: InsertTodoWake :exec
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (?1, 'system', 'wake', ?2, 1, ?3)
+`
+
+type InsertTodoWakeParams struct {
+	ChatID string
+	Text   string
+	Now    int64
+}
+
+// A wake-up of the control plane in an item's own chat (issue #1111): the item handed to the Bot, or the owner's
+// comment on it, given to the Bot as a Routine's prompt is (InsertRoutinePrompt), since nobody wrote it there.
+func (q *Queries) InsertTodoWake(ctx context.Context, arg InsertTodoWakeParams) error {
+	_, err := q.db.ExecContext(ctx, insertTodoWake, arg.ChatID, arg.Text, arg.Now)
+	return err
+}
+
+const listInboxProjects = `-- name: ListInboxProjects :many
+SELECT id, name, color, created_at, updated_at FROM inbox_projects ORDER BY name COLLATE NOCASE, id
+`
+
+// The Inbox's projects (issue #1157), by name.
+func (q *Queries) ListInboxProjects(ctx context.Context) ([]InboxProject, error) {
+	rows, err := q.db.QueryContext(ctx, listInboxProjects)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InboxProject{}
+	for rows.Next() {
+		var i InboxProject
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Color,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenTodosOfBot = `-- name: ListOpenTodosOfBot :many
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos
+WHERE state NOT IN ('done', 'dropped', 'duplicate')
+  AND ((created_by_kind = 'bot' AND created_by = ?1) OR (assignee_kind = 'bot' AND assignee = ?1))
+ORDER BY id
+`
+
+// The items not closed a Bot added or was given (issue #1124): those the main Bot takes over when it is removed.
+func (q *Queries) ListOpenTodosOfBot(ctx context.Context, bot string) ([]Todo, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenTodosOfBot, bot)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Todo{}
+	for rows.Next() {
+		var i Todo
+		if err := rows.Scan(
+			&i.ID,
+			&i.Revision,
+			&i.Title,
+			&i.Notes,
+			&i.DoneWhen,
+			&i.Draft,
+			&i.DueKind,
+			&i.DueDate,
+			&i.DueZone,
+			&i.DueAt,
+			&i.OverdueAt,
+			&i.AssigneeKind,
+			&i.Assignee,
+			&i.State,
+			&i.SnoozedUntil,
+			&i.SourceKind,
+			&i.SourceID,
+			&i.SourceAccount,
+			&i.SourceQuote,
+			&i.SourceRef,
+			&i.CreatedByKind,
+			&i.CreatedBy,
+			&i.WorkAttempt,
+			&i.WorkKind,
+			&i.WorkID,
+			&i.WorkBot,
+			&i.WorkStartedAt,
+			&i.ApprovalID,
+			&i.DoneByKind,
+			&i.DoneBy,
+			&i.RecordedByKind,
+			&i.RecordedBy,
+			&i.ClosedHow,
+			&i.CloseReason,
+			&i.Evidence,
+			&i.ClosedAt,
+			&i.DuplicateOf,
+			&i.IdempotencyKey,
+			&i.IdempotencyHash,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.WhyOpen,
+			&i.ChatID,
+			&i.PassedBy,
+			&i.Priority,
+			&i.PriorityReason,
+			&i.ProjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOwnerTodoEvents = `-- name: ListOwnerTodoEvents :many
+SELECT id, todo_id, at, revision, actor_kind, actor, kind, "before", "after" FROM todo_events WHERE todo_id = ?1 AND actor_kind = 'owner' AND at >= ?2
+ORDER BY id DESC LIMIT ?3
+`
+
+type ListOwnerTodoEventsParams struct {
+	TodoID string
+	Since  int64
+	Lim    int64
+}
+
+// The latest changes the owner made to an item at or after since, newest first, at most lim (issue #1119).
+func (q *Queries) ListOwnerTodoEvents(ctx context.Context, arg ListOwnerTodoEventsParams) ([]TodoEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listOwnerTodoEvents, arg.TodoID, arg.Since, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TodoEvent{}
+	for rows.Next() {
+		var i TodoEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.TodoID,
+			&i.At,
+			&i.Revision,
+			&i.ActorKind,
+			&i.Actor,
+			&i.Kind,
+			&i.Before,
+			&i.After,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listTodoEvents = `-- name: ListTodoEvents :many
@@ -458,57 +788,69 @@ func (q *Queries) ListTodoEvents(ctx context.Context, arg ListTodoEventsParams) 
 }
 
 const listTodos = `-- name: ListTodos :many
-SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open FROM todos t
+SELECT t.id, t.revision, t.title, t.notes, t.done_when, t.draft, t.due_kind, t.due_date, t.due_zone, t.due_at, t.overdue_at, t.assignee_kind, t.assignee, t.state, t.snoozed_until, t.source_kind, t.source_id, t.source_account, t.source_quote, t.source_ref, t.created_by_kind, t.created_by, t.work_attempt, t.work_kind, t.work_id, t.work_bot, t.work_started_at, t.approval_id, t.done_by_kind, t.done_by, t.recorded_by_kind, t.recorded_by, t.closed_how, t.close_reason, t.evidence, t.closed_at, t.duplicate_of, t.idempotency_key, t.idempotency_hash, t.created_at, t.updated_at, t.why_open, t.chat_id, t.passed_by, t.priority, t.priority_reason, t.project_id FROM todos t
 WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?2 AS TEXT))))
   AND (CAST(?3 AS TEXT) = '' OR (t.assignee_kind = ?3 AND t.assignee = ?4))
   AND (CAST(?5 AS TEXT) = '' OR t.source_kind = ?5)
-  AND (CAST(?6 AS INTEGER) = 0 OR t.due_at >= CAST(?7 AS INTEGER))
-  AND (CAST(?8 AS INTEGER) = 0 OR t.due_at < CAST(?9 AS INTEGER))
-  AND (CAST(?10 AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?11 AS INTEGER))
-  AND (CAST(?12 AS INTEGER) = 1
-    OR NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(?13 AS INTEGER)))
-  AND (CAST(?14 AS INTEGER) = 0 OR (
+  AND (CAST(?6 AS TEXT) = ''
+    OR (CAST(?6 AS TEXT) = 'none' AND t.project_id IS NULL)
+    OR (CAST(?6 AS TEXT) = 'one' AND t.project_id = CAST(?7 AS TEXT)))
+  AND (CAST(?8 AS INTEGER) = 0 OR t.due_at >= CAST(?9 AS INTEGER))
+  AND (CAST(?10 AS INTEGER) = 0 OR t.due_at < CAST(?11 AS INTEGER))
+  AND (CAST(?12 AS INTEGER) = 1 OR t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?13 AS INTEGER))
+  AND (CAST(?14 AS INTEGER) = 1
+    OR NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(?15 AS INTEGER)))
+  AND (CAST(?16 AS INTEGER) = 0 OR (
         t.state NOT IN ('done', 'dropped', 'duplicate')
-    AND NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(?13 AS INTEGER))
-    AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?11 AS INTEGER))
+    AND NOT (t.state = 'proposed' AND t.revision = 1 AND t.created_at <= CAST(?15 AS INTEGER))
+    AND (t.snoozed_until IS NULL OR t.snoozed_until <= CAST(?13 AS INTEGER))
     AND (t.state = 'proposed'
       OR (t.state = 'review' AND EXISTS (SELECT 1 FROM approvals a WHERE a.id = t.approval_id AND a.status = 'pending'))
       OR (t.assignee_kind = 'me' AND t.draft <> '')
-      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?11 AS INTEGER)))))
-  AND (CAST(?15 AS INTEGER) = 0
-    OR coalesce(t.due_at, 9223372036854775807) > CAST(?16 AS INTEGER)
-    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?16 AS INTEGER) AND t.created_at > ?17)
-    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?16 AS INTEGER) AND t.created_at = ?17 AND t.id > ?18))
+      OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
+      OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?13 AS INTEGER)))))
+  AND (CAST(?17 AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(?18 AS INTEGER)))
+  AND (CAST(?19 AS INTEGER) = 0
+    OR coalesce(t.due_at, 9223372036854775807) > CAST(?20 AS INTEGER)
+    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?20 AS INTEGER) AND t.created_at > ?21)
+    OR (coalesce(t.due_at, 9223372036854775807) = CAST(?20 AS INTEGER) AND t.created_at = ?21 AND t.id > ?22))
 ORDER BY coalesce(t.due_at, 9223372036854775807), t.created_at, t.id
-LIMIT ?19
+LIMIT ?23
 `
 
 type ListTodosParams struct {
-	AnyState     int64
-	States       string
-	AssigneeKind string
-	Assignee     string
-	SourceKind   string
-	HasDueFrom   int64
-	DueFrom      int64
-	HasDueTo     int64
-	DueTo        int64
-	WithSnoozed  int64
-	Now          int64
-	WithStale    int64
-	StaleBefore  int64
-	NeedsYou     int64
-	HasCursor    int64
-	CursorDue    int64
-	CursorAt     int64
-	CursorID     string
-	Lim          int64
+	AnyState      int64
+	States        string
+	AssigneeKind  string
+	Assignee      string
+	SourceKind    string
+	ProjectKind   string
+	Project       string
+	HasDueFrom    int64
+	DueFrom       int64
+	HasDueTo      int64
+	DueTo         int64
+	WithSnoozed   int64
+	Now           int64
+	WithStale     int64
+	StaleBefore   int64
+	NeedsYou      int64
+	HasOwnerSince int64
+	OwnerSince    int64
+	HasCursor     int64
+	CursorDue     int64
+	CursorAt      int64
+	CursorID      string
+	Lim           int64
 }
 
 // One page of the items that match, by due (those without one last), then created, then id, after the cursor of
-// the previous page when one is given. The filter is the same as CountTodos's. A proposal nobody touched since
+// the previous page when one is given. The filter is the same as CountTodos's. With project_kind none, only the items
+// without a project; one, only those of project (issue #1157). A proposal nobody touched since
 // stale_before is stale (issue #966): left out unless with_stale, and never one that needs the owner. Touched is
-// any event after created, and every event moves the revision on, so an untouched item is at revision 1.
+// any event after created, and every event moves the revision on, so an untouched item is at revision 1. With
+// has_owner_since, only the items the owner changed at or after owner_since (issue #1119).
 func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, error) {
 	rows, err := q.db.QueryContext(ctx, listTodos,
 		arg.AnyState,
@@ -516,6 +858,8 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 		arg.AssigneeKind,
 		arg.Assignee,
 		arg.SourceKind,
+		arg.ProjectKind,
+		arg.Project,
 		arg.HasDueFrom,
 		arg.DueFrom,
 		arg.HasDueTo,
@@ -525,6 +869,8 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 		arg.WithStale,
 		arg.StaleBefore,
 		arg.NeedsYou,
+		arg.HasOwnerSince,
+		arg.OwnerSince,
 		arg.HasCursor,
 		arg.CursorDue,
 		arg.CursorAt,
@@ -581,6 +927,87 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.WhyOpen,
+			&i.ChatID,
+			&i.PassedBy,
+			&i.Priority,
+			&i.PriorityReason,
+			&i.ProjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTodosOfProject = `-- name: ListTodosOfProject :many
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE project_id = ?1 ORDER BY id
+`
+
+// The items of a project, in any state: those a removed project leaves without one.
+func (q *Queries) ListTodosOfProject(ctx context.Context, projectID sql.NullString) ([]Todo, error) {
+	rows, err := q.db.QueryContext(ctx, listTodosOfProject, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Todo{}
+	for rows.Next() {
+		var i Todo
+		if err := rows.Scan(
+			&i.ID,
+			&i.Revision,
+			&i.Title,
+			&i.Notes,
+			&i.DoneWhen,
+			&i.Draft,
+			&i.DueKind,
+			&i.DueDate,
+			&i.DueZone,
+			&i.DueAt,
+			&i.OverdueAt,
+			&i.AssigneeKind,
+			&i.Assignee,
+			&i.State,
+			&i.SnoozedUntil,
+			&i.SourceKind,
+			&i.SourceID,
+			&i.SourceAccount,
+			&i.SourceQuote,
+			&i.SourceRef,
+			&i.CreatedByKind,
+			&i.CreatedBy,
+			&i.WorkAttempt,
+			&i.WorkKind,
+			&i.WorkID,
+			&i.WorkBot,
+			&i.WorkStartedAt,
+			&i.ApprovalID,
+			&i.DoneByKind,
+			&i.DoneBy,
+			&i.RecordedByKind,
+			&i.RecordedBy,
+			&i.ClosedHow,
+			&i.CloseReason,
+			&i.Evidence,
+			&i.ClosedAt,
+			&i.DuplicateOf,
+			&i.IdempotencyKey,
+			&i.IdempotencyHash,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.WhyOpen,
+			&i.ChatID,
+			&i.PassedBy,
+			&i.Priority,
+			&i.PriorityReason,
+			&i.ProjectID,
 		); err != nil {
 			return nil, err
 		}
@@ -596,7 +1023,7 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 }
 
 const listTodosOfWork = `-- name: ListTodosOfWork :many
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open FROM todos WHERE work_kind = ?1 AND work_id = ?2 AND state IN ('doing', 'review') ORDER BY id
+SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE work_kind = ?1 AND work_id = ?2 AND state IN ('doing', 'review') ORDER BY id
 `
 
 type ListTodosOfWorkParams struct {
@@ -657,6 +1084,11 @@ func (q *Queries) ListTodosOfWork(ctx context.Context, arg ListTodosOfWorkParams
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.WhyOpen,
+			&i.ChatID,
+			&i.PassedBy,
+			&i.Priority,
+			&i.PriorityReason,
+			&i.ProjectID,
 		); err != nil {
 			return nil, err
 		}
@@ -669,6 +1101,21 @@ func (q *Queries) ListTodosOfWork(ctx context.Context, arg ListTodosOfWorkParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const setTodoChat = `-- name: SetTodoChat :exec
+UPDATE todos SET chat_id = ?1 WHERE id = ?2
+`
+
+type SetTodoChatParams struct {
+	ChatID sql.NullString
+	ID     string
+}
+
+// The item's own chat with the Bot it is given to (issue #1111).
+func (q *Queries) SetTodoChat(ctx context.Context, arg SetTodoChatParams) error {
+	_, err := q.db.ExecContext(ctx, setTodoChat, arg.ChatID, arg.ID)
+	return err
 }
 
 const setTodoIdempotencyKey = `-- name: SetTodoIdempotencyKey :exec
@@ -687,19 +1134,99 @@ func (q *Queries) SetTodoIdempotencyKey(ctx context.Context, arg SetTodoIdempote
 	return err
 }
 
+const takeOverTodo = `-- name: TakeOverTodo :execrows
+UPDATE todos
+SET revision = revision + 1, created_by = ?1, assignee = ?2, passed_by = ?3, updated_at = ?4
+WHERE id = ?5 AND revision = ?6
+`
+
+type TakeOverTodoParams struct {
+	CreatedBy string
+	Assignee  string
+	PassedBy  sql.NullString
+	Now       int64
+	ID        string
+	Revision  int64
+}
+
+// A removed Bot's item becomes the main Bot's (issue #1124): who it counts as added by, who it is given to and
+// through whom, at the revision read, which it moves on.
+func (q *Queries) TakeOverTodo(ctx context.Context, arg TakeOverTodoParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, takeOverTodo,
+		arg.CreatedBy,
+		arg.Assignee,
+		arg.PassedBy,
+		arg.Now,
+		arg.ID,
+		arg.Revision,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const touchTodo = `-- name: TouchTodo :execrows
+UPDATE todos SET revision = revision + 1, updated_at = ?1 WHERE id = ?2 AND revision = ?3
+`
+
+type TouchTodoParams struct {
+	Now      int64
+	ID       string
+	Revision int64
+}
+
+// A comment on an item (issue #1111) moves its revision on, as every change does, without changing a field: the
+// item read before it is stale, and a proposal commented on is touched.
+func (q *Queries) TouchTodo(ctx context.Context, arg TouchTodoParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, touchTodo, arg.Now, arg.ID, arg.Revision)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateInboxProject = `-- name: UpdateInboxProject :execrows
+UPDATE inbox_projects SET name = ?1, color = ?2, updated_at = ?3 WHERE id = ?4
+`
+
+type UpdateInboxProjectParams struct {
+	Name  string
+	Color string
+	Now   int64
+	ID    string
+}
+
+func (q *Queries) UpdateInboxProject(ctx context.Context, arg UpdateInboxProjectParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateInboxProject,
+		arg.Name,
+		arg.Color,
+		arg.Now,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateTodo = `-- name: UpdateTodo :execrows
 UPDATE todos
 SET revision = revision + 1, title = ?1, notes = ?2, done_when = ?3, draft = ?4,
     due_kind = ?5,
     due_date = ?6, due_zone = ?7, due_at = ?8, overdue_at = ?9,
-    assignee_kind = ?10, assignee = ?11, state = ?12, snoozed_until = ?13,
-    work_attempt = ?14, work_kind = ?15, work_id = ?16, work_bot = ?17,
-    work_started_at = ?18,
-    approval_id = ?19, done_by_kind = ?20,
-    done_by = ?21, recorded_by_kind = ?22, recorded_by = ?23, closed_how = ?24,
-    close_reason = ?25, evidence = ?26, closed_at = ?27, duplicate_of = ?28,
-    updated_at = ?29
-WHERE id = ?30 AND revision = ?31 AND state = ?32
+    assignee_kind = ?10, assignee = ?11, passed_by = ?12, state = ?13,
+    snoozed_until = ?14,
+    source_kind = ?15, source_id = ?16, source_account = ?17,
+    source_quote = ?18, source_ref = ?19,
+    work_attempt = ?20, work_kind = ?21, work_id = ?22, work_bot = ?23,
+    work_started_at = ?24,
+    approval_id = ?25, done_by_kind = ?26,
+    done_by = ?27, recorded_by_kind = ?28, recorded_by = ?29, closed_how = ?30,
+    close_reason = ?31, evidence = ?32, closed_at = ?33, duplicate_of = ?34,
+    priority = ?35, priority_reason = ?36, project_id = ?37,
+    updated_at = ?38
+WHERE id = ?39 AND revision = ?40 AND state = ?41
 `
 
 type UpdateTodoParams struct {
@@ -714,8 +1241,14 @@ type UpdateTodoParams struct {
 	OverdueAt      sql.NullInt64
 	AssigneeKind   string
 	Assignee       string
+	PassedBy       sql.NullString
 	State          string
 	SnoozedUntil   sql.NullInt64
+	SourceKind     string
+	SourceID       string
+	SourceAccount  string
+	SourceQuote    string
+	SourceRef      sql.NullString
 	WorkAttempt    sql.NullString
 	WorkKind       sql.NullString
 	WorkID         sql.NullString
@@ -731,6 +1264,9 @@ type UpdateTodoParams struct {
 	Evidence       string
 	ClosedAt       sql.NullInt64
 	DuplicateOf    sql.NullString
+	Priority       int64
+	PriorityReason string
+	ProjectID      sql.NullString
 	Now            int64
 	ID             string
 	Revision       int64
@@ -752,8 +1288,14 @@ func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (int64, 
 		arg.OverdueAt,
 		arg.AssigneeKind,
 		arg.Assignee,
+		arg.PassedBy,
 		arg.State,
 		arg.SnoozedUntil,
+		arg.SourceKind,
+		arg.SourceID,
+		arg.SourceAccount,
+		arg.SourceQuote,
+		arg.SourceRef,
 		arg.WorkAttempt,
 		arg.WorkKind,
 		arg.WorkID,
@@ -769,6 +1311,9 @@ func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (int64, 
 		arg.Evidence,
 		arg.ClosedAt,
 		arg.DuplicateOf,
+		arg.Priority,
+		arg.PriorityReason,
+		arg.ProjectID,
 		arg.Now,
 		arg.ID,
 		arg.Revision,
