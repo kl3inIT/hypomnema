@@ -3739,8 +3739,9 @@ capabilities do not exist yet.
   - None of the client's headers goes to the backend but its session (`session-id`, `session_id` or
     `x-session-id`; one per gateway key without). The account, the Codex CLI's identity, a refused token, a usage
     limit and the next account are the chat route's.
-  - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
-    keeps its status and body.
+  - The backend's event stream goes back line for line; the usage is read from `response.completed`, or
+    `response.incomplete` for an answer that ended at its limit or was filtered (an answer too, recorded `ok`). A
+    refusal keeps its status and body.
   - A Codex stream's opening is held (issue #1135, CLIProxyAPI's stream bootstrap buffering): the frames that say
     nothing has happened yet (`response.created`, `response.in_progress`, `response.metadata`, keepalives, an item or
     part announced empty; `codex.Opening`, CLIProxyAPI's closed list) are kept back until the first other frame, at

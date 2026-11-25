@@ -13,4 +13,3 @@ data: {"id":"c2","object":"chat.completion.chunk","choices":[{"index":0,"delta":
 data: {"id":"c2","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":50,"completion_tokens":12}}
 
 data: [DONE]
-

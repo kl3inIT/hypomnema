@@ -436,10 +436,15 @@ func (s *Server) relayResponses(
 			}
 		}
 
+		// response.incomplete ends an answer too, one cut at its token limit or filtered (the Responses API's
+		// terminal events; package responseschat sends it for a chat finish_reason length or content_filter): the
+		// answer was passed on whole and its usage is read from it.
 		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData &&
-			bytes.Contains(payload, []byte(`"response.completed"`)) {
+			(bytes.Contains(payload, []byte(`"response.completed"`)) ||
+				bytes.Contains(payload, []byte(`"response.incomplete"`))) {
 			var event responsesCompleted
-			if json.Unmarshal(payload, &event) == nil && event.Type == "response.completed" {
+			if json.Unmarshal(payload, &event) == nil &&
+				(event.Type == "response.completed" || event.Type == "response.incomplete") {
 				completed = true
 				usage := event.Response.Usage
 				record.Tokens = Tokens{
