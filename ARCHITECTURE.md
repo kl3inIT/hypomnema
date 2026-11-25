@@ -4783,7 +4783,7 @@ gateway chat model writes its summary, decisions and actions.
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165, 00166, 00167 and
-`inbox_priority_and_projects`; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124 and #1157, parts 1 to 3 of the
+00169; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124 and #1157, parts 1 to 3 of the
 Inbox, the sources a Bot reads, handing an item to a Bot, passing it from Bot to Bot, a removed Bot's items, and
 priority and projects): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
