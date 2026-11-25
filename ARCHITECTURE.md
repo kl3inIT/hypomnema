@@ -148,7 +148,7 @@ with its own token, so an old pi's exit never clears the turn of the chat's next
 clear). A pi the control plane stops keeps it. As the control plane begins to stop, at the update's begin
 (`BeginUpdate`, once its marker is written) and again when the supervisor stops every pi, it writes
 `chats.turn_cut_at` for every marked turn before it waits for the turns (issue #1162, migration
-`turn_cut_at`, after Hermes's gateway, which marks its running sessions resume-pending before its drain wait,
+170, after Hermes's gateway, which marks its running sessions resume-pending before its drain wait,
 `gateway/run_shutdown.py` `_mark_running_sessions_resume_pending`); a new turn's mark, a continuation and a cleared
 mark clear it. As the supervisor starts, a chat whose turn was cut at most an hour ago, or, with no cut written (a
 crash), whose mark is at most an hour old (Hermes's gateway freshness, `gateway/run.py`
