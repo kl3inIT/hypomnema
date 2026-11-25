@@ -15,6 +15,8 @@ import {
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { PrioritySelector } from "@/components/ui/priority"
+import { ProjectDot, type ProjectChoice } from "@/components/ui/project-selector"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
@@ -94,7 +96,9 @@ const dueTone = { late: "text-failed", today: "text-needs-you", later: "text-mut
 // while unread, on two lines on a phone; what was said, on one muted line; who said it and where, its date labelled
 // and coloured when it is today or late, and a draft chip; and the time of the message it came from. Pointed at or focused, its actions take the
 // time's place; a phone shows them in the detail instead. It is a row that opens, its own design rather than a
-// Button.
+// Button. A to-do's priority starts the row, as circle's IssueLine starts with its PrioritySelector (MIT, Copyright
+// (c) 2025 lndev-ui; components/common/issues/issue-line.tsx), one click to change it; its project is a chip on the
+// line of who and where, as circle's ProjectBadge (issue #1157).
 export function InboxRow({
   row,
   chats,
@@ -103,8 +107,10 @@ export function InboxRow({
   selected,
   unread,
   actions = true,
+  projects = [],
   onOpen,
   onAction,
+  onPriority,
 }: {
   row: Row
   chats: KeptChats
@@ -113,8 +119,10 @@ export function InboxRow({
   selected: boolean
   unread: boolean
   actions?: boolean
+  projects?: ProjectChoice[]
   onOpen: () => void
   onAction: (action: Action, until?: number) => void
+  onPriority?: (priority: number) => void
 }) {
   const origin = useOrigin(row, chats)
   const title = titleOf(row)
@@ -123,6 +131,7 @@ export function InboxRow({
   const quote = quoteOf(row)
   const from = fromLineOf(row, origin, botName)
   const bot = botOf(row)
+  const project = todo?.project_id ? projects.find((p) => p.id === todo.project_id) : undefined
 
   return (
     <li
@@ -137,11 +146,21 @@ export function InboxRow({
           : "focus-within:bg-sidebar-row-hover hover:bg-sidebar-row-hover",
       )}
     >
+      <span className="flex w-7 shrink-0 justify-center ps-1 pt-2">
+        {todo && (
+          <PrioritySelector
+            value={todo.priority}
+            disabled={!onPriority || isClosed(todo)}
+            title={todo.priority_reason || undefined}
+            onChange={(priority) => onPriority?.(priority)}
+          />
+        )}
+      </span>
       <button
         type="button"
         onClick={onOpen}
         aria-label={title}
-        className="flex min-w-0 flex-1 items-start gap-3 rounded-lg px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+        className="flex min-w-0 flex-1 items-start gap-3 rounded-lg py-2 ps-1.5 pe-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
       >
         <SourceAvatar
           source={sourceOf(row)}
@@ -177,6 +196,12 @@ export function InboxRow({
             <span data-slot="from" className="min-w-0 truncate">
               {from}
             </span>
+            {project && (
+              <span data-slot="project" className="flex shrink-0 items-center gap-1">
+                <ProjectDot color={project.color} size="sm" />
+                {project.name}
+              </span>
+            )}
             {due && (
               <span className={cn("shrink-0", dueTone[due.tone])}>
                 {due.tone === "late" ? `Late · ${due.text}` : due.text}

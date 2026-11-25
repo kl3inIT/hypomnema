@@ -37,7 +37,7 @@ func (s *Server) CreateInboxProject(ctx context.Context, req openapi.CreateInbox
 	return openapi.CreateInboxProject201JSONResponse(projectOut(p)), nil
 }
 
-// EditInboxProject renames a project or changes its colour.
+// EditInboxProject renames a project or changes its color.
 func (s *Server) EditInboxProject(ctx context.Context, req openapi.EditInboxProjectRequestObject,
 ) (openapi.EditInboxProjectResponseObject, error) {
 	p, err := s.svc.Inbox().EditProject(ctx, req.ProjectId, req.Body.Name, req.Body.Color)

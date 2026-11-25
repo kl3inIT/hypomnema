@@ -38,7 +38,7 @@ func inboxPriorityVersions(t *testing.T) (before, own int64) {
 }
 
 // Scenario: issue #1157. The migration gives every item there no priority, no reason and no project; the checks keep
-// a priority to Linear's 0-4, a colour to #rrggbb and a project's name to one in any case; the way back keeps every
+// a priority to Linear's 0-4, a color to #rrggbb and a project's name to one in any case; the way back keeps every
 // item and drops the projects.
 func TestMigrationAddsPriorityAndProjects(t *testing.T) {
 	t.Parallel()
@@ -84,7 +84,7 @@ func TestMigrationAddsPriorityAndProjects(t *testing.T) {
 
 	for name, stmt := range map[string]string{
 		"a priority past low": `UPDATE todos SET priority = 5 WHERE id = 'tdo_a'`,
-		"a colour by name": `INSERT INTO inbox_projects (id, name, color, created_at, updated_at)
+		"a color by name": `INSERT INTO inbox_projects (id, name, color, created_at, updated_at)
 			VALUES ('prj_b', 'BP', 'green', 1, 1)`,
 		"a name in another case": `INSERT INTO inbox_projects (id, name, color, created_at, updated_at)
 			VALUES ('prj_c', 'vmap', '#000000', 1, 1)`,

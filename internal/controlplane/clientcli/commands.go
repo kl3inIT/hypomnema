@@ -1243,7 +1243,8 @@ var commands = []command{
 		run: inboxAdd,
 	},
 	{
-		name: "inbox edit", args: "<todo_id>", min: 1, max: 1, summary: "change a to-do's title, notes, due, who, priority or project",
+		name: "inbox edit", args: "<todo_id>", min: 1, max: 1,
+		summary: "change a to-do's title, notes, due, who, priority or project",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("title", "", "the title")
 			inboxFlags(fs)

@@ -26,6 +26,8 @@ const todo = (id: string, m: Partial<Todo> = {}): Todo => ({
   close_reason: "",
   evidence: [],
   stale: false,
+  priority: 0,
+  priority_reason: "",
   created_at: new Date(now - 3_600_000).toISOString(),
   updated_at: new Date(now - 3_600_000).toISOString(),
   ...m,

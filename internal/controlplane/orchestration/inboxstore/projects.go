@@ -52,7 +52,7 @@ func checkPriority(p int, reason string) error {
 	return nil
 }
 
-// Project is one of the Inbox's projects: a name and a colour, #rrggbb.
+// Project is one of the Inbox's projects: a name and a color, #rrggbb.
 type Project struct {
 	ID        string
 	Name      string
@@ -69,7 +69,7 @@ func checkProject(name, color string) error {
 		return fmt.Errorf("%w: a project's name is one line of 1 to %d characters", storeerr.ErrInvalid,
 			MaxProjectName)
 	case !colorPattern.MatchString(color):
-		return fmt.Errorf("%w: a project's colour is #rrggbb, not %q", storeerr.ErrInvalid, color)
+		return fmt.Errorf("%w: a project's color is #rrggbb, not %q", storeerr.ErrInvalid, color)
 	}
 
 	return nil
@@ -173,7 +173,7 @@ func (s *Store) CreateProject(ctx context.Context, name, color string) (Project,
 	return made, err
 }
 
-// EditProject renames a project or changes its colour; nil leaves it as it is. Its items keep it.
+// EditProject renames a project or changes its color; nil leaves it as it is. Its items keep it.
 func (s *Store) EditProject(ctx context.Context, id string, name, color *string) (Project, error) {
 	var got Project
 

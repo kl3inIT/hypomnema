@@ -12,6 +12,7 @@ import { useBotNames, useBots } from "@/features/bots/use-bots"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { cn } from "@/lib/utils"
 
+import { CommandMenu } from "./command-menu"
 import { InboxDetail } from "./inbox-detail"
 import { FilterChips, InboxFilterButton } from "./inbox-filter"
 import { InboxRow } from "./inbox-row"
@@ -30,13 +31,16 @@ import {
   matches,
   nextAfter,
   noFilter,
+  noProject,
+  projectOfRow,
   sourceOf,
   todayCounts,
   type Filter,
   type GroupId,
   type Row,
 } from "./inbox-state"
-import { useInbox } from "./use-inbox"
+import { ProjectFilter } from "./project-filter"
+import { useInbox, useProjects } from "./use-inbox"
 import { useKeptChats, type KeptChats } from "./use-origin"
 import { useRowActions } from "./use-row-actions"
 
@@ -76,7 +80,8 @@ function chatOf(row: Row, chats: KeptChats) {
 // Chatwoot's conversation list beside the open conversation (ConversationView.vue), the first item of Needs you open
 // when none is chosen (issue #1110); on a phone one pane at a time, the item full screen with a way back. The list is in groups, Needs you first, each folding, after Orca's Items
 // tab. j and k move, e marks done and c copies the draft, after Orca's item chords (use-bot-item-chords.ts: step
-// to the previous or next item, never from a field); Escape goes back to the list on a phone.
+// to the previous or next item, never from a field); Escape goes back to the list on a phone. ⌘K or Ctrl+K opens the
+// command menu on the selected item (issue #1157).
 export function InboxScreen({
   selected: chosen,
   onSelect,
@@ -90,6 +95,7 @@ export function InboxScreen({
   const bots = useBots()
   const botName = useBotNames()
   const chats = useKeptChats()
+  const projects = useProjects().data ?? []
   const { unread, markSeen } = useSeen()
   const [filter, setFilter] = useState<Filter>(noFilter)
   const [open, setOpen] = useState<Record<GroupId, boolean>>(
@@ -106,6 +112,17 @@ export function InboxScreen({
     [rows, filter, botName, chats],
   )
   const groups = useMemo(() => groupRows(shown, now), [shown, now])
+  // How many rows each project has, and how many have none, for the project filter.
+  const counts = useMemo(() => {
+    const n: Record<string, number> = {}
+    for (const r of rows) {
+      const p = projectOfRow(r) ?? noProject
+      n[p] = (n[p] ?? 0) + 1
+    }
+
+    return n
+  }, [rows])
+  const mainBot = mainBotOf(bots.data)
   // On a computer, the first item of Needs you is open when none is chosen, as OpenMausBot's InboxPanel keeps an item
   // open (InboxPanel.tsx:47-56); a phone shows the list first.
   const selected = chosen ?? (phone ? undefined : firstWaiting(groups))
@@ -235,6 +252,12 @@ export function InboxScreen({
               </InputGroup>
             </div>
             <InboxFilterButton filter={filter} onFilter={setFilter} />
+            <ProjectFilter
+              projects={projects}
+              counts={counts}
+              value={filter.project}
+              onChange={(project) => setFilter({ ...filter, project })}
+            />
           </div>
         </PageHeading>
         <ScanNow now={now} />
@@ -293,8 +316,10 @@ export function InboxScreen({
                           now={now}
                           selected={row.key === selected}
                           unread={unread(row)}
+                          projects={projects}
                           onOpen={() => select(row.key)}
                           onAction={(action, until) => actions.run(row, action, until)}
+                          onPriority={(priority) => actions.setPriority(row, priority)}
                         />
                       ))}
                     </ul>
@@ -329,8 +354,17 @@ export function InboxScreen({
           phone={phone}
           pending={actions.pending}
           botName={botName}
-          mainBot={mainBotOf(bots.data)}
+          mainBot={mainBot}
           chats={chats}
+          projects={projects}
+          onPriority={(priority) => actions.setPriority(current, priority)}
+          onProject={(project) =>
+            actions.setProject(
+              current,
+              project ?? "",
+              projects.find((p) => p.id === project)?.name ?? "",
+            )
+          }
           onBack={() => select(undefined)}
           onStep={step}
           onAction={(action, until) => actions.run(current, action, until)}
@@ -342,6 +376,20 @@ export function InboxScreen({
       ) : (
         !phone && <NothingWaits rows={rows} now={now} loading={loading} />
       )}
+      <CommandMenu
+        item={current}
+        rows={rows}
+        projects={projects}
+        handName={mainBot ? botName(mainBot) : "Hypo"}
+        now={now}
+        commands={{
+          priority: actions.setPriority,
+          project: actions.setProject,
+          hand: (row) => actions.hand(row, mainBot, mainBot ? botName(mainBot) : "Hypo"),
+          action: actions.run,
+          jump: (key) => select(key),
+        }}
+      />
     </main>
   )
 }
@@ -366,7 +414,7 @@ function NothingWaits({ rows, now, loading }: { rows: Row[]; now: number; loadin
           </EmptyDescription>
           <EmptyDescription>
             <Kbd>j</Kbd> and <Kbd>k</Kbd> move, <Kbd>e</Kbd> marks done, <Kbd>c</Kbd> copies the
-            draft.
+            draft, <Kbd>⌘K</Kbd> opens the commands.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>

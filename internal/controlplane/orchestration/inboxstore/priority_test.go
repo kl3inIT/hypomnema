@@ -104,7 +104,8 @@ func TestAPriorityOrAProjectThatIsNotOneIsRefused(t *testing.T) {
 	require.ErrorIs(t, err, storeerr.ErrInvalid)
 
 	_, err = w.inbox.Create(ctx, owner, inboxstore.NewTodo{
-		Title: "x", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me, Project: "prj_gone",
+		Title: "x", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me,
+		Project: "prj_gone",
 	})
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
@@ -148,7 +149,8 @@ func TestTheListIsFilteredByProject(t *testing.T) {
 
 	add := func(title, project string) inboxstore.Todo {
 		td, err := w.inbox.Create(ctx, owner, inboxstore.NewTodo{
-			Title: title, State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me, Project: project,
+			Title: title, State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me,
+			Project: project,
 		})
 		require.NoError(t, err)
 
@@ -169,7 +171,7 @@ func TestTheListIsFilteredByProject(t *testing.T) {
 	assert.Equal(t, 3, every.Total)
 }
 
-// Scenario: the owner keeps the list of projects: he adds them, a name once whatever its case and a colour as
+// Scenario: the owner keeps the list of projects: he adds them, a name once whatever its case and a color as
 // #rrggbb; renames one, which its items keep; and removes one, which leaves each of its items, closed ones too,
 // without a project, with an event that says so.
 func TestTheOwnerAddsRenamesAndRemovesProjects(t *testing.T) {
@@ -188,7 +190,8 @@ func TestTheOwnerAddsRenamesAndRemovesProjects(t *testing.T) {
 	require.ErrorIs(t, err, storeerr.ErrInvalid)
 
 	open, err := w.inbox.Create(ctx, owner, inboxstore.NewTodo{
-		Title: "a", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me, Project: vmap.ID,
+		Title: "a", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me,
+		Project: vmap.ID,
 	})
 	require.NoError(t, err)
 	closed := w.done(t)

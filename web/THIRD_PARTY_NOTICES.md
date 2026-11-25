@@ -697,3 +697,10 @@ OpenMausBot's license:
   outlines of Fredoka Bold (https://github.com/google/fonts/tree/main/ofl/fredoka), Copyright 2016 The Fredoka
   Project Authors (https://github.com/hafontia/Fredoka-One), SIL Open Font License 1.1
   (https://openfontlicense.org). The font itself is not shipped.
+- The Inbox's priority icons and picker (`src/components/ui/priority.tsx`), its project picker
+  (`src/components/ui/project-selector.tsx`), the project filter (`src/features/inbox/project-filter.tsx`) and the
+  command menu (`src/features/inbox/command-menu.tsx`) are copied and adapted from circle
+  (https://github.com/ln-dev7/circle, commit b0ba7dd; mock-data/priorities.tsx,
+  components/common/projects/priority-selector.tsx, components/layout/sidebar/create-new-issue/priority-selector.tsx
+  and project-selector.tsx, components/layout/headers/projects/filter.tsx, components/layout/command-palette.tsx),
+  MIT, Copyright (c) 2025 lndev-ui | Circle Template; each file keeps the notice.

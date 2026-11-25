@@ -930,7 +930,8 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 
 	p := store.ListTodosParams{
 		AnyState: cnt.AnyState, States: cnt.States, AssigneeKind: cnt.AssigneeKind, Assignee: cnt.Assignee,
-		SourceKind: cnt.SourceKind, ProjectKind: cnt.ProjectKind, Project: cnt.Project, HasDueFrom: cnt.HasDueFrom, DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
+		SourceKind: cnt.SourceKind, ProjectKind: cnt.ProjectKind, Project: cnt.Project, HasDueFrom: cnt.HasDueFrom,
+		DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
 		DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed, WithStale: cnt.WithStale, StaleBefore: cnt.StaleBefore,
 		Now: cnt.Now, NeedsYou: cnt.NeedsYou, HasOwnerSince: cnt.HasOwnerSince, OwnerSince: cnt.OwnerSince,
 		Lim: int64(limit) + 1,

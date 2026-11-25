@@ -1,5 +1,6 @@
 import {
   Bot,
+  Box,
   Check,
   CircleCheck,
   CircleDot,
@@ -13,6 +14,7 @@ import {
   Play,
   RotateCcw,
   ShieldCheck,
+  Signal,
   Undo2,
   type LucideIcon,
 } from "lucide-react"
@@ -20,6 +22,9 @@ import {
 import type { Todo, TodoEvent } from "@/api/generated/types.gen"
 
 import { sourceNames, type Source } from "./inbox-state"
+
+// The priorities' names, by their value 0 to 4 (issue #1157), as an event says them.
+const priorityNames = ["No priority", "Urgent", "High", "Medium", "Low"]
 
 // An item's comments, handing it to a Bot by writing, and the owner's Send (issues #1111, #1143). The comments are
 // the item's events with its comments among them, as Orca's BotItemView shows an item's comments in its activity
@@ -236,7 +241,12 @@ export type EventLine = { words: string; icon: LucideIcon; done?: boolean }
 
 // eventLine says one change in words, who and what; from is where an added item came from ("Zalo · Laura
 // Nguyen"), said on its creation.
-export function eventLine(e: TodoEvent, botName: (id: string) => string, from?: string): EventLine {
+export function eventLine(
+  e: TodoEvent,
+  botName: (id: string) => string,
+  from?: string,
+  projectName: (id: string) => string | undefined = () => undefined,
+): EventLine {
   const who = actorName(e.actor, botName)
   const after = e.after as Record<string, unknown>
   const before = e.before as Record<string, unknown>
@@ -254,7 +264,7 @@ export function eventLine(e: TodoEvent, botName: (id: string) => string, from?: 
     case "linked_approval":
       return { words: `${who} asked for an Approval`, icon: ShieldCheck }
     case "edited":
-      return editLine(who, after, botName)
+      return editLine(who, after, botName, projectName)
     default:
       return { words: `${who}: ${e.kind}`, icon: CircleDot }
   }
@@ -293,6 +303,7 @@ function editLine(
   who: string,
   after: Record<string, unknown>,
   botName: (id: string) => string,
+  projectName: (id: string) => string | undefined,
 ): EventLine {
   const handed = handoverWords(after, who, botName)
   if (handed) {
@@ -300,6 +311,27 @@ function editLine(
       after.assignee_kind === "me" ? Undo2 : typeof after.passed_by === "string" ? Forward : Bot
 
     return { words: handed, icon }
+  }
+  // A priority set, with the reason it was set for, and a project changed (issue #1157).
+  if (typeof after.priority === "number") {
+    const name = priorityNames[after.priority] ?? String(after.priority)
+    const why = typeof after.priority_reason === "string" && after.priority_reason
+    const words = after.priority
+      ? `${who} set the priority to ${name}`
+      : `${who} removed the priority`
+
+    return { words: why ? `${words}: ${why}` : words, icon: Signal }
+  }
+  if ("project_id" in after) {
+    const reason = typeof after.reason === "string" ? ` (${after.reason})` : ""
+
+    return {
+      words:
+        typeof after.project_id === "string"
+          ? `${who} moved it to ${projectName(after.project_id) ?? "a project"}`
+          : `${who} took it out of its project${reason}`,
+      icon: Box,
+    }
   }
   const links = Array.isArray(after.evidence) ? (after.evidence as { kind?: string }[]) : []
   if (links.some((l) => l.kind === "pull_request"))

@@ -4776,9 +4776,10 @@ gateway chat model writes its summary, decisions and actions.
 - Not built: the Bot's meeting tools and memory (issue #722), pausing or muting a live recording, bookmarks,
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
-Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165, 00166 and
-00167; issues #838, #845, #966, #1004, #1105, #1111, #1118 and #1124, parts 1 to 3 of the
-Inbox, the sources a Bot reads, handing an item to a Bot, passing it from Bot to Bot, and a removed Bot's items): the store of the to-dos that have to happen, whoever does them, its state machine,
+Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165, 00166, 00167 and
+`inbox_priority_and_projects`; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124 and #1157, parts 1 to 3 of the
+Inbox, the sources a Bot reads, handing an item to a Bot, passing it from Bot to Bot, a removed Bot's items, and
+priority and projects): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
 - Data: `todos`, one row per to-do: `revision` (from 1, one more with every change), title (1–300 characters),
   notes (≤ 20,000), done_when (≤ 1,000), `draft` (≤ 20,000, the reply a Bot drafted for the owner to send
@@ -4808,7 +4809,13 @@ its client API, its CLI and the Bots' tools.
   #1111; cleared in `deleteChatTx` when that chat is deleted); `passed_by`, the Bot that gave the item to the Bot it
   is given to (issue #1118), set again with every change of the assignee: the acting Bot when a Bot gives it to
   another Bot, else NULL; `why_open`
-  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); a create's idempotency key,
+  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); `priority` 0 none, 1 urgent, 2
+  high, 3 medium, 4 low (Linear's scale) with `priority_reason` (one line ≤ 300, set with the priority: an edit that
+  sets the priority without one clears it) and `project_id`, one of `inbox_projects` (name ≤ 60, unique in any case,
+  and a `#rrggbb` colour) or none, named without a foreign key (issue #1157, `inboxstore/projects.go`): the owner and
+  a Bot set them as the item's other fields (a Bot on the items it added or was given), each change an `edited`
+  event; removing a project leaves each of its items, in any state, without one, with an `edited` event of the
+  owner's that names the project, in the removal's transaction; a create's idempotency key,
   unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed`, `linked_approval` or `commented` (its text in `after.text`), the revision it made, JSON of the fields before and after, and the
@@ -4932,10 +4939,16 @@ its client API, its CLI and the Bots' tools.
   Reply-To or From of the item's mail, "Re:" its subject, `In-Reply-To` and `References` its Message-ID (inbox-zero's
   `replyToEmail`), header values kept on one line; the evidence is a `zalo_sent`, `whatsapp_sent`, `lark_sent` or
   `mail` link. `Todo.chat_id` is the item's chat, and `Todo.passed_by` the Bot it was passed through (issue #1118).
+  Issue #1157: `Todo.priority`, `priority_reason` and `project_id`, given in `POST /inbox` and `PATCH /inbox/{id}`
+  (an empty `project_id` takes the item out); `GET /inbox?project=<id>|none`; `GET /inbox/projects`
+  (`ListInboxProjects`, every token) and, for the owner only, `POST /inbox/projects`, `PATCH` and `DELETE
+  /inbox/projects/{project_id}`.
 - CLI (`clientcli/inbox.go`): `hypomnema inbox list` (the API's filters; one line an item), `show`, `add "<title>"
   [--due <date|date time|none|unknown> --tz <zone>] [--who me|unknown|bot:<id>|<name>] [--notes …] [--done-when …]`,
   `edit`, `accept`, `done [--evidence url] [--reason …]`, `drop <id> "<reason>"`, `duplicate <id> <of>`,
-  `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision.
+  `snooze <id> <until|off>`, `reopen`; a change reads the item and sends its revision. `add` and `edit` take
+  `--priority none|urgent|high|medium|low` (or 0–4) with `--priority-reason`, and `--project <name or id|none>`;
+  `list` takes `--project` (issue #1157).
 - Bot tools (`agentapi/inbox.go`, the family `inbox` of `agenttool/switches.go`, in the `full` preset only; issue
   #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`, `source`, and
   `pass_to` a Bot's id, issue #1118; not with `hand_back`), `inbox_start`,
@@ -4961,7 +4974,10 @@ its client API, its CLI and the Bots' tools.
   to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included, and `owner_changed_since`
   (issue #1119): only the items the owner himself changed at or after a moment (an event of his), in any state,
   snoozed or stale, each with his changes since then as its history, which the triage Routine learns from
-  (`inboxstore.Filter.OwnerChangedSince`). A Routine's run that reads
+  (`inboxstore.Filter.OwnerChangedSince`). `inbox_list` also answers the owner's `projects` by name and filters by
+  `project` (a name, or `none`); `inbox_add` and `inbox_update` take `priority` (0–4, as Linear's MCP takes it),
+  `priority_reason` and `project` by name (`none` takes it out), and an item reads its priority's name, reason and
+  project (issue #1157). A Routine's run that reads
   only (#956) gets the family too (`agenttool.ReadRunAllows`), which writes only in the Inbox, and still no tool
   that sends as the owner: `zalo_send` and `whatsapp_send` are refused there by the agent API, and every write
   through the service proxy (a Lark message, a mail) by its read-only check; so the Bot that reads his messages
@@ -6259,6 +6275,18 @@ Node (`internal/node`):
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
     (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on
     a phone.
+  - Priority and projects (issue #1157), copied from circle (MIT, `ln-dev7/circle` b0ba7dd) with its notice in each
+    file: a to-do's row starts with its priority's icon (`web/src/components/ui/priority.tsx`: circle's icons and
+    `PrioritySelector`), one click to change it, its reason in the icon's tooltip; its project is a coloured chip
+    on the row's second line; the detail's Priority and Project fields are pickers
+    (`components/ui/project-selector.tsx`), with the priority's reason beside it. Inside each group the rows go by
+    priority, urgent first and none last, then as before (`groupRows`). Next to the filter, the project filter
+    (`features/inbox/project-filter.tsx`, after circle's `headers/projects/filter.tsx`): Every project, No project
+    or one, with counts, and pages to add a project and to rename, recolour or remove one. ⌘K or Ctrl+K opens the
+    command menu (`features/inbox/command-menu.tsx`, after circle's `command-palette.tsx`): on the selected to-do,
+    named in a chip that ⌫ clears, Set priority…, Move to project…, Give to the main Bot, Snooze…, Mark done and
+    Drop; with none, the items to search by title and open. The thread says a priority set with its reason and a
+    project changed.
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,

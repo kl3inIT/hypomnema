@@ -181,6 +181,28 @@ test("events say who did what, and closing as done is marked", () => {
   ).toBe("You reopened it")
 })
 
+// Scenario: issue #1157, decision 3. A priority set says it with the reason it was set for, so the owner reads why;
+// a project changed names it, and a project removed says why the item has none.
+test("a priority and a project changed are said in words", () => {
+  const projectName = (id: string) => (id === "prj_v" ? "VMAP" : undefined)
+  const line = (after: Record<string, unknown>, actor: TodoEvent["actor"] = bot) =>
+    eventLine(event(1, { actor, after }), nameOf, undefined, projectName).words
+
+  expect(line({ priority: 1, priority_reason: "Her deadline is today" })).toBe(
+    "Hypo set the priority to Urgent: Her deadline is today",
+  )
+  expect(line({ priority: 4, priority_reason: "" }, { kind: "owner" })).toBe(
+    "You set the priority to Low",
+  )
+  expect(line({ priority: 0, priority_reason: "" }, { kind: "owner" })).toBe(
+    "You removed the priority",
+  )
+  expect(line({ project_id: "prj_v" })).toBe("Hypo moved it to VMAP")
+  expect(line({ project_id: null, reason: "Project VMAP was removed" }, { kind: "owner" })).toBe(
+    "You took it out of its project (Project VMAP was removed)",
+  )
+})
+
 // Scenario: issue #1143, Logic 5. A Bot's report shows its first line, then each <details> folded under its
 // summary; a <details> in a code block, and one never closed, stay text.
 test("a report's details become folded sections", () => {
