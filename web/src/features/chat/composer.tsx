@@ -91,9 +91,10 @@ export function Composer({
       writeDraft(key, { text: next, ...(chat && { chat }), ...(draftBot && { bot: draftBot }) })
   }
 
-  // The files that are up are the draft's; those uploading or not uploaded are not kept.
+  // The files that are up are the draft's; those uploading or not uploaded are not kept. While a message is sent its
+  // files are not: they go with it, and come back into the draft if it is not sent.
   useEffect(() => {
-    if (!key || !items) return
+    if (!key || !items || sending) return
     const up = items
       .filter((item) => item.state === "done")
       .map((item) => ({
@@ -103,7 +104,7 @@ export function Composer({
         ...(item.type && { type: item.type }),
       }))
     writeDraft(key, { files: up, ...(chat && { chat }), ...(draftBot && { bot: draftBot }) })
-  }, [key, items, chat, draftBot])
+  }, [key, items, chat, draftBot, sending])
 
   // The draft is saved as the composer goes, to another chat or page.
   useEffect(() => saveDrafts, [])
@@ -136,18 +137,17 @@ export function Composer({
     setError(null)
     attachments?.dismiss()
     walk.current = null
-    type("")
+    setText("")
+    // The draft goes as the message is sent, not once the send has ended, which on the New chat page is after the
+    // chat's page has opened: a page going meanwhile would keep the sent message's files as the next draft (issue
+    // #1080). As t3code's useComposerSend clears the draft's content before it dispatches the message, and
+    // assistant-ui's composer detaches its text and attachments at send. What is typed meanwhile is the next draft.
+    if (key) clearDraft(key)
 
     try {
       const files = attachments ? await attachments.draft.ready() : []
       await onSend(message, files)
       attachments?.draft.clear()
-      if (key) {
-        clearDraft(key)
-        // What was typed while it was sent is the next draft.
-        const typed = box.current?.value ?? ""
-        if (typed !== "") type(typed)
-      }
     } catch (err) {
       // A send whose answer was lost may have reached the server, and a page that goes (a reload) loses it so: it
       // goes back after a pause, which a page going away does not live through, so it is not kept as the draft

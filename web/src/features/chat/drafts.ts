@@ -13,7 +13,7 @@ import type { ChatAttachment } from "@/api/generated/types.gen"
 //   at once when the page hides or the composer goes (t3code's debounced storage flushed before unload,
 //   OpenMausBot's saveDraftLater with its pagehide and blur). Saving reads the entry again and changes only the
 //   drafts written here, so that another tab's are kept.
-// - An empty draft is not kept, and a draft that was sent goes.
+// - An empty draft is not kept, and a draft goes as it is sent.
 // - The New chat page and a new chat's tab keep theirs too, with the id they chose for the chat and the Bot picked,
 //   since their files are in that chat's folder in that Bot's (t3code's draft thread keeps its thread id).
 
@@ -109,7 +109,7 @@ export function writeDraft(key: string, change: Partial<Draft>) {
   timer = setTimeout(saveDrafts, saveDelay)
 }
 
-// clearDraft lets the draft under key go, at once: it was sent.
+// clearDraft lets the draft under key go, at once: it is being sent.
 export function clearDraft(key: string) {
   memory.set(key, empty)
   unsaved.add(key)
