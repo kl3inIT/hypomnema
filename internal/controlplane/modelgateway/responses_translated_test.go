@@ -183,6 +183,27 @@ func TestACodexClientIsServedAnOpenAICompatibleModel(t *testing.T) {
 		assert.Equal(t, modelgateway.OutcomeUpstreamError, g.lastUsage(t).Outcome)
 	})
 
+	t.Run("an answer cut at its limit", func(t *testing.T) {
+		t.Parallel()
+
+		upstream, _ := provider(t, stream(hello[0],
+			`data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"lo"},`+
+				`"finish_reason":"length"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}`+"\n\n",
+			"data: [DONE]\n\n"))
+		g := newChatGateway(t, modelgateway.Config{}, upstream)
+
+		status, _, body := g.respond(t, g.key, `{"model":"gpt","input":"hi"}`)
+		require.Equal(t, http.StatusOK, status, body)
+		assert.Contains(t, body, "event: response.incomplete")
+
+		// The answer ended, at its limit: it was passed on whole and its usage is counted.
+		u := g.lastUsage(t)
+		assert.Equal(t, modelgateway.OutcomeOK, u.Outcome, u.Error)
+		assert.Empty(t, u.Error)
+		assert.Equal(t, int64(5), u.Tokens.Prompt)
+		assert.Equal(t, int64(2), u.Tokens.Completion)
+	})
+
 	t.Run("an error inside the stream", func(t *testing.T) {
 		t.Parallel()
 
