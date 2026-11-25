@@ -399,9 +399,7 @@ function TodoBody({
         path={
           <>
             <SourceIcon source={kind} className="[&>svg]:size-3.5" />
-            <span className="min-w-0 truncate">
-              {kind === "hand" ? source : [source, place].filter(Boolean).join(" › ")}
-            </span>
+            <span className="min-w-0 truncate">{place}</span>
           </>
         }
       >

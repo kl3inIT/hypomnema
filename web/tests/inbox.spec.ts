@@ -638,7 +638,7 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   ])
   const kai = rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" })
   await expect(kai).not.toContainText("6591234567")
-  await expect(kai.locator('[data-source="whatsapp"]')).toBeVisible()
+  await expect(kai.locator('[data-source="whatsapp"]')).toHaveAttribute("aria-label", "WhatsApp")
   await expect(rowsOf(page, "Working")).toHaveText([/Draft the weekly report.*Thư ký/])
   await expect(rowsOf(page, "Open")).toHaveText([
     /Lan sends the signed contract.*Lan.*Late · Chase yesterday/,
@@ -671,7 +671,9 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   await expect(detail.getByRole("region", { name: "Said" })).toContainText(
     "Kai YongHi Dat, any news on the contract",
   )
-  await expect(detail).toContainText("WhatsApp › Kai Yong")
+  await expect(detail).toContainText("Kai Yong")
+  await expect(detail).not.toContainText("WhatsApp ›")
+  await expect(detail.locator('[data-source="whatsapp"]')).toHaveAttribute("aria-label", "WhatsApp")
   // Send is the owner's own, beside Copy (issue #1111); a Bot never sends.
   await expect(
     detail.getByRole("region", { name: "Draft" }).getByRole("button", { name: "Send" }),

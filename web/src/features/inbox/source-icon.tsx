@@ -24,15 +24,21 @@ const marks: Record<Source, ComponentType<SVGProps<SVGSVGElement>> | LucideIcon>
 const brands = new Set<Source>(["zalo", "whatsapp", "lark", "gmail"])
 
 // SourceIcon is where an item came from, as Chatwoot's ChannelIcon beside an inbox's name (InboxName.vue:14): the
-// channel's mark at 16px, named when pointed at. A screen reader hears the row's title and the detail's path, which
-// names the channel in words, so the mark itself is hidden from it.
+// channel's mark at 16px, named when pointed at. The label keeps the channel available to screen readers while the
+// surrounding row or detail supplies the place.
 export function SourceIcon({ source, className }: { source: Source; className?: string }) {
   const Mark = marks[source]
 
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<span data-source={source} className={cn("inline-flex shrink-0", className)} />}
+        render={
+          <span
+            aria-label={sourceNames[source]}
+            data-source={source}
+            className={cn("inline-flex shrink-0", className)}
+          />
+        }
       >
         <Mark
           aria-hidden
