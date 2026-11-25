@@ -64,7 +64,8 @@ export function CommentTimeline({
   }
 
   return (
-    <Timeline value={entries.length} render={<ol />}>
+    // A history, not a stepper: no step is marked completed, so the line keeps the border's colour, as GitHub's.
+    <Timeline value={0} render={<ol />}>
       {entries.map((entry, index) => (
         <TimelineItem
           key={`${entry.kind}:${entry.id}`}
