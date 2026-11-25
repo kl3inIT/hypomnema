@@ -184,6 +184,13 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 			return
 		}
 
+		// Every target was counted and none could be used, as the chat route counts a target it cannot use
+		// (tryChat): the row names the last, and is one the table takes (attempts > 0, issue #1147).
+		if n := len(model.Targets); n > 0 {
+			last := model.Targets[n-1]
+			record.Attempts, record.Provider, record.UpstreamModel = n, last.Provider, last.UpstreamModel
+		}
+
 		record.Outcome = OutcomeTransportError
 
 		writeAnthropicError(w, http.StatusBadGateway, typeServer, "",

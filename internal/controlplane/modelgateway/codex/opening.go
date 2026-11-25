@@ -233,12 +233,27 @@ const maxRetryAfter = 365 * 24 * time.Hour
 func (f *Failure) Overloaded() bool {
 	kind := strings.ToLower(f.Type)
 	code := strings.ToLower(f.Code)
+
+	return f.ModelCapacity() ||
+		kind == "rate_limit_error" || code == "rate_limit_exceeded" || code == "turn_rate_limit_exceeded"
+}
+
+// ModelCapacity says the failure is the backend's lack of capacity for the
+// model asked for, not a limit of the account: an overload, a model at
+// capacity, or a server error the backend says to retry. Such a failure says
+// nothing of the account's other models, so the account rests for that model
+// alone and keeps serving the others (issue #1147; OmniRoute
+// src/sse/services/auth.ts:3460-3482, lockExactModel on a Codex
+// server_is_overloaded; CLIProxyAPI's per-model ModelStates,
+// sdk/cliproxy/auth/types.go:396). A rate limit is the account's, not the
+// model's.
+func (f *Failure) ModelCapacity() bool {
+	kind := strings.ToLower(f.Type)
+	code := strings.ToLower(f.Code)
 	message := strings.ToLower(f.Message)
 
 	switch {
 	case kind == "service_unavailable_error", code == "server_is_overloaded":
-		return true
-	case kind == "rate_limit_error", code == "rate_limit_exceeded", code == "turn_rate_limit_exceeded":
 		return true
 	case code == "model_at_capacity", code == "model_is_at_capacity",
 		code == "" && strings.Contains(message, "model") && strings.Contains(message, "at capacity"):
@@ -247,6 +262,19 @@ func (f *Failure) Overloaded() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// Reason is what a cooldown says of the failure: its code, else its type, else
+// its status (issue #1147).
+func (f *Failure) Reason() string {
+	switch {
+	case f.Code != "":
+		return f.Code
+	case f.Type != "":
+		return f.Type
+	default:
+		return "HTTP " + strconv.Itoa(f.Status)
 	}
 }
 
