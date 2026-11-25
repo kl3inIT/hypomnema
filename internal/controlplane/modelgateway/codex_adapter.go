@@ -309,6 +309,8 @@ func (s *Server) codexAnswer(
 			}
 
 			s.codexCool(ctx, token, failure)
+			// Read only when the refusal is the answer, before any output.
+			noteStreamRefusal(ctx, failure.Text())
 
 			return codexRefusal(failure, now)
 		},
