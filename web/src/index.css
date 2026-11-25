@@ -24,6 +24,8 @@
   --color-running-soft: var(--status-running-soft);
   --color-done: var(--status-done);
   --color-done-soft: var(--status-done-soft);
+  --color-closed: var(--status-closed);
+  --color-closed-soft: var(--status-closed-soft);
   --color-needs-you: var(--status-needs-you);
   --color-needs-you-soft: var(--status-needs-you-soft);
   --color-failed: var(--status-failed);
@@ -162,6 +164,9 @@
   --status-running-soft: color-mix(in srgb, var(--color-blue-500) 10%, transparent);
   --status-done: var(--color-emerald-700);
   --status-done-soft: color-mix(in srgb, var(--color-emerald-500) 10%, transparent);
+  /* An Inbox item closed as done, violet as GitHub's issue closed as completed (issue #1143). */
+  --status-closed: var(--color-violet-700);
+  --status-closed-soft: color-mix(in srgb, var(--color-violet-500) 12%, transparent);
   --status-needs-you: var(--color-amber-700);
   --status-needs-you-soft: color-mix(in srgb, var(--color-amber-500) 10%, transparent);
   --status-failed: var(--color-red-700);
@@ -214,6 +219,8 @@
   --border-strong: rgb(255 255 255 / 20%);
   --status-running: var(--color-blue-400);
   --status-done: var(--color-emerald-400);
+  --status-closed: var(--color-violet-400);
+  --status-closed-soft: color-mix(in srgb, var(--color-violet-500) 20%, transparent);
   --status-needs-you: var(--color-amber-400);
   --status-failed: var(--color-red-400);
   --status-failed-soft: color-mix(in srgb, var(--color-red-500) 16%, transparent);

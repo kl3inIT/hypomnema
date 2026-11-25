@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import type { ChatAttachment } from "@/api/generated/types.gen"
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 
 import { AttachmentStrip } from "./attachment-strip"
@@ -30,6 +31,9 @@ import { recall, type Walk } from "./recall"
 // What is written, with the files that are up, is kept as the chat's draft (issue #433, drafts.ts) and is there
 // again when the owner comes back to the chat or reloads; it goes when it is sent. ↑ in the empty box brings back
 // what this chat sent, newest first, and ↓ goes back to the empty box (recall.ts).
+//
+// An Inbox item's comments write with it too (issue #1143): placeholder and submit name what writing there does,
+// "Hand to Hypo", and Send is then a button with those words.
 export function Composer({
   onSend,
   onStop,
@@ -41,6 +45,8 @@ export function Composer({
   draft,
   sent,
   put,
+  placeholder,
+  submit,
 }: {
   onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
   onStop: () => void
@@ -59,6 +65,10 @@ export function Composer({
   // put is a text to put in the box, once for each at: a queued message taken back to edit (issue #497, Omnigent's
   // Edit). It goes after what is typed already.
   put?: { text: string; at: number }
+  // placeholder is what the empty box says, in place of the chat's.
+  placeholder?: string
+  // submit is the words of the send button, in place of the round arrow.
+  submit?: string
 }) {
   const [text, setText] = useState(() => (draft ? readDraft(draft.key).text : ""))
   const [sending, setSending] = useState(false)
@@ -196,7 +206,8 @@ export function Composer({
           <textarea
             aria-label="Message"
             placeholder={
-              working ? `Add to what ${botName} is doing` : `Ask ${botName} to build something`
+              placeholder ??
+              (working ? `Add to what ${botName} is doing` : `Ask ${botName} to build something`)
             }
             rows={1}
             value={text}
@@ -297,6 +308,15 @@ export function Composer({
                 <rect x="2" y="2" width="8" height="8" rx="1.5" />
               </svg>
             </button>
+          ) : submit ? (
+            <Button
+              type="submit"
+              size="sm"
+              disabled={disabled || sending || (!text.trim() && files === 0)}
+            >
+              {sending && <Spinner data-icon="inline-start" />}
+              {submit}
+            </Button>
           ) : (
             <button
               type="submit"

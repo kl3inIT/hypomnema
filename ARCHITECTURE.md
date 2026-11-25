@@ -6211,12 +6211,20 @@ Node (`internal/node`):
     meeting, at `/meetings/{id}?line=<n>`; issue #1105), the draft with Copy, its primary button, which says Copied
     once it copied, Edit and Send (issue #1111: a confirmation names the recipient and the place, "Send to Kai Yong
     on WhatsApp (main)?", and shows the text as it is on screen, edits included, which `POST /inbox/{id}/send`
-    sends), the draft's section left out when the item needs none, and its thread: the events as lines (a hand-over
-    says "You gave it to Hypo", "Hypo passed it to BeyondPilot" or "BeyondPilot gave it back to you") and the
-    comments as cards, a link to the item's chat, and a comment box (Ctrl+Enter). The top bar's "Hand to <main Bot>"
-    (an item not closed nor in review) opens a dialog with an optional multi-line prompt, the quick prompts Do it,
-    Only look into it, Draft a reply and Give it to a worker to fix the code, and Ctrl+Enter to hand it over (`POST
-    /inbox/{id}/hand`).
+    sends), the draft's section left out when the item needs none, and its Comments (issue #1143,
+    `inbox-comments.tsx`), on ReUI's timeline (`web/src/components/reui/timeline.tsx`) as GitHub's issue timeline:
+    each event a muted line with its icon on the line (the first says where the item came from, "Thư ký added it
+    from Lark · ELITEX"; a hand-over says "You gave it to Hypo", "Hypo passed it to BeyondPilot" or "BeyondPilot
+    gave it back to you"; a Run started, a pull request linked, reopened; closed as done in violet with its
+    reason), two or more changes in a row by one actor folded into "Hypo did 5 steps · 10:03–10:41" (AI Elements'
+    chain of thought, `web/src/components/chain-of-thought.tsx`), and each comment a card with its face, name, a
+    Bot tag and time, its Markdown rendered by the chat's renderer and each top-level `<details>` folded under its
+    `<summary>` in a Collapsible (`reportOf`, as CodeRabbit's summary comment). Under them a link to the item's chat
+    and the chat's composer (Enter sends): on an item no Bot has it reads "Message Hypo…" and **Hand to Hypo**
+    hands it to the main Bot with the text as its prompt (`POST /inbox/{id}/hand`); on one a Bot has, Send
+    comments (`POST /inbox/{id}/comments`), or hands it to that Bot again when the item has no chat; on a closed
+    one, **Reopen and send** reopens it (`POST /inbox/{id}/reopen`), then hands it back to its Bot with the text
+    (`writeOf`, `useWriteTodo`). The top bar has no "Hand to" of its own.
     An Approval shows its chat card (`ApprovalCard`) and a question its form (`QuestionForm`), the same calls as at
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
     (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on
