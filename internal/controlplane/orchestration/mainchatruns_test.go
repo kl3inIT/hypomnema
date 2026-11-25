@@ -1,14 +1,12 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: issue #1169. A Run is open on the main Bot's main chat, with a wake-up its pi was not given yet, and
@@ -120,16 +118,8 @@ func TestMigrationMovesTheOpenRunsOfFormerMainChats(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-
-	own := migrationVersion(t, p, "_former_main_chat_runs.sql")
-	_, err = p.UpTo(ctx, own-1)
-	require.NoError(t, err)
+	own := migrationVersion(t, "_former_main_chat_runs.sql")
+	db, p := databaseAt(t, own-1)
 
 	main := DefaultBotID
 	stmts := []string{
@@ -172,7 +162,7 @@ func TestMigrationMovesTheOpenRunsOfFormerMainChats(t *testing.T) {
 		require.NoError(t, err, stmt)
 	}
 
-	_, err = p.UpTo(ctx, own)
+	_, err := p.UpTo(ctx, own)
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
