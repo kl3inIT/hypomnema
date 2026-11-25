@@ -22,8 +22,12 @@ type Failure struct {
 	Type    string
 	Code    string
 	Message string
-	// ResetsAt is when a usage limit ends; zero when the backend did not say.
+	// ResetsAt is when the account may serve again: a usage limit's end, or
+	// the Retry-After the error carries; zero when the backend did not say.
 	ResetsAt time.Time
+	// Moderation is the prompt's moderation flags the backend sent before the
+	// error (ModerationFlags), if any.
+	Moderation string
 }
 
 func (f *Failure) UsageLimit() bool {
@@ -75,6 +79,8 @@ type Stream struct {
 	finish    string
 	usage     *Usage
 	failure   *Failure
+	// moderation is the flags of the last response.metadata event.
+	moderation string
 }
 
 // NewStream returns a translator for one answer. id, created and model are
@@ -147,10 +153,13 @@ func (s *Stream) Event(data []byte) [][]byte {
 	}
 
 	switch ev.Type {
-	case "error":
-		s.failure = failureOf(firstRaw(ev.Error, data))
-	case "response.failed":
-		s.failure = responseFailure(ev.Response, time.Now())
+	case "error", "response.failed":
+		s.failure = EventFailure(data, time.Now())
+		s.failure.Moderation = s.moderation
+	case "response.metadata":
+		if flags := ModerationFlags(data); flags != "" {
+			s.moderation = flags
+		}
 	case "response.output_text.delta", "response.text.delta":
 		s.streamed[ev.ItemID] = true
 
@@ -519,6 +528,10 @@ func statusFor(kind string) int {
 	switch {
 	case strings.Contains(kind, "usage_limit") || strings.Contains(kind, "rate_limit"):
 		return http.StatusTooManyRequests
+	case strings.Contains(kind, "service_unavailable") || strings.Contains(kind, "overloaded"):
+		// CLIProxyAPI answers an overload inside a stream 503
+		// (codex_executor_terminal.go, newCodexBootstrapOverloadErr).
+		return http.StatusServiceUnavailable
 	case strings.Contains(kind, "auth") || strings.Contains(kind, "token_expired"):
 		return http.StatusUnauthorized
 	case strings.Contains(kind, "forbidden") || strings.Contains(kind, "permission"):

@@ -225,7 +225,7 @@ func (s *Server) serveResponses(
 				w.Header().Set("Retry-After", retry)
 			}
 
-			record.Error = errorText(copyBody(w, resp, resp.Header.Get("Content-Type"), maxErrorBytes))
+			recordRefusal(ctx, record, copyBody(w, resp, resp.Header.Get("Content-Type"), maxErrorBytes), len(raw))
 			_ = resp.Body.Close()
 
 			return
@@ -310,9 +310,19 @@ func (s *Server) passResponses(
 				return s.codexRefused(ctx, token, resp), nil
 			}
 
+			held, failure := s.holdCodexOpening(resp)
+			if failure != nil {
+				// Refused before any output: the next account is tried, as for a
+				// 503 (issue #1135).
+				s.codexCool(ctx, token, failure)
+				noteStreamRefusal(ctx, failure.Text())
+
+				return codexRefusal(failure, s.svc.clock.Now()), nil
+			}
+
 			s.accountState.served(token.AccountID)
 
-			return resp, nil
+			return held, nil
 		})
 }
 
@@ -347,8 +357,10 @@ func (s *Server) relayResponses(
 		completed, clientGone bool
 		// answered is when the event that completes the answer was passed on (issue #635).
 		answered bool
-		sent     int
-		failure  string
+		// output says an event past the stream's opening was passed on (codex.Opening).
+		output  bool
+		sent    int
+		failure string
 	)
 
 	// searches are the model's own web searches, by their item's id (issue #723).
@@ -362,6 +374,7 @@ func (s *Server) relayResponses(
 		if payload, isData := bytes.CutPrefix(line, []byte("data:")); isData {
 			noteSearch(payload, searches)
 			noteStreamFailure(&failure, payload)
+			output = output || !codex.Opening(payload) && failure == ""
 			if onFailure != nil && !completed && bytes.Contains(payload, []byte(`"response.failed"`)) {
 				if parsed := codex.ParseResponseFailure(payload, s.svc.clock.Now()); parsed != nil && parsed.UsageLimit() {
 					onFailure(parsed)
@@ -412,6 +425,12 @@ func (s *Server) relayResponses(
 		record.Outcome = OutcomeClientGone
 	default:
 		record.Outcome, record.Error = OutcomeTruncated, idle.endReason(scanner.Err(), "response.completed")
+	}
+
+	if !output {
+		// A stream that ended before any output gave none: its frames echo the
+		// request, they are no answer (issue #1135).
+		sent = 0
 	}
 
 	record.Tokens.estimate(asked, sent)

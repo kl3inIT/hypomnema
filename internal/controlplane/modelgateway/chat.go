@@ -464,7 +464,7 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request, req chatRequest, 
 			w.Header().Set("Retry-After", retry)
 		}
 
-		record.Error = errorText(copyBody(w, resp, contentType, maxErrorBytes))
+		recordRefusal(r.Context(), record, copyBody(w, resp, contentType, maxErrorBytes), len(req.raw))
 	case req.stream && strings.HasPrefix(contentType, "text/event-stream"):
 		s.relayStream(w, r, req, resp, record)
 	default:

@@ -3740,6 +3740,19 @@ capabilities do not exist yet.
     limit and the next account are the chat route's.
   - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
     keeps its status and body.
+  - A Codex stream's opening is held (issue #1135, CLIProxyAPI's stream bootstrap buffering): the frames that say
+    nothing has happened yet (`response.created`, `response.in_progress`, `response.metadata`, keepalives, an item or
+    part announced empty; `codex.Opening`, CLIProxyAPI's closed list) are kept back until the first other frame, at
+    most 48 lines, 1 MiB or 20 s (CLIProxyAPI's bounds and the timeout it advises behind a proxy), then sent whole. A
+    lack of capacity the backend reports before that inside its 200 (`server_is_overloaded`, a rate limit, a model at
+    capacity; CLIProxyAPI #6856) is a 503 refusal of that account: the next account is tried, then the model's next
+    target, and the account rests for the `Retry-After` in the error's headers (outer first, `error.headers` too,
+    CLIProxyAPI #7600), else the chat route's growing wait. Any other failure before output, and any failure after
+    it, reaches the client in the stream as before; nothing is sent again once output started (CLIProxyAPI #7481).
+    The chat route translates and sends nothing before its first chunk, so it already moved on; it now rests the
+    account for the same `Retry-After`. When every account refuses, the usage row keeps the refusal's code, message
+    and the prompt's moderation flags from the `response.metadata` frame (paths and values, not the prompt), and
+    counts the input as estimated with no output; a stream that ended before any output counts no output.
   - A run of answers that did not end ends the client's turn (issue #1052), whatever the prompt's size: a stream cut
     short (silently or on an error the provider sent, which Codex retries), a client gone before anything came, or
     the provider saying the prompt did not fit the context window; a stream the provider ended on an invalid
