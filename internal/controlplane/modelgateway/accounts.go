@@ -44,6 +44,13 @@ const (
 	// transientCooldown is for a 5xx that is no overload (9router-go:
 	// TransientCooldownMs).
 	transientCooldown = 30 * time.Second
+	// maxModelRest bounds the rest of one model of an account after a lack
+	// of capacity, whatever delay the backend names (issue #1159): OmniRoute
+	// clamps a Codex capacity refusal to 5-60 s (src/sse/services/auth.ts:3592
+	// at ae94881f), CLIProxyAPI's transient cooldown is 60 s
+	// (internal/config/config.go:125-129). A few seconds of overload thus
+	// take a model off the fleet for a minute, not the six the backend names.
+	maxModelRest = time.Minute
 	// maxProviderReset bounds a reset time the provider names (9router-go:
 	// maxResetCooldown).
 	maxProviderReset = 2 * time.Hour

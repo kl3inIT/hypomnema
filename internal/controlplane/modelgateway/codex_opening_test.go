@@ -1,10 +1,14 @@
 package modelgateway_test
 
 import (
+	"fmt"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -306,4 +310,74 @@ func TestALongOpeningIsReleasedWhole(t *testing.T) {
 	assert.Equal(t, strings.Join(frames, ""), body)
 	assert.Equal(t, 1, got.calls())
 	assert.Equal(t, modelgateway.OutcomeOK, g.lastUsage(t).Outcome)
+}
+
+// overloadedNaming is the overloaded opening whose error names headers, such
+// as a Retry-After, or none.
+func overloadedNaming(headers string) http.HandlerFunc {
+	refusal := `{"type":"error","error":{"message":"Our servers are currently overloaded. Please try again later.",` +
+		`"type":"service_unavailable_error","param":null,"code":"server_is_overloaded"` + headers + `},` +
+		`"sequence_number":3}`
+
+	return stream(append(slices.Clone(overloadedOpening[:3]), event(refusal))...)
+}
+
+// Scenario (issue #1159): the only account is refused for lack of capacity.
+// The model rests on it for the delay the backend names, or the growing
+// backoff when it names none, but never more than a minute, as OmniRoute
+// clamps a Codex capacity refusal to 60 s: the next request is told to come
+// back within that, as a short wait the Codex CLI retries, not a usage limit;
+// the account is not cooled whole.
+func TestACapacityRefusalRestsTheModelAtMostAMinute(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		headers string
+		rest    int
+	}{
+		{name: "six minutes named", headers: `,"headers":{"retry-after":"360"}`, rest: 60},
+		{name: "twenty seconds named", headers: `,"headers":{"retry-after":"20"}`, rest: 20},
+		{name: "none named", rest: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, got := codexBackend(t, overloadedNaming(tc.headers))
+			subs := &accounts{}
+			g := newCodexGateway(t, backend, subs)
+
+			status, _, body := g.respond(t, g.key, `{"model":"sol","input":"hi"}`)
+			require.Equal(t, http.StatusServiceUnavailable, status, body)
+
+			status, headers, body := g.respond(t, g.key, `{"model":"sol","input":"hi"}`)
+			require.Equal(t, http.StatusTooManyRequests, status, body)
+			assert.Equal(t, 1, got.calls(), "the model rests: the backend is not asked")
+			assert.Contains(t, body, `"type":"rate_limit_error"`, "a short wait, not a usage limit")
+
+			wait, err := strconv.Atoi(headers.Get("Retry-After"))
+			require.NoError(t, err)
+			assert.LessOrEqual(t, wait, tc.rest)
+			assert.GreaterOrEqual(t, wait, tc.rest-1)
+			assert.Empty(t, subs.waited("acc_1"), "no cooldown of the whole account")
+		})
+	}
+}
+
+// Scenario (issue #1159): a usage limit is no lack of capacity. Its reset an
+// hour away still cools the whole account until that moment, with no cap.
+func TestAUsageLimitStillCoolsTheWholeAccountUntilItsReset(t *testing.T) {
+	t.Parallel()
+
+	resets := time.Now().Add(time.Hour).Truncate(time.Second)
+	backend, _ := codexBackend(t, plain(http.StatusTooManyRequests, fmt.Sprintf(
+		`{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_at":%d}}`,
+		resets.Unix())))
+	subs := &accounts{}
+	g := newCodexGateway(t, backend, subs)
+
+	status, _, body := g.respond(t, g.key, `{"model":"sol","input":"hi"}`)
+	require.Equal(t, http.StatusTooManyRequests, status, body)
+	assert.Equal(t, resets, subs.cooledUntil())
+	assert.Equal(t, "usage_limit_reached", subs.lastReason())
 }

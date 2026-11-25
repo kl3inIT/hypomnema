@@ -552,8 +552,9 @@ async function fakeServer(page: Page) {
   })
 
   // A track's socket: ready, then for the first audio a preview and a line kept, at the meeting's time of the
-  // socket's offset; the end is answered finished.
+  // socket's offset; the end is answered finished, and the socket is listed as finished.
   const sockets: string[] = []
+  const finished: string[] = []
   await page.routeWebSocket(/\/api\/v1\/meetings\/[^/]+\/stream\//, (ws) => {
     const url = new URL(ws.url())
     const id = url.pathname.split("/")[4]!
@@ -565,6 +566,7 @@ async function fakeServer(page: Page) {
     ws.onMessage((message) => {
       if (typeof message === "string") {
         if ((JSON.parse(message) as { type: string }).type === "end") {
+          finished.push(`${id} ${track} ${offset}`)
           ws.send(JSON.stringify({ type: "finished" }))
           void ws.close()
         }
@@ -610,7 +612,7 @@ async function fakeServer(page: Page) {
     })
   })
 
-  return { calls, sockets, world: w }
+  return { calls, sockets, finished, world: w }
 }
 
 const fits = (page: Page) =>
@@ -985,6 +987,29 @@ test("Back to app returns to the page the owner came from", async ({ page, isMob
   await expect(page).toHaveURL(/127\.0\.0\.1:4173\/$/)
 })
 
+// The share picker stands for a tab that plays a tone, as Chromium's fake devices give no tab.
+const sharedTab = `navigator.mediaDevices.getDisplayMedia = async () => {
+  const context = new AudioContext()
+  const tone = context.createOscillator()
+  const out = context.createMediaStreamDestination()
+  tone.connect(out)
+  tone.start()
+  const video = document.createElement("canvas").captureStream(1).getVideoTracks()
+  return new MediaStream([...video, ...out.stream.getAudioTracks()])
+}`
+
+// Chromium's fake microphone beeps for 20 ms every half second, which lights the microphone's meter for the one 100 ms
+// chunk the beep falls in. A locator check, polled about once a second, can land between beeps every time, so the page
+// counts each change of the page that leaves the meter lit, however short; micLit reads the count since the last reset.
+const micMeterWatch = `window.__micLit = 0
+new MutationObserver(() => {
+  if (document.querySelector('[data-testid="meter-mic"] .bg-done')) window.__micLit++
+}).observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] })`
+const micLit = (page: Page, reset = false) =>
+  page.evaluate(
+    reset ? "(() => { window.__micLit = 0; return 0 })()" : "window.__micLit",
+  ) as Promise<number>
+
 // Recording a meeting live (issue #820).
 test.describe("recording a meeting live", () => {
   // Scenario: the owner records a meeting in person: the dialog asks where it is held (online is offered only where a
@@ -1093,23 +1118,90 @@ test.describe("recording a meeting live", () => {
     expect(calls.filter((c) => c.endsWith("/end"))).toHaveLength(1)
   })
 
+  // Scenario: the owner mutes their microphone while the meeting records (issue #1155): Mute mic finishes only the
+  // microphone's socket and stills its meter; online the tab's socket goes on and the timer runs. Pause and Resume
+  // leave the microphone muted, Resume opening the tab only; Unmute mic opens a microphone socket at the meeting's
+  // time, so its words land where they were said. On a phone, which records the microphone alone, the button is
+  // there too.
+  test("the owner mutes the microphone while the meeting records", async ({ page, isMobile }) => {
+    if (!isMobile) await page.addInitScript({ content: sharedTab })
+    await page.addInitScript({ content: micMeterWatch })
+    const { sockets, finished } = await fakeServer(page)
+    await page.goto("/meetings")
+    await page.getByRole("button", { name: "Record" }).first().click()
+    await page
+      .getByRole("dialog", { name: "Record a meeting" })
+      .getByRole("button", { name: "Start recording" })
+      .click()
+
+    const bar = page.getByRole("region", { name: "Recording" })
+    const timer = bar.getByRole("timer")
+    const tabs = () => sockets.filter((x) => x.includes(" tab "))
+    const mics = () => sockets.filter((x) => x.includes(" mic "))
+    await expect(page.getByTestId("transcript-line")).toHaveCount(isMobile ? 1 : 2)
+    // The fake microphone's beeps light its meter.
+    await expect.poll(() => micLit(page), { timeout: 10_000 }).toBeGreaterThan(0)
+    await expect(bar.getByRole("button", { name: "Mute mic" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    )
+    expect(await fits(page)).toBe(true)
+    await shot(page, "meetings-recording-mic-on")
+
+    await bar.getByRole("button", { name: "Mute mic" }).click()
+    const unmute = bar.getByRole("button", { name: "Unmute mic" })
+    await expect(unmute).toHaveAttribute("aria-pressed", "true")
+    await expect.poll(() => finished).toEqual(mics())
+    expect(finished).toHaveLength(1)
+    await expect(bar).toContainText("Recording")
+    const muted = await timer.textContent()
+    // Over a few beeps the microphone's meter never lights while the timer runs on.
+    await micLit(page, true)
+    await page.waitForTimeout(2_400)
+    expect(await micLit(page)).toBe(0)
+    await expect(timer).not.toHaveText(muted!)
+    expect(mics()).toHaveLength(1)
+    expect(await fits(page)).toBe(true)
+    await shot(page, "meetings-recording-mic-muted")
+
+    await bar.getByRole("button", { name: "Pause" }).click()
+    await expect(bar).toContainText("Paused")
+    await expect(unmute).toHaveAttribute("aria-pressed", "true")
+    await shot(page, "meetings-recording-paused-muted")
+    await bar.getByRole("button", { name: "Resume" }).click()
+    await expect(bar).toContainText("Recording")
+    if (!isMobile) await expect.poll(() => tabs().length).toBe(2)
+    await page.waitForTimeout(500)
+    expect(mics()).toHaveLength(1)
+
+    await unmute.click()
+    await expect(bar.getByRole("button", { name: "Mute mic" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    )
+    await expect.poll(() => mics().length).toBe(2)
+    const shown = (await timer.textContent())!.split(":").map(Number)
+    const offset = Number(mics()[1]!.split(" ")[2])
+    // The microphone opens at the meeting's time: the timer's, not where its audio was muted.
+    expect(offset).toBeGreaterThan((shown[0]! * 60 + shown[1]! - 2) * 1_000)
+    expect(offset).toBeLessThan((shown[0]! * 60 + shown[1]! + 1) * 1_000)
+    await micLit(page, true)
+    await expect.poll(() => micLit(page), { timeout: 10_000 }).toBeGreaterThan(0)
+
+    await bar.getByRole("button", { name: "Pause" }).click()
+    await expect(bar).toContainText("Paused")
+    await shot(page, "meetings-recording-paused-mic-on")
+    await bar.getByRole("button", { name: "Stop" }).click()
+    await page.getByRole("alertdialog").getByRole("button", { name: "Stop and end" }).click()
+    await expect(page.locator("[data-slot=meeting-player]")).toBeVisible()
+  })
+
   // Scenario: online, on a computer: the microphone and the shared tab are two tracks, each with its meter and its
   // socket; the microphone is the owner, "You", the tab's voice "Speaker 1"; the tab's line, said first, is read
   // first though it was kept second.
   test("the owner records an online meeting with the shared tab", async ({ page, isMobile }) => {
     test.skip(isMobile, "a phone cannot share a tab's sound")
-    // The share picker stands for a tab that plays a tone, as Chromium's fake devices give no tab.
-    await page.addInitScript({
-      content: `navigator.mediaDevices.getDisplayMedia = async () => {
-        const context = new AudioContext()
-        const tone = context.createOscillator()
-        const out = context.createMediaStreamDestination()
-        tone.connect(out)
-        tone.start()
-        const video = document.createElement("canvas").captureStream(1).getVideoTracks()
-        return new MediaStream([...video, ...out.stream.getAudioTracks()])
-      }`,
-    })
+    await page.addInitScript({ content: sharedTab })
     const { calls, sockets } = await fakeServer(page)
     await page.goto("/meetings")
 
