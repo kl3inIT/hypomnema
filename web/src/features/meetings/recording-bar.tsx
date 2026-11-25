@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { CircleAlert, Square } from "lucide-react"
+import { CircleAlert, Pause, Play, Square } from "lucide-react"
 import { useState } from "react"
 
 import type { MeetingKind, MeetingLiveTrack } from "@/api/generated/types.gen"
@@ -23,8 +23,9 @@ import { endMeeting, useRecorderValue } from "./meeting-session"
 import { clock } from "./meetings-state"
 
 // RecordingBar is the live controls over a meeting being recorded (issue #820), adapted from MemoryOS's
-// recording-bar.tsx without its pause, mute and bookmark: the time recorded, a level meter a track, a warning when the
-// shared tab has been silent for 20 seconds (Nojoin) or is no longer shared, and Stop, asked first, after which the
+// recording-bar.tsx without its mute and bookmark: the time recorded, a level meter a track, a warning when the
+// shared tab has been silent for 20 seconds (Nojoin) or is no longer shared, Pause and Resume beside Stop (issue
+// #1153, MemoryOS's bar and Meetily's RecordingControls.tsx), and Stop, asked first, paused or not, after which the
 // bar says the last words are being kept until every track is finished. The clock and each meter follow the recorder
 // on their own, so a level reading repaints a meter and nothing else.
 export function RecordingBar({
@@ -42,7 +43,14 @@ export function RecordingBar({
   const quiet = useRecorderValue(recorder, (s) => s.tracks.some((t) => t.quiet))
   const tabEnded = useRecorderValue(recorder, (s) => s.tracks.some((t) => t.ended))
   const saving = phase === "stopping"
-  const state = saving ? "Saving the last words…" : reconnecting ? "Reconnecting…" : "Recording"
+  const paused = phase === "paused"
+  const state = saving
+    ? "Saving the last words…"
+    : paused
+      ? "Paused"
+      : reconnecting
+        ? "Reconnecting…"
+        : "Recording"
 
   return (
     <section
@@ -55,7 +63,11 @@ export function RecordingBar({
             aria-hidden
             className={cn(
               "size-2.5 rounded-full",
-              saving || reconnecting ? "animate-pulse bg-running" : "animate-pulse bg-failed",
+              paused
+                ? "bg-muted-foreground/50"
+                : saving || reconnecting
+                  ? "animate-pulse bg-running"
+                  : "animate-pulse bg-failed",
             )}
           />
           <span
@@ -81,7 +93,25 @@ export function RecordingBar({
             />
           ))}
         <span className="flex-1" />
-        <StopButton meetingId={meetingId} disabled={saving} />
+        <span className="flex items-center gap-2">
+          {paused ? (
+            <Button size="sm" variant="outline" onClick={() => void recorder.resume()}>
+              <Play data-icon="inline-start" />
+              Resume
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={phase !== "recording"}
+              onClick={() => void recorder.pause()}
+            >
+              <Pause data-icon="inline-start" />
+              Pause
+            </Button>
+          )}
+          <StopButton meetingId={meetingId} disabled={saving} />
+        </span>
       </div>
       {(quiet || tabEnded) && !saving && (
         <output className="flex items-center gap-1.5 text-xs text-needs-you">

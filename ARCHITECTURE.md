@@ -4724,8 +4724,10 @@ gateway chat model writes its summary, decisions and actions.
 - On the web: Record, beside Upload recording, asks Online (only where a tab's sound can be shared, Chromium on a
   computer) or In person, the language and the people, asks for the tab then the microphone, and opens the
   meeting's page on a recording bar (time, a level meter a track, a warning when the tab is silent 20 s or no longer
-  shared, Stop asked first, then "Saving the last words…") over the live transcript in the turn layout with what
-  is being said. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
+  shared, Pause and Resume, Stop asked first, paused or not, then "Saving the last words…") over the live
+  transcript in the turn layout with what is being said. Pause (issue #1153) finishes every track's socket and drops
+  the audio until Resume, which opens new sockets where the audio sent ended, so the transcript, the saved audio and
+  the time recorded go on without the pause; the bar says Paused with a still dot. One recorder per browser tab (`meeting-session.ts`) keeps recording across the app, warns before the
   tab closes and holds a screen wake lock; a socket that drops reconnects after 1/2/5/10/20 s with up to 30 s of
   audio queued, its offset the time of the first queued frame, which nothing is dropped before until the new
   socket is ready. A meeting left recording offers Resume recording or End; the player shows once it is transcribed.

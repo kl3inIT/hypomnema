@@ -9,11 +9,14 @@ import {
 } from "./meeting-socket"
 
 // Recording a meeting's tracks in the browser (issue #820), adapted from MemoryOS's MeetingRecorder
-// (web/src/features/meetings/meeting-recorder.ts), without its pause and mute, which the issue leaves out. Each track
-// has its own capture and socket; while a socket reconnects its audio is queued, at most 30 seconds, and the new
+// (web/src/features/meetings/meeting-recorder.ts), without its mute. Each track has its own capture and socket; while a socket reconnects its audio is queued, at most 30 seconds, and the new
 // socket starts at the meeting's time of its first unsent sample, so the clock goes on. Once that time is in the new
 // socket's address nothing is dropped from the queue until the socket is ready (or fails, at most openTimeoutMs
-// later): a frame dropped then would move every later frame earlier on the meeting's clock.
+// later): a frame dropped then would move every later frame earlier on the meeting's clock. Pausing (issue #1153) drops
+// the audio and finishes every socket, as MemoryOS's pause does and Meetily's recording state drops audio while paused
+// (frontend/src-tauri/src/audio/recording_state.rs); resuming opens new sockets where the audio sent ends, so the
+// transcript and the saved audio join without the pause, and the clock, counted from the audio, stops while paused.
+// A socket kept open would not do: the server ends a track that has had no audio for 60 seconds.
 
 // bytesPerMs is PCM16 mono at 24 kHz.
 const bytesPerMs = 48
@@ -23,7 +26,7 @@ const reconnectDelaysMs = [1_000, 2_000, 5_000, 10_000, 20_000]
 const quietLevel = 6 / 180
 const quietAfterMs = 20_000
 
-type RecorderPhase = "recording" | "stopping" | "stopped" | "failed"
+type RecorderPhase = "recording" | "paused" | "stopping" | "stopped" | "failed"
 
 type TrackSnapshot = {
   track: MeetingLiveTrack
@@ -136,6 +139,25 @@ export class MeetingRecorder {
     this.publish()
   }
 
+  // pause keeps what was said and sends nothing more until resume: the sockets are finished, and audio is dropped.
+  async pause() {
+    if (this.snapshot.phase !== "recording") return
+    for (const pipe of this.pipes) pipe.level = 0
+    this.update({ phase: "paused", previews: {} })
+    await Promise.all(this.pipes.map((pipe) => this.closeSocket(pipe)))
+    this.publish()
+  }
+
+  // resume opens each shared track's socket again where its audio sent ends.
+  async resume() {
+    if (this.snapshot.phase !== "paused") return
+    const now = this.deps.now()
+    for (const pipe of this.pipes) pipe.lastLoudAt = now
+    this.update({ phase: "recording" })
+    await Promise.all(this.pipes.filter((pipe) => !pipe.ended).map((pipe) => this.connect(pipe)))
+    this.publish()
+  }
+
   // stop turns the microphone and the tab off at once, then waits while what they sent is kept.
   async stop() {
     if (this.snapshot.phase === "stopping" || this.snapshot.phase === "stopped") return
@@ -196,7 +218,7 @@ export class MeetingRecorder {
   }
 
   private level(pipe: Pipe, level: number) {
-    pipe.level = level
+    pipe.level = this.snapshot.phase === "paused" ? 0 : level
     if (level >= quietLevel) pipe.lastLoudAt = this.deps.now()
     this.publish()
   }

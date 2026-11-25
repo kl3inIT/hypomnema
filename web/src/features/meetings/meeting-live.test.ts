@@ -157,4 +157,73 @@ describe("a meeting recorded live", () => {
     )
     recorder.dispose()
   })
+
+  // Pause sends nothing more and finishes the sockets; the clock stops. Resume opens a socket where the audio sent
+  // ended, so the transcript and the saved audio join without the pause; Stop still ends it (issue #1153, MemoryOS's
+  // "pausing stores what was said and drops audio").
+  it("pauses, resumes on the same clock, then stops", async () => {
+    const second = 24_000 * 2
+    let onChunk: (pcm: ArrayBuffer) => void = () => undefined
+    let onLevel: (level: number) => void = () => undefined
+    // Each chunk is followed by its level reading, which publishes the clock, as the capture does.
+    const speak = (seconds: number) => {
+      for (let i = 0; i < seconds; i++) {
+        onChunk(new ArrayBuffer(second))
+        onLevel(0.1)
+      }
+    }
+    const opened: { offsetMs: number; sent: number; finished: boolean }[] = []
+    const recorder = new MeetingRecorder({
+      meetingId: "mtg_1",
+      issueTicket: () => Promise.resolve("ticket"),
+      onLine: () => undefined,
+      openSocket: (options) => {
+        const socket = { offsetMs: options.offsetMs, sent: 0, finished: false }
+        opened.push(socket)
+
+        return Promise.resolve({
+          send: () => void socket.sent++,
+          finish: () => {
+            socket.finished = true
+
+            return Promise.resolve()
+          },
+          close: () => undefined,
+        })
+      },
+      capture: (_stream, handlers) => {
+        onChunk = handlers.onChunk
+        onLevel = handlers.onLevel
+
+        return Promise.resolve({ stop: () => undefined })
+      },
+      now: () => 0,
+    })
+    const phases: string[] = []
+    recorder.subscribe(() => {
+      const { phase } = recorder.getSnapshot()
+      if (phases.at(-1) !== phase) phases.push(phase)
+    })
+    await recorder.start([{ track: "mic", stream: {} as MediaStream, offsetMs: 5_000 }])
+
+    speak(2)
+    await recorder.pause()
+    expect(opened[0]).toMatchObject({ sent: 2, finished: true })
+    speak(3)
+    expect(opened[0]?.sent).toBe(2)
+    expect(recorder.getSnapshot()).toMatchObject({ phase: "paused", elapsedMs: 7_000 })
+    expect(recorder.getSnapshot().tracks[0]?.level).toBe(0)
+
+    await recorder.resume()
+    expect(opened).toHaveLength(2)
+    expect(opened[1]?.offsetMs).toBe(7_000)
+    speak(1)
+    expect(opened[1]?.sent).toBe(1)
+    expect(recorder.getSnapshot().elapsedMs).toBe(8_000)
+
+    await recorder.pause()
+    await recorder.stop()
+    expect(phases).toEqual(["recording", "paused", "recording", "paused", "stopping", "stopped"])
+    recorder.dispose()
+  })
 })
