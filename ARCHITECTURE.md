@@ -3746,11 +3746,12 @@ capabilities do not exist yet.
     most 48 lines, 1 MiB or 20 s (CLIProxyAPI's bounds and the timeout it advises behind a proxy), then sent whole. A
     lack of capacity the backend reports before that inside its 200 (`server_is_overloaded`, a rate limit, a model at
     capacity; CLIProxyAPI #6856) is a 503 refusal of that account: the next account is tried, then the model's next
-    target, and the account rests for the `Retry-After` in the error's headers (outer first, `error.headers` too,
-    CLIProxyAPI #7600), else the chat route's growing wait. Any other failure before output, and any failure after
+    target; what rests, the model of the account or the whole account, is said below, and it rests for the
+    `Retry-After` in the error's headers (outer first, `error.headers` too, CLIProxyAPI #7600), else the chat route's
+    growing wait. Any other failure before output, and any failure after
     it, reaches the client in the stream as before; nothing is sent again once output started (CLIProxyAPI #7481).
-    The chat route translates and sends nothing before its first chunk, so it already moved on; it now rests the
-    account for the same `Retry-After`. A lack of capacity for the model (an overload, a model at capacity, a server
+    The chat route translates and sends nothing before its first chunk, so it already moved on; it rests the same
+    way, for the same `Retry-After`. A lack of capacity for the model (an overload, a model at capacity, a server
     error the backend says to retry; `codex.Failure.ModelCapacity`), on either route and whether inside a 200 or as
     its own status, rests only that model of the account (issue #1147; CLIProxyAPI's per-model `ModelState`,
     OmniRoute's `lockExactModel` on a Codex `server_is_overloaded`): the account keeps serving its other models, is
