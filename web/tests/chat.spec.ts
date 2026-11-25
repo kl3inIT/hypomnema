@@ -1465,13 +1465,28 @@ test("a long chat says it is loading, then opens at its end without sliding", as
     if (route.request().method() === "GET") await held
     await route.fallback()
   })
-  // How far from the bottom each scroll of the page lands (a string: the tests have no DOM types).
+  // How far from the bottom the chat's scroller stands after each frame, once it has moved: sampled after the frame
+  // (a task the frame posts), when the scroller has followed that frame's growth, and not from scroll events, which
+  // a headless browser under load may not send for a scroller set before its first paint (a string: the tests have
+  // no DOM types).
   await page.addInitScript(`
     globalThis.fromBottom = []
-    document.addEventListener("scroll", (e) => {
-      const el = e.target
-      globalThis.fromBottom.push(Math.round(el.scrollHeight - el.clientHeight - el.scrollTop))
-    }, true)
+    let scroller
+    const sample = () => {
+      const log = document.querySelector('[role="log"]')
+      if (log && !(scroller && scroller.isConnected)) {
+        scroller = [log, ...log.querySelectorAll("div")].find((el) =>
+          ["auto", "scroll"].includes(getComputedStyle(el).overflowY))
+      }
+      if (scroller && scroller.isConnected && scroller.scrollTop > 0) {
+        globalThis.fromBottom.push(Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop))
+      }
+    }
+    const frame = () => {
+      setTimeout(sample, 0)
+      requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
   `)
 
   await page.goto(`/chats/${chat.id}`)
@@ -1486,12 +1501,15 @@ test("a long chat says it is loading, then opens at its end without sliding", as
   const log = page.getByRole("log")
   await expect(log.getByText("message 120", { exact: true })).toBeInViewport()
   await expect(page.getByText("Loading conversation")).toHaveCount(0)
-  // A smooth slide would pass through the rows above the end; an instant one lands there.
+  // A smooth slide stands above the end for many frames on its way down; an instant one is at the end after each
+  // frame, but for a frame the late layout of a row (its markdown loading) may grow the chat before it follows.
+  await page.waitForTimeout(500)
   const fromBottom = await page.evaluate(
     () => (globalThis as unknown as { fromBottom: number[] }).fromBottom,
   )
   expect(fromBottom.length).toBeGreaterThan(0)
-  expect(fromBottom.every((d) => d <= 1)).toBe(true)
+  const offTwice = fromBottom.some((d, i) => d > 1 && (fromBottom[i + 1] ?? 0) > 1)
+  expect(offTwice, `distances from the bottom: ${fromBottom.join(" ")}`).toBe(false)
 })
 
 // Scenario: a long chat opens on its newest 50 messages (issues #502, #1129). Scrolling up brings the older ones a
