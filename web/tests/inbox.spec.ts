@@ -791,7 +791,7 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   ])
   const kai = rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" })
   await expect(kai).not.toContainText("6591234567")
-  await expect(kai.locator('[data-source="whatsapp"]')).toHaveAttribute("aria-label", "WhatsApp")
+  await expect(kai.locator('[data-source="whatsapp"]')).toHaveText("WhatsApp")
   await expect(rowsOf(page, "Working")).toHaveText([/Draft the weekly report.*Thư ký/])
   await expect(rowsOf(page, "Open")).toHaveText([
     /Lan sends the signed contract.*Lan.*Late · Chase yesterday/,
