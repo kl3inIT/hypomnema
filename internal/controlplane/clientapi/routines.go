@@ -241,6 +241,7 @@ func (s *Server) LaunchRoutineScript(ctx context.Context, req openapi.LaunchRout
 
 	return openapi.LaunchRoutineScript200JSONResponse{
 		Script: launch.Script, ScriptText: launch.Text, TimeoutSeconds: int(launch.Timeout.Seconds()), Key: launch.Key,
+		Resumed: &launch.Resumed,
 	}, nil
 }
 

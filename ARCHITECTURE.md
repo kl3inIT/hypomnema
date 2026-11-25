@@ -2058,12 +2058,14 @@ flowchart LR
     coordinator /usr/local/bin/hypomnema-routine` (`deploy/coordinator/hypomnema-routine`, root-owned), which
     accepts those two arguments only and refuses to run without the token. Outside the box, it runs `hypomnema
     routines script <id> --bot B --into DIR` with the coordinator's token (`POST /routines/{id}/launch`): the
-    control plane answers the file's name, its text, its limit and the run's key, once a run and only while a run
+    control plane answers the file's name, its text, its limit, the run's key and whether the run catches up a run
+    a restart cut (`resumed`), once a run and only while a run
     of that Bot's Routine has started and its script has not. The helper writes the text to `run/<routine>/<file>`
     and the key to `.run-<id>` beside it (0600), outside the Bot's directory, which the Bot writes, and prints the
-    name and the limit. The launcher then runs the file in the box (above), in the Bot's directory, under
-    `timeout` with a clean environment: the Bot's tools on `PATH`, `HYPOMNEMA_BOT`, `HYPOMNEMA_ROUTINE`,
-    `HYPOMNEMA_ROUTINE_RUN_FILE`, the run's token in its `client.json`, no model and no token of a service. The
+    name, the limit and `1` or `0` for `resumed`. The launcher then runs the file in the box (above), in the Bot's
+    directory, under `timeout` with a clean environment: the Bot's tools on `PATH`, `HYPOMNEMA_BOT`,
+    `HYPOMNEMA_ROUTINE`, `HYPOMNEMA_ROUTINE_RUN_FILE`, `HYPOMNEMA_ROUTINE_RESUMED=1` for a catch-up only, the run's
+    token in its `client.json`, no model and no token of a service. The
     run's folder is removed when the script ends. The file is written from the control
     plane's text before every run, so what runs is what the owner read. A script stops after 10 minutes unless
     the Routine says otherwise; there is no upper bound (OpenClaw, `timeout-policy.ts`). The control plane holds
@@ -2128,8 +2130,15 @@ flowchart LR
     OpenClaw's patterns in `routines/passing.go`) is tried again earlier than the schedule's next time, after
     30 s, 60 s and 5 min, at most 3 in a row. A script's non-zero exit is not passing; a script stopped at its
     limit, or one that could not be started, is (`script-failure.ts`). A run the owner's no ended, and one a
-    restart of the control plane ended, are recorded and not counted; after a restart a prompt Routine is run
-    again after the backoff, a script waits for its schedule. After 2 failures in a row the owner is told, at
+    restart of the control plane ended, are recorded and not counted. A run a restart cut (failed, "the control
+    plane restarted while it ran") has its time counted as missed (issue #1170): its Routine, when on, keeps the
+    cut run in `routines.resume_run_id` and is due at once, so the start-up's catch-up (5 at once, then 1 every
+    5 s) begins one catch-up run, as Hermes collapses missed slots into one run (`cron/missed_runs.py`). The next
+    run that starts, by the schedule or by hand, takes it: it keeps the cut run as `routine_runs.resumes_run_id`
+    and is told what was cut, a prompt run with a line after its prompt to check what the cut run already did
+    before doing it again (OpenClaw's restart hint, `run-prompt.ts`), a script with `HYPOMNEMA_ROUTINE_RESUMED=1`.
+    A catch-up a restart cuts in turn gets none, so a restart loop does not repeat it: the Routine waits for its
+    schedule. After 2 failures in a row the owner is told, at
     most once an hour: a line in the chat the Routine was made in, and a card through each Lark Channel of the
     Bot that is on, except one through which he reads that chat already (`channels.Channels.TellOwner`). After 10
     the Routine is paused and he is told the same way, with the reason and the command that switches it on

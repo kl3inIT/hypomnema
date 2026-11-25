@@ -282,8 +282,10 @@ func (r *Runner) Run(ctx context.Context) error {
 // Interrupted ends the runs that were live when the control plane last
 // stopped: nothing runs them any more, and what they waited for is gone
 // with the call that waited. Each is recorded as failed and is no failure
-// of its Routine; a prompt is run again, a script is not (OpenClaw,
-// service/startup-run-repair.ts L45-68, service/jobs-scheduling.ts L31-49).
+// of its Routine (OpenClaw, service/startup-run-repair.ts L43-55). Its time
+// counts as missed: CatchUp, next, begins one catch-up run of the Routine
+// within the start-up's spread, which is told what was cut; a catch-up cut
+// in turn gets none (routinestore.SettleRunTx, issue #1170).
 func (r *Runner) Interrupted(ctx context.Context) {
 	live, err := r.routines.LiveRoutineRuns(ctx)
 	if err != nil {
