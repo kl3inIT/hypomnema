@@ -304,7 +304,7 @@ async function fakeServer(page: Page, w: ReturnType<typeof world>) {
       case "/browser":
         return json({ code: "unavailable", message: "this control plane has no browser" }, 503)
       case "/bots":
-        return json({ data: [] })
+        return json({ data: [{ id: "reporter", name: "reporter" }], removed: [] })
       case "/tasks":
         return json({ data: [], runs: [], after: 0 })
       default:

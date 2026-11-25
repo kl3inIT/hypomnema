@@ -68,6 +68,16 @@ func (q *Queries) DeleteDepartment(ctx context.Context, id string) error {
 	return err
 }
 
+const forgetRemovedBotName = `-- name: ForgetRemovedBotName :exec
+DELETE FROM removed_bots WHERE id = ?1
+`
+
+// A Bot put back by an undo is no longer removed.
+func (q *Queries) ForgetRemovedBotName(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, forgetRemovedBotName, id)
+	return err
+}
+
 const getBot = `-- name: GetBot :one
 SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name, position, tools, tools_off, connection_scopes, guaranteed_dispatches, fallbacks, preset, main_chat, department, owner_accounts FROM bots WHERE id = ?1
 `
@@ -281,6 +291,22 @@ func (q *Queries) InsertSetupChange(ctx context.Context, arg InsertSetupChangePa
 	return err
 }
 
+const keepRemovedBotName = `-- name: KeepRemovedBotName :exec
+INSERT INTO removed_bots (id, name) VALUES (?1, ?2)
+ON CONFLICT (id) DO UPDATE SET name = excluded.name
+`
+
+type KeepRemovedBotNameParams struct {
+	ID   string
+	Name string
+}
+
+// A removed Bot's name stays with its id (issue #1139).
+func (q *Queries) KeepRemovedBotName(ctx context.Context, arg KeepRemovedBotNameParams) error {
+	_, err := q.db.ExecContext(ctx, keepRemovedBotName, arg.ID, arg.Name)
+	return err
+}
+
 const lastSetupChangeOf = `-- name: LastSetupChangeOf :one
 SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE kind = ?1 AND name = ?2 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
@@ -442,6 +468,33 @@ func (q *Queries) ListDepartments(ctx context.Context) ([]Department, error) {
 			&i.Position,
 			&i.CreatedAt,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRemovedBots = `-- name: ListRemovedBots :many
+SELECT id, name FROM removed_bots ORDER BY id
+`
+
+func (q *Queries) ListRemovedBots(ctx context.Context) ([]RemovedBot, error) {
+	rows, err := q.db.QueryContext(ctx, listRemovedBots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RemovedBot{}
+	for rows.Next() {
+		var i RemovedBot
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

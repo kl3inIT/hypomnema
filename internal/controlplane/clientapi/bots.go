@@ -17,7 +17,7 @@ import (
 // removes a Bot, and the main Bot from its chat (setupchanges.go). A Bot is named by its id, which never changes;
 // its name is only shown (issue #466).
 
-// ListBots returns every Bot; a pi's token is shown its own, the main Bot's
+// ListBots returns every Bot, with the removed ones by name; a pi's token is shown its own, the main Bot's
 // every one.
 func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 ) (openapi.ListBotsResponseObject, error) {
@@ -28,10 +28,24 @@ func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 
 	tok := principal(ctx)
 
-	out := openapi.ListBots200JSONResponse{Data: make([]openapi.Bot, 0, len(bots))}
+	removed, err := s.svc.ListRemovedBots(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListBots200JSONResponse{
+		Data: make([]openapi.Bot, 0, len(bots)), Removed: make([]openapi.RemovedBot, 0, len(removed)),
+	}
 	for _, b := range bots {
 		if botReadable(tok, b.ID) == nil {
 			out.Data = append(out.Data, toBot(b))
+		}
+	}
+
+	// The removed Bots by name (issue #1139), to the same tokens that read every Bot.
+	for _, b := range removed {
+		if botReadable(tok, b.ID) == nil {
+			out.Removed = append(out.Removed, openapi.RemovedBot{Id: b.ID, Name: b.Name})
 		}
 	}
 

@@ -39,6 +39,18 @@ SELECT * FROM bots ORDER BY created_at, name;
 -- name: DeleteBot :exec
 DELETE FROM bots WHERE id = @id;
 
+-- name: KeepRemovedBotName :exec
+-- A removed Bot's name stays with its id (issue #1139).
+INSERT INTO removed_bots (id, name) VALUES (@id, @name)
+ON CONFLICT (id) DO UPDATE SET name = excluded.name;
+
+-- name: ForgetRemovedBotName :exec
+-- A Bot put back by an undo is no longer removed.
+DELETE FROM removed_bots WHERE id = @id;
+
+-- name: ListRemovedBots :many
+SELECT * FROM removed_bots ORDER BY id;
+
 -- name: CloseBotPosition :exec
 -- The Bots after a removed one move up a place, so the order stays 0 to n-1 (issue #470).
 UPDATE bots SET position = position - 1 WHERE position > @position;

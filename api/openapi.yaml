@@ -10096,11 +10096,24 @@ components:
         created_at: { type: string, format: date-time }
     BotList:
       type: object
-      required: [data]
+      required: [data, removed]
       properties:
         data:
           type: array
           items: { $ref: "#/components/schemas/Bot" }
+        removed:
+          type: array
+          description: >-
+            The Bots removed since, by the name each had (issue #1139): their
+            ids stay in what they did, the Inbox's items and the gateway's
+            usage, which a client names "<name> (removed)", never by the id.
+          items: { $ref: "#/components/schemas/RemovedBot" }
+    RemovedBot:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
     NewBot:
       type: object
       additionalProperties: false

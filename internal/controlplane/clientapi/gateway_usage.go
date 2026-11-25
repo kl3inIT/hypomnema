@@ -165,13 +165,20 @@ const (
 )
 
 // nameKeyGroups names the usage by key's groups that are not the owner's keys: a Bot's by the Bot's name, the
-// workers' and the unknown chats' in words. A Bot deleted since keeps its id.
+// workers' and the unknown chats' in words. A Bot removed since is named by the name it had, "(removed)", or "A
+// removed Bot" when that is not known, never by its id (issue #1139).
 func (s *Server) nameKeyGroups(ctx context.Context, groups []openapi.GatewayUsageGroup) []openapi.GatewayUsageGroup {
 	bots := map[string]string{}
 
+	if list, err := s.svc.ListRemovedBots(ctx); err == nil {
+		for _, b := range list {
+			bots[b.ID] = "Bot " + b.Name + " (removed)"
+		}
+	}
+
 	if list, err := s.svc.ListBots(ctx); err == nil {
 		for _, b := range list {
-			bots[b.ID] = b.Name
+			bots[b.ID] = "Bot " + b.Name
 		}
 	}
 
@@ -184,7 +191,7 @@ func (s *Server) nameKeyGroups(ctx context.Context, groups []openapi.GatewayUsag
 		case g.Id == modelgateway.CallerOwner && g.Name == "":
 			groups[i].Name = "Your keys"
 		case g.Name == "":
-			groups[i].Name = "Bot " + cmp.Or(bots[g.Id], g.Id)
+			groups[i].Name = cmp.Or(bots[g.Id], "A removed Bot")
 		}
 	}
 

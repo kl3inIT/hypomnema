@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useCallback } from "react"
 
 import "@/api/client"
 import {
@@ -40,10 +41,17 @@ export function useMainBot() {
   return mainBotOf(useBots().data)
 }
 
-// useBotName is what a Bot is called: its name, read with the Bots, since it may change (issue #466); its id until
-// they are read.
+// useBotNames names Bots by their ids: each by its name, read with the Bots, since it may change (issue #466); a Bot
+// removed since by the name it had or as "A removed Bot", never by its id (issue #1139); its id until they are read.
+export function useBotNames() {
+  const list = useQuery({ ...listBotsOptions(), refetchInterval: whileOpen }).data
+
+  return useCallback((id: string) => botNameOf(list, id), [list])
+}
+
+// useBotName is what the Bot of an id is called, as useBotNames names it.
 export function useBotName(id: string) {
-  return botNameOf(useBots().data, id)
+  return useBotNames()(id)
 }
 
 // useBot reads one Bot by its id.

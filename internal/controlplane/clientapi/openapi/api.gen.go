@@ -3507,6 +3507,9 @@ type BotChange struct {
 // BotList defines model for BotList.
 type BotList struct {
 	Data []Bot `json:"data"`
+
+	// Removed The Bots removed since, by the name each had (issue #1139): their ids stay in what they did, the Inbox's items and the gateway's usage, which a client names "<name> (removed)", never by the id.
+	Removed []RemovedBot `json:"removed"`
 }
 
 // BotOrder defines model for BotOrder.
@@ -6082,6 +6085,12 @@ type QueuedChatMessage struct {
 // QueuedChatMessageList defines model for QueuedChatMessageList.
 type QueuedChatMessageList struct {
 	Items []QueuedChatMessage `json:"items"`
+}
+
+// RemovedBot defines model for RemovedBot.
+type RemovedBot struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Repo defines model for Repo.

@@ -880,6 +880,11 @@ type Receipt struct {
 	CreatedAt   int64
 }
 
+type RemovedBot struct {
+	ID   string
+	Name string
+}
+
 type Repo struct {
 	Name       string
 	Host       string
