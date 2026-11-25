@@ -8,12 +8,15 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
-// A turn a restart cut continues by itself (issue #716), as Hermes's auto-continue (tui_gateway/
-// session_auto_continue.py, gateway/restart_loop_guard.py): each turn is marked in the store while it runs
-// (orchestration/cutturns.go), and at start the supervisor wakes each chat whose mark is fresh to go on with it.
+// A turn a restart cut continues by itself (issue #716), as Hermes's gateway auto-continues an interrupted session
+// (gateway/run_startup.py, gateway/restart_loop_guard.py): each turn is marked in the store while it runs
+// (orchestration/cutturns.go), the control plane writes when it cut each as it begins to stop (issue #1162), and at
+// start the supervisor wakes each chat whose cut is fresh to go on with it.
 const (
-	// continueFreshFor is how recent a cut turn must be to continue (Hermes's freshness_minutes, 15).
-	continueFreshFor = 15 * time.Minute
+	// continueFreshFor is how recent a cut turn must be to continue: an hour from the cut, or from the turn's start
+	// when no cut was written (a crash), as Hermes's gateway (gateway/run.py _AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT,
+	// from the resume-pending mark; session_lifecycle.py recover_interrupted_turns, from the turn's start).
+	continueFreshFor = time.Hour
 	// continueAttempts is how many times one cut turn is continued (Hermes's max_attempts, 2).
 	continueAttempts = 2
 	// restartLoopBoots chained starts that each found cut turns are a restart loop, in which no turn is continued
@@ -36,6 +39,17 @@ const continuedPrompt = "The control plane restarted for an update and cut your 
 	"finish the task. A command your bash was running was stopped with the restart and gave no result; a command " +
 	"you started with background: true goes on, and its end wakes you. A command you ran on a node may still run " +
 	"there or have ended: list yours with node_process given only the node before running it again."
+
+// cutTurns writes that every marked turn is cut now: the control plane begins to stop, at the update's begin or when
+// the supervisor stops every pi, before it waits for the turns, as Hermes's gateway marks its running sessions
+// before its drain (gateway/run_shutdown.py _mark_running_sessions_resume_pending). A write that fails is logged and
+// the stop goes on, as Hermes's: a turn with no cut is continued within the hour of its start.
+func (s *Supervisor) cutTurns(ctx context.Context) {
+	if err := s.svc.CutMarkedTurns(context.WithoutCancel(ctx)); err != nil {
+		s.cfg.Logger.ErrorContext(ctx, "writing the cut of the turns failed",
+			slog.String("event", "coordinator.turn_mark_failed"), slog.Any("error", err))
+	}
+}
 
 // turnStarted marks the chat's turn in the store as p's. The write outlives the request that runs it: a turn that
 // starts as the control plane stops is still marked.
@@ -80,7 +94,7 @@ func (s *Supervisor) shuttingDown() bool {
 // continueCutTurns runs once, as the supervisor starts. A start that finds no cut turn records nothing. One that
 // does is recorded for the restart-loop guard; while it trips, every mark stays as it is and nothing is woken, as
 // Hermes skips the auto-resume and keeps the sessions resume-pending (gateway/run_restored_delivery.py). Otherwise a
-// fresh mark with attempts left is continued and any other is cleared with a line saying the turn was cut.
+// fresh cut with attempts left is continued and any other is cleared with a line saying the turn was cut.
 func (s *Supervisor) continueCutTurns(ctx context.Context) {
 	log := s.cfg.Logger
 
@@ -132,9 +146,14 @@ func (s *Supervisor) continueCutTurns(ctx context.Context) {
 			continue
 		}
 
+		from := "start"
+		if c.Cut {
+			from = "cut"
+		}
+
 		log.InfoContext(ctx, "a turn the restart cut", slog.String("event", "coordinator.cut_turn"),
 			slog.String("chat_id", c.ChatID), slog.Bool("continued", fresh), slog.Duration("age", c.Age),
-			slog.Int("attempts", c.Attempts))
+			slog.String("age_from", from), slog.Int("attempts", c.Attempts))
 	}
 }
 

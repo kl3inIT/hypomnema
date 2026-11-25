@@ -145,8 +145,14 @@ interrupted-turn markers, `tui_gateway/turn_marker.py` and `session_auto_continu
 chat in the store as that pi process's (`chats.turn_started_at`, `turn_token`, `turn_attempts`, migration 112) and
 `agent_settled` clears the mark, as does a pi that exits while the control plane runs; each pi clears only a mark
 with its own token, so an old pi's exit never clears the turn of the chat's next pi (Hermes's compare-and-swap
-clear). A pi the control plane stops keeps it. As the supervisor starts, a chat whose mark is at most 15 minutes old
-and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
+clear). A pi the control plane stops keeps it. As the control plane begins to stop, at the update's begin
+(`BeginUpdate`, once its marker is written) and again when the supervisor stops every pi, it writes
+`chats.turn_cut_at` for every marked turn before it waits for the turns (issue #1162, migration
+`turn_cut_at`, after Hermes's gateway, which marks its running sessions resume-pending before its drain wait,
+`gateway/run_shutdown.py` `_mark_running_sessions_resume_pending`); a new turn's mark, a continuation and a cleared
+mark clear it. As the supervisor starts, a chat whose turn was cut at most an hour ago, or, with no cut written (a
+crash), whose mark is at most an hour old (Hermes's gateway freshness, `gateway/run.py`
+`_AUTO_CONTINUE_FRESHNESS_SECS_DEFAULT`), and was continued fewer than 2 times gets the line "Restarted for an update; continuing." (a `system` row of kind
 `continued`, given to pi, which pi reads as "the control plane restarted for an update and cut your previous turn …
 check the current state before redoing anything, then finish the task", and lists its commands on a node with
 `node_process` before running one again, issue #1060: pi reads this prompt in place of the line, which is the
@@ -155,7 +161,8 @@ that was the owner's stays his for `OwnerTurn`), one attempt more and its mark f
 with the line "A restart cut this turn; send a message to continue." (kind `cut`, not given to pi). A `continued`
 line an earlier start wrote and pi never had is voided (marked delivered) whenever a later start writes a line
 for the chat or holds the cut turns. The partial transcript stays as kept; both lines reach a Channel's chat as a
-message of their own. A start that finds marks is recorded (`restart_boots`); when it is the third of starts no
+message of their own. Each cut turn is logged (`event=coordinator.cut_turn`) with `continued`, `attempts`, `age`
+and `age_from`, which says whether the age runs from the cut (`cut`) or from the turn's start (`start`). A start that finds marks is recorded (`restart_boots`); when it is the third of starts no
 more than 5 minutes apart (Hermes's restart-loop guard, `gateway/restart_loop_guard.py`), nothing is continued, the
 marks stay and every undelivered `continued` line is voided. The supervisor lists the chats whose pi works on a
 turn (`WorkingChats`), which the control socket gives `hypomnema update`, and while an update runs
