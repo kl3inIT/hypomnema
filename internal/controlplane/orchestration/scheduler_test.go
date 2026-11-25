@@ -3,7 +3,6 @@ package orchestration
 import (
 	"context"
 	"database/sql"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // The scheduler scenarios: admission at the limit, the order of ready Tasks,
@@ -677,16 +675,9 @@ func TestMigrationMovesCooldownsToAccounts(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, _ := databaseAt(t, 4)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 4)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO slot_cooldowns (node_id, runtime, account_ref, until, reason) VALUES
+	_, err := db.ExecContext(ctx, `INSERT INTO slot_cooldowns (node_id, runtime, account_ref, until, reason) VALUES
 		('node_a', 'claude', 'acct_1', 100, 'rate_limited'),
 		('node_b', 'claude', 'acct_1', 300, 'rate_limited'),
 		('node_a', 'codex', 'acct_2', 200, 'rate_limited')`)
@@ -827,16 +818,9 @@ func TestMigrationKeepsProvidersAndWhatNamesThem(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, _ := databaseAt(t, 26)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 26)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO providers (name, kind, base_url, api_key_ref, source, created_at, updated_at)
 		VALUES ('router', 'openai_compatible', 'http://router/v1', 'vault:router', 'name: router', 5, 6);
 		INSERT INTO models (provider, name) VALUES ('router', 'cx/gpt');
@@ -1489,7 +1473,7 @@ func TestTheOverflowMigrationKeepsTheConversations(t *testing.T) {
 
 	migrations, err := provider(w.db)
 	require.NoError(t, err)
-	version := migrationVersion(t, migrations, "_conversation_context_overflow.sql")
+	version := migrationVersion(t, "_conversation_context_overflow.sql")
 
 	reasons := func() map[string]string {
 		t.Helper()

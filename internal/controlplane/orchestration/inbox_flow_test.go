@@ -1,14 +1,12 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // inboxBot is the default Bot as the Inbox's actor.
@@ -155,16 +153,9 @@ func TestInboxBotToolsMigrationKeepsTheItems(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, _ := databaseAt(t, migrationVersion(t, "_inbox_bot_tools.sql")-1)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, migrationVersion(t, p, "_inbox_bot_tools.sql")-1)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO todos (id, title, state, source_kind, source_id, source_account,
+	_, err := db.ExecContext(ctx, `INSERT INTO todos (id, title, state, source_kind, source_id, source_account,
 		source_ref, created_by_kind, created_at, updated_at) VALUES ('tdo_1', 'Answer Linh', 'proposed', 'zalo',
 		'g_1', 'main', '{"kind":"zalo_message","ref":"1"}', 'bot', 1, 1)`)
 	require.NoError(t, err)
@@ -289,16 +280,9 @@ func TestAKeyUsedBeforeTheDraftReturnsItsItem(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, _ := databaseAt(t, migrationVersion(t, "_inbox_bot_tools.sql")-1)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, migrationVersion(t, p, "_inbox_bot_tools.sql")-1)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO todos (id, title, state, source_kind, source_id, source_account,
+	_, err := db.ExecContext(ctx, `INSERT INTO todos (id, title, state, source_kind, source_id, source_account,
 		source_ref, created_by_kind, created_by, idempotency_key, idempotency_hash, created_at, updated_at)
 		VALUES ('tdo_1', 'Answer Linh', 'proposed', 'zalo', 'g_1', 'main', '{"kind":"zalo_message","ref":"1"}',
 		'bot', 'default', 'zalo:g_1:1', '2240549110c108d0bc5c45c879d062846d4e1e08faa650fb3d880a0af7e95a37', 1, 1)`)

@@ -1,14 +1,12 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: a database from when there was one Lark bot, with Linh let in,
@@ -21,14 +19,8 @@ func TestMigrationTurnsTheLarkBotIntoTheChannelMain(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 46)
-	require.NoError(t, err)
+	db, p := databaseAt(t, 46)
+	var err error
 
 	for _, stmt := range []string{
 		`INSERT INTO lark_bot (id, app_id, secret, mode, owner_open_id, enabled, updated_at)

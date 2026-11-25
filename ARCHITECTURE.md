@@ -6946,8 +6946,12 @@ and the node in the control plane binary.
   Go targets in a row, for a laptop.
 - A test that needs a migrated database opens a copy of one: `internal/shared/sqlite/sqlitetest` runs the migrations
   once in a test process and hands each test a copy of that file (issue #129, as Coder and Omnara copy a Postgres
-  template). Migrating took 1.5 s for each test under the race detector. Tests of the migrations themselves, and
-  the owner commands' tests, which migrate through the command, still migrate their own.
+  template). Migrating took 1.5 s for each test under the race detector. A test of a migration starts from a copy
+  of a database at the version before it, from the same package's `Chain`: each version asked for is made once in
+  the process, from the copy of the nearest version below it made before, so the migrations before it run about
+  once in the package and not once in each test (issue #1152, as Coder's `TestMigrationChain` applies them once);
+  the test then migrates its own copy on. The owner commands' tests, which migrate through the command, still
+  migrate their own.
 - Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
   client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped for all but pi,
   and security updates grouped per ecosystem. It leaves `@hey-api/openapi-ts` alone: its `next` build is taken by
