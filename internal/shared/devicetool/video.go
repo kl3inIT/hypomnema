@@ -46,8 +46,9 @@ const (
 
 // The browser take's tools (issue #1189, row 4): start, say and stop filming the agent's own tab of the shared
 // browser, the phone's video_start, video_say and video_stop for a page. They are the control plane's own and the
-// browser's switch names them, so neither Routed nor IsVideo is true of them; video_status, video_list, video_make
-// and video_get read a browser take as they read a phone's.
+// browser's switch names them, so neither Routed nor IsVideo is true of them; video_make and video_get read a
+// browser take as they read a phone's, and so do video_status and video_list, which are listed on the phone's
+// route, so only while a node holds the phone.
 const (
 	BrowserVideoStart = "browser_video_start"
 	BrowserVideoSay   = "browser_video_say"
@@ -257,7 +258,7 @@ func next(t Take) string {
 	case t.Browser() && t.State == TakeRecording:
 		return " Call " + BrowserVideoSay + " right before each action, and " + BrowserVideoStop + " when done."
 	case t.Browser() && t.State == TakeFinalizing:
-		return " Its frames are being encoded; video_status says when it is available."
+		return " Its frames are being encoded; video_make makes it into a video once it is available."
 	case t.State == TakeRecording:
 		return " Call video_say right before each action, and video_stop when done."
 	case t.State == TakePaused:

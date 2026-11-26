@@ -361,6 +361,7 @@ func TestABrowserTakeEndsWithItsWorkItsTabOrTheDisk(t *testing.T) {
 		_, said, refused := r.recorder.Start(t.Context(), worker, "Demo", "", browser.Size{})
 		assert.True(t, refused)
 		assert.Contains(t, said, "400 MB")
+		assert.Empty(t, r.store.List(), "a start refused leaves no take in the Studio")
 
 		r.mu.Lock()
 		r.free = 1 << 40
@@ -399,4 +400,17 @@ func TestABrowserTakeEndsWithItsWorkItsTabOrTheDisk(t *testing.T) {
 		assert.Equal(t, devicetool.TakeFailed, got.State)
 		assert.Equal(t, devicetool.EndedRestart, got.EndedBy)
 	})
+}
+
+// A start the browser refuses, as for an agent with no tab yet, says why and leaves no take behind.
+func TestAStartTheBrowserRefusesLeavesNoTake(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t, nil)
+	r.browser.Refuse = browser.ErrNoPage
+
+	_, said, refused := r.recorder.Start(t.Context(), worker, "Demo", "", browser.Size{})
+	assert.True(t, refused)
+	assert.Contains(t, said, "open a page with agent_browser_open first")
+	assert.Empty(t, r.store.List())
 }

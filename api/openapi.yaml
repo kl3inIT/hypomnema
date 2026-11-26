@@ -8542,7 +8542,7 @@ components:
         source:
           type: string
           enum: [phone, browser]
-          description: Where a take, or a video's take, was filmed (issue #1189); absent for a video whose take is gone.
+          description: "Where a take, or a video's take, was filmed (issue #1189); absent for a video whose take is gone."
         rev: { type: integer, description: A video's latest revision. }
         thumbnail:
           type: string

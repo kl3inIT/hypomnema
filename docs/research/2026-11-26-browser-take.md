@@ -30,16 +30,17 @@ only.
 | 1 | CDP `Page.startScreencast` on the shared browser's own connection: JPEG 90, device scale factor 2, every frame, each acked | autodemo `perform.js:213-224`, `browser.js:7`; agent-demo-video q90 | As said, but at the viewport's size: see "Device scale factor 2" below |
 | 2 | Each frame until the next by its CDP timestamp, the last until stop; 30 fps H.264 (libx264 CRF 18, yuv420p, even sides) | agent-demo-video `screencast.ts`, `ffmpeg.ts`; demotape | Ported into `internal/controlplane/browsertake/timeline.go`; the first frame from the take's start (autodemo `render.js:193-230`), the output cut to the take's length, TV range |
 | 3 | A take like a phone take, in `/takes`, its source recorded | Hypomnema's take model (#817) | `source: phone|browser`, one segment `seg-000.mp4` |
-| 4 | Tools mirror the phone's; reuse `video_say`/`video_stop` if the take id routes them, else a `browser_video_start` | agent-demo-video, autodemo | `browser_video_start`, `browser_video_say`, `browser_video_stop`: the take id does not route `video_*`, which a worker's tools server sends to the phone's routes and the phone's switch (off in the full preset) names (`devicetool.Routed`, `agenttool.ToolFamilies`) |
+| 4 | Tools mirror the phone's; reuse `video_say`/`video_stop` if the take id routes them, else a `browser_video_start` | agent-demo-video, autodemo | `browser_video_start`, `browser_video_say`, `browser_video_stop`: the take id does not route `video_*`, which a worker's tools server sends to the phone's routes and the phone's switch (off in the full preset) names (`devicetool.Routed`, `agenttool.ToolFamilies`). The browser family also names `video_status`, `video_list`, `video_make` and `video_get` (review of PR #1193), a tool in two families as OpenClaw's (`src/agents/core-tool-facts.ts:259-276`); `video_status` and `video_list` stay listed on the phone's route, so only while a node holds the phone |
 | 5 | The ring: the clicked element's box, scaled to the video, as a phone tap | autodemo, agent-demo-video event boxes | The box is agent-browser's `get box` (`cli/src/native/element.rs`, `get_element_bounding_box`), its centre the step's tap |
 | 6 | A viewport only, no mobile emulation | all six | As said |
 | 7 | A phone take's bounds; the browser's own context | existing take limits | 400 MB free disk, the work's end, the tab's end; the agent's own tab and the gate |
 
-## Device scale factor 2: not possible with Chrome's screencast here
+## Device scale factor 2: not possible with Chromium's screencast here
 
 Tried on 2026-11-26 on a worker with agent-browser 0.42.0 (the pinned release, SHA-256 `b69e0f5e…`) driving
 Playwright's Chromium 158.0.8127.18 through the real `browser.Engine`, a page of a button and an input, a
-390×844 viewport:
+390×844 viewport. The engine itself pins Chrome for Testing 157.0.8103.78 (`internal/controlplane/browser/release.go`),
+which was not tried here:
 
 - With agent-browser's `agent_browser_set_viewport {width: 390, height: 844, scale: 2}` the page says
   `devicePixelRatio` 2 and `Page.captureScreenshot` is 780×1688, but every screencast frame is 390×844, with

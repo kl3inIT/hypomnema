@@ -150,3 +150,26 @@ func TestAReadRunReadsMeetingsAndNothingThatWrites(t *testing.T) {
 		assert.False(t, ReadRunAllows(tool), tool)
 	}
 }
+
+// A browser take is followed and made with the video tools the phone's family names too (issue #1189, review of PR
+// #1193): the full preset, which leaves the phone off, gives them with the browser, and a switch off of either
+// family takes them away, as a deny of either of OpenClaw's groups does.
+func TestTheBrowserFamilyGivesTheVideoToolsThatReadATake(t *testing.T) {
+	t.Parallel()
+
+	read := []string{devicetool.VideoStatus, devicetool.VideoList, devicetool.VideoMake, devicetool.VideoGet}
+	full := ToolSwitches{Preset: PresetFull}
+
+	for _, tool := range append([]string{devicetool.BrowserVideoStart, devicetool.BrowserVideoSay}, read...) {
+		assert.True(t, full.Allows(tool), tool)
+	}
+
+	assert.False(t, full.Allows(devicetool.VideoStart), "filming the phone stays the phone's")
+
+	for _, off := range []string{"browser", "agent_browser_*", "phone", devicetool.Prefix + "*"} {
+		switches := ToolSwitches{Preset: PresetFull, Off: []string{off}}
+		for _, tool := range read {
+			assert.False(t, switches.Allows(tool), "%s off: %s", off, tool)
+		}
+	}
+}

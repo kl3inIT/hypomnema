@@ -30,12 +30,13 @@ import (
 // The frames are as large as the viewport in CSS pixels, as agent-demo-video's
 // (src/capture.ts:285, its screencast's size the viewport), not at autodemo's
 // device scale factor of 2 (src/browser.js:7), which the design asked for:
-// Chrome 158's screencast draws no frame larger than the view in CSS pixels,
-// whatever the page's devicePixelRatio, on the shared Chrome and on the headless
+// Chromium's screencast draws no frame larger than the view in CSS pixels,
+// whatever the page's devicePixelRatio, on the full browser and on the headless
 // shell alike, and the one override that made it draw at twice the size
 // (Emulation.setDeviceMetricsOverride's scale with dontSetVisibleSize on a
-// window twice as large) made agent-browser's clicks miss (tried 2026-11-26,
-// agent-browser 0.42.0).
+// window twice as large) made agent-browser's clicks miss (tried 2026-11-26
+// with agent-browser 0.42.0 on Playwright's Chromium 158.0.8127.18; the engine
+// pins Chrome for Testing 157.0.8103.78, release.go, not tried itself).
 
 const (
 	// filmQuality is the frames' JPEG quality (autodemo's and agent-demo-video's 90).
@@ -80,10 +81,18 @@ type Film struct {
 	// Viewport is the tab's size while it is filmed.
 	Viewport Size
 
+	// holds are the spans the owner held the browser since the film started, the last one open while he holds it:
+	// a frame is judged by when Chrome drew it, not when it arrived.
+	holdMu sync.Mutex
+	holds  []holdSpan
+
 	gone     chan struct{}
 	goneOnce sync.Once
 	stopped  sync.Once
 }
+
+// holdSpan is when the owner held the browser; to is zero while he holds it.
+type holdSpan struct{ from, to time.Time }
 
 // Done is closed when the tab or Chrome went away under the film.
 func (f *Film) Done() <-chan struct{} { return f.gone }
@@ -158,7 +167,49 @@ func (e *Engine) film(ctx context.Context, agent string, viewport Size, frame fu
 		return nil, err
 	}
 
+	go f.watchHold()
+
 	return f, nil
+}
+
+// watchHold keeps the spans the owner holds the browser, until the film ends.
+func (f *Film) watchHold() {
+	for {
+		held, changed := f.e.control.State()
+		now := f.e.cfg.Clock.Now()
+
+		f.holdMu.Lock()
+		open := len(f.holds) > 0 && f.holds[len(f.holds)-1].to.IsZero()
+
+		switch {
+		case held && !open:
+			f.holds = append(f.holds, holdSpan{from: now})
+		case !held && open:
+			f.holds[len(f.holds)-1].to = now
+		}
+		f.holdMu.Unlock()
+
+		select {
+		case <-changed:
+		case <-f.gone:
+			return
+		}
+	}
+}
+
+// drawnInHold says whether a frame drawn at at was drawn while the owner held the browser, or after a hold began
+// that is not yet seen to end.
+func (f *Film) drawnInHold(at time.Time) bool {
+	f.holdMu.Lock()
+	defer f.holdMu.Unlock()
+
+	for _, h := range f.holds {
+		if !at.Before(h.from) && (h.to.IsZero() || !at.After(h.to)) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // boundTarget is the tab agent-browser pinned a session to, from the file it keeps it in. The caller holds s.mu.
@@ -275,19 +326,20 @@ func (f *Film) frame(ctx context.Context, params json.RawMessage, session string
 	_, _ = f.conn.start(ctx, "Page.screencastFrameAck",
 		map[string]any{"sessionId": got.SessionID}, session)
 
-	if held, _ := f.e.control.State(); held {
+	at := f.e.cfg.Clock.Now()
+	if ts := got.Metadata.Timestamp; ts > 0 && !math.IsInf(ts, 0) {
+		sec, frac := math.Modf(ts)
+		at = time.Unix(int64(sec), int64(frac*1e9))
+	}
+
+	// Not kept while the owner holds the browser, nor when Chrome drew it during his hold and it came after.
+	if held, _ := f.e.control.State(); held || f.drawnInHold(at) {
 		return
 	}
 
 	raw, err := base64.StdEncoding.DecodeString(got.Data)
 	if err != nil || len(raw) == 0 {
 		return
-	}
-
-	at := f.e.cfg.Clock.Now()
-	if ts := got.Metadata.Timestamp; ts > 0 && !math.IsInf(ts, 0) {
-		sec, frac := math.Modf(ts)
-		at = time.Unix(int64(sec), int64(frac*1e9))
 	}
 
 	frame(Frame{JPEG: raw, At: at})
@@ -297,8 +349,25 @@ func (f *Film) ended() { f.goneOnce.Do(func() { close(f.gone) }) }
 
 // Still is a picture of the tab as it is: what a take
 // starts with when its page draws nothing new, as autodemo takes a screenshot
-// when no frame came (src/perform.js:244-247).
+// when no frame came (src/perform.js:234-239).
+//
+// It is not taken while the owner holds the browser, and one he took the browser during is dropped, as an agent's
+// call is (Engine.Call).
 func (f *Film) Still(ctx context.Context) ([]byte, error) {
+	if !f.e.control.Enter() {
+		return nil, ErrHeld
+	}
+
+	shot, err := f.still(ctx)
+
+	if f.e.control.Leave() {
+		return nil, ErrHeld
+	}
+
+	return shot, err
+}
+
+func (f *Film) still(ctx context.Context) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, filmStep)
 	defer cancel()
 

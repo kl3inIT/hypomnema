@@ -2433,7 +2433,7 @@ export type StudioItem = {
    */
   take?: string;
   /**
-   * Where a take, or a video's take, was filmed (issue
+   * Where a take, or a video's take, was filmed (issue #1189); absent for a video whose take is gone.
    */
   source?: 'phone' | 'browser';
   /**

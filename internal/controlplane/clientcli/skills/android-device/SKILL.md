@@ -86,8 +86,8 @@ A demo of a web page, not an app, is filmed in your own tab of the shared browse
 the same steps and no phone: open the page with `agent_browser_open`, then `browser_video_start` with a `title`
 (and `width` 390, `height` 844 for a phone's layout; no phone is emulated), `browser_video_say` with the take, the
 line and the `element` you are about to click or type into (a ref such as `@e3` from your last snapshot, or a CSS
-selector) right before each action, and `browser_video_stop`. `video_status` follows it until it is `available`,
-and `video_make` makes it into a video as a phone take. Nothing is filmed while the owner controls the browser.
+selector) right before each action, and `browser_video_stop`. `video_make` makes it into a video as a phone take
+once its frames are encoded (it says when they are not yet; `video_status` follows it too). Nothing is filmed while the owner controls the browser.
 
 ## What you never do
 

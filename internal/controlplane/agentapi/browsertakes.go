@@ -18,8 +18,9 @@ import (
 // phone's video_start, video_say and video_stop for a page, given with the
 // browser's tools and switched with them. They have names of their own, as the
 // phone's video_* are routed to the phone, whose switch is off by default; a
-// browser take is then read with video_status and video_list, and made with
-// video_make, as a phone take is.
+// browser take is made with video_make and read with video_get, which the
+// browser's switch names too. video_status and video_list read it as well, but
+// they are listed on the phone's route, so only while a node holds the phone.
 
 // BrowserTakes films the agents' tabs (browsertake.Recorder).
 type BrowserTakes interface {
@@ -76,9 +77,10 @@ func browserTakeToolList() []agenttool.BrowserTool {
 		},
 		{
 			Name: devicetool.BrowserVideoStop,
-			Description: "Stop filming a browser take. It answers at once; the frames are then encoded, which " +
-				"video_status follows, and video_make makes the take into a video once it is available. Use it " +
-				"when the demo is done.",
+			Description: "Stop filming a browser take. It answers at once; the frames are then encoded, and " +
+				"video_make makes the take into a video once it is available (it says so while the take is still " +
+				"being encoded; video_status follows it too where you have the phone's tools). Use it when the " +
+				"demo is done.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"take":{"type":"string","description":"the take's id, from browser_video_start"}},"required":["take"]}`),
 		},

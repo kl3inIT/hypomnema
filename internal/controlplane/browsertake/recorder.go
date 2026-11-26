@@ -40,7 +40,7 @@ const (
 	// diskEvery is how often a take's frames check the free disk.
 	diskEvery = time.Second
 	// firstFrame is how long a start waits for a frame before it takes a still (autodemo's 400 ms,
-	// src/perform.js:241-247).
+	// src/perform.js:234-239).
 	firstFrame = 400 * time.Millisecond
 	// encodeTimeout bounds encoding a take's frames.
 	encodeTimeout = time.Hour
@@ -85,6 +85,7 @@ type Store interface {
 	Frames(id string) (string, error)
 	Finish(id, file string, seg devicetool.TakeSegment) error
 	Fail(id, endedBy, why string) (devicetool.Take, error)
+	Delete(id string) error
 }
 
 // Config is what a Recorder needs.
@@ -206,19 +207,21 @@ func (r *Recorder) start(ctx context.Context, f *film, viewport browser.Size) (d
 		return devicetool.Take{}, "The take could not be recorded: " + err.Error() + "."
 	}
 
-	failed := func(endedBy, why string) (devicetool.Take, string) {
-		t, _ := r.cfg.Takes.Fail(f.take, endedBy, why)
+	// A start refused before anything was filmed (no tab, the owner's hold, the disk) leaves no take in the Studio:
+	// the phone's video_start records a take only once its lease is held (phone/lease.go).
+	failed := func(why string) (devicetool.Take, string) {
+		_ = r.cfg.Takes.Delete(f.take)
 
-		return t, "The take could not start: " + why + "."
+		return devicetool.Take{}, "The take could not start: " + why + "."
 	}
 
 	dir, err := r.cfg.Takes.Frames(f.take)
 	if err != nil {
-		return failed(devicetool.EndedWriterError, err.Error())
+		return failed(err.Error())
 	}
 
 	if !r.freeEnough(dir) {
-		return failed(devicetool.EndedDiskLow, "the control plane has less than 400 MB of free disk")
+		return failed("the control plane has less than 400 MB of free disk")
 	}
 
 	f.dir = dir
@@ -227,7 +230,7 @@ func (r *Recorder) start(ctx context.Context, f *film, viewport browser.Size) (d
 
 	screencast, err := r.cfg.Browser.Film(ctx, f.caller.Key, viewport, func(fr browser.Frame) { r.frame(life, f, fr) })
 	if err != nil {
-		return failed(devicetool.EndedStreamError, strings.TrimSuffix(err.Error(), "."))
+		return failed(strings.TrimSuffix(err.Error(), "."))
 	}
 
 	f.screencast, f.size = screencast, screencast.Size()
@@ -377,7 +380,7 @@ const noSteps = "It has no steps, so it cannot be made into a video; it is kept.
 	"with " + devicetool.BrowserVideoSay + " right before each action."
 
 // Stop stops the caller's take: it answers at once, and the frames are
-// encoded in the background, which video_status follows. A take that ended
+// encoded in the background, which video_status and video_make follow. A take that ended
 // already answers its state.
 func (r *Recorder) Stop(ctx context.Context, c Caller, id string) (string, bool) {
 	f := r.own(c, id)

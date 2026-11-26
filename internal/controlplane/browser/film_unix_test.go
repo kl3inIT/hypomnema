@@ -118,7 +118,22 @@ func TestAFilmIsTheScreencastOfTheAgentsTab(t *testing.T) {
 		return strings.Contains(strings.Join(chrome.sent(), "\n"), `S1 Page.screencastFrameAck {"sessionId":2}`)
 	}, 5*time.Second, 10*time.Millisecond)
 	assert.Empty(t, got, "what the owner does is not filmed")
+
+	_, err = f.Still(t.Context())
+	require.ErrorIs(t, err, ErrHeld, "no still is taken while the owner holds the browser")
+
+	require.Eventually(t, func() bool { return f.drawnInHold(time.Now()) }, 5*time.Second, time.Millisecond)
+	inHold := time.Now()
 	e.control.Release()
+
+	// A frame Chrome drew during the hold that comes after "Hand back" is not given either; one drawn after it is.
+	require.Eventually(t, func() bool { return !f.drawnInHold(time.Now()) }, 5*time.Second, time.Millisecond)
+	unix := func(at time.Time) string { return strconv.FormatFloat(float64(at.UnixNano())/1e9, 'f', 6, 64) }
+	chrome.push <- frame(3, unix(inHold))
+	chrome.push <- frame(4, unix(time.Now().Add(time.Second)))
+
+	after := <-got
+	assert.True(t, after.At.After(inHold), "the frame drawn during the hold was dropped")
 
 	// The owner's view does not resize a filmed tab.
 	require.NoError(t, e.resize(t.Context(), e.sessions["d-1"], Size{Width: 1600, Height: 900}))

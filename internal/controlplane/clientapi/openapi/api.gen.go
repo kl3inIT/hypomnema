@@ -6855,7 +6855,7 @@ type StudioItem struct {
 	// Rev A video's latest revision.
 	Rev *int `json:"rev,omitempty"`
 
-	// Source Where a take, or a video's take, was filmed (issue
+	// Source Where a take, or a video's take, was filmed (issue #1189); absent for a video whose take is gone.
 	Source *StudioItemSource `json:"source,omitempty"`
 
 	// State A take's state, or the state of a video's latest revision.
@@ -6872,7 +6872,7 @@ type StudioItem struct {
 // StudioItemKind defines model for StudioItem.Kind.
 type StudioItemKind string
 
-// StudioItemSource Where a take, or a video's take, was filmed (issue
+// StudioItemSource Where a take, or a video's take, was filmed (issue #1189); absent for a video whose take is gone.
 type StudioItemSource string
 
 // StudioItemList defines model for StudioItemList.

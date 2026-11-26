@@ -283,8 +283,13 @@ var ToolFamilies = []ToolFamily{
 			"a long one with node_process and node_process_kill. It runs at once, without asking anyone: check " +
 			"what a command changes or removes before you run it. Your own shell stays for the machine you are on."},
 	{Name: "browser", Description: "The browser every agent shares, in a tab of its own", Pattern: "agent_browser_*",
+		// The browser take's tools (issue #1189), and the video tools that read and make a take, which the phone's
+		// family names too: a tool in two families, as OpenClaw has a tool in its section's group and in
+		// group:openclaw (src/agents/core-tool-facts.ts:259-276). The first family that names a tool says what a
+		// preset does with it, and a switch off of either family takes it away, as a deny of either group does.
 		Tools: append(slices.Clone(BrowserTools), devicetool.BrowserVideoStart, devicetool.BrowserVideoSay,
-			devicetool.BrowserVideoStop),
+			devicetool.BrowserVideoStop, devicetool.VideoStatus, devicetool.VideoList, devicetool.VideoMake,
+			devicetool.VideoGet),
 		WhenToUse: "Open a page that needs a sign-in, a script or clicks with the agent_browser_* tools and read it " +
 			"there (agent_browser_snapshot, agent_browser_get_text); do not download its scripts to read or " +
 			"search them. A page you open is in your own tab of the browser every agent shares, never in the " +
@@ -296,7 +301,8 @@ var ToolFamilies = []ToolFamily{
 			"in a reply and never write one into a file, your memory, an artifact or a commit. To film a demo of a " +
 			"web page, open it, browser_video_start a take of your tab (width 390 and height 844 for a phone's " +
 			"layout), call browser_video_say right before each click or typing with the element it acts on, then " +
-			"browser_video_stop; follow it with video_status and make it into a video with video_make."},
+			"browser_video_stop; make it into a video with video_make once its frames are encoded, and follow the " +
+			"video with video_get."},
 	{Name: "phone", Description: "The phone a node holds", Pattern: devicetool.Prefix + "*",
 		Tools: []string{devicetool.Screen, devicetool.Layout, devicetool.Tap, devicetool.Swipe, devicetool.Type,
 			devicetool.Key, devicetool.Launch, devicetool.Logcat, devicetool.Location, devicetool.VideoStart,

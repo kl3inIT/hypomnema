@@ -1024,16 +1024,21 @@ sequenceDiagram
     films its own tab with `browser_video_start {title, width?, height?, request_id?}`, `browser_video_say {take,
     text, element?, chapter?}` right before each action and `browser_video_stop {take}`
     (`internal/controlplane/agentapi/browsertakes.go`), listed and called on the tools route beside the browser's
-    tools and switched with the browser family (`agenttool.ToolFamilies`); `video_status`, `video_list`,
-    `video_make` and `video_get` read a browser take as a phone's. The take is `source: browser` (a phone take
+    tools and switched with the browser family (`agenttool.ToolFamilies`), which also names `video_status`,
+    `video_list`, `video_make` and `video_get` beside the phone's family, so the full preset, which leaves the
+    phone off, gives them with the browser (a tool in two families, as OpenClaw's tools are in their section's
+    group and in `group:openclaw`, `src/agents/core-tool-facts.ts:259-276`; a switch off of either family takes
+    them away). They read a browser take as a phone's; `video_status` and `video_list` are listed on the phone's
+    route, so only while a node holds the phone, and `video_make` answers that a take still encoded is not
+    available. The take is `source: browser` (a phone take
     `phone`; one filmed before says none and is the phone's, in `take.json` and the API), has no node, and its
     `screen` is the tab's viewport in CSS pixels. The engine (`internal/controlplane/browser/film.go`) has
     agent-browser give the tab the viewport (its `agent_browser_set_viewport`), keeps the owner's view from
     resizing it while it films, attaches to the tab on a DevTools connection of its own and starts
     `Page.startScreencast` (JPEG 90, as large as the viewport, every frame, each acknowledged), as autodemo films;
-    a frame drawn while the owner holds the browser is acknowledged and not kept. Chrome 158's screencast draws no
-    frame larger than the view in CSS pixels, so the frames are the viewport's size, not twice it as the design
-    asked. A step's `element` is agent-browser's `get box` of it (`agent_browser_get_box`, a ref or a selector),
+    a frame drawn while the owner holds the browser is acknowledged and not kept. Chromium's screencast draws no
+    frame larger than the view in CSS pixels (tried on Playwright's Chromium 158.0.8127.18; the engine pins Chrome
+    for Testing 157.0.8103.78), so the frames are the viewport's size, not twice it as the design asked. A step's `element` is agent-browser's `get box` of it (`agent_browser_get_box`, a ref or a selector),
     its centre the step's tap, which the Make pipeline rings as a phone's tap. The recorder
     (`internal/controlplane/browsertake`) writes the frames into `takes/<id>/frames/` with when Chrome drew each,
     starts with a still of the tab when no frame came within 400 ms (autodemo), and at the stop encodes them with
