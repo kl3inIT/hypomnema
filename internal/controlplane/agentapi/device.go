@@ -59,7 +59,8 @@ func (s *Server) deviceTools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !switches.AllowsFamily("phone") {
+	// Any tool the phone's route has: its own, or video_status and video_list, which the browser's family gives too.
+	if !switches.AllowsAnyOf("phone") {
 		answer(w, agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}})
 
 		return

@@ -173,3 +173,14 @@ func TestTheBrowserFamilyGivesTheVideoToolsThatReadATake(t *testing.T) {
 		}
 	}
 }
+
+// The browser's video tools do not turn the phone on: its family is on only with a tool of its own (issue #1189).
+func TestTheBrowsersVideoToolsDoNotGiveThePhone(t *testing.T) {
+	t.Parallel()
+
+	full := ToolSwitches{Preset: PresetFull}
+	assert.False(t, full.AllowsFamily("phone"))
+	assert.True(t, full.AllowsAnyOf("phone"), "its route still lists video_status and video_list")
+	assert.True(t, ToolSwitches{Preset: PresetFull, On: []string{"phone"}}.AllowsFamily("phone"))
+	assert.True(t, full.AllowsFamily("browser"))
+}

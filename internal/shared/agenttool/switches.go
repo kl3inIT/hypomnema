@@ -390,7 +390,24 @@ func (s ToolSwitches) Decision(tool string) (allowed bool, source, reason string
 	return false, "preset", "Not included in the preset"
 }
 
+// AllowsFamily says whether the switches give a tool of the family's own: one it is the first family to name. A
+// tool another family names first does not turn it on: the browser's video_status does not give an agent the phone
+// (issue #1189).
 func (s ToolSwitches) AllowsFamily(name string) bool {
+	for _, family := range ToolFamilies {
+		if family.Name == name {
+			return slices.ContainsFunc(family.Tools, func(tool string) bool {
+				return FamilyOf(tool) == name && s.Allows(tool)
+			})
+		}
+	}
+
+	return false
+}
+
+// AllowsAnyOf says whether the switches give any tool the family names, its own or one it shares: the phone's route
+// lists video_status and video_list to an agent the browser's family gives them (issue #1189).
+func (s ToolSwitches) AllowsAnyOf(name string) bool {
 	for _, family := range ToolFamilies {
 		if family.Name == name {
 			return slices.ContainsFunc(family.Tools, s.Allows)
@@ -398,6 +415,17 @@ func (s ToolSwitches) AllowsFamily(name string) bool {
 	}
 
 	return false
+}
+
+// FamilyOf is the first family that names a tool: the one a preset reads it by, and whose own tool it is.
+func FamilyOf(tool string) string {
+	for _, family := range ToolFamilies {
+		if slices.Contains(family.Tools, tool) {
+			return family.Name
+		}
+	}
+
+	return ""
 }
 
 func containsTool(entries []string, tool string) bool {

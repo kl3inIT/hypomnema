@@ -133,7 +133,10 @@ func TestABotTurnsThePhoneOff(t *testing.T) {
 	pi, err := w.svc.AddBotToken(ctx, "pi", chat.ID, bot.ID)
 	require.NoError(t, err)
 
-	assert.Empty(t, w.listedOn(agenttool.PathDeviceTools, pi))
+	// The phone is off by default; only the tools that read a take, which the browser's family names too (issue
+	// #1189), are listed on its route.
+	assert.ElementsMatch(t, []string{devicetool.VideoStatus, devicetool.VideoList},
+		w.listedOn(agenttool.PathDeviceTools, pi))
 	bot.Tools = []string{"phone"}
 	_, err = w.svc.PutBot(ctx, bot)
 	require.NoError(t, err)
