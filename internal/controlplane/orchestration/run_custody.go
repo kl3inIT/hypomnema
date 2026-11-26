@@ -2,8 +2,11 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
@@ -148,4 +151,63 @@ func mayAdoptRun(ctx context.Context, q *store.Queries, run store.Run, parent st
 	}
 
 	return nil
+}
+
+// moveMainRunsTx moves the open Runs of a Bot's former main chat to its new main chat when the main chat changes
+// (issue #1169): a Run made from the main chat belongs to the Bot's main conversation, not to one chat of it, as
+// OpenClaw keys an agent's main session by a stable key that a reset gives a new session id
+// (src/routing/session-key.ts buildAgentMainSessionKey) and hands a sub-agent's completion to the requester's
+// current session, also after a reset (src/agents/subagents/announce/subagent-announce-direct-delivery.ts, the
+// requester's entry read by its key at delivery; subagent-announce-delivery.test.ts "also after a reset"). Their
+// later events wake the new chat, whose pi is told which Runs came and reads each before acting, as AdoptRun tells
+// the chat a Run is assigned to; the wake-ups the former chat's pi was not given yet are not given to it, since its
+// token may no longer change them (clientapi policy, "belongs to another chat"); the former chat gets a line saying
+// where they went. A Run of any other chat stays where it is. Their coordinator token stays: it is the control
+// plane's one coordinator token, not the chat's.
+func moveMainRunsTx(ctx context.Context, q *store.Queries, now int64, from, to string) error {
+	if from == "" || from == to {
+		return nil
+	}
+
+	if err := q.VoidOpenRunWakes(ctx, store.VoidOpenRunWakesParams{
+		ChatID: from, Now: sql.NullInt64{Int64: now, Valid: true},
+	}); err != nil {
+		return fmt.Errorf("letting go of the wake-ups of chat %s: %w", from, err)
+	}
+
+	moved, err := q.MoveOpenRuns(ctx, store.MoveOpenRunsParams{
+		FromChat: nullString(from), ToChat: nullString(to), Now: now,
+	})
+	if err != nil {
+		return fmt.Errorf("moving the open Runs of chat %s to chat %s: %w", from, to, err)
+	}
+
+	if len(moved) == 0 {
+		return nil
+	}
+
+	slices.Sort(moved)
+
+	runs := "Run " + moved[0]
+	if len(moved) > 1 {
+		runs = "Runs " + strings.Join(moved, ", ")
+	}
+
+	text := fmt.Sprintf("%s moved here from chat %s when this chat became the Bot's main chat; this chat coordinates "+
+		"them now and their events wake it. Read each one's current Tasks, unanswered questions and review evidence "+
+		"before acting: hypomnema runs show <run> --json", runs, from)
+	if err := q.InsertRunAdoptionNotice(ctx, store.InsertRunAdoptionNoticeParams{
+		ChatID: to, Text: text, Now: now,
+	}); err != nil {
+		return err
+	}
+
+	if _, err := q.InsertChatMessage(ctx, store.InsertChatMessageParams{
+		ChatID: from, Role: string(ChatSystem), Kind: string(ChatWake), Now: now,
+		Text: fmt.Sprintf("%s moved to chat %s, the Bot's main chat now; their events wake that chat.", runs, to),
+	}); err != nil {
+		return err
+	}
+
+	return q.TouchChat(ctx, store.TouchChatParams{ID: to, Now: now})
 }

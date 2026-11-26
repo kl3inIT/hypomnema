@@ -188,9 +188,10 @@ returns the Bot's main chat, making one when it has none, read and made in one w
 at once end in one. The web's first message to a Bot with no main chat goes through it with the id its page chose
 (and its title and model, used only when the chat is made): a main chat the CLI made meanwhile is answered instead
 (200, its own id), the message goes there, and files put under the page's id are refused rather than lost. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
-never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (Runs and
-their wake-ups, approvals, Routines and their report cards, the queue, a cut turn, files, artifacts, pi's
-sessions), and only leaves the sidebar's row. Deleting the main chat clears the pointer, and the next message
+never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (ended
+Runs and the wake-ups it was given, approvals, Routines and their report cards, the queue, a cut turn, files,
+artifacts, pi's sessions), and only leaves the sidebar's row; its open Runs move to the new main chat (issue #1169,
+Run custody below). Deleting the main chat clears the pointer, and the next message
 from the web or the CLI makes another. The owner also points a Bot at one of its own chats (issue #923, after
 OpenMausBot's "Set as main thread", `mainThreadChoice` in its `PATCH /api/bots/:id`): `main_chat` in `PATCH
 /bots/{id}` (`BotChange`), only the owner (403 for the main Bot's pi), refused (400) for a chat of another Bot or not
@@ -1301,6 +1302,20 @@ sequenceDiagram
     From: Orca `a5c191cc0`, `send-point-to-point.ts:194` (commit before waking), and t3code `d2606600`,
     `Orchestrator.ts:16532` (reoffer persisted completion messages). The per-Run cutoff is specific to Hypomnema's
     shared chat cursor. See the [reference comparison](https://github.com/kl3inIT/hypomnema/issues/969#issuecomment-7029495213).
+  - A main chat's Runs follow the main chat (issue #1169, `moveMainRunsTx`): when a Bot's main chat changes (New
+    chat, `/new`, `chat --new`, or Set as main chat), the open Runs bound to the former main chat move to the new
+    one in the same write. Each keeps its coordinator token and takes the Run's latest event as its cutoff, as an
+    adoption does; the new chat gets one undelivered notice naming the Runs and telling pi to read each, the
+    former chat gets a line (not given to pi) saying where they went, and the former chat's undelivered wake-ups
+    of those Runs are marked delivered, since its pi's token may no longer change them. Runs of any other chat (an
+    Inbox item's, a Routine's, a Lark chat, or a chat that was not the main chat at the change) stay. Migration
+    `former_main_chat_runs` did this once for the Runs left open on a former main chat before: any chat of a Bot
+    with a main chat other than it that is not a Routine's, a Lark or an Inbox item's chat, since the web and the
+    CLI make every other chat as the main chat. A notice the chat left had not delivered yet stays in it.
+    From: OpenClaw `30fcea7e2`, `src/routing/session-key.ts` (`buildAgentMainSessionKey`, a stable main key a reset
+    gives a new session id) and `src/agents/subagents/announce/subagent-announce-direct-delivery.ts:116-119,184-185`
+    with `subagent-announce-delivery.test.ts:801-816` (a sub-agent's completion goes to the requester's current
+    session read by its key, also after a reset).
   - One controller per Run: once a Run has a chat, that chat's Bot alone follows up, answers coordinator
     questions and creates reviews; another coordinator token, or the same parent token from another chat, is
     refused (`clientapi/policy.go`, `checkPolicy`). The owner's principal is not fenced: the web's session and the
