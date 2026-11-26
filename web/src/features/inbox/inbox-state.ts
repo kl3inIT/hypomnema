@@ -1,4 +1,4 @@
-import type { Approval, Question, Todo, TodoSourceKind } from "@/api/generated/types.gen"
+import type { Approval, Question, Todo, TodoSourceKind, TodoState } from "@/api/generated/types.gen"
 import { safeLink } from "@/features/work/work-state"
 
 // The Inbox's list (issue #1093): what waits on the owner and every to-do, in groups, after Orca's Items tab (MIT,
@@ -419,6 +419,25 @@ function waitsOnSomeone(todo: Pick<Todo, "state" | "assignee">) {
   return todo.state === "open" && todo.assignee.kind === "person"
 }
 
+// The state each of the detail's actions moves a to-do to: what its Status picker offers (issue #1173).
+const movesTo: Partial<Record<Action, TodoState>> = {
+  done: "done",
+  drop: "dropped",
+  accept: "open",
+  reopen: "open",
+}
+
+// statusMoves is what the detail's Status picker offers, as circle's StatusSelector lists the statuses: the states
+// the top bar's actions move the item to (detailActions), each with its action, so that a pick runs the same change
+// as the button. Snooze is not a state and stays a button.
+export function statusMoves(row: Row, now: number): { state: TodoState; move: Action }[] {
+  return detailActions(row, now).flatMap((move) => {
+    const state = movesTo[move]
+
+    return state ? [{ state, move }] : []
+  })
+}
+
 // nextAfter is where the selection goes once a row is acted on, as OpenMausBot's: the next row down, else the one
 // above, else none.
 export function nextAfter(keys: readonly string[], key: string): string | undefined {
@@ -631,6 +650,42 @@ export function dueOf(
   }
 
   return null
+}
+
+// dueTones are the colours of a due's tone, as the row shows it: late in the failed colour, today in needs-you.
+export const dueTones: Record<DueTone, string> = {
+  late: "text-failed",
+  today: "text-needs-you",
+  later: "text-muted-foreground",
+}
+
+const minute = 60_000
+const hour = 60 * minute
+const day = 24 * hour
+
+// lateBy says how late a to-do is, in words, for the detail's Date ("Late · 2 days", issue #1173), as Linear marks
+// an overdue due date: a date is late by the days since it, counted in its zone; a moment by the time since it,
+// in minutes, hours or days. Nothing when it is not late.
+export function lateBy(
+  todo: Pick<Todo, "due"> & Partial<Pick<Todo, "assignee">>,
+  now: number,
+): string | undefined {
+  if (dueOf(todo, now)?.tone !== "late") return undefined
+
+  const { due } = todo
+  const past =
+    due.kind === "date" && due.date
+      ? Math.round((Date.parse(dayIn(now, due.zone)) - Date.parse(due.date)) / day) * day
+      : now - Date.parse(due.at ?? "")
+  if (!(past > 0)) return undefined
+  const [n, unit] =
+    past >= day
+      ? [Math.floor(past / day), "day"]
+      : past >= hour
+        ? [Math.floor(past / hour), "hour"]
+        : [Math.max(1, Math.floor(past / minute)), "minute"]
+
+  return `${n} ${unit}${n === 1 ? "" : "s"}`
 }
 
 // dayWords is a day as the owner reads it: today, tomorrow or yesterday, else its day and month, 25/11, 05/12.

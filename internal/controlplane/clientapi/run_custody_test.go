@@ -40,7 +40,7 @@ func TestAnOwnerRunKeepsItsChatAcrossACreateRetry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, again.StatusCode(), string(again.Body))
 	assert.Equal(t, run.Id, again.JSON201.Id)
-	assert.Equal(t, run.ChatId, again.JSON201.ChatId)
+	assert.Equal(t, fresh.ID, val(again.JSON201.ChatId), "the open Run moved with the main chat (issue #1169)")
 	next := w.createRun(owner, "next work")
 	assert.Equal(t, fresh.ID, val(next.ChatId))
 

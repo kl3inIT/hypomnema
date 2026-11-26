@@ -19,6 +19,10 @@ const dayIn = (n: number) =>
 
 type Todo = Record<string, unknown> & { id: string; state: string; revision: number }
 
+// The meeting and the chat the report for Laura names by their ids (issue #1173).
+const laurasMeeting = "mtg_v44xjlbxtmqeyig3jp3drxsany"
+const laurasChat = "cht_eag7jejewob7v65py6ydqip4wu"
+
 const todo = (id: string, title: string, m: object = {}): Todo => ({
   id,
   revision: 1,
@@ -52,6 +56,8 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // projects VMAP and BeyondPilot, puts the reply to Kai in BeyondPilot and the invoice in VMAP, and gives the open
 // items their priorities (issue #1157). waiting moves the contract Lan sends to Waiting on others, with the message
 // she took it in, and adds a meeting's action Hà took on, waiting on her from its line (issue #1142).
+// described adds the owner's own report for Laura, two days late, its
+// description in Markdown sections naming a meeting and a chat by their ids (issue #1173).
 function world({
   review = false,
   sources = false,
@@ -61,6 +67,7 @@ function world({
   worked = false,
   projects: withProjects = false,
   waiting = false,
+  described = false,
 }: {
   review?: boolean
   sources?: boolean
@@ -70,6 +77,7 @@ function world({
   worked?: boolean
   projects?: boolean
   waiting?: boolean
+  described?: boolean
 } = {}) {
   let release = () => {}
   let held: Promise<void> | undefined
@@ -189,6 +197,27 @@ function world({
       }),
     )
   }
+  if (described)
+    todos.push(
+      todo("tdo_laura", "Báo cáo + kế hoạch hệ sinh thái Tasco quanh Cốc Cốc cho cô Laura", {
+        due: { kind: "date", date: dayIn(-2), zone: "Asia/Ho_Chi_Minh" },
+        why_open: "promised",
+        created_by: { kind: "owner" },
+        notes: [
+          "## Source",
+          "Zalo, chat Laura Nguyen. 17/11 cô nhờ nghiên cứu VETC, Goong, Cốc Cốc.",
+          `20/11 anh hứa: "tầm chiều tối em gửi cô cái báo cáo". Chat của item: ${laurasChat}`,
+          "",
+          "## Meeting",
+          `25/11 (${laurasMeeting}, dòng 69): Tasco mua Cốc Cốc; cô dặn "ngó về Cốc Cốc".`,
+          "",
+          "## Plan",
+          "1. Tasco đang có gì: VETC, VMAP, Goong",
+          "2. Cốc Cốc: người dùng, công nghệ",
+          "3. Ý kiến về Cốc Cốc làm nền",
+        ].join("\n"),
+      }),
+    )
   const needs = new Set(
     quiet ? [] : ["tdo_reply", "tdo_login", "tdo_idea", ...(review ? ["tdo_mail"] : [])],
   )
@@ -792,6 +821,23 @@ function world({
                       },
                     ]
                   : [],
+            })
+          case `/meetings/${laurasMeeting}`:
+            return json({
+              meeting: { id: laurasMeeting, title: "Họp với cô Laura về Cốc Cốc", speakers: [] },
+              lines: [],
+              items: [],
+              suggestions: [],
+            })
+          case `/chats/${laurasChat}`:
+            return json({
+              id: laurasChat,
+              title: "Inbox: báo cáo cho cô Laura",
+              bot: "bot_main",
+              working: false,
+              coordinator: false,
+              created_at: at(-day),
+              updated_at: at(-hour),
             })
           case "/meetings/mtg_1":
             return json({
@@ -1572,4 +1618,50 @@ test("an item a teammate took waits on them, and Take it back makes it his again
   )
   await deck.scrollIntoViewIfNeeded()
   await shot(page, "inbox-waiting-meeting")
+})
+
+// Scenario: issue #1173. The owner opens his report for Laura, due two days ago: its properties are circle's, the
+// status by its name, who does it with an avatar, the date with a calendar saying how late it is; its description
+// shows its sections, and the meeting and the chat it names are links by their titles, not their ids. He marks it
+// done from the status. A prioritized item and one in a project show their priority, its reason, and the project.
+test("an item's detail shows its status, a late date and its ids as links", async ({ page }) => {
+  const w = world({ described: true, projects: true })
+  await w.serve(page)
+  await page.goto("/inbox?item=todo%3Atdo_laura")
+  const detail = item(page)
+  await expect(detail.getByRole("heading", { name: /Báo cáo \+ kế hoạch/ })).toBeVisible()
+
+  await expect(detail.getByRole("combobox", { name: "Status: Open" })).toBeVisible()
+  await expect(detail).toContainText(/Due \d\d\/\d\d\s*Late · 2 days/)
+  const meeting = detail.getByRole("link", { name: "Họp với cô Laura về Cốc Cốc" })
+  await expect(meeting).toHaveAttribute("href", `/meetings/${laurasMeeting}`)
+  await expect(detail.getByRole("link", { name: "Inbox: báo cáo cho cô Laura" })).toHaveAttribute(
+    "href",
+    `/chats/${laurasChat}`,
+  )
+  await expect(detail).not.toContainText(laurasMeeting)
+  await expect(detail.getByRole("heading", { name: "Plan" })).toBeVisible()
+  await expect(detail.locator("[data-slot=notes]").getByRole("listitem")).toHaveCount(3)
+  await shot(page, "inbox-detail-late")
+
+  await detail.getByRole("combobox", { name: "Status: Open" }).click()
+  await expect(page.getByRole("option", { name: "Dropped" })).toBeVisible()
+  await shot(page, "inbox-detail-status")
+  await page.getByRole("option", { name: "Done" }).click()
+  await expect.poll(() => w.sent.map((s) => s.path)).toContain("/inbox/tdo_laura/done")
+
+  await page.goto("/inbox?item=todo%3Atdo_chase")
+  await expect(detail.getByRole("heading", { name: "Lan sends the signed contract" })).toBeVisible()
+  await expect(detail.getByRole("combobox", { name: "Priority: High" })).toBeVisible()
+  await expect(detail).toContainText("Lan is a day late")
+  await expect(detail.locator("[data-slot=who-avatar][data-who=person]")).toHaveText("L")
+  await expect(detail).toContainText(/Chase yesterday\s*Late · 1 day/)
+  await shot(page, "inbox-detail-prioritized")
+
+  await page.goto("/inbox?item=todo%3Atdo_reply")
+  await expect(detail.getByRole("heading", { name: "Reply to Kai Yong" })).toBeVisible()
+  await expect(detail.getByRole("combobox", { name: "Priority: Urgent" })).toBeVisible()
+  await expect(detail).toContainText("BeyondPilot")
+  await expect(detail.locator("[data-slot=due]")).toHaveAttribute("data-tone", "today")
+  await shot(page, "inbox-detail-project")
 })

@@ -10,7 +10,7 @@ triage). Nothing here is built into the server; the server code it relies on is 
 | File | What it is |
 |---|---|
 | `setup.sh` | Makes or updates the two Routines of a Bot (the main Bot by default) with `hypomnema` commands, as the owner. It makes no Bot. |
-| `triage.md` | The prompt of the `triage` Routine, every 15 minutes, read only: triage per conversation, drafts, meetings, accounts to log in again, and what it learns of the owner. |
+| `triage.md` | The prompt of the `triage` Routine, every 15 minutes, read only: triage per conversation, drafts, meetings, accounts to log in again, a priority and a project on its items that have none, notes in short sections, and what it learns of the owner. |
 | `new-messages.mjs` | The check of `triage`: counts the new messages, wakes the Bot only when some are left. |
 | `brief.md` | The prompt of the `brief` Routine, at 08:00 and 17:00, told on Lark. |
 
