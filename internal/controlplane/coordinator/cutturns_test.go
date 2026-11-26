@@ -421,14 +421,12 @@ func TestTheContinuedLineIsGivenAsWhatItAsks(t *testing.T) {
 	got := promptText([]orchestration.ChatMessage{
 		{Role: orchestration.ChatSystem, Kind: orchestration.ChatContinued, Text: orchestration.ContinuedText},
 		{Role: orchestration.ChatSystem, Text: "Task t1 of run r1 is succeeded: hypomnema tasks show t1 --json"},
-		{Role: orchestration.ChatOwner, Text: "also add docs"},
 	})
 	assert.Equal(t, fmt.Sprint(
 		"Message from the Hypomnema control plane: ", continuedPrompt, "\n",
 		"\nMessage from the Hypomnema control plane: these need you.\n",
 		"- Task t1 of run r1 is succeeded: hypomnema tasks show t1 --json\n",
-		"Act on them, then end your turn; the control plane wakes you again.\n",
-		"\nThe owner also wrote:\nalso add docs"), got)
+		"Act on them, then end your turn; the control plane wakes you again.\n"), got)
 }
 
 // Scenario (review of #725, finding 1): an earlier start wrote the line that wakes pi to continue a cut turn and

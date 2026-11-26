@@ -292,10 +292,10 @@ func (s *Supervisor) pass(ctx context.Context) {
 	s.reapIdle()
 }
 
-// deliver gives pi what the chat has for it and marks it delivered once pi accepted it. While pi works, only the
-// owner messages sent now go, as a steer, and the rest waits for the turn to settle, as pi's own follow-ups did
-// (rpc-commands.md: a followUp "is delivered only when agent stops"). When pi is idle the chat's queue moves into
-// the chat first (issue #497), so it goes with the wake-ups as one prompt.
+// deliver gives pi what the chat has for it and marks it delivered once pi has it. While pi works, only the owner
+// messages sent now go, as a steer, and the rest waits for the turn to settle, as pi's own follow-ups did
+// (rpc-commands.md: a followUp "is delivered only when agent stops"); a steer counts once pi read it (proc.go).
+// When pi is idle it is given one turn of one kind, the kind that waited longest (nextTurn, issue #1172).
 func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 	working := s.Working(chatID)
 
@@ -305,23 +305,20 @@ func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 		return nil
 	}
 
-	if !working {
-		if _, err := s.svc.TakeChatQueue(ctx, chatID); err != nil {
-			return err
-		}
-	}
-
-	msgs, err := s.svc.Undelivered(ctx, chatID)
-	if err != nil {
-		return err
-	}
+	var (
+		msgs []orchestration.ChatMessage
+		err  error
+	)
 
 	if working {
+		msgs, err = s.svc.Undelivered(ctx, chatID)
 		msgs = ownerOnly(msgs)
+	} else {
+		msgs, err = s.nextTurn(ctx, chatID)
 	}
 
-	if len(msgs) == 0 {
-		return nil
+	if err != nil || len(msgs) == 0 {
+		return err
 	}
 
 	p, err := s.procFor(ctx, chatID)
@@ -334,24 +331,88 @@ func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 		return nil
 	}
 
+	if working {
+		if msgs = p.unsent(msgs); len(msgs) == 0 {
+			return nil
+		}
+	} else {
+		p.forgetGiven()
+	}
+
 	if err := s.applyModel(ctx, p); err != nil {
 		return err
 	}
 
-	if err := p.send(ctx, promptText(msgs)); err != nil {
+	seqs := make([]int64, 0, len(msgs))
+	for _, m := range msgs {
+		seqs = append(seqs, m.Seq)
+	}
+
+	read, err := p.send(ctx, promptText(msgs), seqs)
+	if err != nil || !read {
 		return err
 	}
 
-	if working {
-		seqs := make([]int64, 0, len(msgs))
-		for _, m := range msgs {
-			seqs = append(seqs, m.Seq)
-		}
+	return s.svc.MarkDeliveredSeqs(ctx, chatID, seqs)
+}
 
-		return s.svc.MarkDeliveredSeqs(ctx, chatID, seqs)
+// nextTurn is what an idle pi is given next, of one kind only (issue #1172): the owner's messages, or the control
+// plane's lines (the wake-ups, and the line that continues a cut turn), never both, as OpenClaw, Hermes's gateway and
+// t3code each give a system notification a turn of its own (OpenClaw session-event-handoff.ts, Hermes
+// gateway/run_busy.py, t3code EffectWorker.ts: "Notifications must be queued messages"). The kind that waited longest
+// goes first, by when each was written, so that neither holds the other back (t3code QueuedRunOrder.ts; Hermes's
+// FIFO): the lines written before the oldest owner message, or else every owner message, the chat's queue moved into
+// the chat first (issue #497). A tie goes to the owner, as OpenClaw lets a person's message run first
+// (session-event-batch.ts). What is left goes on the next pass, once that turn settles.
+func (s *Supervisor) nextTurn(ctx context.Context, chatID string) ([]orchestration.ChatMessage, error) {
+	queue, err := s.svc.ChatQueue(ctx, chatID)
+	if err != nil {
+		return nil, err
 	}
 
-	return s.svc.MarkDelivered(ctx, chatID, msgs[len(msgs)-1].Seq)
+	msgs, err := s.svc.Undelivered(ctx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	owner := ownerOnly(msgs)
+
+	var (
+		ownerAt time.Time
+		waits   bool
+	)
+
+	if len(queue) > 0 {
+		ownerAt, waits = queue[0].CreatedAt, true
+	}
+
+	if len(owner) > 0 && (!waits || owner[0].CreatedAt.Before(ownerAt)) {
+		ownerAt, waits = owner[0].CreatedAt, true
+	}
+
+	var lines []orchestration.ChatMessage
+
+	for _, m := range msgs {
+		if m.Role != orchestration.ChatOwner && (!waits || m.CreatedAt.Before(ownerAt)) {
+			lines = append(lines, m)
+		}
+	}
+
+	if len(lines) > 0 {
+		return lines, nil
+	}
+
+	if len(queue) == 0 {
+		return owner, nil
+	}
+
+	if _, err := s.svc.TakeChatQueue(ctx, chatID); err != nil {
+		return nil, err
+	}
+
+	msgs, err = s.svc.Undelivered(ctx, chatID)
+
+	return ownerOnly(msgs), err
 }
 
 // ownerOnly keeps the owner messages: what is sent while pi works.
@@ -367,10 +428,10 @@ func ownerOnly(msgs []orchestration.ChatMessage) []orchestration.ChatMessage {
 	return out
 }
 
-// promptText joins the owner's messages and the wake-ups into one turn.
-// Wake-ups say they come from the control plane, so pi follows the skill's
-// rule for them: act, then end the turn. The line that wakes a chat to
-// continue a turn a restart cut is given as what it asks (cutturns.go).
+// promptText is a turn of one kind (nextTurn). The owner's messages go as they were written. The control plane's
+// lines say they come from it, so pi follows the skill's rule for them: act, then end the turn, an instruction that
+// speaks for that turn alone (t3code pullRequestWatch.ts ends its wake turn the same way). The line that wakes a chat
+// to continue a turn a restart cut is given as what it asks (cutturns.go).
 func promptText(msgs []orchestration.ChatMessage) string {
 	var owner, wakes []string
 
@@ -387,6 +448,10 @@ func promptText(msgs []orchestration.ChatMessage) string {
 		}
 	}
 
+	if len(owner) > 0 {
+		return strings.Join(owner, "\n\n")
+	}
+
 	var b strings.Builder
 
 	if resumed {
@@ -401,14 +466,6 @@ func promptText(msgs []orchestration.ChatMessage) string {
 		b.WriteString("Message from the Hypomnema control plane: these need you.\n")
 		b.WriteString(strings.Join(wakes, "\n"))
 		b.WriteString("\nAct on them, then end your turn; the control plane wakes you again.\n")
-	}
-
-	if len(owner) > 0 {
-		if b.Len() > 0 {
-			b.WriteString("\nThe owner also wrote:\n")
-		}
-
-		b.WriteString(strings.Join(owner, "\n\n"))
 	}
 
 	return b.String()

@@ -46,6 +46,13 @@ type proc struct {
 	stopKept  bool
 	// compacting says the owner's compaction runs (usage.go).
 	compacting bool
+	// The chat rows of the steers pi holds (steers.go): carrying by the prompt command that carries them until pi
+	// answers it, unread once pi queued them, oldest first, dropped once the owner's stop cleared pi's queue, and
+	// given, every row given this pi while it works, never given it twice.
+	carrying map[string][]int64
+	unread   [][]int64
+	dropped  [][]int64
+	given    map[int64]bool
 
 	// usageMu orders the reads of pi's context usage; usage is the last kept.
 	usageMu sync.Mutex
@@ -126,31 +133,27 @@ func start(ctx context.Context, s *Supervisor, chatID string, modelArgs []string
 	return p, nil
 }
 
-// send gives pi a message: a prompt when idle, a steer while it works, which pi reads after the tool calls that run
-// and before its next model call (rpc-commands.md): the supervisor sends only what the owner sent now while pi
-// works (issue #497).
-func (p *proc) send(ctx context.Context, text string) error {
+// send gives pi a message carrying the chat rows seqs: a prompt when idle, a steer while it works, which pi reads
+// after the tool calls that run and before its next model call (rpc-commands.md): the supervisor sends only what the
+// owner sent now while pi works (issue #497). It says whether pi has read it: a steer pi queued is read later
+// (steers.go).
+func (p *proc) send(ctx context.Context, text string, seqs []int64) (bool, error) {
 	cmd := map[string]any{"type": "prompt", "message": text}
 	if p.isWorking() {
 		cmd["streamingBehavior"] = "steer"
 	}
 
-	r, err := p.call(ctx, cmd)
+	r, err := p.exchange(ctx, cmd, commandTimeout, seqs)
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	var data struct {
-		Disposition string `json:"disposition"`
-	}
-
-	_ = json.Unmarshal(r.Data, &data)
-
-	if data.Disposition == "started" {
+	disposition := dispositionOf(r.Data)
+	if disposition == "started" {
 		p.setWorking(true)
 	}
 
-	return nil
+	return disposition != "queued", nil
 }
 
 // call writes one command and waits for its response.
@@ -161,16 +164,30 @@ func (p *proc) call(ctx context.Context, cmd map[string]any) (response, error) {
 // callWithin is call with its own bound on the wait, for a command that takes
 // long, such as a compaction.
 func (p *proc) callWithin(ctx context.Context, cmd map[string]any, timeout time.Duration) (response, error) {
+	return p.exchange(ctx, cmd, timeout, nil)
+}
+
+// exchange writes one command and waits for its response; a prompt carries the chat rows seqs (steers.go).
+func (p *proc) exchange(ctx context.Context, cmd map[string]any, timeout time.Duration, seqs []int64,
+) (r response, err error) {
 	p.mu.Lock()
 	p.nextID++
 	id := "hyp-" + strconv.Itoa(p.nextID)
 	ch := make(chan response, 1)
 	p.waiting[id] = ch
+
+	if seqs != nil {
+		p.carry(id, seqs)
+	}
 	p.mu.Unlock()
 
 	defer func() {
 		p.mu.Lock()
 		delete(p.waiting, id)
+
+		if seqs != nil {
+			p.uncarry(id, err == nil)
+		}
 		p.mu.Unlock()
 	}()
 
