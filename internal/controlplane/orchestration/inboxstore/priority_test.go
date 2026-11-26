@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
@@ -20,13 +21,14 @@ func eventFields(t *testing.T, e inboxstore.Event) (before, after map[string]any
 	return before, after
 }
 
-func (w *world) project(t *testing.T, name, color string) inboxstore.Project {
+// project is a department the owner made in the sidebar, with the Bots named in it: an item's project (issue #1188).
+func (w *world) project(t *testing.T, name string, bots ...string) orchestration.Department {
 	t.Helper()
 
-	p, err := w.inbox.CreateProject(t.Context(), name, color)
+	d, err := w.svc.CreateDepartment(t.Context(), name, bots)
 	require.NoError(t, err)
 
-	return p
+	return d
 }
 
 func intp(n int) *int       { return &n }
@@ -41,7 +43,7 @@ func TestABotSetsThePriorityWithItsReasonAndTheOwnerCorrectsIt(t *testing.T) {
 
 	w := newWorld(t)
 	ctx := t.Context()
-	vmap := w.project(t, "VMAP", "#2f80ed")
+	vmap := w.project(t, "VMAP")
 
 	td, err := w.inbox.Create(ctx, bot(w.kai), inboxstore.NewTodo{
 		Title: "Trả lời cô Laura", State: inboxstore.Open, Assignee: me,
@@ -77,7 +79,7 @@ func TestABotSetsThePriorityWithItsReasonAndTheOwnerCorrectsIt(t *testing.T) {
 }
 
 // Scenario: a priority, its reason and a project are checked as every field is: the scale is 0 to 4, a reason comes
-// with its priority and is one line, a project is one that is there. A refused change writes nothing.
+// with its priority and is one line, a project is a department that is there. A refused change writes nothing.
 func TestAPriorityOrAProjectThatIsNotOneIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -95,7 +97,7 @@ func TestAPriorityOrAProjectThatIsNotOneIsRefused(t *testing.T) {
 		require.ErrorIs(t, err, storeerr.ErrInvalid, name)
 	}
 
-	_, err := w.inbox.Edit(ctx, by(owner, td), inboxstore.Edit{Project: strp("prj_gone")})
+	_, err := w.inbox.Edit(ctx, by(owner, td), inboxstore.Edit{Project: strp("dep_gone")})
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
 	_, err = w.inbox.Create(ctx, owner, inboxstore.NewTodo{
@@ -105,7 +107,7 @@ func TestAPriorityOrAProjectThatIsNotOneIsRefused(t *testing.T) {
 
 	_, err = w.inbox.Create(ctx, owner, inboxstore.NewTodo{
 		Title: "x", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me,
-		Project: "prj_gone",
+		Project: "dep_gone",
 	})
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
@@ -119,7 +121,7 @@ func TestABotSetsThePriorityOfItsOwnItemsOnly(t *testing.T) {
 
 	w := newWorld(t)
 	ctx := t.Context()
-	vmap := w.project(t, "VMAP", "#2f80ed")
+	vmap := w.project(t, "VMAP")
 	mine := w.fromChat(t)
 
 	got, err := w.inbox.Edit(ctx, by(bot(w.kai), mine), inboxstore.Edit{
@@ -144,8 +146,8 @@ func TestTheListIsFilteredByProject(t *testing.T) {
 
 	w := newWorld(t)
 	ctx := t.Context()
-	vmap := w.project(t, "VMAP", "#2f80ed")
-	bp := w.project(t, "BeyondPilot", "#27ae60")
+	vmap := w.project(t, "VMAP")
+	bp := w.project(t, "BeyondPilot")
 
 	add := func(title, project string) inboxstore.Todo {
 		td, err := w.inbox.Create(ctx, owner, inboxstore.NewTodo{
@@ -171,23 +173,21 @@ func TestTheListIsFilteredByProject(t *testing.T) {
 	assert.Equal(t, 3, every.Total)
 }
 
-// Scenario: the owner keeps the list of projects: he adds them, a name once whatever its case and a color as
-// #rrggbb; renames one, which its items keep; and removes one, which leaves each of its items, closed ones too,
-// without a project, with an event that says so.
-func TestTheOwnerAddsRenamesAndRemovesProjects(t *testing.T) {
+// Scenario (issue #1188): the projects are the sidebar's departments, in its order, found by a name in any case or
+// by id. A department renamed there keeps its items; one removed there leaves each of its items, closed ones too,
+// without a project.
+func TestTheProjectsAreTheDepartments(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
 	ctx := t.Context()
-	vmap := w.project(t, "VMAP", "#2F80ED")
-	assert.Equal(t, "#2f80ed", vmap.Color, "kept in lower case")
+	vmap := w.project(t, "VMAP")
+	bp := w.project(t, "BeyondPilot")
 
-	_, err := w.inbox.CreateProject(ctx, "vmap", "#000000")
-	require.ErrorIs(t, err, storeerr.ErrConflict)
-	_, err = w.inbox.CreateProject(ctx, "Other", "blue")
-	require.ErrorIs(t, err, storeerr.ErrInvalid)
-	_, err = w.inbox.CreateProject(ctx, " ", "#000000")
-	require.ErrorIs(t, err, storeerr.ErrInvalid)
+	all, err := w.inbox.Projects(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []inboxstore.Project{{ID: vmap.ID, Name: "VMAP"}, {ID: bp.ID, Name: "BeyondPilot"}}, all,
+		"in the sidebar's order, not by name")
 
 	open, err := w.inbox.Create(ctx, owner, inboxstore.NewTodo{
 		Title: "a", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand}, Assignee: me,
@@ -202,35 +202,101 @@ func TestTheOwnerAddsRenamesAndRemovesProjects(t *testing.T) {
 	closed, err = w.inbox.Drop(ctx, by(owner, closed), "Not needed", nil)
 	require.NoError(t, err)
 
-	renamed, err := w.inbox.EditProject(ctx, vmap.ID, strp("VMAP AI"), nil)
+	_, err = w.svc.RenameDepartment(ctx, vmap.ID, "VMAP AI")
 	require.NoError(t, err)
-	assert.Equal(t, "VMAP AI", renamed.Name)
-	assert.Equal(t, vmap.Color, renamed.Color)
 
 	found, err := w.inbox.ProjectNamed(ctx, "vmap ai")
 	require.NoError(t, err)
-	assert.Equal(t, vmap.ID, found.ID)
+	assert.Equal(t, inboxstore.Project{ID: vmap.ID, Name: "VMAP AI"}, found)
 
-	require.NoError(t, w.inbox.DeleteProject(ctx, owner, vmap.ID))
-
-	all, err := w.inbox.Projects(ctx)
+	found, err = w.inbox.ProjectNamed(ctx, bp.ID)
 	require.NoError(t, err)
-	assert.Empty(t, all)
+	assert.Equal(t, "BeyondPilot", found.Name)
+
+	_, err = w.inbox.ProjectNamed(ctx, "Personal")
+	require.ErrorIs(t, err, storeerr.ErrNotFound, "no project but a department")
+	require.ErrorContains(t, err, "VMAP AI, BeyondPilot")
+
+	kept, err := w.inbox.Get(ctx, open.ID)
+	require.NoError(t, err)
+	assert.Equal(t, vmap.ID, kept.Project, "a rename keeps its items")
+
+	require.NoError(t, w.svc.DeleteDepartment(ctx, vmap.ID))
+
+	all, err = w.inbox.Projects(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []inboxstore.Project{{ID: bp.ID, Name: "BeyondPilot"}}, all)
 
 	for _, before := range []inboxstore.Todo{open, closed} {
 		after, err := w.inbox.Get(ctx, before.ID)
 		require.NoError(t, err)
-		assert.Empty(t, after.Project)
-		assert.Equal(t, before.Revision+1, after.Revision)
+		assert.Empty(t, after.Project, "its department was removed")
 		assert.Equal(t, before.State, after.State)
-
-		last := after.Events[len(after.Events)-1]
-		was, now := eventFields(t, last)
-		assert.Equal(t, owner, last.Actor)
-		assert.Equal(t, vmap.ID, was["project_id"])
-		assert.Nil(t, now["project_id"])
-		assert.Equal(t, "Project VMAP AI was removed", now["reason"])
 	}
 
-	require.ErrorIs(t, w.inbox.DeleteProject(ctx, owner, vmap.ID), storeerr.ErrNotFound)
+	_, err = w.inbox.Edit(ctx, by(owner, open), inboxstore.Edit{Project: &vmap.ID})
+	require.ErrorIs(t, err, storeerr.ErrNotFound, "a removed department is no project")
+}
+
+// Scenario (issue #1188): an item given or passed to a Bot in a department, without a project, takes that
+// department, in the write that gives it, whose event says so; one with a project keeps it, and one given to a Bot
+// in no department, or to the owner, stays without one.
+func TestAnItemGivenToABotInADepartmentTakesIt(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	vmap := w.project(t, "VMAP", w.lan)
+	bp := w.project(t, "BeyondPilot")
+
+	handed, err := w.inbox.Hand(ctx, by(owner, w.fromChat(t)), w.lan, "")
+	require.NoError(t, err)
+	assert.Equal(t, vmap.ID, handed.Project, "handed by the owner")
+
+	last := handed.Events[len(handed.Events)-1]
+	_, after := eventFields(t, last)
+	assert.Equal(t, vmap.ID, after["project_id"])
+
+	main := orchestration.DefaultBotID
+	chat, err := w.svc.CreateChat(ctx, main, "Hypo")
+	require.NoError(t, err)
+	found, err := w.inbox.Create(ctx, bot(main), inboxstore.NewTodo{
+		Title: "Answer the VMAP ticket", State: inboxstore.Open, Assignee: inboxstore.Assignee{Kind: inboxstore.ABot,
+			Name: main},
+		Source: inboxstore.Source{Kind: inboxstore.FromChat, ID: chat.ID},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, found.Project, "the main Bot is in no department")
+
+	passed, err := w.inbox.Edit(ctx, by(bot(main), found), inboxstore.Edit{
+		Assignee: &inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.lan},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, vmap.ID, passed.Project, "passed by the main Bot")
+
+	back, err := w.inbox.Edit(ctx, by(bot(w.lan), passed), inboxstore.Edit{
+		Assignee: &inboxstore.Assignee{Kind: inboxstore.ABot, Name: main},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, vmap.ID, back.Project, "given back, it keeps its project")
+
+	added, err := w.inbox.Create(ctx, owner, inboxstore.NewTodo{
+		Title: "Book the room", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand},
+		Assignee: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.lan},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, vmap.ID, added.Project, "added for the Bot")
+
+	theirs, err := w.inbox.Create(ctx, owner, inboxstore.NewTodo{
+		Title: "Send the deck", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand},
+		Assignee: me, Project: bp.ID,
+	})
+	require.NoError(t, err)
+	theirs, err = w.inbox.Hand(ctx, by(owner, theirs), w.lan, "")
+	require.NoError(t, err)
+	assert.Equal(t, bp.ID, theirs.Project, "an item with a project keeps it")
+
+	kais, err := w.inbox.Hand(ctx, by(owner, w.fromChat(t)), w.kai, "")
+	require.NoError(t, err)
+	assert.Empty(t, kais.Project, "kai is in no department")
 }

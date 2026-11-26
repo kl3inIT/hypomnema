@@ -95,9 +95,18 @@ export function InboxScreen({
   const bots = useBots()
   const botName = useBotNames()
   const chats = useKeptChats()
-  const projects = useProjects().data ?? []
+  const projectList = useProjects().data
+  const projects = projectList ?? []
   const { unread, markSeen } = useSeen()
-  const [filter, setFilter] = useState<Filter>(noFilter)
+  const [wanted, setFilter] = useState<Filter>(noFilter)
+  // A department removed in the sidebar while the Inbox shows it is no project any more: every project is shown.
+  const filter = useMemo(() => {
+    const p = wanted.project
+    const gone =
+      !!projectList && p !== null && p !== noProject && !projectList.some((d) => d.id === p)
+
+    return gone ? { ...wanted, project: null } : wanted
+  }, [wanted, projectList])
   const [open, setOpen] = useState<Record<GroupId, boolean>>(
     () =>
       Object.fromEntries(groupIds.map((g) => [g, !foldedByDefault.has(g)])) as Record<

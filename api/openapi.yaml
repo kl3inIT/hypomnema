@@ -5388,7 +5388,7 @@ paths:
           schema: { $ref: "#/components/schemas/TodoSourceKind" }
         - name: project
           in: query
-          description: Only the items of this project, by its id; none, only the items without one.
+          description: Only the items of this project, a department by its id (issue #1188); none, only the items without one.
           schema: { type: string, minLength: 1, maxLength: 200 }
         - name: due_from
           in: query
@@ -5447,59 +5447,6 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Todo" }
-        default: { $ref: "#/components/responses/Error" }
-  /inbox/projects:
-    get:
-      operationId: ListInboxProjects
-      summary: The Inbox's projects, by name
-      responses:
-        "200":
-          description: The projects.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/InboxProjectList" }
-        default: { $ref: "#/components/responses/Error" }
-    post:
-      operationId: CreateInboxProject
-      summary: Add a project to the Inbox (owner only)
-      description: A name no other project has, in any case, and a colour.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/NewInboxProject" }
-      responses:
-        "201":
-          description: The project.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/InboxProject" }
-        default: { $ref: "#/components/responses/Error" }
-  /inbox/projects/{project_id}:
-    parameters:
-      - $ref: "#/components/parameters/InboxProjectID"
-    patch:
-      operationId: EditInboxProject
-      summary: Rename a project or change its colour (owner only)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/InboxProjectEdit" }
-      responses:
-        "200":
-          description: The project.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/InboxProject" }
-        default: { $ref: "#/components/responses/Error" }
-    delete:
-      operationId: DeleteInboxProject
-      summary: Remove a project (owner only)
-      description: Its items, in any state, are left without a project, each with an event that says so.
-      responses:
-        "204":
-          description: Removed.
         default: { $ref: "#/components/responses/Error" }
   /inbox/needs-you:
     get:
@@ -5785,11 +5732,6 @@ components:
       in: path
       required: true
       schema: { type: string, pattern: "^tdo_[A-Za-z0-9_]{1,60}$" }
-    InboxProjectID:
-      name: project_id
-      in: path
-      required: true
-      schema: { type: string, pattern: "^prj_[A-Za-z0-9_]{1,60}$" }
     MeetingID:
       name: meeting_id
       in: path
@@ -11704,7 +11646,11 @@ components:
           description: A proposal nobody touched for three days, left out of the list unless asked for.
         priority: { $ref: "#/components/schemas/TodoPriority" }
         priority_reason: { type: string, description: "Why it has its priority, in a line, as who set it said it." }
-        project_id: { type: string, description: "The project it is in; left out when none." }
+        project_id:
+          type: string
+          description: >-
+            The project it is in, a department of the sidebar by its id (issue #1188); left out when none. An item
+            given to a Bot in a department, without a project, takes that department.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         events:
@@ -11716,31 +11662,6 @@ components:
       minimum: 0
       maximum: 4
       description: 0 no priority, 1 urgent, 2 high, 3 medium, 4 low (Linear's scale).
-    InboxProject:
-      type: object
-      required: [id, name, color, created_at, updated_at]
-      properties:
-        id: { type: string }
-        name: { type: string }
-        color: { type: string, description: "#rrggbb." }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-    InboxProjectList:
-      type: object
-      required: [data]
-      properties:
-        data: { type: array, items: { $ref: "#/components/schemas/InboxProject" } }
-    NewInboxProject:
-      type: object
-      required: [name, color]
-      properties:
-        name: { type: string, minLength: 1, maxLength: 60 }
-        color: { type: string, pattern: "^#[0-9a-fA-F]{6}$" }
-    InboxProjectEdit:
-      type: object
-      properties:
-        name: { type: string, minLength: 1, maxLength: 60 }
-        color: { type: string, pattern: "^#[0-9a-fA-F]{6}$" }
     TodoList:
       type: object
       required: [data, total]
@@ -11786,7 +11707,10 @@ components:
         source: { $ref: "#/components/schemas/NewTodoSource" }
         priority: { $ref: "#/components/schemas/TodoPriority" }
         priority_reason: { type: string, maxLength: 300 }
-        project_id: { type: string, maxLength: 200, description: The project it is in; left out for none. }
+        project_id:
+          type: string
+          maxLength: 200
+          description: The project it is in, a department by its id; left out for none.
     TodoChange:
       type: object
       required: [revision]
@@ -11816,7 +11740,7 @@ components:
         project_id:
           type: string
           maxLength: 200
-          description: The project to put it in, by its id; empty takes it out of its project.
+          description: The project to put it in, a department by its id; empty takes it out of its project.
     TodoDone:
       type: object
       required: [revision]

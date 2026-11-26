@@ -20,25 +20,6 @@ func (q *Queries) ClearTodoChats(ctx context.Context, chatID sql.NullString) err
 	return err
 }
 
-const clearTodoProject = `-- name: ClearTodoProject :execrows
-UPDATE todos SET revision = revision + 1, project_id = NULL, updated_at = ?1 WHERE id = ?2 AND revision = ?3
-`
-
-type ClearTodoProjectParams struct {
-	Now      int64
-	ID       string
-	Revision int64
-}
-
-// An item leaves a removed project (issue #1157), at the revision read, which it moves on.
-func (q *Queries) ClearTodoProject(ctx context.Context, arg ClearTodoProjectParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, clearTodoProject, arg.Now, arg.ID, arg.Revision)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const countDuplicatesOf = `-- name: CountDuplicatesOf :one
 SELECT count(*) FROM todos WHERE duplicate_of = ?1 AND state = 'duplicate'
 `
@@ -143,35 +124,6 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 	var count int64
 	err := row.Scan(&count)
 	return count, err
-}
-
-const deleteInboxProject = `-- name: DeleteInboxProject :execrows
-DELETE FROM inbox_projects WHERE id = ?1
-`
-
-func (q *Queries) DeleteInboxProject(ctx context.Context, id string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteInboxProject, id)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const getInboxProject = `-- name: GetInboxProject :one
-SELECT id, name, color, created_at, updated_at FROM inbox_projects WHERE id = ?1
-`
-
-func (q *Queries) GetInboxProject(ctx context.Context, id string) (InboxProject, error) {
-	row := q.db.QueryRowContext(ctx, getInboxProject, id)
-	var i InboxProject
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Color,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
 }
 
 const getTodo = `-- name: GetTodo :one
@@ -442,27 +394,6 @@ func (q *Queries) GetTodoOfAttempt(ctx context.Context, workAttempt sql.NullStri
 	return i, err
 }
 
-const insertInboxProject = `-- name: InsertInboxProject :exec
-INSERT INTO inbox_projects (id, name, color, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)
-`
-
-type InsertInboxProjectParams struct {
-	ID    string
-	Name  string
-	Color string
-	Now   int64
-}
-
-func (q *Queries) InsertInboxProject(ctx context.Context, arg InsertInboxProjectParams) error {
-	_, err := q.db.ExecContext(ctx, insertInboxProject,
-		arg.ID,
-		arg.Name,
-		arg.Color,
-		arg.Now,
-	)
-	return err
-}
-
 const insertTodo = `-- name: InsertTodo :exec
 INSERT INTO todos (id, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind,
                    assignee, passed_by, state, source_kind, source_id, source_account, source_quote, source_ref,
@@ -584,40 +515,6 @@ type InsertTodoWakeParams struct {
 func (q *Queries) InsertTodoWake(ctx context.Context, arg InsertTodoWakeParams) error {
 	_, err := q.db.ExecContext(ctx, insertTodoWake, arg.ChatID, arg.Text, arg.Now)
 	return err
-}
-
-const listInboxProjects = `-- name: ListInboxProjects :many
-SELECT id, name, color, created_at, updated_at FROM inbox_projects ORDER BY name COLLATE NOCASE, id
-`
-
-// The Inbox's projects (issue #1157), by name.
-func (q *Queries) ListInboxProjects(ctx context.Context) ([]InboxProject, error) {
-	rows, err := q.db.QueryContext(ctx, listInboxProjects)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []InboxProject{}
-	for rows.Next() {
-		var i InboxProject
-		if err := rows.Scan(
-			&i.ID,
-			&i.Name,
-			&i.Color,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const listOpenTodosOfBot = `-- name: ListOpenTodosOfBot :many
@@ -946,82 +843,6 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 	return items, nil
 }
 
-const listTodosOfProject = `-- name: ListTodosOfProject :many
-SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE project_id = ?1 ORDER BY id
-`
-
-// The items of a project, in any state: those a removed project leaves without one.
-func (q *Queries) ListTodosOfProject(ctx context.Context, projectID sql.NullString) ([]Todo, error) {
-	rows, err := q.db.QueryContext(ctx, listTodosOfProject, projectID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Todo{}
-	for rows.Next() {
-		var i Todo
-		if err := rows.Scan(
-			&i.ID,
-			&i.Revision,
-			&i.Title,
-			&i.Notes,
-			&i.DoneWhen,
-			&i.Draft,
-			&i.DueKind,
-			&i.DueDate,
-			&i.DueZone,
-			&i.DueAt,
-			&i.OverdueAt,
-			&i.AssigneeKind,
-			&i.Assignee,
-			&i.State,
-			&i.SnoozedUntil,
-			&i.SourceKind,
-			&i.SourceID,
-			&i.SourceAccount,
-			&i.SourceQuote,
-			&i.SourceRef,
-			&i.CreatedByKind,
-			&i.CreatedBy,
-			&i.WorkAttempt,
-			&i.WorkKind,
-			&i.WorkID,
-			&i.WorkBot,
-			&i.WorkStartedAt,
-			&i.ApprovalID,
-			&i.DoneByKind,
-			&i.DoneBy,
-			&i.RecordedByKind,
-			&i.RecordedBy,
-			&i.ClosedHow,
-			&i.CloseReason,
-			&i.Evidence,
-			&i.ClosedAt,
-			&i.DuplicateOf,
-			&i.IdempotencyKey,
-			&i.IdempotencyHash,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.WhyOpen,
-			&i.ChatID,
-			&i.PassedBy,
-			&i.Priority,
-			&i.PriorityReason,
-			&i.ProjectID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listTodosOfWork = `-- name: ListTodosOfWork :many
 SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE work_kind = ?1 AND work_id = ?2 AND state IN ('doing', 'review') ORDER BY id
 `
@@ -1180,30 +1001,6 @@ type TouchTodoParams struct {
 // item read before it is stale, and a proposal commented on is touched.
 func (q *Queries) TouchTodo(ctx context.Context, arg TouchTodoParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, touchTodo, arg.Now, arg.ID, arg.Revision)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const updateInboxProject = `-- name: UpdateInboxProject :execrows
-UPDATE inbox_projects SET name = ?1, color = ?2, updated_at = ?3 WHERE id = ?4
-`
-
-type UpdateInboxProjectParams struct {
-	Name  string
-	Color string
-	Now   int64
-	ID    string
-}
-
-func (q *Queries) UpdateInboxProject(ctx context.Context, arg UpdateInboxProjectParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateInboxProject,
-		arg.Name,
-		arg.Color,
-		arg.Now,
-		arg.ID,
-	)
 	if err != nil {
 		return 0, err
 	}

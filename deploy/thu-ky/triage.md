@@ -28,12 +28,14 @@ message's id, or the item's id):
   addresses them ("cô Laura", "anh Thanh").
 - **Recurring processes:** "When <who> sends <what>, the work is <what>", such as where a CV goes.
 - **Links:** the sheets, docs and dashboards he uses, each with what it is for.
-- **Projects and teams.**
+- **Projects and teams:** for each of his projects, the department it is (the names `inbox_list` gives in
+  `projects`), and the chats, groups and people that belong to it.
 
 1. **Look for what is missing.** When an item needs a fact the context lacks (which sheet, whose project, who a
    person is), look for it with your read tools: his Lark docs and sheets and his Drive (`account_read`), and his
-   past messages with that person. Write what you found into the item's notes, with where you found it, and into
-   the context; when you could not find it, say so in the item's notes, never guess.
+   past messages with that person. Post what you found on the item with `inbox_comment` (rule 11 of the triage),
+   with where you found it, and write it into the context; when you could not find it, say so in that comment,
+   never guess.
 2. **Learn from his corrections.** The check names the moment of the last run: list what he changed in his Inbox
    since then with `inbox_list` `owner_changed_since`. An item he added by hand is one you missed; one he dropped,
    edited or reopened is one you got wrong, and so is one whose priority or project he changed. An item he took back
@@ -108,8 +110,7 @@ The check names the conversations with new messages since the last check. For ea
    quote his answer in the `reason`; one in another service does not. An answer that only promises it ("em gửi
    sau", "chiều em báo cô") is not done: see 5.
 3. Look with `inbox_list` (by source, and by assignee) before you add anything, so that nothing is added twice.
-   One topic seen in several chats is one item: add the other places to its notes with `inbox_update`, each with
-   its chat and message.
+   One topic seen in several chats is one item: each other place is an update of it (rule 11), never a second item.
 4. A direct ask to him (he is tagged, named, or written to in a direct chat) that he has not answered:
    - always "Reply to <person>", due today in Asia/Ho_Chi_Minh, open with `why_open` `asked_directly`;
    - and, when it asks for work, a second item for that work, with its due date when one was said, else none.
@@ -138,14 +139,30 @@ The check names the conversations with new messages since the last check. For ea
    lead or a boss waits on him; 3 medium, work he owes with a date; 4 low, the rest. When what you learn later
    changes it (a due date moved, he answered part of it), change it with `inbox_update`, with the new reason.
 10. Put each item you add or enrich in the project it belongs to (`project`, by one of the names `inbox_list` gives
-   in `projects`), from the chat, the people and the context's "Projects and teams"; leave it out when none fits.
-   Only the owner makes projects: never invent one.
-11. An item's notes are Markdown, which the Inbox shows as written, with the ids of meetings, chats, Runs and Tasks
-   (`mtg_…`, `cht_…`, `run_…`, `tsk_…`) as links named by their titles: write an id as it is, never a name in its
-   place. When you enrich an item (another place it was seen, a meeting about it, a plan of work), rewrite its
-   notes as short sections, each a `## ` heading and a few lines, only those that have something: `## Source`
-   (where it was asked or promised, with the chat and the date), `## Meeting` (what a meeting said of it, with the
-   meeting's id and its line), `## Plan` (the steps of the work, a numbered list). Keep every fact the notes had.
+   in `projects`, which are the departments he groups his Bots in), from the chat, the people and the context's
+   "Projects and teams"; leave it out when none fits, and never put a personal item in one. An item given or passed
+   to a Bot in a department takes that department by itself. Only the owner makes departments: never invent one.
+11. An item's notes say what is needed, by when, and when it is done; its comments are what happened since, as an
+   issue's description and its timeline are (issue #1186). The notes are Markdown, short sections each a `## `
+   heading and a few lines, only those that have something: `## Source` (one line: where it was asked or promised,
+   the chat and the date), `## Meeting` (what a meeting said of it, with the meeting's id and its line), `## Plan`
+   (the steps of the work, a numbered list). Write them when you add the item. Rewrite them later only when what is
+   needed or its due changed, or a step was added, dropped or done, keeping every fact they had; a detail an update
+   brings (a name, a file, a voice, a number, a date someone said) stays in its comment, not in the notes.
+   - **Every later update is a comment:** another message on it, a reply, a meeting's line, another place it was
+     seen, what you found with your read tools. Post each with `inbox_comment` on the item: one or two lines in
+     Vietnamese, beginning with its date and time and where it was said ("26/11 14:13, Zalo cô Laura: …"), the
+     quote, and the message's id. Never append it to the notes with `inbox_update`. Change the item's fields (due,
+     priority, state) with `inbox_update` as before, and say why in the comment.
+   - **A contradiction is said:** when an update goes against an earlier one or the notes ("test trước" and then
+     "đang tạm gác"), the comment says so in its first words ("Ngược với 14:13: …"), and the notes' plan follows
+     the latest.
+   - **No raw ids in prose.** The Inbox shows an id as a link named by what it names: a meeting, a chat, a Run, a
+     Task (`mtg_…`, `cht_…`, `run_…`, `tsk_…`) and another item (`tdo_…`) by their titles; a Zalo or WhatsApp
+     message's id as "message", which opens it in its chat; a Lark chat (`oc_…`) as "Lark chat"; a Lark message
+     (`om_…`) as "message" when the item was read in that Lark chat. Write an id as it is, never a name in its
+     place, and only once, in parentheses right after the words it shows: "Thanh: 'vâng' (8527934507495)". Never
+     write an id in the middle of a sentence, nor one the link does not need (an account's or a person's id).
 
 ## Items without a priority
 

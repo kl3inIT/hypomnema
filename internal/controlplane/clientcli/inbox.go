@@ -27,7 +27,7 @@ func inboxFlags(fs *flag.FlagSet) {
 	fs.String("done-when", "", "what done looks like")
 	fs.String("priority", "", "how much it matters: none, urgent, high, medium or low (or 0 to 4)")
 	fs.String("priority-reason", "", "why it has that priority, in a line, with --priority")
-	fs.String("project", "", "the project it is in, by its name or id; none for no project")
+	fs.String("project", "", "the project it is in, a department by its name or id; none for no project")
 }
 
 // priorityNames are Linear's priorities, by their value 0 to 4.
@@ -45,33 +45,40 @@ func priorityOf(s string) (int, error) {
 	return 0, fmt.Errorf("--priority %q is none, urgent, high, medium or low", s)
 }
 
-// projectOf is the id of the project --project names, by its id or its name in any case; none is "".
+// projectOf is the id of the project --project names, a department of the sidebar (issue #1188) by its id or its
+// name, in its case first and then in any case; none is "".
 func projectOf(ctx context.Context, e *env, named string) (string, error) {
 	named = strings.TrimSpace(named)
 	if strings.EqualFold(named, "none") {
 		return "", nil
 	}
 
-	resp, err := e.api.ListInboxProjectsWithResponse(ctx)
+	resp, err := e.api.ListDepartmentsWithResponse(ctx)
 	if err != nil {
-		return "", fmt.Errorf("listing the inbox's projects: %w", err)
+		return "", fmt.Errorf("listing the departments: %w", err)
 	}
 
 	if resp.JSON200 == nil {
-		return "", apiError("listing the inbox's projects", resp.StatusCode(), resp.JSONDefault)
+		return "", apiError("listing the departments", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	for _, d := range resp.JSON200.Data {
+		if d.Id == named || d.Name == named {
+			return d.Id, nil
+		}
 	}
 
 	names := make([]string, 0, len(resp.JSON200.Data))
 
-	for _, p := range resp.JSON200.Data {
-		if p.Id == named || strings.EqualFold(p.Name, named) {
-			return p.Id, nil
+	for _, d := range resp.JSON200.Data {
+		if strings.EqualFold(d.Name, named) {
+			return d.Id, nil
 		}
 
-		names = append(names, p.Name)
+		names = append(names, d.Name)
 	}
 
-	return "", fmt.Errorf("--project %q is none of the projects: %s", named, strings.Join(names, ", "))
+	return "", fmt.Errorf("--project %q is none of the departments: %s", named, strings.Join(names, ", "))
 }
 
 func inboxList(ctx context.Context, e *env, fs *flag.FlagSet) error {

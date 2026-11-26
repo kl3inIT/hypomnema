@@ -41,7 +41,7 @@ import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { CommentComposer, CommentTimeline } from "./inbox-comments"
-import { InboxMarkdown } from "./inbox-markdown"
+import { InboxItemSource, InboxMarkdown } from "./inbox-markdown"
 import { KindIcon, RowActions } from "./inbox-row"
 import {
   detailActions,
@@ -496,7 +496,7 @@ function TodoBody({
   ]
 
   return (
-    <>
+    <InboxItemSource source={todo.source}>
       <Head
         row={row}
         now={now}
@@ -512,7 +512,7 @@ function TodoBody({
       <Fields rows={fields} />
       {todo.notes && (
         <div data-slot="notes" className="text-foreground/85">
-          <InboxMarkdown text={todo.notes} breaks />
+          <InboxMarkdown text={todo.notes} paragraphs />
         </div>
       )}
       {todo.source.quote && (
@@ -551,7 +551,7 @@ function TodoBody({
         )}
         <CommentComposer key={todo.id} todo={todo} mainBot={mainBot} botName={botName} />
       </Section>
-    </>
+    </InboxItemSource>
   )
 }
 
