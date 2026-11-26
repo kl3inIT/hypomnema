@@ -18,6 +18,12 @@ export function mainBotOf(bots: Pick<Bot, "id" | "main">[] | undefined) {
   return bots?.find((bot) => bot.main)?.id ?? ""
 }
 
+// pickedBotOf is the Bot a new chat talks with, of the one picked (issue #466): until the Bots are read, the one picked
+// stands; one the list does not have, a draft's from before, is the main Bot.
+export function pickedBotOf(bots: Pick<Bot, "id" | "main">[] | undefined, picked: string) {
+  return !bots || bots.some((bot) => bot.id === picked) ? picked : mainBotOf(bots)
+}
+
 // A Named is a Bot or a removed Bot as the Bots' list gives it: its id and its name.
 type Named = Pick<Bot, "id" | "name">
 

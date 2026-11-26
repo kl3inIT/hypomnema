@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { AvatarName } from "@/components/agent-avatar"
-import { mainBotOf } from "@/features/bots/bots-state"
+import { pickedBotOf } from "@/features/bots/bots-state"
 import { useBotNames, useBots } from "@/features/bots/use-bots"
 import { AppSidebar } from "@/features/shell/app-shell"
 import { MenuButton, PageHeader } from "@/components/page-header"
@@ -52,18 +52,20 @@ function NewChat({ initialBot }: { initialBot?: string }) {
   const listed = useBots().data
   const botName = useBotNames()
   const bots = listed ?? []
-  const main = mainBotOf(listed)
   const [picked, setPicked] = useState(initialBot ?? saved.bot ?? "")
   const choice = bots.length > 1
   // Until the Bots are read, the one picked stands, so that the files of the draft do not move meanwhile.
-  // A Bot is picked by its id (issue #466); one the list does not have, a draft's from before, is the main Bot.
-  const bot = !listed || bots.some((b) => b.id === picked) ? picked : main
+  const bot = pickedBotOf(listed, picked)
   const [chatId] = useState(() => saved.chat ?? newChatId())
   const attachments = useAttachments(chatId, bot, { files: saved.files, bot: saved.bot ?? bot })
   const [model, setModel] = useDraftChoice(bot)
 
-  const start = useStartChat(chatId, choice ? bot : undefined, model, (chat) =>
-    navigate({ to: "/chats/$chatId", params: { chatId: chat.id } }),
+  // The Bot is named out of the Bots read when the message is sent, which it waits for (issue #1055).
+  const start = useStartChat(
+    chatId,
+    (read) => (read.length > 1 ? pickedBotOf(read, picked) : undefined),
+    model,
+    (chat) => navigate({ to: "/chats/$chatId", params: { chatId: chat.id } }),
   )
 
   return (
@@ -97,7 +99,8 @@ function NewChat({ initialBot }: { initialBot?: string }) {
             </div>
           )}
           <Composer
-            onSend={(text, files) => start.mutateAsync({ text, files })}
+            onSend={start.send}
+            ready={start.ready}
             onStop={() => {}}
             working={false}
             botName={botName(bot)}
