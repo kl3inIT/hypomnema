@@ -104,15 +104,20 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"such as Asia/Ho_Chi_Minh."},
 	}
 	fields := map[string]any{
-		"title":     map[string]any{"type": "string", "maxLength": inboxstore.MaxTitle},
-		"notes":     map[string]any{"type": "string", "maxLength": inboxstore.MaxNotes},
+		"title": map[string]any{"type": "string", "maxLength": inboxstore.MaxTitle},
+		// The notes are Markdown, ids linked by the Inbox, in short sections once enriched (issue #1173).
+		"notes": map[string]any{"type": "string", "maxLength": inboxstore.MaxNotes, "description": "Markdown, " +
+			"which the Inbox shows with the ids of meetings, chats, Runs and Tasks (mtg_…, cht_…, run_…, tsk_…) as " +
+			"links: write an id as it is. When you enrich an item, write them as short sections, a ## heading " +
+			"each, only those that have something: Source, Meeting, Plan (a numbered list); keep every fact."},
 		"done_when": map[string]any{"type": "string", "maxLength": inboxstore.MaxDoneWhen},
 		"draft": map[string]any{"type": "string", "maxLength": inboxstore.MaxDraft, "description": "The reply " +
 			"you drafted for the owner to send himself."},
 		// Priority and project (issue #1157), on Linear's scale, as its MCP's save_issue takes it.
 		"priority": map[string]any{"type": "integer", "minimum": inboxstore.NoPriority, "maximum": inboxstore.Low,
 			"description": "0 no priority, 1 urgent, 2 high, 3 medium, 4 low: how much it matters to the owner " +
-				"now. Give priority_reason with it."},
+				"now. Give priority_reason with it; give one to every item you add or enrich that has none, with " +
+				"its project when one fits."},
 		"priority_reason": map[string]any{"type": "string", "maxLength": inboxstore.MaxPriorityReason,
 			"description": "Why it has that priority, in one line the owner reads beside it."},
 		"project": map[string]any{"type": "string", "description": "The owner's project it belongs to, by its " +

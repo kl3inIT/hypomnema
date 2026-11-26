@@ -1,17 +1,21 @@
 import { Link } from "@tanstack/react-router"
 import {
+  CalendarDays,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronUp,
+  CircleUserRound,
   Copy,
   ExternalLink,
   Pencil,
   Send,
+  User,
 } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 
 import type { Todo } from "@/api/generated/types.gen"
+import { AgentAvatar } from "@/components/agent-avatar"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,9 +26,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { PrioritySelector } from "@/components/ui/priority"
 import { ProjectSelector, type ProjectChoice } from "@/components/ui/project-selector"
+import { StatusSelector } from "@/components/ui/status"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/toast"
 import { ApprovalCard } from "@/features/approvals/approval-card"
@@ -32,18 +38,23 @@ import { QuestionForm } from "@/features/questions/question-form"
 import { useServices } from "@/features/settings/use-integrations"
 import { errorText } from "@/lib/server-error"
 import { since } from "@/lib/time"
+import { cn } from "@/lib/utils"
 
 import { CommentComposer, CommentTimeline } from "./inbox-comments"
+import { InboxMarkdown } from "./inbox-markdown"
 import { KindIcon, RowActions } from "./inbox-row"
 import {
   detailActions,
   dueOf,
+  dueTones,
   isClosed,
   groupNames,
+  lateBy,
   placeOf,
   sourceNames,
   sourceOf,
   sourceTarget,
+  statusMoves,
   type Action,
   type GroupId,
   type Origin,
@@ -158,6 +169,7 @@ export function InboxDetail({
               projects={projects}
               onPriority={onPriority}
               onProject={onProject}
+              onStatus={(move) => !pending && onAction(move)}
             />
           )}
           {row.kind === "approval" && (
@@ -281,6 +293,37 @@ function whoOf(todo: Todo, botName: (id: string) => string) {
   }
 }
 
+// WhoAvatar is who does a to-do, as circle's AssigneeUser draws an assignee (components/common/issues/
+// assignee-user.tsx): an Avatar of size 6 with the first letter of a person's name, the face of a Bot as the
+// chat and the comments show it, the owner's mark as his comments have it, and an empty user's circle when nobody
+// is known yet.
+function WhoAvatar({ todo, botName }: { todo: Todo; botName: (id: string) => string }) {
+  const { assignee } = todo
+  if (assignee.kind === "unknown") {
+    return (
+      <span data-slot="who-avatar" className="flex size-6 shrink-0 items-center justify-center">
+        <CircleUserRound aria-hidden className="size-5 text-muted-foreground" />
+      </span>
+    )
+  }
+
+  return (
+    <span data-slot="who-avatar" data-who={assignee.kind} className="inline-flex shrink-0">
+      <Avatar size="sm">
+        <AvatarFallback>
+          {assignee.kind === "bot" ? (
+            <AgentAvatar name={botName(assignee.name ?? "")} className="size-6" />
+          ) : assignee.kind === "me" ? (
+            <User aria-hidden className="size-3.5" />
+          ) : (
+            (assignee.name?.trim()[0] ?? "?").toUpperCase()
+          )}
+        </AvatarFallback>
+      </Avatar>
+    </span>
+  )
+}
+
 // OpenSource leads to where a to-do was read (sourceTarget): its chat, a Gmail thread in the owner's account the
 // Bot read it with, a meeting at its line, or the message's web address.
 function OpenSource({ todo, name }: { todo: Todo; name: string }) {
@@ -347,6 +390,7 @@ function TodoBody({
   projects,
   onPriority,
   onProject,
+  onStatus,
 }: {
   row: Extract<Row, { kind: "todo" }>
   now: number
@@ -358,6 +402,7 @@ function TodoBody({
   projects: ProjectChoice[]
   onPriority?: (priority: number) => void
   onProject?: (project: string | undefined) => void
+  onStatus: (move: Action) => void
 }) {
   const { todo } = row
   const detail = useTodo(todo.id)
@@ -366,16 +411,28 @@ function TodoBody({
   const source = sourceNames[kind]
   const place = placeOf(row, origin, botName)
   const due = dueOf(todo, now)
+  const late = lateBy(todo, now)
   // Only what is said shows: an empty field is left out, not written "Not said" (issue #1110).
   const doneWhen =
     todo.done_when ||
     (todo.why_open === "asked_directly" ? "You answer in this chat; it closes by itself" : "")
   const linked = linkedOf(todo, botName)
-  // Its priority and project, each its own picker, as circle's issue properties panel (MIT, Copyright (c) 2025
-  // lndev-ui; components/common/issues/details/issue-properties-panel.tsx), with the reason the priority was set for
-  // (issue #1157). A closed item keeps them as they were.
+  // Its properties as circle's issue properties panel (MIT, Copyright (c) 2025 lndev-ui;
+  // components/common/issues/details/issue-properties-panel.tsx), each an icon and its value: its status, changed
+  // with the same actions as the top bar's (issue #1173); its priority, with the reason it was set for, and its
+  // project, each its own picker (issue #1157), which a closed item keeps as they were; who does it with their
+  // avatar, as circle's AssigneeUser; and its date with a calendar, late in the late colour with how late.
   const locked = isClosed(todo)
   const fields: [string, ReactNode][] = [
+    [
+      "Status",
+      <StatusSelector
+        key="status"
+        value={todo.state}
+        moves={statusMoves(row, now)}
+        onChange={onStatus}
+      />,
+    ],
     [
       "Priority",
       <span key="priority" className="flex flex-wrap items-center gap-2">
@@ -402,8 +459,32 @@ function TodoBody({
         onChange={(project) => onProject?.(project)}
       />,
     ],
-    ["Who", throughWhom(todo, whoOf(todo, botName), botName)],
-    ...(due ? ([["Date", due.text]] as [string, ReactNode][]) : []),
+    [
+      "Who",
+      <span key="who" className="flex min-w-0 items-center gap-2">
+        <WhoAvatar todo={todo} botName={botName} />
+        <span className="min-w-0 break-words">
+          {throughWhom(todo, whoOf(todo, botName), botName)}
+        </span>
+      </span>,
+    ],
+    ...(due
+      ? ([
+          [
+            "Date",
+            <span
+              key="date"
+              data-slot="due"
+              data-tone={due.tone}
+              className={cn("flex flex-wrap items-center gap-x-2 gap-y-0.5", dueTones[due.tone])}
+            >
+              <CalendarDays aria-hidden className="size-4 shrink-0" />
+              {due.text}
+              {late && <span className="font-medium">Late · {late}</span>}
+            </span>,
+          ],
+        ] as [string, ReactNode][])
+      : []),
     ...(doneWhen ? ([["Done when", doneWhen]] as [string, ReactNode][]) : []),
     ...(linked ? ([["Linked", linked]] as [string, ReactNode][]) : []),
     ...(todo.snoozed_until && Date.parse(todo.snoozed_until) > now
@@ -430,7 +511,11 @@ function TodoBody({
         {todo.title}
       </Head>
       <Fields rows={fields} />
-      {todo.notes && <p className="text-sm whitespace-pre-wrap text-foreground/85">{todo.notes}</p>}
+      {todo.notes && (
+        <div data-slot="notes" className="text-foreground/85">
+          <InboxMarkdown text={todo.notes} breaks />
+        </div>
+      )}
       {todo.source.quote && (
         <Said todo={todo} origin={origin}>
           <OpenSource todo={todo} name={source} />

@@ -5054,7 +5054,11 @@ its client API, its CLI and the Bots' tools.
   direct chats and those that tag or name the owner first, then groups, mail and meetings; the rest is carried in the
   check's state, named first next time and waking the Bot even with nothing new (issue #1101). A conversation of
   Zalo or WhatsApp is named `<integration>:<label>`, the label the reads' answers give when the Bot has one account
-  and its tools' schemas name none (issue #1124). The Routine's
+  and its tools' schemas name none (issue #1124). After the batch, `triage` gives a priority with its reason and a
+  project to each open or proposed item of its own that has none (those added before #1157; the store lets a Bot
+  edit only the items it added or was given, so the owner's own stay his to set), and writes an enriched item's
+  notes as short Markdown sections, Source, Meeting and Plan, as the `notes` and `priority` fields of `inbox_add`
+  and `inbox_update` tell every Bot (issue #1173). The Routine's
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
@@ -6287,8 +6291,18 @@ Node (`internal/node`):
     chosen; when nothing waits, the right pane says so with the to-dos added and closed today.
   - The detail: previous and next with "n of N in <group>"; a to-do's Snooze (Later today, Tomorrow, Monday, Next
     week, Pick a time; Orca's presets), Drop and Done, a proposal's Accept and Drop; the channel's mark and name and
-    the chat's, the person's or the meeting's name; Who (with the Bot it was passed through, "Hypo → BeyondPilot";
-    issue #1118), and the Date, Done when, Linked only when said; what was
+    the chat's, the person's or the meeting's name; its properties as circle's `issue-properties-panel.tsx`, each an
+    icon and its value (issue #1173): Status, circle's status icon and its name (`web/src/components/ui/status.tsx`:
+    circle's icons and `StatusSelector`; proposed is Triage, open Todo, doing In Progress, review Technical Review,
+    done Done, dropped Canceled, duplicate Duplicate), a picker offering the states the top bar's actions move it to
+    (`statusMoves`), a pick running that action; Priority and Project; Who with the avatar of who does it, as
+    circle's `AssigneeUser` (a Bot's face, a person's initial, the owner's mark), with the Bot it was passed through
+    ("Hypo → BeyondPilot"; issue #1118); and the Date with a calendar, coloured by its tone as the row's, a late one
+    saying how late, "Late · 2 days" (`lateBy`); Done when and Linked only when said. The description renders as
+    Markdown with the chat's renderer, each line break kept (as remark-breaks), and its ids, as a comment's, are
+    links named by what they name (`features/inbox/inbox-text.ts`, `inbox-markdown.tsx`): `mtg_…` the meeting's
+    title to its page, `cht_…` the chat's title to the chat, `tsk_…` the Task's first line to it on Team, `run_…` the
+    Run's objective to its first Task on Team; the text is kept as written, an id in code stays code; what was
     said under who said it (the message's sender, the meeting's speaker and the meeting's name), with Open in its
     chat (a Gmail thread opens in Gmail in the account it was read with,
     `https://mail.google.com/mail/u/<address>/#all/<thread>` after inbox-zero's `getGmailUrl`, the address from `GET
@@ -6303,7 +6317,7 @@ Node (`internal/node`):
     gave it back to you"; a Run started, a pull request linked, reopened; closed as done in violet with its
     reason), two or more changes in a row by one actor folded into "Hypo did 5 steps · 10:03–10:41" (AI Elements'
     chain of thought, `web/src/components/chain-of-thought.tsx`), and each comment a card with its face, name, a
-    Bot tag and time, its Markdown rendered by the chat's renderer and each top-level `<details>` folded under its
+    Bot tag and time, its Markdown rendered by the chat's renderer, its ids as links, and each top-level `<details>` folded under its
     `<summary>` in a Collapsible (`reportOf`, as CodeRabbit's summary comment). Under them a link to the item's chat
     and the chat's composer (Enter sends): on an item no Bot has it reads "Message Hypo…" and **Hand to Hypo**
     hands it to the main Bot with the text as its prompt (`POST /inbox/{id}/hand`); on one a Bot has, Send
