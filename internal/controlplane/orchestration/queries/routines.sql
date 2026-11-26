@@ -50,7 +50,7 @@ WHERE id = @id;
 -- name: SettleRoutine :exec
 -- What a run's end means for its Routine. It is not a change of the Routine: updated_at stays.
 UPDATE routines SET state = @state, paused_reason = @paused_reason, next_run_at = @next_run_at, failures = @failures,
-    alerted_at = @alerted_at
+    alerted_at = @alerted_at, resume_run_id = @resume_run_id
 WHERE id = @id;
 
 -- name: SetRoutineNextRun :exec
@@ -71,11 +71,16 @@ INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at
 VALUES (@chat_id, 'system', 'wake', @text, 1, @now, @read_run);
 
 -- name: InsertRoutineRun :exec
--- The run keeps a copy of what its Routine was when it started: its access, its prompt and its script (#1023).
+-- The run keeps a copy of what its Routine was when it started: its access, its prompt and its script (#1023), and
+-- the run a restart cut that it catches up (#1170).
 INSERT INTO routine_runs (id, routine_id, started_by, state, started_at, chat_id, access, prompt, script, script_text,
-                          timeout_seconds)
+                          timeout_seconds, resumes_run_id)
 VALUES (@id, @routine_id, @started_by, 'running', @now, @chat_id, @access, @prompt, @script, @script_text,
-        @timeout_seconds);
+        @timeout_seconds, @resumes_run_id);
+
+-- name: TakeRoutineResume :exec
+-- The run that starts is the catch-up of the run a restart cut: no other run is (#1170).
+UPDATE routines SET resume_run_id = NULL WHERE id = @id;
 
 -- name: OpenRoutineRunChat :execrows
 -- A prompt run whose script said to wake the Bot gets its chat then (issue #656), once, while it is live.
