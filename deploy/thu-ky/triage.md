@@ -55,12 +55,19 @@ Ask it of each ask, promise or piece of work, in a chat, a mail thread or a meet
 
 1. **His.** He is asked, tagged or written to (a direct chat, a mail to him), or he promised it: items 4 and 5 below,
    `asked_directly` or `promised`.
-2. **Waiting on others.** He waits on a person:
+2. **Waiting on others.** He waits on a person, only in one of these cases (owner, 2026-11-26):
    - he gave it to them ("Đức Anh làm nhé", "@Việt check giúp anh");
-   - they promised it to him or his project ("mình gửi anh file thứ Sáu", "I'll send you the deck");
-   - they took an ask to him in his place: their first-person claim answers that ask, replying to it, quoting it, or
-     right after it on the same thing ("em nhận", "để em làm", "em xử lý nhé"). The asker taking it back ("thôi để
-     mình tự làm") counts too.
+   - they promised him something he needs to go on with his own work: a file, a document, an access, an API, a
+     payment, or the sign-off of his work ("mình gửi anh file thứ Sáu", "I'll send you the deck", "khi nào được cô
+     báo nghiệm thu");
+   - they took an ask **to him** (rule 1: he was tagged, named or written to) in his place: their first-person claim
+     answers that ask, replying to it, quoting it, or right after it on the same thing ("em nhận", "để em làm", "em
+     xử lý nhé"). The asker taking it back ("thôi để mình tự làm") counts too.
+
+   Not waiting, and so rule 4: a team's own planning (listing tasks, splitting work, who joins which team), and an
+   ask to the group or the team that a teammate took (Nathan asks the team, Đức Anh says he will do it): that work
+   is theirs. Several steps you wait on from one party are one item ("Chờ Alibaba: tài liệu API + duyệt test"), not
+   one per step.
 
    The item is open, given to that person (`assignee_kind` `person`), with `why_open` `waiting` and `waiting_on`:
    their `name` as his context's People names them, else as the chat does (it is only a note for him); the `quote`
@@ -68,10 +75,10 @@ Ask it of each ask, promise or piece of work, in a chat, a mail thread or a meet
    to chase them.
 3. **A group ask nobody took.** The ask goes to the group or the team ("team ơi", "anyone", a mail to a list he is
    on) and nobody clearly took it: his proposal, `assignee_kind` `me`, with the note "Hỏi cả nhóm, chưa ai nhận".
-   Never guess who will do it.
+   Never guess who will do it. Once a teammate clearly takes it, it is rule 4: drop his proposal with the quote as
+   the reason.
 4. **Not him.** Work one person asks of another, or promises another, that he neither gave, nor is owed, nor was
-   asked: add nothing. When you are unsure whether it is his project, his context's "Projects and teams" decides;
-   without it, it is not his.
+   asked: add nothing. That it is in one of his projects does not make it his: when unsure, it is not his.
 
 **Moving what is already listed.** When a later message puts the work of an item you added under rule 2, move it
 with `inbox_update`, its `id` and `waiting_on` alone, without asking him: it is given to that person, opens, and
@@ -154,9 +161,10 @@ involves him:
 
 - Its owner is him ("You", or his name): an open item with `why_open` `promised`, the action's words as `quote`,
   `source` `meeting` with the meeting's id, and `message` `meeting_line` with the ref `<meeting id>/<line>`.
-- Another person's, and the meeting shows it is for him (he gave it, it is promised to him, or it is his project per
-  his context): rule 2, open, given to them, `why_open` `waiting`, with `waiting_on` set to that action's line
-  (`meeting_line` `<meeting id>/<line>`).
+- Another person's, and the meeting shows it is one of rule 2's cases (he gave it to them, or they owe him something
+  he needs for his own work): rule 2, open, given to them, `why_open` `waiting`, with `waiting_on` set to that
+  action's line (`meeting_line` `<meeting id>/<line>`). That it is in his project is not enough: a team's planning
+  ("em list task rồi chia việc cho anh em") is rule 4.
 - No owner: rule 3, his proposal with the note "Cuộc họp giao cả nhóm, chưa ai nhận".
 - Any other: rule 4, add nothing.
 

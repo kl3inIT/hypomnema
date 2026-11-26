@@ -4952,8 +4952,10 @@ its client API, its CLI and the Bots' tools.
   waking nobody.
 - Waiting on others (`inboxstore/waiting.go`; issue #1142, the owner's rules of 2026-11-25: an item is his when he
   is asked, tagged or written to or he promised; waiting on someone when he gave the work to a person, a person
-  promised it to him or his project, or took an ask to him in his place; his proposal, "asked the whole group",
-  when a group ask has no taker; not added when it is work between others): such an item is open, given to the
+  owes him something he needs for his own work (a file, an access, an API, a payment, the sign-off of his work), or
+  took an ask to him in his place; his proposal, "asked the whole group", when a group ask has no taker; not added
+  when it is work between others, a team's own planning or a group ask a teammate took, narrowed by the owner on
+  2026-11-26): such an item is open, given to the
   person, with `why_open` `waiting`. A Bot adds one with `waiting_on` `{by, quote, ref}` (the person, their words and
   the message of the item's own source: its `sourceMessage` kind, or a `meeting_line` `<meeting>/<line>` of its own
   meeting, whose shape `checkLink` checks for every `meeting_line`; a meeting's item may then name no line of its
