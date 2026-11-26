@@ -45,6 +45,7 @@ import { InboxMarkdown } from "./inbox-markdown"
 import { KindIcon, RowActions } from "./inbox-row"
 import {
   detailActions,
+  doneWhenOf,
   dueOf,
   dueTones,
   isClosed,
@@ -413,9 +414,7 @@ function TodoBody({
   const due = dueOf(todo, now)
   const late = lateBy(todo, now)
   // Only what is said shows: an empty field is left out, not written "Not said" (issue #1110).
-  const doneWhen =
-    todo.done_when ||
-    (todo.why_open === "asked_directly" ? "You answer in this chat; it closes by itself" : "")
+  const doneWhen = doneWhenOf(todo)
   const linked = linkedOf(todo, botName)
   // Its properties as circle's issue properties panel (MIT, Copyright (c) 2025 lndev-ui;
   // components/common/issues/details/issue-properties-panel.tsx), each an icon and its value: its status, changed
@@ -541,6 +540,8 @@ function TodoBody({
           from={fromOf(todo, kind, origin)}
           botName={botName}
           projectName={(id) => projects.find((p) => p.id === id)?.name}
+          source={todo.source}
+          chats={chats}
         />
         {todo.chat_id && (
           <OpenChat chatId={todo.chat_id}>

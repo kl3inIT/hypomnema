@@ -129,6 +129,8 @@ export type TodoAct =
   | { act: "project"; project: string }
   // hand gives the item to a Bot, the main Bot when none is named, as writing to it does (issue #1143).
   | { act: "hand"; bot?: string }
+  // take_back gives the item to the owner, from the person it waited on (issue #1142).
+  | { act: "take_back" }
 
 // useTodoAct changes a to-do with the call its button names, carrying the revision read; a stale one is the
 // server's conflict, shown as it says it.
@@ -159,6 +161,8 @@ export function useTodoAct() {
           return (await editTodo({ path, body: { revision, project_id: change.project } })).data
         case "hand":
           return (await handTodo({ path, body: { revision, bot: change.bot || undefined } })).data
+        case "take_back":
+          return (await editTodo({ path, body: { revision, assignee: { kind: "me" } } })).data
       }
     },
     onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),

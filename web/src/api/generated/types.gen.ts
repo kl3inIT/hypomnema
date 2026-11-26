@@ -5295,9 +5295,9 @@ export type TodoSource = {
 };
 
 /**
- * Why an item a Routine's run found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself.
+ * Why an item a Bot found starts open: asked_directly, someone tagged or messaged the owner and he has not answered; promised, the owner promised it himself; waiting, he waits on a person, given the item: he gave it to them, it was promised to him, or someone took it in his place. The message that shows it is in the item's history (the event's after.waiting_on); giving the item to anyone else clears it.
  */
-export type TodoWhyOpen = 'asked_directly' | 'promised';
+export type TodoWhyOpen = 'asked_directly' | 'promised' | 'waiting';
 
 export type TodoActorKind = 'owner' | 'bot' | 'system';
 
@@ -5345,7 +5345,7 @@ export type TodoEvent = {
     [key: string]: unknown;
   };
   /**
-   * The fields that changed, after.
+   * The fields that changed, after. A Bot's created or edited event that put the item in Waiting on others holds waiting_on too: {by, quote, ref}, the person, their words and the message of the item's own source that shows it (a TodoLink).
    */
   after: {
     [key: string]: unknown;

@@ -54,7 +54,9 @@ const todo = (id: string, title: string, m: object = {}): Todo => ({
 // to-do (issue #1115). passed adds a to-do Hypo passed to the BeyondPilot Bot (issue #1118). worked adds one Hypo
 // works on, with its steps and its report, and one it closed as done (issue #1143). projects keeps the owner's
 // projects VMAP and BeyondPilot, puts the reply to Kai in BeyondPilot and the invoice in VMAP, and gives the open
-// items their priorities (issue #1157). described adds the owner's own report for Laura, two days late, its
+// items their priorities (issue #1157). waiting moves the contract Lan sends to Waiting on others, with the message
+// she took it in, and adds a meeting's action Hà took on, waiting on her from its line (issue #1142).
+// described adds the owner's own report for Laura, two days late, its
 // description in Markdown sections naming a meeting and a chat by their ids (issue #1173).
 function world({
   review = false,
@@ -64,6 +66,7 @@ function world({
   passed = false,
   worked = false,
   projects: withProjects = false,
+  waiting = false,
   described = false,
 }: {
   review?: boolean
@@ -73,6 +76,7 @@ function world({
   passed?: boolean
   worked?: boolean
   projects?: boolean
+  waiting?: boolean
   described?: boolean
 } = {}) {
   let release = () => {}
@@ -385,6 +389,32 @@ function world({
       after: { text: report },
     },
   ]
+  // createdWith is what an item's created event holds besides its title.
+  const createdWith: Record<string, Record<string, unknown>> = {}
+  if (waiting) {
+    Object.assign(
+      todos.find((t) => t.id === "tdo_chase")!,
+      { why_open: "waiting", revision: 2 },
+    )
+    todos.push(
+      todo("tdo_deck", "Hà sends the tiles report", {
+        why_open: "waiting",
+        assignee: { kind: "person", name: "Hà" },
+        due: { kind: "date", date: dayIn(2), zone: "Asia/Ho_Chi_Minh" },
+        source: { kind: "meeting", id: "mtg_1", quote: "Để em check tiles rồi gửi anh báo cáo." },
+      }),
+    )
+    createdWith.tdo_deck = {
+      assignee_kind: "person",
+      assignee: "Hà",
+      why_open: "waiting",
+      waiting_on: {
+        by: "Hà",
+        quote: "Để em check tiles rồi gửi anh báo cáo.",
+        ref: { kind: "meeting_line", ref: "mtg_1/12" },
+      },
+    }
+  }
   const closed = (t: Todo) => ["done", "dropped", "duplicate"].includes(t.state)
   const sent: { path: string; body: unknown }[] = []
   // threads are each to-do's history past its creation: the hand-over, the comments (issue #1111).
@@ -428,6 +458,27 @@ function world({
           ],
         }
       : {}
+  if (waiting)
+    threads.tdo_chase = [
+      {
+        id: 2,
+        at: at(-3 * hour),
+        revision: 2,
+        actor: { kind: "bot", id: "thu-ky" },
+        kind: "edited",
+        before: { assignee_kind: "me", assignee: "", why_open: "asked_directly" },
+        after: {
+          assignee_kind: "person",
+          assignee: "Lan",
+          why_open: "waiting",
+          waiting_on: {
+            by: "Lan",
+            quote: "Em nhận nhé, chiều em gửi anh bản ký.",
+            ref: { kind: "zalo_message", ref: "z2" },
+          },
+        },
+      },
+    ]
   const remember = (t: Todo, event: Record<string, unknown>) => {
     const thread = (threads[t.id] ??= [])
     thread.push({ id: thread.length + 2, at: at(0), revision: t.revision, before: {}, ...event })
@@ -515,6 +566,16 @@ function world({
             if (typeof body.priority === "number")
               Object.assign(t, { priority: body.priority, priority_reason: "" })
             if (typeof body.project_id === "string") t.project_id = body.project_id || undefined
+            // Take it back (issue #1142): his again, waiting on no one.
+            if (body.assignee) {
+              Object.assign(t, { assignee: body.assignee, why_open: undefined })
+              remember(t, {
+                actor: { kind: "owner" },
+                kind: "edited",
+                before: { assignee_kind: "person", assignee: "Lan", why_open: "waiting" },
+                after: { assignee_kind: "me", assignee: "", why_open: null },
+              })
+            }
 
             return json(t)
           }
@@ -529,7 +590,7 @@ function world({
                   actor: { kind: "bot", id: "thu-ky" },
                   kind: "created",
                   before: {},
-                  after: { title: t.title },
+                  after: { title: t.title, ...createdWith[t.id] },
                 },
                 ...(threads[t.id] ?? []),
               ],
@@ -740,6 +801,27 @@ function world({
                     ]
                   : [],
             })
+          case "/integrations/zalo/connections/main/messages":
+            return json({
+              data:
+                url.searchParams.get("id") === "z2"
+                  ? [
+                      {
+                        id: "z2",
+                        chat: "2261258766901429891",
+                        chat_name: "Lan",
+                        sender: "lan",
+                        sender_name: "Lan Phạm",
+                        at: at(-3 * hour),
+                        from_me: false,
+                        text: "Em nhận nhé, chiều em gửi anh bản ký.",
+                        edited: false,
+                        revoked: false,
+                        media_kept: false,
+                      },
+                    ]
+                  : [],
+            })
           case `/meetings/${laurasMeeting}`:
             return json({
               meeting: { id: laurasMeeting, title: "Họp với cô Laura về Cốc Cốc", speakers: [] },
@@ -902,11 +984,14 @@ test("the owner copies a reply's draft, marks it done, and the next item opens",
   await expect(kai.locator('[data-source="whatsapp"]')).toHaveText("WhatsApp")
   await expect(rowsOf(page, "Working")).toHaveText([/Draft the weekly report.*Thư ký/])
   await expect(rowsOf(page, "Open")).toHaveText([
-    /Lan sends the signed contract.*Lan.*Late · Chase yesterday/,
     /Send the invoice to ELITEX.*ELITEX.*Due tomorrow/,
   ])
   await expect(rowsOf(page, "Proposed")).toHaveText([/Book the meeting room/])
-  // Snoozed and Done are folded, with their counts.
+  // Waiting on others, Snoozed and Done are folded, with their counts: what Lan sends is hers until its chase day.
+  await expect(
+    group(page, "Waiting on others").getByRole("button", { name: /Waiting on others/ }),
+  ).toHaveAttribute("aria-expanded", "false")
+  await expect(rowsOf(page, "Waiting on others")).toHaveCount(0)
   await expect(group(page, "Snoozed").getByRole("button", { name: /Snoozed/ })).toHaveAttribute(
     "aria-expanded",
     "false",
@@ -1374,12 +1459,11 @@ test("the owner changes a priority with one click and the list orders by it", as
   await page.goto("/inbox")
 
   const open = rowsOf(page, "Open")
-  await expect(open).toHaveCount(3)
+  await expect(open).toHaveCount(2)
   await expect(open.nth(0)).toContainText("Send Laura the weekly report")
-  await expect(open.nth(1)).toContainText("Lan sends the signed contract")
-  await expect(open.nth(2)).toContainText("Send the invoice to ELITEX")
+  await expect(open.nth(1)).toContainText("Send the invoice to ELITEX")
   await expect(open.nth(0).getByRole("combobox", { name: "Priority: Urgent" })).toBeVisible()
-  await expect(open.nth(2)).toContainText("VMAP")
+  await expect(open.nth(1)).toContainText("VMAP")
 
   const reply = rowsOf(page, "Needs you").filter({ hasText: "Reply to Kai Yong" })
   await expect(reply.getByRole("combobox", { name: "Priority: Urgent" })).toHaveAttribute(
@@ -1387,7 +1471,7 @@ test("the owner changes a priority with one click and the list orders by it", as
     "Kai needs it before Friday",
   )
 
-  await open.nth(2).getByRole("combobox", { name: "Priority: Medium" }).click()
+  await open.nth(1).getByRole("combobox", { name: "Priority: Medium" }).click()
   await expect(page.getByRole("option", { name: "Urgent" })).toBeVisible()
   await shot(page, "inbox-priority-picker")
   await page.getByRole("option", { name: "Urgent" }).click()
@@ -1456,7 +1540,7 @@ test("the project filter shows one project's items, and the owner adds a project
   const w = world({ projects: true })
   await w.serve(page)
   await page.goto("/inbox")
-  await expect(rowsOf(page, "Open")).toHaveCount(3)
+  await expect(rowsOf(page, "Open")).toHaveCount(2)
 
   const filter = list(page).getByRole("button", { name: "Project: Every project" })
   await filter.click()
@@ -1479,6 +1563,61 @@ test("the project filter shows one project's items, and the owner adds a project
   await expect
     .poll(() => w.sent.find((s) => s.path === "/inbox/projects")?.body)
     .toEqual({ name: "SecondBite", color: "#4cb782" })
+})
+
+// Scenario: issue #1142, rule 2. Lan took the contract the owner was asked for, and the Thư ký moved it to Waiting on
+// others; Hà took a meeting's action on. The group starts folded; opened, it lists both with their chase days. Lan's
+// item says in its history who moved it, to whom, and her words, with the name and time the server keeps of her Zalo
+// message; Hà's says she was waited on from the meeting's line, which opens the meeting there. Take it back gives
+// Lan's item to the owner at the revision read: it is in Open, his again.
+test("an item a teammate took waits on them, and Take it back makes it his again", async ({
+  page,
+}) => {
+  const w = world({ waiting: true })
+  await w.serve(page)
+  await page.goto("/inbox")
+
+  const fold = group(page, "Waiting on others").getByRole("button", { name: /Waiting on others/ })
+  await expect(fold).toHaveAttribute("aria-expanded", "false")
+  await fold.click()
+  const waiting = rowsOf(page, "Waiting on others")
+  await expect(waiting).toHaveText([
+    /Lan sends the signed contract.*Lan.*Late · Chase yesterday/,
+    /Hà sends the tiles report.*Chase /,
+  ])
+  await expect(rowsOf(page, "Open")).toHaveText([/Send the invoice to ELITEX/])
+  await shot(page, "inbox-waiting")
+
+  await waiting.filter({ hasText: "Lan sends" }).getByRole("button").first().click()
+  const detail = item(page)
+  const comments = detail.getByRole("region", { name: "Comments" })
+  await expect(comments).toContainText("Thư ký moved it to Waiting on Lan")
+  await expect(comments.getByRole("blockquote")).toHaveText("Em nhận nhé, chiều em gửi anh bản ký.")
+  await expect(comments.getByRole("figure")).toContainText("Lan Phạm")
+  await expect(detail).not.toContainText("You answer in this chat")
+  await comments.scrollIntoViewIfNeeded()
+  await shot(page, "inbox-waiting-history")
+
+  await detail.getByRole("button", { name: "Take it back" }).click()
+  await expect
+    .poll(() => w.sent.find((s) => s.path === "/inbox/tdo_chase")?.body)
+    .toEqual({ revision: 2, assignee: { kind: "me" } })
+  await expect(comments).toContainText("You took it back")
+  if ((page.viewportSize()?.width ?? 1280) < 768)
+    await detail.getByRole("button", { name: "Inbox" }).click()
+  await expect(rowsOf(page, "Open").filter({ hasText: "Lan sends" })).toHaveCount(1)
+  await expect(waiting).toHaveText([/Hà sends the tiles report/])
+  await shot(page, "inbox-taken-back")
+
+  await page.goto("/inbox?item=todo%3Atdo_deck")
+  const deck = item(page).getByRole("region", { name: "Comments" })
+  await expect(deck).toContainText("waiting on Hà")
+  await expect(deck.getByRole("link", { name: "Line 12 of the meeting" })).toHaveAttribute(
+    "href",
+    "/meetings/mtg_1?line=12",
+  )
+  await deck.scrollIntoViewIfNeeded()
+  await shot(page, "inbox-waiting-meeting")
 })
 
 // Scenario: issue #1173. The owner opens his report for Laura, due two days ago: its properties are circle's, the

@@ -47,7 +47,7 @@ func (f *fakeSender) replies() []sentReply {
 func (w *inboxWorld) kaiAsks(t *testing.T) openapi.Todo {
 	t.Helper()
 
-	why := openapi.AskedDirectly
+	why := openapi.TodoWhyOpenAskedDirectly
 	resp, err := w.routineBot.CreateTodoWithResponse(t.Context(), &openapi.CreateTodoParams{}, openapi.NewTodo{
 		Title: "Reply to Kai", Draft: ptr("Hi Kai, Monday works."), WhyOpen: &why,
 		Source: &openapi.NewTodoSource{

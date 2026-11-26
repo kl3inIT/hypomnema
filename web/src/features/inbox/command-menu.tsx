@@ -22,7 +22,7 @@
 // TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { AlarmClock, Bot, Box, Check, FolderIcon, Layers, Trash2 } from "lucide-react"
+import { AlarmClock, Bot, Box, Check, FolderIcon, Layers, Trash2, Undo2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import type { InboxProject } from "@/api/generated/types.gen"
@@ -206,6 +206,15 @@ export function CommandMenu({
                 >
                   <Bot className="text-muted-foreground" />
                   Give to {handName}
+                </CommandItem>
+              )}
+              {offered.includes("take_back") && (
+                <CommandItem
+                  value="Take it back"
+                  onSelect={() => run(() => commands.action(todo, "take_back"))}
+                >
+                  <Undo2 className="text-muted-foreground" />
+                  Take it back
                 </CommandItem>
               )}
               {offered.includes("snooze") && (

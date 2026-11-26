@@ -108,6 +108,11 @@ export function useRowActions({
         return
       case "reopen":
         change(row, { act: "reopen" }, "Reopened")
+
+        return
+      case "take_back":
+        // The item stays selected, now in Open, his again.
+        change(row, { act: "take_back" }, "Taken back: it is yours again", false)
     }
   }
 

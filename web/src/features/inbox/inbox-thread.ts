@@ -16,12 +16,13 @@ import {
   ShieldCheck,
   Signal,
   Undo2,
+  UserRoundCheck,
   type LucideIcon,
 } from "lucide-react"
 
-import type { Todo, TodoEvent } from "@/api/generated/types.gen"
+import type { Todo, TodoEvent, TodoLink } from "@/api/generated/types.gen"
 
-import { sourceNames, type Source } from "./inbox-state"
+import { lineOf, sourceNames, type Source } from "./inbox-state"
 
 // The priorities' names, by their value 0 to 4 (issue #1157), as an event says them.
 const priorityNames = ["No priority", "Urgent", "High", "Medium", "Low"]
@@ -46,10 +47,56 @@ export type ThreadEntry =
 
 const closedStates = ["done", "dropped", "duplicate"]
 
-// alone says an event that never folds into a group of steps: the item's creation, where its thread starts, and
-// its closing and reopening, which GitHub's timeline also shows each on its own line.
-function alone(event: TodoEvent) {
+// Waiting is whom an item waits on and the message that shows it (issue #1142), as a Bot's created or edited event
+// holds it in after.waiting_on.
+export type Waiting = { by: string; quote: string; ref?: TodoLink }
+
+// waitingOf reads after.waiting_on, or nothing when the event has none.
+export function waitingOf(after: unknown): Waiting | undefined {
+  const w = (after as { waiting_on?: unknown } | null)?.waiting_on as
+    | Record<string, unknown>
+    | undefined
+  if (!w || typeof w.by !== "string" || !w.by) return undefined
+  const ref = w.ref as Record<string, unknown> | undefined
+  const link =
+    ref && typeof ref.kind === "string" && typeof ref.ref === "string"
+      ? ({ kind: ref.kind, ref: ref.ref } as TodoLink)
+      : undefined
+
+  return { by: w.by, quote: typeof w.quote === "string" ? w.quote : "", ref: link }
+}
+
+// WaitingPlace is where the message that shows whom an item waits on is read, by the item's own source: a kept
+// Zalo or WhatsApp message, by its chat and id, whose sender and time the server gives; a meeting's line, opened in
+// the meeting; the item's Gmail thread; or, for a Lark chat, whose messages the server does not keep, the name alone.
+export type WaitingPlace =
+  | { kind: "message"; integration: "zalo" | "whatsapp"; chat: string; id: string }
+  | { kind: "meeting"; meeting: string; line?: number }
+  | { kind: "mail" }
+  | { kind: "name" }
+
+export function waitingPlace(source: Todo["source"], waiting: Waiting): WaitingPlace {
+  const ref = waiting.ref
+  if ((source.kind === "zalo" || source.kind === "whatsapp") && source.id) {
+    return ref?.kind === `${source.kind}_message`
+      ? { kind: "message", integration: source.kind, chat: source.id, id: ref.ref }
+      : { kind: "name" }
+  }
+  // The store keeps a waiting item's line to one of its own meeting's (inboxstore's checkWaitingOn).
+  if (source.kind === "meeting" && source.id && ref?.kind === "meeting_line") {
+    return { kind: "meeting", meeting: source.id, line: lineOf(ref.ref) }
+  }
+  if (source.kind === "gmail" && source.id) return { kind: "mail" }
+
+  return { kind: "name" }
+}
+
+// alone says an event that never folds into a group of steps: the item's creation, where its thread starts, its
+// closing and reopening, which GitHub's timeline also shows each on its own line, and its move to Waiting on others,
+// whose quote shows under it (issue #1142).
+export function alone(event: TodoEvent) {
   if (event.kind === "created") return true
+  if (event.kind === "edited") return !!waitingOf(event.after)
   if (event.kind !== "state") return false
   const states = [
     (event.after as Record<string, unknown>).state,
@@ -192,7 +239,7 @@ export function handoverWords(
   const to = typeof after.assignee === "string" ? after.assignee : ""
   switch (after.assignee_kind) {
     case "me":
-      return `${who} gave it back to you`
+      return who === "You" ? "You took it back" : `${who} gave it back to you`
     case "bot":
       return typeof after.passed_by === "string"
         ? `${who} passed it to ${botName(to)}`
@@ -251,8 +298,16 @@ export function eventLine(
   const after = e.after as Record<string, unknown>
   const before = e.before as Record<string, unknown>
 
+  const waiting = waitingOf(after)
+
   switch (e.kind) {
     case "created":
+      if (waiting) {
+        const added = from ? `${who} added it from ${from}` : `${who} added it`
+
+        return { words: `${added}, waiting on ${waiting.by}`, icon: CirclePlus }
+      }
+
       return { words: from ? `${who} added it from ${from}` : `${who} added it`, icon: CirclePlus }
     case "state":
       return stateLine(who, String(after.state ?? ""), String(before.state ?? ""), after)
@@ -264,6 +319,9 @@ export function eventLine(
     case "linked_approval":
       return { words: `${who} asked for an Approval`, icon: ShieldCheck }
     case "edited":
+      if (waiting)
+        return { words: `${who} moved it to Waiting on ${waiting.by}`, icon: UserRoundCheck }
+
       return editLine(who, after, botName, projectName)
     default:
       return { words: `${who}: ${e.kind}`, icon: CircleDot }

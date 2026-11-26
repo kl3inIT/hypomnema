@@ -1224,9 +1224,9 @@ SET revision = revision + 1, title = ?1, notes = ?2, done_when = ?3, draft = ?4,
     approval_id = ?25, done_by_kind = ?26,
     done_by = ?27, recorded_by_kind = ?28, recorded_by = ?29, closed_how = ?30,
     close_reason = ?31, evidence = ?32, closed_at = ?33, duplicate_of = ?34,
-    priority = ?35, priority_reason = ?36, project_id = ?37,
-    updated_at = ?38
-WHERE id = ?39 AND revision = ?40 AND state = ?41
+    priority = ?35, priority_reason = ?36, project_id = ?37, why_open = ?38,
+    updated_at = ?39
+WHERE id = ?40 AND revision = ?41 AND state = ?42
 `
 
 type UpdateTodoParams struct {
@@ -1267,6 +1267,7 @@ type UpdateTodoParams struct {
 	Priority       int64
 	PriorityReason string
 	ProjectID      sql.NullString
+	WhyOpen        sql.NullString
 	Now            int64
 	ID             string
 	Revision       int64
@@ -1314,6 +1315,7 @@ func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (int64, 
 		arg.Priority,
 		arg.PriorityReason,
 		arg.ProjectID,
+		arg.WhyOpen,
 		arg.Now,
 		arg.ID,
 		arg.Revision,

@@ -3,6 +3,7 @@ import { expect, test } from "vitest"
 import type { Todo, TodoEvent } from "@/api/generated/types.gen"
 
 import {
+  alone,
   canSend,
   eventLine,
   handoverWords,
@@ -10,6 +11,8 @@ import {
   sendQuestion,
   threadOf,
   throughWhom,
+  waitingOf,
+  waitingPlace,
   writeOf,
 } from "./inbox-thread"
 
@@ -282,5 +285,81 @@ test("the composer hands over, comments or reopens", () => {
   expect(writeOf(todo({ state: "dropped" }), "bot_main", nameOf)).toMatchObject({
     act: "reopen",
     bot: "bot_main",
+  })
+})
+
+// Scenario: issue #1142. A Bot's move to Waiting on others, and an item it added waiting on someone, each say whom
+// on their own line, never folded into the Bot's steps; waitingOf reads whom, the quote and the message; the owner
+// taking it back says so.
+test("a move to Waiting on others is its own line, with whom", () => {
+  const bot = { kind: "bot" as const, id: "bot_main" }
+  const waitingOn = {
+    by: "Việt",
+    quote: "em nhận",
+    ref: { kind: "zalo_message", ref: "m_2" },
+  }
+  const moved = event(2, {
+    actor: bot,
+    after: { assignee: "Việt", assignee_kind: "person", waiting_on: waitingOn },
+  })
+  const added = event(1, {
+    actor: bot,
+    kind: "created",
+    after: { title: "x", waiting_on: waitingOn },
+  })
+  const name = () => "Hypo"
+
+  expect(waitingOf(moved.after)).toEqual(waitingOn)
+  expect(waitingOf({ waiting_on: { quote: "x" } })).toBeUndefined()
+  expect(waitingOf({})).toBeUndefined()
+  expect(eventLine(moved, name).words).toBe("Hypo moved it to Waiting on Việt")
+  expect(eventLine(added, name, "Zalo · Team").words).toBe(
+    "Hypo added it from Zalo · Team, waiting on Việt",
+  )
+  expect(alone(moved)).toBe(true)
+  expect(alone(added)).toBe(true)
+  expect(alone(event(3, { actor: bot, after: { notes: "x" } }))).toBe(false)
+
+  const steps = threadOf([
+    event(5, { actor: bot, after: { notes: "a" } }),
+    moved,
+    event(6, { actor: bot, after: { notes: "b" } }),
+  ])
+  expect(steps.map((e) => e.kind)).toEqual(["activity", "activity", "activity"])
+
+  expect(
+    eventLine(event(7, { after: { assignee: "", assignee_kind: "me", why_open: null } }), name)
+      .words,
+  ).toBe("You took it back")
+})
+
+// Scenario: issue #1142. The message that shows whom an item waits on is read where the item came from: a Zalo or
+// WhatsApp message by its own chat, a line of its own meeting, its Gmail thread; Lark, whose messages the server
+// does not keep, by the name alone.
+test("the message waited on is placed by the item's own source", () => {
+  const w = (kind: string, ref: string) => ({
+    by: "Lan",
+    quote: "ok em làm",
+    ref: { kind, ref } as never,
+  })
+
+  expect(
+    waitingPlace({ kind: "zalo", id: "g_team", account: "main" }, w("zalo_message", "m_2")),
+  ).toEqual({
+    kind: "message",
+    integration: "zalo",
+    chat: "g_team",
+    id: "m_2",
+  })
+  expect(waitingPlace({ kind: "meeting", id: "mtg_1" }, w("meeting_line", "mtg_1/12"))).toEqual({
+    kind: "meeting",
+    meeting: "mtg_1",
+    line: 12,
+  })
+  expect(waitingPlace({ kind: "gmail", id: "thr_1", account: "work" }, w("mail", "m"))).toEqual({
+    kind: "mail",
+  })
+  expect(waitingPlace({ kind: "lark", id: "oc_1" }, w("lark_message", "om_1"))).toEqual({
+    kind: "name",
   })
 })

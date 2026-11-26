@@ -29,7 +29,7 @@ SET revision = revision + 1, title = @title, notes = @notes, done_when = @done_w
     approval_id = @approval_id, done_by_kind = @done_by_kind,
     done_by = @done_by, recorded_by_kind = @recorded_by_kind, recorded_by = @recorded_by, closed_how = @closed_how,
     close_reason = @close_reason, evidence = @evidence, closed_at = @closed_at, duplicate_of = @duplicate_of,
-    priority = @priority, priority_reason = @priority_reason, project_id = @project_id,
+    priority = @priority, priority_reason = @priority_reason, project_id = @project_id, why_open = @why_open,
     updated_at = @now
 WHERE id = @id AND revision = @revision AND state = @from_state;
 

@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router"
 import { ChevronRight, ListChecks, User } from "lucide-react"
 
 import type { Todo, TodoEvent } from "@/api/generated/types.gen"
@@ -21,12 +22,25 @@ import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Message, MessageContent, MessageHeader } from "@/components/ui/message"
 import { Composer } from "@/features/chat/composer"
+import { useServices } from "@/features/settings/use-integrations"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { InboxMarkdown } from "./inbox-markdown"
-import { actorName, eventLine, reportOf, threadOf, writeOf, type ThreadEntry } from "./inbox-thread"
+import { sourceTarget } from "./inbox-state"
+import {
+  actorName,
+  eventLine,
+  reportOf,
+  threadOf,
+  waitingOf,
+  waitingPlace,
+  writeOf,
+  type ThreadEntry,
+  type Waiting,
+} from "./inbox-thread"
 import { useWriteTodo } from "./use-inbox"
+import { useMessage, type KeptChats } from "./use-origin"
 
 // An Inbox item's comments (issue #1143), on a line as GitHub's issue timeline: ReUI's Timeline holds each entry
 // with its icon on the line; a comment is a card of the chat's message parts with the chat's Markdown, its ids as
@@ -52,6 +66,8 @@ export function CommentTimeline({
   from,
   botName,
   projectName,
+  source,
+  chats,
 }: {
   events?: readonly TodoEvent[]
   loading: boolean
@@ -61,6 +77,9 @@ export function CommentTimeline({
   botName: (id: string) => string
   // projectName names a project by its id (issue #1157).
   projectName?: (id: string) => string | undefined
+  // source and chats place the message that shows whom the item waits on (issue #1142).
+  source?: Todo["source"]
+  chats?: KeptChats
 }) {
   const entries = threadOf(events)
   if (entries.length === 0) {
@@ -77,7 +96,15 @@ export function CommentTimeline({
           render={<li />}
           className={itemClass}
         >
-          <Entry entry={entry} now={now} from={from} botName={botName} projectName={projectName} />
+          <Entry
+            entry={entry}
+            now={now}
+            from={from}
+            botName={botName}
+            projectName={projectName}
+            source={source}
+            chats={chats}
+          />
         </TimelineItem>
       ))}
     </Timeline>
@@ -90,12 +117,16 @@ function Entry({
   from,
   botName,
   projectName,
+  source,
+  chats,
 }: {
   entry: ThreadEntry
   now: number
   from?: string
   botName: (id: string) => string
   projectName?: (id: string) => string | undefined
+  source?: Todo["source"]
+  chats?: KeptChats
 }) {
   switch (entry.kind) {
     case "comment":
@@ -119,6 +150,7 @@ function Entry({
       )
       const Icon = line.icon
       const reason = (entry.event.after as Record<string, unknown>).close_reason
+      const waiting = waitingOf(entry.event.after)
 
       return (
         <>
@@ -144,6 +176,11 @@ function Entry({
           </TimelineHeader>
           {line.done && typeof reason === "string" && reason && (
             <TimelineContent className="pt-1 break-words">{reason}</TimelineContent>
+          )}
+          {waiting?.quote && (
+            <TimelineContent className="pt-1">
+              <WaitingQuote waiting={waiting} source={source} chats={chats} now={now} />
+            </TimelineContent>
           )}
         </>
       )
@@ -189,6 +226,78 @@ function Entry({
         </>
       )
   }
+}
+
+// WaitingQuote is the words that show whom an item waits on, under its line, where a close's reason goes (issue
+// #1142), as the detail's Said shows a source's words: with who wrote them and when, as the server keeps the item's
+// Zalo or WhatsApp message; a link to the meeting's line or the Gmail thread; the name alone for Lark.
+function WaitingQuote({
+  waiting,
+  source,
+  chats,
+  now,
+}: {
+  waiting: Waiting
+  source?: Todo["source"]
+  chats?: KeptChats
+  now: number
+}) {
+  const place = source ? waitingPlace(source, waiting) : ({ kind: "name" } as const)
+  const kept =
+    place.kind === "message" ? chats?.get(`${place.integration}:${place.chat}`) : undefined
+  const message = useMessage(
+    place.kind === "message"
+      ? {
+          integration: place.integration,
+          label: kept?.label ?? source?.account,
+          chat: place.chat,
+          id: place.id,
+        }
+      : {},
+  )
+  const m = message.data
+  const who = m?.from_me ? "You" : m?.sender_name || waiting.by
+
+  return (
+    <figure className="flex flex-col gap-1">
+      <blockquote className="border-l-2 border-border-strong py-0.5 ps-3 text-sm whitespace-pre-wrap text-foreground/85">
+        {waiting.quote}
+      </blockquote>
+      <figcaption className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{who}</span>
+        {m?.at && (
+          <time dateTime={m.at} className="tabular-nums">
+            {since(m.at, now)}
+          </time>
+        )}
+        {place.kind === "meeting" && (
+          <Link
+            to="/meetings/$meetingId"
+            params={{ meetingId: place.meeting }}
+            search={place.line ? { line: place.line } : {}}
+            className="text-link hover:underline"
+          >
+            {place.line ? `Line ${place.line} of the meeting` : "The meeting"}
+          </Link>
+        )}
+        {place.kind === "mail" && source && <ThreadLink source={source} />}
+      </figcaption>
+    </figure>
+  )
+}
+
+// ThreadLink opens the item's Gmail thread in the owner's account the Bot read it with (sourceTarget).
+function ThreadLink({ source }: { source: Todo["source"] }) {
+  const services = useServices()
+  const google = services.data?.find((s) => s.id === "google")?.connections ?? []
+  const target = sourceTarget({ source }, (label) => google.find((c) => c.label === label)?.account)
+  if (!target || !("href" in target)) return null
+
+  return (
+    <a href={target.href} target="_blank" rel="noreferrer" className="text-link hover:underline">
+      The thread
+    </a>
+  )
 }
 
 // Face is who wrote a comment on the line: a Bot's face, as the chat shows it, or the owner's mark.

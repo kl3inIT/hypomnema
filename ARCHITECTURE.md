@@ -4855,7 +4855,9 @@ its client API, its CLI and the Bots' tools.
   #1111; cleared in `deleteChatTx` when that chat is deleted); `passed_by`, the Bot that gave the item to the Bot it
   is given to (issue #1118), set again with every change of the assignee: the acting Bot when a Bot gives it to
   another Bot, else NULL; `why_open`
-  (`asked_directly` or `promised`, an item a Routine's run opened; migration 00148); `priority` 0 none, 1 urgent, 2
+  (`asked_directly` or `promised`, an item a Bot opened from what it read or a Routine's run found, migration 00148;
+  or `waiting`, the owner waits on the person it is given to, issue #1142, by the migration `inbox_why_open_waiting`,
+  which rebuilds `todos` with every column, index and event kept; `UpdateTodo` writes it); `priority` 0 none, 1 urgent, 2
   high, 3 medium, 4 low (Linear's scale) with `priority_reason` (one line ≤ 300, set with the priority: an edit that
   sets the priority without one clears it) and `project_id`, one of `inbox_projects` (name ≤ 60, unique in any case,
   and a `#rrggbb` colour) or none, named without a foreign key (issue #1157, `inboxstore/projects.go`): the owner and
@@ -4874,7 +4876,9 @@ its client API, its CLI and the Bots' tools.
   them duplicate;
   by the owner's triage of 2026-11-20 (issue #966) that Bot adds an open item instead only when it gives `why_open`
   (`asked_directly`: someone tagged or messaged the owner and he has not answered; `promised`: the owner promised
-  it), a quote and a reference to the message, and `why_open` is kept in the item and its created event;
+  it; `waiting`, from one of `FoundKinds` only, with `NewTodo.WaitingOn`, see Waiting on others below), a quote and
+  a reference to the message, and `why_open` is kept in the item and its created event; only the owner accepts a
+  proposal (`Accept`), and a Bot opens one only by `WaitOn`;
   the Bot assigned starts an open item, and only an open one, in a chat or Run, in a new attempt with its own id,
   as Hermes binds a worker's session to its task, run and claim (`gateway/session_kanban.py`), so several items
   may be worked on in one chat or Run (`Start`); the system puts a doing item in review with one pending Approval
@@ -4946,6 +4950,22 @@ its client API, its CLI and the Bots' tools.
   revision, which it moves on (`TouchTodo`): the owner on any item, his comment waking the Bot in the item's chat in
   `<owner_comment>` when it has one (Orca's item mail); a Bot on the items it added, is given or has the chat of,
   waking nobody.
+- Waiting on others (`inboxstore/waiting.go`; issue #1142, the owner's rules of 2026-11-25: an item is his when he
+  is asked, tagged or written to or he promised; waiting on someone when he gave the work to a person, a person
+  promised it to him or his project, or took an ask to him in his place; his proposal, "asked the whole group",
+  when a group ask has no taker; not added when it is work between others): such an item is open, given to the
+  person, with `why_open` `waiting`. A Bot adds one with `waiting_on` `{by, quote, ref}` (the person, their words and
+  the message of the item's own source: its `sourceMessage` kind, or a `meeting_line` `<meeting>/<line>` of its own
+  meeting, whose shape `checkLink` checks for every `meeting_line`; a meeting's item may then name no line of its
+  own), given to that person, who is not a Bot's id; it is in the request's hash and the created event's `after`.
+  `WaitOn` moves an item there without asking the owner (owner, 2026-11-25): only the Bot that added it, from one of
+  `FoundKinds`, proposed or open and not snoozed, given to the owner, nobody known or a person (the work went from
+  one person to another); it is given to the person, opens, says `waiting`, loses its draft (kept in the event's
+  `before`) and is due when the person said, else 48 hours after the move (`inboxDefaultChase`); its `edited`
+  event's `after` holds `waiting_on`. The rest is refused: another Bot's, the owner's, a Bot's item (403); from a
+  chat or a Routine's run (400); doing, review, snoozed or closed (409). Any change of who has the item clears
+  `waiting` in the same write (`give`: the owner's edit, Take it back, `Hand`, a Bot's `hand_back` or `pass_to`).
+  An open item given to a person never counts in Needs you.
 - Passing from Bot to Bot (issue #1118, the owner's request of 2026-11-23, after Paperclip's manager agent handing
   issues to its reports and Linear's assignee shown with the agent it is delegated to): the wake-up names the Bot
   that passed the item ("<Bot> passed you Inbox item …", read its thread with `inbox_get`). The main Bot given an
@@ -5003,8 +5023,11 @@ its client API, its CLI and the Bots' tools.
   `--priority none|urgent|high|medium|low` (or 0–4) with `--priority-reason`, and `--project <name or id|none>`;
   `list` takes `--project` (issue #1157).
 - Bot tools (`agentapi/inbox.go`, the family `inbox` of `agenttool/switches.go`, in the `full` preset only; issue
-  #1004): `inbox_list`, `inbox_get`, `inbox_add`, `inbox_update` (fields, `draft`, `hand_back`, `source`, and
-  `pass_to` a Bot's id, issue #1118; not with `hand_back`), `inbox_start`,
+  #1004): `inbox_list`, `inbox_get`, `inbox_add` (`why_open` `waiting` with `waiting_on` `{name, quote, message}`,
+  given to that person unless it names whom; issue #1142), `inbox_update` (fields, `draft`, `hand_back`, `source`,
+  and `pass_to` a Bot's id, issue #1118; not with `hand_back`; or `waiting_on` `{name, quote, message, due_date or
+  due_at, timezone}` with only `id` and `revision` beside it, which calls `WaitOn` with the due given, else
+  `inboxDefaultChase`), `inbox_start`,
   `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, `inbox_comment` (a comment in the
   item's thread, issue #1111), for a Bot's pi only. Who acts and
   where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
@@ -6297,7 +6320,8 @@ Node (`internal/node`):
   owner from their own lists, every 10 seconds; an Approval and a question are never copied into to-dos.
   - Groups, after Orca's Items tab (`bot-item-groups.ts`): Needs you (the Approvals, a to-do in review shown with
     its Approval as one row, the questions, then the to-dos the server counts but proposals), Working (a Bot's),
-    Open, Proposed, Snoozed and Done, the last two folded. A group shows five rows and "Show N more", the asks never
+    Open, Waiting on others (an open item given to a person, issue #1142; one given to nobody known stays in Open),
+    Proposed, Snoozed and Done, the last three folded. A group shows five rows and "Show N more", the asks never
     hidden (Orca's `needs-you-fold.ts`). The sidebar's count also holds the proposals not yet triaged, which the
     server's predicate counts.
   - A row (issue #1110, after Chatwoot's `ConversationCard` and OpenMausBot's `InboxRow`): the asker's avatar
@@ -6311,7 +6335,9 @@ Node (`internal/node`):
     id in any of them), the message by its id (`…/messages?chat=&id=`: sender and time), the meeting (`GET
     /meetings/{id}`: title and the line's speaker); without them, the reference's label. Pointed at or focused on a
     computer, its actions by kind, as OpenMausBot's `quickActions`: Approve and Decline, Answer, Copy draft, Done and
-    Snooze, Accept and Drop, Reopen or Unsnooze. On a computer the first item of Needs you is open when none is
+    Snooze, Accept and Drop, Reopen or Unsnooze, and Take it back on an item given to a person (issue #1142: `PATCH
+    /inbox/{id}` with assignee `me` at the revision read, which clears `waiting`; also in the detail's top bar and
+    Cmd+K). On a computer the first item of Needs you is open when none is
     chosen; when nothing waits, the right pane says so with the to-dos added and closed today.
   - The detail: previous and next with "n of N in <group>"; a to-do's Snooze (Later today, Tomorrow, Monday, Next
     week, Pick a time; Orca's presets), Drop and Done, a proposal's Accept and Drop; the channel's mark and name and
@@ -6339,7 +6365,10 @@ Node (`internal/node`):
     each event a muted line with its icon on the line (the first says where the item came from, "Thư ký added it
     from Lark · ELITEX"; a hand-over says "You gave it to Hypo", "Hypo passed it to BeyondPilot" or "BeyondPilot
     gave it back to you"; a Run started, a pull request linked, reopened; closed as done in violet with its
-    reason), two or more changes in a row by one actor folded into "Hypo did 5 steps · 10:03–10:41" (AI Elements'
+    reason; issue #1142: "Thư ký moved it to Waiting on Lan" or "… added it from Zalo · Team, waiting on Lan", never
+    folded into steps, with the person's words under it and who wrote them: the sender and time of the kept Zalo or
+    WhatsApp message (`useMessage`, in the item's own account and chat), a link to the meeting's line, the Gmail
+    thread, or the name alone for Lark; "You took it back"), two or more changes in a row by one actor folded into "Hypo did 5 steps · 10:03–10:41" (AI Elements'
     chain of thought, `web/src/components/chain-of-thought.tsx`), and each comment a card with its face, name, a
     Bot tag and time, its Markdown rendered by the chat's renderer, its ids as links, and each top-level `<details>` folded under its
     `<summary>` in a Collapsible (`reportOf`, as CodeRabbit's summary comment). Under them a link to the item's chat

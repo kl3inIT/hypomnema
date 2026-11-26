@@ -167,6 +167,13 @@ const (
 	AskedDirectly = "asked_directly"
 	// Promised: the owner promised it himself ("để em check").
 	Promised = "promised"
+	// Waiting: the owner waits on a person (issue #1142, the owner's rules of 2026-11-25): he gave them the work,
+	// they promised it to him or his project, or they took an ask to him in his place. The item is given to that
+	// person, and the message that shows it is in its history (the event's waiting_on). Omi's delegated_by_user and
+	// commitments_by_others (BasedHardware/omi@a07ab041 backend/utils/open_loops/prompts.py:14-24), claudia's
+	// "Others Owe You" (kbanc85/claudia@eb63cece template-v2/.claude/skills/commitment-detector.md:142-153). Any
+	// change of who has the item clears it.
+	Waiting = "waiting"
 )
 
 // StaleAfter is how long a proposal nobody touched stays in sight (issue #966): after it, it is stale, left out of
@@ -306,7 +313,8 @@ type Todo struct {
 	SnoozedUntil *time.Time
 	Source       Source
 	CreatedBy    Actor
-	// WhyOpen is AskedDirectly or Promised for an item a Routine's run opened; empty for any other.
+	// WhyOpen is AskedDirectly or Promised for an item a Bot opened from what it read or a Routine's run found,
+	// Waiting while it waits on the person it is given to (issue #1142); empty for any other.
 	WhyOpen string
 	// Stale says it is a proposal nobody touched for StaleAfter, when it was read.
 	Stale bool
@@ -423,8 +431,13 @@ type NewTodo struct {
 	State  string
 	Source Source
 	// WhyOpen is AskedDirectly or Promised when a Bot in a Routine's run, or reading the owner's Lark or Zalo
-	// chats, opens the item; it then gives the quote and the reference to the message too.
+	// chats, opens the item; it then gives the quote and the reference to the message too. Waiting, from what a Bot
+	// read only, comes with WaitingOn (issue #1142).
 	WhyOpen string
+	// WaitingOn is the person the owner waits on and the message that shows it, with WhyOpen Waiting only: the
+	// item is given to that person. It is left out of the request's hash when not given, so a key used before it
+	// existed still returns its item, and it goes into the created event's after as waiting_on.
+	WaitingOn *WaitingOn `json:",omitempty"`
 	// Priority, its reason and the project's id (issue #1157) are left out of the request's hash when not given, so
 	// a key used before they existed still returns its item.
 	Priority       int    `json:",omitempty"`
@@ -432,6 +445,16 @@ type NewTodo struct {
 	Project        string `json:",omitempty"`
 	// IdempotencyKey, when given, makes a retried create return the first item.
 	IdempotencyKey string
+}
+
+// WaitingOn is whom the owner waits on, and the message of the item's own source that shows it (issue #1142): By
+// the person's name, as his context or the chat names them, Quote their words and Ref the message, of the kind the
+// item's source names its message by (sourceMessage), or for a meeting one of its lines, "<meeting>/<line>". The
+// store checks the message's kind and shape, not that it exists, as checkSource does for a source.
+type WaitingOn struct {
+	By    string `json:"by"`
+	Quote string `json:"quote"`
+	Ref   Link   `json:"ref"`
 }
 
 // DueIn is a due a while after an item is added, in a time zone.
@@ -448,6 +471,12 @@ type DueIn struct {
 func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error) {
 	n.Title = strings.TrimSpace(n.Title)
 	n.Assignee.Name = strings.TrimSpace(n.Assignee.Name)
+
+	if n.WaitingOn != nil {
+		w := *n.WaitingOn
+		w.By = strings.TrimSpace(w.By)
+		n.WaitingOn = &w
+	}
 
 	if err := checkActor(actor); err != nil {
 		return Todo{}, err
@@ -528,6 +557,12 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
+		if n.WaitingOn != nil {
+			if err := notABot(ctx, q, n.WaitingOn.By); err != nil {
+				return err
+			}
+		}
+
 		if err := s.mayGive(actor, n.Assignee); err != nil {
 			return err
 		}
@@ -563,7 +598,12 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return fmt.Errorf("reading the to-do added: %w", err)
 		}
 
-		if err := addEvent(ctx, q, row.ID, now, 1, actor, EventCreated, map[string]any{}, fields(row)); err != nil {
+		after := fields(row)
+		if n.WaitingOn != nil {
+			after["waiting_on"] = n.WaitingOn
+		}
+
+		if err := addEvent(ctx, q, row.ID, now, 1, actor, EventCreated, map[string]any{}, after); err != nil {
 			return err
 		}
 
@@ -601,11 +641,16 @@ func mayCreate(actor Actor, n NewTodo) error {
 		return fmt.Errorf("%w: a to-do starts open or proposed", storeerr.ErrInvalid)
 	case source != ByHand && source != FromChat && !found:
 		return fmt.Errorf("%w: unknown source %q", storeerr.ErrInvalid, source)
-	case n.WhyOpen != "" && n.WhyOpen != AskedDirectly && n.WhyOpen != Promised:
-		return fmt.Errorf("%w: why a to-do opens is %s or %s, not %q", storeerr.ErrInvalid, AskedDirectly, Promised,
-			n.WhyOpen)
+	case n.WhyOpen != "" && n.WhyOpen != AskedDirectly && n.WhyOpen != Promised && n.WhyOpen != Waiting:
+		return fmt.Errorf("%w: why a to-do opens is %s, %s or %s, not %q", storeerr.ErrInvalid, AskedDirectly,
+			Promised, Waiting, n.WhyOpen)
 	case n.WhyOpen != "" && (state != Open || !found):
 		return fmt.Errorf("%w: only an open to-do a Routine's run found says why it opens", storeerr.ErrInvalid)
+	case (n.WhyOpen == Waiting) != (n.WaitingOn != nil):
+		return fmt.Errorf("%w: a to-do waiting on a person says whom and the message that shows it (waiting_on), "+
+			"and only such a to-do does", storeerr.ErrInvalid)
+	case n.WhyOpen == Waiting:
+		return mayWait(actor, n)
 	case actor.Kind == Owner && state == Open && source == ByHand:
 		return nil
 	case actor.Kind == Bot && state == Open && source == FromChat:
@@ -622,6 +667,68 @@ func mayCreate(actor Actor, n NewTodo) error {
 	}
 
 	return fmt.Errorf("%w: a %s cannot add a %s to-do from %s", storeerr.ErrForbidden, actor.Kind, state, source)
+}
+
+// mayWait is mayCreate for an item that waits on a person (issue #1142): a Bot opens it from what it read of the
+// owner's (FoundKinds, never a Routine's run or a chat), given to that person, with the source's quote and the
+// message of waiting_on, which is of the source's own kind. A meeting's item may name no line of its own when
+// waiting_on names one, since a meeting's action has its line only when the notes give one.
+func mayWait(actor Actor, n NewTodo) error {
+	w := *n.WaitingOn
+
+	switch {
+	case actor.Kind != Bot || !Found(n.Source.Kind):
+		return fmt.Errorf("%w: only a Bot opens a to-do waiting on a person, from what it read of the owner's",
+			storeerr.ErrForbidden)
+	case n.Assignee.Kind != Person || n.Assignee.Name != w.By:
+		return fmt.Errorf("%w: a to-do waiting on %q is given to that person", storeerr.ErrInvalid, w.By)
+	case strings.TrimSpace(n.Source.Quote) == "":
+		return fmt.Errorf("%w: a to-do waiting on a person gives the quote it came from", storeerr.ErrInvalid)
+	case n.Source.Ref == nil && n.Source.Kind != FromMeeting:
+		return fmt.Errorf("%w: a to-do waiting on a person gives the message it came from", storeerr.ErrInvalid)
+	}
+
+	return checkWaitingOn(w, n.Source.Kind, n.Source.ID)
+}
+
+// checkWaitingOn checks whom an item waits on and the message that shows it, against the item's source: a name of
+// 1 to MaxName characters, a quote of 1 to MaxQuote, and a message of the source's own kind, a meeting's being one of
+// its own lines.
+func checkWaitingOn(w WaitingOn, kind, id string) error {
+	want := sourceMessage[kind]
+	if kind == FromMeeting {
+		want = LinkMeetingLine
+	}
+
+	switch {
+	case w.By == "" || utf8.RuneCountInString(w.By) > MaxName:
+		return fmt.Errorf("%w: the person waited on is named in 1 to %d characters", storeerr.ErrInvalid, MaxName)
+	case strings.TrimSpace(w.Quote) == "" || utf8.RuneCountInString(w.Quote) > MaxQuote:
+		return fmt.Errorf("%w: the words that show it are 1 to %d characters", storeerr.ErrInvalid, MaxQuote)
+	case want == "":
+		return fmt.Errorf("%w: only a to-do from %s waits on a person", storeerr.ErrInvalid,
+			strings.Join(FoundKinds, ", "))
+	case w.Ref.Kind != want:
+		return fmt.Errorf("%w: a to-do from %s shows whom it waits on by a %s", storeerr.ErrInvalid, kind, want)
+	case kind == FromMeeting && !strings.HasPrefix(w.Ref.Ref, id+"/"):
+		return fmt.Errorf("%w: the line that shows whom it waits on is one of meeting %s's", storeerr.ErrInvalid, id)
+	}
+
+	return checkLink(w.Ref)
+}
+
+// notABot refuses a person's name that is a Bot's id: a Bot is given an item as a Bot, never as a person.
+func notABot(ctx context.Context, q *store.Queries, name string) error {
+	_, err := q.GetBot(ctx, name)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("reading Bot %s: %w", name, err)
+	}
+
+	return fmt.Errorf("%w: %s is a Bot; a to-do waits on a person", storeerr.ErrInvalid, name)
 }
 
 func checkActor(a Actor) error {
@@ -689,9 +796,24 @@ func checkLink(l Link) error {
 		return fmt.Errorf("%w: a %s names the owner's account and the chat it was sent in", storeerr.ErrInvalid, l.Kind)
 	case sentService[l.Kind] == "" && (l.Account != "" || l.Chat != ""):
 		return fmt.Errorf("%w: only a message the owner sent names an account and a chat", storeerr.ErrInvalid)
+	case l.Kind == LinkMeetingLine && !meetingLine(l.Ref):
+		return fmt.Errorf("%w: a meeting's line is named \"<meeting>/<line>\", the line by its number",
+			storeerr.ErrInvalid)
 	}
 
 	return nil
+}
+
+// meetingLine says whether ref names a meeting's line as "<meeting>/<line>": a meeting's id and the line's number.
+func meetingLine(ref string) bool {
+	meeting, line, ok := strings.Cut(ref, "/")
+	if !ok || meeting == "" || line == "" {
+		return false
+	}
+
+	_, err := strconv.ParseUint(line, 10, 32)
+
+	return err == nil
 }
 
 func checkDraft(draft string) error {
