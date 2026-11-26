@@ -13,8 +13,9 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 )
 
-// The takes agents film of the phone (issue #817): listed, read, downloaded
-// as a zip of their segments and take.json, and deleted, the owner's only.
+// The takes agents film of the phone (issue #817) or of their tabs of the
+// shared browser (issue #1189): listed, read, downloaded as a zip of their
+// segments and take.json, and deleted, the owner's only.
 
 func takesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	resp, err := e.api.ListTakesWithResponse(ctx)
@@ -37,7 +38,7 @@ func takesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	})
 }
 
-// takeLine is a take in a line: id, state, length, steps, when, by whom, title.
+// takeLine is a take in a line: id, where it was filmed, state, length, steps, when, by whom, title.
 func takeLine(t openapi.Take) string {
 	state := t.State
 	if t.Reason != nil && *t.Reason != "" {
@@ -49,7 +50,8 @@ func takeLine(t openapi.Take) string {
 		by = *t.AgentName
 	}
 
-	return fmt.Sprintf("%s  %s  %s  %d steps  %s  %s  %s", t.Id, state, clockOf(t.DurationMs), len(t.Steps),
+	return fmt.Sprintf("%s  %s  %s  %s  %d steps  %s  %s  %s", t.Id, t.Source, state, clockOf(t.DurationMs),
+		len(t.Steps),
 		t.StartedAt.Local().Format("2006-01-02 15:04"), by, t.Title)
 }
 

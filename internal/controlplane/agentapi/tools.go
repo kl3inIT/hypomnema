@@ -42,7 +42,10 @@ import (
 //   - node_exec, node_process, node_process_kill (nodes.go, issue #543): a
 //     worker and a Bot's pi;
 //   - video_make, video_get (videos.go, issue #818): a worker and a Bot's pi,
-//     for the takes each filmed.
+//     for the takes each filmed;
+//   - browser_video_start, browser_video_say, browser_video_stop
+//     (browsertakes.go, issue #1189): an agent with its own tab, beside the
+//     browser's tools.
 //
 // The owner gets the installed tools and all Connections without switches.
 // Tools that require a Run or chat (artifacts and Routines) still require one.
@@ -99,6 +102,10 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 
 	if !s.hasBrowser(a) {
 		return out
+	}
+
+	if s.hasBrowserTakes(a) {
+		out = append(out, browserTakeToolList()...)
 	}
 
 	tools, err := s.browser.Tools(ctx)
@@ -214,6 +221,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		s.nodeCall(w, r, a, asked)
 	case (asked.Tool == devicetool.VideoMake || asked.Tool == devicetool.VideoGet) && s.hasVideoTools(a):
 		s.videoCall(w, r, a, asked)
+	case slices.Contains(browserTakeTools, asked.Tool) && s.hasBrowserTakes(a):
+		s.browserTakeCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolShowArtifact && showsArtifacts(a):
 		s.artifactCall(w, r, a, asked)
 	case asked.Tool == agenttool.ToolRoutines && makesRoutines(a):

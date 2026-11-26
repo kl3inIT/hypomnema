@@ -35,6 +35,13 @@ func (s *Server) toolAccess(ctx context.Context, bot *orchestration.Bot, runtime
 		for _, name := range family.Tools {
 			item := toolAccessItem(name, family.Name, bot, switches, connections, unavailable)
 			access.Tools = append(access.Tools, item)
+
+			// A family's state is its own tools': the phone is not on because the browser's family gives the video
+			// tools both name (issue #1189).
+			if agenttool.FamilyOf(name) != family.Name {
+				continue
+			}
+
 			if access.State == "" || stateRank(item.State) > stateRank(access.State) {
 				access.State, access.Reason, access.Source = item.State, item.Reason, item.Source
 			}

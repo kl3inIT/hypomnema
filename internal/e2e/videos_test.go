@@ -98,7 +98,8 @@ type videoRig struct {
 	srv    *httptest.Server
 	worker string
 	pi     string
-	// plain is a pi whose Bot has the phone off, and so no video tool.
+	// plain is a pi whose Bot has the phone off: it has no video tool of the phone's, but video_make and video_get,
+	// which the browser's family gives too (issue #1189).
 	plain    string
 	agentKey string
 	owner    string
@@ -328,7 +329,8 @@ func TestAWorkerMakesAVideoTheOwnerApproves(t *testing.T) {
 		assert.Contains(t, names, devicetool.VideoGet)
 	}
 
-	assert.NotContains(t, r.tools(r.plain), devicetool.VideoMake, "switched with the phone")
+	plain := r.tools(r.plain)
+	assert.Contains(t, plain, devicetool.VideoMake, "the browser's family gives it, to make a browser take")
 
 	text, failed := r.tool(r.pi, devicetool.VideoMake, `{"take":"`+r.take+`"}`)
 	assert.True(t, failed)

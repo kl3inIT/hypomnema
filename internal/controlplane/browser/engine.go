@@ -157,6 +157,8 @@ type session struct {
 	views int
 	// size is the size the owner's view last gave the tab, zero while it has agent-browser's own (fill.go).
 	size Size
+	// filming is set while the tab is filmed for a take (film.go): it keeps the take's size.
+	filming bool
 }
 
 // New returns an Engine. Nothing is installed or started until it is used.

@@ -28,6 +28,13 @@ const (
 	EndedRestart     = "restart"
 )
 
+// Where a take was filmed (issue #1189, row 3): the phone a node holds, or an agent's tab of the shared browser.
+// A take filmed before #1189 says none and is the phone's.
+const (
+	SourcePhone   = "phone"
+	SourceBrowser = "browser"
+)
+
 // EndedBy are the ends of a take.
 var EndedBy = []string{
 	EndedStop, EndedWorkEnd, EndedPhoneEnd, EndedStreamError, EndedWriterError, EndedDiskLow, EndedRestart,
@@ -39,6 +46,7 @@ var EndedBy = []string{
 type Take struct {
 	ID         string    `json:"id"`
 	Title      string    `json:"title"`
+	Source     string    `json:"source,omitempty"`
 	Agent      string    `json:"agent"`
 	AgentName  string    `json:"agent_name,omitempty"`
 	Node       string    `json:"node,omitempty"`
@@ -51,7 +59,7 @@ type Take struct {
 	Reason     string    `json:"reason,omitempty"`
 	DurationMs int64     `json:"duration_ms"`
 	// Screen is the phone's screen in pixels, the space a step's tap is in; absent from a take filmed before the
-	// node recorded it (issue #818).
+	// node recorded it (issue #818). A browser take's is its tab's viewport in CSS pixels (issue #1189, row 5).
 	Screen   *TakeScreen   `json:"screen,omitempty"`
 	Segments []TakeSegment `json:"segments"`
 	Steps    []TakeStep    `json:"steps"`
@@ -102,6 +110,9 @@ type TakePause struct {
 func (t Take) Final() bool {
 	return t.State == TakeUploading || t.State == TakeAvailable || t.State == TakeFailed
 }
+
+// Browser says whether a take was filmed in the shared browser, not on the phone.
+func (t Take) Browser() bool { return t.Source == SourceBrowser }
 
 // Running says whether a take is being filmed: recording, or paused by the owner.
 func (t Take) Running() bool { return t.State == TakeRecording || t.State == TakePaused }

@@ -2252,6 +2252,10 @@ export type Take = {
   id: string;
   title: string;
   /**
+   * Where it was filmed (issue #1189): the phone a node holds, or an agent's tab of the shared browser, whose node is empty and whose frames are encoded on the control plane (`finalizing`, never `uploading`).
+   */
+  source: 'phone' | 'browser';
+  /**
    * The agent's key
    */
   agent: string;
@@ -2260,7 +2264,7 @@ export type Take = {
    */
   agent_name?: string;
   /**
-   * The node that filmed it.
+   * The node that filmed it; empty for a browser take.
    */
   node: string;
   /**
@@ -2428,6 +2432,10 @@ export type StudioItem = {
    * A video's take.
    */
   take?: string;
+  /**
+   * Where a take, or a video's take, was filmed (issue #1189); absent for a video whose take is gone.
+   */
+  source?: 'phone' | 'browser';
   /**
    * A video's latest revision.
    */

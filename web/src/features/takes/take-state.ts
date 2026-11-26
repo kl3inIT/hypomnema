@@ -18,6 +18,15 @@ export function takeOfCall(args?: Record<string, unknown>, output?: string): str
   return output?.match(takeId)?.[0] ?? null
 }
 
+// startsATake says a tool starts filming: the phone's video_start, or a tab of the browser's (issue #1189).
+export const startsATake = (tool: string) =>
+  tool === "video_start" || tool === "browser_video_start"
+
+// sourceName is where a take was filmed, as a chip says it (issue #1189).
+export function sourceName(source: Take["source"]): string {
+  return source === "browser" ? "Browser" : "Phone"
+}
+
 // A take's state is final once it no longer changes: recording, paused, finalizing and uploading come before.
 export const finalStates: readonly string[] = ["available", "failed"]
 

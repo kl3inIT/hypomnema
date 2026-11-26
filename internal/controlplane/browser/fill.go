@@ -2,8 +2,6 @@ package browser
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"math"
 	"time"
@@ -37,7 +35,7 @@ const (
 
 // toolViewport is agent-browser's tool that sets a tab's size. It is in its
 // `mobile` set, not the `core` one agents are offered: only the owner's view
-// sets a size.
+// and a take (film.go) set a size.
 const toolViewport = "agent_browser_set_viewport"
 
 // fillPage is the page that fills a pane of the given CSS size: the pane's
@@ -68,29 +66,16 @@ func (e *Engine) resize(ctx context.Context, s *session, size Size) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.released || s.size == size || (s.size == Size{} && size == standardPage) {
+	// A tab filmed for a take keeps the take's size until it stops (film.go), which gives it back its own.
+	if s.released || s.filming || s.size == size || (s.size == Size{} && size == standardPage) {
 		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, viewportTimeout)
 	defer cancel()
 
-	arguments, err := json.Marshal(map[string]int{"width": size.Width, "height": size.Height})
-	if err != nil {
+	if err := e.setViewport(ctx, s, cdp, size); err != nil {
 		return err
-	}
-
-	out, err := run(ctx, command{
-		Path: e.binary, Args: []string{"mcp", "call", toolViewport, "-", "--tools", "mobile"},
-		Env: e.env(s.name, cdp), Stdin: string(arguments),
-	})
-	if err != nil {
-		return fmt.Errorf("%w: setting the tab's size: %w", ErrUnavailable, err)
-	}
-
-	if out.Code != 0 {
-		return fmt.Errorf("%w: setting the tab's size ended with code %d: %s", ErrUnavailable, out.Code,
-			lastLine(string(out.Stderr)))
 	}
 
 	s.size = size

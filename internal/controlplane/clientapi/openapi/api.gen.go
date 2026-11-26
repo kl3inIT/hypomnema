@@ -1941,6 +1941,24 @@ func (e StudioItemKind) Valid() bool {
 	}
 }
 
+// Defines values for StudioItemSource.
+const (
+	StudioItemSourceBrowser StudioItemSource = "browser"
+	StudioItemSourcePhone   StudioItemSource = "phone"
+)
+
+// Valid indicates whether the value is a known member of the StudioItemSource enum.
+func (e StudioItemSource) Valid() bool {
+	switch e {
+	case StudioItemSourceBrowser:
+		return true
+	case StudioItemSourcePhone:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SupersetChartDataSource.
 const (
 	Built SupersetChartDataSource = "built"
@@ -1980,6 +1998,24 @@ func (e SupersetRequestMethod) Valid() bool {
 	case POST:
 		return true
 	case PUT:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TakeSource.
+const (
+	TakeSourceBrowser TakeSource = "browser"
+	TakeSourcePhone   TakeSource = "phone"
+)
+
+// Valid indicates whether the value is a known member of the TakeSource enum.
+func (e TakeSource) Valid() bool {
+	switch e {
+	case TakeSourceBrowser:
+		return true
+	case TakeSourcePhone:
 		return true
 	default:
 		return false
@@ -6819,6 +6855,9 @@ type StudioItem struct {
 	// Rev A video's latest revision.
 	Rev *int `json:"rev,omitempty"`
 
+	// Source Where a take, or a video's take, was filmed (issue #1189); absent for a video whose take is gone.
+	Source *StudioItemSource `json:"source,omitempty"`
+
 	// State A take's state, or the state of a video's latest revision.
 	State string `json:"state"`
 
@@ -6832,6 +6871,9 @@ type StudioItem struct {
 
 // StudioItemKind defines model for StudioItem.Kind.
 type StudioItemKind string
+
+// StudioItemSource Where a take, or a video's take, was filmed (issue #1189); absent for a video whose take is gone.
+type StudioItemSource string
 
 // StudioItemList defines model for StudioItemList.
 type StudioItemList struct {
@@ -6983,18 +7025,24 @@ type Take struct {
 	EndedBy *string `json:"ended_by,omitempty"`
 	Id      string  `json:"id"`
 
-	// Node The node that filmed it.
-	Node      string        `json:"node"`
-	Pauses    []TakePause   `json:"pauses"`
-	Reason    *string       `json:"reason,omitempty"`
-	Segments  []TakeSegment `json:"segments"`
-	StartedAt time.Time     `json:"started_at"`
+	// Node The node that filmed it; empty for a browser take.
+	Node     string        `json:"node"`
+	Pauses   []TakePause   `json:"pauses"`
+	Reason   *string       `json:"reason,omitempty"`
+	Segments []TakeSegment `json:"segments"`
+
+	// Source Where it was filmed (issue #1189): the phone a node holds, or an agent's tab of the shared browser, whose node is empty and whose frames are encoded on the control plane (`finalizing`, never `uploading`).
+	Source    TakeSource `json:"source"`
+	StartedAt time.Time  `json:"started_at"`
 
 	// State recording, paused, finalizing, uploading, available or failed.
 	State string     `json:"state"`
 	Steps []TakeStep `json:"steps"`
 	Title string     `json:"title"`
 }
+
+// TakeSource Where it was filmed (issue #1189): the phone a node holds, or an agent's tab of the shared browser, whose node is empty and whose frames are encoded on the control plane (`finalizing`, never `uploading`).
+type TakeSource string
 
 // TakeList defines model for TakeList.
 type TakeList struct {

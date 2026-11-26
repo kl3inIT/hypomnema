@@ -80,6 +80,7 @@ type Item = {
   length_ms: number
   state: string
   take?: string
+  source?: "phone" | "browser"
   rev?: number
   thumbnail?: string
 }
@@ -93,6 +94,7 @@ function library(): Item[] {
     {
       kind: "take",
       id: "tk_00000000000000a1",
+      source: "browser",
       title: "Thanh toán bằng ví",
       bot: "Atlas",
       created_at: at(59),
@@ -102,6 +104,7 @@ function library(): Item[] {
     {
       kind: "video",
       id: videoId,
+      source: "phone",
       title: "Đăng nhập cửa hàng",
       bot: "Atlas",
       created_at: at(58),
@@ -114,6 +117,7 @@ function library(): Item[] {
     {
       kind: "take",
       id: takeId,
+      source: "phone",
       title: "Đăng nhập cửa hàng",
       bot: "Atlas",
       created_at: at(55),
@@ -124,6 +128,7 @@ function library(): Item[] {
     {
       kind: "take",
       id: "tk_00000000000000a2",
+      source: "phone",
       title: "Đặt lịch giao hàng",
       bot: "worker 41",
       created_at: at(54),
@@ -133,6 +138,7 @@ function library(): Item[] {
     {
       kind: "video",
       id: "vid_search",
+      source: "browser",
       title: "Tìm sản phẩm",
       bot: "Nova",
       created_at: at(50),
@@ -145,6 +151,7 @@ function library(): Item[] {
     {
       kind: "video",
       id: failedVideo,
+      source: "phone",
       title: "Checkout",
       bot: "Nova",
       created_at: at(48),
@@ -156,6 +163,7 @@ function library(): Item[] {
     {
       kind: "take",
       id: "tk_00000000000000a5",
+      source: "phone",
       title: "Mở thông báo",
       bot: "Nova",
       created_at: at(45),
@@ -165,6 +173,7 @@ function library(): Item[] {
     {
       kind: "take",
       id: "tk_00000000000000a6",
+      source: "phone",
       title: "Đổi mật khẩu",
       bot: "worker 41",
       created_at: at(44),
@@ -177,6 +186,7 @@ function library(): Item[] {
     items.push({
       kind: "take",
       id: `tk_00000000000001${String(n).padStart(2, "0")}`,
+      source: "phone",
       title: `Lượt quay cũ ${n + 1}`,
       bot: "Atlas",
       created_at: at(40 - n),
@@ -212,6 +222,7 @@ const take = {
   title: "Đăng nhập cửa hàng",
   agent: "b-cht_1",
   agent_name: "Atlas",
+  source: "phone",
   node: "nod_phone",
   started_at: at(55),
   state: "available",
@@ -818,8 +829,11 @@ test("the Studio lists, filters, searches and pages its takes and videos", async
   await expect(filmed.getByTestId("filming-dot")).toHaveText("REC")
   await expect(filmed).toContainText("Filming")
   await expect(filmed).toContainText("0:42")
+  // Where each was filmed (issue #1189): this take of a page in the browser, the video of a phone's take.
+  await expect(filmed).toContainText("Browser")
   const review = page.getByRole("article", { name: "Đăng nhập cửa hàng" }).first()
   await expect(review).toContainText("Video · rev 1")
+  await expect(review).toContainText("Phone")
   await expect(review).toContainText("Awaiting review")
   await expect(review.locator("img")).toHaveAttribute(
     "src",
@@ -875,6 +889,9 @@ test("the Studio lists, filters, searches and pages its takes and videos", async
   await page.getByRole("button", { name: "table" }).click()
   await expect(page.getByRole("table")).toBeVisible()
   await expect(page.getByRole("row").filter({ hasText: "Checkout" })).toContainText("Failed")
+  await expect(page.getByRole("row").filter({ hasText: "Thanh toán bằng ví" })).toContainText(
+    "Browser",
+  )
   await shot(page, "studio-table")
   await page.getByRole("button", { name: "grid" }).click()
 

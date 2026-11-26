@@ -48,6 +48,7 @@ function takeOf(state: string) {
     title: "Sign in to the shop",
     agent: "b-cht_1",
     agent_name: "bot coordinator in chat cht_1",
+    source: "phone",
     node: "nod_phone",
     app_package: "vn.shop.app",
     app_version: "3.1.0",

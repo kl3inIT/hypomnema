@@ -8378,13 +8378,19 @@ components:
         takeover paused it. `recording` and `paused` while it is filmed, `finalizing` while the node closes its
         last segment, `uploading` until every file reached the control plane, then `available`; `failed` with
         `reason` when it got no frame or could not be kept.
-      required: [id, title, agent, node, started_at, state, duration_ms, segments, steps, pauses]
+      required: [id, title, source, agent, node, started_at, state, duration_ms, segments, steps, pauses]
       properties:
         id: { type: string }
         title: { type: string }
+        source:
+          type: string
+          enum: [phone, browser]
+          description: >-
+            Where it was filmed (issue #1189): the phone a node holds, or an agent's tab of the shared browser, whose
+            node is empty and whose frames are encoded on the control plane (`finalizing`, never `uploading`).
         agent: { type: string, description: The agent's key, such as d-<dispatch> or b-<chat>. }
         agent_name: { type: string, description: Who filmed it, as the logs name agents. }
-        node: { type: string, description: The node that filmed it. }
+        node: { type: string, description: "The node that filmed it; empty for a browser take." }
         app_package: { type: string, description: The app the agent opened last while filming. }
         app_version: { type: string }
         started_at: { type: string, format: date-time }
@@ -8533,6 +8539,10 @@ components:
           type: string
           description: A take's state, or the state of a video's latest revision.
         take: { type: string, description: A video's take. }
+        source:
+          type: string
+          enum: [phone, browser]
+          description: "Where a take, or a video's take, was filmed (issue #1189); absent for a video whose take is gone."
         rev: { type: integer, description: A video's latest revision. }
         thumbnail:
           type: string

@@ -44,8 +44,11 @@ func (s *Server) WithTakes(t Takes) *Server {
 
 var errNoTakes = fmt.Errorf("%w: this control plane keeps no take", orchestration.ErrUnavailable)
 
-// takeOf is a take as the API says it: the same fields as take.json.
+// takeOf is a take as the API says it: the same fields as take.json, and the phone as the source of a take filmed
+// before a take said its own (issue #1189).
 func takeOf(t devicetool.Take) (openapi.Take, error) {
+	t.Source = sourceOf(t)
+
 	raw, err := json.Marshal(t)
 	if err != nil {
 		return openapi.Take{}, err
@@ -57,6 +60,15 @@ func takeOf(t devicetool.Take) (openapi.Take, error) {
 	}
 
 	return out, nil
+}
+
+// sourceOf is where a take was filmed: the phone when it says nothing, as every take before issue #1189.
+func sourceOf(t devicetool.Take) string {
+	if t.Source == "" {
+		return devicetool.SourcePhone
+	}
+
+	return t.Source
 }
 
 // takeOrNotFound is a take, or the API's not found when the store does not have it.

@@ -134,6 +134,25 @@ func TestABotsToolSwitchesAreKeptAndUndone(t *testing.T) {
 // froze: a Bot or profile it moved to the full preset gets them as the preset says, which no legacy list named.
 var familiesAfterPresets = []string{"inbox", "requests", "meetings"}
 
+// toolsAfterPresets are the tools added after that migration to a family it knew: the browser take's (issue
+// #1189). A legacy list named none of them either, so they go as their family goes in the full preset.
+var toolsAfterPresets = []string{
+	devicetool.BrowserVideoStart, devicetool.BrowserVideoSay, devicetool.BrowserVideoStop,
+}
+
+// inPhoneToo says whether a tool of another family is also the phone's: the video tools that read and make a take,
+// which the browser's family names too since issue #1189. The migration knew them as the phone's, and they are
+// checked there.
+func inPhoneToo(family agenttool.ToolFamily, tool string) bool {
+	if family.Name == "phone" {
+		return false
+	}
+
+	return slices.ContainsFunc(agenttool.ToolFamilies, func(f agenttool.ToolFamily) bool {
+		return f.Name == "phone" && slices.Contains(f.Tools, tool)
+	})
+}
+
 func TestToolPresetMigrationPreservesBotAndProfileAccess(t *testing.T) {
 	t.Parallel()
 
@@ -173,6 +192,10 @@ func TestToolPresetMigrationPreservesBotAndProfileAccess(t *testing.T) {
 				}
 
 				for _, tool := range family.Tools {
+					if slices.Contains(toolsAfterPresets, tool) || inPhoneToo(family, tool) {
+						continue
+					}
+
 					match := func(entry string) bool {
 						prefix, wild := strings.CutSuffix(entry, "*")
 						return entry == tool || entry == family.Pattern || wild && strings.HasPrefix(tool, prefix)

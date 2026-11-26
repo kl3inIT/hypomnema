@@ -22,6 +22,10 @@ const verbs: Record<string, { verb: string; keys: string[] }> = {
   video_say: { verb: "Said", keys: ["text"] },
   video_stop: { verb: "Stopped filming", keys: ["take"] },
   video_status: { verb: "Checked the take", keys: ["take"] },
+  // Filming a tab of the browser (issue #1189).
+  browser_video_start: { verb: "Started filming the browser", keys: ["title"] },
+  browser_video_say: { verb: "Said", keys: ["text"] },
+  browser_video_stop: { verb: "Stopped filming", keys: ["take"] },
   // The Muse tools (issue #782).
   muse_ask: { verb: "Ask Muse ·", keys: ["prompt"] },
   muse_chats: { verb: "Muse threads ·", keys: ["query"] },

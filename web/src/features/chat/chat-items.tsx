@@ -25,7 +25,7 @@ import { MuseCard } from "@/features/muse/muse-card"
 import { isMuseAsk } from "@/features/muse/muse-state"
 import { SetupChangeCard } from "@/features/bots/setup-change-card"
 import { TakeCard } from "@/features/takes/take-card"
-import { takeOfCall } from "@/features/takes/take-state"
+import { startsATake, takeOfCall } from "@/features/takes/take-state"
 import { RunCard, SetUpCard } from "@/features/routines/chat-cards"
 import { cn } from "@/lib/utils"
 
@@ -265,7 +265,8 @@ function Activity({ steps, live }: { steps: Step[]; live: boolean }) {
   const expanded = live || open
   // A page the Bot opened shows as a card under its work, seen when the work is folded (issue #703); so does Muse's
   // answer to a question the Bot asked it (issue #782).
-  // A take the Bot started filming shows as a card that follows it to the end (issue #817).
+  // A take the Bot started filming, of the phone or of its tab, shows as a card that follows it to the end (issues
+  // #817, #1189).
   const pages = steps.flatMap((s) => {
     if (s.kind !== "tool") return []
     if (s.name === browserOpen && s.result && !s.result.error) {
@@ -275,7 +276,7 @@ function Activity({ steps, live }: { steps: Step[]; live: boolean }) {
       return [<MuseCard key={`muse-${s.key}`} output={s.result.output} error={s.result.error} />]
     }
     const take =
-      s.name === "video_start" && s.result && !s.result.error && takeOfCall(s.args, s.result.output)
+      startsATake(s.name) && s.result && !s.result.error && takeOfCall(s.args, s.result.output)
 
     return take ? [<TakeCard key={`take-${s.key}`} take={take} />] : []
   })
