@@ -3,15 +3,12 @@ package orchestration
 import (
 	"database/sql"
 	"io/fs"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // inboxWaitingVersions are the versions of the migration before issue #1142's and of its own, found by its name: it
@@ -67,16 +64,8 @@ func TestMigrationLetsAnItemWaitOnAPerson(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
 	before, own := inboxWaitingVersions(t)
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, before)
-	require.NoError(t, err)
+	db, p := databaseAt(t, before)
 
 	columns := todoColumns(t, db)
 
@@ -92,11 +81,11 @@ func TestMigrationLetsAnItemWaitOnAPerson(t *testing.T) {
 		`INSERT INTO todo_events (todo_id, at, revision, actor_kind, actor, kind, before, after)
 		 VALUES ('tdo_a', 1, 1, 'bot', 'bot_kai', 'created', '{}', '{"title":"Reply to Lan"}')`,
 	} {
-		_, err = db.ExecContext(ctx, stmt)
+		_, err := db.ExecContext(ctx, stmt)
 		require.NoError(t, err, stmt)
 	}
 
-	_, err = p.UpTo(ctx, own)
+	_, err := p.UpTo(ctx, own)
 	require.NoError(t, err)
 
 	assert.Equal(t, columns, todoColumns(t, db), "every column, in its order")
