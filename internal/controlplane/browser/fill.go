@@ -35,7 +35,7 @@ const (
 
 // toolViewport is agent-browser's tool that sets a tab's size. It is in its
 // `mobile` set, not the `core` one agents are offered: only the owner's view
-// sets a size.
+// and a take (film.go) set a size.
 const toolViewport = "agent_browser_set_viewport"
 
 // fillPage is the page that fills a pane of the given CSS size: the pane's

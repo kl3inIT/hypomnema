@@ -26,3 +26,7 @@ internal/controlplane/videos/captions/styled.go.
 
 Ported (issue #908, part 2): even, MAX_WINDOW_PAD_PX and fitPaddingPx of src/framing.ts, and the fail-closed refusal
 of assertFramedContentAspect, into internal/controlplane/videos/compose/frame.go.
+
+Ported (issue #1189): MIN_FRAME_SEC, frameDurations and framesConcatContent of src/screencast.ts, and
+concatListEntry, the X264 policy's crfFrames and framesEncodeArgs of src/ffmpeg.ts, into
+internal/controlplane/browsertake/timeline.go.

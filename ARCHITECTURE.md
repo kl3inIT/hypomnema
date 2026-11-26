@@ -1020,6 +1020,32 @@ sequenceDiagram
     pause, the steps and chapters (autodemo's rule) seek, and it downloads and deletes (`web/src/features/takes`).
     A seek into a segment's still tail lands just before its last frame (`last_frame_ms`), as Chromium does not
     seek into a file's last sample.
+  - A take of the shared browser (issue #1189; [research](docs/research/2026-11-26-browser-take.md)). An agent
+    films its own tab with `browser_video_start {title, width?, height?, request_id?}`, `browser_video_say {take,
+    text, element?, chapter?}` right before each action and `browser_video_stop {take}`
+    (`internal/controlplane/agentapi/browsertakes.go`), listed and called on the tools route beside the browser's
+    tools and switched with the browser family (`agenttool.ToolFamilies`); `video_status`, `video_list`,
+    `video_make` and `video_get` read a browser take as a phone's. The take is `source: browser` (a phone take
+    `phone`; one filmed before says none and is the phone's, in `take.json` and the API), has no node, and its
+    `screen` is the tab's viewport in CSS pixels. The engine (`internal/controlplane/browser/film.go`) has
+    agent-browser give the tab the viewport (its `agent_browser_set_viewport`), keeps the owner's view from
+    resizing it while it films, attaches to the tab on a DevTools connection of its own and starts
+    `Page.startScreencast` (JPEG 90, as large as the viewport, every frame, each acknowledged), as autodemo films;
+    a frame drawn while the owner holds the browser is acknowledged and not kept. Chrome 158's screencast draws no
+    frame larger than the view in CSS pixels, so the frames are the viewport's size, not twice it as the design
+    asked. A step's `element` is agent-browser's `get box` of it (`agent_browser_get_box`, a ref or a selector),
+    its centre the step's tap, which the Make pipeline rings as a phone's tap. The recorder
+    (`internal/controlplane/browsertake`) writes the frames into `takes/<id>/frames/` with when Chrome drew each,
+    starts with a still of the tab when no frame came within 400 ms (autodemo), and at the stop encodes them with
+    the videos' ffmpeg into one segment, `seg-000.mp4`: each frame from its timestamp to the next, the first from
+    the start, the last until the stop, through the concat demuxer to 30 fps H.264 (libx264 veryfast CRF 18,
+    yuv420p in TV range, even sides), cut to the take's length (agent-demo-video's `screencast.ts` and
+    `ffmpeg.ts`, ported). The stop answers at once, `finalizing`; the take is `available` once the segment is in
+    place, and its frames go. One take an agent at a time; it ends with its work (`work_end`, as a phone take's
+    lease), when its tab or Chrome goes away (`stream_error`), when free disk falls under 400 MB (`disk_low`, also
+    refused at the start), and a take an earlier control plane left unfinished is failed `restart` at the next
+    start. Deleting a take still filmed stops it unencoded. The Studio's cards, table and a take's tab say its
+    source; a Bot's `browser_video_start` shows the take card in its chat as `video_start` does.
   - Making a video of a take (issue #818, in three parts: the compose core; the revisions, runner, voice, captions
     and access; the Studio page and the take and video tabs). The control plane installs a pinned
     static ffmpeg and ffprobe (`internal/controlplane/videos/ffmpeg`, BtbN/FFmpeg-Builds' GPL build n9.0.2 for
