@@ -26,3 +26,13 @@ SELECT CAST(coalesce((
 -- pull_request.
 SELECT CAST(count(*) AS INTEGER) AS n FROM events
 WHERE task_id = @task_id AND dispatch_id = @dispatch_id AND kind = 'escalation' AND json_extract(payload, '$.kind') = 'pull_request';
+
+-- name: PullRequestLookupOf :one
+-- The pull request found on a Dispatch's Task's branch, and when it was first looked up (issue #1168).
+SELECT * FROM pull_request_lookups WHERE dispatch_id = @dispatch_id;
+
+-- name: NotePullRequestLookup :exec
+-- Keeps what a lookup found: since stays the first lookup's time, and a found pull request is not forgotten by a
+-- later lookup that found none (issue #1168).
+INSERT INTO pull_request_lookups (dispatch_id, url, since) VALUES (@dispatch_id, @url, @now)
+ON CONFLICT (dispatch_id) DO UPDATE SET url = excluded.url WHERE excluded.url <> '';

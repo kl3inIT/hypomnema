@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,6 +19,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // credentialWorld is a world wired as the control plane wires it for credentials (issue #996): the gateway's
@@ -158,12 +158,11 @@ func legacyLinkDB(t *testing.T) (string, ArtifactShare, *vault.Keyring) {
 	t.Helper()
 
 	ctx := t.Context()
-	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	path := sqlitetest.Migrated(t, Migrate)
 	keys := testKeys(t)
 
 	db, err := sqlite.Open(ctx, sqlite.Config{Path: path})
 	require.NoError(t, err)
-	require.NoError(t, Migrate(ctx, db))
 
 	s := New(db, &fakeClock{now: t0}, platform.NewID).WithShareVault(testVaultWith(db, keys).Copies())
 

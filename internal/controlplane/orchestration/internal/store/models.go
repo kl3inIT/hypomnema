@@ -843,6 +843,12 @@ type Provider struct {
 	UpdatedAt int64
 }
 
+type PullRequestLookup struct {
+	DispatchID string
+	Url        string
+	Since      int64
+}
+
 type PushOutbox struct {
 	Seq       int64
 	Kind      string
@@ -951,6 +957,7 @@ type Routine struct {
 	CreatedAt      int64
 	UpdatedAt      int64
 	Access         string
+	ResumeRunID    sql.NullString
 }
 
 type RoutineGrant struct {
@@ -981,6 +988,7 @@ type RoutineRun struct {
 	Script         string
 	ScriptText     string
 	TimeoutSeconds int64
+	ResumesRunID   sql.NullString
 }
 
 type Run struct {

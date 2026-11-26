@@ -1,14 +1,12 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: a control plane with two Bots, each with a chat, a Run, a Routine, a Lark Channel, an artifact and a
@@ -20,14 +18,8 @@ func TestMigrationGivesBotsIDs(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 84)
-	require.NoError(t, err)
+	db, p := databaseAt(t, 84)
+	var err error
 
 	for _, stmt := range []string{
 		`INSERT INTO bots (name, created_at, updated_at) VALUES ('vmap', 100, 100)`,
