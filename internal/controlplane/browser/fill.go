@@ -68,7 +68,8 @@ func (e *Engine) resize(ctx context.Context, s *session, size Size) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.released || s.size == size || (s.size == Size{} && size == standardPage) {
+	// A tab filmed for a take keeps the take's size until it stops (film.go), which gives it back its own.
+	if s.released || s.filming || s.size == size || (s.size == Size{} && size == standardPage) {
 		return nil
 	}
 

@@ -65,7 +65,7 @@ func TestTheOwnerReadsAndDeletesTakesWithTheCLI(t *testing.T) {
 
 	out, err := w.cmd(t, "takes", "list")
 	require.NoError(t, err)
-	assert.Contains(t, out, id+"  available  1:05  1 steps")
+	assert.Contains(t, out, id+"  phone  available  1:05  1 steps")
 	assert.Contains(t, out, "dispatch 1  Sign in to the shop")
 
 	out, err = w.cmd(t, "takes", "get", id)

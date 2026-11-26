@@ -21,6 +21,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/browsertake"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/channels"
 	larkchannel "github.com/kl3inIT/hypomnema/internal/controlplane/channels/lark"
@@ -509,6 +510,18 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	agents.WithDevice(sharedPhone)
 	agents.WithVideos(videoSvc, phoneTakes)
 
+	// The takes agents film of their tabs of the shared browser (issue #1189), kept with the phone's and encoded
+	// with the videos' ffmpeg.
+	browserTakes := browsertake.New(browsertake.Config{
+		Browser: browsertake.Engine(shared), Takes: phoneTakes, Tools: ffmpegTools, WorkAlive: workAlive(svc, logger),
+		Logger: logger,
+	})
+	if !cfg.BrowserOff {
+		agents.WithBrowserTakes(browserTakes)
+
+		go browserTakes.Run(ctx)
+	}
+
 	// An agent's commands on a node's machine (issue #543), sudo given the node's password from the vault.
 	// A command on the phone's node starts its machine stopped for idleness, as a phone call does (issue #1083).
 	agents.WithNodeExec(svc, nodes, nodeSudo(secrets)).WithNodeUse(sharedPhone)
@@ -694,7 +707,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	api.WithPhone(ownersPhone{sharedPhone})
-	api.WithTakes(ownerTakes{Store: phoneTakes, phone: sharedPhone, videos: videoSvc})
+	api.WithTakes(ownerTakes{Store: phoneTakes, phone: sharedPhone, browser: browserTakes, videos: videoSvc})
 	api.WithVideos(videoSvc)
 
 	if musePool != nil {
@@ -994,12 +1007,13 @@ func workAlive(svc *orchestration.Service, logger *slog.Logger) func(ctx context
 }
 
 // ownerTakes are the takes as the owner reads and deletes them: a take still
-// filmed is ended on its node before its files go, and a take a video is
+// filmed is ended on its node, or in the browser (issue #1189), before its files go, and a take a video is
 // being made of is not deleted (issue #818, row 2).
 type ownerTakes struct {
 	*takes.Store
-	phone  *phone.Phone
-	videos *videos.Service
+	phone   *phone.Phone
+	browser *browsertake.Recorder
+	videos  *videos.Service
 }
 
 func (o ownerTakes) Delete(ctx context.Context, id string) error {
@@ -1014,6 +1028,7 @@ func (o ownerTakes) Delete(ctx context.Context, id string) error {
 	}
 
 	o.phone.EndTake(ctx, id)
+	o.browser.End(ctx, id)
 
 	return o.Store.Delete(id)
 }

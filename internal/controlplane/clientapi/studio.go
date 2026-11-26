@@ -82,15 +82,18 @@ func madeState(state string) bool {
 func studioItems(takes []devicetool.Take, vids []videos.Video) []studioItem {
 	out := make([]studioItem, 0, len(takes)+len(vids))
 	filmedBy := make(map[string]string, len(takes))
+	filmedIn := make(map[string]openapi.StudioItemSource, len(takes))
 
 	for _, t := range takes {
 		bot := cmp.Or(t.AgentName, t.Agent)
 		filmedBy[t.ID] = bot
+		source := openapi.StudioItemSource(sourceOf(t))
+		filmedIn[t.ID] = source
 
 		item := studioItem{
 			StudioItem: openapi.StudioItem{
 				Kind: openapi.StudioItemKindTake, Id: t.ID, Title: t.Title, Bot: bot, CreatedAt: t.StartedAt.UTC(),
-				LengthMs: t.DurationMs, State: t.State,
+				LengthMs: t.DurationMs, State: t.State, Source: &source,
 			},
 			group: takeGroup(t.State),
 		}
@@ -115,6 +118,10 @@ func studioItems(takes []devicetool.Take, vids []videos.Video) []studioItem {
 				State: latest.State, Take: ptr(v.Take), Rev: ptr(latest.Rev),
 			},
 			group: revisionGroup(latest.State),
+		}
+
+		if source, ok := filmedIn[v.Take]; ok {
+			item.Source = &source
 		}
 
 		// The first frame of its latest made revision.

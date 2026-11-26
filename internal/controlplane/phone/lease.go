@@ -205,7 +205,8 @@ func (p *Phone) startTake(ctx context.Context, c Caller, call devicetool.Call) (
 
 	if _, err := p.cfg.Takes.Get(l.take); errors.Is(err, ErrNoTake) {
 		err = p.cfg.Takes.Create(devicetool.Take{
-			ID: l.take, Title: call.Title, Agent: c.Key, AgentName: c.Name, Node: n.ID, RequestID: call.RequestID,
+			ID: l.take, Title: call.Title, Source: devicetool.SourcePhone, Agent: c.Key, AgentName: c.Name, Node: n.ID,
+			RequestID: call.RequestID,
 			StartedAt: p.cfg.Clock.Now().UTC(), State: devicetool.TakeRecording,
 		})
 		if err != nil {

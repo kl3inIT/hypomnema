@@ -93,6 +93,10 @@ func (s *Server) standingTools(ctx context.Context, a agent) []string {
 		names = append(names, agenttool.BrowserTools...)
 	}
 
+	if s.hasBrowserTakes(a) {
+		names = append(names, browserTakeTools...)
+	}
+
 	// The phone's, as its own route lists them: none while no node holds it.
 	if s.device != nil {
 		if tools, err := s.device.Tools(ctx); err == nil {

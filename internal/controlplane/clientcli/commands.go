@@ -831,7 +831,7 @@ var commands = []command{
 		flags: jsonFlag, run: browserStatus,
 	},
 	{
-		name: "takes list", summary: "the takes agents filmed of the phone, the newest first (owner)",
+		name: "takes list", summary: "the takes agents filmed of the phone or the browser, the newest first (owner)",
 		flags: jsonFlag, run: takesList,
 	},
 	{

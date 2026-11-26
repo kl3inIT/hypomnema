@@ -44,6 +44,16 @@ const (
 	VideoGet  = "video_get"
 )
 
+// The browser take's tools (issue #1189, row 4): start, say and stop filming the agent's own tab of the shared
+// browser, the phone's video_start, video_say and video_stop for a page. They are the control plane's own and the
+// browser's switch names them, so neither Routed nor IsVideo is true of them; video_status, video_list, video_make
+// and video_get read a browser take as they read a phone's.
+const (
+	BrowserVideoStart = "browser_video_start"
+	BrowserVideoSay   = "browser_video_say"
+	BrowserVideoStop  = "browser_video_stop"
+)
+
 // Routed says whether a tool's name is one of the phone's, which a worker's
 // tools server and a Bot's pass to the phone's routes.
 func Routed(name string) bool {
@@ -233,18 +243,30 @@ func Describe(t Take) string {
 
 	b.WriteString(".")
 
-	switch t.State {
-	case TakeRecording:
-		b.WriteString(" Call video_say right before each action, and video_stop when done.")
-	case TakePaused:
-		b.WriteString(" The owner took the phone over; it resumes when the owner hands it back.")
-	case TakeFinalizing, TakeUploading:
-		b.WriteString(" It is being finished and uploaded; video_status says when it is available.")
-	case TakeAvailable:
-		b.WriteString(" The owner can watch it now.")
-	}
+	b.WriteString(next(t))
 
 	return b.String()
+}
+
+// next is what an agent is told to do or wait for after a take's state: a browser take is encoded on the control
+// plane, with nothing to upload (issue #1189).
+func next(t Take) string {
+	switch {
+	case t.State == TakeAvailable:
+		return " The owner can watch it now."
+	case t.Browser() && t.State == TakeRecording:
+		return " Call " + BrowserVideoSay + " right before each action, and " + BrowserVideoStop + " when done."
+	case t.Browser() && t.State == TakeFinalizing:
+		return " Its frames are being encoded; video_status says when it is available."
+	case t.State == TakeRecording:
+		return " Call video_say right before each action, and video_stop when done."
+	case t.State == TakePaused:
+		return " The owner took the phone over; it resumes when the owner hands it back."
+	case t.State == TakeFinalizing, t.State == TakeUploading:
+		return " It is being finished and uploaded; video_status says when it is available."
+	}
+
+	return ""
 }
 
 // List is an agent's takes in lines, as video_list answers them: id, title,
@@ -264,6 +286,10 @@ func List(takes []Take, state string) string {
 
 	for _, t := range takes {
 		fmt.Fprintf(&b, "\n- %s %q: %s", t.ID, t.Title, t.State)
+
+		if t.Browser() {
+			b.WriteString(", of the browser")
+		}
 
 		if t.EndedBy != "" {
 			fmt.Fprintf(&b, ", ended by %s", t.EndedBy)
