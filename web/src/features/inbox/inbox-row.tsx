@@ -27,6 +27,7 @@ import {
   atOf,
   botOf,
   dueOf,
+  dueTones,
   fromLineOf,
   isClosed,
   quoteOf,
@@ -88,8 +89,6 @@ const actionLook: Record<Action, { Icon: LucideIcon; label: string }> = {
   reopen: { Icon: RotateCcw, label: "Reopen" },
   unsnooze: { Icon: RotateCcw, label: "Unsnooze" },
 }
-
-const dueTone = { late: "text-failed", today: "text-needs-you", later: "text-muted-foreground" }
 
 // InboxRow is one line of the list, after OpenMausBot's InboxRowItem and Chatwoot's ConversationCard: the platform
 // it came from as its avatar, with no state on it, which its group's heading says (issue #1140); the title, bold
@@ -203,7 +202,7 @@ export function InboxRow({
               </span>
             )}
             {due && (
-              <span className={cn("shrink-0", dueTone[due.tone])}>
+              <span className={cn("shrink-0", dueTones[due.tone])}>
                 {due.tone === "late" ? `Late · ${due.text}` : due.text}
               </span>
             )}

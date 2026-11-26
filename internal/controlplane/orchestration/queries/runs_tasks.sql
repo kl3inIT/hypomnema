@@ -12,6 +12,22 @@ UPDATE runs SET chat_id = @chat_id, coordinator_token_id = @coordinator_token_id
     wake_after = coalesce((SELECT max(seq) FROM events WHERE run_id = runs.id), 0)
 WHERE id = @id;
 
+-- name: VoidOpenRunWakes :exec
+-- The wake-ups of the chat's open Runs that its pi was not given yet go to it no more (issue #1169): the Runs move
+-- to the Bot's new main chat (MoveOpenRuns), whose pi reads them, and the former chat's pi may no longer change them.
+UPDATE chat_messages SET delivered_at = @now
+WHERE chat_messages.chat_id = @chat_id AND chat_messages.delivered_at IS NULL
+  AND chat_messages.event_seq IN (SELECT e.seq FROM events e JOIN runs r ON r.id = e.run_id
+                                  WHERE r.chat_id = @chat_id AND r.status = 'open');
+
+-- name: MoveOpenRuns :many
+-- The open Runs of a Bot's former main chat move to its new main chat (issue #1169), as BindRunToChat binds one:
+-- the new chat is woken by their events from now on, and their coordinator token stays.
+UPDATE runs SET chat_id = @to_chat, updated_at = @now,
+    wake_after = coalesce((SELECT max(seq) FROM events WHERE run_id = runs.id), 0)
+WHERE chat_id = @from_chat AND status = 'open'
+RETURNING id;
+
 -- name: ChatHasOpenRuns :one
 SELECT EXISTS (SELECT 1 FROM runs WHERE chat_id = @chat_id AND status = 'open');
 

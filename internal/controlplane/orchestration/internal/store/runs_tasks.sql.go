@@ -690,6 +690,44 @@ func (q *Queries) ListUnfinishedTaskIDs(ctx context.Context, arg ListUnfinishedT
 	return items, nil
 }
 
+const moveOpenRuns = `-- name: MoveOpenRuns :many
+UPDATE runs SET chat_id = ?1, updated_at = ?2,
+    wake_after = coalesce((SELECT max(seq) FROM events WHERE run_id = runs.id), 0)
+WHERE chat_id = ?3 AND status = 'open'
+RETURNING id
+`
+
+type MoveOpenRunsParams struct {
+	ToChat   sql.NullString
+	Now      int64
+	FromChat sql.NullString
+}
+
+// The open Runs of a Bot's former main chat move to its new main chat (issue #1169), as BindRunToChat binds one:
+// the new chat is woken by their events from now on, and their coordinator token stays.
+func (q *Queries) MoveOpenRuns(ctx context.Context, arg MoveOpenRunsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, moveOpenRuns, arg.ToChat, arg.Now, arg.FromChat)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nextTaskPosition = `-- name: NextTaskPosition :one
 SELECT CAST(coalesce(max(position), 0) + 1 AS INTEGER) AS next FROM tasks WHERE run_id = ?1
 `
@@ -946,4 +984,23 @@ func (q *Queries) UnfinishedTaskPushingTo(ctx context.Context, arg UnfinishedTas
 	var id string
 	err := row.Scan(&id)
 	return id, err
+}
+
+const voidOpenRunWakes = `-- name: VoidOpenRunWakes :exec
+UPDATE chat_messages SET delivered_at = ?1
+WHERE chat_messages.chat_id = ?2 AND chat_messages.delivered_at IS NULL
+  AND chat_messages.event_seq IN (SELECT e.seq FROM events e JOIN runs r ON r.id = e.run_id
+                                  WHERE r.chat_id = ?2 AND r.status = 'open')
+`
+
+type VoidOpenRunWakesParams struct {
+	Now    sql.NullInt64
+	ChatID string
+}
+
+// The wake-ups of the chat's open Runs that its pi was not given yet go to it no more (issue #1169): the Runs move
+// to the Bot's new main chat (MoveOpenRuns), whose pi reads them, and the former chat's pi may no longer change them.
+func (q *Queries) VoidOpenRunWakes(ctx context.Context, arg VoidOpenRunWakesParams) error {
+	_, err := q.db.ExecContext(ctx, voidOpenRunWakes, arg.Now, arg.ChatID)
+	return err
 }

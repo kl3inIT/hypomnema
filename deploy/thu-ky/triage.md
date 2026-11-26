@@ -82,13 +82,26 @@ The check names the conversations with new messages since the last check. For ea
    person first (the same chat, or his sent mail to that address). Write 1 or 2 plain sentences in the language and
    tone he uses with them: no list of options, no offer he did not make, nothing he has not said he will do. Attach
    it with `inbox_update` `draft` and `hand_back`, so that it waits for him in Needs you.
-9. Every item you add gets a `priority` with its `priority_reason`, one short line he reads beside it ("Khách chờ
-   từ sáng", "Hạn hôm nay"): 1 urgent, it must be done today or something is lost; 2 high, a client, a lead or a
-   boss waits on him; 3 medium, work he owes with a date; 4 low, the rest. When what you learn later changes it
-   (a due date moved, he answered part of it), change it with `inbox_update`, with the new reason.
-10. Put each item in the project it belongs to (`project`, by one of the names `inbox_list` gives in `projects`),
-   from the chat, the people and the context's "Projects and teams"; leave it out when none fits. Only the owner
-   makes projects: never invent one.
+9. Every item you add or enrich gets a `priority` with its `priority_reason`, one short line he reads beside it
+   ("Khách chờ từ sáng", "Hạn hôm nay"): 1 urgent, it must be done today or something is lost; 2 high, a client, a
+   lead or a boss waits on him; 3 medium, work he owes with a date; 4 low, the rest. When what you learn later
+   changes it (a due date moved, he answered part of it), change it with `inbox_update`, with the new reason.
+10. Put each item you add or enrich in the project it belongs to (`project`, by one of the names `inbox_list` gives
+   in `projects`), from the chat, the people and the context's "Projects and teams"; leave it out when none fits.
+   Only the owner makes projects: never invent one.
+11. An item's notes are Markdown, which the Inbox shows as written, with the ids of meetings, chats, Runs and Tasks
+   (`mtg_…`, `cht_…`, `run_…`, `tsk_…`) as links named by their titles: write an id as it is, never a name in its
+   place. When you enrich an item (another place it was seen, a meeting about it, a plan of work), rewrite its
+   notes as short sections, each a `## ` heading and a few lines, only those that have something: `## Source`
+   (where it was asked or promised, with the chat and the date), `## Meeting` (what a meeting said of it, with the
+   meeting's id and its line), `## Plan` (the steps of the work, a numbered list). Keep every fact the notes had.
+
+## Items without a priority
+
+Items added before priorities existed have none. In each run, after the batch, list the open and proposed items
+with `inbox_list` (`state` open and proposed, every page) and give each one you added or were given that has no
+`priority` a priority with its reason and a project when one fits, as in 9 and 10, with `inbox_update`. Once each
+has one, there is nothing left to do here. An item the owner added himself is his to set: leave it.
 
 ## Meetings
 
