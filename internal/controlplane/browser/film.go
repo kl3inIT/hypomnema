@@ -184,6 +184,9 @@ func (f *Film) start(ctx context.Context, target string, frame func(Frame)) erro
 		session string
 	)
 
+	// The acknowledgements are sent for as long as the film lives, past the request that started it.
+	life := context.WithoutCancel(ctx)
+
 	events := func(ev cdpEvent) {
 		mu.Lock()
 		ours := session
@@ -199,7 +202,7 @@ func (f *Film) start(ctx context.Context, target string, frame func(Frame)) erro
 
 		switch ev.Method {
 		case "Page.screencastFrame":
-			f.frame(ev.Params, ours, frame)
+			f.frame(life, ev.Params, ours, frame)
 		case "Target.detachedFromTarget", "Inspector.detached", "Inspector.targetCrashed":
 			f.ended()
 		}
@@ -255,7 +258,7 @@ func detached(params json.RawMessage, session string) bool {
 }
 
 // frame acknowledges a frame and gives it on, unless the owner holds the browser.
-func (f *Film) frame(params json.RawMessage, session string, frame func(Frame)) {
+func (f *Film) frame(ctx context.Context, params json.RawMessage, session string, frame func(Frame)) {
 	var got struct {
 		Data      string `json:"data"`
 		SessionID int64  `json:"sessionId"`
@@ -269,7 +272,7 @@ func (f *Film) frame(params json.RawMessage, session string, frame func(Frame)) 
 	}
 
 	// Acknowledged first, as autodemo does, and never waited for here: this is the connection's own goroutine.
-	_, _ = f.conn.start(context.WithoutCancel(context.Background()), "Page.screencastFrameAck",
+	_, _ = f.conn.start(ctx, "Page.screencastFrameAck",
 		map[string]any{"sessionId": got.SessionID}, session)
 
 	if held, _ := f.e.control.State(); held {
@@ -369,7 +372,7 @@ func (e *Engine) setViewport(ctx context.Context, s *session, cdp string, size S
 // Box is the box of an element of an agent's tab, by a selector or a ref of
 // its last snapshot, as agent-browser's click finds it: its `get box`
 // (cli/src/native/element.rs, get_element_bounding_box), the element's
-// getBoundingClientRect in CSS pixels. A take's step rings its centre (row 5).
+// getBoundingClientRect in CSS pixels. A take's step rings its center (row 5).
 func (e *Engine) Box(ctx context.Context, agent, selector string) (Box, error) {
 	if !e.control.Enter() {
 		return Box{}, ErrHeld

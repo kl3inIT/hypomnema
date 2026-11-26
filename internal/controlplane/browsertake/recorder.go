@@ -223,7 +223,9 @@ func (r *Recorder) start(ctx context.Context, f *film, viewport browser.Size) (d
 
 	f.dir = dir
 
-	screencast, err := r.cfg.Browser.Film(ctx, f.caller.Key, viewport, func(fr browser.Frame) { r.frame(f, fr) })
+	life := context.WithoutCancel(ctx)
+
+	screencast, err := r.cfg.Browser.Film(ctx, f.caller.Key, viewport, func(fr browser.Frame) { r.frame(life, f, fr) })
 	if err != nil {
 		return failed(devicetool.EndedStreamError, strings.TrimSuffix(err.Error(), "."))
 	}
@@ -237,7 +239,7 @@ func (r *Recorder) start(ctx context.Context, f *film, viewport browser.Size) (d
 	// A page that draws nothing new sends no frame: it starts with a still of it, as autodemo's does.
 	if !r.waitFrame(ctx, f) {
 		if still, err := screencast.Still(ctx); err == nil {
-			r.frame(f, browser.Frame{JPEG: still, At: f.started})
+			r.frame(life, f, browser.Frame{JPEG: still, At: f.started})
 		}
 	}
 
@@ -250,7 +252,7 @@ func (r *Recorder) start(ctx context.Context, f *film, viewport browser.Size) (d
 	f.live = true
 	r.mu.Unlock()
 
-	go r.watch(context.WithoutCancel(ctx), f)
+	go r.watch(life, f)
 
 	return t, ""
 }
@@ -290,7 +292,7 @@ func (r *Recorder) watch(ctx context.Context, f *film) {
 }
 
 // frame writes one frame of a take, and ends the take when the disk runs low or a frame cannot be written.
-func (r *Recorder) frame(f *film, fr browser.Frame) {
+func (r *Recorder) frame(ctx context.Context, f *film, fr browser.Frame) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -312,7 +314,7 @@ func (r *Recorder) frame(f *film, fr browser.Frame) {
 		f.checked = now
 
 		if !r.freeEnough(f.dir) {
-			go r.end(context.Background(), f, devicetool.EndedDiskLow, "the control plane ran low on disk")
+			go r.end(ctx, f, devicetool.EndedDiskLow, "the control plane ran low on disk")
 
 			return
 		}
@@ -320,7 +322,7 @@ func (r *Recorder) frame(f *film, fr browser.Frame) {
 
 	file := filepath.Join(f.dir, fmt.Sprintf("%06d.jpg", len(f.frames)))
 	if err := os.WriteFile(file, fr.JPEG, 0o600); err != nil {
-		go r.end(context.Background(), f, devicetool.EndedWriterError, "a frame could not be written: "+err.Error())
+		go r.end(ctx, f, devicetool.EndedWriterError, "a frame could not be written: "+err.Error())
 
 		return
 	}
@@ -329,7 +331,7 @@ func (r *Recorder) frame(f *film, fr browser.Frame) {
 }
 
 // Say stamps a line on the caller's take, at this moment of it, with the
-// centre of the element it names as the step's tap (row 5): a selector or a
+// center of the element it names as the step's tap (row 5): a selector or a
 // ref of the agent's last snapshot, as agent_browser_click takes.
 func (r *Recorder) Say(ctx context.Context, c Caller, id, text, chapter, element string) (string, bool) {
 	f := r.own(c, id)
@@ -346,7 +348,7 @@ func (r *Recorder) Say(ctx context.Context, c Caller, id, text, chapter, element
 			return "The element's box could not be read, so nothing was said: " + err.Error() + ".", true
 		}
 
-		step.Tap = centre(box, f.size)
+		step.Tap = center(box, f.size)
 	}
 
 	f.mu.Lock()
@@ -362,8 +364,8 @@ func (r *Recorder) Say(ctx context.Context, c Caller, id, text, chapter, element
 	return "Said at " + devicetool.Clock(at) + " of take " + id + ".", false
 }
 
-// centre is the middle of a box, in the viewport's pixels and within it.
-func centre(b browser.Box, size browser.Size) *devicetool.TakeTap {
+// center is the middle of a box, in the viewport's pixels and within it.
+func center(b browser.Box, size browser.Size) *devicetool.TakeTap {
 	x := min(max(int(math.Round(b.X+b.Width/2)), 0), max(size.Width-1, 0))
 	y := min(max(int(math.Round(b.Y+b.Height/2)), 0), max(size.Height-1, 0))
 

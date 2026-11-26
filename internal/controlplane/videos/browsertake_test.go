@@ -125,7 +125,7 @@ func TestABrowserTakeIsMadeIntoAVideoAsAPhoneTakeIs(t *testing.T) {
 	assert.Contains(t, string(streams), "h264,720,1280")
 	assert.Contains(t, string(streams), "aac", "the voice")
 
-	// The rings: one a step, at the centre of the element's box, the page's pixels scaled to the 720×1280 video
+	// The rings: one a step, at the center of the element's box, the page's pixels scaled to the 720×1280 video
 	// (the 360×640 page fills it at twice its size).
 	maker.mu.Lock()
 	made := maker.made
@@ -140,7 +140,7 @@ func TestABrowserTakeIsMadeIntoAVideoAsAPhoneTakeIs(t *testing.T) {
 		assert.InDelta(t, want[1], ring.Y, 2, "scene %d", i)
 	}
 
-	// The ring is drawn: blue on the grey page just right of the first ring's centre, while it grows.
+	// The ring is drawn: blue on the grey page just right of the first ring's center, while it grows.
 	ring := made.Scenes[0].Ring
 	frame := run(t.Context(), t, tools.FFmpeg, "-hide_banner", "-loglevel", "error",
 		"-ss", strconv.FormatFloat(float64(ring.AtMs+150)/1000, 'f', 3, 64),

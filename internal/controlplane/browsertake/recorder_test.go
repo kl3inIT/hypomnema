@@ -127,18 +127,20 @@ func realTools(t *testing.T) ffmpeg.Tools {
 func probe(t *testing.T, tools ffmpeg.Tools, file string, entries string) string {
 	t.Helper()
 
-	out, err := exec.CommandContext(t.Context(), tools.FFprobe, "-v", "error", "-select_streams", "v:0", //nolint:gosec // The pinned ffprobe.
+	//nolint:gosec // The pinned ffprobe.
+	out, err := exec.CommandContext(t.Context(), tools.FFprobe, "-v", "error", "-select_streams", "v:0",
 		"-count_frames", "-show_entries", entries, "-of", "default=noprint_wrappers=1", file).Output()
 	require.NoError(t, err)
 
 	return string(out)
 }
 
-// pixelAt is the colour at the middle of a video's frame that covers an instant.
+// pixelAt is the color at the middle of a video's frame that covers an instant.
 func pixelAt(t *testing.T, tools ffmpeg.Tools, file string, at time.Duration) color.RGBA {
 	t.Helper()
 
-	out, err := exec.CommandContext(t.Context(), tools.FFmpeg, "-hide_banner", "-loglevel", "error", //nolint:gosec // The pinned ffmpeg.
+	//nolint:gosec // The pinned ffmpeg.
+	out, err := exec.CommandContext(t.Context(), tools.FFmpeg, "-hide_banner", "-loglevel", "error",
 		"-ss", fmt.Sprintf("%.3f", at.Seconds()), "-i", file, "-frames:v", "1", "-vf", "crop=2:2:iw/2:ih/2",
 		"-f", "rawvideo", "-pix_fmt", "rgb24", "-").Output()
 	require.NoError(t, err)
@@ -161,7 +163,7 @@ var (
 
 // A page filmed through a click and a typing: the take's segment is H.264 at 30 fps, the viewport's size, each
 // frame on screen from when Chrome drew it until the next, the steps at the moments they were said with the
-// centres of the elements' boxes, and the frames gone once it is kept.
+// centers of the elements' boxes, and the frames gone once it is kept.
 func TestAPageFilmedThroughAClickAndATypingIsKeptAsATake(t *testing.T) {
 	t.Parallel()
 

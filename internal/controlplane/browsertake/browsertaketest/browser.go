@@ -45,11 +45,16 @@ type Film struct {
 	stopped bool
 }
 
-// Done, Size, Still and Stop are browsertake.Film's.
-func (f *Film) Done() <-chan struct{}                 { return f.gone }
-func (f *Film) Size() browser.Size                    { return f.size }
+// Done is closed once the film stops.
+func (f *Film) Done() <-chan struct{} { return f.gone }
+
+// Size is the viewport filmed.
+func (f *Film) Size() browser.Size { return f.size }
+
+// Still is the tab's picture.
 func (f *Film) Still(context.Context) ([]byte, error) { return f.still, nil }
 
+// Stop stops the film, as the tab going away does.
 func (f *Film) Stop(context.Context) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -109,7 +114,7 @@ func (b *Browser) Draw(fr browser.Frame) {
 	frame(fr)
 }
 
-// Picture is a JPEG of a page of one colour, w by h.
+// Picture is a JPEG of a page of one color, w by h.
 func Picture(t *testing.T, w, h int, c color.RGBA) []byte {
 	t.Helper()
 

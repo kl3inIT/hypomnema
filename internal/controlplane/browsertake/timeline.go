@@ -6,7 +6,7 @@
 // libx264, no audio).
 //
 // What differs, and why: in Go, with times in milliseconds; the output is cut to the timeline's length (-t), as the
-// pinned ffmpeg (9.0) honours the last entry's duration and gives the repeated last file one more, which the
+// pinned ffmpeg (9.0) honors the last entry's duration and gives the repeated last file one more, which the
 // reference's older ffmpeg did not; the frames, full-range JPEGs, are scaled to the TV range that yuv420p means to a
 // player and to the Make pipeline (format=yuv420p alone kept them full range, yuvj420p); the first frame is shown from the take's start, as
 // autodemo's render takes the first frame for an output time before any frame came (src/render.js:193-230), so that

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -22,10 +23,12 @@ in=$(cat)
 echo "$AGENT_BROWSER_SESSION $* $in" >> "$dir/log"
 if [ "$3" = agent_browser_get_box ]; then
   if [ -f "$dir/box" ]; then
-    printf '{"content":[{"type":"text","text":"box"}],"isError":false,"structuredContent":{"response":{"success":true,"data":%s}}}\n' "$(cat "$dir/box")"
+    printf '{"content":[{"type":"text","text":"box"}],"isError":false,'
+    printf '"structuredContent":{"response":{"success":true,"data":%s}}}\n' "$(cat "$dir/box")"
     exit 0
   fi
-  echo '{"content":[{"type":"text","text":"Element not found: #nothing"}],"isError":true,"structuredContent":{"response":{"success":false}}}'
+  printf '{"content":[{"type":"text","text":"Element not found: #nothing"}],"isError":true,'
+  echo '"structuredContent":{"response":{"success":false}}}'
   exit 1
 fi
 echo '{"content":[{"type":"text","text":"done"}],"isError":false}'
@@ -71,7 +74,7 @@ func TestAFilmIsTheScreencastOfTheAgentsTab(t *testing.T) {
 	jpeg := base64.StdEncoding.EncodeToString([]byte("a JPEG"))
 	frame := func(n int, ts string) string {
 		return `{"method":"Page.screencastFrame","sessionId":"S1","params":{"data":"` + jpeg + `","sessionId":` +
-			string(rune('0'+n)) + `,"metadata":{"timestamp":` + ts + `}}}`
+			strconv.Itoa(n) + `,"metadata":{"timestamp":` + ts + `}}}`
 	}
 
 	chrome := &fakeChrome{push: make(chan string, 4), answer: func(method, _ string) (string, []string) {
@@ -100,7 +103,8 @@ func TestAFilmIsTheScreencastOfTheAgentsTab(t *testing.T) {
 	assert.Contains(t, sent, `Target.attachToTarget {"flatten":true,"targetId":"T1"}`)
 	assert.Contains(t, sent,
 		`S1 Page.startScreencast {"everyNthFrame":1,"format":"jpeg","maxHeight":844,"maxWidth":390,"quality":90}`)
-	assert.Contains(t, logged(t, log), `d-1 mcp call agent_browser_set_viewport - --tools mobile {"height":844,"width":390}`)
+	assert.Contains(t, logged(t, log),
+		`d-1 mcp call agent_browser_set_viewport - --tools mobile {"height":844,"width":390}`)
 
 	require.Eventually(t, func() bool {
 		return strings.Contains(strings.Join(chrome.sent(), "\n"), `S1 Page.screencastFrameAck {"sessionId":1}`)

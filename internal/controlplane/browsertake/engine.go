@@ -11,7 +11,8 @@ func Engine(e *browser.Engine) Browser { return engine{e} }
 
 type engine struct{ e *browser.Engine }
 
-func (g engine) Film(ctx context.Context, agent string, viewport browser.Size, frame func(browser.Frame)) (Film, error) {
+func (g engine) Film(ctx context.Context, agent string, viewport browser.Size, frame func(browser.Frame),
+) (Film, error) {
 	f, err := g.e.Film(ctx, agent, viewport, frame)
 	if err != nil {
 		return nil, err
