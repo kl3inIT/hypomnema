@@ -10098,6 +10098,11 @@ components:
         script_text: { type: string }
         timeout_seconds: { type: integer }
         key: { type: string, description: "The run's key, given once." }
+        resumed:
+          type: boolean
+          description: >-
+            The run catches up a run of the Routine that a restart of the control plane cut; the script is told
+            with HYPOMNEMA_ROUTINE_RESUMED=1, to check what was done already before it does it again.
     RoutineRun:
       type: object
       required: [id, routine_id, started_by, state, started_at, output, error]

@@ -5,14 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"maps"
-	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // gatewayModelsOf lists the gateway's models as name, first target and
@@ -83,15 +80,7 @@ func currentVersions(ctx context.Context, t *testing.T, db *sql.DB) map[string]s
 func migratedTo(t *testing.T, version int64) (*Service, *sql.DB) {
 	t.Helper()
 
-	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, version)
-	require.NoError(t, err)
+	db, _ := databaseAt(t, version)
 
 	n := 0
 
@@ -169,16 +158,9 @@ func TestMigrationLeavesAnOwnersGatewayAndProfiles(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, p := databaseAt(t, 80)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 80)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO providers (name, kind, source, created_at, updated_at)
 		VALUES ('gw', 'model_gateway', 'name: gw', 100, 100);
 		INSERT INTO models (provider, name) VALUES ('gw', 'claude-opus-5-5'), ('gw', 'claude-sonnet-5-5');

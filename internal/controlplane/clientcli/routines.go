@@ -505,7 +505,8 @@ func routinesRevoke(ctx context.Context, e *env, fs *flag.FlagSet) error {
 // (deploy/coordinator/hypomnema-routine). It asks the control plane for what
 // the Routine's starting run runs, which is given once a run, writes the
 // script into the Bot's routines directory and the run's key beside it, and
-// prints the file's name and the seconds it may run, one a line. The control
+// prints the file's name, the seconds it may run, and 1 when the run catches
+// up a run a restart cut (issue #1170) or 0, one a line. The control
 // plane's text is what runs, so the file is what the owner read. The key is
 // never printed: the tools a script calls read it from its file.
 func routinesScript(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -543,7 +544,12 @@ func routinesScript(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return err
 	}
 
-	e.printf("%s\n%d\n", name, launch.TimeoutSeconds)
+	resumed := 0
+	if launch.Resumed != nil && *launch.Resumed {
+		resumed = 1
+	}
+
+	e.printf("%s\n%d\n%d\n", name, launch.TimeoutSeconds, resumed)
 
 	return nil
 }

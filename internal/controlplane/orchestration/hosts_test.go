@@ -1,14 +1,12 @@
 package orchestration
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 func (w *world) runOn(repo, base string) (Run, error) {
@@ -254,16 +252,9 @@ func TestMigrationNamesTheHostOfRunsFromBeforeHosts(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db, _ := databaseAt(t, 71)
 
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 71)
-	require.NoError(t, err)
-
-	_, err = db.ExecContext(ctx, `INSERT INTO runs (id, objective, status, created_by, repo, created_at, updated_at)
+	_, err := db.ExecContext(ctx, `INSERT INTO runs (id, objective, status, created_by, repo, created_at, updated_at)
 		VALUES ('run_old', 'ship it', 'open', 'owner', 'kl3inIT/hypomnema', 100, 100),
 		       ('run_none', 'think', 'open', 'owner', NULL, 100, 100)`)
 	require.NoError(t, err)

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +17,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 func (w *world) gatewayCooling(route, model string, reset time.Time) {
@@ -331,15 +329,9 @@ func TestCodexStreamUsageLimitDoesNotLoop(t *testing.T) {
 func TestGatewayCoolingMigrationKeepsExistingUsage(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	migrations, err := provider(db)
-	require.NoError(t, err)
-	coolingVersion := migrationVersion(t, migrations, "_gateway_model_cooling.sql")
-	_, err = migrations.UpTo(ctx, coolingVersion-1)
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `
+	coolingVersion := migrationVersion(t, "_gateway_model_cooling.sql")
+	db, migrations := databaseAt(t, coolingVersion-1)
+	_, err := db.ExecContext(ctx, `
 		INSERT INTO gateway_keys (id, name, key_hash, models, created_at) VALUES ('key', 'key', 'hash', '["*"]', 1);
 		INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
 		    estimated, duration_ms, created_at, cache_write_tokens, cost_micros, cache_write_1h_tokens, ttft_ms, error)

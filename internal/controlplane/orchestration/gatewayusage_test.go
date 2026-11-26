@@ -2,13 +2,10 @@ package orchestration
 
 import (
 	"fmt"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: a database from before the one-hour cache writes (migration
@@ -18,14 +15,8 @@ func TestMigrationAddsTheCacheWrittenForAnHour(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 77)
-	require.NoError(t, err)
+	db, p := databaseAt(t, 77)
+	var err error
 
 	for _, stmt := range []string{
 		`INSERT INTO gateway_keys (id, name, key_hash, models, created_at) VALUES ('gwk_1', 'pi', 'h', '["*"]', 1)`,
@@ -61,14 +52,8 @@ func TestMigrationFillsTheDailyLedgerFromTheRequests(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 120)
-	require.NoError(t, err)
+	db, p := databaseAt(t, 120)
+	var err error
 
 	day := int64(20_000) * 86_400_000
 

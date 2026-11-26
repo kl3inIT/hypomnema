@@ -6,37 +6,57 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
 // Following a pull request after its Task (issue #1053). A worker that turned the host's auto-merge on, pinned to
-// its head, finishes saying "auto-merge on at <sha>" without waiting for CI (node/runner's prompt). Auto-merge
-// lands the head once it is ready; what can still go wrong after the Task succeeded is a conflict with the base
-// or a required check that fails, and then nothing lands. So the control plane follows such a pull request, as
-// pstack's watcher follows an armed pull request until it reads merged (skills/poteto-mode/playbooks/
-// shipping.md:8-9; scripts/watch-pr/policy.ts:59-140 reads merged, closed, a conflict and failed checks, every
-// 60 s by default, cli.ts:110). A conflict comes before CI, and a flake earns one fresh build that the author
-// gives it, as pstack's babysit does (babysit.md:8); the author is sent a follow-up on its succeeded Task, the
-// existing path for more work on it (followups.go). Merged or closed wakes the coordinator, which then finishes
-// the Run or decides. Each Dispatch's report is settled once: a follow-up's new Dispatch reports again.
+// its head, finishes without waiting for CI (node/runner's prompt). Auto-merge lands the head once it is ready;
+// what can still go wrong after the Task succeeded is a conflict with the base or a required check that fails,
+// and then nothing lands. So the control plane follows such a pull request, as pstack's watcher follows an armed
+// pull request until it reads merged (skills/poteto-mode/playbooks/shipping.md:8-9; scripts/watch-pr/
+// policy.ts:59-140 reads merged, closed, a conflict and failed checks, every 60 s by default, cli.ts:110). A
+// conflict comes before CI, and a flake earns one fresh build that the author gives it, as pstack's babysit does
+// (babysit.md:8); the author is sent a follow-up on its succeeded Task, the existing path for more work on it
+// (followups.go). Merged or closed wakes the coordinator, which then finishes the Run or decides. Each Dispatch's
+// report is settled once: a follow-up's new Dispatch reports again.
+//
+// The pull request is found by the Task's branch at the host, not by a sentence in the worker's summary (issue
+// #1168), as Coder's gitsync resolves a chat's pull request from its branch (coderd/x/gitsync/gitsync.go:282-343)
+// and Orca, t3code and Hermes find one by its head branch. The worker's pull_request evidence is a hint, read
+// first and dropped when its head branch is another. What was found is kept (pull_request_lookups), as Coder keeps
+// the URL, so a pull request that merged, and is no longer open on its branch, is still read. Whether auto-merge is
+// armed is read from the host too: a conflict or a failed check is sent to the author only then, as before only a
+// pull request left with auto-merge on was followed; a merge or a close wakes the coordinator either way.
 
-// autoMergeOn reads the head a worker's summary says auto-merge is on at.
-var autoMergeOn = regexp.MustCompile("(?i)auto-merge (?:is )?on at [`\"'*]*([0-9a-f]{7,40})\\b")
+// Looking up a branch's pull request: a branch without one yet is looked up again every lookUpEvery for
+// lookUpWindow from its first lookup, then dropped, as Coder's gitsync retries a branch without a pull request
+// every 15 s for 2 minutes (NoPRBackoff, NoPRRetryWindow; coderd/x/gitsync/worker.go:38-53).
+const (
+	LookUpEvery  = 15 * time.Second
+	lookUpWindow = 2 * time.Minute
+)
 
-// FollowedRequest is a pull request the control plane follows: the one a succeeded Task's last Dispatch
-// reported with auto-merge on at Head.
+// FollowedRequest is a pull request the control plane follows: the one on the branch of a succeeded Task, by its
+// last Dispatch. Hint is the pull request read first: the one found before (Found), else the one the worker's
+// evidence names; with none the branch is looked up. URL, Request and Head are what was read, once it was.
 type FollowedRequest struct {
 	TaskID     string
 	RunID      string
 	DispatchID string
-	URL        string
 	Kind       githost.Kind
+	Repo       githost.Repo
+	Branch     string
+	Hint       *githost.Request
+	Found      bool
+	URL        string
 	Request    githost.Request
 	Head       string
+
+	lookedUp bool
 }
 
 // PullRequestOutcome is what settling a followed pull request did.
@@ -44,7 +64,7 @@ type PullRequestOutcome string
 
 // The outcomes of a followed pull request.
 const (
-	// PullRequestPending: still open and nothing wrong yet; it is read again later.
+	// PullRequestPending: still open and nothing wrong yet, or auto-merge is not armed; it is read again later.
 	PullRequestPending PullRequestOutcome = "pending"
 	// PullRequestMerged and PullRequestClosed: it is no longer open; the coordinator is woken.
 	PullRequestMerged PullRequestOutcome = "merged"
@@ -64,26 +84,39 @@ const (
 // repository, whose worker used the node's own login.
 var ErrCannotFollow = errors.New("the control plane holds no token for the repository")
 
-// PullRequestsToFollow lists the pull requests to read: of each succeeded, non-review Task of an open Run whose
-// last Dispatch's summary says auto-merge is on at a head and names one pull request, and that was not settled
-// yet.
-func (s *Service) PullRequestsToFollow(ctx context.Context) ([]FollowedRequest, error) {
+// PullRequestsToFollow lists the pull requests to read: of each succeeded, non-review Task of an open Run with a
+// repository, by its last Dispatch, not settled yet, whose pull request was found, or that is still within its
+// lookup window. With found false, those whose pull request was found are left out: a pass every LookUpEvery
+// looks up the branches without one, and the minute's pass reads them all.
+func (s *Service) PullRequestsToFollow(ctx context.Context, found bool) ([]FollowedRequest, error) {
 	q := s.read()
+	now := s.clock.Now().UnixMilli()
 
 	tasks, err := q.SucceededTasksOfOpenRuns(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing the succeeded tasks of open runs: %w", err)
 	}
 
+	runs := map[string]store.Run{}
+
 	var out []FollowedRequest
 
 	for _, task := range tasks {
-		f, ok, err := followedRequestOf(ctx, q, task)
+		run, ok := runs[task.RunID]
+		if !ok {
+			if run, err = q.GetRun(ctx, task.RunID); err != nil {
+				return nil, notFound(err, "run", task.RunID)
+			}
+
+			runs[task.RunID] = run
+		}
+
+		f, ok, err := followedRequestOf(ctx, q, run, task, now)
 		if err != nil {
 			return nil, err
 		}
 
-		if ok {
+		if ok && (found || !f.Found) {
 			out = append(out, f)
 		}
 	}
@@ -91,8 +124,9 @@ func (s *Service) PullRequestsToFollow(ctx context.Context) ([]FollowedRequest, 
 	return out, nil
 }
 
-func followedRequestOf(ctx context.Context, q *store.Queries, task store.Task) (FollowedRequest, bool, error) {
-	if reviewerProfile(task.Profile) {
+func followedRequestOf(ctx context.Context, q *store.Queries, run store.Run, task store.Task, now int64,
+) (FollowedRequest, bool, error) {
+	if reviewerProfile(task.Profile) || run.Repo.String == "" || run.RepoHost.String == "" {
 		return FollowedRequest{}, false, nil
 	}
 
@@ -103,16 +137,6 @@ func followedRequestOf(ctx context.Context, q *store.Queries, task store.Task) (
 
 	if err != nil {
 		return FollowedRequest{}, false, fmt.Errorf("reading the last dispatch of task %s: %w", task.ID, err)
-	}
-
-	result, ok := dispatchResult(d)
-	if !ok {
-		return FollowedRequest{}, false, nil
-	}
-
-	m := autoMergeOn.FindStringSubmatch(result.Summary)
-	if m == nil {
-		return FollowedRequest{}, false, nil
 	}
 
 	settled, err := q.PullRequestEscalationOf(ctx, store.PullRequestEscalationOfParams{
@@ -126,47 +150,76 @@ func followedRequestOf(ctx context.Context, q *store.Queries, task store.Task) (
 		return FollowedRequest{}, false, nil
 	}
 
+	host, err := gitHostOf(ctx, q, run.RepoHost.String)
+	if err != nil {
+		return FollowedRequest{}, false, nil //nolint:nilerr // a host no longer registered is not followed
+	}
+
+	f := FollowedRequest{
+		TaskID: task.ID, RunID: task.RunID, DispatchID: d.ID, Kind: host.Kind,
+		Repo: githost.Repo{Host: run.RepoHost.String, Path: run.Repo.String}, Branch: pushBranchOf(task),
+	}
+
 	kindOf := registeredKind(ctx, q)
 
-	url := ""
+	lookup, err := q.PullRequestLookupOf(ctx, d.ID)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return FollowedRequest{}, false, fmt.Errorf("reading the pull request found for task %s: %w", task.ID, err)
+	case lookup.Url != "":
+		f.lookedUp, f.Found = true, true
+		f.Hint = hintOf(lookup.Url, f.Repo, kindOf)
+
+		return f, f.Hint != nil, nil
+	case now-lookup.Since > lookUpWindow.Milliseconds():
+		return FollowedRequest{}, false, nil
+	default:
+		f.lookedUp = true
+	}
+
+	if result, ok := dispatchResult(d); ok {
+		f.Hint = evidenceHint(result, f.Repo, kindOf)
+	}
+
+	return f, true, nil
+}
+
+// evidenceHint is the one pull request of the Run's repository a report's evidence names, if it names one.
+func evidenceHint(result Result, repo githost.Repo, kindOf func(string) (githost.Kind, bool)) *githost.Request {
+	var hint *githost.Request
 
 	for _, e := range result.Evidence {
 		if e.Kind != "pull_request" && e.Kind != "merge_request" {
 			continue
 		}
 
-		pr := canonicalReviewRequest(e.Ref, kindOf)
-		if pr == "" {
+		r := hintOf(e.Ref, repo, kindOf)
+		if r == nil {
 			continue
 		}
 
-		if url != "" && !strings.EqualFold(url, pr) {
-			return FollowedRequest{}, false, nil
+		if hint != nil && *hint != *r {
+			return nil
 		}
 
-		url = pr
+		hint = r
 	}
 
-	if url == "" {
-		url = reviewRequest(result.Summary, kindOf)
+	return hint
+}
+
+// hintOf reads a pull request's URL, kept only when it is of repo.
+func hintOf(ref string, repo githost.Repo, kindOf func(string) (githost.Kind, bool)) *githost.Request {
+	r, ok := githost.ParseRequest(ref, kindOf)
+	if !ok || !strings.EqualFold(r.Repo.Host, repo.Host) || !strings.EqualFold(r.Repo.Path, repo.Path) {
+		return nil
 	}
 
-	kind := githost.GitHub
+	r.Repo = repo
 
-	request, parsed := githost.ParseRequest(url, func(host string) (githost.Kind, bool) {
-		k, known := kindOf(host)
-		kind = k
-
-		return k, known
-	})
-	if !parsed {
-		return FollowedRequest{}, false, nil
-	}
-
-	return FollowedRequest{
-		TaskID: task.ID, RunID: task.RunID, DispatchID: d.ID, URL: url, Kind: kind, Request: request,
-		Head: strings.ToLower(m[1]),
-	}, true, nil
+	return &r
 }
 
 // dispatchResult is the report a Dispatch ended with; false when it has none that can be read.
@@ -291,6 +344,9 @@ func settling(f FollowedRequest, st githost.RequestState) (PullRequestOutcome, s
 		return PullRequestMerged, "merged", ""
 	case st.Status == githost.RequestClosed:
 		return PullRequestClosed, "closed without a merge", ""
+	case !st.AutoMerge:
+		// Open without auto-merge: a review or the owner merges it, and its merge or close wakes the coordinator.
+		return PullRequestPending, "", ""
 	case st.Conflict:
 		return PullRequestConflict, "conflicts with its base at " + short(head),
 			fmt.Sprintf("Your pull request %s conflicts with its base at %s, after you finished with auto-merge on, "+
@@ -331,8 +387,8 @@ func pullRequestWakeText(e store.Event, p map[string]any) string {
 	case PullRequestClosed:
 		return fmt.Sprintf("%s was closed without a merge: hypomnema tasks show %s --json", at, e.TaskID.String)
 	case PullRequestUnfollowed:
-		return fmt.Sprintf("%s has auto-merge on, but the control plane holds no token for its repository and "+
-			"does not follow it; its worker waited for its checks. Read it with the host's CLI, then finish the Run "+
+		return fmt.Sprintf("%s is not followed: the control plane holds no token for its repository; its worker "+
+			"waited for its checks. Read it with the host's CLI, then finish the Run "+
 			"if nothing else is left: hypomnema tasks show %s --json", at, e.TaskID.String)
 	case PullRequestPending, PullRequestConflict, PullRequestFailed, PullRequestGone:
 	}
@@ -347,13 +403,16 @@ func pullRequestWakeText(e store.Event, p map[string]any) string {
 		"open: hypomnema tasks show %s --json", at, str("reason"), str("follow_up"), e.TaskID.String)
 }
 
-// ReadPullRequest reads a followed pull request at its host; the control plane gives it the Connection's token.
-type ReadPullRequest func(ctx context.Context, f FollowedRequest) (githost.RequestState, error)
+// ReadPullRequest finds and reads a followed pull request at its host (githost.FindRequest); the control plane
+// gives it the Connection's token. githost.ErrNoRequest says the branch has none open.
+type ReadPullRequest func(ctx context.Context, f FollowedRequest) (githost.Request, githost.RequestState, error)
 
-// FollowPullRequests reads each pull request to follow once and settles it. A read that fails leaves that pull
-// request for the next pass; its error is returned with the others, joined, after every one was tried.
-func (s *Service) FollowPullRequests(ctx context.Context, read ReadPullRequest) error {
-	follow, err := s.PullRequestsToFollow(ctx)
+// FollowPullRequests reads each pull request to follow once and settles it (with found false, only the branches
+// whose pull request was not found yet). A branch without one is noted, so its lookup window runs from its first
+// lookup; a pull request found is kept. A read that fails leaves that pull request for the next pass; its error is
+// returned with the others, joined, after every one was tried.
+func (s *Service) FollowPullRequests(ctx context.Context, read ReadPullRequest, found bool) error {
+	follow, err := s.PullRequestsToFollow(ctx, found)
 	if err != nil {
 		return err
 	}
@@ -361,26 +420,64 @@ func (s *Service) FollowPullRequests(ctx context.Context, read ReadPullRequest) 
 	var errs []error
 
 	for _, f := range follow {
-		st, err := read(ctx, f)
-		if errors.Is(err, ErrCannotFollow) {
+		r, st, err := read(ctx, f)
+
+		switch {
+		case errors.Is(err, ErrCannotFollow) && f.Hint != nil:
+			f.URL = requestURL(f.Kind, *f.Hint)
 			if _, err := s.settlePullRequest(ctx, f, PullRequestUnfollowed, "not followed: no token for its repository",
 				""); err != nil {
 				errs = append(errs, err)
 			}
+		case errors.Is(err, ErrCannotFollow), errors.Is(err, githost.ErrNoRequest):
+			// Nothing to read: the lookup window runs from the first time, and the branch is dropped after it.
+			if !f.lookedUp {
+				errs = append(errs, s.notePullRequest(ctx, f, ""))
+			}
+		case err != nil:
+			errs = append(errs, fmt.Errorf("reading the pull request of %s: %w", f.Branch, err))
+		default:
+			f.Request, f.URL = r, requestURL(f.Kind, r)
+			if st.Head != "" {
+				f.Head = strings.ToLower(st.Head)
+			}
 
-			continue
-		}
+			if !f.Found || f.Hint == nil || *f.Hint != r {
+				if err := s.notePullRequest(ctx, f, f.URL); err != nil {
+					errs = append(errs, err)
 
-		if err != nil {
-			errs = append(errs, fmt.Errorf("reading %s: %w", f.URL, err))
+					continue
+				}
+			}
 
-			continue
-		}
-
-		if _, err := s.SettlePullRequest(ctx, f, st); err != nil {
-			errs = append(errs, err)
+			if _, err := s.SettlePullRequest(ctx, f, st); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 
 	return errors.Join(errs...)
+}
+
+// notePullRequest keeps what a lookup of f's branch found: url, or an empty one for none.
+func (s *Service) notePullRequest(ctx context.Context, f FollowedRequest, url string) error {
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.NotePullRequestLookup(ctx, store.NotePullRequestLookupParams{
+			DispatchID: f.DispatchID, Url: url, Now: now,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("keeping the pull request of task %s: %w", f.TaskID, err)
+	}
+
+	return nil
+}
+
+func requestURL(kind githost.Kind, r githost.Request) string {
+	adapter, ok := githost.For(kind)
+	if !ok {
+		return ""
+	}
+
+	return adapter.RequestURL(r.Repo, r.Number)
 }

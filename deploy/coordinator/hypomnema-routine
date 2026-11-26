@@ -100,14 +100,16 @@ mkdir -p "$run"
 
 # The control plane keeps the script's text, which is what the owner read. It is asked for with the coordinator's
 # own token, outside the box, and given once for the run that is starting: the helper writes it into the run's
-# folder, so the file that runs is that text, and writes the run's key beside it. The answer is the file's name and
-# the seconds it may run. No command here reads stdin: it is the run's.
+# folder, so the file that runs is that text, and writes the run's key beside it. The answer is the file's name, the
+# seconds it may run, and 1 when the run catches up a run a restart of the control plane cut (issue #1170). No
+# command here reads stdin: it is the run's.
 if ! said=$(HOME="$user_home" "$hypomnema" routines script "$routine" --bot "$bot" --into "$run" < /dev/null); then
   rm -rf "$run"
   fail "reading routine $routine of bot $bot failed"
 fi
 name=$(printf '%s\n' "$said" | sed -n 1p)
 limit=$(printf '%s\n' "$said" | sed -n 2p)
+resumed=$(printf '%s\n' "$said" | sed -n 3p)
 key="$run/.run-$routine"
 
 case "$name" in
@@ -115,6 +117,12 @@ case "$name" in
 esac
 case "$limit" in
   "" | *[!0-9]*) rm -rf "$run"; fail "the routine has no limit" ;;
+esac
+# HYPOMNEMA_ROUTINE_RESUMED=1 tells the script that the run before it was cut, so it checks what was done already
+# before it does it again; it is not set otherwise.
+case "$resumed" in
+  1) resumed_env=HYPOMNEMA_ROUTINE_RESUMED=1 ;;
+  *) resumed_env="" ;;
 esac
 
 # The control plane's address, from the coordinator's own login; the script's client.json in the box has it with the
@@ -152,12 +160,14 @@ exec 3<&0
 # (under the tools), the skills every Bot gets, and this run's folder. A private /tmp, /var/tmp, /proc and /dev, and an empty home, in which
 # ~/.hypomnema/client.json holds the run's token. Read-write: the Bot's directory. The script has the Bot's tools on
 # its PATH and no model. HYPOMNEMA_ROUTINE says that it is a Routine's run; HYPOMNEMA_ROUTINE_RUN_FILE names the
-# file with the run's key, by which what the script asks the owner to approve is known as this run's. It is ended
+# file with the run's key, by which what the script asks the owner to approve is known as this run's;
+# HYPOMNEMA_ROUTINE_RESUMED=1 that it catches up a run a restart cut. It is ended
 # at its limit here, outside the box: timeout stops bubblewrap, and the box dies with it.
 timeout -k 10 "$limit" env -i \
   HOME="$user_home" USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
   PATH="$docs_path$home/tools/bin:$node/bin:/usr/local/bin:/usr/bin:/bin" \
   HYPOMNEMA_BOT="$bot" HYPOMNEMA_ROUTINE="$routine" HYPOMNEMA_ROUTINE_RUN_FILE="$key" HYPOMNEMA_TOOLS_HOME="$home" \
+  ${resumed_env:+"$resumed_env"} \
   "$bwrap" \
   --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try --die-with-parent \
   --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \

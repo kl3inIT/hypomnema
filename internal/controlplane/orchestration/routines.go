@@ -25,14 +25,22 @@ import (
 // (issue #656; Hermes, cron/scheduler_prompt.py L38-40, L344-350), and the
 // Bot's note of the owner's context before both (issue #1119): as it was when
 // the chat opened, a frozen snapshot as Hermes gives USER.md
-// (tools/memory_tool.py:1-5).
-func promptNotice(r routinestore.Routine, by, ownerContext, scriptOutput string) string {
+// (tools/memory_tool.py:1-5). A run that catches up a run a restart cut,
+// resumes, is told so after the prompt, as OpenClaw tells the run after a
+// gateway restart (src/cron/run-prompt.ts L30-33, L84-87; issue #1170).
+func promptNotice(r routinestore.Routine, by, ownerContext, scriptOutput, resumes string) string {
 	how := "by its schedule"
 	if by == routinestore.StartedByHand {
 		how = "by hand, now"
 	}
 
 	prompt := r.Prompt
+	if resumes != "" {
+		prompt += fmt.Sprintf("\n\nThe previous run of this routine (%s) was cut off by a restart of the control "+
+			"plane before it ended. Check what it already did before you do any of it again: do not repeat work or "+
+			"deliveries that already completed.", resumes)
+	}
+
 	if scriptOutput != "" {
 		prompt = fmt.Sprintf("## Script Output\nThe following data was collected by the routine's script %s, which "+
 			"woke you. Use it as context for the work.\n\n```\n%s\n```\n\n%s", r.Script,
@@ -69,7 +77,7 @@ func (s *Service) startRun(ctx context.Context, q *store.Queries, now int64, r r
 	if r.Kind == routinestore.RoutinePrompt && r.Script == "" {
 		var err error
 
-		chatID, err = s.openRunChat(ctx, q, now, r, by, "")
+		chatID, err = s.openRunChat(ctx, q, now, r, by, "", r.ResumeRunID)
 		if err != nil {
 			return routinestore.StartedRun{}, err
 		}
@@ -78,9 +86,10 @@ func (s *Service) startRun(ctx context.Context, q *store.Queries, now int64, r r
 	return routinestore.StartRunTx(ctx, q, now, r, id, by, chatID)
 }
 
-// openRunChat opens a prompt run's chat with the prompt waiting in it.
+// openRunChat opens a prompt run's chat with the prompt waiting in it;
+// resumes is the run a restart cut that this one catches up, if any.
 func (s *Service) openRunChat(ctx context.Context, q *store.Queries, now int64, r routinestore.Routine,
-	by, scriptOutput string,
+	by, scriptOutput, resumes string,
 ) (string, error) {
 	chatID := s.newID("cht")
 	if err := q.InsertChat(ctx, store.InsertChatParams{
@@ -100,7 +109,7 @@ func (s *Service) openRunChat(ctx context.Context, q *store.Queries, now int64, 
 	}
 
 	if err := q.InsertRoutinePrompt(ctx, store.InsertRoutinePromptParams{
-		ChatID: chatID, Text: promptNotice(r, by, ownerContext, scriptOutput), Now: now, ReadRun: readRun,
+		ChatID: chatID, Text: promptNotice(r, by, ownerContext, scriptOutput, resumes), Now: now, ReadRun: readRun,
 	}); err != nil {
 		return "", fmt.Errorf("giving the prompt of routine %s: %w", r.ID, err)
 	}
@@ -134,7 +143,8 @@ func (s *Service) WakeRoutineRun(ctx context.Context, runID, scriptOutput string
 			return fmt.Errorf("%w: run %s of routine %s runs a script alone and wakes no bot", ErrInvalid, runID, r.ID)
 		}
 
-		chatID, err := s.openRunChat(ctx, q, now, r, run.StartedBy, routinestore.KeptOutput(scriptOutput))
+		chatID, err := s.openRunChat(ctx, q, now, r, run.StartedBy, routinestore.KeptOutput(scriptOutput),
+			run.ResumesRunID.String)
 		if err != nil {
 			return err
 		}

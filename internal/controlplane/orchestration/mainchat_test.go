@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,8 +11,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: a control plane with every kind of chat takes the migration that gives each Bot a main chat (issue
@@ -27,14 +24,8 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 122)
-	require.NoError(t, err)
+	db, p := databaseAt(t, 122)
+	var err error
 
 	main := DefaultBotID
 	stmts := []string{
@@ -133,7 +124,7 @@ func TestMigrationGivesEachBotAMainChat(t *testing.T) {
 
 	// This migration and the ones before it only: a later one may add a column to a table the snapshot reads whole
 	// (the Inbox's adds approvals.attempt_id).
-	version := migrationVersion(t, p, "_bot_main_chat.sql")
+	version := migrationVersion(t, "_bot_main_chat.sql")
 	_, err = p.UpTo(ctx, version)
 	require.NoError(t, err)
 

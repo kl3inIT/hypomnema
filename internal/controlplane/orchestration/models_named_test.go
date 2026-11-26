@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"database/sql"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +10,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // Scenario (issue #1002, review of PR #1000): a database from before every model was named with its provider. Each
@@ -23,16 +23,8 @@ func TestMigrationNamesTaskModelsAsTheyWereResolved(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-
-	version := migrationVersion(t, p, modelNamesMigration)
-	_, err = p.UpTo(ctx, version-1)
-	require.NoError(t, err)
+	version := migrationVersion(t, modelNamesMigration)
+	db, p := databaseAt(t, version-1)
 
 	for _, stmt := range []string{
 		`INSERT OR IGNORE INTO models (provider, name) VALUES
@@ -60,7 +52,7 @@ func TestMigrationNamesTaskModelsAsTheyWereResolved(t *testing.T) {
 	}
 
 	// implementer as a role profile, its chain read from role routing (deploy/profiles).
-	_, _, err = New(db, &fakeClock{now: t0}, func(p string) string { return p + "_x" }).
+	_, _, err := New(db, &fakeClock{now: t0}, func(p string) string { return p + "_x" }).
 		ApplyProfile(ctx, "", "name: implementer\ndescription: d\n")
 	require.NoError(t, err)
 
@@ -166,18 +158,10 @@ func TestTheZenSeedLeavesAnOwnersProviderOfThatName(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-
-	_, err = p.UpTo(ctx, migrationVersion(t, p, "_opencode_zen_provider.sql")-1)
-	require.NoError(t, err)
+	db, p := databaseAt(t, migrationVersion(t, "_opencode_zen_provider.sql")-1)
 
 	svc := New(db, &fakeClock{now: t0}, func(p string) string { return p + "_x" })
-	_, err = svc.ApplyProvider(ctx, "", "name: opencode-zen\nkind: openai_compatible\n"+
+	_, err := svc.ApplyProvider(ctx, "", "name: opencode-zen\nkind: openai_compatible\n"+
 		"base_url: https://zen.example/v1\napi_key_ref: ZEN_KEY\nmodels: [mine]\n")
 	require.NoError(t, err)
 
@@ -189,7 +173,7 @@ func TestTheZenSeedLeavesAnOwnersProviderOfThatName(t *testing.T) {
 	assert.Equal(t, ProviderOpenAICompatible, got.Kind)
 	assert.Equal(t, []string{"mine"}, got.Models)
 
-	_, err = p.DownTo(ctx, migrationVersion(t, p, "_opencode_zen_provider.sql")-1)
+	_, err = p.DownTo(ctx, migrationVersion(t, "_opencode_zen_provider.sql")-1)
 	require.NoError(t, err)
 
 	got, err = svc.GetProvider(ctx, "opencode-zen")
@@ -207,11 +191,9 @@ func TestTheWayBackAfterZenLeavesRowsTheCodeBeforeRuns(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-
-	require.NoError(t, Migrate(ctx, db))
 
 	svc := New(db, &fakeClock{now: t0}, platform.NewID)
 	_, err = svc.AddProviderModels(ctx, "opencode-go", []string{"gpt-6.1-sol", "claude-haiku-5-5"})
@@ -254,7 +236,7 @@ func TestTheWayBackAfterZenLeavesRowsTheCodeBeforeRuns(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.DownTo(ctx, migrationVersion(t, p, modelNamesMigration)-1)
+	_, err = p.DownTo(ctx, migrationVersion(t, modelNamesMigration)-1)
 	require.NoError(t, err, "no foreign key stops the way back")
 
 	models := taskModels(t, db)
@@ -302,11 +284,9 @@ func TestTheWayBackKeepsAProviderTheCodeBeforeCouldNotPlace(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-
-	require.NoError(t, Migrate(ctx, db))
 
 	svc := New(db, &fakeClock{now: t0}, platform.NewID)
 	_, err = svc.ApplyProvider(ctx, "", "name: custom-zen\nkind: opencode_zen\nmodels: [only-zen]\n")
@@ -340,7 +320,7 @@ func TestTheWayBackKeepsAProviderTheCodeBeforeCouldNotPlace(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.DownTo(ctx, migrationVersion(t, p, modelNamesMigration)-1)
+	_, err = p.DownTo(ctx, migrationVersion(t, modelNamesMigration)-1)
 	require.NoError(t, err, "a fallback with a quote does not stop the way back")
 
 	models := taskModels(t, db)
@@ -360,16 +340,8 @@ func TestMigrationNamesProviderlessRowsOfEveryTable(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-
-	p, err := provider(db)
-	require.NoError(t, err)
-
-	version := migrationVersion(t, p, modelNamesMigration)
-	_, err = p.UpTo(ctx, version-1)
-	require.NoError(t, err)
+	version := migrationVersion(t, modelNamesMigration)
+	db, p := databaseAt(t, version-1)
 
 	for _, stmt := range []string{
 		`INSERT OR IGNORE INTO models (provider, name) VALUES
