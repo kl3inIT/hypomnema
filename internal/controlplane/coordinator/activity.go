@@ -37,8 +37,10 @@ type Part struct {
 
 // record is the part of a pi stdout record the supervisor reads.
 type record struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id"`
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	// Command is the command a response answers.
+	Command string          `json:"command"`
 	Success bool            `json:"success"`
 	Error   string          `json:"error"`
 	Data    json.RawMessage `json:"data"`
@@ -84,6 +86,7 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 	case "response":
 		p.mu.Lock()
 		ch := p.waiting[rec.ID]
+		p.answered(rec)
 		p.mu.Unlock()
 
 		if ch != nil {
@@ -93,6 +96,8 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 		p.setWorking(true)
 		p.s.turnStarted(ctx, p)
 	case "agent_settled":
+		p.settleSteers(ctx)
+
 		// A stopped turn whose end said neither error nor aborted is said stopped here.
 		if p.stopping() {
 			p.keepMessages(ctx, orchestration.NewChatMessage{
@@ -110,8 +115,12 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 		p.keepCompactionFailure(ctx, rec)
 		p.refreshUsage(ctx)
 	case "message_start":
-		if rec.Message != nil && rec.Message.Role == "assistant" {
+		switch {
+		case rec.Message == nil:
+		case rec.Message.Role == "assistant":
 			p.s.publish(p.chatID, Frame{Event: FrameReset})
+		case rec.Message.Role == "user":
+			p.steerRead(ctx)
 		}
 	case "message_update":
 		p.relayDelta(rec)

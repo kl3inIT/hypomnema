@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // Live frames go from pi to whoever watches its chat, from memory only; a
@@ -23,6 +24,9 @@ const (
 
 // watchBuffer is how many frames a watcher may lag before frames are dropped.
 const watchBuffer = 512
+
+// clearQueueTimeout bounds the wait for clear_queue before a stop, as t3code's (adapter.ts, 2_000 ms).
+const clearQueueTimeout = 2 * time.Second
 
 // Frame is one live update of a chat.
 type Frame struct {
@@ -80,6 +84,12 @@ func (s *Supervisor) Abort(ctx context.Context, chatID string) error {
 	if p == nil || p.exited() || !p.askStop() {
 		return nil
 	}
+
+	// A steer pi has not read is taken out of its queue first, as t3code's pi adapter stops a turn (adapter.ts
+	// clearNativeQueue; pi rpc-commands.md: "send clear_queue before abort"): left there, pi would take it in after
+	// the next turn's prompt, and its row goes as the next turn instead (steers.go, issue #1172). A pi that refuses
+	// the command is stopped all the same, as t3code's.
+	_, _ = p.callWithin(ctx, map[string]any{"type": "clear_queue"}, clearQueueTimeout)
 
 	if _, err := p.call(ctx, map[string]any{"type": "abort"}); err != nil {
 		p.stopSettled()

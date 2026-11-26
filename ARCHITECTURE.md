@@ -122,13 +122,19 @@ flowchart TB
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
 (`--provider`, `--model`, `--thinking`),
-and stops it after 30 min idle by closing its stdin, whatever background commands its chat runs (below); it starts again with the same session id. pi's own retries are off. Owner
-messages and wake-ups go as one `prompt` when pi is idle and are marked delivered once pi accepted them. An owner
+and stops it after 30 min idle by closing its stdin, whatever background commands its chat runs (below); it starts again with the same session id. pi's own retries are off. When pi is
+idle it is given one `prompt` of one kind (issue #1172): the owner's messages, or the control plane's lines (wake-ups
+and the line that continues a cut turn), never both, as OpenClaw, Hermes's gateway and t3code give a notification
+its own turn. The kind that waited longest goes first, by when each was written; only what was sent is marked
+delivered, once pi accepted it, and the rest goes when that turn settles. An owner
 message written while pi works, from the web, the CLI or Lark, or while others still wait, goes into the chat's
 queue (`chat_queue`, issue #497, after OpenMausBot's `server/channel-queue.ts`): off the transcript until the turn
-settles, when the supervisor moves the queue into the chat in order and sends it with the wake-ups. Wake-ups also
+settles, when the supervisor moves the queue into the chat in order and sends it as the owner's turn. Wake-ups also
 wait for the turn. The owner may remove a queued message or send it now, which moves it into the chat and goes to
-pi at once as a `steer` (read after the running tool calls, before the next model call). The chat's stream sends the
+pi at once as a `steer` (read after the running tool calls, before the next model call). A steer pi answers `queued`
+is marked delivered only once pi read it (a user `message_start`, or the turn settling without a stop), as t3code's
+pi adapter counts it, and is never sent twice to one pi. A stop sends `clear_queue` before `abort`, and a steer pi had
+not read goes again as the owner's next turn; one a pi that exited never read goes to the next pi. The chat's stream sends the
 whole queue as a `queue` frame when it opens and whenever it changes. The supervisor makes a pass (wake the chats
 of their Runs' new events, deliver, stop idle pi) every 5 s and on each commit signal. A pass with nothing to do
 commits nothing, so it does not wake itself (issue #586). It keeps a signal that came during its pass, unlike the
@@ -187,7 +193,10 @@ chat does the same for that chat's Bot and opens the new chat; `hypomnema chat /
 returns the Bot's main chat, making one when it has none, read and made in one write so that the web and the CLI
 at once end in one. The web's first message to a Bot with no main chat goes through it with the id its page chose
 (and its title and model, used only when the chat is made): a main chat the CLI made meanwhile is answered instead
-(200, its own id), the message goes there, and files put under the page's id are refused rather than lost. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
+(200, its own id), the message goes there, and files put under the page's id are refused rather than lost. Which
+of the two a first message is, the page reads in the Bots: one sent before they are read waits for them, still in the
+box and the draft, and a read that fails or a browser gone offline says so and leaves it there (issue #1055); a chat
+already under the page's id (409) is one a send of this page made whose answer was lost, and the message goes to it. A Lark chat (direct or a group's, mapped in `channel_chats` as before) and a Routine's chat are
 never a main chat. The former main chat is not archived: every chat keeps its id and its whole lifecycle (ended
 Runs and the wake-ups it was given, approvals, Routines and their report cards, the queue, a cut turn, files,
 artifacts, pi's sessions), and only leaves the sidebar's row; its open Runs move to the new main chat (issue #1169,

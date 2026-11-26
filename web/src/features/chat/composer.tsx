@@ -36,6 +36,7 @@ import { recall, type Walk } from "./recall"
 // "Hand to Hypo", and Send is then a button with those words.
 export function Composer({
   onSend,
+  ready,
   onStop,
   working,
   disabled,
@@ -49,6 +50,9 @@ export function Composer({
   submit,
 }: {
   onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
+  // ready is what the message waits for before it leaves the box and the draft, such as a new chat's Bots (issue
+  // #1055); a refusal leaves it there and says why.
+  ready?: () => Promise<unknown>
   onStop: () => void
   working: boolean
   disabled?: boolean
@@ -72,6 +76,8 @@ export function Composer({
 }) {
   const [text, setText] = useState(() => (draft ? readDraft(draft.key).text : ""))
   const [sending, setSending] = useState(false)
+  // waiting: the message waits for ready, still in the box, which is not changed meanwhile.
+  const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
@@ -135,6 +141,19 @@ export function Composer({
 
     setSending(true)
     setError(null)
+    if (ready) {
+      setWaiting(true)
+      try {
+        await ready()
+      } catch (err) {
+        setError(`Not sent: ${errorText(err)}`)
+        setSending(false)
+
+        return
+      } finally {
+        setWaiting(false)
+      }
+    }
     attachments?.dismiss()
     walk.current = null
     setText("")
@@ -212,6 +231,7 @@ export function Composer({
             rows={1}
             value={text}
             disabled={disabled}
+            readOnly={waiting}
             ref={box}
             onChange={(event) => {
               walk.current = null

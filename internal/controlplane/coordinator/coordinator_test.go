@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -35,9 +36,14 @@ func TestMain(m *testing.M) {
 // A prompt that says "crash" makes it exit mid-turn, and one that says "die
 // mid-turn" exits after its turn started; one that says "fail" ends in a
 // failed model call; one that says "hang <how>" writes a little and
-// waits for an abort, then ends the turn as <how> says (stopped), keeping a
-// message steered meanwhile for the next prompt's answer, as pi keeps it
-// queued for the next run; one that
+// waits for an abort, then ends the turn as <how> says (stopped). A message
+// steered meanwhile is answered queued and held: clear_queue takes it out
+// while the turn runs, too late after the abort (pi before 0.86 starts it as
+// the abort lands, t3code adapter.ts clearNativeQueue), and one the abort
+// left is given with the next prompt's answer, as pi keeps it queued for the
+// next run; a steer that says "finish" has pi read every steer it holds, a
+// user message each, and end the turn with them; one that says "exit now"
+// makes it exit before it read them. One that
 // asks for the "token" is answered with the line before the commands, which
 // the launcher reads; one that asks "which model" is answered with the model
 // and thinking level of its flags, or of the set_model and
@@ -52,7 +58,7 @@ func fakePi() int {
 	token := ""
 	model, level := flagOf("--provider")+"/"+flagOf("--model"), flagOf("--thinking")
 
-	hanging, steered := "", ""
+	hanging, steered := "", []string(nil)
 	measured, small, compacted, answers := false, false, false, 0
 
 	for {
@@ -87,14 +93,42 @@ func fakePi() int {
 		}
 
 		if cmd["type"] == "prompt" && cmd["streamingBehavior"] == "steer" && hanging != "" {
-			steered, _, _ = strings.Cut(fmt.Sprint(cmd["message"]), "\n")
+			text := fmt.Sprint(cmd["message"])
+			first, _, _ := strings.Cut(text, "\n")
+			steered = append(steered, first)
 			reply["data"] = map[string]any{"disposition": "queued"}
 			emit(out, reply)
+
+			if strings.Contains(text, "exit now") {
+				return 3
+			}
+
+			if strings.Contains(text, "finish") {
+				for _, m := range steered {
+					user := map[string]any{"role": "user", "content": []map[string]any{{"type": "text", "text": m}}}
+					emit(out, map[string]any{"type": "message_start", "message": user})
+					emit(out, map[string]any{"type": "message_end", "message": user})
+				}
+
+				// The turn goes on: it started once.
+				for _, rec := range turn("read: " + strings.Join(steered, " | "))[1:] {
+					emit(out, rec)
+				}
+
+				hanging, steered = "", nil
+			}
 
 			continue
 		}
 
 		switch cmd["type"] {
+		case "clear_queue":
+			cleared := []string{}
+			if hanging != "" {
+				cleared, steered = append(cleared, steered...), nil
+			}
+
+			reply["data"] = map[string]any{"steering": cleared, "followUp": []string{}}
 		case "set_model":
 			model = fmt.Sprint(cmd["provider"], "/", cmd["modelId"])
 		case "set_thinking_level":
@@ -179,9 +213,9 @@ func fakePi() int {
 		first, _, _ := strings.Cut(text, "\n")
 		answer := "echo: " + first
 
-		if steered != "" {
-			answer += " (steered: " + steered + ")"
-			steered = ""
+		if len(steered) > 0 {
+			answer += " (steered: " + strings.Join(steered, " | ") + ")"
+			steered = nil
 		}
 
 		if strings.Contains(text, "token") {
@@ -570,18 +604,187 @@ func TestPiIsStartedAgainAfterItExits(t *testing.T) {
 	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: are you back?")
 }
 
-func TestPromptJoinsWakeUpsAndOwnerMessages(t *testing.T) {
+// A turn is of one kind (issue #1172): the owner's messages go as they were written, with no word of the control
+// plane, and the wake-ups go with the line that ends their turn.
+func TestAPromptIsTheOwnersOrTheControlPlanes(t *testing.T) {
 	t.Parallel()
 
-	got := promptText([]orchestration.ChatMessage{
-		{Role: orchestration.ChatSystem, Text: "Task t1 of run r1 is succeeded: hypomnema tasks show t1 --json"},
+	assert.Equal(t, "also add docs\n\nand tests", promptText([]orchestration.ChatMessage{
 		{Role: orchestration.ChatOwner, Text: "also add docs"},
-	})
+		{Role: orchestration.ChatOwner, Text: "and tests"},
+	}))
 	assert.Equal(t, fmt.Sprint(
 		"Message from the Hypomnema control plane: these need you.\n",
 		"- Task t1 of run r1 is succeeded: hypomnema tasks show t1 --json\n",
-		"Act on them, then end your turn; the control plane wakes you again.\n",
-		"\nThe owner also wrote:\nalso add docs"), got)
+		"Act on them, then end your turn; the control plane wakes you again.\n"),
+		promptText([]orchestration.ChatMessage{
+			{Role: orchestration.ChatSystem, Text: "Task t1 of run r1 is succeeded: hypomnema tasks show t1 --json"},
+		}))
+}
+
+// scriptedPi plays pi in the test's own goroutine: it answers each command at once, a prompt by starting a turn,
+// and keeps the prompts it was given.
+type scriptedPi struct {
+	t       *testing.T
+	p       *proc
+	prompts []string
+}
+
+func (w *scriptedPi) Write(line []byte) (int, error) {
+	var cmd map[string]any
+	if err := json.Unmarshal(line, &cmd); err != nil {
+		return 0, err
+	}
+
+	data := json.RawMessage(`{}`)
+	if cmd["type"] == "prompt" {
+		w.prompts = append(w.prompts, fmt.Sprint(cmd["message"]))
+		data = json.RawMessage(`{"disposition":"started"}`)
+	}
+
+	reply, err := json.Marshal(map[string]any{
+		"type": "response", "id": cmd["id"], "command": cmd["type"], "success": true, "data": data,
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	w.p.handle(w.t.Context(), reply)
+
+	return len(line), nil
+}
+
+func (*scriptedPi) Close() error { return nil }
+
+// scripted is a supervisor that does not run, whose chat's pi is a scriptedPi, and a step that makes one pass of the
+// chat as pi is idle and returns the prompt pi was given, or "", its turn settled.
+func scripted(t *testing.T, svc *orchestration.Service, chatID string) func() string {
+	t.Helper()
+
+	sup := New(svc, Config{Command: []string{"pi"}})
+	p := &proc{
+		s: sup, chatID: chatID, token: "scripted", done: make(chan struct{}), lastActive: time.Now(),
+		waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
+	}
+	pi := &scriptedPi{t: t, p: p}
+	p.stdin = pi
+	sup.procs[chatID] = p
+
+	return func() string {
+		t.Helper()
+
+		before := len(pi.prompts)
+		require.NoError(t, sup.deliver(t.Context(), chatID))
+
+		if len(pi.prompts) == before {
+			return ""
+		}
+
+		require.True(t, sup.Working(chatID))
+		p.handle(t.Context(), []byte(`{"type":"agent_settled","aborted":false}`))
+
+		return pi.prompts[len(pi.prompts)-1]
+	}
+}
+
+// Scenario (issue #1172): the owner writes to a busy Bot whose Runs keep waking it. Each idle pi is given one kind,
+// the one that waited longest: the wake-ups before the owner's message, then the message alone, with no word of the
+// control plane, then the wake-up after it. An owner message that waited before any wake-up goes first.
+func TestATurnHoldsOneKindInTheOrderTheyWaited(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 11, 25, 9, 0, 0, 0, time.UTC)
+
+	for name, ownerFirst := range map[string]bool{"wake-ups first": false, "the owner first": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			svc, clock := newStore(t)
+			ctx := t.Context()
+
+			chat, err := svc.CreateChat(ctx, "", "")
+			require.NoError(t, err)
+
+			run, err := svc.CreateRun(ctx, orchestration.NewRun{Objective: "research", CreatedBy: "pi", ChatID: chat.ID})
+			require.NoError(t, err)
+
+			tasks, err := svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{
+				{Ref: "a", Spec: "a"}, {Ref: "b", Spec: "b"}, {Ref: "c", Spec: "c"}, {Ref: "d", Spec: "d"},
+			})
+			require.NoError(t, err)
+
+			at := func(minute int) { clock.set(start.Add(time.Duration(minute) * time.Minute)) }
+			wake := func(minute int, task orchestration.Task) {
+				at(minute)
+				require.NoError(t, svc.CancelTask(ctx, task.ID))
+				_, err := svc.WakeChats(ctx)
+				require.NoError(t, err)
+			}
+			brief := func(minute int) {
+				at(minute)
+				_, queued, err := svc.SendOwnerMessage(ctx, chat.ID,
+					orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: "answer the research brief"}, true)
+				require.NoError(t, err)
+				require.NotNil(t, queued)
+			}
+
+			if ownerFirst {
+				brief(1)
+				wake(2, tasks[0])
+			} else {
+				wake(1, tasks[0])
+				wake(2, tasks[1])
+				brief(3)
+				wake(4, tasks[2])
+			}
+
+			at(10)
+
+			next := scripted(t, svc, chat.ID)
+
+			var got []string
+
+			for prompt := next(); prompt != ""; prompt = next() {
+				got = append(got, prompt)
+			}
+
+			for _, prompt := range got {
+				if strings.Contains(prompt, "answer the research brief") {
+					assert.Equal(t, "answer the research brief", prompt, "the owner's message is a turn of its own")
+
+					continue
+				}
+
+				assert.Contains(t, prompt, "Message from the Hypomnema control plane: these need you.")
+				assert.Contains(t, prompt, "Act on them, then end your turn")
+			}
+
+			mentions := func(prompt string, ts ...orchestration.Task) bool {
+				for _, task := range tasks {
+					if strings.Contains(prompt, "Task "+task.ID) != slices.Contains(ts, task) {
+						return false
+					}
+				}
+
+				return true
+			}
+
+			if ownerFirst {
+				require.Len(t, got, 2)
+				assert.Equal(t, "answer the research brief", got[0])
+				assert.True(t, mentions(got[1], tasks[0]), got[1])
+			} else {
+				require.Len(t, got, 3)
+				assert.True(t, mentions(got[0], tasks[0], tasks[1]), got[0])
+				assert.Equal(t, "answer the research brief", got[1])
+				assert.True(t, mentions(got[2], tasks[2]), got[2])
+			}
+
+			undelivered, err := svc.Undelivered(ctx, chat.ID)
+			require.NoError(t, err)
+			assert.Empty(t, undelivered)
+		})
+	}
 }
 
 // Scenario: the owner sends files (issue #343). pi gets the text and one line a file with its path in the Bot's
@@ -1133,7 +1336,9 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 }
 
 // A message written while pi works waits in the chat's queue, off the transcript, and goes to pi as a new prompt
-// once the turn settles (issue #497); one sent now goes at once as a steer. Wake-ups are not steered.
+// once the turn settles (issue #497); one sent now goes at once as a steer. Wake-ups are not steered. The owner's
+// stop takes the steer pi had not read out of its queue, and it goes again with the queued one, the owner's next
+// turn (issue #1172).
 func TestTheQueueWaitsForTheTurnAndSendNowSteers(t *testing.T) {
 	t.Parallel()
 
@@ -1152,20 +1357,10 @@ func TestTheQueueWaitsForTheTurnAndSendNowSteers(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, later)
 
-	_, now, err := svc.SendOwnerMessage(ctx, chat.ID,
-		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: "look here"}, sup.Working(chat.ID))
-	require.NoError(t, err)
-	require.NotNil(t, now)
+	sendNow(t, svc, sup, chat.ID, "look here")
 
-	_, err = svc.SendQueuedNow(ctx, chat.ID, now.ID)
-	require.NoError(t, err)
-
-	// The steer is delivered while pi still works; the other stays queued.
-	require.Eventually(t, func() bool {
-		msgs, err := svc.Undelivered(ctx, chat.ID)
-
-		return err == nil && len(msgs) == 0
-	}, 10*time.Second, 10*time.Millisecond)
+	// The steer is given while pi still works; the other stays queued.
+	require.Eventually(t, func() bool { return heldSteers(sup, chat.ID) == 1 }, 10*time.Second, 10*time.Millisecond)
 
 	queue, err := svc.ChatQueue(ctx, chat.ID)
 	require.NoError(t, err)
@@ -1173,12 +1368,53 @@ func TestTheQueueWaitsForTheTurnAndSendNowSteers(t *testing.T) {
 	assert.Equal(t, "later", queue[0].Text)
 	assert.True(t, sup.Working(chat.ID))
 
-	// After the abort pi does not answer the steer on its own: it keeps it for the next run, which the queued
-	// message starts (#575).
 	require.NoError(t, sup.Abort(ctx, chat.ID))
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: later (steered: look here)")
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: look here")
 
-	msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
+	assert.Equal(t, []string{
+		"owner: hang aborted", "owner: look here", "coordinator: half an answer", "system: Stopped",
+		"owner: later", "coordinator: echo: look here",
+	}, said(t, svc, chat.ID), "the steer goes again once, as the owner's next turn, and pi does not hold it")
+
+	queue, err = svc.ChatQueue(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, queue)
+}
+
+// sendNow writes an owner message while pi works, which queues it, and sends it now, which steers pi with it.
+func sendNow(t *testing.T, svc *orchestration.Service, sup *Supervisor, chatID, text string) {
+	t.Helper()
+
+	_, queued, err := svc.SendOwnerMessage(t.Context(), chatID,
+		orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: text}, sup.Working(chatID))
+	require.NoError(t, err)
+	require.NotNil(t, queued)
+
+	_, err = svc.SendQueuedNow(t.Context(), chatID, queued.ID)
+	require.NoError(t, err)
+}
+
+// heldSteers is how many steers the chat's pi queued and has not read.
+func heldSteers(sup *Supervisor, chatID string) int {
+	sup.mu.Lock()
+	p := sup.procs[chatID]
+	sup.mu.Unlock()
+
+	if p == nil {
+		return 0
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return len(p.unread)
+}
+
+// said is the chat's messages with text, but its tool calls, as "role: text".
+func said(t *testing.T, svc *orchestration.Service, chatID string) []string {
+	t.Helper()
+
+	msgs, err := svc.ListChatMessages(t.Context(), chatID, 0, 0)
 	require.NoError(t, err)
 
 	var got []string
@@ -1190,12 +1426,100 @@ func TestTheQueueWaitsForTheTurnAndSendNowSteers(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, []string{
-		"owner: hang aborted", "owner: look here", "coordinator: half an answer", "system: Stopped",
-		"owner: later", "coordinator: echo: later (steered: look here)",
-	}, got)
+	return got
+}
 
-	queue, err = svc.ChatQueue(ctx, chat.ID)
+// undelivered is the text of the chat's rows pi has not had.
+func undelivered(t *testing.T, svc *orchestration.Service, chatID string) []string {
+	t.Helper()
+
+	msgs, err := svc.Undelivered(t.Context(), chatID)
 	require.NoError(t, err)
-	assert.Empty(t, queue)
+
+	out := []string{}
+	for _, m := range msgs {
+		out = append(out, m.Text)
+	}
+
+	return out
+}
+
+// Scenario (issue #1172): pi queues a steer and reads it later in its turn. Its row waits until pi read it, as t3code
+// counts a steer read at pi's user message (adapter.ts), and a pass meanwhile does not give it again.
+func TestASteerIsDeliveredOncePiReadsIt(t *testing.T) {
+	t.Parallel()
+
+	svc, sup := newSupervisor(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hang settled")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sup.Working(chat.ID) }, 10*time.Second, 10*time.Millisecond)
+
+	sendNow(t, svc, sup, chat.ID, "look here")
+	require.Eventually(t, func() bool { return heldSteers(sup, chat.ID) == 1 }, 10*time.Second, 10*time.Millisecond)
+	assert.Equal(t, []string{"look here"}, undelivered(t, svc, chat.ID), "pi has not read it yet")
+
+	// The pass this message makes is given only it, not the steer pi holds.
+	sendNow(t, svc, sup, chat.ID, "finish now")
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "read: ")
+
+	require.Eventually(t, func() bool { return len(undelivered(t, svc, chat.ID)) == 0 }, 10*time.Second,
+		10*time.Millisecond)
+	assert.Equal(t, []string{
+		"owner: hang settled", "owner: look here", "owner: finish now", "coordinator: read: look here | finish now",
+	}, said(t, svc, chat.ID), "one steer a row")
+}
+
+// Scenario (issue #1172): pi queues a steer and exits before it read it. The row stays undelivered, and the next pi
+// is given it as a prompt, as OpenClaw gives a steer the session never read again (attempt-queue-message.ts).
+func TestASteerAPiNeverReadGoesToTheNextPi(t *testing.T) {
+	t.Parallel()
+
+	svc, sup := newSupervisor(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hang settled")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sup.Working(chat.ID) }, 10*time.Second, 10*time.Millisecond)
+
+	sendNow(t, svc, sup, chat.ID, "look here and exit now")
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: look here and exit now")
+
+	assert.Equal(t, []string{
+		"owner: hang settled", "owner: look here and exit now", "coordinator: echo: look here and exit now",
+	}, said(t, svc, chat.ID))
+}
+
+// Scenario (issue #1172): the owner stops a turn while pi holds a steer it has not read. The stop clears pi's queue
+// before the abort, so pi does not take the steer in after its next prompt, and the row goes again as a turn of its
+// own; the fake pi still holds a steer an abort came before the clear.
+func TestAStopGivesAnUnreadSteerAgainAsItsOwnTurn(t *testing.T) {
+	t.Parallel()
+
+	svc, sup := newSupervisor(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hang settled")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return sup.Working(chat.ID) }, 10*time.Second, 10*time.Millisecond)
+
+	sendNow(t, svc, sup, chat.ID, "look here")
+	require.Eventually(t, func() bool { return heldSteers(sup, chat.ID) == 1 }, 10*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, sup.Abort(ctx, chat.ID))
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: look here")
+
+	assert.Equal(t, []string{
+		"owner: hang settled", "owner: look here", "system: Stopped", "coordinator: echo: look here",
+	}, said(t, svc, chat.ID))
 }
