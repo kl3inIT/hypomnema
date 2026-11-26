@@ -25,7 +25,6 @@
 import { AlarmClock, Bot, Box, Check, FolderIcon, Layers, Trash2, Undo2 } from "lucide-react"
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { InboxProject } from "@/api/generated/types.gen"
 import {
   CommandDialog,
   Command,
@@ -37,7 +36,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command"
 import { priorities } from "@/components/ui/priority"
-import { ProjectDot } from "@/components/ui/project-selector"
+import type { ProjectChoice } from "@/components/ui/project-selector"
 
 import { KindIcon } from "./inbox-row"
 import {
@@ -73,7 +72,7 @@ export function CommandMenu({
 }: {
   item: Row | undefined
   rows: Row[]
-  projects: InboxProject[]
+  projects: ProjectChoice[]
   handName: string
   now: number
   commands: MenuCommands
@@ -290,7 +289,7 @@ export function CommandMenu({
                   data-checked={todo.todo.project_id === p.id}
                   onSelect={() => run(() => commands.project(todo, p.id, p.name))}
                 >
-                  <ProjectDot color={p.color} />
+                  <Box className="text-muted-foreground" />
                   {p.name}
                 </CommandItem>
               ))}

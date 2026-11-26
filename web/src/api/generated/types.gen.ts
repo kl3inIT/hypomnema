@@ -5402,7 +5402,7 @@ export type Todo = {
    */
   priority_reason: string;
   /**
-   * The project it is in; left out when none.
+   * The project it is in, a department of the sidebar by its id (issue #1188); left out when none. An item given to a Bot in a department, without a project, takes that department.
    */
   project_id?: string;
   created_at: string;
@@ -5417,31 +5417,6 @@ export type Todo = {
  * 0 no priority, 1 urgent, 2 high, 3 medium, 4 low (Linear's scale).
  */
 export type TodoPriority = number;
-
-export type InboxProject = {
-  id: string;
-  name: string;
-  /**
-   * #rrggbb.
-   */
-  color: string;
-  created_at: string;
-  updated_at: string;
-};
-
-export type InboxProjectList = {
-  data: Array<InboxProject>;
-};
-
-export type NewInboxProject = {
-  name: string;
-  color: string;
-};
-
-export type InboxProjectEdit = {
-  name?: string;
-  color?: string;
-};
 
 export type TodoList = {
   data: Array<Todo>;
@@ -5489,7 +5464,7 @@ export type NewTodo = {
   priority?: TodoPriority;
   priority_reason?: string;
   /**
-   * The project it is in; left out for none.
+   * The project it is in, a department by its id; left out for none.
    */
   project_id?: string;
 };
@@ -5520,7 +5495,7 @@ export type TodoEdit = {
    */
   priority_reason?: string;
   /**
-   * The project to put it in, by its id; empty takes it out of its project.
+   * The project to put it in, a department by its id; empty takes it out of its project.
    */
   project_id?: string;
 };
@@ -5684,8 +5659,6 @@ export type NewAccountImportWritable = {
 };
 
 export type TodoId = string;
-
-export type InboxProjectId = string;
 
 export type MeetingId = string;
 
@@ -14041,7 +14014,7 @@ export type ListTodosData = {
      */
     source_kind?: TodoSourceKind;
     /**
-     * Only the items of this project, by its id; none, only the items without one.
+     * Only the items of this project, a department by its id (issue
      */
     project?: string;
     /**
@@ -14113,110 +14086,6 @@ export type CreateTodoResponses = {
 };
 
 export type CreateTodoResponse = CreateTodoResponses[keyof CreateTodoResponses];
-
-export type ListInboxProjectsData = {
-  body?: never;
-  path?: never;
-  query?: never;
-  url: '/inbox/projects';
-};
-
-export type ListInboxProjectsErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type ListInboxProjectsError = ListInboxProjectsErrors[keyof ListInboxProjectsErrors];
-
-export type ListInboxProjectsResponses = {
-  /**
-   * The projects.
-   */
-  200: InboxProjectList;
-};
-
-export type ListInboxProjectsResponse = ListInboxProjectsResponses[keyof ListInboxProjectsResponses];
-
-export type CreateInboxProjectData = {
-  body: NewInboxProject;
-  path?: never;
-  query?: never;
-  url: '/inbox/projects';
-};
-
-export type CreateInboxProjectErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type CreateInboxProjectError = CreateInboxProjectErrors[keyof CreateInboxProjectErrors];
-
-export type CreateInboxProjectResponses = {
-  /**
-   * The project.
-   */
-  201: InboxProject;
-};
-
-export type CreateInboxProjectResponse = CreateInboxProjectResponses[keyof CreateInboxProjectResponses];
-
-export type DeleteInboxProjectData = {
-  body?: never;
-  path: {
-    project_id: string;
-  };
-  query?: never;
-  url: '/inbox/projects/{project_id}';
-};
-
-export type DeleteInboxProjectErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type DeleteInboxProjectError = DeleteInboxProjectErrors[keyof DeleteInboxProjectErrors];
-
-export type DeleteInboxProjectResponses = {
-  /**
-   * Removed.
-   */
-  204: void;
-};
-
-export type DeleteInboxProjectResponse = DeleteInboxProjectResponses[keyof DeleteInboxProjectResponses];
-
-export type EditInboxProjectData = {
-  body: InboxProjectEdit;
-  path: {
-    project_id: string;
-  };
-  query?: never;
-  url: '/inbox/projects/{project_id}';
-};
-
-export type EditInboxProjectErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type EditInboxProjectError = EditInboxProjectErrors[keyof EditInboxProjectErrors];
-
-export type EditInboxProjectResponses = {
-  /**
-   * The project.
-   */
-  200: InboxProject;
-};
-
-export type EditInboxProjectResponse = EditInboxProjectResponses[keyof EditInboxProjectResponses];
 
 export type GetInboxNeedsYouData = {
   body?: never;

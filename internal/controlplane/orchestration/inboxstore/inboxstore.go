@@ -337,7 +337,7 @@ type Todo struct {
 	// a project Bot, or the project Bot that gave it back to the main Bot; empty when the owner or the system gave it.
 	PassedBy string
 	// Priority is NoPriority, Urgent, High, Medium or Low (issue #1157), PriorityReason why, in a line, as the Bot that
-	// set it said it; Project the id of its project, empty for none.
+	// set it said it; Project the id of its project, a department (issue #1188), empty for none.
 	Priority       int
 	PriorityReason string
 	Project        string
@@ -438,8 +438,9 @@ type NewTodo struct {
 	// item is given to that person. It is left out of the request's hash when not given, so a key used before it
 	// existed still returns its item, and it goes into the created event's after as waiting_on.
 	WaitingOn *WaitingOn `json:",omitempty"`
-	// Priority, its reason and the project's id (issue #1157) are left out of the request's hash when not given, so
-	// a key used before they existed still returns its item.
+	// Priority, its reason and the project's id (issue #1157), a department's (issue #1188), are left out of the
+	// request's hash when not given, so a key used before they existed still returns its item. An item given to a Bot
+	// in a department, without a project, takes that department.
 	Priority       int    `json:",omitempty"`
 	PriorityReason string `json:",omitempty"`
 	Project        string `json:",omitempty"`
@@ -571,6 +572,14 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
+		// An item given to a Bot in a department, without a project, takes it (issue #1188).
+		project := nullString(n.Project)
+		if !project.Valid {
+			if project, err = botsDepartment(ctx, q, n.Assignee); err != nil {
+				return err
+			}
+		}
+
 		if n.DueIn != nil {
 			if due, err = dueRow(Due{Kind: DueInstant, At: time.UnixMilli(now).Add(n.DueIn.After),
 				Zone: n.DueIn.Zone}); err != nil {
@@ -586,7 +595,7 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			State: n.State, SourceKind: n.Source.Kind, SourceID: n.Source.ID, SourceAccount: n.Source.Account,
 			SourceQuote: n.Source.Quote, SourceRef: ref,
 			CreatedByKind: actor.Kind, CreatedBy: actor.ID, WhyOpen: nullString(n.WhyOpen),
-			Priority: int64(n.Priority), PriorityReason: n.PriorityReason, ProjectID: nullString(n.Project),
+			Priority: int64(n.Priority), PriorityReason: n.PriorityReason, ProjectID: project,
 			IdempotencyKey: nullString(n.IdempotencyKey), IdempotencyHash: nullString(keyed(n.IdempotencyKey, hash)),
 			Now: now,
 		}); err != nil {

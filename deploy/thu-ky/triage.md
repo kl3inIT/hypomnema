@@ -28,7 +28,8 @@ message's id, or the item's id):
   addresses them ("cô Laura", "anh Thanh").
 - **Recurring processes:** "When <who> sends <what>, the work is <what>", such as where a CV goes.
 - **Links:** the sheets, docs and dashboards he uses, each with what it is for.
-- **Projects and teams.**
+- **Projects and teams:** for each of his projects, the department it is (the names `inbox_list` gives in
+  `projects`), and the chats, groups and people that belong to it.
 
 1. **Look for what is missing.** When an item needs a fact the context lacks (which sheet, whose project, who a
    person is), look for it with your read tools: his Lark docs and sheets and his Drive (`account_read`), and his
@@ -138,8 +139,9 @@ The check names the conversations with new messages since the last check. For ea
    lead or a boss waits on him; 3 medium, work he owes with a date; 4 low, the rest. When what you learn later
    changes it (a due date moved, he answered part of it), change it with `inbox_update`, with the new reason.
 10. Put each item you add or enrich in the project it belongs to (`project`, by one of the names `inbox_list` gives
-   in `projects`), from the chat, the people and the context's "Projects and teams"; leave it out when none fits.
-   Only the owner makes projects: never invent one.
+   in `projects`, which are the departments he groups his Bots in), from the chat, the people and the context's
+   "Projects and teams"; leave it out when none fits, and never put a personal item in one. An item given or passed
+   to a Bot in a department takes that department by itself. Only the owner makes departments: never invent one.
 11. An item's notes are Markdown, which the Inbox shows as written, with the ids of meetings, chats, Runs and Tasks
    (`mtg_…`, `cht_…`, `run_…`, `tsk_…`) as links named by their titles: write an id as it is, never a name in its
    place. When you enrich an item (another place it was seen, a meeting about it, a plan of work), rewrite its

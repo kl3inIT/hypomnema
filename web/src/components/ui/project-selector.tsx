@@ -1,7 +1,7 @@
 // The project picker is copied from circle (https://github.com/ln-dev7/circle, commit b0ba7dd):
-// components/layout/sidebar/create-new-issue/project-selector.tsx, with the colour dot of
-// components/layout/headers/projects/filter.tsx, adapted to the app's Popover, Command and Button (Base UI) and to the
-// Inbox's projects, a name and a colour each (issue #1157).
+// components/layout/sidebar/create-new-issue/project-selector.tsx, adapted to the app's Popover, Command and Button
+// (Base UI) and to the Inbox's projects (issue #1157), which are the sidebar's departments (issue #1188): a name each,
+// shown with circle's Box, since a department has no icon of its own.
 //
 // MIT License
 //
@@ -22,7 +22,6 @@
 // SOFTWARE.
 
 import * as React from "react"
-import { cn } from "cn"
 import { Box, FolderIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -36,26 +35,10 @@ import {
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 
-// ProjectChoice is a project as the picker shows it: its name and colour, #rrggbb.
+// ProjectChoice is a project as the picker shows it: a department, by its id and name.
 interface ProjectChoice {
   id: string
   name: string
-  color: string
-}
-
-// ProjectDot is a project's colour, as circle's filter shows a health's: sm on a line of small words, lg to pick a
-// colour.
-function ProjectDot({ color, size = "md" }: { color: string; size?: "sm" | "md" | "lg" }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "shrink-0 rounded-full",
-        size === "sm" ? "size-2" : size === "lg" ? "size-4" : "size-2.5",
-      )}
-      style={{ backgroundColor: color }}
-    />
-  )
 }
 
 interface ProjectSelectorProps {
@@ -66,8 +49,8 @@ interface ProjectSelectorProps {
   disabled?: boolean
 }
 
-// ProjectSelector is circle's project picker: a button naming the project, opening a searchable list of the projects
-// with No project first, the current one checked.
+// ProjectSelector is circle's project picker: a button naming the project, opening a searchable list of the projects,
+// in the sidebar's order, with No project first, the current one checked.
 function ProjectSelector({ projects, value, onChange, disabled }: ProjectSelectorProps) {
   const [open, setOpen] = React.useState(false)
   const current = projects.find((p) => p.id === value)
@@ -90,7 +73,7 @@ function ProjectSelector({ projects, value, onChange, disabled }: ProjectSelecto
           />
         }
       >
-        {current ? <ProjectDot color={current.color} /> : <Box className="size-4" />}
+        <Box className="size-4" />
         <span>{current?.name ?? "No project"}</span>
       </PopoverTrigger>
       <PopoverContent className="w-56 p-0" align="start">
@@ -114,7 +97,7 @@ function ProjectSelector({ projects, value, onChange, disabled }: ProjectSelecto
                   data-checked={value === project.id}
                   onSelect={() => pick(project.id)}
                 >
-                  <ProjectDot color={project.color} />
+                  <Box className="size-4" />
                   {project.name}
                 </CommandItem>
               ))}
@@ -126,4 +109,4 @@ function ProjectSelector({ projects, value, onChange, disabled }: ProjectSelecto
   )
 }
 
-export { ProjectDot, ProjectSelector, type ProjectChoice }
+export { ProjectSelector, type ProjectChoice }

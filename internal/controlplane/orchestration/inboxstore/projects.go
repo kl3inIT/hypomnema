@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
@@ -16,7 +14,8 @@ import (
 )
 
 // An item's priority and project (issue #1157), as Linear's issue has both (docs: Priority, Projects) and circle keeps
-// them (MIT, Copyright (c) 2025 lndev-ui; mock-data/priorities.tsx, mock-data/issues.ts:40, mock-data/projects.ts).
+// them (MIT, Copyright (c) 2025 lndev-ui; mock-data/priorities.tsx, mock-data/issues.ts:40); its project is a
+// department (issue #1188).
 
 // The priorities, on Linear's 0-4 scale: none, then urgent first and low last.
 const (
@@ -33,10 +32,9 @@ var PriorityNames = []string{"none", "urgent", "high", "medium", "low"}
 // NoProject is the Filter's Project of the items without one.
 const NoProject = "none"
 
-// Limits of a priority's reason and a project.
+// The limit of a priority's reason.
 const (
 	MaxPriorityReason = 300
-	MaxProjectName    = 60
 )
 
 func checkPriority(p int, reason string) error {
@@ -52,52 +50,32 @@ func checkPriority(p int, reason string) error {
 	return nil
 }
 
-// Project is one of the Inbox's projects: a name and a color, #rrggbb.
+// Project is the department an item is in (issue #1188, owner 2026-11-26): one of the sections the sidebar lists
+// Bots in (issue #471), made, renamed, ordered and removed there, not from the Inbox; an item is in one or none, as a
+// Linear issue is in one project. A department removed leaves its items without one (the foreign key's ON DELETE SET
+// NULL).
 type Project struct {
-	ID        string
-	Name      string
-	Color     string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID   string
+	Name string
 }
 
-var colorPattern = regexp.MustCompile(`^#[0-9a-f]{6}$`)
-
-func checkProject(name, color string) error {
-	switch {
-	case name == "" || utf8.RuneCountInString(name) > MaxProjectName || strings.ContainsAny(name, "\r\n"):
-		return fmt.Errorf("%w: a project's name is one line of 1 to %d characters", storeerr.ErrInvalid,
-			MaxProjectName)
-	case !colorPattern.MatchString(color):
-		return fmt.Errorf("%w: a project's color is #rrggbb, not %q", storeerr.ErrInvalid, color)
-	}
-
-	return nil
-}
-
-func projectOf(r store.InboxProject) Project {
-	return Project{
-		ID: r.ID, Name: r.Name, Color: r.Color, CreatedAt: storeutil.Millis(r.CreatedAt),
-		UpdatedAt: storeutil.Millis(r.UpdatedAt),
-	}
-}
-
-// Projects lists the Inbox's projects, by name.
+// Projects lists the departments, in the sidebar's order.
 func (s *Store) Projects(ctx context.Context) ([]Project, error) {
-	rows, err := store.New(s.db).ListInboxProjects(ctx)
+	rows, err := store.New(s.db).ListDepartments(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("listing the inbox's projects: %w", err)
+		return nil, fmt.Errorf("listing the departments: %w", err)
 	}
 
 	out := make([]Project, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, projectOf(r))
+		out = append(out, Project{ID: r.ID, Name: r.Name})
 	}
 
 	return out, nil
 }
 
-// ProjectNamed is the project named, by its id or its name in any case: what a Bot or the terminal names it by.
+// ProjectNamed is the department named, by its id or its name, in its case first and then in any case: what a Bot or
+// the terminal names it by.
 func (s *Store) ProjectNamed(ctx context.Context, named string) (Project, error) {
 	named = strings.TrimSpace(named)
 
@@ -106,10 +84,16 @@ func (s *Store) ProjectNamed(ctx context.Context, named string) (Project, error)
 		return Project{}, err
 	}
 
+	for _, p := range all {
+		if p.ID == named || p.Name == named {
+			return p, nil
+		}
+	}
+
 	names := make([]string, 0, len(all))
 
 	for _, p := range all {
-		if p.ID == named || strings.EqualFold(p.Name, named) {
+		if strings.EqualFold(p.Name, named) {
 			return p, nil
 		}
 
@@ -117,164 +101,42 @@ func (s *Store) ProjectNamed(ctx context.Context, named string) (Project, error)
 	}
 
 	if len(names) == 0 {
-		return Project{}, fmt.Errorf("%w: project %q; the owner has made no project", storeerr.ErrNotFound, named)
+		return Project{}, fmt.Errorf("%w: project %q; the owner has made no department", storeerr.ErrNotFound, named)
 	}
 
-	return Project{}, fmt.Errorf("%w: project %q; the projects are %s", storeerr.ErrNotFound, named,
+	return Project{}, fmt.Errorf("%w: project %q; the projects are the departments %s", storeerr.ErrNotFound, named,
 		strings.Join(names, ", "))
 }
 
-// sameName refuses a name another project has, in any case.
-func sameName(ctx context.Context, q *store.Queries, id, name string) error {
-	rows, err := q.ListInboxProjects(ctx)
-	if err != nil {
-		return fmt.Errorf("listing the inbox's projects: %w", err)
-	}
-
-	for _, r := range rows {
-		if r.ID != id && strings.EqualFold(r.Name, name) {
-			return fmt.Errorf("%w: a project is named %s already", storeerr.ErrConflict, r.Name)
-		}
-	}
-
-	return nil
-}
-
-// CreateProject adds a project; the owner does, which the caller checks.
-func (s *Store) CreateProject(ctx context.Context, name, color string) (Project, error) {
-	name, color = strings.TrimSpace(name), strings.ToLower(strings.TrimSpace(color))
-	if err := checkProject(name, color); err != nil {
-		return Project{}, err
-	}
-
-	var made Project
-
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		if err := sameName(ctx, q, "", name); err != nil {
-			return err
-		}
-
-		id := s.newID("prj")
-		if err := q.InsertInboxProject(ctx, store.InsertInboxProjectParams{ID: id, Name: name, Color: color,
-			Now: now}); err != nil {
-			return fmt.Errorf("adding the project: %w", err)
-		}
-
-		row, err := q.GetInboxProject(ctx, id)
-		if err != nil {
-			return fmt.Errorf("reading the project added: %w", err)
-		}
-
-		made = projectOf(row)
-
-		return nil
-	})
-
-	return made, err
-}
-
-// EditProject renames a project or changes its color; nil leaves it as it is. Its items keep it.
-func (s *Store) EditProject(ctx context.Context, id string, name, color *string) (Project, error) {
-	var got Project
-
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		row, err := q.GetInboxProject(ctx, id)
-		if err != nil {
-			return storeutil.NotFound(err, "project", id)
-		}
-
-		if name != nil {
-			row.Name = strings.TrimSpace(*name)
-		}
-
-		if color != nil {
-			row.Color = strings.ToLower(strings.TrimSpace(*color))
-		}
-
-		if err := checkProject(row.Name, row.Color); err != nil {
-			return err
-		}
-
-		if err := sameName(ctx, q, id, row.Name); err != nil {
-			return err
-		}
-
-		if _, err := q.UpdateInboxProject(ctx, store.UpdateInboxProjectParams{Name: row.Name, Color: row.Color,
-			Now: now, ID: id}); err != nil {
-			return fmt.Errorf("changing project %s: %w", id, err)
-		}
-
-		row, err = q.GetInboxProject(ctx, id)
-		if err != nil {
-			return fmt.Errorf("reading project %s: %w", id, err)
-		}
-
-		got = projectOf(row)
-
-		return nil
-	})
-
-	return got, err
-}
-
-// DeleteProject removes a project, as the actor (the owner): every item of it, in any state, is left without one,
-// each with an edited event that names the project it left, in the removal's transaction, so that no item names a
-// project that is not there and its history says why it has none.
-func (s *Store) DeleteProject(ctx context.Context, actor Actor, id string) error {
-	if err := checkActor(actor); err != nil {
-		return err
-	}
-
-	return s.write(ctx, func(q *store.Queries, now int64) error {
-		p, err := q.GetInboxProject(ctx, id)
-		if err != nil {
-			return storeutil.NotFound(err, "project", id)
-		}
-
-		rows, err := q.ListTodosOfProject(ctx, nullString(id))
-		if err != nil {
-			return fmt.Errorf("reading the to-dos of project %s: %w", id, err)
-		}
-
-		for _, cur := range rows {
-			n, err := q.ClearTodoProject(ctx, store.ClearTodoProjectParams{Now: now, ID: cur.ID, Revision: cur.Revision})
-			if err != nil {
-				return fmt.Errorf("taking to-do %s out of project %s: %w", cur.ID, id, err)
-			}
-
-			if n != 1 {
-				return fmt.Errorf("%w: to-do %s changed meanwhile", storeerr.ErrConflict, cur.ID)
-			}
-
-			if err := addEvent(ctx, q, cur.ID, now, cur.Revision+1, actor, EventEdited,
-				map[string]any{"project_id": id}, map[string]any{
-					"project_id": nil, "reason": "Project " + p.Name + " was removed",
-				}); err != nil {
-				return err
-			}
-		}
-
-		if _, err := q.DeleteInboxProject(ctx, id); err != nil {
-			return fmt.Errorf("removing project %s: %w", id, err)
-		}
-
-		return nil
-	})
-}
-
-// checkProjectOf checks that the project an item is put in is there; none is always.
+// checkProjectOf checks that the department an item is put in is there; none is always.
 func checkProjectOf(ctx context.Context, q *store.Queries, id string) error {
 	if id == "" {
 		return nil
 	}
 
-	if _, err := q.GetInboxProject(ctx, id); err != nil {
+	if _, err := q.GetDepartment(ctx, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("%w: project %s", storeerr.ErrNotFound, id)
+			return fmt.Errorf("%w: project %s is no department", storeerr.ErrNotFound, id)
 		}
 
-		return fmt.Errorf("reading project %s: %w", id, err)
+		return fmt.Errorf("reading department %s: %w", id, err)
 	}
 
 	return nil
+}
+
+// botsDepartment is the department of a, the Bot an item is given to (issue #1188): the project an item without one
+// takes when it is given or passed to a Bot in a department, as #1118's project Bots are. It is none for anyone else
+// and for a Bot in no department.
+func botsDepartment(ctx context.Context, q *store.Queries, a Assignee) (sql.NullString, error) {
+	if a.Kind != ABot {
+		return sql.NullString{}, nil
+	}
+
+	b, err := q.GetBot(ctx, a.Name)
+	if err != nil {
+		return sql.NullString{}, storeutil.NotFound(err, "Bot", a.Name)
+	}
+
+	return b.Department, nil
 }

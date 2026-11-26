@@ -12,9 +12,10 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-// Scenario (issue #1157): the main Bot reads the owner's projects in inbox_list, adds an item with its priority,
-// the reason and the project by its name, changes the priority with inbox_update and lists the project's items. A
-// project it names that is not there is refused, with the names it may use.
+// Scenario (issues #1157, #1188): the main Bot reads the owner's projects in inbox_list, the sidebar's departments in
+// its order, adds an item with its priority, the reason and the project by its name, changes the priority with
+// inbox_update and lists the project's items. A project it names that is not there is refused, with the names it may
+// use.
 func TestTheMainBotSetsThePriorityAndTheProjectOfAnItem(t *testing.T) {
 	t.Parallel()
 
@@ -26,7 +27,9 @@ func TestTheMainBotSetsThePriorityAndTheProjectOfAnItem(t *testing.T) {
 
 	pi, _ := w.inboxPi(main)
 
-	vmap, err := w.svc.Inbox().CreateProject(ctx, "VMAP", "#2f80ed")
+	vmap, err := w.svc.CreateDepartment(ctx, "VMAP", nil)
+	require.NoError(t, err)
+	_, err = w.svc.CreateDepartment(ctx, "BeyondPilot", nil)
 	require.NoError(t, err)
 
 	type view struct {
@@ -65,7 +68,7 @@ func TestTheMainBotSetsThePriorityAndTheProjectOfAnItem(t *testing.T) {
 		Projects []string `json:"projects"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(text), &page), text)
-	assert.Equal(t, []string{"VMAP"}, page.Projects)
+	assert.Equal(t, []string{"VMAP", "BeyondPilot"}, page.Projects)
 
 	added := read(agenttool.ToolInboxAdd, map[string]any{
 		"title": "Trả lời cô Laura", "priority": 1, "priority_reason": "Her deadline is today", "project": "vmap",
