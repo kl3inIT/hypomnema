@@ -5103,9 +5103,14 @@ its client API, its CLI and the Bots' tools.
   Zalo or WhatsApp is named `<integration>:<label>`, the label the reads' answers give when the Bot has one account
   and its tools' schemas name none (issue #1124). After the batch, `triage` gives a priority with its reason and a
   project to each open or proposed item of its own that has none (those added before #1157; the store lets a Bot
-  edit only the items it added or was given, so the owner's own stay his to set), and writes an enriched item's
-  notes as short Markdown sections, Source, Meeting and Plan, as the `notes` and `priority` fields of `inbox_add`
-  and `inbox_update` tell every Bot (issue #1173). The Routine's
+  edit only the items it added or was given, so the owner's own stay his to set), and writes an item's notes as
+  short Markdown sections, Source, Meeting and Plan, as the `notes` and `priority` fields of `inbox_add` and
+  `inbox_update` tell every Bot (issue #1173): what is needed, by when and when it is done. Every later update of an
+  item (another message, a reply, a meeting's line, another place it was seen) is an `inbox_comment` on it, dated,
+  with its source and any contradiction with an earlier one said, never a line added to its notes; an id is written
+  once, in parentheses after the words it shows (issue #1186). `deploy/thu-ky/triage.test.mjs` runs the prompt with
+  a real Claude Code against `triage-world.mjs`, the Bot's tools as an MCP server, only when
+  `HYPOMNEMA_TEST_CLAUDE` names it. The Routine's
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
@@ -6349,10 +6354,19 @@ Node (`internal/node`):
     circle's `AssigneeUser` (a Bot's face, a person's initial, the owner's mark), with the Bot it was passed through
     ("Hypo → BeyondPilot"; issue #1118); and the Date with a calendar, coloured by its tone as the row's, a late one
     saying how late, "Late · 2 days" (`lateBy`); Done when and Linked only when said. The description renders as
-    Markdown with the chat's renderer, each line break kept (as remark-breaks), and its ids, as a comment's, are
+    Markdown with the chat's renderer, each line of a paragraph a paragraph of its own, as Linear's editor makes
+    Enter a new paragraph (a line in a list item stays a line break; issue #1186), and its ids, as a comment's, are
     links named by what they name (`features/inbox/inbox-text.ts`, `inbox-markdown.tsx`): `mtg_…` the meeting's
     title to its page, `cht_…` the chat's title to the chat, `tsk_…` the Task's first line to it on Team, `run_…` the
-    Run's objective to its first Task on Team; the text is kept as written, an id in code stays code; what was
+    Run's objective to its first Task on Team, `tdo_…` the item's title to it in the Inbox; a Zalo (10 to 20 digits)
+    or WhatsApp (upper-case hexadecimal) message's id, once `GET /integrations/{integration}/connections/{label}/messages?id=`
+    finds it among the kept messages of one of the owner's accounts there (the item's own first), "message", a
+    popover with the message in its chat, it and the five before it as the server keeps them (neither service has an
+    address of one message, nor the app a page of their chats), else the number stays as written; a Lark chat's
+    `oc_…` "Lark chat", its AppLink `https://applink.larksuite.com/client/chat/open?openChatId=…` (larksuite/cli
+    `chat_app_link.go`); a Lark message's `om_…` "message", the AppLink of the item's own Lark chat, only in an item
+    read in Lark (the server keeps no Lark message, and Lark's link to one message needs its position); the text is
+    kept as written, an id in code stays code; what was
     said under who said it (the message's sender, the meeting's speaker and the meeting's name), with Open in its
     chat (a Gmail thread opens in Gmail in the account it was read with,
     `https://mail.google.com/mail/u/<address>/#all/<thread>` after inbox-zero's `getGmailUrl`, the address from `GET
