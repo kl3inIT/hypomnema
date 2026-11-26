@@ -113,15 +113,17 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		"done_when": map[string]any{"type": "string", "maxLength": inboxstore.MaxDoneWhen},
 		"draft": map[string]any{"type": "string", "maxLength": inboxstore.MaxDraft, "description": "The reply " +
 			"you drafted for the owner to send himself."},
-		// Priority and project (issue #1157), on Linear's scale, as its MCP's save_issue takes it.
+		// Priority and project (issue #1157), on Linear's scale, as its MCP's save_issue takes it; a project is a
+		// department of the sidebar (issue #1188).
 		"priority": map[string]any{"type": "integer", "minimum": inboxstore.NoPriority, "maximum": inboxstore.Low,
 			"description": "0 no priority, 1 urgent, 2 high, 3 medium, 4 low: how much it matters to the owner " +
 				"now. Give priority_reason with it; give one to every item you add or enrich that has none, with " +
 				"its project when one fits."},
 		"priority_reason": map[string]any{"type": "string", "maxLength": inboxstore.MaxPriorityReason,
 			"description": "Why it has that priority, in one line the owner reads beside it."},
-		"project": map[string]any{"type": "string", "description": "The owner's project it belongs to, by its " +
-			"name as inbox_list's projects give them; none takes it out of its project."},
+		"project": map[string]any{"type": "string", "description": "The owner's project it belongs to: one of " +
+			"the departments he groups his Bots in, by its name as inbox_list's projects give them; none takes it " +
+			"out of its project. An item given to a Bot in a department, without a project, takes that one."},
 	}
 
 	add := map[string]any{
@@ -171,7 +173,7 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		required    []string
 	}{
 		{agenttool.ToolInboxList, "List the owner's to-dos, by due then age: open ones by default, with the " +
-			"owner's projects. Filter by state, who does them, where they came from, their project, when they are " +
+			"owner's projects, the departments he groups his Bots in. Filter by state, who does them, where they came from, their project, when they are " +
 			"due, needs_you (what waits for the owner), and include closed, snoozed or stale proposals; cursor pages " +
 			"on. Use it before you add one, so as never to add it twice.", map[string]any{
 			"state": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{

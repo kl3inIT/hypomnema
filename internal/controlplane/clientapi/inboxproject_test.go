@@ -10,39 +10,26 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 )
 
-// Scenario (issue #1157): the owner keeps the Inbox's projects and a Bot reads them; he puts an item in one with a
-// priority and lists the project's items; a Bot's token cannot add, rename or remove a project.
-func TestTheOwnerKeepsTheProjectsAndPutsAnItemInOne(t *testing.T) {
+// Scenario (issue #1188): an item's project is a department the owner made in the sidebar. He puts an item in one
+// with a priority and lists the project's items; a project that is no department is refused; the Inbox has no list
+// of projects of its own.
+func TestTheOwnerPutsAnItemInADepartment(t *testing.T) {
 	t.Parallel()
 
 	w := newInboxWorld(t)
 	ctx := t.Context()
 
-	made, err := w.owner.CreateInboxProjectWithResponse(ctx, openapi.NewInboxProject{Name: "VMAP", Color: "#2F80ED"})
+	made, err := w.owner.CreateDepartmentWithResponse(ctx, openapi.NewDepartment{Name: "VMAP"})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, made.StatusCode(), string(made.Body))
 	vmap := *made.JSON201
-	assert.Equal(t, "#2f80ed", vmap.Color)
 
-	again, err := w.owner.CreateInboxProjectWithResponse(ctx, openapi.NewInboxProject{Name: "vmap", Color: "#000000"})
+	gone := "dep_gone"
+	refused, err := w.owner.CreateTodoWithResponse(ctx, &openapi.CreateTodoParams{}, openapi.NewTodo{
+		Title: "Send the report", ProjectId: &gone,
+	})
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusConflict, again.StatusCode(), string(again.Body))
-
-	byBot, err := w.chatBot.CreateInboxProjectWithResponse(ctx, openapi.NewInboxProject{Name: "X", Color: "#000000"})
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusForbidden, byBot.StatusCode())
-
-	name := "VMAP AI"
-	renamed, err := w.owner.EditInboxProjectWithResponse(ctx, vmap.Id, openapi.InboxProjectEdit{Name: &name})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, renamed.StatusCode(), string(renamed.Body))
-	assert.Equal(t, name, renamed.JSON200.Name)
-
-	listed, err := w.chatBot.ListInboxProjectsWithResponse(ctx)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
-	require.Len(t, listed.JSON200.Data, 1)
-	assert.Equal(t, vmap.Id, listed.JSON200.Data[0].Id)
+	assert.Equal(t, http.StatusNotFound, refused.StatusCode(), string(refused.Body))
 
 	high, why := openapi.TodoPriority(2), "Laura waits for it"
 	item, err := w.owner.CreateTodoWithResponse(ctx, &openapi.CreateTodoParams{}, openapi.NewTodo{
@@ -70,12 +57,4 @@ func TestTheOwnerKeepsTheProjectsAndPutsAnItemInOne(t *testing.T) {
 	assert.Equal(t, low, edited.JSON200.Priority)
 	assert.Empty(t, edited.JSON200.PriorityReason)
 	assert.Nil(t, edited.JSON200.ProjectId)
-
-	removed, err := w.chatBot.DeleteInboxProjectWithResponse(ctx, vmap.Id)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusForbidden, removed.StatusCode())
-
-	removed, err = w.owner.DeleteInboxProjectWithResponse(ctx, vmap.Id)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusNoContent, removed.StatusCode(), string(removed.Body))
 }

@@ -174,9 +174,17 @@ func (s *Store) changeTx(
 			}
 		}
 
-		// Who the item went through is set again with each change of who has it (issue #1118).
+		// Who the item went through is set again with each change of who has it (issue #1118), and an item without a
+		// project given to a Bot in a department takes it (issue #1188).
 		if next.AssigneeKind != cur.AssigneeKind || next.Assignee != cur.Assignee {
-			next.PassedBy = passedBy(c.Actor, Assignee{Kind: next.AssigneeKind, Name: next.Assignee})
+			to := Assignee{Kind: next.AssigneeKind, Name: next.Assignee}
+			next.PassedBy = passedBy(c.Actor, to)
+
+			if !cur.ProjectID.Valid && !next.ProjectID.Valid {
+				if next.ProjectID, err = botsDepartment(ctx, q, to); err != nil {
+					return err
+				}
+			}
 		}
 
 		n, err := q.UpdateTodo(ctx, store.UpdateTodoParams{
@@ -883,7 +891,7 @@ type Edit struct {
 	// reason never stays beside a priority it was not given for (issue #1157). PriorityReason alone is refused.
 	Priority       *int
 	PriorityReason *string
-	// Project puts the item in a project, by its id, or in none when empty.
+	// Project puts the item in a project, a department by its id, or in none when empty.
 	Project *string
 }
 

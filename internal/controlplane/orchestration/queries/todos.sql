@@ -182,27 +182,3 @@ ORDER BY id;
 UPDATE todos
 SET revision = revision + 1, created_by = @created_by, assignee = @assignee, passed_by = @passed_by, updated_at = @now
 WHERE id = @id AND revision = @revision;
-
--- name: ListInboxProjects :many
--- The Inbox's projects (issue #1157), by name.
-SELECT * FROM inbox_projects ORDER BY name COLLATE NOCASE, id;
-
--- name: GetInboxProject :one
-SELECT * FROM inbox_projects WHERE id = @id;
-
--- name: InsertInboxProject :exec
-INSERT INTO inbox_projects (id, name, color, created_at, updated_at) VALUES (@id, @name, @color, @now, @now);
-
--- name: UpdateInboxProject :execrows
-UPDATE inbox_projects SET name = @name, color = @color, updated_at = @now WHERE id = @id;
-
--- name: DeleteInboxProject :execrows
-DELETE FROM inbox_projects WHERE id = @id;
-
--- name: ListTodosOfProject :many
--- The items of a project, in any state: those a removed project leaves without one.
-SELECT * FROM todos WHERE project_id = @project_id ORDER BY id;
-
--- name: ClearTodoProject :execrows
--- An item leaves a removed project (issue #1157), at the revision read, which it moves on.
-UPDATE todos SET revision = revision + 1, project_id = NULL, updated_at = @now WHERE id = @id AND revision = @revision;

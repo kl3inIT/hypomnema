@@ -8,8 +8,7 @@ import {
   getTodoOptions,
   getTodoQueryKey,
   listApprovalsQueryKey,
-  listInboxProjectsOptions,
-  listInboxProjectsQueryKey,
+  listDepartmentsOptions,
   listQuestionsOptions,
   listQuestionsQueryKey,
   listTodosOptions,
@@ -18,12 +17,9 @@ import {
 import {
   acceptTodo,
   commentTodo,
-  createInboxProject,
   decideApproval,
-  deleteInboxProject,
   doneTodo,
   dropTodo,
-  editInboxProject,
   editTodo,
   handTodo,
   reopenTodo,
@@ -113,7 +109,6 @@ export const inboxReads = callsOf(
   getTodoQueryKey({ path: { todo_id: "" } }),
   listApprovalsQueryKey(),
   listQuestionsQueryKey(),
-  listInboxProjectsQueryKey(),
 )
 
 export type TodoAct =
@@ -125,7 +120,7 @@ export type TodoAct =
   | { act: "draft"; draft: string }
   // A priority set by the owner has no reason: the one a Bot gave was for the priority it set (issue #1157).
   | { act: "priority"; priority: number }
-  // project is the project's id; empty takes the item out of its project.
+  // project is the project's id, a department's; empty takes the item out of its project.
   | { act: "project"; project: string }
   // hand gives the item to a Bot, the main Bot when none is named, as writing to it does (issue #1143).
   | { act: "hand"; bot?: string }
@@ -237,43 +232,12 @@ export function useSendDraft() {
   })
 }
 
-// useProjects reads the Inbox's projects (issue #1157), by name, for the pickers and the filter.
+// useProjects reads the Inbox's projects, the sidebar's departments in its order (issue #1188), for the pickers and
+// the filter; they are made, renamed and removed in the sidebar, not here.
 export function useProjects() {
   return useQuery({
-    ...listInboxProjectsOptions(),
+    ...listDepartmentsOptions(),
     select: (p) => p.data,
     refetchInterval: everyMs,
-  })
-}
-
-export type ProjectWrite =
-  | { act: "create"; name: string; color: string }
-  | { act: "edit"; id: string; name?: string; color?: string }
-  | { act: "delete"; id: string }
-
-// useProjectWrite adds, renames or recolours, and removes a project, as the owner keeps them from the filter's menu;
-// a removed project's items are left without one by the server.
-export function useProjectWrite() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async (write: ProjectWrite) => {
-      switch (write.act) {
-        case "create":
-          return (await createInboxProject({ body: { name: write.name, color: write.color } })).data
-        case "edit":
-          return (
-            await editInboxProject({
-              path: { project_id: write.id },
-              body: { name: write.name, color: write.color },
-            })
-          ).data
-        case "delete":
-          await deleteInboxProject({ path: { project_id: write.id } })
-
-          return undefined
-      }
-    },
-    onSettled: () => void queryClient.invalidateQueries({ predicate: inboxReads }),
   })
 }

@@ -1,5 +1,6 @@
 import {
   AlarmClock,
+  Box,
   Check,
   CheckCircle2,
   Circle,
@@ -17,7 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { PrioritySelector } from "@/components/ui/priority"
-import { ProjectDot, type ProjectChoice } from "@/components/ui/project-selector"
+import type { ProjectChoice } from "@/components/ui/project-selector"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
@@ -99,7 +100,7 @@ const actionLook: Record<Action, { Icon: LucideIcon; label: string }> = {
 // time's place; a phone shows them in the detail instead. It is a row that opens, its own design rather than a
 // Button. A to-do's priority starts the row, as circle's IssueLine starts with its PrioritySelector (MIT, Copyright
 // (c) 2025 lndev-ui; components/common/issues/issue-line.tsx), one click to change it; its project is a chip on the
-// line of who and where, as circle's ProjectBadge (issue #1157).
+// line of who and where, as circle's ProjectBadge (issue #1157): its department's name (issue #1188).
 export function InboxRow({
   row,
   chats,
@@ -199,7 +200,7 @@ export function InboxRow({
             </span>
             {project && (
               <span data-slot="project" className="flex shrink-0 items-center gap-1">
-                <ProjectDot color={project.color} size="sm" />
+                <Box aria-hidden className="size-3" />
                 {project.name}
               </span>
             )}

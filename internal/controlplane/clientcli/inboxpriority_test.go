@@ -9,14 +9,14 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 )
 
-// Scenario (issue #1157): the owner adds a to-do with a priority and a project by its name, changes them with edit,
-// lists a project's to-dos, and show prints them. An unknown priority or project is refused before anything changes.
+// Scenario (issues #1157, #1188): the owner adds a to-do with a priority and a project, a department, by its name,
+// changes them with edit, lists a project's to-dos, and show prints them. An unknown priority or project is refused before anything changes.
 func TestInboxPriorityAndProjectFromTheCLI(t *testing.T) {
 	t.Parallel()
 
 	w, other := inboxCLI(t)
 
-	vmap, err := w.svc.Inbox().CreateProject(t.Context(), "VMAP", "#2f80ed")
+	vmap, err := w.svc.CreateDepartment(t.Context(), "VMAP", nil)
 	require.NoError(t, err)
 
 	var td openapi.Todo
