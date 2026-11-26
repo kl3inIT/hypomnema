@@ -123,6 +123,8 @@ async function fakeServer(
 
       return route.fulfill({ status: 204 })
     }
+    // No Bots: a first message waits for this list (issue #1055), then makes its chat with none named.
+    if (path === "/bots") return json({ data: [] })
     if (path === "/approvals") return json({ data: approvals })
     if (path === `/approvals/${held.id}/decision`) {
       decisions.push(route.request().postDataJSON())
