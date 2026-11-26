@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { Clapperboard, Film, Search } from "lucide-react"
+import { Clapperboard, Film, Globe, Search, Smartphone } from "lucide-react"
 import { useDeferredValue, useState } from "react"
 
 import type { StudioItem } from "@/api/generated/types.gen"
@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { Spinner } from "@/components/ui/spinner"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { clock } from "@/features/takes/take-state"
+import { clock, sourceName } from "@/features/takes/take-state"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
@@ -37,8 +37,8 @@ function readLayout(): Layout {
   }
 }
 
-// StudioScreen is the Studio (issue #818, row 12): the takes agents filmed of the phone and the videos made of them,
-// in one library, built like the Machines page (machines-screen.tsx, after Beszel's systems-table): a Grid of cards
+// StudioScreen is the Studio (issue #818, row 12): the takes agents filmed of the phone or the browser (issue #1189)
+// and the videos made of them, in one library, built like the Machines page (machines-screen.tsx, after Beszel's systems-table): a Grid of cards
 // or a Table, chosen with the same segmented control, here with the kind and state filters as chips (the
 // Repositories page's, ../settings/repositories-screen.tsx) and a search of titles and Bots, all made by the server
 // before it cuts a page (GET /studio/items), as Cap's My Caps pages its caps (caps-page-data.tsx; layout learned,
@@ -71,7 +71,7 @@ export function StudioScreen() {
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
         <PageHeading
           title="Studio"
-          description="What agents filmed of the phone, and the videos made of it. Open a take to make a video; open a video to review it."
+          description="What agents filmed of the phone or the browser, and the videos made of it. Open a take to make a video; open a video to review it."
           className="mb-4"
         >
           <fieldset className="m-0 inline-flex gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
@@ -146,7 +146,7 @@ export function StudioScreen() {
           <p className="mx-auto max-w-sm py-16 text-center text-sm text-muted-foreground">
             {filtered
               ? "Nothing matches."
-              : "Nothing yet. When an agent films the phone with its video tools, the take shows here."}
+              : "Nothing yet. When an agent films the phone or a page of the browser with its video tools, the take shows here."}
           </p>
         ) : layout === "table" ? (
           <StudioTable items={items} />
@@ -200,6 +200,15 @@ function KindIcon({ kind, className }: { kind: Kind; className?: string }) {
     <Clapperboard className={className} aria-hidden />
   ) : (
     <Film className={className} aria-hidden />
+  )
+}
+
+// SourceIcon is where a take, or a video's take, was filmed (issue #1189): the phone or the browser.
+function SourceIcon({ source, className }: { source: "phone" | "browser"; className?: string }) {
+  return source === "browser" ? (
+    <Globe className={className} aria-hidden />
+  ) : (
+    <Smartphone className={className} aria-hidden />
   )
 }
 
@@ -277,6 +286,12 @@ function StudioCard({ item }: { item: StudioItem }) {
             <KindIcon kind={item.kind} />
             {item.kind === "take" ? "Take" : `Video${item.rev ? ` · rev ${item.rev}` : ""}`}
           </Badge>
+          {item.source && (
+            <Badge variant="outline">
+              <SourceIcon source={item.source} />
+              {sourceName(item.source)}
+            </Badge>
+          )}
           <StateChip item={item} />
         </div>
         <p className="truncate text-xs text-muted-foreground">
@@ -321,6 +336,9 @@ function StudioTable({ items }: { items: StudioItem[] }) {
                 <span className="flex items-center gap-1.5">
                   <KindIcon kind={item.kind} className="size-3.5 text-muted-foreground" />
                   {item.kind === "take" ? "Take" : `Video · rev ${item.rev ?? 1}`}
+                  {item.source && (
+                    <span className="text-muted-foreground">· {sourceName(item.source)}</span>
+                  )}
                 </span>
               </td>
               <td className="px-3">

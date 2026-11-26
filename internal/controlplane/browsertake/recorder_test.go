@@ -159,7 +159,7 @@ var (
 	blue  = color.RGBA{R: 40, G: 60, B: 200, A: 255}
 )
 
-// A page filmed through a click and a typing: the take's segment is H.264 at 30 fps, twice the viewport, each
+// A page filmed through a click and a typing: the take's segment is H.264 at 30 fps, the viewport's size, each
 // frame on screen from when Chrome drew it until the next, the steps at the moments they were said with the
 // centres of the elements' boxes, and the frames gone once it is kept.
 func TestAPageFilmedThroughAClickAndATypingIsKeptAsATake(t *testing.T) {
@@ -168,7 +168,7 @@ func TestAPageFilmedThroughAClickAndATypingIsKeptAsATake(t *testing.T) {
 	tools := realTools(t)
 	r := newRig(t, func(context.Context) (ffmpeg.Tools, error) { return tools, nil })
 	viewport := browser.Size{Width: 320, Height: 240}
-	w, h := viewport.Width*browser.FilmScale, viewport.Height*browser.FilmScale
+	w, h := viewport.Width, viewport.Height
 
 	t0 := r.clock.Now()
 	r.browser.First = []browser.Frame{{JPEG: browsertaketest.Picture(t, w, h, red), At: t0}}
@@ -206,8 +206,8 @@ func TestAPageFilmedThroughAClickAndATypingIsKeptAsATake(t *testing.T) {
 
 	require.Len(t, got.Segments, 1)
 	seg := got.Segments[0]
-	assert.Equal(t, 640, seg.Width)
-	assert.Equal(t, 480, seg.Height)
+	assert.Equal(t, 320, seg.Width)
+	assert.Equal(t, 240, seg.Height)
 	assert.Equal(t, int64(5000), seg.LengthMs)
 	assert.Equal(t, int64(4966), seg.LastFrameMs)
 
@@ -215,7 +215,7 @@ func TestAPageFilmedThroughAClickAndATypingIsKeptAsATake(t *testing.T) {
 	require.NoError(t, err)
 
 	streams := probe(t, tools, file, "stream=codec_name,width,height,pix_fmt,r_frame_rate,nb_read_frames")
-	for _, want := range []string{"codec_name=h264", "width=640", "height=480", "pix_fmt=yuv420p",
+	for _, want := range []string{"codec_name=h264", "width=320", "height=240", "pix_fmt=yuv420p",
 		"r_frame_rate=30/1", "nb_read_frames=150"} {
 		assert.Contains(t, streams, want)
 	}
@@ -239,7 +239,7 @@ func TestAStillPageFilmedForFiveSecondsIsAFiveSecondTake(t *testing.T) {
 
 	tools := realTools(t)
 	r := newRig(t, func(context.Context) (ffmpeg.Tools, error) { return tools, nil })
-	r.browser.Still = browsertaketest.Picture(t, 640, 360, green)
+	r.browser.Still = browsertaketest.Picture(t, 320, 180, green)
 
 	take := r.start(t, browser.Size{Width: 320, Height: 180})
 	r.clock.add(5 * time.Second)

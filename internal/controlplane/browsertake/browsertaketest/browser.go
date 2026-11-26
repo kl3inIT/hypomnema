@@ -125,4 +125,3 @@ func Picture(t *testing.T, w, h int, c color.RGBA) []byte {
 
 	return out.Bytes()
 }
-

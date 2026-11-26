@@ -51,7 +51,7 @@ func browserTakeToolList() []agenttool.BrowserTool {
 			Description: "Start filming your own tab of the shared browser as a take, for a demo video of a web " +
 				"page. Use it after agent_browser_open has opened the page. Give width and height for a viewport of " +
 				"your own, such as 390 by 844 for a phone's layout (no phone is emulated: the page is that size); " +
-				"without them the tab keeps its size. It films at twice that size. Drive the page with the " +
+				"without them the tab keeps its size. Drive the page with the " +
 				"agent_browser_* tools, calling browser_video_say right before each action, then " +
 				"browser_video_stop. Give a request_id of your own: a retry with it answers the same take.",
 			InputSchema: json.RawMessage(fmt.Sprintf(`{"type":"object","properties":{`+

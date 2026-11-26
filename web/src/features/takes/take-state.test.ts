@@ -18,6 +18,7 @@ const segment = (at_ms: number, length_ms: number, last_frame_ms: number) => ({
 const take = {
   id: "tk_0123456789abcdef",
   title: "Sign in",
+  source: "phone",
   agent: "d-1",
   node: "nod_1",
   started_at: "2026-11-18T10:00:00Z",

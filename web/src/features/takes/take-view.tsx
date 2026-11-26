@@ -32,6 +32,7 @@ import {
   locate,
   seekInSegment,
   segmentUrl,
+  sourceName,
   stateLine,
   takeLength,
   useTake,
@@ -84,7 +85,8 @@ export function TakeView({
           <span className="font-medium">{take?.title ?? "Take"}</span>
           {take && (
             <span className="ms-2 text-muted-foreground">
-              {take.agent_name ?? take.agent} · {clock(take.duration_ms)}
+              {take.agent_name ?? take.agent} · {sourceName(take.source)} ·{" "}
+              {clock(take.duration_ms)}
             </span>
           )}
         </p>

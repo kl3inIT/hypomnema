@@ -44,8 +44,8 @@ const (
 	firstFrame = 400 * time.Millisecond
 	// encodeTimeout bounds encoding a take's frames.
 	encodeTimeout = time.Hour
-	// MaxViewport bounds a take's viewport, the browser's own bound of a page (fill.go's maxPage) at the film's scale.
-	MaxViewport = 3840 / browser.FilmScale
+	// MaxViewport bounds a take's viewport, the browser's own bound of a page (fill.go's maxPage).
+	MaxViewport = 3840
 	// minViewport is the smallest viewport a take is filmed at.
 	minViewport = 100
 	// noFrame is why a take that got no frame failed (agent-demo-video src/capture.ts:348-349).
@@ -514,8 +514,8 @@ func (r *Recorder) encode(ctx context.Context, f *film, frames []frameFile, stop
 		return
 	}
 
-	file, seg, err := encode(ctx, tools, f.dir, frames, stopMs,
-		f.size.Width*browser.FilmScale, f.size.Height*browser.FilmScale)
+	// The frames are the viewport's size; H.264 in yuv420p takes even sides, so an odd one gets a pixel of pad.
+	file, seg, err := encode(ctx, tools, f.dir, frames, stopMs, even(f.size.Width), even(f.size.Height))
 	if err != nil {
 		fail(err.Error())
 
@@ -606,6 +606,9 @@ func (r *Recorder) freeEnough(dir string) bool {
 
 	return err != nil || free >= minFreeBytes
 }
+
+// even is n, or n+1 when it is odd.
+func even(n int) int { return n + n%2 }
 
 func inBounds(s browser.Size) bool {
 	return s.Width >= minViewport && s.Height >= minViewport && s.Width <= MaxViewport && s.Height <= MaxViewport

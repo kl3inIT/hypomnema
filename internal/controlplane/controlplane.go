@@ -21,8 +21,8 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/browsertake"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/browsertake"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/channels"
 	larkchannel "github.com/kl3inIT/hypomnema/internal/controlplane/channels/lark"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"

@@ -18,19 +18,26 @@ import (
 // are Chrome's own screencast, read on a DevTools connection of the engine's
 // own (cdp.go) attached to the tab agent-browser pinned the agent's session to,
 // as autodemo films its page (src/perform.js:213-224, Page.startScreencast in
-// JPEG at quality 90, as large as the viewport at its device scale factor,
-// every frame, each acknowledged as it comes) at a device scale factor of 2
-// (src/browser.js:7). The tab is given the take's viewport and that scale by
-// agent-browser itself, as the owner's view gives it a size (fill.go), so the
-// session's own idea of its viewport stays right; while it films, the owner's
-// view does not resize it, and its size before is given back when it stops. No
+// JPEG at quality 90, as large as the viewport, every frame, each acknowledged
+// as it comes). The tab is given the take's viewport by agent-browser itself,
+// as the owner's view gives it a size (fill.go), so the session's own idea of
+// its viewport, and its clicks, stay right; while it films, the owner's view
+// does not resize it, and its size before is given back when it stops. No
 // mobile emulation: a phone's layout is a phone-sized viewport, as in every
 // reference (row 6). The take never leaves the browser's context: the tab is
 // the agent's own, with the shared profile's cookies and the gate's rules.
+//
+// The frames are as large as the viewport in CSS pixels, as agent-demo-video's
+// (src/capture.ts:285, its screencast's size the viewport), not at autodemo's
+// device scale factor of 2 (src/browser.js:7), which the design asked for:
+// Chrome 158's screencast draws no frame larger than the view in CSS pixels,
+// whatever the page's devicePixelRatio, on the shared Chrome and on the headless
+// shell alike, and the one override that made it draw at twice the size
+// (Emulation.setDeviceMetricsOverride's scale with dontSetVisibleSize on a
+// window twice as large) made agent-browser's clicks miss (tried 2026-11-26,
+// agent-browser 0.42.0).
 
 const (
-	// FilmScale is the device scale factor a take is filmed at (autodemo's DPR).
-	FilmScale = 2
 	// filmQuality is the frames' JPEG quality (autodemo's and agent-demo-video's 90).
 	filmQuality = 90
 	// filmStep bounds one DevTools command of a film.
@@ -139,7 +146,7 @@ func (e *Engine) film(ctx context.Context, agent string, viewport Size, frame fu
 
 	f := &Film{e: e, s: s, cdp: cdp, restore: before, Viewport: viewport, gone: make(chan struct{})}
 
-	if err := e.setViewport(ctx, s, cdp, viewport, FilmScale); err != nil {
+	if err := e.setViewport(ctx, s, cdp, viewport); err != nil {
 		return nil, err
 	}
 
@@ -225,10 +232,9 @@ func (f *Film) start(ctx context.Context, target string, frame func(Frame)) erro
 		f.ended()
 	}()
 
-	w, h := f.Viewport.Width*FilmScale, f.Viewport.Height*FilmScale
-
 	err = conn.send(ctx, "Page.startScreencast", map[string]any{
-		"format": "jpeg", "quality": filmQuality, "maxWidth": w, "maxHeight": h, "everyNthFrame": 1,
+		"format": "jpeg", "quality": filmQuality, "maxWidth": f.Viewport.Width, "maxHeight": f.Viewport.Height,
+		"everyNthFrame": 1,
 	}, f.session, nil)
 	if err != nil {
 		conn.close()
@@ -286,7 +292,7 @@ func (f *Film) frame(params json.RawMessage, session string, frame func(Frame)) 
 
 func (f *Film) ended() { f.goneOnce.Do(func() { close(f.gone) }) }
 
-// Still is a picture of the tab as it is, as large as a frame: what a take
+// Still is a picture of the tab as it is: what a take
 // starts with when its page draws nothing new, as autodemo takes a screenshot
 // when no frame came (src/perform.js:244-247).
 func (f *Film) Still(ctx context.Context) ([]byte, error) {
@@ -331,16 +337,15 @@ func (f *Film) unfilm(ctx context.Context) {
 		return
 	}
 
-	if err := f.e.setViewport(ctx, f.s, f.cdp, f.restore, 1); err != nil {
+	if err := f.e.setViewport(ctx, f.s, f.cdp, f.restore); err != nil {
 		f.e.cfg.Logger.WarnContext(ctx, "a filmed tab's size could not be set back",
 			slog.String("event", "browser.film_resize_failed"), slog.String("session", f.s.name), slog.Any("err", err))
 	}
 }
 
-// setViewport gives a session's tab a size and a device scale factor, by agent-browser's own tool. The caller holds
-// s.mu.
-func (e *Engine) setViewport(ctx context.Context, s *session, cdp string, size Size, scale int) error {
-	arguments, err := json.Marshal(map[string]int{"width": size.Width, "height": size.Height, "scale": scale})
+// setViewport gives a session's tab a size, by agent-browser's own tool. The caller holds s.mu.
+func (e *Engine) setViewport(ctx context.Context, s *session, cdp string, size Size) error {
+	arguments, err := json.Marshal(map[string]int{"width": size.Width, "height": size.Height})
 	if err != nil {
 		return err
 	}
