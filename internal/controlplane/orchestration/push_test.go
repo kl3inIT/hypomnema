@@ -56,7 +56,7 @@ func TestEachKindThatWaitsOnTheOwnerQueuesOnePush(t *testing.T) {
 	proposed, err := w.s.Inbox().Create(ctx, bot, inboxstore.NewTodo{
 		Title: "Reply to Lan about the contract", State: inboxstore.Proposed,
 		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
-		Source: inboxstore.Source{Kind: inboxstore.FromWhatsApp, ID: "8490@s.whatsapp.net", Account: "main",
+		Source: inboxstore.Source{Kind: inboxstore.FromWhatsApp, ID: "8490@s.whatsapp.net", Account: "me",
 			Ref: &inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "3EB0"}},
 	})
 	require.NoError(t, err)

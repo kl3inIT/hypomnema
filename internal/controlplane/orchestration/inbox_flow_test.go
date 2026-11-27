@@ -175,6 +175,11 @@ func TestInboxBotToolsMigrationKeepsTheItems(t *testing.T) {
 	assert.Empty(t, kept.Draft)
 	require.Len(t, kept.Events, 1, "the history is kept")
 
+	_, err = s.SaveServiceConnection(ctx, Connection{
+		Integration: "whatsapp", Label: "main", Secret: "conn-whatsapp-main",
+	})
+	require.NoError(t, err)
+
 	made, err := s.Inbox().Create(ctx, inboxBot, inboxstore.NewTodo{
 		Title: "Reply to Lan", State: inboxstore.Proposed, Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
 		Source: inboxstore.Source{Kind: inboxstore.FromWhatsApp, ID: "8490@s.whatsapp.net", Account: "main",
@@ -334,6 +339,11 @@ func TestTheInboxCountsWhatWaitsOnTheOwnerOnce(t *testing.T) {
 
 	loose := w.askMail(chat.ID, "", "loose")
 	assert.Equal(t, 2, count())
+
+	_, err = w.s.SaveServiceConnection(ctx, Connection{
+		Integration: "whatsapp", Label: "main", Secret: "conn-whatsapp-main",
+	})
+	require.NoError(t, err)
 
 	_, err = w.s.Inbox().Create(ctx, inboxBot, inboxstore.NewTodo{
 		Title: "Reply to Lan", State: inboxstore.Proposed, Assignee: inboxstore.Assignee{Kind: inboxstore.Me},

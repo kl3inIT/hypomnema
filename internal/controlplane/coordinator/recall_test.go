@@ -113,6 +113,11 @@ func TestOnlyTheOwnersOwnTurnsRecall(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, recalled(scripted(t, svc, other.ID)()), "the owner's message recalls")
 
+	_, err = svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "whatsapp", Label: "me", Secret: "fixture",
+	})
+	require.NoError(t, err)
+
 	passed, err := svc.Inbox().Create(ctx, inboxstore.Actor{Kind: inboxstore.Bot, ID: orchestration.DefaultBotID},
 		inboxstore.NewTodo{
 			Title: "Check the revenue dashboard", State: inboxstore.Proposed,

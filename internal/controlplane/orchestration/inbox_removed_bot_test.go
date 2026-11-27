@@ -22,6 +22,11 @@ func TestARemovedBotsOpenItemsPassToTheMainBot(t *testing.T) {
 	ctx := t.Context()
 	inbox := w.s.Inbox()
 
+	_, err := w.s.SaveServiceConnection(ctx, Connection{
+		Integration: "whatsapp", Label: "main", Secret: "conn-whatsapp-main",
+	})
+	require.NoError(t, err)
+
 	thuKy, err := w.s.PutBot(ctx, Bot{Name: "thu-ky"})
 	require.NoError(t, err)
 
