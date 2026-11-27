@@ -69,7 +69,7 @@ platforms only.
 | Instagram | Muse |
 | Threads | The official keyword search, then Muse |
 | TikTok | davidteather/TikTok-Api (MIT, 6.8k stars, pushed 2026-11-14; unofficial, a browser and an `ms_token` cookie), then yt-dlp, then `site:tiktok.com` web search |
-| X | The owner's API key when he has one, or the signed-in Grok CLI's X search tools (last30days `scripts/lib/grok_x.py`: no X account, no xAI key), then `site:x.com` web search |
+| X | A signed-in X account's cookies (`auth_token`, `ct0`), then the owner's API key when he has one, then the signed-in Grok CLI (`grok_x.py`), then `site:x.com` web search. The cookie route is the common default: it heads last30days' auto chain `bird → xai → xurl → xquik` (`env.py:1575`, `bird_x.py`: X's GraphQL with the account's cookies), and openmagpie (twikit), Agent-Reach (opencli) and twscrape read X the same way. Only harken uses the official API v2 (`sources/x.py`). Use a secondary account: twscrape users report suspensions from 2026-11-21. |
 | YouTube | Data API, then yt-dlp |
 | Reddit | Keyless JSON, then the official API |
 | LinkedIn | A signed-in account, then `site:linkedin.com/posts` web search |
@@ -131,7 +131,7 @@ without that grant it finds only the account's own posts. last30days reads Threa
 |---|---|---|
 | None | Reddit JSON, yt-dlp, Google Play, App Store, HN, Bluesky, web search, forum fetch, Telegram preview | On/off and a daily live test (web search `source: public`; Agent-Reach `check`) |
 | API key | YouTube Data API, Threads API, X API, xAI | Add a key to the vault and rest on a daily limit (the web-search keyed providers) |
-| Signed-in account | Muse, LinkedIn, Grok CLI, TikTok's `ms_token` cookie | Sign in through the owner's tab of the shared Chrome. Cookies go to the vault, accounts are kept in order, and the card shows "sign in again" (the Muse screen; postiz `refreshNeeded`) |
+| Signed-in account | Muse, X, LinkedIn, Grok CLI, TikTok's `ms_token` cookie | Sign in through the owner's tab of the shared Chrome. Cookies go to the vault, accounts are kept in order, and the card shows "sign in again" (the Muse screen; postiz `refreshNeeded`) |
 
 **Other sources the references read** (last30days `scripts/lib/`). Each is listed with the free route where there is
 one:
