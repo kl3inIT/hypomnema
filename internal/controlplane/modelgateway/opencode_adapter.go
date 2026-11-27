@@ -432,7 +432,10 @@ func (s *Server) openCodeCool(
 
 	// Any of Go's windows used up, 5-hour, weekly or monthly: its typed GoUsageLimitError, or a 429 whose words say a
 	// usage limit (opencode provider-error.ts:152 QUOTA_TEXT; issue #1305).
-	usedUp := code == CoolingUsageLimit
+	// A GoUsageLimitError on a 402 is labeled billing (a 402 always is) but keeps the used-up allowance's wait, an
+	// hour when Go names no reset, as before #1305: a spent key is not asked again every two minutes (9router-go
+	// internal/providers/errorclassify.go:73-79 QuotaExhaustedCooldownMs for a spent budget).
+	usedUp := code == CoolingUsageLimit || hasCode(providerCodes(body), usageCodes)
 	if usedUp && reset.After(now) {
 		s.park(ctx, p.runtime, token, reset, code, message)
 

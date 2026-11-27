@@ -4937,6 +4937,9 @@ type ImageProviderLink struct {
 	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
 	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
 
+	// CoolingReason The provider's own words for why the account free first rests, while the provider rests.
+	CoolingReason *string `json:"cooling_reason,omitempty"`
+
 	// Model The one model it makes images with, as usage rows name it (image/<model>).
 	Model string `json:"model"`
 
@@ -8518,6 +8521,12 @@ type WebSearchKeyedProvider string
 
 // WebSearchLink defines model for WebSearchLink.
 type WebSearchLink struct {
+	// CoolingCode Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out of capacity (5xx, 529). unknown: none of these.
+	CoolingCode *CoolingCode `json:"cooling_code,omitempty"`
+
+	// CoolingReason For a subscription that rests, the provider's own words for why its account rests.
+	CoolingReason *string `json:"cooling_reason,omitempty"`
+
 	// Keys A keyed provider's keys, in the order a search asks them now.
 	Keys *[]WebSearchKey `json:"keys,omitempty"`
 

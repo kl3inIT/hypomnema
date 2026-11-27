@@ -107,12 +107,12 @@ func (a *antigravityState) leave(account string) {
 	}
 }
 
-func (a *antigravityState) wait(account, model string, until time.Time, code CoolingCode) {
+func (a *antigravityState) wait(account, model string, rest Rest) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	if key := account + "\x00" + model; until.After(a.waiting[key].Until) {
-		a.waiting[key] = Rest{Until: until, Code: code}
+	if key := account + "\x00" + model; rest.Until.After(a.waiting[key].Until) {
+		a.waiting[key] = rest
 	}
 }
 
@@ -296,7 +296,8 @@ func (s *Server) antigravityRefused(
 		return antigravityResting()
 	case !usedUp.IsZero():
 		wait = usedUp.Sub(now)
-		s.antigravity.wait(token.AccountID, model, usedUp, CoolingUsageLimit)
+		s.antigravity.wait(token.AccountID, model, Rest{Until: usedUp, Code: antigravityRestCode(f, CoolingUsageLimit),
+			Reason: f.Message})
 	case f.Reason == antigravity.ReasonNoCapacity:
 		// Nothing of the account's is used up: Google has no room for the model.
 	case f.Status != http.StatusTooManyRequests:
@@ -304,18 +305,21 @@ func (s *Server) antigravityRefused(
 		// does after such a failure (accounts.go).
 		s.cool(ctx, antigravityRuntime, token, f.Status, false, time.Time{}, antigravityCode(f), f.Message)
 	case f.Reason == antigravity.ReasonQuotaExhausted || wait >= antigravityLongWait:
-		// A quota used up, as omp reads QUOTA_EXHAUSTED (packages/ai/src/error/rate-limit.ts): a usage limit.
+		// A quota used up, as omp reads QUOTA_EXHAUSTED and a RATE_LIMIT_EXCEEDED of five minutes or more
+		// (packages/ai/src/error/rate-limit.ts; test rate-limit-utils.test.ts:338-348): a usage limit.
 		if wait <= 0 {
 			wait = antigravityQuotaWait
 		}
 
-		s.antigravity.wait(token.AccountID, model, now.Add(wait), CoolingUsageLimit)
+		s.antigravity.wait(token.AccountID, model, Rest{Until: now.Add(wait),
+			Code: antigravityRestCode(f, CoolingUsageLimit), Reason: f.Message})
 	default:
 		if wait <= 0 {
 			wait = antigravityRateWait
 		}
 
-		s.antigravity.wait(token.AccountID, model, now.Add(wait), CoolingRateLimit)
+		s.antigravity.wait(token.AccountID, model, Rest{Until: now.Add(wait),
+			Code: antigravityRestCode(f, CoolingRateLimit), Reason: f.Message})
 	}
 
 	kind := typeServer
@@ -332,6 +336,18 @@ func (s *Server) antigravityRefused(
 // reason of its details, then the HTTP status and the message.
 func antigravityCode(f *antigravity.Failure) CoolingCode {
 	return classifyFailure(f.Status, []string{f.Code, f.Reason}, f.Message)
+}
+
+// antigravityRestCode is why a model of an Antigravity account waits after a 429: what the wait's own branch says
+// (fallback, a used-up quota or a throttle), unless the shared reading finds the credits balance spent
+// (INSUFFICIENT_G1_CREDITS_BALANCE, omp rate-limit-utils.test.ts:357-363), which is billing whatever the wait. The
+// wait itself is the branch's, as before #1305 (row 8).
+func antigravityRestCode(f *antigravity.Failure, fallback CoolingCode) CoolingCode {
+	if code := antigravityCode(f); code == CoolingBilling {
+		return code
+	}
+
+	return fallback
 }
 
 // groupQuota is what the accounts can tell of Antigravity's groups (issue #576): until when a window of a model's

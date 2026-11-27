@@ -84,8 +84,10 @@ var ErrTokenUnavailable = errors.New("the refused account token cannot be renewe
 // CoolingError says every account of a kind waits for a usage limit to end.
 type CoolingError struct {
 	Until time.Time
-	// Code is why the account free first rests (issue #1305); empty when nothing says.
-	Code CoolingCode
+	// Code is why the account free first rests (issue #1305); empty when nothing says. Reason is the provider's own
+	// words for it.
+	Code   CoolingCode
+	Reason string
 	// ListUnknown says no account is known to have the model asked for while an account's list of models is not
 	// known yet (issue #814).
 	ListUnknown bool

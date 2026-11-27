@@ -30,7 +30,10 @@ export function imageState(link: ImageProviderLink, now = Date.now()): ImageStat
           ? restLabel(link.cooling_code ?? "rate_limit", link.resting_until, now)
           : "Rate limited",
         tone: restTone(link.cooling_code),
-        why: "Each of its accounts reached its limit and rests until the time its vendor named.",
+        // The words of the account free first, as the account's card shows them (issue #1305).
+        why:
+          link.cooling_reason ??
+          "Each of its accounts reached its limit and rests until the time its vendor named.",
       }
     case "not_set_up":
       return {

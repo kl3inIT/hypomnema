@@ -2,6 +2,7 @@ package modelgateway
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -88,7 +89,7 @@ func (s *Server) searchUnder(
 ) ([]websearch.Result, error) {
 	var found []websearch.Result
 
-	resp, err := s.underAccounts(ctx, runtime, model, "", nil, func(token AccountToken) (*http.Response, error) {
+	resp, err := s.tryAccounts(ctx, runtime, model, "", nil, func(token AccountToken) (*http.Response, error) {
 		results, refusal, err := attempt(token)
 		if err != nil || refusal != nil {
 			return refusal, err
@@ -97,9 +98,18 @@ func (s *Server) searchUnder(
 		found = results
 
 		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
-	})
+	}, nil)
+
+	var cooling *CoolingError
 
 	switch {
+	case errors.As(err, &cooling):
+		// Every account rests: the search rests as a 429 does, saying why the first account free again rests and
+		// the provider's words for it (issue #1305), not a plain rate limit.
+		return nil, websearch.AccountRefused(http.StatusTooManyRequests, cooling.Until.Sub(s.svc.clock.Now()),
+			string(cmp.Or(cooling.Code, CoolingUnknown)), cooling.Reason)
+	case errors.Is(err, ErrModelNotServed):
+		resp = modelNotServed(model.name, runtime)
 	case errors.Is(err, ErrNoAccount):
 		return nil, fmt.Errorf("%w: %w", websearch.ErrNoAccount, err)
 	case err != nil:
@@ -119,7 +129,9 @@ func (s *Server) searchUnder(
 		wait = time.Duration(secs) * time.Second
 	}
 
-	return nil, websearch.Refused(resp.StatusCode, wait, errorText(body))
+	// The provider's own refusal of the search says why too, read as every adapter reads one.
+	return nil, websearch.AccountRefused(resp.StatusCode, wait,
+		string(classifyFailure(resp.StatusCode, providerCodes(body), string(body))), errorText(body))
 }
 
 // readSearch reads a search's answer, within maxSearchAnswer.

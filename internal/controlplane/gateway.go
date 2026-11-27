@@ -98,13 +98,13 @@ func (g gatewayAccounts) FirstFree(
 		perModel = func(account string) subscription.Rest {
 			rest := modelReset(account)
 
-			return subscription.Rest{Until: rest.Until, Code: string(rest.Code)}
+			return subscription.Rest{Until: rest.Until, Code: string(rest.Code), Reason: rest.Reason}
 		}
 	}
 
 	rest, err := g.subs.FirstFree(keyAccounts(ctx), runtime, perModel)
 
-	return modelgateway.Rest{Until: rest.Until, Code: modelgateway.CoolingCode(rest.Code)}, err
+	return modelgateway.Rest{Until: rest.Until, Code: modelgateway.CoolingCode(rest.Code), Reason: rest.Reason}, err
 }
 
 func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
@@ -193,7 +193,8 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrAccountResting, err)
 	case errors.As(err, &cooling):
 		return modelgateway.AccountToken{}, &modelgateway.CoolingError{
-			Until: cooling.Until, Code: modelgateway.CoolingCode(cooling.Code), ListUnknown: cooling.ListUnknown,
+			Until: cooling.Until, Code: modelgateway.CoolingCode(cooling.Code), Reason: cooling.Reason,
+			ListUnknown: cooling.ListUnknown,
 		}
 	case errors.Is(err, subscription.ErrNoAccount):
 		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrNoAccount, err)

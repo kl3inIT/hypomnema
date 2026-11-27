@@ -6877,6 +6877,12 @@ components:
             the owner switched it off.
         resting_until: { type: string, format: date-time }
         rest: { $ref: "#/components/schemas/WebSearchRest" }
+        cooling_code:
+          $ref: "#/components/schemas/CoolingCode"
+          description: For a subscription that rests, why its account rests (issue #1305).
+        cooling_reason:
+          type: string
+          description: For a subscription that rests, the provider's own words for why its account rests.
         keys:
           type: array
           description: A keyed provider's keys, in the order a search asks them now.
@@ -7304,6 +7310,9 @@ components:
         cooling_code:
           $ref: "#/components/schemas/CoolingCode"
           description: Why the account free first rests, while the provider rests (issue #1305).
+        cooling_reason:
+          type: string
+          description: The provider's own words for why the account free first rests, while the provider rests.
         model:
           type: string
           description: The one model it makes images with, as usage rows name it (image/<model>).

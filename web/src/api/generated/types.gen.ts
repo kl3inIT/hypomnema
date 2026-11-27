@@ -619,6 +619,11 @@ export type WebSearchLink = {
   state: 'ready' | 'resting' | 'not_set_up' | 'off';
   resting_until?: string;
   rest?: WebSearchRest;
+  cooling_code?: CoolingCode;
+  /**
+   * For a subscription that rests, the provider's own words for why its account rests.
+   */
+  cooling_reason?: string;
   /**
    * A keyed provider's keys, in the order a search asks them now.
    */
@@ -1034,6 +1039,10 @@ export type ImageProviderLink = {
   state: 'ready' | 'resting' | 'not_set_up' | 'off';
   resting_until?: string;
   cooling_code?: CoolingCode;
+  /**
+   * The provider's own words for why the account free first rests, while the provider rests.
+   */
+  cooling_reason?: string;
   /**
    * The one model it makes images with, as usage rows name it (image/<model>).
    */

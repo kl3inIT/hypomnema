@@ -199,6 +199,15 @@ func (s *Server) webSearchChain(ctx context.Context) (openapi.WebSearch, error) 
 			link.State = openapi.WebSearchLinkStateNotSetUp
 		case !l.RestingUntil.IsZero():
 			link.State = openapi.WebSearchLinkStateResting
+
+			// Why a subscription's account rests and the provider's words (issue #1305).
+			if code := openapi.CoolingCode(l.CoolingCode); code.Valid() {
+				link.CoolingCode = &code
+			}
+
+			if l.CoolingReason != "" {
+				link.CoolingReason = &l.CoolingReason
+			}
 		default:
 			link.State = openapi.WebSearchLinkStateReady
 		}

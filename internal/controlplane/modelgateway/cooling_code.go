@@ -42,10 +42,12 @@ func CoolingCodes() []CoolingCode {
 	}
 }
 
-// Rest is until when an account, or one model of it, rests and why; zero when it does not.
+// Rest is until when an account, or one model of it, rests, why (Code) and the provider's own words for it
+// (Reason); zero when it does not.
 type Rest struct {
-	Until time.Time
-	Code  CoolingCode
+	Until  time.Time
+	Code   CoolingCode
+	Reason string
 }
 
 // The codes a provider names its failures by, lowercased, as opencode reads them (provider-error.ts:92-115): what
@@ -56,9 +58,15 @@ var (
 	billingCodes = map[string]bool{
 		"insufficient_quota": true, "usage_not_included": true, "billing_error": true,
 		"budgetlimiterror": true, "creditlimitexceeded": true,
+		// Google's credits balance spent, a billing cap omp reads from ErrorInfo's reason
+		// (packages/ai/src/error/rate-limit.ts:212-215, isBillingCapUsageLimit :508; test
+		// rate-limit-utils.test.ts:357-363).
+		"insufficient_g1_credits_balance": true,
 	}
 	usageCodes = map[string]bool{
 		"gousagelimiterror": true, "freeusagelimiterror": true, "usage_limit_reached": true,
+		// Google's quota used up (omp rate-limit.ts:210-211, isUsageLimitOutcome :277).
+		"quota_exhausted": true,
 	}
 	authCodes = map[string]bool{
 		"authentication_error": true, "permission_error": true, "permission_denied": true, "api_key_invalid": true,
@@ -86,6 +94,17 @@ var (
 		`provider returned (?:an )?error|resource[-_\s]?exhausted|upstream (?:connect|connection|request))\b`)
 )
 
+// hasCode reports whether any of codes, lowercased, is in set.
+func hasCode(codes []string, set map[string]bool) bool {
+	for _, c := range codes {
+		if set[strings.ToLower(strings.TrimSpace(c))] {
+			return true
+		}
+	}
+
+	return false
+}
+
 // usageWords reports whether text says a plan's allowance is used up (usageText), less the matches QUOTA_TEXT's
 // look-behinds leave out.
 func usageWords(text string) bool {
@@ -99,10 +118,13 @@ func usageWords(text string) bool {
 }
 
 // classifyFailure says why a provider's refusal rests an account, the one reading every adapter uses (row 2 of
-// #1305), in the order opencode's classifyProviderFailure reads a failure (provider-error.ts:218-291): a spent
-// balance or a used-up plan first (a 402, the provider's code, or its words on a 429), then a refused key, a rate
-// limit and the provider's own failure. A 402 is always billing; the words of a used-up plan are trusted only on a
-// 429. status is zero for a failure that carries none (a stream's error event).
+// #1305), in the order the issue approved: the provider's structured code first, then the status, then the words.
+// A 402 is always billing, and a spent balance's or a used-up plan's words are trusted only on a 429. The code sets
+// and the words are opencode's (provider-error.ts:92-158). Two places follow opencode's grouping
+// (provider-error.ts:249-283) inside that order: a generic throttle code (rate_limit_error, rate_limit_exceeded,
+// too_many_requests) is read after a 429's words, because Anthropic- and OpenAI-shaped endpoints put it on every 429,
+// a used-up plan's included (claude.ParseFailure, typeOf); and a server code decides only when no 4xx contradicts it,
+// as Google's RESOURCE_EXHAUSTED rides on a 429. status is zero for a failure that carries none (a stream's event).
 func classifyFailure(status int, codes []string, text string) CoolingCode {
 	lowered := make([]string, 0, len(codes))
 	for _, c := range codes {
@@ -133,26 +155,36 @@ func classifyFailure(status int, codes []string, text string) CoolingCode {
 		return false
 	}
 
+	clientScoped := status >= http.StatusBadRequest && status < http.StatusInternalServerError
+	throttleCode := contains("rate_limit") || has(map[string]bool{"too_many_requests": true, "throttlingexception": true})
+
 	switch {
-	case status == http.StatusPaymentRequired || has(billingCodes):
+	case status == http.StatusPaymentRequired:
+		return CoolingBilling
+	// The provider's structured code.
+	case has(billingCodes):
 		return CoolingBilling
 	case has(usageCodes):
 		return CoolingUsageLimit
+	case has(authCodes):
+		return CoolingAuth
+	case !clientScoped && (has(serverCodes) || contains("exhausted", "unavailable")):
+		return CoolingOverloaded
+	// The status.
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return CoolingAuth
 	case status == http.StatusTooManyRequests && billingText.MatchString(text):
 		return CoolingBilling
 	case status == http.StatusTooManyRequests && usageWords(text):
 		return CoolingUsageLimit
-	case status == http.StatusUnauthorized || status == http.StatusForbidden || has(authCodes):
-		return CoolingAuth
-	case status == http.StatusTooManyRequests || contains("rate_limit") ||
-		has(map[string]bool{"too_many_requests": true, "throttlingexception": true}) || rateLimitText.MatchString(text):
+	case status == http.StatusTooManyRequests || throttleCode:
 		return CoolingRateLimit
 	case status >= http.StatusInternalServerError:
 		return CoolingOverloaded
-	// The provider's own codes and words decide only when no status contradicts them: a gateway that puts
-	// server_error in place of a code it does not pass on still refused the request (provider-error.ts:274-283).
-	case status < http.StatusBadRequest &&
-		(serverText.MatchString(text) || has(serverCodes) || contains("exhausted", "unavailable")):
+	// The words, when no status decides.
+	case rateLimitText.MatchString(text):
+		return CoolingRateLimit
+	case status < http.StatusBadRequest && serverText.MatchString(text):
 		return CoolingOverloaded
 	default:
 		return CoolingUnknown

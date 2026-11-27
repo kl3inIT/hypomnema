@@ -240,6 +240,10 @@ func (s *Server) imageProviders(ctx context.Context) (openapi.Images, error) {
 			if code := openapi.CoolingCode(free.Code); code.Valid() {
 				link.CoolingCode = &code
 			}
+
+			if free.Reason != "" {
+				link.CoolingReason = &free.Reason
+			}
 		default:
 			link.State = openapi.ImageProviderLinkStateReady
 		}

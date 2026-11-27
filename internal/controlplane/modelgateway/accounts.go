@@ -292,7 +292,7 @@ func (s *Server) tryAccounts(
 			if refusal != nil {
 				drain(refusal)
 			}
-			return nil, &CoolingError{Until: rest.Until, Code: rest.Code}
+			return nil, &CoolingError{Until: rest.Until, Code: rest.Code, Reason: rest.Reason}
 		}
 	}
 	if refusal != nil {

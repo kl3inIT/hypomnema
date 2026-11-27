@@ -4339,14 +4339,18 @@ capabilities do not exist yet.
     401, 402 or 403; 30 seconds after another 5xx.
   - Why an account rests is one closed set for every adapter (issue #1305, `modelgateway/cooling_code.go`):
     `usage_limit` (a plan's window or allowance used up), `rate_limit`, `billing` (credits, a balance or a budget
-    spent), `auth` (the key or sign-in refused), `overloaded`, `unknown`. One classifier reads every refusal in
-    opencode's order (`provider-error.ts` `classifyProviderFailure`): a 402 or a billing code is `billing`; a usage
-    code (`GoUsageLimitError`, `FreeUsageLimitError`, Codex's `usage_limit_reached`) is `usage_limit`; a spent
-    balance's or a used-up plan's words count only on a 429; then 401/403 or an auth code, a 429 or rate-limit
-    code or words, a 5xx or the provider's own failure. A Claude 429 is `usage_limit` only with
-    `anthropic-ratelimit-unified-status: rejected` (OmniRoute `isClaudeUsageWall`); an Antigravity model that waits
-    on a used-up quota is `usage_limit`, one that waits on a throttle `rate_limit`; a suspended account or one to
-    verify is `auth`. The waits are unchanged. The reset a refusal names is read from its headers first
+    spent), `auth` (the key or sign-in refused), `overloaded`, `unknown`. One classifier reads every refusal, the
+    structured code first, then the status, then the words, with opencode's code sets and words
+    (`provider-error.ts`): a 402 is always `billing`; a billing code (Zen's quota codes, Google's
+    `INSUFFICIENT_G1_CREDITS_BALANCE`), a usage code (`GoUsageLimitError`, `FreeUsageLimitError`, Codex's
+    `usage_limit_reached`, Google's `QUOTA_EXHAUSTED`), an auth code, or a server code on no 4xx decides; then
+    401/403, a 429 (its words say a spent balance or a used-up plan, else a rate limit), a generic throttle code
+    (`rate_limit_error`, read after a 429's words since Anthropic-shaped endpoints put it on every 429), a 5xx;
+    then the words alone. A Claude 429 is `usage_limit` only with `anthropic-ratelimit-unified-status: rejected`
+    (OmniRoute `isClaudeUsageWall`); an Antigravity model that waits on a used-up quota is `usage_limit`, one that
+    waits on a throttle `rate_limit`, either `billing` when Google says the credits balance is spent; a suspended
+    account or one to verify is `auth`. The waits are unchanged, a Go 402 `GoUsageLimitError` keeping the used-up
+    allowance's hour. The reset a refusal names is read from its headers first
     (`retry-after-ms`, `Retry-After` as seconds or a date, `x-ratelimit-reset-ms`, `x-ratelimit-reset`,
     `x-ratelimit-reset-after`), else from its words, the pairs after "resets in" summed ("2hr 15min", "3 days";
     omp `extractRetryHint`); Claude's unified reset still comes before both. The account's cooldown keeps the code
@@ -4354,8 +4358,10 @@ capabilities do not exist yet.
     provider's own message (`reason`); the accounts API gives `cooling_code` and `cooling_reason`, `accounts list`
     prints both, and the Models page's account card says the code in words ("Usage limit, resets 12:42 AM", "Key
     refused until …", "Credits spent until …", "Rate limited until …", "Provider overloaded until …", "Resting until
-    …" for `unknown`) with the message as its title. The Images page says the code of the account free first
-    (`ImageProviderLink.cooling_code`).
+    …" for `unknown`) with the message as its title. The Images page says the code and the message of the account
+    free first (`ImageProviderLink.cooling_code`, `cooling_reason`); the Web search page's subscription link that
+    rests because its accounts do says theirs (`WebSearchLink.cooling_code`, `cooling_reason`, from
+    `websearch.AccountRefused`), and so does one whose own search was refused, read by the same classifier.
   - A request for an Antigravity or Codex model (chat on `/chat/completions`, `/responses` and `/messages`, and
     Antigravity's images) goes only to the accounts whose own list (read as the gateway's models are) has it, as
     CLIProxyAPI routes a model only to the auths that registered it (`sdk/cliproxy/auth/conductor_selection.go`

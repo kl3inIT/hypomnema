@@ -70,8 +70,9 @@ var (
 type CoolingError struct {
 	Until time.Time
 	// Code is why the account free first rests (issue #1305): its cooldown's code, auth for one Google wants
-	// verified.
-	Code string
+	// verified. Reason is the provider's own words for it.
+	Code   string
+	Reason string
 	// ListUnknown says no account is known to have the model asked for while an account's list of models is not
 	// known yet (TokenFor, issue #814): the request is to be tried again then, whatever an account answered before.
 	ListUnknown bool
@@ -647,14 +648,14 @@ func (s *Service) tokenAmong(
 	ordered = s.rank(runtime, session, ordered, now)
 
 	var (
-		free *time.Time
-		code string
+		free         *time.Time
+		code, reason string
 	)
 
-	// rests notes an account that is free again at until, for why it rests (code).
-	rests := func(until *time.Time, why string) {
+	// rests notes an account that is free again at until, for why it rests (code) and the provider's words.
+	rests := func(until *time.Time, why, words string) {
 		if free == nil || until.Before(*free) {
-			free, code = until, why
+			free, code, reason = until, why, words
 		}
 	}
 
@@ -665,7 +666,7 @@ func (s *Service) tokenAmong(
 		}
 
 		if a.CoolingUntil != nil {
-			rests(a.CoolingUntil, a.CoolingCode)
+			rests(a.CoolingUntil, a.CoolingCode, a.CoolingReason)
 
 			continue
 		}
@@ -679,7 +680,7 @@ func (s *Service) tokenAmong(
 
 			fresh, ok := s.stillServes(ctx, a, model)
 			if ok && fresh.CoolingUntil != nil {
-				rests(fresh.CoolingUntil, fresh.CoolingCode)
+				rests(fresh.CoolingUntil, fresh.CoolingCode, fresh.CoolingReason)
 
 				ok = false
 			}
@@ -697,7 +698,7 @@ func (s *Service) tokenAmong(
 
 		// An account Google wants verified rests until its next try (issue #822).
 		if v := a.Verification; v != nil && v.RetryAt.After(now) {
-			rests(&v.RetryAt, verificationCode)
+			rests(&v.RetryAt, verificationCode, v.Message)
 
 			continue
 		}
@@ -712,7 +713,7 @@ func (s *Service) tokenAmong(
 				return Token{}, err
 			}
 
-			rests(&verify.RetryAt, verificationCode)
+			rests(&verify.RetryAt, verificationCode, verify.Message)
 
 			continue
 		}
@@ -728,7 +729,7 @@ func (s *Service) tokenAmong(
 	}
 
 	if free != nil {
-		return Token{}, &CoolingError{Until: *free, Code: code}
+		return Token{}, &CoolingError{Until: *free, Code: code, Reason: reason}
 	}
 
 	// The accounts' lists may have changed while they were tried (a refresh in between): when no account's list has
@@ -825,10 +826,12 @@ func (a Account) usableBy(runtime string) bool {
 	return a.Runtime == runtime && a.Status == orchestration.AccountActive && a.State == StateActive
 }
 
-// Rest is until when an account, or one model of it, rests and why (issue #1305); zero when it does not.
+// Rest is until when an account, or one model of it, rests, why (issue #1305) and the provider's own words for
+// it; zero when it does not.
 type Rest struct {
-	Until time.Time
-	Code  string
+	Until  time.Time
+	Code   string
+	Reason string
 }
 
 // FirstFree is when the first usable account of a runtime is free again and why it rests, a model's own rest on an
@@ -846,7 +849,7 @@ func (s *Service) FirstFree(ctx context.Context, runtime string, modelReset func
 		}
 		var rest Rest
 		if account.CoolingUntil != nil {
-			rest = Rest{Until: *account.CoolingUntil, Code: account.CoolingCode}
+			rest = Rest{Until: *account.CoolingUntil, Code: account.CoolingCode, Reason: account.CoolingReason}
 		}
 		if modelReset != nil {
 			if model := modelReset(account.ID); model.Until.After(rest.Until) {
