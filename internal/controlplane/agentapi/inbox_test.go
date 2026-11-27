@@ -500,6 +500,24 @@ func TestABotPostsTheWorksFilesAndArtifactsOnTheItem(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"text":"The deck.","files":["deck.pdf"],"chat":"`+otherChat+`"}`,
 		string(theirItem.Events[len(theirItem.Events)-1].After))
+
+	// Review of PR #1210: the owner deletes the item's chat. The files are still in the Bot's folder, which any of
+	// its chats reads: the comment's files are read through the chat of that Bot still there.
+	kept, err := w.svc.CreateChat(ctx, bot.ID, "")
+	require.NoError(t, err)
+	_, err = w.svc.DeleteChat(ctx, td.Chat)
+	require.NoError(t, err)
+
+	gone, err := w.svc.Inbox().Get(ctx, td.ID)
+	require.NoError(t, err)
+
+	var read struct {
+		Chat  string   `json:"chat"`
+		Files []string `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(gone.Events[len(got.Events)-1].After, &read))
+	assert.Equal(t, kept.ID, read.Chat, "read through the Bot's chat still there")
+	assert.Equal(t, []string{"exports/sales.xlsx"}, read.Files)
 }
 
 // Scenario: issue #1118. The main Bot's pi passes an item the owner handed it to a project Bot with inbox_update
