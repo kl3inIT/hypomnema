@@ -51,8 +51,8 @@ flowchart TB
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
-| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
+| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `pi-models`, `model-key`, `ci` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
+| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `run`, `service`, `tool`, `shim`, `mcp`, `gitssh`, `gh`, `git-credential`, `hypomnema`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
 `HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
@@ -2572,6 +2572,85 @@ flowchart LR
   - Work on a repository uses the Connection its registered repository names (`repos add --connection`), else
     the host's only one; with several and none named it gets no token, and falls back to the node user's logins.
     A Connection a registered repository names cannot be removed.
+  - **The owner's GitHub App** ([issue #1262](https://github.com/kl3inIT/hypomnema/issues/1262); migration
+    00188; `internal/controlplane/githubapp`, its tables in `orchestration/githubstore`; owner's steps in
+    [docs/github-app.md](docs/github-app.md)). Workers and the coordinator act on the repositories it is installed
+    on with its installations' tokens, which count against the App's own rate limit, not the owner's token's
+    (GitHub's "Rate limits for GitHub Apps"); GitHub's events end the waits for CI. The owner's token stays for his
+    own actions and for the repositories the App does not cover, so nothing changes before the App exists.
+    - **Registering it** from a manifest (GitHub's "Registering a GitHub App from a manifest"; Omnara's guided
+      setup, `docs/integrations/github.mdx:20-75`, `internal/httpapi/github_app_setup_routes.go:88-107`): the page
+      `/api/v1/integrations/github/app/setup`, which only the owner's session or token opens, posts the manifest to
+      `https://github.com/settings/apps/new?state=…`: a private App on his account with Pull requests, Issues and
+      Contents read and write and Actions, Checks and Commit statuses read; events `check_suite`, `workflow_run`,
+      `pull_request`, `issue_comment`, `pull_request_review` and `pull_request_review_comment`; its webhook at
+      `<HYPOMNEMA_PUBLIC_URL>/api/v1/integrations/github/events`, its redirect at `…/app/callback` and its setup
+      URL at `…/app/installed`. The page needs the public URL to be HTTPS. The state is random, kept in memory for
+      an hour (GitHub's code is good for one) and good once, so a restart loses a registration not completed. The
+      callback exchanges the code (`POST /app-manifests/{code}/conversions`) and keeps the App's id, name, private
+      key and webhook secret as one value in the vault secret `github-app` (`githubapp.Credential`, as Omnara keeps
+      them as one credential); the key and the secret are never answered, logged or written anywhere else. A new
+      registration replaces the App. `GET /integrations/github/app` (`hypomnema hosts app`) shows it without them.
+    - **Its installations** are read from GitHub (`GET /app/installations` with the App's JWT, RS256 and nine
+      minutes, then `GET /installation/repositories` with each installation's token) when GitHub sends the owner
+      back from installing it, on each `installation` and `installation_repositories` event, and on
+      `POST /integrations/github/app/installations` (`hosts app sync`), and kept by repository
+      (`github_app_installations`: `owner/name` in lower case, GitHub's repository id, installation id, account).
+      `POST /integrations/github/app/test-delivery` (`hosts app test`, or the page's button) asks GitHub to send the
+      App's latest delivery again (`POST /app/hook/deliveries/{id}/attempts`); GitHub keeps its id, so it is answered
+      200 as handled before, which GitHub's Recent Deliveries shows.
+    - **Its tokens** (`githubapp.Tokens`, after Omnara's installation token cache): a token is made with the App's
+      JWT for one repository (`POST /app/installations/{id}/access_tokens` with `repository_ids`, as Omnara's
+      `auth.go:138-162`; every permission the installation has), so it reaches that repository alone, and reused
+      until 15 minutes before its end (Omnara's git credentials margin); only the listing of an installation's
+      repositories asks for one of the whole installation, which no one is given. A Dispatch on a repository the
+      App covers is offered as the App's (`github_app` set) with no token at all, only by a node that said
+      `github_app` at hello; a node of an earlier release, which keeps an offer's token for the whole Dispatch, is
+      given the owner's, as before. So no token of the App's is kept with the offer in the node's state, in the
+      worker's environment or in the shim's spec. The commits still name the owner's account (issue #991). Such a
+      node asks for a fresh token for its own clone, fetch and push (`publish_branch`), and puts `github-bin/` of the
+      Dispatch's directory first on the worker's PATH,
+      holding `gh` and `hypomnema` scripts, sets git's credential helper for github.com (an empty helper first,
+      which drops the user's own) to `hypomnema-node git-credential`, and leaves out `GH_TOKEN` and the token's
+      header; `hypomnema-node gh` sets `GH_TOKEN` and runs the real gh, and the helper answers git with
+      `x-access-token`, each with a fresh token asked of `POST /agent/v1/github/token` with the Dispatch's key, as
+      Omnara's agents ask their daemon (`internal/machinedaemon/git_credential_helper.go`). When the control plane
+      gives none (the App no longer covers the repository, or the node reconnected to a control plane of an earlier
+      release, without the route), gh and git fail closed, saying why, as Omnara's `RunGitHubCLI` returns its
+      credential error: no token is kept on the node, and the machine's own login may reach more than the owner's.
+      A Bot's gh through the service proxy goes with the App's token
+      when its request names a repository the App covers (a REST path under `/repos/{owner}/{repo}`, or GraphQL
+      variables `owner` with `repo` or `name`, as gh sends them); the control plane's own reads of a followed pull
+      request (#1053) use it too.
+    - **Its deliveries** (`POST /api/v1/integrations/github/events`, outside the client API's contract, after
+      Omnara's `webhooks.go:21-120`): a body over 2 MiB, or one whose `X-Hub-Signature-256` is not the HMAC-SHA256
+      of the body with the webhook secret (compared in constant time), is refused (401 for a signature) and changes
+      nothing. Each delivery is recorded by its `X-GitHub-Delivery` id (`github_deliveries`, kept 30 days): one
+      whose id was recorded is answered 200 and not handled again. The body of `issue_comment`,
+      `pull_request_review` and `pull_request_review_comment` is kept for #1232, which answers them; nothing else is
+      done with them yet. `check_suite` or `workflow_run` `completed` on the head of a pull request someone waits
+      for reads its checks once with the repository's token; `pull_request` `synchronize` (a new head) or
+      `reopened` resets that wait to pending at the new head, unread, so the next ask reads the new head's checks;
+      each change of the row grows its `version`, and a read of GitHub's keeps what it found only when the row is
+      still at the version the read began from, so a read of the old head that ends after the reset never
+      overwrites it, and the wait answers from the row as kept; a read that found the row's own head passed or
+      failed is kept even when another write came first, if the row says pending or ended earlier by the checks'
+      `completedAt` (a rerun of the head: the later end wins, compared only when both have a time; one without a
+      time never loses to one with a time), but a read that found the pull request merged or
+      closed never wins so, and a reopen's pending stands;
+      `pull_request` `closed` marks it merged or closed and settles a followed pull request (#1053) without reading
+      GitHub (`orchestration.SettleClosedPullRequest`); the minute's read still follows the rest.
+    - **Waiting for CI** (`hypomnema ci wait <pr> [--timeout 2h]`, `internal/shared/ciwait`): the command asks
+      `GET /pull-requests/ci` (client API, for the coordinator) or `GET /agent/v1/ci/wait` (a worker, through its
+      `hypomnema` script) again and again, each ask held up to 50 s, under a reverse proxy's minute. The first wait
+      for a pull request reads its checks (`pull_request_ci`: head, state, failed checks, when read); after that
+      only the App's events change it, and a read when none came for five minutes, of a passed or failed state too,
+      whose head may have moved; a merge or a close is final until a reopen. The checks waited for are the
+      required ones, or every one when none is required, as `gh pr checks --watch` waits for all of them; pending
+      while one runs or before any is reported, else failed when one failed, else passed. It exits as gh does: 0
+      passed or merged, 1 failed or closed, 8 still pending at the timeout. A repository the App does not cover,
+      or a control plane without the route, is waited for with `gh pr checks <pr> --required --watch --interval
+      60` (once a minute, for GitHub's shared limit) within the same timeout, gh being stopped at its end.
   - An Integration that is not a git host signs in with OAuth (`internal/controlplane/integration`, step 2 of
     [issue #103](https://github.com/kl3inIT/hypomnema/issues/103)). Google is the only one: Gmail, Calendar, Drive,
     Docs, Sheets and Search Console (`searchconsole`, `webmasters` scopes; issue
@@ -6353,7 +6432,8 @@ Node (`internal/node`):
          required checks (`gh pr checks <url> --required --watch --interval 60`, `glab ci status --live`) only when
          the Task needs their result; without the token (the node's own login, which the control plane cannot read the
          request with), waiting for the required checks with that command, fixing the red ones its diff causes and
-         rerunning a flake once, then `finish`, as before #1053;
+         rerunning a flake once, then `finish`, as before #1053. With the owner's GitHub App's token (`github_app`,
+         issue #1262) the command is `hypomnema ci wait <url>`, which the App's events end;
     - `Task (<profile>):` and the Task's spec;
     - the recovery note, a follow-up ("You called `finish` on this task before, and more is asked of it now (this
       replaces the answer to any question you asked at `finish`): …", then to
@@ -7309,6 +7389,7 @@ internal/node/device      the phone a node holds: pinned SDK parts, the AVD, Xvf
 internal/node/workertools the worker's MCP server: ask, finish and memory, and the tools the control plane lists (the shared browser's, the gateway's, the phone's), on toolsmcp
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/node/gitssh      `hypomnema-node gitssh`, git's ssh for a repository cloned over SSH with the control plane's key
+internal/node/githubapp   a worker's gh, git credential helper and `hypomnema ci wait` with fresh tokens of the owner's GitHub App
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
 internal/controlplane/meetings  the meetings' work: the recording kept on disk, transcription, the notes' prompt and its checks, speaker suggestions, a meeting recorded live (its tracks, their audio mixed into one WAV, its end)
@@ -7322,6 +7403,8 @@ internal/controlplane/orchestration/channelstore  the Channels (tables channels 
 internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
 internal/controlplane/orchestration/profilestore  the profiles and their versions, the role routing, and the providers and models they name: applying, checking, deleting and restoring a version, a profile's requests, reached through orchestration's Profiles(); a profile changed from the main Bot's chat, a profile's availability and what a Dispatch runs with stay in orchestration
 internal/controlplane/orchestration/meetingstore  the meetings, their voices, lines, notes and items, and the notes model, reached through orchestration's Meetings()
+internal/controlplane/orchestration/githubstore  the owner's GitHub App's installations, deliveries and the CI waited for, reached through orchestration's GitHub()
+internal/controlplane/githubapp  the owner's GitHub App: its manifest and registration, its JWT and installation tokens, its signed deliveries, and the wait for CI
 internal/controlplane/orchestration/inboxstore  the Inbox's to-dos, their state machine and history, reached through orchestration's Inbox()
 internal/controlplane/inbox  the owner's own chats as the Inbox reads and answers them: a message given as evidence, who asked and who is in a chat, his reply sent from an item
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, every memory's notes and the memory tool's commands (issue #589), and the entry rules a Bot's memory follows, reached through orchestration's Memories()
@@ -7334,6 +7417,7 @@ internal/controlplane/websearch  the web's search and a page's reading: the prov
 internal/shared/agenttool the integrations' tools: the catalog, their setup, and the launcher that asks the control plane for a token
 internal/shared/contextwindow  whether an error's text says a prompt did not fit its model's context window, for the node's runtimes and the gateway
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
+internal/shared/ciwait    `hypomnema ci wait`: asking the control plane until a pull request's CI ends
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids
 internal/shared/skillpack a skill in the Agent Skills format: reading an archive, checking it, its digest, the archive kept

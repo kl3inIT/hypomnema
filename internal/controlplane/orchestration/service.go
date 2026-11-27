@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/githubstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
@@ -45,6 +46,8 @@ type Service struct {
 	routines *routinestore.Store
 	// meetings is the domain store of the meetings (issue #721).
 	meetings *meetingstore.Store
+	// github is the domain store of the owner's GitHub App (issue #1262).
+	github *githubstore.Store
 	// inbox is the domain store of the Inbox's to-dos (issue #845).
 	inbox *inboxstore.Store
 	// profiles is the domain store of the profiles, the role routing, and the
@@ -122,6 +125,7 @@ func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opt
 	s.channels = channelstore.New(s.db, s.clock, s.notify.signal)
 	s.routines = routinestore.New(s.db, s.clock, s.newID, s.notify.signal)
 	s.meetings = meetingstore.New(s.db, s.clock, s.newID, s.notify.signal)
+	s.github = githubstore.New(s.db, s.clock, s.notify.signal)
 	s.inbox = inboxstore.New(s.db, s.clock, s.newID, s.notify.signal).WithWaker(inboxWaker{s}).
 		WithMainBot(DefaultBotID)
 	s.profiles = profilestore.New(s.db, s.clock, s.newID, s.notify.signal).WithPlacement(profilePlacement{s})
@@ -152,6 +156,10 @@ func (s *Service) Routines() *routinestore.Store { return s.routines }
 // Meetings returns the store of the meetings, their transcripts and notes (issue #721), over the same connection,
 // clock and ids, waking the same event readers.
 func (s *Service) Meetings() *meetingstore.Store { return s.meetings }
+
+// GitHub returns the store of the owner's GitHub App's installations, deliveries and waited CI (issue #1262), over
+// the same connection and clock.
+func (s *Service) GitHub() *githubstore.Store { return s.github }
 
 // Inbox returns the store of the Inbox's to-dos and their history (issue #845), over the same connection, clock and
 // ids, waking the same event readers.

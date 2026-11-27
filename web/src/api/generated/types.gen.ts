@@ -1447,6 +1447,62 @@ export type NodeGpu = {
 
 export type GitHostKind = 'github' | 'gitlab';
 
+/**
+ * The owner's GitHub App, without its private key or webhook secret.
+ */
+export type GitHubApp = {
+  registered: boolean;
+  app_id?: number;
+  slug?: string;
+  owner?: string;
+  html_url?: string;
+  /**
+   * GitHub's page that installs the App on repositories.
+   */
+  install_url?: string;
+  /**
+   * The control plane's page the owner registers the App from, in his signed-in browser.
+   */
+  setup_url: string;
+  installations: Array<GitHubAppInstallation>;
+  last_delivery?: GitHubDelivery;
+};
+
+export type GitHubAppInstallation = {
+  /**
+   * owner/name, in lower case
+   */
+  repository: string;
+  installation_id: number;
+  account: string;
+};
+
+export type GitHubDelivery = {
+  id: string;
+  event: string;
+  action?: string;
+  repository?: string;
+  received_at: string;
+};
+
+export type GitHubAppRedelivery = {
+  /**
+   * The id of the delivery sent again.
+   */
+  guid: string;
+  event: string;
+};
+
+export type PullRequestCi = {
+  pull_request: string;
+  head?: string;
+  state: 'pending' | 'passed' | 'failed' | 'merged' | 'closed';
+  /**
+   * The checks that failed, when the state is failed.
+   */
+  failed?: Array<string>;
+};
+
 export type GitHost = {
   host: string;
   kind: GitHostKind;
@@ -8028,6 +8084,115 @@ export type ListIntegrationsResponses = {
 };
 
 export type ListIntegrationsResponse = ListIntegrationsResponses[keyof ListIntegrationsResponses];
+
+export type GetGitHubAppData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations/github/app';
+};
+
+export type GetGitHubAppErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGitHubAppError = GetGitHubAppErrors[keyof GetGitHubAppErrors];
+
+export type GetGitHubAppResponses = {
+  /**
+   * The App.
+   */
+  200: GitHubApp;
+};
+
+export type GetGitHubAppResponse = GetGitHubAppResponses[keyof GetGitHubAppResponses];
+
+export type SyncGitHubAppInstallationsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations/github/app/installations';
+};
+
+export type SyncGitHubAppInstallationsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SyncGitHubAppInstallationsError = SyncGitHubAppInstallationsErrors[keyof SyncGitHubAppInstallationsErrors];
+
+export type SyncGitHubAppInstallationsResponses = {
+  /**
+   * The App, with its installations as GitHub says them now.
+   */
+  200: GitHubApp;
+};
+
+export type SyncGitHubAppInstallationsResponse = SyncGitHubAppInstallationsResponses[keyof SyncGitHubAppInstallationsResponses];
+
+export type TestGitHubAppDeliveryData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations/github/app/test-delivery';
+};
+
+export type TestGitHubAppDeliveryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type TestGitHubAppDeliveryError = TestGitHubAppDeliveryErrors[keyof TestGitHubAppDeliveryErrors];
+
+export type TestGitHubAppDeliveryResponses = {
+  /**
+   * The delivery GitHub was asked to send again.
+   */
+  200: GitHubAppRedelivery;
+};
+
+export type TestGitHubAppDeliveryResponse = TestGitHubAppDeliveryResponses[keyof TestGitHubAppDeliveryResponses];
+
+export type WaitPullRequestCiData = {
+  body?: never;
+  path?: never;
+  query: {
+    /**
+     * The pull request's URL, or owner/name#number.
+     */
+    pull_request: string;
+    /**
+     * How many seconds the answer may wait for a change, at most 50.
+     */
+    wait?: number;
+  };
+  url: '/pull-requests/ci';
+};
+
+export type WaitPullRequestCiErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type WaitPullRequestCiError = WaitPullRequestCiErrors[keyof WaitPullRequestCiErrors];
+
+export type WaitPullRequestCiResponses = {
+  /**
+   * The pull request's CI.
+   */
+  200: PullRequestCi;
+};
+
+export type WaitPullRequestCiResponse = WaitPullRequestCiResponses[keyof WaitPullRequestCiResponses];
 
 export type PutIntegrationClientData = {
   body: NewIntegrationClientWritable;

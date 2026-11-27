@@ -1686,6 +1686,33 @@ func (e ProviderKind) Valid() bool {
 	}
 }
 
+// Defines values for PullRequestCIState.
+const (
+	PullRequestCIStateClosed  PullRequestCIState = "closed"
+	PullRequestCIStateFailed  PullRequestCIState = "failed"
+	PullRequestCIStateMerged  PullRequestCIState = "merged"
+	PullRequestCIStatePassed  PullRequestCIState = "passed"
+	PullRequestCIStatePending PullRequestCIState = "pending"
+)
+
+// Valid indicates whether the value is a known member of the PullRequestCIState enum.
+func (e PullRequestCIState) Valid() bool {
+	switch e {
+	case PullRequestCIStateClosed:
+		return true
+	case PullRequestCIStateFailed:
+		return true
+	case PullRequestCIStateMerged:
+		return true
+	case PullRequestCIStatePassed:
+		return true
+	case PullRequestCIStatePending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for QuestionMode.
 const (
 	QuestionModeGate QuestionMode = "gate"
@@ -4769,6 +4796,49 @@ type GitHostList struct {
 	Data []GitHost `json:"data"`
 }
 
+// GitHubApp The owner's GitHub App, without its private key or webhook secret.
+type GitHubApp struct {
+	AppId   *int64  `json:"app_id,omitempty"`
+	HtmlUrl *string `json:"html_url,omitempty"`
+
+	// InstallUrl GitHub's page that installs the App on repositories.
+	InstallUrl    *string                 `json:"install_url,omitempty"`
+	Installations []GitHubAppInstallation `json:"installations"`
+	LastDelivery  *GitHubDelivery         `json:"last_delivery,omitempty"`
+	Owner         *string                 `json:"owner,omitempty"`
+	Registered    bool                    `json:"registered"`
+
+	// SetupUrl The control plane's page the owner registers the App from, in his signed-in browser.
+	SetupUrl string  `json:"setup_url"`
+	Slug     *string `json:"slug,omitempty"`
+}
+
+// GitHubAppInstallation defines model for GitHubAppInstallation.
+type GitHubAppInstallation struct {
+	Account        string `json:"account"`
+	InstallationId int64  `json:"installation_id"`
+
+	// Repository owner/name, in lower case
+	Repository string `json:"repository"`
+}
+
+// GitHubAppRedelivery defines model for GitHubAppRedelivery.
+type GitHubAppRedelivery struct {
+	Event string `json:"event"`
+
+	// Guid The id of the delivery sent again.
+	Guid string `json:"guid"`
+}
+
+// GitHubDelivery defines model for GitHubDelivery.
+type GitHubDelivery struct {
+	Action     *string   `json:"action,omitempty"`
+	Event      string    `json:"event"`
+	Id         string    `json:"id"`
+	ReceivedAt time.Time `json:"received_at"`
+	Repository *string   `json:"repository,omitempty"`
+}
+
 // GitSSHKey defines model for GitSSHKey.
 type GitSSHKey struct {
 	// PublicKey The public key in the authorized_keys form, to add to the git host.
@@ -6324,6 +6394,18 @@ type PublishedHead struct {
 	Branch string `json:"branch"`
 	Sha    string `json:"sha"`
 }
+
+// PullRequestCI defines model for PullRequestCI.
+type PullRequestCI struct {
+	// Failed The checks that failed, when the state is failed.
+	Failed      *[]string          `json:"failed,omitempty"`
+	Head        *string            `json:"head,omitempty"`
+	PullRequest string             `json:"pull_request"`
+	State       PullRequestCIState `json:"state"`
+}
+
+// PullRequestCIState defines model for PullRequestCI.State.
+type PullRequestCIState string
 
 // PushSubscription defines model for PushSubscription.
 type PushSubscription struct {
@@ -9189,6 +9271,15 @@ type PutMemoryNoteParams struct {
 	Path string `form:"path" json:"path"`
 }
 
+// WaitPullRequestCIParams defines parameters for WaitPullRequestCI.
+type WaitPullRequestCIParams struct {
+	// PullRequest The pull request's URL, or owner/name#number.
+	PullRequest string `form:"pull_request" json:"pull_request"`
+
+	// Wait How many seconds the answer may wait for a change, at most 50.
+	Wait *int `form:"wait,omitempty" json:"wait,omitempty"`
+}
+
 // ListQuestionsParams defines parameters for ListQuestions.
 type ListQuestionsParams struct {
 	Status      *QuestionStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -11656,6 +11747,21 @@ type ClientInterface interface {
 	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
 	ListIntegrations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetGitHubApp The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+	//
+	// Corresponds with GET /integrations/github/app (the `GetGitHubApp` operationId).
+	GetGitHubApp(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+	//
+	// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
+	SyncGitHubAppInstallations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+	//
+	// Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
+	TestGitHubAppDelivery(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// RelaySupersetRequestWithBody Send one request to a Superset Connection's API and return its answer unchanged
 	//
 	// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
@@ -12368,6 +12474,11 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
 	ApplyProvider(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// WaitPullRequestCI Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+	//
+	// Corresponds with GET /pull-requests/ci (the `WaitPullRequestCI` operationId).
+	WaitPullRequestCI(ctx context.Context, params *WaitPullRequestCIParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListPushSubscriptions The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
 	//
@@ -16994,6 +17105,51 @@ func (c *Client) ListIntegrations(ctx context.Context, reqEditors ...RequestEdit
 	return c.Client.Do(req)
 }
 
+// GetGitHubApp The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+//
+// Corresponds with GET /integrations/github/app (the `GetGitHubApp` operationId).
+func (c *Client) GetGitHubApp(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetGitHubAppRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+//
+// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
+func (c *Client) SyncGitHubAppInstallations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSyncGitHubAppInstallationsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+//
+// Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
+func (c *Client) TestGitHubAppDelivery(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewTestGitHubAppDeliveryRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // RelaySupersetRequestWithBody Send one request to a Superset Connection's API and return its answer unchanged
 //
 // The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
@@ -18667,6 +18823,21 @@ func (c *Client) ApplyProviderWithBody(ctx context.Context, name Name, contentTy
 // Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
 func (c *Client) ApplyProvider(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewApplyProviderRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// WaitPullRequestCI Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+//
+// Corresponds with GET /pull-requests/ci (the `WaitPullRequestCI` operationId).
+func (c *Client) WaitPullRequestCI(ctx context.Context, params *WaitPullRequestCIParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewWaitPullRequestCIRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -27735,6 +27906,87 @@ func NewListIntegrationsRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewGetGitHubAppRequest constructs an http.Request for the GetGitHubApp method
+func NewGetGitHubAppRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/github/app")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSyncGitHubAppInstallationsRequest constructs an http.Request for the SyncGitHubAppInstallations method
+func NewSyncGitHubAppInstallationsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/github/app/installations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewTestGitHubAppDeliveryRequest constructs an http.Request for the TestGitHubAppDelivery method
+func NewTestGitHubAppDeliveryRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/github/app/test-delivery")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewRelaySupersetRequestRequest calls the generic RelaySupersetRequest builder with application/json body
 func NewRelaySupersetRequestRequest(server string, label ConnectionLabel, params *RelaySupersetRequestParams, body RelaySupersetRequestJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -31202,6 +31454,68 @@ func NewApplyProviderRequestWithBody(server string, name Name, contentType strin
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewWaitPullRequestCIRequest constructs an http.Request for the WaitPullRequestCI method
+func NewWaitPullRequestCIRequest(server string, params *WaitPullRequestCIParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/pull-requests/ci")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "pull_request", params.PullRequest, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if params.Wait != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "wait", *params.Wait, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -36624,6 +36938,27 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
 	ListIntegrationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListIntegrationsResponse, error)
 
+	// GetGitHubAppWithResponse The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/github/app (the `GetGitHubApp` operationId).
+	GetGitHubAppWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetGitHubAppResponse, error)
+
+	// SyncGitHubAppInstallationsWithResponse Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
+	SyncGitHubAppInstallationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*SyncGitHubAppInstallationsResponse, error)
+
+	// TestGitHubAppDeliveryWithResponse Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
+	TestGitHubAppDeliveryWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*TestGitHubAppDeliveryResponse, error)
+
 	// RelaySupersetRequestWithBodyWithResponse Send one request to a Superset Connection's API and return its answer unchanged
 	//
 	// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
@@ -37424,6 +37759,13 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
 	ApplyProviderWithResponse(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyProviderResponse, error)
+
+	// WaitPullRequestCIWithResponse Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /pull-requests/ci (the `WaitPullRequestCI` operationId).
+	WaitPullRequestCIWithResponse(ctx context.Context, params *WaitPullRequestCIParams, reqEditors ...RequestEditorFn) (*WaitPullRequestCIResponse, error)
 
 	// ListPushSubscriptionsWithResponse The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
 	//
@@ -45486,6 +45828,150 @@ func (r ListIntegrationsResponse) ContentType() string {
 	return ""
 }
 
+type GetGitHubAppResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHubApp
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetGitHubAppResponse) GetJSON200() *GitHubApp {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetGitHubAppResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetGitHubAppResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetGitHubAppResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetGitHubAppResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetGitHubAppResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SyncGitHubAppInstallationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHubApp
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SyncGitHubAppInstallationsResponse) GetJSON200() *GitHubApp {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SyncGitHubAppInstallationsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SyncGitHubAppInstallationsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SyncGitHubAppInstallationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SyncGitHubAppInstallationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SyncGitHubAppInstallationsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type TestGitHubAppDeliveryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHubAppRedelivery
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r TestGitHubAppDeliveryResponse) GetJSON200() *GitHubAppRedelivery {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r TestGitHubAppDeliveryResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r TestGitHubAppDeliveryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r TestGitHubAppDeliveryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r TestGitHubAppDeliveryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r TestGitHubAppDeliveryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RelaySupersetRequestResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -48852,6 +49338,54 @@ func (r ApplyProviderResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ApplyProviderResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type WaitPullRequestCIResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *PullRequestCI
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r WaitPullRequestCIResponse) GetJSON200() *PullRequestCI {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r WaitPullRequestCIResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r WaitPullRequestCIResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r WaitPullRequestCIResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r WaitPullRequestCIResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r WaitPullRequestCIResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -55902,6 +56436,45 @@ func (c *ClientWithResponses) ListIntegrationsWithResponse(ctx context.Context, 
 	return ParseListIntegrationsResponse(rsp)
 }
 
+// GetGitHubAppWithResponse The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/github/app (the `GetGitHubApp` operationId).
+func (c *ClientWithResponses) GetGitHubAppWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetGitHubAppResponse, error) {
+	rsp, err := c.GetGitHubApp(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetGitHubAppResponse(rsp)
+}
+
+// SyncGitHubAppInstallationsWithResponse Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/github/app/installations (the `SyncGitHubAppInstallations` operationId).
+func (c *ClientWithResponses) SyncGitHubAppInstallationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*SyncGitHubAppInstallationsResponse, error) {
+	rsp, err := c.SyncGitHubAppInstallations(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSyncGitHubAppInstallationsResponse(rsp)
+}
+
+// TestGitHubAppDeliveryWithResponse Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/github/app/test-delivery (the `TestGitHubAppDelivery` operationId).
+func (c *ClientWithResponses) TestGitHubAppDeliveryWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*TestGitHubAppDeliveryResponse, error) {
+	rsp, err := c.TestGitHubAppDelivery(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseTestGitHubAppDeliveryResponse(rsp)
+}
+
 // RelaySupersetRequestWithBodyWithResponse Send one request to a Superset Connection's API and return its answer unchanged
 //
 // The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
@@ -57283,6 +57856,19 @@ func (c *ClientWithResponses) ApplyProviderWithResponse(ctx context.Context, nam
 		return nil, err
 	}
 	return ParseApplyProviderResponse(rsp)
+}
+
+// WaitPullRequestCIWithResponse Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /pull-requests/ci (the `WaitPullRequestCI` operationId).
+func (c *ClientWithResponses) WaitPullRequestCIWithResponse(ctx context.Context, params *WaitPullRequestCIParams, reqEditors ...RequestEditorFn) (*WaitPullRequestCIResponse, error) {
+	rsp, err := c.WaitPullRequestCI(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseWaitPullRequestCIResponse(rsp)
 }
 
 // ListPushSubscriptionsWithResponse The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
@@ -63749,6 +64335,105 @@ func ParseListIntegrationsResponse(rsp *http.Response) (*ListIntegrationsRespons
 	return response, nil
 }
 
+// ParseGetGitHubAppResponse parses an HTTP response from a GetGitHubAppWithResponse call
+func ParseGetGitHubAppResponse(rsp *http.Response) (*GetGitHubAppResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetGitHubAppResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHubApp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSyncGitHubAppInstallationsResponse parses an HTTP response from a SyncGitHubAppInstallationsWithResponse call
+func ParseSyncGitHubAppInstallationsResponse(rsp *http.Response) (*SyncGitHubAppInstallationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SyncGitHubAppInstallationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHubApp
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseTestGitHubAppDeliveryResponse parses an HTTP response from a TestGitHubAppDeliveryWithResponse call
+func ParseTestGitHubAppDeliveryResponse(rsp *http.Response) (*TestGitHubAppDeliveryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &TestGitHubAppDeliveryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHubAppRedelivery
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseRelaySupersetRequestResponse parses an HTTP response from a RelaySupersetRequestWithResponse call
 func ParseRelaySupersetRequestResponse(rsp *http.Response) (*RelaySupersetRequestResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -66057,6 +66742,39 @@ func ParseApplyProviderResponse(rsp *http.Response) (*ApplyProviderResponse, err
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Provider
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseWaitPullRequestCIResponse parses an HTTP response from a WaitPullRequestCIWithResponse call
+func ParseWaitPullRequestCIResponse(rsp *http.Response) (*WaitPullRequestCIResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &WaitPullRequestCIResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PullRequestCI
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -69216,6 +69934,15 @@ type ServerInterface interface {
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(w http.ResponseWriter, r *http.Request)
+	// GetGitHubApp The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+	// (GET /integrations/github/app)
+	GetGitHubApp(w http.ResponseWriter, r *http.Request)
+	// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+	// (POST /integrations/github/app/installations)
+	SyncGitHubAppInstallations(w http.ResponseWriter, r *http.Request)
+	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+	// (POST /integrations/github/app/test-delivery)
+	TestGitHubAppDelivery(w http.ResponseWriter, r *http.Request)
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
 	// (POST /integrations/superset/connections/{label}/api)
 	RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params RelaySupersetRequestParams)
@@ -69429,6 +70156,9 @@ type ServerInterface interface {
 	// ApplyProvider Store a provider's YAML and the models it offers
 	// (PUT /providers/{name})
 	ApplyProvider(w http.ResponseWriter, r *http.Request, name Name)
+	// WaitPullRequestCI Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+	// (GET /pull-requests/ci)
+	WaitPullRequestCI(w http.ResponseWriter, r *http.Request, params WaitPullRequestCIParams)
 	// ListPushSubscriptions The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
 	// (GET /push/subscriptions)
 	ListPushSubscriptions(w http.ResponseWriter, r *http.Request)
@@ -74434,6 +75164,48 @@ func (siw *ServerInterfaceWrapper) ListIntegrations(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetGitHubApp operation middleware
+func (siw *ServerInterfaceWrapper) GetGitHubApp(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetGitHubApp(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SyncGitHubAppInstallations operation middleware
+func (siw *ServerInterfaceWrapper) SyncGitHubAppInstallations(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SyncGitHubAppInstallations(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TestGitHubAppDelivery operation middleware
+func (siw *ServerInterfaceWrapper) TestGitHubAppDelivery(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TestGitHubAppDelivery(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RelaySupersetRequest operation middleware
 func (siw *ServerInterfaceWrapper) RelaySupersetRequest(w http.ResponseWriter, r *http.Request) {
 
@@ -76867,6 +77639,52 @@ func (siw *ServerInterfaceWrapper) ApplyProvider(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ApplyProvider(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// WaitPullRequestCI operation middleware
+func (siw *ServerInterfaceWrapper) WaitPullRequestCI(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params WaitPullRequestCIParams
+
+	// ------------- Required query parameter "pull_request" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "pull_request", r.URL.Query(), &params.PullRequest, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pull_request"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pull_request", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "wait" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "wait", r.URL.Query(), &params.Wait, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "wait"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "wait", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.WaitPullRequestCI(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -79568,6 +80386,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.DeleteGitHostConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.PutGitHostConnection)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations", wrapper.ListIntegrations)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/github/app", wrapper.GetGitHubApp)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/github/app/installations", wrapper.SyncGitHubAppInstallations)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/github/app/test-delivery", wrapper.TestGitHubAppDelivery)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/pull-requests/ci", wrapper.WaitPullRequestCI)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/client", wrapper.PutIntegrationClient)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins", wrapper.BeginIntegrationSignIn)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}", wrapper.GetIntegrationSignIn)
@@ -85902,6 +86724,120 @@ func (response ListIntegrationsdefaultJSONResponse) VisitListIntegrationsRespons
 	return err
 }
 
+type GetGitHubAppRequestObject struct {
+}
+
+type GetGitHubAppResponseObject interface {
+	VisitGetGitHubAppResponse(w http.ResponseWriter) error
+}
+
+type GetGitHubApp200JSONResponse GitHubApp
+
+func (response GetGitHubApp200JSONResponse) VisitGetGitHubAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetGitHubAppdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetGitHubAppdefaultJSONResponse) VisitGetGitHubAppResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncGitHubAppInstallationsRequestObject struct {
+}
+
+type SyncGitHubAppInstallationsResponseObject interface {
+	VisitSyncGitHubAppInstallationsResponse(w http.ResponseWriter) error
+}
+
+type SyncGitHubAppInstallations200JSONResponse GitHubApp
+
+func (response SyncGitHubAppInstallations200JSONResponse) VisitSyncGitHubAppInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SyncGitHubAppInstallationsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SyncGitHubAppInstallationsdefaultJSONResponse) VisitSyncGitHubAppInstallationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TestGitHubAppDeliveryRequestObject struct {
+}
+
+type TestGitHubAppDeliveryResponseObject interface {
+	VisitTestGitHubAppDeliveryResponse(w http.ResponseWriter) error
+}
+
+type TestGitHubAppDelivery200JSONResponse GitHubAppRedelivery
+
+func (response TestGitHubAppDelivery200JSONResponse) VisitTestGitHubAppDeliveryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TestGitHubAppDeliverydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response TestGitHubAppDeliverydefaultJSONResponse) VisitTestGitHubAppDeliveryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type RelaySupersetRequestRequestObject struct {
 	Label  ConnectionLabel `json:"label"`
 	Params RelaySupersetRequestParams
@@ -88733,6 +89669,45 @@ type ApplyProviderdefaultJSONResponse struct {
 }
 
 func (response ApplyProviderdefaultJSONResponse) VisitApplyProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WaitPullRequestCIRequestObject struct {
+	Params WaitPullRequestCIParams
+}
+
+type WaitPullRequestCIResponseObject interface {
+	VisitWaitPullRequestCIResponse(w http.ResponseWriter) error
+}
+
+type WaitPullRequestCI200JSONResponse PullRequestCI
+
+func (response WaitPullRequestCI200JSONResponse) VisitWaitPullRequestCIResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WaitPullRequestCIdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response WaitPullRequestCIdefaultJSONResponse) VisitWaitPullRequestCIResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -92546,6 +93521,15 @@ type StrictServerInterface interface {
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(ctx context.Context, request ListIntegrationsRequestObject) (ListIntegrationsResponseObject, error)
+	// GetGitHubApp The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the last delivery it was sent; never its key or secret. Only the owner
+	// (GET /integrations/github/app)
+	GetGitHubApp(ctx context.Context, request GetGitHubAppRequestObject) (GetGitHubAppResponseObject, error)
+	// SyncGitHubAppInstallations Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+	// (POST /integrations/github/app/installations)
+	SyncGitHubAppInstallations(ctx context.Context, request SyncGitHubAppInstallationsRequestObject) (SyncGitHubAppInstallationsResponseObject, error)
+	// TestGitHubAppDelivery Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the answer. Only the owner
+	// (POST /integrations/github/app/test-delivery)
+	TestGitHubAppDelivery(ctx context.Context, request TestGitHubAppDeliveryRequestObject) (TestGitHubAppDeliveryResponseObject, error)
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
 	// (POST /integrations/superset/connections/{label}/api)
 	RelaySupersetRequest(ctx context.Context, request RelaySupersetRequestRequestObject) (RelaySupersetRequestResponseObject, error)
@@ -92759,6 +93743,9 @@ type StrictServerInterface interface {
 	// ApplyProvider Store a provider's YAML and the models it offers
 	// (PUT /providers/{name})
 	ApplyProvider(ctx context.Context, request ApplyProviderRequestObject) (ApplyProviderResponseObject, error)
+	// WaitPullRequestCI Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262, `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads the checks when the first wait asks and once every five minutes without an event. Conflict when the App is not installed on the repository
+	// (GET /pull-requests/ci)
+	WaitPullRequestCI(ctx context.Context, request WaitPullRequestCIRequestObject) (WaitPullRequestCIResponseObject, error)
 	// ListPushSubscriptions The owner's devices that take Web Push notifications, with the key to subscribe; only the owner
 	// (GET /push/subscriptions)
 	ListPushSubscriptions(ctx context.Context, request ListPushSubscriptionsRequestObject) (ListPushSubscriptionsResponseObject, error)
@@ -97462,6 +98449,78 @@ func (sh *strictHandler) ListIntegrations(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// GetGitHubApp operation middleware
+func (sh *strictHandler) GetGitHubApp(w http.ResponseWriter, r *http.Request) {
+	var request GetGitHubAppRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetGitHubApp(ctx, request.(GetGitHubAppRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetGitHubApp")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetGitHubAppResponseObject); ok {
+		if err := validResponse.VisitGetGitHubAppResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SyncGitHubAppInstallations operation middleware
+func (sh *strictHandler) SyncGitHubAppInstallations(w http.ResponseWriter, r *http.Request) {
+	var request SyncGitHubAppInstallationsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SyncGitHubAppInstallations(ctx, request.(SyncGitHubAppInstallationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SyncGitHubAppInstallations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SyncGitHubAppInstallationsResponseObject); ok {
+		if err := validResponse.VisitSyncGitHubAppInstallationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// TestGitHubAppDelivery operation middleware
+func (sh *strictHandler) TestGitHubAppDelivery(w http.ResponseWriter, r *http.Request) {
+	var request TestGitHubAppDeliveryRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TestGitHubAppDelivery(ctx, request.(TestGitHubAppDeliveryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TestGitHubAppDelivery")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TestGitHubAppDeliveryResponseObject); ok {
+		if err := validResponse.VisitTestGitHubAppDeliveryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RelaySupersetRequest operation middleware
 func (sh *strictHandler) RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params RelaySupersetRequestParams) {
 	var request RelaySupersetRequestRequestObject
@@ -99495,6 +100554,32 @@ func (sh *strictHandler) ApplyProvider(w http.ResponseWriter, r *http.Request, n
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ApplyProviderResponseObject); ok {
 		if err := validResponse.VisitApplyProviderResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// WaitPullRequestCI operation middleware
+func (sh *strictHandler) WaitPullRequestCI(w http.ResponseWriter, r *http.Request, params WaitPullRequestCIParams) {
+	var request WaitPullRequestCIRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.WaitPullRequestCI(ctx, request.(WaitPullRequestCIRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "WaitPullRequestCI")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(WaitPullRequestCIResponseObject); ok {
+		if err := validResponse.VisitWaitPullRequestCIResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

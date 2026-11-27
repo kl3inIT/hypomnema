@@ -62,6 +62,12 @@ func (c connections) readPullRequest(ctx context.Context, f orchestration.Follow
 ) (githost.Request, githost.RequestState, error) {
 	repo := f.Repo
 
+	// A repository the owner's GitHub App covers is read with the App's token, which counts against the App's own
+	// limit (issue #1262).
+	if r, st, ok, err := c.app.FindRequest(ctx, f.Kind, repo, f.Branch, f.Hint); ok {
+		return r, st, err
+	}
+
 	conn, ok, err := c.svc.ConnectionFor(ctx, repo.Host, repo.Path)
 	if err != nil {
 		return githost.Request{}, githost.RequestState{}, err

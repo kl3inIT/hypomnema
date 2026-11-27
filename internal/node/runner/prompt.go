@@ -268,7 +268,11 @@ func openCommand(kind, base, branch string) string {
 // (orchestration's Offer); it is read as worktree.SourceOf reads it, so a
 // GitLab subgroup and a company's host are kept. An offer without a host is
 // one of before hosts existed, on github.com.
-func autoMerge(kind, host, path, base, branch string, followed bool) string {
+//
+// app says the repository's token is the owner's GitHub App's (issue #1262):
+// the worker waits for CI with `hypomnema ci wait <url>`, which the App's
+// events end, instead of polling GitHub with gh.
+func autoMerge(kind, host, path, base, branch string, followed, app bool) string {
 	if host == "" {
 		host = githost.GitHubHost
 	}
@@ -324,6 +328,9 @@ func autoMerge(kind, host, path, base, branch string, followed bool) string {
 	}
 
 	watch := strings.ReplaceAll(m.Watch, "<branch>", branch)
+	if app {
+		watch = "hypomnema ci wait <url>"
+	}
 
 	if !followed {
 		// Without the repository's token the worker uses the node's own login, which the control plane cannot
@@ -491,7 +498,8 @@ func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 			"commit your work and %s, which updates that pull request. Do not open a new one. Find it with `%s`; "+
 			"if none is open, open one with `%s`.\n",
 			push, publish, listCommand(o.RepoKind, push), openCommand(o.RepoKind, base, push))
-		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, push, o.RepoToken != ""))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, push, o.RepoToken != "" || o.GitHubApp,
+			o.GitHubApp))
 	default:
 		publish := "push the branch"
 		if canPublish(o) {
@@ -500,7 +508,8 @@ func repoBrief(o nodeproto.Offer, readOnly bool, here string) string {
 
 		fmt.Fprintf(&b, "Commit your work, %s, and open a pull request with `%s`.\n",
 			publish, openCommand(o.RepoKind, base, own))
-		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, own, o.RepoToken != ""))
+		b.WriteString(autoMerge(o.RepoKind, o.RepoHost, o.Repo, base, own, o.RepoToken != "" || o.GitHubApp,
+			o.GitHubApp))
 	}
 
 	return b.String()

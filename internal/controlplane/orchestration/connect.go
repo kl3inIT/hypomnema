@@ -258,6 +258,9 @@ type Offer struct {
 	// QuestionParts is set by the node API as the offer is sent: this control
 	// plane keeps a question's several decisions (issue #1219).
 	QuestionParts bool `json:"question_parts,omitempty"`
+	// GitHubApp is set by the node API as the offer is sent: the owner's GitHub App covers the repository, the
+	// offer carries no token, and the node asks for one at each use (issue #1262).
+	GitHubApp bool `json:"github_app,omitempty"`
 }
 
 // StopRequest is a stop asked of a Dispatch on the node.
