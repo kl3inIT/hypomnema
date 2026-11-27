@@ -133,8 +133,17 @@ RETURNING seq;
 -- The chat's last message of those pi is given as a turn (UndeliveredChatMessages says which): a person's message,
 -- a wake-up or an answered Approval. Whether it is delivered yet does not matter: what came after the owner's
 -- message, given to pi or about to be, ends his turn (issue #468). The line that wakes pi to continue a turn a
--- restart cut is no input of its own: the continued turn is the cut one's (issue #716).
-SELECT role, sender_id FROM chat_messages
+-- restart cut is no input of its own: the continued turn is the cut one's (issue #716). wake_by is who an Inbox item's
+-- wake-up comes from, and for_owner whether the chat holds the owner's mark (issue #1229): a Bot passed an item into it
+-- on his line, and nobody else's input ever came there (a Channel person's message, a Bot's hand-off not on his line,
+-- a Routine's run), as OpenMausBot's handedInUnproven clears forOwner and its conversation gate refuses a
+-- conversation with anyone else's line (server/host/cloud-lending-turns.ts, server/cloud-lending.ts).
+SELECT role, sender_id, wake_by,
+       CAST(EXISTS (SELECT 1 FROM chat_messages h WHERE h.chat_id = @chat_id AND h.wake_by = 'bot_for_owner')
+            AND NOT EXISTS (SELECT 1 FROM chat_messages o WHERE o.chat_id = @chat_id
+                              AND (o.sender_id IS NOT NULL OR o.wake_by = 'bot'))
+            AND NOT EXISTS (SELECT 1 FROM routine_runs r WHERE r.chat_id = @chat_id) AS INTEGER) AS for_owner
+FROM chat_messages
 WHERE chat_id = @chat_id AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1) AND kind <> 'continued'
 ORDER BY seq DESC
 LIMIT 1;

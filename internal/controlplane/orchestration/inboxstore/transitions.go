@@ -1139,7 +1139,7 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 		}
 
 		// An item given to a Bot wakes it (issue #1111).
-		if err := s.givenTx(ctx, q, now, c.Actor, t.ID, before, t.Assignee); err != nil {
+		if err := s.givenTx(ctx, q, now, c.Actor, c.Chat, t.ID, before, t.Assignee); err != nil {
 			return err
 		}
 

@@ -1,7 +1,11 @@
 package orchestration
 
 import (
+	"io/fs"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -73,6 +77,14 @@ func TestAHandOffFromTheOwnersLineIsHisTurnInTheItemsChat(t *testing.T) {
 	other, err := w.s.CreateChat(ctx, w.beyond.ID, "")
 	require.NoError(t, err)
 	assert.False(t, w.ownerTurn(other.ID), "another chat of the same Bot is not")
+
+	// Kept in the database, with no timer: a control plane started again on it, a month later, reads it the same.
+	restarted := New(w.db, &fakeClock{now: t0.Add(30 * 24 * time.Hour)}, func(prefix string) string {
+		return prefix + "_new"
+	})
+	mine, err := restarted.OwnerTurn(ctx, got.Chat)
+	require.NoError(t, err)
+	assert.True(t, mine, "after a restart")
 
 	// The owner's message in the main Bot's own chat is his line too.
 	w2 := newPassWorld(t)
@@ -186,4 +198,62 @@ func TestPassingOnAgainCarriesTheMarkOnlyFromAMarkedTurn(t *testing.T) {
 
 	again := w2.passFrom(DefaultBotID, back.Chat, cur, w2.beyond.ID)
 	assert.False(t, w2.ownerTurn(again.Chat), "the main Bot's turn holds no mark")
+}
+
+// wakeByVersions are the versions of the migration before issue #1229's and of its own, found by its name: it is
+// named by its time until it is numbered right before its merge.
+func wakeByVersions(t *testing.T) (before, own int64) {
+	t.Helper()
+
+	entries, err := fs.ReadDir(migrations, "migrations")
+	require.NoError(t, err)
+
+	for _, e := range entries {
+		version, err := strconv.ParseInt(strings.SplitN(e.Name(), "_", 2)[0], 10, 64)
+		require.NoError(t, err)
+
+		if strings.HasSuffix(e.Name(), "_chat_message_wake_by.sql") {
+			return before, version
+		}
+
+		before = version
+	}
+
+	require.FailNow(t, "no chat_message_wake_by migration")
+
+	return 0, 0
+}
+
+// Scenario: issue #1229. A Bot's wake-up for an item it was passed before the mark existed carries none: its chat is
+// no turn of the owner's after the migration, which takes only the three senders, and goes back down.
+func TestMigrationMarksNoChatOfBefore(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	before, own := wakeByVersions(t)
+	db, p := databaseAt(t, before)
+
+	for _, stmt := range []string{
+		`INSERT INTO chats (id, title, bot_id, created_at, updated_at) VALUES ('cht_item', 'Inbox: Kai', '` +
+			DefaultBotID + `', 1, 1)`,
+		`INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+		 VALUES ('cht_item', 'system', 'wake', 'Hypo passed you Inbox item tdo_a', 1, 2)`,
+	} {
+		_, err := db.ExecContext(ctx, stmt)
+		require.NoError(t, err, stmt)
+	}
+
+	_, err := p.UpTo(ctx, own)
+	require.NoError(t, err)
+
+	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_new" })
+	mine, err := s.OwnerTurn(ctx, "cht_item")
+	require.NoError(t, err)
+	assert.False(t, mine)
+
+	_, err = db.ExecContext(ctx, `UPDATE chat_messages SET wake_by = 'someone' WHERE chat_id = 'cht_item'`)
+	require.Error(t, err, "only the owner, a Bot on his line or a Bot")
+
+	_, err = p.DownTo(ctx, before)
+	require.NoError(t, err)
 }

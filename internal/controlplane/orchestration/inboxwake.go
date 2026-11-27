@@ -44,12 +44,53 @@ func (k inboxWaker) WakeTx(ctx context.Context, q *store.Queries, now int64, w i
 		return "", err
 	}
 
-	wake := store.InsertTodoWakeParams{ChatID: chat, Text: text, Now: now, Recall: inboxRecall(w)}
+	by, err := wakeBy(ctx, q, w)
+	if err != nil {
+		return "", err
+	}
+
+	wake := store.InsertTodoWakeParams{ChatID: chat, Text: text, Now: now, Recall: inboxRecall(w), WakeBy: by}
 	if err := q.InsertTodoWake(ctx, wake); err != nil {
 		return "", fmt.Errorf("waking the Bot of to-do %s: %w", w.Todo.ID, err)
 	}
 
 	return chat, nil
+}
+
+// Who a wake-up of an Inbox item comes from (chat_messages.wake_by, issue #1229).
+const (
+	// wakeByOwner: the owner handed the item over, gave it or commented on it.
+	wakeByOwner = "owner"
+	// wakeByBotForOwner: a Bot passed it from a turn on the owner's line, the mark that makes the chat it wakes his
+	// turn for his own accounts.
+	wakeByBotForOwner = "bot_for_owner"
+	// wakeByBot: a Bot, or the system, passed it otherwise; it clears the chat's mark for good.
+	wakeByBot = "bot"
+)
+
+// wakeBy is who the wake-up comes from: a Bot's hand-off carries the owner's mark only when its own turn answers his
+// line (whoseTurn), in its chat with him and not in a Routine's run, which has none (Wake.From), as OpenMausBot hands
+// on lending only from a turn that answers the owner's own line or holds it already (handsOnLending in
+// server/host/cloud-lending-turns.ts: "never further than this turn itself can") and OpenClaw's child gets
+// spawnedBySenderIsOwner only from an owner's invocation. The Bot cannot set it: the chat comes from its session.
+func wakeBy(ctx context.Context, q *store.Queries, w inboxstore.Wake) (sql.NullString, error) {
+	by := wakeByBot
+
+	switch {
+	case w.By.Kind == inboxstore.Owner:
+		by = wakeByOwner
+	case w.By.Kind == inboxstore.Bot && w.From != "":
+		t, err := whoseTurn(ctx, q, w.From)
+		if err != nil {
+			return sql.NullString{}, err
+		}
+
+		if t.ownerLine {
+			by = wakeByBotForOwner
+		}
+	}
+
+	return sql.NullString{String: by, Valid: true}, nil
 }
 
 // inboxRecall is the owner's words a wake-up carries, which the turn it starts is recalled by (issue #805): his

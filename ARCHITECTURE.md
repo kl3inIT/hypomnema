@@ -2782,7 +2782,8 @@ flowchart LR
         [issue #618](https://github.com/kl3inIT/hypomnema/issues/618): until 2026-11-16 only the main Bot's),
         as a personal OpenMausBot installation gives every bot the person's connected apps
         (`docs/composio.md`). A worker given it, a coordinator token and a Routine's script never get it, and a
-        Routine's run is no turn of his (`OwnerTurn`); OpenMausBot's `server/cloud-team.ts`, cited here until
+        Routine's run is no turn of his (`OwnerTurn`); a Bot an Inbox item was passed to on his line may use it in
+        that item's chat (the owner's mark, issue #1229); OpenMausBot's `server/cloud-team.ts`, cited here until
         2026-11-19, keeps personal connections out of a team shared with other people and is not the source
         ([research](docs/research/2026-11-19-scheduled-runs-and-owner-accounts.md)). The
         agent API applies it in its list of accounts and so in the service proxy's check of every request.
@@ -3309,6 +3310,8 @@ flowchart LR
       as a turn (a person's message, a wake-up, an answered Approval for the coordinator), delivered or not, is
       the owner's own: another person's message, a Run's event, a Routine's run and an Approval answered after
       its request each end it (OpenMausBot `outside-lineage.ts`, OpenClaw "a wake is never an owner turn").
+      An Inbox item's chat that holds **the owner's mark** is his turn too while its last input is the hand-off
+      that marked it or his own hand-over or comment there (issue #1229; the Inbox's passing from Bot to Bot, below).
     - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
       roster of the Lark groups its bot is in (`channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
       is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
@@ -5074,6 +5077,18 @@ its client API, its CLI and the Bots' tools.
   needs that Bot's accounts or context, else to do it itself or start a Run. A project Bot is told to give it back
   to the owner (`hand_back`) or to the main Bot (`pass_to`), and to no other Bot. Each Bot an item is passed to is
   woken in its own chat for the item; the item keeps one `chat_id`, that of the Bot it is given to now.
+- The owner's mark (issue #1229, after OpenMausBot's `handsOnLending` and `handedInUnproven`,
+  `server/host/cloud-lending-turns.ts`, and OpenClaw's `spawnedBySenderIsOwner`,
+  `src/agents/subagents/spawn/spawn-parent-lineage.ts`): each wake-up of an item records who it comes from,
+  `chat_messages.wake_by` (`owner` for his hand-over, his giving or his comment; `bot_for_owner` for a Bot's hand-off
+  on his line; `bot` for any other). A Bot's `pass_to`, or its `inbox_add` for another Bot, is on his line when the
+  chat the Bot acts in (`Change.Chat`, `NewTodo.Chat`, from its token; none in a Routine's run) has as its last turn
+  input his own message, his hand-over or comment, or a marked chat's hand-off (`orchestration.whoseTurn`). The
+  chat it wakes then holds the mark (`LastTurnInput`'s `for_owner`) while no one else's input ever came there (a
+  Channel person's message, a `bot` hand-off, a Routine's run): `OwnerTurn` there is true for the marked hand-off
+  and his own wake-ups, so the Bot uses his own accounts (user Connections) in that chat only, as it may by its
+  Connections list (`Bot.MayUse`). A Run's events there are no turn of his and leave the mark. It has no timer
+  and is kept in the database. Sends still go through his Approval, and the Bot still drafts its replies.
 - Reads: `Get` with its latest 500 events, read in one transaction with the item, as every mutation returns the
   item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then

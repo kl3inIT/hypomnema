@@ -789,6 +789,8 @@ func (s *Server) inboxAdd(ctx context.Context, a agent, c inboxCaller, in inboxA
 		n.State = inboxstore.Proposed
 	}
 
+	n.Chat = c.chat()
+
 	t, err := s.store.Inbox().Create(ctx, c.actor, n)
 	if err != nil {
 		return nil, err

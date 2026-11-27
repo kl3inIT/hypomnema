@@ -238,16 +238,12 @@ func chatTurnOf(ctx context.Context, q *store.Queries, chatID string) (turn stri
 		turn = fmt.Sprintf("%s@%d", chat.TurnToken.String, chat.TurnStartedAt.Int64)
 	}
 
-	last, err := q.LastTurnInput(ctx, chatID)
-
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		return turn, false, nil
-	case err != nil:
-		return "", false, fmt.Errorf("reading whose turn chat %s is: %w", chatID, err)
+	t, err := whoseTurn(ctx, q, chatID)
+	if err != nil {
+		return "", false, err
 	}
 
-	return turn, ChatRole(last.Role) == ChatOwner && !last.SenderID.Valid, nil
+	return turn, t.owner, nil
 }
 
 // GetConnectionRequest returns one Connection request.
