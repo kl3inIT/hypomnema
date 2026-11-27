@@ -10,9 +10,10 @@ triage). Nothing here is built into the server; the server code it relies on is 
 | File | What it is |
 |---|---|
 | `setup.sh` | Makes or updates the two Routines of a Bot (the main Bot by default) with `hypomnema` commands, as the owner. It makes no Bot. |
-| `triage.md` | The prompt of the `triage` Routine, every 15 minutes, read only: triage per conversation, drafts, meetings, accounts to log in again, a priority and a project on its items that have none, notes that say the need and the plan with every later update a comment (issue #1186), and what it learns of the owner. |
-| `triage.test.mjs`, `triage-world.mjs`, `triage-run.mjs` | A run of `triage.md` with a real Claude Code against the Bot's tools as an MCP server: a new message on a known item is a comment, not a line of its notes (issue #1186). Only with `HYPOMNEMA_TEST_CLAUDE=claude node --test deploy/thu-ky/triage.test.mjs`; CI skips it. |
-| `triage-cases.json`, `triage.eval.mjs` | The cases of the owner's short replies to asks ("dạ oki chị" to a request for work, "ok" to information, a sticker, a question back; issue #1182), each a thread and what the triage must add, close or leave, run with `triage.md` and a real model. Only with `THU_KY_EVAL=1 node --test deploy/thu-ky/triage.eval.mjs` on a node with the gateway; CI never runs it. Run it after a change to `triage.md`. |
+| `triage.md` | The prompt of the `triage` Routine, every 15 minutes, read only: one item per ask from the ask to the work to done (issue #1206), triage per conversation, drafts, meetings, accounts to log in again, a priority and a project on its items that have none, notes that say the need and the plan with every later update a comment (issue #1186), and what it learns of the owner. |
+| `triage.test.mjs`, `triage-world.mjs`, `triage-run.mjs`, `triage-fake.mjs` | A run of `triage.md` with a real Claude Code against the Bot's tools as an MCP server: a new message on a known item is a comment, not a line of its notes (issue #1186). Only with `HYPOMNEMA_TEST_CLAUDE=claude node --test deploy/thu-ky/triage.test.mjs`; CI skips it. `triage-fake.mjs` is the owner's world the tools answer (below). |
+| `triage-tools.json` | The tools a read run of the triage lists and the Bot's Tools block, as the server gives them; the runs give them to the model. A Go test writes it: `go test ./internal/controlplane/agentapi -run TestTheTriageEvalHasTheBotsTools -update`, and fails while it is not what the server gives. |
+| `triage-cases.json`, `triage.eval.mjs` | The replay cases (issues #1182, #1206), made up, each a world and what the triage must leave, run with `triage.md` and a real model. Only with `THU_KY_EVAL=1 node --test deploy/thu-ky/triage.eval.mjs` on a node with the gateway; CI never runs it. Run it after a change to `triage.md`. `triage-fake.test.mjs` checks the cases and the fake without a model, in CI. |
 | `new-messages.mjs` | The check of `triage`: counts the new messages, others' and the owner's own apart, and wakes the Bot only when some are left. |
 | `brief.md` | The prompt of the `brief` Routine, at 08:00 and 17:00, told on Lark: what waits on him, and what a Bot closed without him since the previous brief (issue #1204). |
 
@@ -56,6 +57,31 @@ Lark lists only a thread's first message among its group's messages; the replies
 check reads the threads with replies since the last check, found by the threads of the new messages and by Lark's
 message search (the messages of the window, and those that tag the owner), and names each one apart: `chat "X"
 thread omt_… (id oc_…)`. A search Lark refuses is named as a line the check could not read; the rest is still read.
+
+## The replay cases (issue #1206)
+
+Every change to `triage.md` runs the replay cases first, and ships only when all pass. A case is one world and what
+the triage must leave in it:
+
+- the world: `chat` and its `messages` (Zalo or WhatsApp, as the server keeps them), or `chats` with each message's
+  `Chat`; `lark` (`chats`, `messages` of each chat, `threads` each `{ chat, list }`, `users`, as Lark's API gives
+  them); `meetings` (as `meeting_get` gives one); `items`, the Inbox before the run, with their history (the owner's
+  comment is an event `commented` by `owner`); `since`, when the check last read.
+- `expect`: `adds`, how many items it adds (a number or `[min, max]`); `some` and `none`, items it adds or must not
+  (by `why_open`, `state`, `due`, `text`, a regular expression); `done`, items it closes (`done_by` `me`, `person`
+  or `bot`, and the `evidence`); `dropped`; `open`, items left open; `final`, an item as it ends (`why_open`, `state`,
+  `due`, `due_text`); `count`, how many open items end so; `comments`, an item it comments on; `unmoved`, items not
+  moved to someone.
+
+The world keeps the server's rules a case depends on, with its words: a Bot never closes as its own an ask to the
+owner from his chats (his answer or his comment on the item closes it, for him); only an ask it added becomes his
+promise. The repository is public, so its cases are made up. The real ones, from the owner's chats, are kept in the
+main Bot's folder on zm, `thu-ky/triage-cases.real.json`, in the same form (owner, 2026-11-27), and run there:
+`THU_KY_EVAL=1 THU_KY_CASES=<that file> node --test deploy/thu-ky/triage.eval.mjs`. `THU_KY_PROMPT=<file>` runs
+another prompt, such as main's `triage.md` for a baseline; `HYPOMNEMA_TEST_CLAUDE_MODEL` the main Bot's model when the
+gateway's key allows it.
+
+The live prompt changes only when the owner runs `setup.sh` again after a release.
 
 ## The owner's context (issue #1119)
 

@@ -4929,7 +4929,8 @@ its client API, its CLI and the Bots' tools.
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
   `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
   `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`, as a
-  `lark_message`, `zalo_message` or `whatsapp_message` given as a person's message does (issue #1204);
+  `lark_message`, `zalo_message` or `whatsapp_message` given as a person's message does (issue #1204), and
+  `comment`, the owner's comment on the item itself by the revision it made (issue #1206);
   `closed_at`); `duplicate_of`; `chat_id`, the item's own chat with the Bot it was given to (migration 00165, issue
   #1111; cleared in `deleteChatTx` when that chat is deleted); `passed_by`, the Bot that gave the item to the Bot it
   is given to (issue #1118), set again with every change of the assignee: the acting Bot when a Bot gives it to
@@ -4958,15 +4959,24 @@ its client API, its CLI and the Bots' tools.
   (`asked_directly`: someone tagged or messaged the owner and he has not answered; `promised`: the owner promised
   it; `waiting`, from one of `FoundKinds` only, with `NewTodo.WaitingOn`, see Waiting on others below), a quote and
   a reference to the message, and `why_open` is kept in the item and its created event; only the owner accepts a
-  proposal (`Accept`), and a Bot opens one only by `WaitOn`;
+  proposal (`Accept`), and a Bot opens one only by `WaitOn`; one ask is one item from the ask to the work to done
+  (issue #1206): an `Edit` with `WhyOpen` makes an `asked_directly` item still given to the owner his promise
+  (`promised`, and nothing else; a Bot only on an item it added), an `edited` event, as inbox-zero sets a thread's
+  status again on each message (`outbound.ts:123-139`);
   the Bot assigned starts an open item, and only an open one, in a chat or Run, in a new attempt with its own id,
   as Hermes binds a worker's session to its task, run and claim (`gateway/session_kanban.py`), so several items
   may be worked on in one chat or Run (`Start`); the system puts a doing item in review with one pending Approval
   its current attempt asked, whatever chat or Run it came from (`LinkApproval`) and back
   to doing once it is approved, or open once it is rejected or expired, the only ways out of review; the Bot of the
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
+  Bot closes as its own (`done_by` itself) only work it did (issue #1206; owner, 2026-11-27, `botsWork`): never an
+  `asked_directly` item from his Lark, Zalo, WhatsApp or Gmail, which only his answer or a person's closes, and only
+  with evidence of its work, a `run`, `pull_request`, `url`, `mail`, a `*_message` it sent (no account and chat) or
+  a `chat_message` that is not the owner's; his comment, a message he sent, his message in a chat, a person's
+  message or a meeting's line alone is refused, as GitHub records the person who merged and the pull request; the
   owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message
-  as evidence (a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source
+  as evidence (his `comment` on the item, an event `commented` of his at that revision, which the wake-up of his
+  comment names; a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source
   chat, its attempt chat, or the chat the Bot acts in, which the caller takes from the Bot's session; or, to close
   it done, a `zalo_sent`, `whatsapp_sent` or `lark_sent` in the item's own source chat and account (an item without
   its account, which `lark` allows, is never closed so), which the store
@@ -5136,7 +5146,8 @@ its client API, its CLI and the Bots' tools.
   given to that person unless it names whom; issue #1142), `inbox_update` (fields, `draft`, `hand_back`, `source`,
   and `pass_to` a Bot's id, issue #1118; not with `hand_back`; or `waiting_on` `{name, quote, message, due_date or
   due_at, timezone}` with only `id` and `revision` beside it, which calls `WaitOn` with the due given, else
-  `inboxDefaultChase`), `inbox_start`,
+  `inboxDefaultChase`; `why_open` `promised`, issue #1206; `due_date` `none` clears the due, as the CLI's `--due
+  none`), `inbox_start`,
   `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, `inbox_comment` (a comment in the
   item's thread, issue #1111, with `files` and `artifacts`, issue #1207), for a Bot's pi only. Who acts and
   where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
@@ -5171,8 +5182,10 @@ its client API, its CLI and the Bots' tools.
   cannot send one as him (owner, 2026-11-17 and 2026-11-21 on #838). A Bot in a chat with the owner, or in a
   Routine's run with full access, with WhatsApp or Zalo on, still sends: on his turn, or with his Approval of that
   message. The family's line of
-  the "Tools" block carries the Bots' rules (two items per ask, draft and hand back, never send to a client or a
-  boss, close with evidence, the owner's item only with his message). An Approval names the item a Bot works on:
+  the "Tools" block carries the Bots' rules (one item per ask, made his promise when he takes it, draft and hand
+  back, never send to a client or a boss, close as its own only its work, an ask to him only with his message); the
+  block names the Inbox and the meetings for every Bot (`standingTools`, issue #1206). `inbox_get`'s history gives
+  each event's `revision`, by which the owner's comment is evidence. An Approval names the item a Bot works on:
   `whatsapp_send` and `zalo_send` take `todo`, and a command run with `HYPOMNEMA_TODO=<id>` sends it on its
   tunnel's opening (`agenttool.HeaderTodo`); the agent API or the proxy turn it into the item's current attempt
   (`orchestration.InboxAttempt`, refused unless the Bot is doing the item in that chat or run), which
@@ -5211,7 +5224,11 @@ its client API, its CLI and the Bots' tools.
   stopped in (Lark, whose cap is checked at each page); issue #1071. The check counts the owner's own new messages
   (Zalo, WhatsApp, Lark, his sent Gmail) apart from others' and wakes the Bot on them too, so that his short yes to a
   request for work is read; `triage.md` reads a reply against the ask it answers, an accepted or promised job being
-  an open `promised` item (issue #1182). A run gets at most 15 conversations (`perRun`), direct chats and those that
+  an open `promised` item (issue #1182). It keeps one item per ask, from the ask to the work to done (issue #1206,
+  the owner's choice of 2026-11-27): each ask has a status again at each message (To answer, To deliver, Waiting,
+  Asked the group, Nothing owed, Done), and the ask he accepts becomes his promise on the same item
+  (`inbox_update` `why_open` `promised`), as inbox-zero keeps one status per thread; `brief.md`'s replies owed today
+  are the `asked_directly` items due today. A run gets at most 15 conversations (`perRun`), direct chats and those that
   tag or name the owner first, then groups, chats with only his own new messages, mail and meetings; the rest is
   carried in the check's state, named first next time and waking the Bot even with nothing new (issue #1101). A conversation of
   Zalo or WhatsApp is named `<integration>:<label>`, the label the reads' answers give when the Bot has one account
@@ -5226,7 +5243,11 @@ its client API, its CLI and the Bots' tools.
   posted on the item with `inbox_comment`'s `files` and `artifacts` (issue #1207). `deploy/thu-ky/triage.test.mjs` runs the prompt with
   a real Claude Code against `triage-world.mjs`, the Bot's tools as an MCP server, only when
   `HYPOMNEMA_TEST_CLAUDE` names it; `triage.eval.mjs` runs the cases of `triage-cases.json` so, only with
-  `THU_KY_EVAL=1` (issue #1182). The Routine's
+  `THU_KY_EVAL=1` (issue #1182). The MCP server serves the server's own tools and the Bot's Tools block from
+  `triage-tools.json`, which `agentapi`'s `TestTheTriageEvalHasTheBotsTools` writes with `-update` and checks, over
+  `triage-fake.mjs`, a world of Zalo, WhatsApp, Lark (`account_read`), meetings and an Inbox the calls change, with
+  the store's rules of who closes what; a case checks the Inbox the run left (issue #1206). The repository's cases
+  are made up; the real ones stay in the main Bot's folder on zm (`thu-ky/triage-cases.real.json`, `THU_KY_CASES`). The Routine's
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
