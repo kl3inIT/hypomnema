@@ -101,7 +101,7 @@ export class AttachmentDraft {
   private given = new Set<string>()
   private there: Promise<Set<string>> | null = null
 
-  private readonly chat: string
+  private chat: string
   private folder: Folder
 
   constructor(chat: string, folder: Folder) {
@@ -218,13 +218,14 @@ export class AttachmentDraft {
     // A file brought back with a draft cannot go up again: its bytes are not here (t3code's
     // composerFileNeedsReattach).
     if (!file) throw { message: `${item.name} is in the other Bot's folder. Attach it again.` }
+    const chat = this.chat
     const there = await this.names()
 
     for (let attempt = 1; ; attempt++) {
       signal.throwIfAborted()
       const name = numberedName(item.name, new Set([...there, ...this.given]))
       this.given.add(name)
-      const path = `${attachmentsDir(this.chat)}/${name}`
+      const path = `${attachmentsDir(chat)}/${name}`
       this.update(item.id, { path, sent: 0 })
 
       try {
@@ -257,12 +258,13 @@ export class AttachmentDraft {
     this.set(this.items.filter((each) => each.id !== id))
   }
 
-  // moveTo sends the files to another Bot's folder, the owner having picked another Bot before the chat is made
-  // (issue #357): an upload in flight is stopped, each file goes up again under the chat's id, and a copy that was
-  // up in the old folder is deleted once the new one is up.
-  moveTo(folder: Folder) {
+  // moveTo uploads the draft again when the New chat page picks another Bot
+  // (#357) or the Inbox switches chats (#1245). An old copy is removed once
+  // its replacement is up.
+  moveTo(folder: Folder, chat = this.chat) {
     const old = this.folder
     this.folder = folder
+    this.chat = chat
     this.there = null
     this.given = new Set()
 
@@ -355,6 +357,7 @@ export function useAttachments(
   chat: string,
   bot?: string,
   restored?: { files: readonly ChatAttachment[]; bot?: string },
+  movePaused = false,
 ) {
   const [draft] = useState(() => {
     const made = new AttachmentDraft(chat, botFolderOf(chat, restored?.bot ?? bot))
@@ -362,12 +365,12 @@ export function useAttachments(
 
     return made
   })
-  const placed = useRef(restored?.bot ?? bot)
+  const placed = useRef({ chat, bot: restored?.bot ?? bot })
   useEffect(() => {
-    if (placed.current === bot) return
-    placed.current = bot
-    draft.moveTo(botFolderOf(chat, bot))
-  }, [bot, chat, draft])
+    if (movePaused || (placed.current.chat === chat && placed.current.bot === bot)) return
+    placed.current = { chat, bot }
+    draft.moveTo(botFolderOf(chat, bot), chat)
+  }, [bot, chat, draft, movePaused])
   const items = useSyncExternalStore(draft.subscribe, draft.snapshot)
   const [problem, setProblem] = useState<string | null>(null)
 

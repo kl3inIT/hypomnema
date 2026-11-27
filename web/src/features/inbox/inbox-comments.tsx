@@ -450,53 +450,40 @@ export function CommentComposer({
       ? todo.chat_id
       : undefined
     : todo.chat_id
-  return (
-    <InboxComposer
-      key={`${todo.chat_id ?? ""}/${existing ?? ""}/${write.bot}`}
-      todo={todo}
-      write={write}
-      botName={write.bot ? botName(write.bot) : "Hypo"}
-      existing={existing}
-      checking={checkChat && previous.isPending}
-      canAttach={!!(existing || write.bot) && (!checkChat || previous.isSuccess)}
-    />
-  )
-}
-
-function InboxComposer({
-  todo,
-  write,
-  botName,
-  existing,
-  checking,
-  canAttach,
-}: {
-  todo: Todo
-  write: ReturnType<typeof writeOf>
-  botName: string
-  existing?: string
-  checking: boolean
-  canAttach: boolean
-}) {
   const send = useWriteTodo()
-  const [draftChat] = useState(newChatId)
-  const chat = existing ?? draftChat
-  const uploadBot = existing ? undefined : write.bot || undefined
-  const attachments = useAttachments(chat, uploadBot)
-  const composer = (
-    <Composer
-      attachments={canAttach ? attachments : undefined}
-      botName={botName}
-      placeholder={write.placeholder}
-      submit={write.label}
-      working={false}
-      disabled={checking}
-      onStop={() => undefined}
-      onSend={(text, files) =>
-        send.mutateAsync({ todo, write, text, files, chatId: uploadBot ? chat : undefined })
-      }
-    />
-  )
+  const [sending, setSending] = useState(false)
+  const [reservation, setReservation] = useState(() => ({
+    previous: todo.chat_id,
+    id: newChatId(),
+  }))
+  if (reservation.previous !== todo.chat_id) {
+    setReservation({ previous: todo.chat_id, id: newChatId() })
+  }
 
-  return <AttachDrop attachments={canAttach ? attachments : undefined}>{composer}</AttachDrop>
+  const chat = existing ?? reservation.id
+  const bot = write.bot || undefined
+  const checking = checkChat && previous.isPending
+  const canAttach = !!(existing || bot) && (!checkChat || previous.isSuccess)
+  // A pass can arrive while Send is in flight. Its attachments still belong
+  // to the outgoing message until the server answers.
+  const attachments = useAttachments(chat, bot, undefined, sending || !canAttach)
+  const filesWaiting = !canAttach && attachments.items.length > 0
+
+  return (
+    <AttachDrop attachments={canAttach ? attachments : undefined}>
+      <Composer
+        attachments={canAttach || filesWaiting ? attachments : undefined}
+        botName={bot ? botName(bot) : "Hypo"}
+        placeholder={write.placeholder}
+        submit={write.label}
+        working={false}
+        disabled={checking || filesWaiting}
+        onStop={() => undefined}
+        onSendingChange={setSending}
+        onSend={(text, files) =>
+          send.mutateAsync({ todo, write, text, files, chatId: existing ? undefined : chat })
+        }
+      />
+    </AttachDrop>
+  )
 }

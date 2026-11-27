@@ -5042,8 +5042,8 @@ its client API, its CLI and the Bots' tools.
   `Hand` can open the item's chat with the id the composer chose before uploading (as in #357). The transaction
   validates each path against that chat's attachments directory and keeps the files on the wake's
   `chat_messages.attachments` and the comment's `after.attachments` and `after.chat`. The coordinator gives pi the
-  paths as it does for the owner's chat messages, and asks pi to view images with its `read` tool, which supplies
-  image content to vision models. Passing the item to another Bot leaves the old comment pointing at the chat
+  paths as it does for the owner's chat messages. Both use the same formatter, which asks pi to view images with
+  its `read` tool, supplying image content to vision models. Passing the item to another Bot leaves the old comment pointing at the chat
   that received it. New files go to the receiving Bot's chat folder.
 - Waiting on others (`inboxstore/waiting.go`; issue #1142, the owner's rules of 2026-11-25: an item is his when he
   is asked, tagged or written to or he promised; waiting on someone when he gave the work to a person, a person
@@ -6519,7 +6519,9 @@ Node (`internal/node`):
     (`writeOf`, `useWriteTodo`). The top bar has no "Hand to" of its own.
     The composer reuses the chat's `useAttachments`, `AttachDrop` and `AttachmentStrip` for picking, dropping and
     pasting files, previews and upload errors (issue #1245, after t3code's `useComposerAttachmentIntake.ts` and
-    `ComposerAttachmentStrip.tsx`). It waits for uploads before sending. The owner's comment shows the chat's
+    `ComposerAttachmentStrip.tsx`). When a Hand or pass changes the destination, the box keeps its text and uploads
+    the draft files to the new chat using the New chat page's upload move. Files that are being sent stay put until
+    the send settles. The composer waits for uploads before sending. The owner's comment shows the chat's
     image thumbnails with full-size previews and `ReplyFiles` chips under its text.
     An Approval shows its chat card (`ApprovalCard`) and a question its form (`QuestionForm`), the same calls as at
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens

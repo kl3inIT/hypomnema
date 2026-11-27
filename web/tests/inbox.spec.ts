@@ -1510,7 +1510,7 @@ test("a Hand in another tab and a pass keep the Inbox draft", async ({ page }) =
     ).toHaveAttribute("href", `/chats/${chat}`, { timeout: 15_000 })
     await expect(box).toHaveValue("Please check this rate.")
     await expect(chips.getByText("rate.txt")).toBeVisible()
-    await expect.poll(() => w.files.get(`attachments/${chat}/rate.txt`)?.bytes).toEqual(bytes)
+    await expect.poll(() => w.files.get(`attachments/${chat}/rate.txt`)).toEqual({ bot, bytes })
     await expect.poll(() => [...w.files.keys()]).toEqual([`attachments/${chat}/rate.txt`])
   }
 

@@ -456,16 +456,7 @@ func promptText(msgs []orchestration.ChatMessage) string {
 		case continued(m):
 			resumed = true
 		default:
-			text := ownerText(m)
-			for _, file := range m.Attachments {
-				if strings.HasPrefix(file.Type, "image/") {
-					// Pi's read tool gives the vision model image content (pi core/tools/read.ts).
-					text += "\nUse the read tool to view the attached images."
-					break
-				}
-			}
-
-			wakes = append(wakes, "- "+text)
+			wakes = append(wakes, "- "+ownerText(m))
 		}
 	}
 
@@ -511,6 +502,7 @@ func ownerText(m orchestration.ChatMessage) string {
 
 	b.WriteString("The owner attached these files, in your working directory:")
 
+	hasImage := false
 	for _, a := range m.Attachments {
 		kind := a.Type
 		if kind == "" {
@@ -518,6 +510,12 @@ func ownerText(m orchestration.ChatMessage) string {
 		}
 
 		fmt.Fprintf(&b, "\n- %s (%s, %d bytes)", a.Path, kind, a.Size)
+		hasImage = hasImage || strings.HasPrefix(a.Type, "image/")
+	}
+
+	if hasImage {
+		// Pi's read tool gives the vision model image content (pi core/tools/read.ts).
+		b.WriteString("\nUse the read tool to view the attached images.")
 	}
 
 	return b.String()
