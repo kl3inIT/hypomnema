@@ -102,20 +102,28 @@ func keyContext(ctx context.Context, k Key) context.Context {
 		return ctx
 	}
 
-	ids := make([]string, 0, len(k.Accounts))
-	for _, a := range k.Accounts {
-		ids = append(ids, a.ID)
-	}
-
-	return context.WithValue(ctx, keyAccountsKey{}, ids)
+	return context.WithValue(ctx, keyAccountsKey{}, slices.Clone(k.Accounts))
 }
 
 // KeyAccounts are the only accounts the request of ctx may be served under (issue #1277); ok is false when it may
 // be served under every account. The control plane's wiring passes them to the accounts' service.
 func KeyAccounts(ctx context.Context) ([]string, bool) {
-	ids, ok := ctx.Value(keyAccountsKey{}).([]string)
+	accounts, ok := ctx.Value(keyAccountsKey{}).([]KeyAccount)
 
-	return slices.Clone(ids), ok
+	ids := make([]string, 0, len(accounts))
+	for _, a := range accounts {
+		ids = append(ids, a.ID)
+	}
+
+	return ids, ok
+}
+
+// usesRuntime reports whether the request of ctx may be served under an account of a runtime: every request may,
+// unless its key is limited to accounts none of which is of it.
+func usesRuntime(ctx context.Context, runtime string) bool {
+	accounts, ok := ctx.Value(keyAccountsKey{}).([]KeyAccount)
+
+	return !ok || slices.ContainsFunc(accounts, func(a KeyAccount) bool { return a.Runtime == runtime })
 }
 
 // searchScope is the web search chain as a key sets it: its own order, and its accounts for the subscriptions.

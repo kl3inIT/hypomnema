@@ -212,7 +212,7 @@ type Service struct {
 	signInMu sync.Mutex
 	// after is time.After outside tests: the pause between two refreshes.
 	after func(time.Duration) <-chan time.Time
-	// rr is the round-robin cursor per runtime, for a request with no session;
+	// rr is the round-robin cursor per runtime (and per key's accounts, cursorOf), for a request with no session;
 	// rrMu guards it.
 	rr   map[string]int
 	rrMu sync.Mutex
@@ -597,6 +597,17 @@ func WithAccounts(ctx context.Context, ids []string) context.Context {
 	return context.WithValue(ctx, accountsKey{}, slices.Clone(ids))
 }
 
+// cursorOf names the round-robin cursor of the request of ctx: the runtime's, or, for a request limited to some
+// accounts (WithAccounts), one of its own for those accounts, so that its turns neither move nor reset the others'.
+func cursorOf(ctx context.Context, runtime string) string {
+	ids, ok := ctx.Value(accountsKey{}).([]string)
+	if !ok {
+		return runtime
+	}
+
+	return runtime + "\x00" + strings.Join(slices.Sorted(slices.Values(ids)), ",")
+}
+
 // chosen are the accounts the request of ctx may take (WithAccounts): all of them when it names none.
 func chosen(ctx context.Context, accounts []Account) []Account {
 	ids, ok := ctx.Value(accountsKey{}).([]string)
@@ -620,7 +631,7 @@ func (s *Service) tokenAmong(
 	// The accounts in a stable order, so the home a session hashes to does not move between its requests.
 	slices.SortFunc(ofRuntime, func(a, b Account) int { return strings.Compare(a.ID, b.ID) })
 
-	start := s.startIndex(runtime, session, len(ofRuntime), len(skip) == 0)
+	start := s.startIndex(cursorOf(ctx, runtime), session, len(ofRuntime), len(skip) == 0)
 	now := s.clock.Now()
 
 	ordered := make([]Account, 0, len(ofRuntime))
@@ -877,7 +888,7 @@ func cmpBool(a, b bool) int {
 // once per request (when nothing has been skipped yet) so a retry does not
 // rotate again; a retry then scans from the front, since skip already holds
 // what it tried.
-func (s *Service) startIndex(runtime, session string, n int, fresh bool) int {
+func (s *Service) startIndex(cursor, session string, n int, fresh bool) int {
 	if session != "" {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(session))
@@ -892,8 +903,8 @@ func (s *Service) startIndex(runtime, session string, n int, fresh bool) int {
 	s.rrMu.Lock()
 	defer s.rrMu.Unlock()
 
-	start := s.rr[runtime] % n
-	s.rr[runtime] = (start + 1) % n
+	start := s.rr[cursor] % n
+	s.rr[cursor] = (start + 1) % n
 
 	return start
 }

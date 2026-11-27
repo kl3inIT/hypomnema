@@ -1113,6 +1113,8 @@ func (s *Service) Authenticate(ctx context.Context, secret string) (Key, error) 
 // ModelsFor returns the models a key may use, by name: what GET /v1/models
 // answers.
 func (s *Service) ModelsFor(ctx context.Context, k Key) ([]Model, error) {
+	ctx = keyContext(ctx, k)
+
 	all, err := s.ListModels(ctx)
 	if err != nil {
 		return nil, err

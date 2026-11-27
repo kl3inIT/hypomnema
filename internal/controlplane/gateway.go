@@ -222,7 +222,7 @@ func gatewayServedLimits(
 			profilestore.ProviderOpenCodeZen:
 			runtime, _ := subscription.ProviderRuntime(kind)
 
-			return subs.ServedLimits(listDeadline(ctx), runtime, upstream)
+			return subs.ServedLimits(keyAccounts(listDeadline(ctx)), runtime, upstream)
 		default:
 			return 0, 0, false
 		}
@@ -239,7 +239,7 @@ func gatewayServedWire(subs servedWires) func(ctx context.Context, kind, upstrea
 
 		runtime, _ := subscription.ProviderRuntime(kind)
 
-		return subs.ServedWire(listDeadline(ctx), runtime, upstream)
+		return subs.ServedWire(keyAccounts(listDeadline(ctx)), runtime, upstream)
 	}
 }
 
