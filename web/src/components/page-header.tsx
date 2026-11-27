@@ -35,16 +35,19 @@ export function PageHeader({
   title,
   back,
   children,
+  className,
 }: {
   title?: ReactNode
   back?: ReactNode
   children?: ReactNode
+  className?: string
 }) {
   return (
     <header
       className={cn(
         "flex min-h-(--workspace-topbar-height) shrink-0 flex-wrap items-center gap-x-2 gap-y-2 bg-background px-3 py-2 sm:px-5",
         !title && !children && "md:hidden",
+        className,
       )}
     >
       <MenuButton className="-ms-1.5" />

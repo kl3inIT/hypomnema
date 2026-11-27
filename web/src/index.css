@@ -253,6 +253,34 @@
   }
 }
 
+/* WebKit samples a fixed, opaque element at the top edge (coder/coder#31027). */
+.ios-top-edge-band {
+  display: none;
+}
+
+@media (display-mode: standalone) {
+  html {
+    background-color: var(--background);
+  }
+
+  @supports (-webkit-touch-callout: none) {
+    .ios-top-edge-band {
+      display: block;
+      position: fixed;
+      inset: 0 0 auto;
+      z-index: 2147483647;
+      height: 12px;
+      background-color: var(--background);
+      pointer-events: none;
+    }
+
+    /* The iPhone fade can extend below an opaque status bar, where the inset can be zero. */
+    .inbox-topbar {
+      padding-top: calc(env(safe-area-inset-top, 0px) + 30px);
+    }
+  }
+}
+
 /* The chat, after t3code (apps/web/src/index.css, MIT, Copyright (c) 2026 T3 Tools Inc.): one centred lane,
    quiet markdown, and a light that runs over the name of a tool while it works. streamdown marks its elements
    with data-streamdown; these rules are unlayered, so they win over its utility classes. */
