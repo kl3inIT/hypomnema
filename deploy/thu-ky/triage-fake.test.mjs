@@ -138,3 +138,11 @@ test("the fake puts an item from a known chat in its department, as the server d
   assert.equal(unknown.project, undefined);
   assert.match(w.call("inbox_add", { title: "d", project: "Nowhere" }).error, /^not found/);
 });
+
+// Review round 4 of PR #1243: an item listed before its chat was known takes its department when updated naming none.
+test("the fake puts an item updated without a department in its chat's", () => {
+  const w = fakeWorld({ departments: [{ name: "Atlas", chats: [{ kind: "zalo", account: "main", id: "g_data" }] }],
+    items: [{ id: "tdo_old", title: "a", state: "open", why_open: "asked_directly",
+      source: { kind: "zalo", id: "g_data", account: "main" } }] });
+  assert.equal(w.call("inbox_update", { id: "tdo_old", why_open: "promised" }).project, "Atlas");
+});

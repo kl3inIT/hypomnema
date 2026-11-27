@@ -584,7 +584,7 @@ func (s *Server) inboxCall(w http.ResponseWriter, r *http.Request, a agent, call
 	case agenttool.ToolInboxComment:
 		var t inboxstore.Todo
 		att := inboxstore.Attached{Files: in.Files, Artifacts: in.Artifacts, From: a.chatID}
-		if _, err = s.botMade(ctx, a.bot, in.Files); err != nil {
+		if att.Read, err = s.botRead(ctx, a.bot, in.Files); err != nil {
 			s.logger.WarnContext(ctx, "the files of an Inbox comment could not be read",
 				slog.String("event", "agentapi.inbox_files_unread"), slog.String("error", err.Error()))
 		}

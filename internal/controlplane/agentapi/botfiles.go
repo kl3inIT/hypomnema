@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
@@ -21,29 +22,35 @@ func (s *Server) WithBotFiles(f BotFiles) *Server {
 	return s
 }
 
-// botMade says whether every file a Bot's comment names is in its folder now, read with a raw read of at most one
-// byte: a file larger than that is there (CodeTooLarge), one missing is not (review round 3 of PR #1243). A folder
-// that cannot be read says nothing is.
-func (s *Server) botMade(ctx context.Context, bot string, files []string) (bool, error) {
-	if s.botFiles == nil || len(files) == 0 {
-		return false, nil
+// botRead are the files of a Bot's comment that are in its folder now, each at the path the comment keeps
+// (inboxstore.FolderPath), read with a raw read of at most one byte: a file larger than that is there (CodeTooLarge),
+// one missing is not (review rounds 3 and 4 of PR #1243). A folder that cannot be read gives none, and a path the
+// comment refuses is left to its refusal.
+func (s *Server) botRead(ctx context.Context, bot string, files []string) ([]string, error) {
+	if s.botFiles == nil {
+		return nil, nil
 	}
 
-	for _, f := range files {
+	var read []string
+
+	for _, raw := range files {
+		f, err := inboxstore.FolderPath(raw)
+		if err != nil {
+			continue
+		}
+
 		res, err := s.botFiles.Ask(ctx, bot, workspacefs.Request{Op: workspacefs.OpRead, Path: f, Raw: true, Limit: 1})
 		if err != nil {
-			return false, fmt.Errorf("reading %s in bot %s's folder: %w", f, bot, err)
+			return nil, fmt.Errorf("reading %s in bot %s's folder: %w", f, bot, err)
 		}
 
 		var e *workspacefs.Error
 
-		switch {
-		case res.Error == nil && res.File != nil:
-		case res.Error != nil && errors.As(error(res.Error), &e) && e.Code == workspacefs.CodeTooLarge:
-		default:
-			return false, nil
+		if res.Error == nil && res.File != nil ||
+			res.Error != nil && errors.As(error(res.Error), &e) && e.Code == workspacefs.CodeTooLarge {
+			read = append(read, f)
 		}
 	}
 
-	return true, nil
+	return read, nil
 }

@@ -191,6 +191,10 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
         const project = projectOf(args.project);
         if (project.error) return refuse(project.error);
         item.project = after.project = project.name || undefined;
+      } else if (!item.project) {
+        // An item without a department, updated naming none, takes its chat's (inboxstore edit).
+        const learned = chatDepartment(item.source ?? {});
+        if (learned) item.project = after.project = learned;
       }
       for (const k of ["title", "notes", "done_when", "draft", "priority", "priority_reason"]) {
         if (args[k] !== undefined) item[k] = after[k] = args[k];

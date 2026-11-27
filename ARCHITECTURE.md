@@ -5013,7 +5013,8 @@ its client API, its CLI and the Bots' tools.
   and a Bot set them as the item's other fields (a Bot on the items it added or was given), each change an `edited`
   event; an item without a project that is added for, given or passed to a Bot in a department takes that
   department in the same write (`botsDepartment`); an item read in one of the owner's chats (Lark, Zalo, WhatsApp,
-  Gmail) without a project takes, first, the department the owner last moved an item of that chat to
+  Gmail) without a project, added or updated by a Bot that names none, takes, first, the department the owner last
+  moved an item of that chat to
   (`todo_chat_departments`, by source kind, account label and chat id, migration `inbox_chat_departments`; the
   owner's `Edit` of an item's project records it, taking it out of any forgets it, a Bot's teaches nothing; issue
   #1206, as Linear's Asks map a Slack channel to a team); a create's idempotency key,
@@ -5047,7 +5048,8 @@ its client API, its CLI and the Bots' tools.
   attempt began (`CountAttemptRun`), a `pull_request` a non-review task of such a Run gave as its finish's evidence
   or was looked up for (`CountAttemptPullRequest`; a `reviewer` task names the pull request it reviewed, as
   `pullrequests.go` leaves it out), its own `comment` in this attempt carrying an Artifact or files the agent API
-  read in its folder (`Attached.Checked`, `files_checked`, through `agentapi.WithBotFiles`, the Files panel's
+  read in its folder at the path the comment keeps, every one of them (`Attached.Read`, `FolderPath`,
+  `files_checked`, through `agentapi.WithBotFiles`, the Files panel's
   reader), or a `*_message` naming the account and chat that its send recorded on the item in this attempt
   (`RecordSent`, an event `sent` the agent API's `zalo_send` and `whatsapp_send` write when they name the item; the
   store cannot tell the Bot's message from the owner's on his account); a close whose evidence holds a link, a mail,

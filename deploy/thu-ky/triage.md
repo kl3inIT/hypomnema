@@ -208,7 +208,7 @@ answers (1), then apply 2 to 4 and "Does it involve him?". For each conversation
    `inbox_list` gives in `projects`, which are the departments he groups his Bots in; owner, 2026-11-27):
    - the chat (a Lark group, a Zalo or WhatsApp group, a direct chat with a person) is in a department when the
      context's "Projects and teams" names it there; the server also puts an item from a chat in the department the
-     owner last moved one of its items to, by itself, when you name none;
+     owner last moved one of its items to, by itself, when you add or update an item without one and name none;
    - nothing known of the chat: leave `project` out. Never guess a department from the words of a message, and never
      put a personal item in one;
    - an item given or passed to a Bot in a department takes that department by itself. Only the owner makes

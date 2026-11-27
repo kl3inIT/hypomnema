@@ -729,8 +729,8 @@ func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, bot string,
 }
 
 // attemptsWork says whether an event of the item is the Bot's work in its current attempt that a Link names: its
-// comment at that revision, made since the attempt began, carrying a file the agent API read in its folder
-// (Attached.Checked) or an Artifact it showed; or the send it recorded of
+// comment at that revision, made since the attempt began, carrying an Artifact it showed or files, every one of which
+// the agent API read in its folder at the path kept (Attached.Read), and no file it did not; or the send it recorded of
 // that message in this attempt (RecordSent).
 func attemptsWork(e store.TodoEvent, cur store.Todo, bot string, l Link) bool {
 	if e.ActorKind != Bot || e.Actor != bot || e.At < cur.WorkStartedAt.Int64 {
@@ -753,7 +753,7 @@ func attemptsWork(e store.TodoEvent, cur store.Todo, bot string, l Link) bool {
 		revision, ok := number(l.Ref)
 
 		return ok && e.Kind == EventCommented && e.Revision == revision &&
-			(len(after.Files) > 0 && after.FilesChecked || len(after.Artifacts) > 0)
+			(len(after.Files) == 0 || after.FilesChecked) && (len(after.Files) > 0 || len(after.Artifacts) > 0)
 	}
 
 	return e.Kind == EventSent && after.Sent != nil && after.Attempt == cur.WorkAttempt.String &&
@@ -1456,6 +1456,19 @@ func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, du
 		}
 
 		next.WhyOpen = nullString(Promised)
+	}
+
+	// A Bot's update of an item without a department, naming none, puts it in its chat's (issue #1206, review round 4
+	// of PR #1243), as an item the Bot adds from that chat takes it.
+	if c.Actor.Kind == Bot && e.Project == nil && !next.ProjectID.Valid {
+		src := Source{Kind: next.SourceKind, ID: next.SourceID, Account: next.SourceAccount}
+
+		project, err := chatDepartment(ctx, q, src)
+		if err != nil {
+			return nil, err
+		}
+
+		next.ProjectID = project
 	}
 
 	if e.Assignee != nil {
