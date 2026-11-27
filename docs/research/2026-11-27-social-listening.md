@@ -221,7 +221,59 @@ UI: Settings ▸ Listening — one card per platform, its backends in order, sta
 | Saved topics (later) | A cursor per (topic, source), moved after the store writes. Items in Postgres, retention in days, a weekly Routine. | obsei, harken, openmagpie |
 | Left out | A multi-agent forum, PII redaction before store, alerts and spikes | BettaFish shows no gain. Redaction and spike alerts appear in one reference each (obsei), so they wait for a need. |
 
-## 6. Steps
+## 5b. Setup and the Sources screen
+
+Setup was read in last30days (`references/setup-wizard.md`, `lib/env.py`, `lib/doctor.py`, `lib/prescriptions.py`,
+`lib/quality_nudge.py`, `scripts/box_chrome_login.py`), last30days-cn (`login`, `--cookie`, `crawler_bridge.py`),
+Agent-Reach (`runtime/manage.py`, `runtime/session_reuse.py`, `skill/references/sessions.md`), linkedin-mcp-server
+(`--login`, `--import-from-browser`, `login_viewer.py`, `session_status.py`) and postiz (connect and reconnect).
+
+| Step | Keyless | API key | Signed-in account | From |
+|---|---|---|---|---|
+| Default | On, no question | Off until a key | Off until the owner signs in | last30days `KEYLESS_ALWAYS_ON`; Agent-Reach |
+| Before | — | Where to get the key, and what it adds | A consent card with fixed wording (terms and account risk), separate per platform | last30days `setup-wizard.md`, `reddit-session.md` |
+| Enter | — | Paste into the vault; shown only as present | Sign in through the owner's tab of the shared Chrome. The human types; the agent never fills the form. Fallback: paste a cookie header, checked for the platform's login cookies | last30days `box_chrome_login.py`; linkedin-mcp viewer; cn `--cookie`; the Muse sign-in |
+| Verify | "Working" only after a real run succeeded | At the real run | By a real action, not by the presence of cookies | Agent-Reach `sessions.md`; last30days |
+| Broken | "Regressed" if it passed before | Rest on the daily limit | A "!" badge and sign-in again. Use the next free backend meanwhile. On a block, stop and do not switch accounts | Agent-Reach `regressed()`; postiz `refreshNeeded`; last30days |
+| Remove | Off | Delete the key | Sign out clears that site's cookies only | Agent-Reach `logout`, `remove` |
+
+Cookie rules:
+
+- A cookie is never printed or logged, and goes only to its own site.
+- Only the owner signs in.
+- The agent asks the owner only after a real call returned `need_login` (last30days `CONFIGURATION.md:310-336`,
+  Agent-Reach `sessions.md`).
+- No reference validates an API key when it is saved, so none is added.
+
+The Sources screen sits in Settings. It starts from the Machines page cards and grid/table switch and the Muse and Web
+search screens. It holds:
+
+- **Four counted groups at the top:** working, on but unverified, broken, could be on (last30days `doctor.py`).
+- **One card per platform:** its backends in order, the last success, items this week, and the last error with one
+  fix step (harken `source_metrics`, BettaFish `crawling_tasks`, `prescriptions.py`).
+- **A "!" badge,** where a click on the whole card reconnects; the owner is told once (postiz).
+- **Accounts:** in order, with on/off and remove (the Muse screen).
+- **Keys:** add a key and set the provider order (the Web search screen).
+- **Optional sources:** one that is off is never counted as a failure (`quality_nudge.py`).
+
+## 6. Pull requests
+
+Nine pull requests, each with its own issue under #781:
+
+1. **Core.** Registry, backend chains, failure codes, item, dedup, ranking, clusters, coverage and `listen_search`,
+   with web search and Reddit.
+2. **The `social-listening` skill.** Trap pre-flight, resolve-first, snowball and the report rules.
+3. **Keyless sources in one pull request.** YouTube with transcripts, Google Play, App Store, HN, GitHub, arXiv,
+   Techmeme, DEV.to, Bluesky, careers pages and forum fetch.
+4. **The Sources screen.** Includes the daily live test and "regressed".
+5. **Shared signed-in accounts.** Muse's sign-in generalized: consent card, owner's tab, cookie paste, verify by
+   action and per-site sign-out. Adds X and LinkedIn.
+6. **Muse as a backend.** Template, continue an interrupted answer, unwrap `l.meta.ai` and check links.
+7. **Keyed sources.** YouTube Data API, Threads API, and X API or xAI when the owner has keys.
+8. **TikTok** through TikTok-Api and its `ms_token`.
+9. **Saved topics (later).** Cursors, a weekly Routine and history.
+
+## 7. Steps
 
 1. **Now, without code.** The Bot that writes the Tasco report uses `web_search` (including `site:linkedin.com/posts`
    and `site:voz.vn`), Muse once it is signed in again, and Google Play reviews. It applies the report rules in §5.
