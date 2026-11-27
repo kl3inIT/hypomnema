@@ -231,7 +231,7 @@ func (f *focus) alone(ctx context.Context, deadline time.Time, do func() error) 
 // have ended, or after the wait, for as long as ctx lasts. A move asked for
 // while another waits replaces it: the newest is made, at the end of the
 // first one's wait (review of PR #1233).
-func (f *focus) move(v *View, deadline time.Time, bring func(context.Context)) {
+func (f *focus) move(ctx context.Context, v *View, deadline time.Time, bring func(context.Context)) {
 	f.mu.Lock()
 	if len(f.views) == 0 || f.views[len(f.views)-1] != v {
 		f.mu.Unlock()
@@ -245,7 +245,7 @@ func (f *focus) move(v *View, deadline time.Time, bring func(context.Context)) {
 	if f.preparing != nil && f.ownerDeadline.Before(deadline) {
 		deadline = f.ownerDeadline
 	}
-	f.want = &wanted{view: v, bring: func() { bring(v.life) }, deadline: deadline}
+	f.want = &wanted{view: v, bring: func() { bring(ctx) }, deadline: deadline}
 
 	if f.moving {
 		select {
@@ -266,7 +266,7 @@ func (f *focus) move(v *View, deadline time.Time, bring func(context.Context)) {
 	}()
 
 	// The move outlives the view that asked for it: a newer one may replace it.
-	queueCtx := context.WithoutCancel(v.life)
+	queueCtx := context.WithoutCancel(ctx)
 	if !f.queue(queueCtx, false) {
 		return
 	}
@@ -352,7 +352,7 @@ func (f *focus) closed(v *View) *View {
 // ended, for as long as the view is open. A tab not brought there leaves the
 // view as it was: it goes on.
 func (e *Engine) front(v *View, deadline time.Time) {
-	e.focus.move(v, deadline, func(ctx context.Context) {
+	e.focus.move(v.life, v, deadline, func(ctx context.Context) {
 		if err := e.activate(ctx, v.s); err != nil {
 			e.cfg.Logger.WarnContext(ctx, "a tab could not be brought to the front",
 				slog.String("event", "browser.front_failed"), slog.String("tab", v.tab), slog.Any("err", err))

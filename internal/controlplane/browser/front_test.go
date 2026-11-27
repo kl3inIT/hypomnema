@@ -43,7 +43,7 @@ func TestReviewReplacingMovesShareOneDeadline(t *testing.T) {
 			order, deadline := f.request(false)
 			v := &View{life: t.Context(), order: order}
 			f.opened(v)
-			wg.Go(func() { f.move(v, deadline, bring(name)) })
+			wg.Go(func() { f.move(v.life, v, deadline, bring(name)) })
 		}
 
 		open("older")
@@ -93,7 +93,7 @@ func TestReviewMakingAndFrontingShareOneDeadline(t *testing.T) {
 
 		var fronted time.Duration
 
-		f.move(bot, deadline, func(context.Context) {
+		f.move(bot.life, bot, deadline, func(context.Context) {
 			fronted = time.Since(start)
 		})
 

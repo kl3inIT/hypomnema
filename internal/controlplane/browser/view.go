@@ -184,7 +184,9 @@ func (e *Engine) Watch(ctx context.Context, tab string) (*View, error) {
 	return v, nil
 }
 
-func (e *Engine) watch(ctx context.Context, tab string, hold *ownerhold.Hold, order uint64, deadline time.Time) (*View, error) {
+func (e *Engine) watch(
+	ctx context.Context, tab string, hold *ownerhold.Hold, order uint64, deadline time.Time,
+) (*View, error) {
 	s, err := e.viewed(ctx, tab, deadline)
 	if tab == OwnerTab {
 		e.focus.prepared()
