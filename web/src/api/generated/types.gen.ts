@@ -2523,6 +2523,10 @@ export type VideoPreview = {
    * A revision of the take's video the look starts from, as a look change does; its first line is shown.
    */
   rev?: number;
+  /**
+   * A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
+   */
+  card?: 'title' | 'end';
 };
 
 /**
@@ -2533,6 +2537,32 @@ export type VideoLookInput = {
   frame?: VideoFrameInput;
   background?: VideoBackground;
   music?: VideoMusicInput;
+  cards?: VideoCardsInput;
+};
+
+/**
+ * The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes the cards away. They stand on the look's background, the scenes start after the title card and the music plays under both. A make's cards are not saved in the default.
+ */
+export type VideoCardsInput = {
+  /**
+   * The rule over the title and the URL; absent: #6c8cff.
+   */
+  accent?: string;
+  title?: VideoCardInput;
+  end?: VideoCardInput;
+};
+
+export type VideoCardInput = {
+  title: string;
+  subtitle?: string;
+  /**
+   * Where the viewer is sent, drawn in the accent.
+   */
+  cta_url?: string;
+  /**
+   * Absent: 2600 for the title card, 3000 for the end card; each fades in and out over 350 ms.
+   */
+  duration_ms?: number;
 };
 
 /**
@@ -2583,6 +2613,23 @@ export type VideoLook = {
   background?: VideoBackground;
   fell_back_from?: VideoChrome;
   music?: VideoMusic;
+  cards?: VideoCards;
+};
+
+/**
+ * A revision's title card and end card; absent, it has none.
+ */
+export type VideoCards = {
+  accent: string;
+  title?: VideoCard;
+  end?: VideoCard;
+};
+
+export type VideoCard = {
+  title: string;
+  subtitle?: string;
+  cta_url?: string;
+  duration_ms: number;
 };
 
 /**

@@ -895,6 +895,7 @@ var commands = []command{
 			fs.String("aspect", "", "9:16 or 16:9 (default 9:16)")
 			fs.Bool("no-captions", false, "without captions")
 			fs.Int("rev", 0, "start from this revision's look and line, as `videos look` does")
+			fs.String("card", "", "draw the look's title or end card in place of the picture: title or end")
 			lookFlags(fs)
 			fs.String("out", "", "the file to write (default <take_id>-look.jpg)")
 			jsonFlag(fs)

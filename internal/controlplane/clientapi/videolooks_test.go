@@ -13,6 +13,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/compose"
 )
 
 // lookVideos answers look samples with the error its test sets, and records what it was sent.
@@ -149,4 +150,49 @@ func TestALookChangeAndARetryNeedAnIdempotencyKey(t *testing.T) {
 	retry, err := owner.RetryVideoRevisionWithResponse(ctx, "vid_abc", 1, &openapi.RetryVideoRevisionParams{})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, retry.StatusCode(), string(retry.Body))
+}
+
+// Scenario: the cards (issue #1230, row 1) go to the service as sent, a sample of one card with them; the contract
+// refuses a card too short and a sample of no card it knows; a stored look shows its cards.
+func TestTheCardsThroughTheAPI(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	fake := &lookVideos{}
+	w.srv.WithVideos(fake)
+
+	owner, _ := w.token("owner", bearertoken.Owner)
+	end := openapi.VideoPreviewCardEnd
+	url, accent := "secondbite.vn", "#ff3366"
+	body := openapi.VideoPreview{Take: "tk_0123456789abcdef", Card: &end, Look: &openapi.VideoLookInput{
+		Cards: &openapi.VideoCardsInput{Accent: &accent, End: &openapi.VideoCardInput{Title: "Tải", CtaUrl: &url}},
+	}}
+
+	ok, err := owner.PreviewVideoLookWithResponse(ctx, body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, ok.StatusCode(), string(ok.Body))
+	require.Len(t, fake.sent, 1)
+	assert.Equal(t, videos.CardEnd, fake.sent[0].Card)
+	assert.Equal(t, &videos.CardsInput{Accent: &accent, End: &videos.CardInput{Title: "Tải", CTAURL: &url}},
+		fake.sent[0].Look.Cards)
+
+	short, middle := int64(400), openapi.VideoPreviewCard("middle")
+	for name, b := range map[string]openapi.VideoPreview{
+		"too short": {Take: body.Take, Look: &openapi.VideoLookInput{Cards: &openapi.VideoCardsInput{
+			Title: &openapi.VideoCardInput{Title: "A", DurationMs: &short},
+		}}},
+		"no title":       {Take: body.Take, Look: &openapi.VideoLookInput{Cards: &openapi.VideoCardsInput{Title: &openapi.VideoCardInput{}}}},
+		"a card unknown": {Take: body.Take, Card: &middle},
+	} {
+		resp, err := owner.PreviewVideoLookWithResponse(ctx, b)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode(), name)
+	}
+
+	shown := lookOf(videos.Look{Cards: &compose.Cards{Accent: "#6c8cff",
+		Title: &compose.Card{Title: "SecondBite", DurationMs: 2600}}})
+	assert.Equal(t, &openapi.VideoCards{Accent: "#6c8cff",
+		Title: &openapi.VideoCard{Title: "SecondBite", DurationMs: 2600}}, shown.Cards)
+	assert.Nil(t, lookOf(videos.Look{}).Cards, "no cards, none shown")
 }

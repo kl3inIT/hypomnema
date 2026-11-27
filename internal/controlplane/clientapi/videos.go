@@ -13,6 +13,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/videos"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/videos/compose"
 )
 
 // The videos made of takes (issue #818, rows 10 and 11), the owner's only, as
@@ -137,8 +138,45 @@ func lookOf(l videos.Look) openapi.VideoLook {
 	}
 
 	out.Music = musicLookOf(l.Music)
+	out.Cards = cardsLookOf(l.Cards)
 
 	return out
+}
+
+// cardsLookOf is a look's cards as the API shows them; nil for none (issue #1230, row 1).
+func cardsLookOf(c *compose.Cards) *openapi.VideoCards {
+	if c == nil {
+		return nil
+	}
+
+	card := func(cd *compose.Card) *openapi.VideoCard {
+		if cd == nil {
+			return nil
+		}
+
+		return &openapi.VideoCard{
+			Title: cd.Title, Subtitle: nonZero(cd.Subtitle), CtaUrl: nonZero(cd.CTAURL), DurationMs: cd.DurationMs,
+		}
+	}
+
+	return &openapi.VideoCards{Accent: c.Accent, Title: card(c.Title), End: card(c.End)}
+}
+
+// cardsInput is the cards section as sent.
+func cardsInput(in *openapi.VideoCardsInput) *videos.CardsInput {
+	if in == nil {
+		return nil
+	}
+
+	card := func(cd *openapi.VideoCardInput) *videos.CardInput {
+		if cd == nil {
+			return nil
+		}
+
+		return &videos.CardInput{Title: cd.Title, Subtitle: cd.Subtitle, CTAURL: cd.CtaUrl, DurationMs: cd.DurationMs}
+	}
+
+	return &videos.CardsInput{Accent: in.Accent, Title: card(in.Title), End: card(in.End)}
 }
 
 // lookInput is a look as sent, its sections and fields left out kept out.
@@ -174,6 +212,7 @@ func lookInput(in *openapi.VideoLookInput) *videos.LookInput {
 	}
 
 	out.Music = musicInput(in.Music)
+	out.Cards = cardsInput(in.Cards)
 
 	return out
 }
@@ -369,6 +408,10 @@ func (s *Server) PreviewVideoLook(ctx context.Context, req openapi.PreviewVideoL
 
 	if b.Aspect != nil {
 		in.Aspect = string(*b.Aspect)
+	}
+
+	if b.Card != nil {
+		in.Card = string(*b.Card)
 	}
 
 	jpeg, err := s.videos.Preview(ctx, in)

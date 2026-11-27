@@ -8583,6 +8583,14 @@ components:
           type: integer
           minimum: 1
           description: A revision of the take's video the look starts from, as a look change does; its first line is shown.
+        card:
+          type: string
+          enum: [title, end]
+          description: >-
+            A card of the look to draw in place of the take's picture, as the video shows it between its fades;
+            absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card
+            shown: the contract checks every card sent, so another card without its title yet is refused (400)
+            before the sample is drawn, and the sample draws the card shown alone.
     VideoLookInput:
       type: object
       additionalProperties: false
@@ -8594,6 +8602,35 @@ components:
         frame: { $ref: "#/components/schemas/VideoFrameInput" }
         background: { $ref: "#/components/schemas/VideoBackground" }
         music: { $ref: "#/components/schemas/VideoMusicInput" }
+        cards: { $ref: "#/components/schemas/VideoCardsInput" }
+    VideoCardsInput:
+      type: object
+      additionalProperties: false
+      description: >-
+        The title card and the end card sent (issue #1230): each left out is none, so a section with neither takes
+        the cards away. They stand on the look's background, the scenes start after the title card and the music
+        plays under both. A make's cards are not saved in the default.
+      properties:
+        accent:
+          type: string
+          pattern: "^#[0-9a-fA-F]{6}$"
+          description: "The rule over the title and the URL; absent: #6c8cff."
+        title: { $ref: "#/components/schemas/VideoCardInput" }
+        end: { $ref: "#/components/schemas/VideoCardInput" }
+    VideoCardInput:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 80 }
+        subtitle: { type: string, maxLength: 120 }
+        cta_url: { type: string, maxLength: 200, description: "Where the viewer is sent, drawn in the accent." }
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 500
+          maximum: 10000
+          description: "Absent: 2600 for the title card, 3000 for the end card; each fades in and out over 350 ms."
     VideoMusicInput:
       type: object
       additionalProperties: false
@@ -8636,6 +8673,23 @@ components:
           $ref: "#/components/schemas/VideoChrome"
           description: The chrome a frame from the default would have drawn on a take whose phone turned; made full.
         music: { $ref: "#/components/schemas/VideoMusic" }
+        cards: { $ref: "#/components/schemas/VideoCards" }
+    VideoCards:
+      type: object
+      description: A revision's title card and end card; absent, it has none.
+      required: [accent]
+      properties:
+        accent: { type: string }
+        title: { $ref: "#/components/schemas/VideoCard" }
+        end: { $ref: "#/components/schemas/VideoCard" }
+    VideoCard:
+      type: object
+      required: [title, duration_ms]
+      properties:
+        title: { type: string }
+        subtitle: { type: string }
+        cta_url: { type: string }
+        duration_ms: { type: integer, format: int64 }
     VideoMusic:
       type: object
       description: >-
