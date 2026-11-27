@@ -67,6 +67,21 @@ func (h *holds) enter(tab string) (*ownerhold.Hold, bool) {
 	return hold, hold.Enter()
 }
 
+// holding says whether the owner holds a tab, making no hold for it.
+func (h *holds) holding(tab string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	hold, ok := h.all[tab]
+	if !ok {
+		return false
+	}
+
+	held, _ := hold.State()
+
+	return held
+}
+
 // open counts a view of a tab in and returns the tab's hold; false when as
 // many views are open as may be.
 func (h *holds) open(tab string) (*ownerhold.Hold, bool) {

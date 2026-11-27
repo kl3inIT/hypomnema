@@ -710,6 +710,12 @@ func TestReviewTakeWhileACallWaitsForTheFront(t *testing.T) {
 	a := r.slowCall(t, "b-cht_1", "agent_browser_wait_for_text")
 
 	v := r.watch(t, "b-cht_2")
+	require.Eventually(t, func() bool {
+		r.focus.mu.Lock()
+		defer r.focus.mu.Unlock()
+
+		return r.focus.queued != nil
+	}, 10*time.Second, time.Millisecond, "the move to Bot B's tab is queued behind Bot A's call")
 
 	b := make(chan json.RawMessage, 1)
 

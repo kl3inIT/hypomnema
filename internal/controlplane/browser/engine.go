@@ -209,19 +209,24 @@ func (e *Engine) Tools(ctx context.Context) ([]Tool, error) {
 func (e *Engine) Call(ctx context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error) {
 	// While the owner holds the agent's tab none of its calls runs, and one that was running when the owner took
 	// it is answered as if it had not: what it read may be what the owner typed.
-	hold, ok := e.holds.enter(agent)
-	if !ok {
+	if e.holds.holding(agent) {
 		return refusal(), nil
 	}
 
-	// A tab is not brought to the front while the call runs: it takes the focus from the agent's page.
+	// A tab is not brought to the front while the call runs: it takes the focus from the agent's page. The call
+	// waits for a move queued before it (front.go), and the hold is entered after that wait.
 	if err := e.focus.enter(ctx); err != nil {
-		hold.Leave()
-
 		return nil, err
 	}
 
-	result, err := e.call(ctx, agent, tool, arguments)
+	hold, ok := e.holds.enter(agent)
+	if !ok {
+		e.focus.leave()
+
+		return refusal(), nil
+	}
+
+	result, err := e.call(ctx, agent, tool, arguments, hold)
 
 	e.focus.leave()
 
@@ -242,7 +247,14 @@ func refusal() json.RawMessage {
 	return raw
 }
 
-func (e *Engine) call(ctx context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error) {
+// call runs the tool once the agent's tab is its own; it runs nothing when the
+// owner took the tab (hold) while the call waited for it: the hold is checked
+// as the call is about to run, as T3 Code's SessionControl checks its owner
+// again when a queued action runs (apps/server/src/preview/SessionControl.ts,
+// action; review of PR #1233), and Call answers the refusal.
+func (e *Engine) call(
+	ctx context.Context, agent, tool string, arguments json.RawMessage, hold *ownerhold.Hold,
+) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 
@@ -274,6 +286,10 @@ func (e *Engine) call(ctx context.Context, agent, tool string, arguments json.Ra
 	}
 
 	defer s.mu.Unlock()
+
+	if held, _ := hold.State(); held {
+		return nil, nil
+	}
 
 	// A session's first command makes its tab. `open` does; anything else is given a blank tab first, so that it
 	// never lands in another session's.

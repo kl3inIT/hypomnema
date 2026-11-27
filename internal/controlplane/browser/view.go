@@ -237,15 +237,35 @@ func (e *Engine) viewed(ctx context.Context, tab string) (*session, error) {
 		}
 
 		s.mu.Lock()
-		defer s.mu.Unlock()
+		opened := s.opened
+		s.mu.Unlock()
 
-		if !s.opened {
-			if _, err := e.tool(ctx, s, cdp, toolOpen, json.RawMessage(`{"url":"`+blankPage+`"}`)); err != nil {
+		// A tab that is made comes in front of the others: making it is queued behind the agents' calls running,
+		// as bringing a tab to the front is (front.go; review of PR #1233).
+		if !opened {
+			err := e.focus.alone(ctx, func() error {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+
+				if s.opened {
+					return nil
+				}
+
+				if _, err := e.tool(ctx, s, cdp, toolOpen, json.RawMessage(`{"url":"`+blankPage+`"}`)); err != nil {
+					return err
+				}
+
+				s.opened = true
+
+				return nil
+			})
+			if err != nil {
 				return nil, err
 			}
-
-			s.opened = true
 		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
 		e.mu.Lock()
 		defer e.mu.Unlock()

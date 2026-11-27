@@ -700,7 +700,10 @@ sequenceDiagram
     focus is the owner's action queued behind the agents' calls running in the browser, as OpenMausBot's viewer
     brings a tab to the front through its control (`server/browser/viewers/core.ts:845`): it waits for them, at
     most 15 seconds, and a call asked for meanwhile waits for it, since a page may fail a call that needs the
-    focus when it moves mid-way. Each view and each take-over is logged
+    focus when it moves mid-way. Moves asked for while one waits replace it and share its wait, and only the
+    newest view's tab is brought forward; making the owner's tab the first time it is watched waits in the same
+    queue, since a tab that is made comes in front. A call's tab hold is entered after that wait and checked
+    again as the call is about to run, so a tab the owner took meanwhile runs nothing of its agent's. Each view and each take-over is logged
     (`clientapi.browser_view_opened`, `_closed`, `browser.taken`, `browser.released`) with who, which tab, from
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,
