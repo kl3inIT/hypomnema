@@ -64,6 +64,7 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	}
 	if a.readRun {
 		out = append(out, inboxTools(a)...)
+		out = append(out, inboxChatsTool(a)...)
 		out = append(out, s.meetingTools(a)...)
 		out = append(out, s.supersetToolList(ctx, a)...)
 		out = append(out, s.messagingToolList(ctx, a, relayMentions)...)
@@ -87,6 +88,7 @@ func (s *Server) toolList(ctx context.Context, a agent, relayMentions bool) []ag
 	}
 
 	out = append(out, inboxTools(a)...)
+	out = append(out, inboxChatsTool(a)...)
 	out = append(out, s.meetingTools(a)...)
 
 	out = append(out, s.gatewayToolList(ctx, a)...)
@@ -240,6 +242,8 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 	case asked.Tool == agenttool.ToolRequestConnection:
 		// Not the browser's: an agent that is no Bot's pi has none.
 		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
+	case asked.Tool == agenttool.ToolInboxChats && readsChatChoices(a):
+		s.inboxChatsCall(w, r, a)
 	case isInboxTool(asked.Tool) && keepsInbox(a):
 		s.inboxCall(w, r, a, asked)
 	case slices.Contains(agenttool.MeetingTools, asked.Tool) && s.readsMeetings(a):

@@ -5322,6 +5322,36 @@ its client API, its CLI and the Bots' tools.
   `HYPOMNEMA_TEST_CLAUDE` names it; `triage.eval.mjs` runs the cases of `triage-cases.json` so, only with
   `THU_KY_EVAL=1` (issue #1182). The Routine's
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
+  - **Which chats the secretary reads** ([issue #1270](https://github.com/kl3inIT/hypomnema/issues/1270),
+    [research](docs/research/2026-11-27-chats-the-secretary-reads.md)): a flag per chat of each of the owner's
+    Zalo, WhatsApp and own Lark Connections (`integration:label`), kept by `inboxstore` in `inbox_chat_reads` (a row
+    is the owner's choice, with when he made it; inbox-zero's per-account exclude items). A chat without a row takes
+    its kind's default, the same for every source (owner, 2026-11-27): direct chats and groups are read, a bot's or an
+    official account's is not, a bot being a WhatsApp broadcast list or a chat whose name or id matches
+    `inboxstore.BotPatterns` (the check's `dropChats` defaults until then). `internal/controlplane/inbox` (`Chats`)
+    lists a Connection's chats with their state: Zalo's and WhatsApp's kept chats (up to `messaging.MaxChats`,
+    20,000; the API and the tools still page at most 500) and the Lark sign-in's (`GET /open-apis/im/v1/chats`, up to
+    100 pages). The owner's API, his token only: `GET /inbox/chat-sources` (his accounts with counts read, skipped
+    and by kind, and the defaults), `GET /inbox/chat-sources/{integration}/{label}` (`q` on the name or id in any
+    case, `kind`, `state`, `limit`; the account's counts, the counts for `q` alone and how many match all filters),
+    `PUT …/{chat}` (`reads`), and `POST
+    /inbox/chat-sources/moves` (the one-time move below); the CLI's `inbox chats`, `inbox chats set` and `inbox
+    chats move`. A Bot's pi and its Routine's check get `inbox_chats` (family `inbox`, allowed in a read run): the
+    owner's choices of the accounts the Bot may read and the defaults with their patterns. The check reads it once a
+    run and skips a chat he switched off before any model; when it cannot be read or the run lacks it, none of his
+    chats is read that run. The conversations a run carried get the next run's choices before anything is printed: a
+    chat switched off is dropped, and one whose choice cannot be read is held, unprinted, waking nobody. A carried
+    line of an earlier check is read by its fixed start and end, its chat's id apart from the name (which may hold a
+    line feed); a line that is no known chat, mail thread or meeting is held unprinted.
+    A chat switched off is still synced, kept and read by a Bot when he asks. The move reads `dropChats` of a Bot's
+    `thu-ky/filters.json` (through its folder's helper) and switches off, as his choice, each exact id (`^<id>$`) of a
+    chat one of his accounts has, unless he set that chat already, so that running it again changes nothing. It
+    fails (503) while one of his accounts cannot be listed, and the CLI exits non-zero for an id no account has;
+    `deploy/thu-ky/setup.sh` runs it and stops on that failure before it sets the check, which no longer reads `dropChats` once the control
+    plane has `inbox_chats`. The screen opens from a gear on the Inbox page (`/inbox/chats`,
+    `features/inbox/chats-read-screen.tsx`): a tab per account with its count, the default for new chats, a search,
+    kind and state filters as the Machines page's segmented controls with counts for the search, and a card of rows, each with its kind's icon,
+    why it is in its state (default or set by him, and when) and a switch.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
 
