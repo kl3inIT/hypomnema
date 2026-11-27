@@ -70,6 +70,18 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
   const meetings = world.meetings ?? [];
   // The Runs of the item's attempt, each { id, pulls }, as the control plane knows them.
   const runs = world.runs ?? [];
+  // The owner's departments, each { name, chats }: the chats he put in it, each { kind, account, id } (issue #1206).
+  const departments = world.departments ?? [];
+  const projects = departments.map((d) => d.name);
+  const chatDepartment = (src) => departments.find((d) => (d.chats ?? []).some((c) => c.kind === src.kind &&
+    (c.account ?? "") === (src.account ?? "") && c.id === src.id))?.name;
+  // projectOf is a project named in a call: one of his departments, none to take an item out, or a refusal.
+  const projectOf = (name) => {
+    if (name === undefined) return { name: undefined };
+    if (String(name).toLowerCase() === "none") return { name: "" };
+    const found = projects.find((p) => p.toLowerCase() === String(name).trim().toLowerCase());
+    return found ? { name: found } : { error: `not found: no department ${name}; the departments: ${projects.join(", ")}` };
+  };
   let added = 0;
 
   const find = (id) => items.find((i) => i.id === id);
@@ -110,9 +122,9 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
         // In any state, each with those changes since then as its history.
         list = items.filter((i) => i.history.some((e) => by(e) && Date.parse(e.at) >= Date.parse(since)))
           .map((i) => ({ ...view(i, false), history: i.history.filter((e) => by(e) && Date.parse(e.at) >= Date.parse(since)) }));
-        return { total: list.length, next_cursor: "", items: list, projects: [] };
+        return { total: list.length, next_cursor: "", items: list, projects };
       }
-      return { total: list.length, next_cursor: "", items: list.map((i) => view(i, false)), projects: [] };
+      return { total: list.length, next_cursor: "", items: list.map((i) => view(i, false)), projects };
     },
     inbox_get(args) {
       const item = find(args.id);
@@ -129,6 +141,8 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
         }
         if (again) return view(again, false);
       }
+      const project = projectOf(args.project);
+      if (project.error) return refuse(project.error);
       added += 1;
       const at = now().toISOString();
       const waiting = args.waiting_on;
@@ -138,6 +152,8 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
         assignee: waiting ? `person ${waiting.name}` : args.assignee_kind && args.assignee_kind !== "me"
           ? `${args.assignee_kind} ${args.assignee ?? ""}`.trim() : "me",
         due: dueOf(args) ?? undefined, priority: args.priority, priority_reason: args.priority_reason,
+        // A department named, else the one the owner put the source chat in (inboxstore chatDepartment).
+        project: project.name || chatDepartment(sourceOf(args)) || undefined,
         source: sourceOf(args), created_by: bot, created_at: at, updated_at: at, key: args.key,
         added_with: canonical((({ key: _, ...request }) => request)(args)),
         history: [{ at, revision: 1, by: bot, kind: "created", after: { title: args.title } }],
@@ -171,7 +187,12 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
       }
       const due = dueOf(args);
       if (due !== undefined) item.due = after.due = due ?? undefined;
-      for (const k of ["title", "notes", "done_when", "draft", "priority", "priority_reason", "project"]) {
+      if (args.project !== undefined) {
+        const project = projectOf(args.project);
+        if (project.error) return refuse(project.error);
+        item.project = after.project = project.name || undefined;
+      }
+      for (const k of ["title", "notes", "done_when", "draft", "priority", "priority_reason"]) {
         if (args[k] !== undefined) item[k] = after[k] = args[k];
       }
       if (args.hand_back) item.assignee = after.assignee = "me";
@@ -219,7 +240,7 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
         // read run starts none, and sends nothing) or its pull request; never a link, a mail or anyone's message.
         const work = (l) => runs.some((r) => (l.kind === "run" && r.id === l.ref) ||
           (l.kind === "pull_request" && (r.pulls ?? []).includes(l.ref)));
-        if (!evidence.some(work)) {
+        if (!evidence.every(work)) {
           return refuse("invalid request: a Bot closes as its own only what it did on this to-do in this attempt, " +
             "with that work as evidence: a Run of the attempt, its pull request, its own comment with the file it " +
             "made, or a message it sent for the item (with the account and the chat); the owner's message or " +

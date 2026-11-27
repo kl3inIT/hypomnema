@@ -594,8 +594,15 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 			return err
 		}
 
-		// An item given to a Bot in a department, without a project, takes it (issue #1188).
+		// An item read in a chat the owner put in a department, without a project, takes it (issue #1206); else an
+		// item given to a Bot in a department takes that one (issue #1188).
 		project := nullString(n.Project)
+		if !project.Valid {
+			if project, err = chatDepartment(ctx, q, n.Source); err != nil {
+				return err
+			}
+		}
+
 		if !project.Valid {
 			if project, err = botsDepartment(ctx, q, n.Assignee); err != nil {
 				return err

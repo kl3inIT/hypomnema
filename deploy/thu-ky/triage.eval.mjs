@@ -44,6 +44,7 @@ function holds(item, m) {
   if (m.state && item.state !== m.state) return false;
   if (m.due !== undefined && Boolean(item.due) !== m.due) return false;
   if (m.due_text && !new RegExp(m.due_text).test(item.due ?? "")) return false;
+  if (m.project !== undefined && (item.project ?? "") !== m.project) return false;
   if (m.text && !new RegExp(m.text, "i").test(JSON.stringify(item))) return false;
   return true;
 }

@@ -207,9 +207,29 @@ WHERE id = @id AND bot_id = CAST(@bot AS TEXT)
 -- name: CountAttemptPullRequest :one
 -- Whether a pull request is the work of a Bot's attempt at an Inbox item (issue #1206): one that a task of a Run of
 -- the attempt (as CountAttemptRun) gave as evidence when it finished, or that was looked up for one of its dispatches.
+-- A review task's report names the pull request it reviewed, not one it opened: it is left out, as the pull requests
+-- the control plane follows leave it out (pullrequests.go, reviewerProfile).
 SELECT count(*) FROM runs r JOIN tasks t ON t.run_id = r.id JOIN dispatches d ON d.task_id = t.id
 WHERE r.bot_id = CAST(@bot AS TEXT)
+  AND t.profile <> 'reviewer' AND substr(t.profile, 1, 9) <> 'reviewer-'
   AND (r.id = CAST(@work_run AS TEXT) OR (r.chat_id = CAST(@work_chat AS TEXT) AND r.created_at >= @since))
   AND (EXISTS (SELECT 1 FROM pull_request_lookups l WHERE l.dispatch_id = d.id AND l.url = CAST(@url AS TEXT))
     OR (json_valid(d.result) AND EXISTS (SELECT 1 FROM json_each(d.result, '$.evidence') e
         WHERE json_extract(e.value, '$.kind') = 'pull_request' AND json_extract(e.value, '$.ref') = CAST(@url AS TEXT))));
+
+-- name: GetChatDepartment :one
+-- The department the owner put a chat of his accounts in (issue #1206), by the source of an item read there.
+SELECT department_id FROM todo_chat_departments
+WHERE source_kind = @source_kind AND source_account = @source_account AND source_id = @source_id;
+
+-- name: PutChatDepartment :exec
+-- The owner put an item read in a chat into a department: the chat is in it from now on.
+INSERT INTO todo_chat_departments (source_kind, source_account, source_id, department_id, todo_id, updated_at)
+VALUES (@source_kind, @source_account, @source_id, @department_id, @todo_id, @now)
+ON CONFLICT (source_kind, source_account, source_id) DO UPDATE
+SET department_id = excluded.department_id, todo_id = excluded.todo_id, updated_at = excluded.updated_at;
+
+-- name: DeleteChatDepartment :exec
+-- The owner took an item read in a chat out of any department: the chat is in none.
+DELETE FROM todo_chat_departments
+WHERE source_kind = @source_kind AND source_account = @source_account AND source_id = @source_id;

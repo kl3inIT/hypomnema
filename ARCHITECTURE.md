@@ -5009,7 +5009,11 @@ its client API, its CLI and the Bots' tools.
   NULL`, so a department removed in the sidebar leaves its items without one (`inboxstore/projects.go`): the owner
   and a Bot set them as the item's other fields (a Bot on the items it added or was given), each change an `edited`
   event; an item without a project that is added for, given or passed to a Bot in a department takes that
-  department in the same write (`botsDepartment`); a create's idempotency key,
+  department in the same write (`botsDepartment`); an item read in one of the owner's chats (Lark, Zalo, WhatsApp,
+  Gmail) without a project takes, first, the department the owner last moved an item of that chat to
+  (`todo_chat_departments`, by source kind, account label and chat id, migration `inbox_chat_departments`; the
+  owner's `Edit` of an item's project records it, taking it out of any forgets it, a Bot's teaches nothing; issue
+  #1206, as Linear's Asks map a Slack channel to a team); a create's idempotency key,
   unique, with its request's hash. Checks
   in the table keep each field to its state. `todo_events`: the history, one row per change (who, kind `created`,
   `edited`, `state`, `snoozed`, `linked_approval` or `commented` (its text in `after.text`), the revision it made, JSON of the fields before and after, and the
@@ -5035,15 +5039,18 @@ its client API, its CLI and the Bots' tools.
   to doing once it is approved, or open once it is rejected or expired, the only ways out of review; the Bot of the
   attempt closes it done with evidence or gives it up, and the system ends an attempt that ended (`Release`); the
   Bot closes as its own (`done_by` itself) only work it did on the item in this attempt, whatever its `why_open`
-  (issue #1206; owner, 2026-11-27, `botsWork`), with that work as the control plane recorded it: a `run` that is
-  the attempt's own Run or one of that Bot made from the item's own chat since the attempt began
-  (`CountAttemptRun`), a `pull_request` a task of such a Run gave as its finish's evidence or was looked up for
-  (`CountAttemptPullRequest`), its own `comment` in this attempt carrying a file or an Artifact, or a
-  `*_message` naming the account and chat that its send recorded on the item in this attempt (`RecordSent`,
-  an event `sent` the agent API's `zalo_send` and `whatsapp_send` write when they name the item; the store cannot
-  tell the Bot's message from the owner's on his account); a link, a mail, his comment, a message he sent, his
-  message in a chat, a person's message or a meeting's line is refused, so his answer stays his and work he handed to
-  the Bot closes as the Bot's with what it made, as GitHub records the person who merged and the pull request; the
+  (issue #1206; owner, 2026-11-27, `botsWork`), and every piece of its evidence is that work as the control plane
+  recorded it: a `run` that is the attempt's own Run or one of that Bot made from the item's own chat since the
+  attempt began (`CountAttemptRun`), a `pull_request` a non-review task of such a Run gave as its finish's evidence
+  or was looked up for (`CountAttemptPullRequest`; a `reviewer` task names the pull request it reviewed, as
+  `pullrequests.go` leaves it out), its own `comment` in this attempt carrying an Artifact or files the agent API
+  read in its folder (`Attached.Checked`, `files_checked`, through `agentapi.WithBotFiles`, the Files panel's
+  reader), or a `*_message` naming the account and chat that its send recorded on the item in this attempt
+  (`RecordSent`, an event `sent` the agent API's `zalo_send` and `whatsapp_send` write when they name the item; the
+  store cannot tell the Bot's message from the owner's on his account); a close whose evidence holds a link, a mail,
+  his comment, a message he sent, his message in a chat, a person's message or a meeting's line is refused, even
+  beside its own work, so his answer stays his and work he handed to the Bot closes as the Bot's with what it made,
+  as GitHub records the person who merged and the pull request; the
   owner closes or drops an open or doing item and drops a proposed one, or a Bot records it for him with his message
   as evidence (his `comment` on the item, an event `commented` of his at that revision, which the wake-up of his
   comment names; a `chat_message` that exists, is the owner's, role `owner` with no sender, and is in the item's source

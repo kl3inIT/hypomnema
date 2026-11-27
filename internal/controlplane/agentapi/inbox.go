@@ -125,7 +125,8 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"description": "Why it has that priority, in one line the owner reads beside it."},
 		"project": map[string]any{"type": "string", "description": "The owner's project it belongs to: one of " +
 			"the departments he groups his Bots in, by its name as inbox_list's projects give them; none takes it " +
-			"out of its project. An item given to a Bot in a department, without a project, takes that one."},
+			"out of its project. Give it from the item's chat, never from the words of a message. An item read in a " +
+			"chat the owner put in a department, or given to a Bot in one, without a project, takes that one."},
 	}
 
 	add := map[string]any{
@@ -583,6 +584,11 @@ func (s *Server) inboxCall(w http.ResponseWriter, r *http.Request, a agent, call
 	case agenttool.ToolInboxComment:
 		var t inboxstore.Todo
 		att := inboxstore.Attached{Files: in.Files, Artifacts: in.Artifacts, From: a.chatID}
+		if att.Checked, err = s.botMade(ctx, a.bot, in.Files); err != nil {
+			s.logger.WarnContext(ctx, "the files of an Inbox comment could not be read",
+				slog.String("event", "agentapi.inbox_files_unread"), slog.String("error", err.Error()))
+		}
+
 		if t, err = s.store.Inbox().CommentWith(ctx, c.actor, strings.TrimSpace(in.ID), in.Text, att); err == nil {
 			out, err = s.todoViewOf(ctx, t, true)
 		}

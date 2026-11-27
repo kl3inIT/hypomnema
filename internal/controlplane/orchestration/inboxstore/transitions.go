@@ -685,6 +685,8 @@ func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, bot string,
 
 	var events []store.TodoEvent
 
+	// Every piece of evidence is the Bot's own work (review round 3 of PR #1243): the close records them all as the
+	// Bot's, so the owner's answer or link beside its ack would be recorded as its work too.
 	for _, l := range evidence {
 		var (
 			n   int64
@@ -706,7 +708,7 @@ func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, bot string,
 			}
 
 			if slices.ContainsFunc(events, func(e store.TodoEvent) bool { return attemptsWork(e, cur, bot, l) }) {
-				return nil
+				n = 1
 			}
 		}
 
@@ -714,19 +716,21 @@ func botsWork(ctx context.Context, q *store.Queries, cur store.Todo, bot string,
 			return fmt.Errorf("reading the work of to-do %s's attempt: %w", cur.ID, err)
 		}
 
-		if n > 0 {
-			return nil
+		if n == 0 {
+			return fmt.Errorf("%w: a Bot closes as its own only what it did on this to-do in this attempt, and every "+
+				"piece of its evidence is that work: a Run of the attempt, a pull request a task of it opened, its own "+
+				"comment with a file it made, or a message it sent for the item (with the account and the chat); %s "+
+				"is not; the owner's message or comment shows that he did it (for_owner), a person's that they did "+
+				"(done_by)", storeerr.ErrInvalid, l.Kind)
 		}
 	}
 
-	return fmt.Errorf("%w: a Bot closes as its own only what it did on this to-do in this attempt, with that work "+
-		"as evidence: a Run of the attempt, its pull request, its own comment with the file it made, or a message "+
-		"it sent for the item (with the account and the chat); the owner's message or comment shows that he did it "+
-		"(for_owner), a person's that they did (done_by)", storeerr.ErrInvalid)
+	return nil
 }
 
 // attemptsWork says whether an event of the item is the Bot's work in its current attempt that a Link names: its
-// comment at that revision, made since the attempt began, carrying a file or an Artifact; or the send it recorded of
+// comment at that revision, made since the attempt began, carrying a file the agent API read in its folder
+// (Attached.Checked) or an Artifact it showed; or the send it recorded of
 // that message in this attempt (RecordSent).
 func attemptsWork(e store.TodoEvent, cur store.Todo, bot string, l Link) bool {
 	if e.ActorKind != Bot || e.Actor != bot || e.At < cur.WorkStartedAt.Int64 {
@@ -734,10 +738,11 @@ func attemptsWork(e store.TodoEvent, cur store.Todo, bot string, l Link) bool {
 	}
 
 	var after struct {
-		Files     []string `json:"files"`
-		Artifacts []string `json:"artifacts"`
-		Sent      *Link    `json:"sent"`
-		Attempt   string   `json:"work_attempt"`
+		Files        []string `json:"files"`
+		FilesChecked bool     `json:"files_checked"`
+		Artifacts    []string `json:"artifacts"`
+		Sent         *Link    `json:"sent"`
+		Attempt      string   `json:"work_attempt"`
 	}
 
 	if json.Unmarshal([]byte(e.After), &after) != nil {
@@ -748,7 +753,7 @@ func attemptsWork(e store.TodoEvent, cur store.Todo, bot string, l Link) bool {
 		revision, ok := number(l.Ref)
 
 		return ok && e.Kind == EventCommented && e.Revision == revision &&
-			(len(after.Files) > 0 || len(after.Artifacts) > 0)
+			(len(after.Files) > 0 && after.FilesChecked || len(after.Artifacts) > 0)
 	}
 
 	return e.Kind == EventSent && after.Sent != nil && after.Attempt == cur.WorkAttempt.String &&
@@ -1332,11 +1337,23 @@ func (s *Store) Edit(ctx context.Context, c Change, e Edit) (Todo, error) {
 		var before *Assignee
 
 		t, err := s.changeTx(ctx, q, now, c, EventEdited, func(q *store.Queries, cur store.Todo, next *store.Todo,
-			_ int64,
+			now int64,
 		) (map[string]any, error) {
 			before = &Assignee{Kind: cur.AssigneeKind, Name: cur.Assignee}
 
-			return s.edit(ctx, q, c, e, due, ref, cur, next)
+			extra, err := s.edit(ctx, q, c, e, due, ref, cur, next)
+			if err != nil {
+				return nil, err
+			}
+
+			// The owner's department for an item read in a chat is the chat's from now on (issue #1206).
+			if e.Project != nil {
+				if err := teachChat(ctx, q, c.Actor, cur, next.ProjectID.String, now); err != nil {
+					return nil, err
+				}
+			}
+
+			return extra, nil
 		})
 		if err != nil {
 			return err

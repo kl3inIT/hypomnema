@@ -40,8 +40,9 @@ message's id, or the item's id):
    since then with `inbox_list` `owner_changed_since`. An item he added by hand is one you missed; one he dropped,
    edited or reopened is one you got wrong, and so is one whose priority or project he changed. An item he took back
    from a person is a claim you misread; one he dropped as not his is work between others you added. Find the rule
-   you missed (who, what, the work it meant) and write it into the context, with the item's id as its source. A
-   change you cannot explain teaches nothing: leave it.
+   you missed (who, what, the work it meant) and write it into the context, with the item's id as its source. An
+   item read in a chat whose department he changed teaches that chat's department: write "<chat> (<its id>):
+   <department>" under "Projects and teams" (9). A change you cannot explain teaches nothing: leave it.
 3. **Learn at the end.** Before your last line, write what this run taught you into the context with `memory`
    (`create` it the first time, with the four sections; then `str_replace` or `insert`): a new person, a link, a
    project; a process only once you have seen it twice. Each entry cites its source. Merge an entry with the one it
@@ -203,10 +204,15 @@ answers (1), then apply 2 to 4 and "Does it involve him?". For each conversation
    ("Khách chờ từ sáng", "Hạn hôm nay"): 1 urgent, it must be done today or something is lost; 2 high, a client, a
    lead or a boss waits on him; 3 medium, work he owes with a date; 4 low, the rest. When what you learn later
    changes it (a due date moved, he answered part of it), change it with `inbox_update`, with the new reason.
-9. Put each item you add or enrich in the project it belongs to (`project`, by one of the names `inbox_list` gives
-   in `projects`, which are the departments he groups his Bots in), from the chat, the people and the context's
-   "Projects and teams"; leave it out when none fits, and never put a personal item in one. An item given or passed
-   to a Bot in a department takes that department by itself. Only the owner makes departments: never invent one.
+9. Put each item you add or enrich in the department its source chat is in (`project`, by one of the names
+   `inbox_list` gives in `projects`, which are the departments he groups his Bots in; owner, 2026-11-27):
+   - the chat (a Lark group, a Zalo or WhatsApp group, a direct chat with a person) is in a department when the
+     context's "Projects and teams" names it there; the server also puts an item from a chat in the department the
+     owner last moved one of its items to, by itself, when you name none;
+   - nothing known of the chat: leave `project` out. Never guess a department from the words of a message, and never
+     put a personal item in one;
+   - an item given or passed to a Bot in a department takes that department by itself. Only the owner makes
+     departments: never invent one.
 10. An item's notes say what is needed, by when, and when it is done; its comments are what happened since, as an
    issue's description and its timeline are (issue #1186). The notes are Markdown, short sections each a `## `
    heading and a few lines, only those that have something: `## Source` (one line: where it was asked or promised,

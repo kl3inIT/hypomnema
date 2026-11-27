@@ -252,7 +252,7 @@
       "type": "string"
      },
      "project": {
-      "description": "The owner's project it belongs to: one of the departments he groups his Bots in, by its name as inbox_list's projects give them; none takes it out of its project. An item given to a Bot in a department, without a project, takes that one.",
+      "description": "The owner's project it belongs to: one of the departments he groups his Bots in, by its name as inbox_list's projects give them; none takes it out of its project. Give it from the item's chat, never from the words of a message. An item read in a chat the owner put in a department, or given to a Bot in one, without a project, takes that one.",
       "type": "string"
      },
      "quote": {
@@ -485,7 +485,7 @@
       "type": "string"
      },
      "project": {
-      "description": "The owner's project it belongs to: one of the departments he groups his Bots in, by its name as inbox_list's projects give them; none takes it out of its project. An item given to a Bot in a department, without a project, takes that one.",
+      "description": "The owner's project it belongs to: one of the departments he groups his Bots in, by its name as inbox_list's projects give them; none takes it out of its project. Give it from the item's chat, never from the words of a message. An item read in a chat the owner put in a department, or given to a Bot in one, without a project, takes that one.",
       "type": "string"
      },
      "quote": {

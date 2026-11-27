@@ -69,7 +69,7 @@ func (a Attached) checked(actor Actor) (Attached, error) {
 			MaxCommentFiles, MaxCommentArtifacts)
 	}
 
-	out := Attached{From: a.From}
+	out := Attached{From: a.From, Checked: a.Checked}
 
 	for _, f := range a.Files {
 		p, err := folderPath(f)
@@ -152,6 +152,9 @@ func (a Attached) after(ctx context.Context, q *store.Queries, actor Actor, text
 	}
 
 	after["files"], after["chat"] = a.Files, chat
+	if a.Checked {
+		after["files_checked"] = true
+	}
 
 	return after, nil
 }
