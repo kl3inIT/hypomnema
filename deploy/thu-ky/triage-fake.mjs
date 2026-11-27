@@ -332,6 +332,9 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
         if (args.host === "open.larksuite.com") return larkRead(args);
         if (args.host === "gmail.googleapis.com") return { status: 200, records: { messages: [] } };
         return { status: 404, records: {} };
+      case "inbox_chats":
+        // The owner switched no chat off: every chat of the world is read (issue #1270's defaults).
+        return { defaults: { bot: false, bot_patterns: [] }, chats: [] };
       case "meeting_list":
         return {
           meetings: meetings.filter((m) => !args.since || Date.parse(m.notes_ready_at) >= Date.parse(args.since))
