@@ -38,6 +38,7 @@ type Videos interface {
 	Retry(ctx context.Context, id string, rev int, by, requestID string) (videos.Video, videos.Revision, error)
 	Preview(ctx context.Context, req videos.PreviewRequest) ([]byte, error)
 	Looks(ctx context.Context) (videos.Catalog, error)
+	Templates(ctx context.Context) ([]videos.TemplateLook, error)
 	Music(ctx context.Context) (videos.Library, error)
 	UploadMusic(ctx context.Context, name string, size int64, body io.Reader) (videos.Track, error)
 	MusicAudio(ctx context.Context, id string) (string, string, error)
@@ -98,7 +99,7 @@ func videoOf(v videos.Video) openapi.Video {
 	for _, r := range v.Revisions {
 		rev := openapi.VideoRevision{
 			Rev: r.Rev, State: openapi.VideoRevisionState(r.State), Lines: r.Lines, Captions: r.Captions,
-			Aspect: openapi.VideoRevisionAspect(r.Aspect), LengthMs: r.LengthMs, Warnings: r.Warnings,
+			Aspect: openapi.VideoAspect(r.Aspect), LengthMs: r.LengthMs, Warnings: r.Warnings,
 			CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 			Parent: nonZero(r.Parent), Voice: nonZero(r.Voice), Provider: nonZero(r.Provider),
 			Model: nonZero(r.Model), UsedVoice: nonZero(r.UsedVoice), FailedStage: nonZero(r.FailedStage),
@@ -258,6 +259,7 @@ func (s *Server) MakeVideo(ctx context.Context, req openapi.MakeVideoRequestObje
 	in := videos.MakeRequest{
 		Take: b.Take, Title: val(b.Title), Captions: b.Captions, Voice: val(b.Voice), By: videos.Owner,
 		ByName: videos.Owner, RequestID: val(req.Params.IdempotencyKey), Look: lookInput(b.Look),
+		Template: val(b.Template),
 	}
 
 	if b.Aspect != nil {
@@ -396,6 +398,59 @@ func (s *Server) ListVideoLooks(ctx context.Context, _ openapi.ListVideoLooksReq
 	return openapi.ListVideoLooks200JSONResponse(out), nil
 }
 
+// ListVideoTemplates is the templates a video is made from, each with the look it starts from (issue #1230, row 5).
+func (s *Server) ListVideoTemplates(ctx context.Context, _ openapi.ListVideoTemplatesRequestObject,
+) (openapi.ListVideoTemplatesResponseObject, error) {
+	if s.videos == nil {
+		return nil, errNoVideos
+	}
+
+	list, err := s.videos.Templates(ctx)
+	if err != nil {
+		return nil, videoError(err)
+	}
+
+	out := openapi.VideoTemplates{Templates: make([]openapi.VideoTemplate, 0, len(list))}
+	for _, t := range list {
+		out.Templates = append(out.Templates, templateOf(t))
+	}
+
+	return openapi.ListVideoTemplates200JSONResponse(out), nil
+}
+
+func templateOf(t videos.TemplateLook) openapi.VideoTemplate {
+	out := openapi.VideoTemplate{
+		Id: t.ID, Name: t.Name, UseCase: t.UseCase, Captions: t.Captions, Words: t.Words(), Look: lookOf(t.Look),
+		Length:   openapi.VideoTemplateLength{MinS: t.Length.MinS, MaxS: t.Length.MaxS},
+		Aspects:  make([]openapi.VideoAspect, 0, len(t.Aspects)),
+		Sections: make([]openapi.VideoTemplateSection, 0, len(t.Sections)),
+	}
+
+	for _, a := range t.Aspects {
+		out.Aspects = append(out.Aspects, openapi.VideoAspect(a))
+	}
+
+	for _, sec := range t.Sections {
+		out.Sections = append(out.Sections, openapi.VideoTemplateSection{
+			Name: sec.Name, Purpose: sec.Purpose, Words: sec.Words, Seconds: sec.Seconds(),
+		})
+	}
+
+	if c := t.Cards(); c != nil {
+		card := func(cd *compose.Card) *openapi.VideoTemplateCard {
+			if cd == nil {
+				return nil
+			}
+
+			return &openapi.VideoTemplateCard{DurationMs: cd.DurationMs}
+		}
+
+		out.Cards = &openapi.VideoTemplateCards{Accent: c.Accent, Title: card(c.Title), End: card(c.End)}
+	}
+
+	return out
+}
+
 // PreviewVideoLook answers a look sample, a JPEG.
 func (s *Server) PreviewVideoLook(ctx context.Context, req openapi.PreviewVideoLookRequestObject,
 ) (openapi.PreviewVideoLookResponseObject, error) {
@@ -404,7 +459,9 @@ func (s *Server) PreviewVideoLook(ctx context.Context, req openapi.PreviewVideoL
 	}
 
 	b := req.Body
-	in := videos.PreviewRequest{Take: b.Take, Captions: b.Captions, Look: lookInput(b.Look), Rev: val(b.Rev)}
+	in := videos.PreviewRequest{
+		Take: b.Take, Captions: b.Captions, Look: lookInput(b.Look), Rev: val(b.Rev), Template: val(b.Template),
+	}
 
 	if b.Aspect != nil {
 		in.Aspect = string(*b.Aspect)

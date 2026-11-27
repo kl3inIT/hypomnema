@@ -95,6 +95,7 @@ var policies = map[string]policy{
 	"ChangeVideoLook":             {scope: scopeOwner},
 	"RetryVideoRevision":          {scope: scopeOwner},
 	"ListVideoLooks":              {scope: scopeOwner},
+	"ListVideoTemplates":          {scope: scopeOwner},
 	"PreviewVideoLook":            {scope: scopeOwner},
 	"ListVideoMusic":              {scope: scopeOwner},
 	"ReadVideoMusicAudio":         {scope: scopeOwner, long: true},

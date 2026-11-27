@@ -506,3 +506,117 @@ func TestAWorkerMakesAVideoTheOwnerApproves(t *testing.T) {
 	assert.True(t, failed)
 	assert.Equal(t, "You have no video "+id+".", text)
 }
+
+// Scenario: an agent reads the templates and makes its take into a video with app-ad (issue #1230, rows 3-5):
+// video_templates lists the five, with their sections' words; video_make with template app-ad answers what it was
+// made with, and the owner reads a 9:16 revision with the template's look, the saved default's sections and an end
+// card titled with the take's title. The owner reads the templates through the API; no agent does. A template that
+// is not one is refused with the list.
+func TestAnAgentMakesAVideoFromATemplate(t *testing.T) {
+	t.Parallel()
+
+	r := newVideoRig(t)
+
+	for _, token := range []string{r.worker, r.pi, r.plain} {
+		assert.Contains(t, r.tools(token), devicetool.VideoTemplates)
+	}
+
+	text, failed := r.tool(r.worker, devicetool.VideoTemplates, `{}`)
+	require.False(t, failed, text)
+
+	for _, want := range []string{
+		"app-ad: App ad, 15-30 s, 9:16, an end card.",
+		"feature-announcement: Feature announcement, 30 s, 9:16 or 16:9, no cards.",
+		"product-walkthrough: Product walkthrough, 60-90 s, 16:9, a title card and an end card.",
+		"onboarding: Onboarding / how-to, 20-60 s, 16:9, no cards.",
+		"app-store-preview: App Store preview, 15-30 s, 886x1920, no captions, no cards.",
+		"1. Hook, about 10 words (4 s): ",
+	} {
+		assert.Contains(t, text, want)
+	}
+
+	text, failed = r.tool(r.worker, devicetool.VideoMake, `{"take":"`+r.take+`","template":"billboard"}`)
+	assert.True(t, failed)
+	assert.Contains(t, text, `no template is named "billboard"; the templates are app-ad, feature-announcement`)
+
+	text, failed = r.tool(r.worker, devicetool.VideoMake,
+		`{"take":"`+r.take+`","template":"app-ad","request_id":"t1"}`)
+	require.False(t, failed, text)
+	assert.Contains(t, text, "It is made with the template app-ad: 9:16, an end card. Its 2 lines have 7 words, "+
+		"about 6 s with its cards; the template is 15-30 s.")
+
+	id := videoID(t, text)
+
+	require.Eventually(t, func() bool {
+		text, _ := r.tool(r.worker, devicetool.VideoGet, `{"video":"`+id+`"}`)
+
+		return strings.Contains(text, "revision 1: review")
+	}, 10*time.Second, 20*time.Millisecond)
+
+	status, _, body := r.api(r.owner, http.MethodGet, "/videos/"+id, "", nil)
+	require.Equal(t, http.StatusOK, status, string(body))
+
+	var video struct {
+		Revisions []struct {
+			Aspect   string `json:"aspect"`
+			Captions bool   `json:"captions"`
+			Look     struct {
+				Captions struct {
+					Preset string `json:"preset"`
+				} `json:"captions"`
+				Frame struct {
+					Chrome string `json:"chrome"`
+				} `json:"frame"`
+				Cards *struct {
+					Accent string           `json:"accent"`
+					Title  *json.RawMessage `json:"title"`
+					End    *struct {
+						Title      string `json:"title"`
+						DurationMs int64  `json:"duration_ms"`
+					} `json:"end"`
+				} `json:"cards"`
+			} `json:"look"`
+		} `json:"revisions"`
+	}
+	require.NoError(t, json.Unmarshal(body, &video))
+	require.Len(t, video.Revisions, 1)
+
+	rev := video.Revisions[0]
+	assert.Equal(t, "9:16", rev.Aspect)
+	assert.True(t, rev.Captions)
+	assert.Equal(t, "legacy", rev.Look.Captions.Preset, "the saved default's captions")
+	assert.Equal(t, "full", rev.Look.Frame.Chrome, "and frame")
+	require.NotNil(t, rev.Look.Cards)
+	assert.Equal(t, "#6c8cff", rev.Look.Cards.Accent)
+	assert.Nil(t, rev.Look.Cards.Title, "app-ad has no title card")
+	require.NotNil(t, rev.Look.Cards.End)
+	assert.Equal(t, "Đăng nhập", rev.Look.Cards.End.Title)
+	assert.Equal(t, int64(3000), rev.Look.Cards.End.DurationMs)
+
+	status, _, body = r.api(r.owner, http.MethodGet, "/videos/templates", "", nil)
+	require.Equal(t, http.StatusOK, status, string(body))
+
+	var list struct {
+		Templates []struct {
+			ID      string   `json:"id"`
+			Aspects []string `json:"aspects"`
+			Words   int      `json:"words"`
+			Look    struct {
+				Frame struct {
+					Chrome string `json:"chrome"`
+				} `json:"frame"`
+			} `json:"look"`
+		} `json:"templates"`
+	}
+	require.NoError(t, json.Unmarshal(body, &list))
+	require.Len(t, list.Templates, 5)
+	assert.Equal(t, "app-ad", list.Templates[0].ID)
+	assert.Equal(t, []string{"9:16"}, list.Templates[0].Aspects)
+	assert.Equal(t, 65, list.Templates[0].Words)
+	assert.Equal(t, "full", list.Templates[4].Look.Frame.Chrome)
+
+	for _, token := range []string{r.worker, r.pi, r.coord} {
+		status, _, _ := r.api(token, http.MethodGet, "/videos/templates", "", nil)
+		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, status)
+	}
+}

@@ -57,11 +57,16 @@ import (
 // Aspect is the shape of the video made.
 type Aspect string
 
-// The aspects (issue #818, row 8).
+// The aspects (issue #818, row 8). AppStore is the App Store's app preview for the modern iPhone class, upright, at
+// the exact size Apple accepts (issue #1230, row 4; aidemo's app-store-preview, src/store/presets.ts:44-50).
 const (
 	Portrait  Aspect = "9:16"
 	Landscape Aspect = "16:9"
+	AppStore  Aspect = "886x1920"
 )
+
+// Aspects are the aspects, the default first.
+var Aspects = []Aspect{Portrait, Landscape, AppStore}
 
 // Size is a width and a height in pixels.
 type Size struct {
@@ -76,8 +81,10 @@ func (a Aspect) Size() (Size, error) {
 		return Size{720, 1280}, nil
 	case Landscape:
 		return Size{1280, 720}, nil
+	case AppStore:
+		return Size{886, 1920}, nil
 	default:
-		return Size{}, fmt.Errorf("aspect %q is neither %s nor %s", a, Portrait, Landscape)
+		return Size{}, fmt.Errorf("aspect %q is not one of %s, %s and %s", a, Portrait, Landscape, AppStore)
 	}
 }
 

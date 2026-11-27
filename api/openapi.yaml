@@ -805,6 +805,22 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/VideoLooks" }
         default: { $ref: "#/components/responses/Error" }
+  /videos/templates:
+    get:
+      operationId: ListVideoTemplates
+      summary: The templates a video is made from (owner only; issue #1230)
+      description: >-
+        A template is a stored document: a use case, a target length, the aspects it is made in (the first its
+        default), whether it has captions, the sections its lines are written against, each with its words at 2.5
+        a second, and the look it starts from: its sections over the saved default, its cards apart, each card
+        titled with the video's title when made. POST /videos and POST /videos/preview take one by its id.
+      responses:
+        "200":
+          description: The templates.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VideoTemplates" }
+        default: { $ref: "#/components/responses/Error" }
   /videos/preview:
     post:
       operationId: PreviewVideoLook
@@ -8490,7 +8506,7 @@ components:
           items: { type: string }
         voice: { type: string, description: The voice asked for; absent, each provider's set on Settings → Audio. }
         captions: { type: boolean }
-        aspect: { type: string, enum: ["9:16", "16:9"] }
+        aspect: { $ref: "#/components/schemas/VideoAspect" }
         provider: { type: string, description: The provider that spoke every scene. }
         model: { type: string }
         used_voice: { type: string, description: The voice it spoke with; absent, the provider's default. }
@@ -8556,10 +8572,19 @@ components:
       properties:
         take: { type: string, pattern: "^tk_[0-9a-f]{16}$" }
         title: { type: string, maxLength: 200, description: "The video's title, on its first make; absent: the take's." }
-        aspect: { type: string, enum: ["9:16", "16:9"], description: "Absent: 9:16." }
-        captions: { type: boolean, description: "Absent: true." }
+        aspect:
+          $ref: "#/components/schemas/VideoAspect"
+          description: "One of the template's; absent: the template's first, else 9:16."
+        captions: { type: boolean, description: "Absent: the template's, else true." }
         voice: { type: string, maxLength: 100, description: "Absent: each provider's set on Settings → Audio." }
         look: { $ref: "#/components/schemas/VideoLookInput" }
+        template:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          maxLength: 40
+          description: >-
+            A template's id of GET /videos/templates: its look's sections in place of the default's where the make
+            sends none, its cards titled with the video's title. A template's look is not saved in the default.
     VideoLookChange:
       type: object
       additionalProperties: false
@@ -8571,9 +8596,16 @@ components:
       required: [take]
       properties:
         take: { type: string, pattern: "^tk_[0-9a-f]{16}$" }
-        aspect: { type: string, enum: ["9:16", "16:9"], description: "Absent: 9:16." }
-        captions: { type: boolean, description: "Absent: true." }
+        aspect:
+          $ref: "#/components/schemas/VideoAspect"
+          description: "One of the template's; absent: the template's first, else 9:16."
+        captions: { type: boolean, description: "Absent: the template's, else true." }
         look: { $ref: "#/components/schemas/VideoLookInput" }
+        template:
+          type: string
+          pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+          maxLength: 40
+          description: A template's id, the look resolved as a make with it; refused with rev.
         rev:
           type: integer
           minimum: 1
@@ -8584,6 +8616,66 @@ components:
           description: >-
             A card of the look to draw in place of the take's picture, as the video shows it between its fades;
             absent: the picture. A look without that card is refused with conflict.
+    VideoAspect:
+      type: string
+      description: "The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920."
+      enum: ["9:16", "16:9", "886x1920"]
+      x-enum-varnames: [AspectPortrait, AspectLandscape, AspectAppStore]
+    VideoTemplates:
+      type: object
+      required: [templates]
+      properties:
+        templates:
+          type: array
+          items: { $ref: "#/components/schemas/VideoTemplate" }
+    VideoTemplate:
+      type: object
+      description: A template of a video (issue #1230), the look it starts from resolved over the saved default now.
+      required: [id, name, use_case, length, aspects, captions, sections, words, look]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        use_case: { type: string }
+        length: { $ref: "#/components/schemas/VideoTemplateLength" }
+        aspects:
+          type: array
+          description: The aspects it is made in, its default first.
+          items: { $ref: "#/components/schemas/VideoAspect" }
+        captions: { type: boolean, description: Whether its videos have captions unless the make says. }
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/VideoTemplateSection" }
+        words: { type: integer, description: The sections' words. }
+        look: { $ref: "#/components/schemas/VideoLook" }
+        cards: { $ref: "#/components/schemas/VideoTemplateCards" }
+    VideoTemplateLength:
+      type: object
+      description: How long its videos are meant to be, in seconds.
+      required: [min_s, max_s]
+      properties:
+        min_s: { type: integer }
+        max_s: { type: integer }
+    VideoTemplateSection:
+      type: object
+      required: [name, purpose, words, seconds]
+      properties:
+        name: { type: string }
+        purpose: { type: string }
+        words: { type: integer }
+        seconds: { type: number, format: double, description: Its words at 2.5 a second. }
+    VideoTemplateCards:
+      type: object
+      description: The cards a template's video has, each titled with the video's title; absent, none.
+      required: [accent]
+      properties:
+        accent: { type: string }
+        title: { $ref: "#/components/schemas/VideoTemplateCard" }
+        end: { $ref: "#/components/schemas/VideoTemplateCard" }
+    VideoTemplateCard:
+      type: object
+      required: [duration_ms]
+      properties:
+        duration_ms: { type: integer, format: int64 }
     VideoLookInput:
       type: object
       additionalProperties: false

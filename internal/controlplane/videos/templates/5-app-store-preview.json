@@ -1,0 +1,15 @@
+{
+  "id": "app-store-preview",
+  "name": "App Store preview",
+  "use_case": "An App Store app preview for the modern iPhone: the app's own screen only, at 886x1920, with no frame, no cards and no captions burned in.",
+  "length": { "min_s": 15, "max_s": 30 },
+  "aspects": ["886x1920"],
+  "captions": false,
+  "sections": [
+    { "name": "Step 1", "purpose": "One feature, shown on the app's own screen.", "words": 15 },
+    { "name": "Step 2", "purpose": "One feature, shown on the app's own screen.", "words": 15 },
+    { "name": "Step 3", "purpose": "One feature, shown on the app's own screen.", "words": 15 }
+  ],
+  "look": { "frame": { "chrome": "full" }, "cards": {} },
+  "from": "aidemo docs/blog/app-preview-video/index.md:9,25-29,62 and src/store/presets.ts:44-50; the steps' words are app-ad's (inferred)"
+}

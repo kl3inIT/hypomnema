@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
-	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 )
 
 // The control plane's tools for an agent (issue #536, the decision
@@ -43,7 +42,8 @@ import (
 //   - node_exec, node_process, node_process_kill (nodes.go, issue #543): a
 //     worker and a Bot's pi;
 //   - video_make, video_get (videos.go, issue #818): a worker and a Bot's pi,
-//     for the takes each filmed;
+//     for the takes each filmed; video_templates (issue #1230), the templates
+//     video_make takes;
 //   - browser_video_start, browser_video_say, browser_video_stop
 //     (browsertakes.go, issue #1189): an agent with its own tab, beside the
 //     browser's tools.
@@ -224,7 +224,7 @@ func (s *Server) callTool(w http.ResponseWriter, r *http.Request) {
 		refuse(w, http.StatusNotFound, "this agent has no tool "+asked.Tool)
 	case slices.Contains(nodeTools, asked.Tool) && s.hasNodeTools(a):
 		s.nodeCall(w, r, a, asked)
-	case (asked.Tool == devicetool.VideoMake || asked.Tool == devicetool.VideoGet) && s.hasVideoTools(a):
+	case slices.Contains(videoToolNames, asked.Tool) && s.hasVideoTools(a):
 		s.videoCall(w, r, a, asked)
 	case slices.Contains(browserTakeTools, asked.Tool) && s.hasBrowserTakes(a):
 		s.browserTakeCall(w, r, a, asked)

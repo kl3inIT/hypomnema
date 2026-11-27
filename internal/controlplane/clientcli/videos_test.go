@@ -29,6 +29,8 @@ type cliVideos struct {
 	looks    []string
 	previews []videos.PreviewRequest
 	tracks   []videos.Track
+	// templates are the templates the makes named.
+	templates []string
 }
 
 func (c *cliVideos) List(context.Context) ([]videos.Video, error) { return []videos.Video{c.v}, nil }
@@ -45,8 +47,18 @@ func (c *cliVideos) Make(_ context.Context, req videos.MakeRequest) (videos.Vide
 	c.asked = append(c.asked, "make "+req.Take+" "+req.Aspect+" "+req.Voice)
 	c.keys = append(c.keys, req.RequestID)
 	c.looks = append(c.looks, lookJSON(req.Look))
+	c.templates = append(c.templates, req.Template)
 
 	return c.v, c.v.Latest(), nil
+}
+
+func (c *cliVideos) Templates(context.Context) ([]videos.TemplateLook, error) {
+	out := []videos.TemplateLook{}
+	for _, t := range videos.Templates() {
+		out = append(out, videos.TemplateLook{Template: t, Look: videos.DefaultLook()})
+	}
+
+	return out, nil
 }
 
 func (c *cliVideos) Approve(_ context.Context, id string, rev int) (videos.Video, error) {
@@ -358,4 +370,44 @@ func TestTheCLIKeepsTheMusicAndChoosesIt(t *testing.T) {
 	_, err = w.cmd(t, "videos", "look", "vid_abc", "1", "--music", "none")
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"music":{"track":"none"}}`, fake.looks[1])
+}
+
+// Scenario: the owner lists the templates and makes a video from one with the CLI (issue #1230, row 5).
+func TestTheCLIMakesAVideoFromATemplate(t *testing.T) {
+	t.Parallel()
+
+	fake := &cliVideos{v: videos.Video{
+		ID: "vid_abc", Take: "tk_0123456789abcdef", Title: "Đăng nhập", CreatedAt: time.Now(),
+		Revisions: []videos.Revision{{Rev: 1, State: videos.Queued, Lines: []string{"Mở"}, Aspect: "9:16",
+			Captions: true, Warnings: []string{}, Look: videos.DefaultLook()}},
+	}}
+
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithVideos(fake) })
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "videos", "templates")
+	require.NoError(t, err)
+	assert.Contains(t, out, "app-ad  App ad, 15-30 s, 9:16, an end card")
+	assert.Contains(t, out, "  Hook, 10 words (4 s): ")
+	assert.Contains(t, out, "feature-announcement  Feature announcement, 30 s, 9:16 or 16:9, no cards")
+	assert.Contains(t, out, "product-walkthrough  Product walkthrough, 60-90 s, 16:9, a title card and an end card")
+	assert.Contains(t, out, "app-store-preview  App Store preview, 15-30 s, 886x1920, no captions, no cards")
+
+	out, err = w.cmd(t, "videos", "templates", "--json")
+	require.NoError(t, err)
+	assert.Contains(t, out, `"use_case"`)
+
+	_, err = w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--template", "app-ad")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"app-ad"}, fake.templates)
+	assert.Equal(t, "make tk_0123456789abcdef  ", fake.asked[0], "the aspect left to the template")
+
+	_, err = w.cmd(t, "videos", "make", "tk_0123456789abcdef", "--template", "App Ad")
+	require.Error(t, err, "the API refuses a template that is not an id")
+
+	jpg := filepath.Join(t.TempDir(), "look.jpg")
+	_, err = w.cmd(t, "videos", "preview", "tk_0123456789abcdef", "--template", "app-store-preview", "--out", jpg)
+	require.NoError(t, err)
+	require.Len(t, fake.previews, 1)
+	assert.Equal(t, "app-store-preview", fake.previews[0].Template)
 }
