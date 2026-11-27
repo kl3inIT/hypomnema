@@ -628,6 +628,8 @@ type scriptedPi struct {
 	t       *testing.T
 	p       *proc
 	prompts []string
+	// refuse is how many prompts pi refuses before it takes one.
+	refuse int
 }
 
 func (w *scriptedPi) Write(line []byte) (int, error) {
@@ -636,14 +638,19 @@ func (w *scriptedPi) Write(line []byte) (int, error) {
 		return 0, err
 	}
 
-	data := json.RawMessage(`{}`)
+	data, success := json.RawMessage(`{}`), true
 	if cmd["type"] == "prompt" {
 		w.prompts = append(w.prompts, fmt.Sprint(cmd["message"]))
 		data = json.RawMessage(`{"disposition":"started"}`)
+
+		if w.refuse > 0 {
+			w.refuse--
+			success = false
+		}
 	}
 
 	reply, err := json.Marshal(map[string]any{
-		"type": "response", "id": cmd["id"], "command": cmd["type"], "success": true, "data": data,
+		"type": "response", "id": cmd["id"], "command": cmd["type"], "success": success, "data": data,
 	})
 	if err != nil {
 		return 0, err
@@ -661,14 +668,7 @@ func (*scriptedPi) Close() error { return nil }
 func scripted(t *testing.T, svc *orchestration.Service, chatID string) func() string {
 	t.Helper()
 
-	sup := New(svc, Config{Command: []string{"pi"}})
-	p := &proc{
-		s: sup, chatID: chatID, token: "scripted", done: make(chan struct{}), lastActive: time.Now(),
-		waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
-	}
-	pi := &scriptedPi{t: t, p: p}
-	p.stdin = pi
-	sup.procs[chatID] = p
+	sup, p, pi := scriptedSupervisor(t, svc, chatID)
 
 	return func() string {
 		t.Helper()
@@ -685,6 +685,22 @@ func scripted(t *testing.T, svc *orchestration.Service, chatID string) func() st
 
 		return pi.prompts[len(pi.prompts)-1]
 	}
+}
+
+// scriptedSupervisor is a supervisor that does not run, whose chat's pi is a scriptedPi.
+func scriptedSupervisor(t *testing.T, svc *orchestration.Service, chatID string) (*Supervisor, *proc, *scriptedPi) {
+	t.Helper()
+
+	sup := New(svc, Config{Command: []string{"pi"}})
+	p := &proc{
+		s: sup, chatID: chatID, token: "scripted", done: make(chan struct{}), lastActive: time.Now(),
+		waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
+	}
+	pi := &scriptedPi{t: t, p: p}
+	p.stdin = pi
+	sup.procs[chatID] = p
+
+	return sup, p, pi
 }
 
 // Scenario (issue #1172): the owner writes to a busy Bot whose Runs keep waking it. Each idle pi is given one kind,
