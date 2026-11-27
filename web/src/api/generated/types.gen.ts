@@ -1447,6 +1447,62 @@ export type NodeGpu = {
 
 export type GitHostKind = 'github' | 'gitlab';
 
+/**
+ * The owner's GitHub App, without its private key or webhook secret.
+ */
+export type GitHubApp = {
+  registered: boolean;
+  app_id?: number;
+  slug?: string;
+  owner?: string;
+  html_url?: string;
+  /**
+   * GitHub's page that installs the App on repositories.
+   */
+  install_url?: string;
+  /**
+   * The control plane's page the owner registers the App from, in his signed-in browser.
+   */
+  setup_url: string;
+  installations: Array<GitHubAppInstallation>;
+  last_delivery?: GitHubDelivery;
+};
+
+export type GitHubAppInstallation = {
+  /**
+   * owner/name, in lower case
+   */
+  repository: string;
+  installation_id: number;
+  account: string;
+};
+
+export type GitHubDelivery = {
+  id: string;
+  event: string;
+  action?: string;
+  repository?: string;
+  received_at: string;
+};
+
+export type GitHubAppRedelivery = {
+  /**
+   * The id of the delivery sent again.
+   */
+  guid: string;
+  event: string;
+};
+
+export type PullRequestCi = {
+  pull_request: string;
+  head?: string;
+  state: 'pending' | 'passed' | 'failed' | 'merged' | 'closed';
+  /**
+   * The checks that failed, when the state is failed.
+   */
+  failed?: Array<string>;
+};
+
 export type GitHost = {
   host: string;
   kind: GitHostKind;
@@ -5492,9 +5548,9 @@ export type TodoDue = {
 };
 
 /**
- * zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
+ * zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item. comment is the owner's comment on the item itself, by the revision it made: the evidence a Bot gives that he did it.
  */
-export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message' | 'whatsapp_message' | 'zalo_sent' | 'whatsapp_sent' | 'lark_sent';
+export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message' | 'whatsapp_message' | 'zalo_sent' | 'whatsapp_sent' | 'lark_sent' | 'comment';
 
 /**
  * A typed reference, to where an item came from or to what shows it is done.
@@ -5502,7 +5558,7 @@ export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_reque
 export type TodoLink = {
   kind: TodoLinkKind;
   /**
-   * The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+   * The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq; a comment's revision.
    */
   ref: string;
   label?: string;
@@ -8028,6 +8084,115 @@ export type ListIntegrationsResponses = {
 };
 
 export type ListIntegrationsResponse = ListIntegrationsResponses[keyof ListIntegrationsResponses];
+
+export type GetGitHubAppData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations/github/app';
+};
+
+export type GetGitHubAppErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGitHubAppError = GetGitHubAppErrors[keyof GetGitHubAppErrors];
+
+export type GetGitHubAppResponses = {
+  /**
+   * The App.
+   */
+  200: GitHubApp;
+};
+
+export type GetGitHubAppResponse = GetGitHubAppResponses[keyof GetGitHubAppResponses];
+
+export type SyncGitHubAppInstallationsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations/github/app/installations';
+};
+
+export type SyncGitHubAppInstallationsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SyncGitHubAppInstallationsError = SyncGitHubAppInstallationsErrors[keyof SyncGitHubAppInstallationsErrors];
+
+export type SyncGitHubAppInstallationsResponses = {
+  /**
+   * The App, with its installations as GitHub says them now.
+   */
+  200: GitHubApp;
+};
+
+export type SyncGitHubAppInstallationsResponse = SyncGitHubAppInstallationsResponses[keyof SyncGitHubAppInstallationsResponses];
+
+export type TestGitHubAppDeliveryData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations/github/app/test-delivery';
+};
+
+export type TestGitHubAppDeliveryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type TestGitHubAppDeliveryError = TestGitHubAppDeliveryErrors[keyof TestGitHubAppDeliveryErrors];
+
+export type TestGitHubAppDeliveryResponses = {
+  /**
+   * The delivery GitHub was asked to send again.
+   */
+  200: GitHubAppRedelivery;
+};
+
+export type TestGitHubAppDeliveryResponse = TestGitHubAppDeliveryResponses[keyof TestGitHubAppDeliveryResponses];
+
+export type WaitPullRequestCiData = {
+  body?: never;
+  path?: never;
+  query: {
+    /**
+     * The pull request's URL, or owner/name#number.
+     */
+    pull_request: string;
+    /**
+     * How many seconds the answer may wait for a change, at most 50.
+     */
+    wait?: number;
+  };
+  url: '/pull-requests/ci';
+};
+
+export type WaitPullRequestCiErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type WaitPullRequestCiError = WaitPullRequestCiErrors[keyof WaitPullRequestCiErrors];
+
+export type WaitPullRequestCiResponses = {
+  /**
+   * The pull request's CI.
+   */
+  200: PullRequestCi;
+};
+
+export type WaitPullRequestCiResponse = WaitPullRequestCiResponses[keyof WaitPullRequestCiResponses];
 
 export type PutIntegrationClientData = {
   body: NewIntegrationClientWritable;

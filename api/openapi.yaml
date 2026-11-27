@@ -1165,6 +1165,70 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/IntegrationList" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/github/app:
+    get:
+      operationId: GetGitHubApp
+      summary: >-
+        The owner's GitHub App (issue #1262): whether it is registered, the repositories it is installed on, and the
+        last delivery it was sent; never its key or secret. Only the owner
+      responses:
+        "200":
+          description: The App.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHubApp" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/github/app/installations:
+    post:
+      operationId: SyncGitHubAppInstallations
+      summary: Read again from GitHub the repositories the App is installed on, and keep them; only the owner
+      responses:
+        "200":
+          description: The App, with its installations as GitHub says them now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHubApp" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/github/app/test-delivery:
+    post:
+      operationId: TestGitHubAppDelivery
+      summary: >-
+        Ask GitHub to send the App's latest delivery again, as a test. GitHub keeps its id, so the control plane
+        answers it 200 as handled before and last_delivery does not change; GitHub's Recent Deliveries shows the
+        answer. Only the owner
+      responses:
+        "200":
+          description: The delivery GitHub was asked to send again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHubAppRedelivery" }
+        default: { $ref: "#/components/responses/Error" }
+  /pull-requests/ci:
+    get:
+      operationId: WaitPullRequestCI
+      summary: >-
+        Wait a while for the CI of a pull request on a repository the GitHub App is installed on (issue #1262,
+        `hypomnema ci wait`), and answer it as it is then. The App's events end the wait; the control plane reads
+        the checks when the first wait asks and once every five minutes without an event. Conflict when the App is
+        not installed on the repository
+      parameters:
+        - name: pull_request
+          in: query
+          required: true
+          description: The pull request's URL, or owner/name#number.
+          schema: { type: string, minLength: 3, maxLength: 512 }
+        - name: wait
+          in: query
+          required: false
+          description: How many seconds the answer may wait for a change, at most 50.
+          schema: { type: integer, minimum: 0, maximum: 50 }
+      responses:
+        "200":
+          description: The pull request's CI.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PullRequestCI" }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/client:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -7621,6 +7685,61 @@ components:
     GitHostKind:
       type: string
       enum: [github, gitlab]
+    GitHubApp:
+      type: object
+      description: The owner's GitHub App, without its private key or webhook secret.
+      required: [registered, setup_url, installations]
+      properties:
+        registered: { type: boolean }
+        app_id: { type: integer, format: int64 }
+        slug: { type: string }
+        owner: { type: string }
+        html_url: { type: string }
+        install_url:
+          type: string
+          description: GitHub's page that installs the App on repositories.
+        setup_url:
+          type: string
+          description: The control plane's page the owner registers the App from, in his signed-in browser.
+        installations:
+          type: array
+          items: { $ref: "#/components/schemas/GitHubAppInstallation" }
+        last_delivery: { $ref: "#/components/schemas/GitHubDelivery" }
+    GitHubAppInstallation:
+      type: object
+      required: [repository, installation_id, account]
+      properties:
+        repository: { type: string, description: "owner/name, in lower case" }
+        installation_id: { type: integer, format: int64 }
+        account: { type: string }
+    GitHubDelivery:
+      type: object
+      required: [id, event, received_at]
+      properties:
+        id: { type: string }
+        event: { type: string }
+        action: { type: string }
+        repository: { type: string }
+        received_at: { type: string, format: date-time }
+    GitHubAppRedelivery:
+      type: object
+      required: [guid, event]
+      properties:
+        guid: { type: string, description: "The id of the delivery sent again." }
+        event: { type: string }
+    PullRequestCI:
+      type: object
+      required: [pull_request, state]
+      properties:
+        pull_request: { type: string }
+        head: { type: string }
+        state:
+          type: string
+          enum: [pending, passed, failed, merged, closed]
+        failed:
+          type: array
+          items: { type: string }
+          description: The checks that failed, when the state is failed.
     GitHost:
       type: object
       required: [host, kind, known, has_token, connections]
@@ -11926,10 +12045,11 @@ components:
         zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account,
         named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message,
         zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot
-        gives that they did the item.
+        gives that they did the item. comment is the owner's comment on the item itself, by the revision it made:
+        the evidence a Bot gives that he did it.
       enum:
         [url, chat_message, mail, run, pull_request, meeting_line, lark_message, zalo_message, whatsapp_message,
-         zalo_sent, whatsapp_sent, lark_sent]
+         zalo_sent, whatsapp_sent, lark_sent, comment]
     TodoLink:
       type: object
       required: [kind, ref]
@@ -11940,7 +12060,9 @@ components:
           type: string
           minLength: 1
           maxLength: 2000
-          description: The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+          description: >-
+            The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq; a
+            comment's revision.
         label: { type: string, maxLength: 300 }
         account:
           type: string

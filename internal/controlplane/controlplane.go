@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientcli"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/connproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/githubapp"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/inbox"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 
@@ -337,6 +338,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		},
 		logger: logger,
 	}}
+	// The owner's GitHub App (issue #1262): its installations' tokens stand in for the owner's on the repositories
+	// it is installed on, and its events end the waits for CI.
+	app := githubapp.New(svc, secrets, cfg.PublicURL, &http.Client{Timeout: 30 * time.Second}, logger)
+	tokens.app = app
+	// GitHub's deliveries, signed with the App's secret, which is their only credential.
+	mux.HandleFunc("POST "+githubapp.EventsPath, app.ServeEvents)
 	go tokens.readIdentities(ctx)
 	sshKey := &gitSSHKey{vault: secrets}
 	// Web Push (issue #1047): what waits on the owner is pushed to his devices, signed with a key kept in the vault.
@@ -397,7 +404,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithServedLimits(gatewayServedLimits(subscriptions)).WithServedWire(gatewayServedWire(subscriptions))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
-	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Credential).WithModelKeys(workerKeys.Key).
+	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Credential).WithGitHubApp(app.CoversOffer).
+		WithModelKeys(workerKeys.Key).
 		WithModelSizes(workerKeys.Sizes).
 		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithRuntimeTools(agenttool.RuntimeTools).
 		WithReleaseURL(cfg.NodeReleaseURL)
@@ -537,6 +545,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 			return token.AccessToken, err
 		},
+		// A Bot's gh on a repository the owner's GitHub App is installed on goes with the App's token (issue #1262).
+		RepoToken: func(ctx context.Context, id, repo string) (string, bool) {
+			token, ok, err := app.TokenFor(ctx, id, repo)
+
+			return token.Value, err == nil && ok
+		},
 		// A request to AWS is signed again with the session of the role it was made for (issue #331).
 		AWS: integrations.RoleCredentials,
 		// A Connection that has its own address (Superset) is sent a relayed request by the service that signs
@@ -665,6 +679,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// A Bot's pi runs its own Routines with its routines tool, through the same runner (issue #536).
 	agents.WithRoutines(routineRunner)
 	agents.WithGitSSHKey(sshKey.Pair)
+	agents.WithGitHubApp(app)
 
 	// The meetings (issue #721): a recording heard by the gateway's speech service and written up by the owner's
 	// notes model, in the background, both counted on the meetings' gateway key.
@@ -679,9 +694,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// A Bot reads them with its meetings' tools, to add their actions to the owner's Inbox (issue #1023).
 	agents.WithMeetings(meetingWork)
 
+	// A file a Bot's Inbox comment names is its work only when its folder holds it (issue #1206).
+	if bots != nil {
+		agents.WithBotFiles(bots)
+	}
+
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithRunCoordinator(cfg.CoordinatorToken).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
-		WithHostTokens(tokens).WithGitSSHKey(sshKey).
+		WithHostTokens(tokens).WithGitSSHKey(sshKey).WithGitHubApp(clientGitHubApp{app}).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).WithDevices(nodes).
 		WithWorkspaces(nodes.Files, bots).WithChatFiles(newChatFiles(cfg.ChatRmCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).

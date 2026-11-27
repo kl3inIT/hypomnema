@@ -47,6 +47,9 @@ type plane struct {
 	tempIsolation *nodeproto.TempIsolation
 	// questionParts is what the node says at hello: it tells its worker every decision of a question (issue #1219).
 	questionParts bool
+	// githubApp is what the node says at hello: it gives its workers fresh tokens of the owner's GitHub App (issue
+	// #1262).
+	githubApp bool
 }
 
 func newPlane(t *testing.T) *plane {
@@ -86,7 +89,7 @@ func (p *plane) hello(token string, claims ...nodeproto.Claim) (int, nodeproto.H
 		InstanceID: "inst_1", DaemonVersion: "test", WorktreeRoot: "/srv/wt",
 		Runtimes: []nodeproto.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}},
 		System:   nodeproto.SystemInfo{OS: "linux", Arch: "arm64"},
-		Claims:   claims, TempIsolation: p.tempIsolation, QuestionParts: p.questionParts,
+		Claims:   claims, TempIsolation: p.tempIsolation, QuestionParts: p.questionParts, GitHubApp: p.githubApp,
 	})
 	require.NoError(p.t, err)
 
@@ -508,6 +511,43 @@ func TestReviewPendingOfferTokenRotation(t *testing.T) {
 	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
 	assert.Equal(t, [3]string{"ghp_new", "hubot", "2+hubot@users.noreply.github.com"},
 		[3]string{offer.RepoToken, offer.GitName, offer.GitEmail})
+}
+
+// Scenario (issue #1262): the owner's GitHub App is installed on the Task's repository. A node that said at hello
+// that it asks for the App's token at each use gets an offer marked as the App's and carrying no token, so none is
+// kept with the offer on the node (review round 1); a node of an earlier release, which would need a token in the
+// offer for the whole Dispatch, gets the owner's, as before.
+func TestAnOfferCarriesTheAppsTokenOnlyToANodeThatRefreshesIt(t *testing.T) {
+	t.Parallel()
+
+	for _, refreshes := range []bool{true, false} {
+		p := newPlane(t)
+		p.githubApp = refreshes
+
+		p.api.WithHostTokens(func(context.Context, string, string) (HostCredential, bool) {
+			return HostCredential{ //nolint:gosec // a test's made-up token
+				Token: "ghp_the_owners", Identity: githost.Identity{Name: "octo", Email: "1+octo@users.noreply.github.com"},
+			}, true
+		}).WithGitHubApp(func(_ context.Context, host, path string) bool {
+			return host == "github.com" && path == "kl3inIT/second-bite"
+		})
+
+		conn := p.connect()
+		p.task()
+
+		var offer nodeproto.Offer
+		require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+
+		if refreshes {
+			assert.Empty(t, offer.RepoToken, "the node asks for the App's token at each use")
+			assert.True(t, offer.GitHubApp)
+		} else {
+			assert.Equal(t, "ghp_the_owners", offer.RepoToken)
+			assert.False(t, offer.GitHubApp)
+		}
+
+		assert.Equal(t, "octo", offer.GitName, "the commits still name the owner's account")
+	}
 }
 
 // Scenario: the owner gave github.com a token. The offer of a Task on GitHub

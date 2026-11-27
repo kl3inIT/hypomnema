@@ -171,11 +171,16 @@ type Server struct {
 	// gitSSHKey is the control plane's SSH key for git (issue #625, gitssh.go); nil when the control plane gave
 	// none.
 	gitSSHKey GitSSHKey
+	// githubApp is the owner's GitHub App's tokens and CI waits for workers (issue #1262); nil when none is wired.
+	githubApp GitHubApp
 	// meetings is what the meetings' tools read (issue #1023, meetings.go); nil when the control plane gave none.
 	meetings Meetings
 	// bg runs a Bot's background commands (issue #1084, background.go); nil when the control plane gave none.
-	bg     Background
-	logger *slog.Logger
+	bg Background
+	// botFiles reads a Bot's folder, so that a file its Inbox comment names counts as its work only when it is
+	// there (issue #1206, botfiles.go); nil reads none.
+	botFiles BotFiles
+	logger   *slog.Logger
 	// calls is how many tool calls run now (ToolCalls).
 	calls atomic.Int64
 }
@@ -216,6 +221,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+agenttool.PathTools, s.listTools)
 	mux.HandleFunc("POST "+agenttool.PathToolsCall, s.counted(s.callTool))
 	mux.HandleFunc("GET "+agenttool.PathGitSSHKey, s.gitSSHKeyFor)
+	mux.HandleFunc("POST "+agenttool.PathGitHubToken, s.githubToken)
+	mux.HandleFunc("GET "+agenttool.PathCIWait, s.ciWait)
 	mux.HandleFunc("POST "+agenttool.PathBackground, s.background)
 }
 

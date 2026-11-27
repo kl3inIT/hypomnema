@@ -44,6 +44,10 @@ type Attached struct {
 	// From is the Bot's chat it comments from: its files are read through the item's own chat when that is the
 	// Bot's, else through this one.
 	From string
+	// Read are the files the caller found in the Bot's folder (the agent API, issue #1206), at the paths the comment
+	// keeps (FolderPath): the comment is the Bot's work as evidence only when every file it keeps is one of them
+	// (botsWork).
+	Read []string
 }
 
 // checked is what a comment carries, its paths made relative as the chat reads them (media.ts folderPath), or why
@@ -66,7 +70,7 @@ func (a Attached) checked(actor Actor) (Attached, error) {
 			MaxCommentFiles, MaxCommentArtifacts)
 	}
 
-	out := Attached{From: a.From}
+	out := Attached{From: a.From, Read: a.Read}
 
 	for _, f := range a.Files {
 		p, err := folderPath(f)
@@ -88,6 +92,10 @@ func (a Attached) checked(actor Actor) (Attached, error) {
 
 	return out, nil
 }
+
+// FolderPath is the path a comment keeps of a file in the Bot's folder (issue #1206): what the agent API reads to
+// say the file is there, so that the file read is the file kept.
+func FolderPath(raw string) (string, error) { return folderPath(raw) }
 
 // folderPath is a file's path relative to the Bot's folder, without the ./ a reply may begin it with.
 func folderPath(raw string) (string, error) {
@@ -149,6 +157,9 @@ func (a Attached) after(ctx context.Context, q *store.Queries, actor Actor, text
 	}
 
 	after["files"], after["chat"] = a.Files, chat
+	if slices.IndexFunc(a.Files, func(f string) bool { return !slices.Contains(a.Read, f) }) < 0 {
+		after["files_checked"] = true
+	}
 
 	return after, nil
 }

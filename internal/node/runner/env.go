@@ -69,3 +69,15 @@ func HostEnv() []string {
 
 	return out
 }
+
+// PathOf is the PATH an environment of the worker's sets last, which a host's environment may set first (the
+// owner's GitHub App's commands, issue #1262); Path when it sets none.
+func PathOf(env []string) string {
+	for i := len(env) - 1; i >= 0; i-- {
+		if path, ok := strings.CutPrefix(env[i], "PATH="); ok {
+			return path
+		}
+	}
+
+	return Path()
+}

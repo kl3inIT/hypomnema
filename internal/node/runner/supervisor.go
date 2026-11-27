@@ -35,6 +35,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/githubapp"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/tempns"
@@ -292,7 +293,9 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 	var hostEnv []string
 
 	if o.Repo != "" {
-		src, err := s.repoSource(o)
+		// The node's own clone and fetch use a fresh token of the owner's GitHub App when the offer is the App's,
+		// which carries none (issue #1262).
+		src, err := s.freshSource(ctx, o)
 		if err != nil {
 			return err
 		}
@@ -300,6 +303,17 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 		// The worker's git, gh and glab act with the host's token, when the offer carried one, and commit as the
 		// account it belongs to (issue #991).
 		hostEnv = src.WorkerEnv()
+
+		// With the App, no token goes into the worker's environment, nor into its spec, which keeps it: its gh and
+		// git ask for a fresh one at each call instead (issue #1262, review round 1).
+		if o.GitHubApp {
+			app, err := githubapp.Prepare(dir, s.Exe, s.URL, o.AgentKey, Path())
+			if err != nil {
+				return err
+			}
+
+			hostEnv = append(githubapp.WithoutHostToken(hostEnv), app...)
+		}
 
 		maker := s.Worktrees
 		maker.TempDir, maker.Isolation = temp, s.Isolation

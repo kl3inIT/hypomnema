@@ -603,6 +603,23 @@ type GitHost struct {
 	CreatedAt int64
 }
 
+type GithubAppInstallation struct {
+	Repository     string
+	RepositoryID   int64
+	InstallationID int64
+	Account        string
+	UpdatedAt      int64
+}
+
+type GithubDelivery struct {
+	ID         string
+	Event      string
+	Action     string
+	Repository string
+	Payload    sql.NullString
+	ReceivedAt int64
+}
+
 type InboxChatRead struct {
 	Integration string
 	Label       string
@@ -835,6 +852,18 @@ type Provider struct {
 	Source    string
 	CreatedAt int64
 	UpdatedAt int64
+}
+
+type PullRequestCi struct {
+	Repository string
+	Number     int64
+	Head       string
+	State      string
+	Failed     string
+	ReadAt     int64
+	Version    int64
+	Completed  string
+	UpdatedAt  int64
 }
 
 type PullRequestLookup struct {
@@ -1166,6 +1195,15 @@ type Todo struct {
 	Priority        int64
 	PriorityReason  string
 	ProjectID       sql.NullString
+}
+
+type TodoChatDepartment struct {
+	SourceKind    string
+	SourceAccount string
+	SourceID      string
+	DepartmentID  string
+	TodoID        string
+	UpdatedAt     int64
 }
 
 type TodoEvent struct {

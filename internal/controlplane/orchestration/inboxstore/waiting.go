@@ -95,6 +95,19 @@ func (s *Store) WaitOn(ctx context.Context, c Change, w WaitOn) (Todo, error) {
 					return nil, err
 				}
 
+				// An item without a department takes its chat's in the move's own write, as a Bot's Edit does (issue
+				// #1206, review round 5 of PR #1243); one with a department keeps it.
+				if !next.ProjectID.Valid {
+					src := Source{Kind: cur.SourceKind, ID: cur.SourceID, Account: cur.SourceAccount}
+
+					project, err := chatDepartment(ctx, q, src)
+					if err != nil {
+						return nil, err
+					}
+
+					next.ProjectID = project
+				}
+
 				next.AssigneeKind, next.Assignee = Person, w.By
 				next.State = Open
 				next.WhyOpen = nullString(Waiting)
