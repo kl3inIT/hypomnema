@@ -25,6 +25,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -211,20 +212,57 @@ func decodeStrict(source string, v any) error {
 // legacyTypeNames are the names the YAML decoder's errors gave the types a document is read into while they were
 // orchestration's (issue #1241). The client API returns such an error's text as it is, so a moved type keeps its old
 // name there.
-var legacyTypeNames = strings.NewReplacer(
-	"profilestore.Source", "orchestration.profileSource",
-	"profilestore.requestsSource", "orchestration.requestsSource",
-	"profilestore.providerSource", "orchestration.providerSource",
-	"profilestore.roleRouting", "orchestration.roleRouting",
-	"profilestore.RoleEntry", "orchestration.roleEntry",
-)
+var legacyTypeNames = map[string]string{
+	"profilestore.Source":         "orchestration.profileSource",
+	"profilestore.requestsSource": "orchestration.requestsSource",
+	"profilestore.providerSource": "orchestration.providerSource",
+	"profilestore.roleRouting":    "orchestration.roleRouting",
+	"profilestore.RoleEntry":      "orchestration.roleEntry",
+}
 
-// decodeError is the YAML decoder's error, its text naming the types as legacyTypeNames does.
+// qualifiedName is a package-qualified Go type name inside a type, such as profilestore.RoleEntry in
+// map[string][]profilestore.RoleEntry.
+var qualifiedName = regexp.MustCompile(`\bprofilestore\.\w+`)
+
+// decodeError is the YAML decoder's error, naming each type it was decoding into as legacyTypeNames does. Only the
+// type the decoder writes at the end of each of its lines is renamed: what the document said, a field's name or a
+// value, which comes before it, is kept as written.
 type decodeError struct{ err error }
 
-func (e decodeError) Error() string { return legacyTypeNames.Replace(e.err.Error()) }
+func (e decodeError) Error() string {
+	var te *yaml.TypeError
+	if !errors.As(e.err, &te) {
+		return e.err.Error()
+	}
+
+	lines := make([]string, len(te.Errors))
+	for i, line := range te.Errors {
+		lines[i] = legacyTypeOf(line)
+	}
+
+	return (&yaml.TypeError{Errors: lines}).Error()
+}
 
 func (e decodeError) Unwrap() error { return e.err }
+
+// legacyTypeOf renames the moved types in the type a decoder's line ends with: "… into <type>" or "… in type <type>"
+// (go.yaml.in/yaml/v3 decode.go, d.terrors), where the type, out.Type(), is the line's last word.
+func legacyTypeOf(line string) string {
+	at := strings.LastIndex(line, " ") + 1
+	head, typ := line[:at], line[at:]
+
+	if !strings.HasSuffix(head, " into ") && !strings.HasSuffix(head, " in type ") {
+		return line
+	}
+
+	return head + qualifiedName.ReplaceAllStringFunc(typ, func(name string) string {
+		if old, ok := legacyTypeNames[name]; ok {
+			return old
+		}
+
+		return name
+	})
+}
 
 // SourceDigest is the SHA-256 of a source with line endings normalized, as a version stores it.
 func SourceDigest(source string) string {
