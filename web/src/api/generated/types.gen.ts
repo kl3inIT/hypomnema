@@ -2867,7 +2867,7 @@ export type CreatedGatewayKey = {
 };
 
 /**
- * A tool Settings → Connect a tool writes a file for.
+ * A tool that can be configured from the Connect a tool button on Gateway keys.
  */
 export type GatewayTool = 'claude_code' | 'codex' | 'omp' | 'opencode';
 

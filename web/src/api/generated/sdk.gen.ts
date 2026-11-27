@@ -1441,7 +1441,7 @@ export const getGatewayKeyValue = <ThrowOnError extends boolean = true>(options:
 /**
  * The file that points a tool at the gateway with an owner-made key; only the owner
  *
- * Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+ * The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
  */
 export const getGatewayToolConfig = <ThrowOnError extends boolean = true>(options: Options<GetGatewayToolConfigData, ThrowOnError>): RequestResult<GetGatewayToolConfigResponses, GetGatewayToolConfigErrors, ThrowOnError> => (options.client ?? client).get<GetGatewayToolConfigResponses, GetGatewayToolConfigErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
