@@ -355,3 +355,64 @@ func TestAProviderAddsOnlyTheVersionsItsOwnerKeeps(t *testing.T) {
 	_, err = s.ApplyProvider(ctx, "", "name: bad\nkind: codex_subscription\nmin_versions: {gpt: six}\n")
 	require.ErrorIs(t, err, storeerr.ErrInvalid)
 }
+
+// Review of PR #1267, round 1: a document that cannot be read is refused with the YAML decoder's own text, which
+// the client API returns as it is. Moving the types into this package kept that text: each still names the type as
+// orchestration named it, as main's errors were read on 4e533fce.
+func TestAnUnreadableDocumentIsRefusedWithTheSameText(t *testing.T) {
+	t.Parallel()
+
+	s := newStore(t)
+	ctx := t.Context()
+
+	const prefix = "invalid request: not a valid document: yaml: unmarshal errors:\n  "
+
+	profile := func(source string) error {
+		_, _, err := s.ApplyProfile(ctx, "", source)
+
+		return err
+	}
+	provider := func(source string) error {
+		_, err := s.ApplyProvider(ctx, "", source)
+
+		return err
+	}
+
+	for name, c := range map[string]struct {
+		err  error
+		want string
+	}{
+		"profile field": {
+			profile("name: x\ndescription: d\nruntime: claude\nflavor: red\n"),
+			"line 4: field flavor not found in type orchestration.profileSource",
+		},
+		"profile kind": {profile("- a\n"), "line 1: cannot unmarshal !!seq into orchestration.profileSource"},
+		"requests field": {
+			profile("name: x\ndescription: d\nruntime: claude\nrequests: {gpu: 1}\n"),
+			"line 4: field gpu not found in type orchestration.requestsSource",
+		},
+		"requests kind": {
+			profile("name: x\ndescription: d\nruntime: claude\nrequests: [1]\n"),
+			"line 4: cannot unmarshal !!seq into orchestration.requestsSource",
+		},
+		"provider field": {
+			provider("name: p\nkind: anthropic\ncolor: red\n"),
+			"line 3: field color not found in type orchestration.providerSource",
+		},
+		"provider kind": {provider("- a\n"), "line 1: cannot unmarshal !!seq into orchestration.providerSource"},
+		"routing entry field": {
+			s.ApplyRoleRouting(ctx, "implementer:\n  broad:\n    - {runtime: claude, color: red}\n"),
+			"line 3: field color not found in type orchestration.roleEntry",
+		},
+		"routing entry kind": {
+			s.ApplyRoleRouting(ctx, "implementer:\n  broad: [x]\n"),
+			"line 2: cannot unmarshal !!str `x` into orchestration.roleEntry",
+		},
+		"routing kind": {
+			s.ApplyRoleRouting(ctx, "- a\n"), "line 1: cannot unmarshal !!seq into orchestration.roleRouting",
+		},
+	} {
+		require.ErrorIs(t, c.err, storeerr.ErrInvalid, name)
+		assert.EqualError(t, c.err, prefix+c.want, name)
+	}
+}
