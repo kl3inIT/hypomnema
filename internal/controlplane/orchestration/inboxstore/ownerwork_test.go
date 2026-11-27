@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,17 +14,17 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
 
-// threadAsk is an item kai found in a Lark thread of the owner's account me, LinhHTT's ask to him there: open,
-// asked_directly, given to him.
+// threadAsk is an item kai found in a Lark thread of the owner's account me, Hà My's ask to him there: open,
+// asked_directly, given to him. The people and the work are made up.
 func (w *world) threadAsk(t *testing.T) inboxstore.Todo {
 	t.Helper()
 
 	td, err := w.inbox.Create(t.Context(), bot(w.kai), inboxstore.NewTodo{
-		Title: "Trả lời thread LinhHTT: liệt kê pipeline đã làm từ 1/10", State: inboxstore.Open, Assignee: me,
+		Title: "Trả lời Hà My: tổng hợp các dashboard đã làm trong quý 3", State: inboxstore.Open, Assignee: me,
 		WhyOpen: inboxstore.AskedDirectly,
-		Source: inboxstore.Source{Kind: inboxstore.FromLark, ID: "oc_ai", Account: "me",
-			Quote: "anh liệt kê giúp em các pipeline anh đã làm từ 1/10 nhé",
-			Ref:   &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_root"}},
+		Source: inboxstore.Source{Kind: inboxstore.FromLark, ID: "oc_guild", Account: "me",
+			Quote: "anh tổng hợp giúp em các dashboard anh làm trong quý 3 nhé",
+			Ref:   &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_ask"}},
 	})
 	require.NoError(t, err)
 
@@ -35,77 +36,138 @@ func commentOf(e inboxstore.Event) []inboxstore.Link {
 	return []inboxstore.Link{{Kind: inboxstore.LinkComment, Ref: strconv.Itoa(e.Revision)}}
 }
 
-// Scenario: issue #1206, the owner's comment of 2026-11-27. kai found LinhHTT's ask to the owner in a Lark thread;
-// the owner handed the item to kai, which started it; then he commented on it that he had sent the list himself. His
-// reply is the item's work, so kai never closes it as its own: not on LinhHTT's message, nor on his comment, which
-// shows he did it. Done by him, with his comment as evidence, it closes; a comment that is not his shows nothing.
-func TestAnAskAnsweredByTheOwnerIsDoneByHimNotTheBot(t *testing.T) {
+// handedTo hands an item to kai and starts it there, as the owner and kai do.
+func (w *world) handedTo(t *testing.T, item inboxstore.Todo) inboxstore.Todo {
+	t.Helper()
+
+	handed, err := w.inbox.Hand(t.Context(), by(owner, item), w.kai, "Em xem giúp anh")
+	require.NoError(t, err)
+	doing, err := w.inbox.Start(t.Context(), by(bot(w.kai), handed), inboxstore.Work{Kind: inboxstore.WorkChat,
+		ID: w.chat})
+	require.NoError(t, err)
+
+	return doing
+}
+
+// threadMessages is what the server keeps of the Lark thread of threadAsk: Hà My's ask, and the owner's own reply.
+func threadMessages() sentMessages {
+	later := t0.Add(time.Minute)
+	lark := inboxstore.FromLark + "/me/oc_guild/"
+
+	return sentMessages{
+		lark + "om_ask":   {Chat: "oc_guild", At: t0.Add(-time.Minute), Sender: "ou_hamy"},
+		lark + "om_reply": {Chat: "oc_guild", At: later, FromMe: true},
+	}
+}
+
+// Scenario: issue #1206, the owner's comment of 2026-11-27 (its people made up here). kai found Hà My's ask to the
+// owner in a Lark thread and made it his promise when he took it (W1); the owner handed the item to kai, which
+// started it; then he answered in the thread himself and commented on the item that he had. His reply is the item's
+// work, whatever its why_open, so kai never closes it as its own: not on Hà My's message, nor on his reply or his
+// comment, which show that he did it. Done by him, with his comment or his reply as evidence, it closes; a comment
+// that is not his shows nothing.
+func TestReviewOwnersPromisedReply(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	w.inbox.WithSent(threadMessages())
+
+	for _, why := range []string{inboxstore.AskedDirectly, inboxstore.Promised} {
+		item := w.threadAsk(t)
+		if why == inboxstore.Promised {
+			var err error
+			item, err = w.inbox.Edit(ctx, by(bot(w.kai), item), inboxstore.Edit{WhyOpen: &why})
+			require.NoError(t, err)
+		}
+
+		doing := w.handedTo(t, item)
+		mine, err := w.inbox.Comment(ctx, bot(w.kai), item.ID, "Em đang đọc thread.")
+		require.NoError(t, err)
+		his, err := w.inbox.Comment(ctx, owner, item.ID, "Anh gửi danh sách dashboard cho Hà My rồi nhé.")
+		require.NoError(t, err)
+		doing.Revision = his.Revision
+
+		itsOwn := inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai}
+		reply := inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_reply", Account: "me", Chat: "oc_guild"}
+		for name, evidence := range map[string][]inboxstore.Link{
+			"the asker's message":           {{Kind: inboxstore.LinkLarkMessage, Ref: "om_ask"}},
+			"the asker's message, its chat": {{Kind: inboxstore.LinkLarkMessage, Ref: "om_ask", Account: "me", Chat: "oc_guild"}},
+			"his reply, as a message":       {reply},
+			"his reply, as his":             {{Kind: inboxstore.LinkLarkSent, Ref: "om_reply", Account: "me", Chat: "oc_guild"}},
+			"his comment":                   commentOf(last(his)),
+		} {
+			_, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), inboxstore.Closing{DoneBy: itsOwn,
+				How: inboxstore.ClosedByBot, Evidence: evidence})
+			require.ErrorIs(t, err, storeerr.ErrInvalid, "%s, %s: his answer is no work of the Bot's", why, name)
+		}
+
+		w.unchanged(t, his)
+
+		for name, evidence := range map[string][]inboxstore.Link{
+			"kai's comment":     commentOf(last(mine)),
+			"no such comment":   {{Kind: inboxstore.LinkComment, Ref: "999"}},
+			"not a revision":    {{Kind: inboxstore.LinkComment, Ref: "the last one"}},
+			"the item's making": commentOf(item.Events[0]),
+		} {
+			_, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), inboxstore.Closing{DoneBy: me,
+				How: inboxstore.ClosedByBot, Evidence: evidence})
+			require.ErrorIs(t, err, storeerr.ErrInvalid, "%s, %s is not his message", why, name)
+		}
+
+		w.unchanged(t, his)
+
+		evidence := commentOf(last(his))
+		if why == inboxstore.Promised {
+			evidence = []inboxstore.Link{{Kind: inboxstore.LinkLarkSent, Ref: "om_reply", Account: "me", Chat: "oc_guild"}}
+		}
+
+		done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), inboxstore.Closing{DoneBy: me,
+			How: inboxstore.ClosedByBot, Reason: "Anh: 'Anh gửi danh sách dashboard cho Hà My rồi nhé.'",
+			Evidence: evidence})
+		require.NoError(t, err, why)
+		assert.Equal(t, inboxstore.Done, done.State)
+		require.NotNil(t, done.DoneBy)
+		assert.Equal(t, me, *done.DoneBy)
+		assert.Equal(t, evidence, done.Evidence)
+	}
+}
+
+// Scenario: review of PR #1243. Tùng reports a bug to the owner in a Lark thread; the owner hands the item to kai to
+// fix, and kai fixes it and gives the pull request: the work was kai's, so it closes as its own with that evidence,
+// as before #1206, whatever someone asked of the owner.
+func TestReviewDelegatedFix(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
 	w := newWorld(t)
 
-	item := w.threadAsk(t)
-	handed, err := w.inbox.Hand(ctx, by(owner, item), w.kai, "Em xem giúp anh")
-	require.NoError(t, err)
-	doing, err := w.inbox.Start(ctx, by(bot(w.kai), handed), inboxstore.Work{Kind: inboxstore.WorkChat, ID: w.chat})
-	require.NoError(t, err)
-
-	mine, err := w.inbox.Comment(ctx, bot(w.kai), item.ID, "Em đang đọc thread.")
-	require.NoError(t, err)
-	his, err := w.inbox.Comment(ctx, owner, item.ID, "Anh gửi danh sách pipeline cho anh Duy rồi nhé.")
-	require.NoError(t, err)
-	doing.Revision = his.Revision
-
-	itsOwn := inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai}
-	for name, cl := range map[string]inboxstore.Closing{
-		"on the asker's message": {DoneBy: itsOwn, How: inboxstore.ClosedByBot,
-			Evidence: []inboxstore.Link{{Kind: inboxstore.LinkLarkMessage, Ref: "om_root"}}},
-		"on his comment":      {DoneBy: itsOwn, How: inboxstore.ClosedByBot, Evidence: commentOf(last(his))},
-		"with a pull request": {DoneBy: itsOwn, How: inboxstore.ClosedByBot, Evidence: prLink},
-	} {
-		_, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), cl)
-		require.ErrorIs(t, err, storeerr.ErrForbidden, "%s: someone asked the owner; his answer closes it", name)
-	}
-
-	w.unchanged(t, his)
-
-	for name, evidence := range map[string][]inboxstore.Link{
-		"kai's comment":     commentOf(last(mine)),
-		"no such comment":   {{Kind: inboxstore.LinkComment, Ref: "999"}},
-		"not a revision":    {{Kind: inboxstore.LinkComment, Ref: "the last one"}},
-		"the item's making": commentOf(item.Events[0]),
-	} {
-		_, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), inboxstore.Closing{DoneBy: me,
-			How: inboxstore.ClosedByBot, Evidence: evidence})
-		require.ErrorIs(t, err, storeerr.ErrInvalid, "%s is not his message", name)
-	}
-
-	w.unchanged(t, his)
-
-	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), inboxstore.Closing{DoneBy: me,
-		How: inboxstore.ClosedByBot, Reason: "Anh Đạt: 'Anh gửi danh sách pipeline cho anh Duy rồi nhé.'",
-		Evidence: commentOf(last(his))})
+	doing := w.handedTo(t, w.threadAsk(t))
+	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), inboxstore.Closing{
+		DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai}, How: inboxstore.ClosedByBot, Evidence: prLink})
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.Done, done.State)
 	require.NotNil(t, done.DoneBy)
-	assert.Equal(t, me, *done.DoneBy)
-	assert.Equal(t, commentOf(last(his)), done.Evidence)
+	assert.Equal(t, inboxstore.ABot, done.DoneBy.Kind)
 }
 
 // Scenario: issue #1206, rule 2 of the owner's comment of 2026-11-27. A Bot closes as its own only what it did, with
-// evidence of its work: a Run, a pull request, a link to a file, a message it sent. The owner's message alone (his
-// comment, a message he sent himself, his message in the chat) shows that he did it, so it is recorded for him; a
-// person's message or a meeting's line shows no work of the Bot's.
+// evidence of its work: a Run, a pull request, a link to a file, a message it sent itself, named by account and
+// chat, after the owner approved its send. The owner's message alone (his comment, a message he sent himself, his
+// message in the chat) shows that he did it, so it is recorded for him; a person's message, a message the Bot cannot
+// show it sent (one without its account and chat, a mail, one sent with no send of the Bot's approved), or a
+// meeting's line shows no work of the Bot's.
 func TestABotClosesAsItsOwnOnlyWithEvidenceOfItsWork(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
 	w := newWorld(t)
+	w.inbox.WithSent(teamMessages())
 	itsOwn := inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai}
 	closing := func(evidence ...inboxstore.Link) inboxstore.Closing {
 		return inboxstore.Closing{DoneBy: itsOwn, How: inboxstore.ClosedByBot, Evidence: evidence}
 	}
+	sent := inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "mine", Account: "main", Chat: "team"}
 
 	doing := w.doing(t)
 	his, err := w.inbox.Comment(ctx, owner, doing.ID, "Xong rồi, anh tự gửi.")
@@ -119,7 +181,10 @@ func TestABotClosesAsItsOwnOnlyWithEvidenceOfItsWork(t *testing.T) {
 		"his message in the chat": closing(w.said...),
 		"a person's message": closing(inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "fixed",
 			Account: "main", Chat: "team"}),
-		"a meeting's line": closing(inboxstore.Link{Kind: inboxstore.LinkMeetingLine, Ref: "mtg_1/3"}),
+		"a message without its chat":      closing(inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "3EB0SENT"}),
+		"a mail":                          closing(inboxstore.Link{Kind: inboxstore.LinkMail, Ref: "18c2f0a9b1d2e3f5"}),
+		"a message with no send approved": closing(sent),
+		"a meeting's line":                closing(inboxstore.Link{Kind: inboxstore.LinkMeetingLine, Ref: "mtg_1/3"}),
 	} {
 		_, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), cl)
 		require.ErrorIs(t, err, storeerr.ErrInvalid, "%s is no work of the Bot's", name)
@@ -130,7 +195,6 @@ func TestABotClosesAsItsOwnOnlyWithEvidenceOfItsWork(t *testing.T) {
 	for _, work := range []inboxstore.Link{
 		{Kind: inboxstore.LinkRun, Ref: "run_1"},
 		{Kind: inboxstore.LinkURL, Ref: "https://example.com/report.xlsx"},
-		{Kind: inboxstore.LinkWhatsAppMessage, Ref: "3EB0SENT"},
 	} {
 		item := w.doing(t)
 		done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), item), closing(work))
@@ -140,11 +204,21 @@ func TestABotClosesAsItsOwnOnlyWithEvidenceOfItsWork(t *testing.T) {
 		assert.Equal(t, itsOwn, *done.DoneBy)
 	}
 
+	// kai's send of the message was approved by the owner: the message is its own work.
+	r := w.review(t)
+	w.decide(t, r.ApprovalID, "approved")
+	again, err := w.inbox.ApprovalApproved(ctx, by(system, r))
+	require.NoError(t, err)
+	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), again), closing(sent))
+	require.NoError(t, err)
+	require.NotNil(t, done.DoneBy)
+	assert.Equal(t, itsOwn, *done.DoneBy)
+
 	_, err = w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), closing(prLink...))
 	require.NoError(t, err)
 }
 
-// Scenario: issue #1206, W1. kai listed LinhHTT's ask to the owner; he answered "dạ để em gửi tối nay". The same item
+// Scenario: issue #1206, W1. kai listed Hà My's ask to the owner; he answered "dạ để em gửi tối nay". The same item
 // is now his promise: kai sets why_open promised, which its history records as an edit. Only that change, on an item
 // kai added that someone asked him and that is still his: never another reason, nor an item waiting on a person,
 // one he wrote himself, or another Bot's.
@@ -200,7 +274,7 @@ func (w *world) fromOwner(t *testing.T) inboxstore.Todo {
 	t.Helper()
 
 	td, err := w.inbox.Create(t.Context(), owner, inboxstore.NewTodo{
-		Title: "Trả lời Linh", State: inboxstore.Open, Assignee: me, Source: inboxstore.Source{Kind: inboxstore.ByHand},
+		Title: "Trả lời Hà My", State: inboxstore.Open, Assignee: me, Source: inboxstore.Source{Kind: inboxstore.ByHand},
 	})
 	require.NoError(t, err)
 

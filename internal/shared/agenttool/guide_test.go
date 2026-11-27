@@ -87,6 +87,8 @@ func TestTheInboxLineKeepsOneItemForEachAsk(t *testing.T) {
 	assert.NotContains(t, inbox, "two items")
 	assert.Contains(t, inbox, "One ask is one item")
 	assert.Contains(t, inbox, "why_open promised")
+	assert.Contains(t, inbox, "the due he gave, else the asker's, else due_date none",
+		"the order of the due is the triage's (review of PR #1243)")
 
 	meetings := ToolGuide([]string{ToolMeetingGet})
 	assert.NotContains(t, meetings, "any other as proposed")

@@ -805,31 +805,31 @@
   },
   {
    "name": "16. an ask the owner answered, his comment on the item saying so, is done by him, never by the Bot",
-   "from": "issue #1206, comment of 2026-11-27 (LinhHTT's thread; made up here)",
-   "since": "2026-11-27T07:25:00Z",
+   "from": "issue #1206, comment of 2026-11-27 (its people, work and dates made up here)",
+   "since": "2026-10-14T07:25:00Z",
    "lark": {
     "chats": [
      {
-      "chat_id": "oc_ai",
-      "name": "AI Platform",
+      "chat_id": "oc_guild",
+      "name": "Data Guild",
       "chat_mode": "group"
      }
     ],
     "users": {
-     "ou_linh": "LinhHTT"
+     "ou_hamy": "Hà My"
     },
     "messages": {
-     "oc_ai": [
+     "oc_guild": [
       {
-       "message_id": "om_root",
-       "create_time": "1795744800000",
+       "message_id": "om_ask",
+       "create_time": "1791943200000",
        "sender": {
-        "id": "ou_linh",
+        "id": "ou_hamy",
         "sender_type": "user"
        },
        "msg_type": "text",
        "body": {
-        "content": "{\"text\": \"@_user_1 anh liệt kê giúp em các pipeline, thuật toán anh đã làm từ 1/10 nhé\"}"
+        "content": "{\"text\": \"@_user_1 anh tổng hợp giúp em các dashboard anh làm trong quý 3 để em đưa vào báo cáo nhé\"}"
        },
        "mentions": [
         {
@@ -838,24 +838,24 @@
          "name": "Phan Đạt"
         }
        ],
-       "thread_id": "omt_pipe"
+       "thread_id": "omt_q3"
       }
      ]
     },
     "threads": {
-     "omt_pipe": {
-      "chat": "oc_ai",
+     "omt_q3": {
+      "chat": "oc_guild",
       "list": [
        {
-        "message_id": "om_root",
-        "create_time": "1795744800000",
+        "message_id": "om_ask",
+        "create_time": "1791943200000",
         "sender": {
-         "id": "ou_linh",
+         "id": "ou_hamy",
          "sender_type": "user"
         },
         "msg_type": "text",
         "body": {
-         "content": "{\"text\": \"@_user_1 anh liệt kê giúp em các pipeline, thuật toán anh đã làm từ 1/10 nhé\"}"
+         "content": "{\"text\": \"@_user_1 anh tổng hợp giúp em các dashboard anh làm trong quý 3 để em đưa vào báo cáo nhé\"}"
         },
         "mentions": [
          {
@@ -866,18 +866,18 @@
         ]
        },
        {
-        "message_id": "om_his",
-        "create_time": "1795764660000",
+        "message_id": "om_reply",
+        "create_time": "1791963060000",
         "sender": {
          "id": "ou_me",
          "sender_type": "user"
         },
         "msg_type": "text",
         "body": {
-         "content": "{\"text\": \"Anh gửi em danh sách: 1) pipeline OCR hoá đơn, 2) phân loại ticket, 3) gợi ý tuyến đường.\"}"
+         "content": "{\"text\": \"Anh gửi em danh sách: 1) dashboard doanh thu theo vùng, 2) dashboard tồn kho, 3) dashboard giữ chân khách hàng.\"}"
         },
-        "root_id": "om_root",
-        "parent_id": "om_root"
+        "root_id": "om_ask",
+        "parent_id": "om_ask"
        }
       ]
      }
@@ -885,9 +885,9 @@
    },
    "items": [
     {
-     "id": "tdo_pipeline",
+     "id": "tdo_dashboards",
      "revision": 2,
-     "title": "Trả lời LinhHTT: liệt kê pipeline, thuật toán đã làm từ 1/10",
+     "title": "Trả lời Hà My: tổng hợp các dashboard đã làm trong quý 3",
      "state": "open",
      "why_open": "asked_directly",
      "assignee": {
@@ -895,38 +895,38 @@
      },
      "source": {
       "kind": "lark",
-      "id": "oc_ai",
+      "id": "oc_guild",
       "account": "me",
-      "quote": "anh liệt kê giúp em các pipeline, thuật toán anh đã làm từ 1/10 nhé",
+      "quote": "anh tổng hợp giúp em các dashboard anh làm trong quý 3 để em đưa vào báo cáo nhé",
       "ref": {
        "kind": "lark_message",
-       "ref": "om_root"
+       "ref": "om_ask"
       }
      },
      "created_by": {
       "kind": "bot",
       "id": "bot_main"
      },
-     "due_date": "2026-11-27",
+     "due_date": "2026-10-14",
      "priority": 2,
      "priority_reason": "Hạn hôm nay",
      "history": [
       {
-       "at": "2026-11-27T02:05:00Z",
+       "at": "2026-10-14T02:05:00Z",
        "revision": 1,
        "by": "bot bot_main",
        "kind": "created",
        "after": {
-        "title": "Trả lời LinhHTT: liệt kê pipeline, thuật toán đã làm từ 1/10"
+        "title": "Trả lời Hà My: tổng hợp các dashboard đã làm trong quý 3"
        }
       },
       {
-       "at": "2026-11-27T07:20:00Z",
+       "at": "2026-10-14T07:20:00Z",
        "revision": 2,
        "by": "owner",
        "kind": "commented",
        "after": {
-        "text": "Anh gửi danh sách pipeline cho LinhHTT rồi nhé."
+        "text": "Anh gửi danh sách dashboard cho Hà My rồi nhé."
        }
       }
      ]
@@ -936,9 +936,9 @@
     "adds": 0,
     "done": [
      {
-      "id": "tdo_pipeline",
+      "id": "tdo_dashboards",
       "done_by": "me",
-      "evidence": "om_his|\"comment\""
+      "evidence": "om_reply|\"comment\""
      }
     ]
    }

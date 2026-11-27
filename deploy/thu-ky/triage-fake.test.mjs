@@ -43,17 +43,17 @@ test("the fake keeps the server's rules of who closes an ask and how it becomes 
   const c = cases.find((x) => x.name.startsWith("16."));
   const w = fakeWorld(worldOf(c));
 
-  const own = w.call("inbox_done", { id: "tdo_pipeline", evidence: [{ kind: "lark_message", ref: "om_root" }] });
-  assert.match(own.error, /^forbidden: someone asked the owner/);
-  const notHis = w.call("inbox_done", { id: "tdo_pipeline", for_owner: true, evidence: [{ kind: "comment", ref: "1" }] });
+  const own = w.call("inbox_done", { id: "tdo_dashboards", evidence: [{ kind: "lark_message", ref: "om_ask" }] });
+  assert.match(own.error, /^invalid request: a Bot closes as its own only what it did/, "the asker's message is no work of the Bot's");
+  const notHis = w.call("inbox_done", { id: "tdo_dashboards", for_owner: true, evidence: [{ kind: "comment", ref: "1" }] });
   assert.match(notHis.error, /^invalid request/);
-  const done = w.call("inbox_done", { id: "tdo_pipeline", for_owner: true, reason: "Anh: 'gửi rồi'",
+  const done = w.call("inbox_done", { id: "tdo_dashboards", for_owner: true, reason: "Anh: 'gửi rồi'",
     evidence: [{ kind: "comment", ref: "2" }] });
   assert.equal(done.state, "done");
   assert.equal(done.done_by, "me");
 
-  const sent = fakeWorld(worldOf(c)).call("inbox_done", { id: "tdo_pipeline", for_owner: true,
-    evidence: [{ kind: "lark_sent", ref: "om_his", account: "me", chat: "oc_ai" }] });
+  const sent = fakeWorld(worldOf(c)).call("inbox_done", { id: "tdo_dashboards", for_owner: true,
+    evidence: [{ kind: "lark_sent", ref: "om_reply", account: "me", chat: "oc_guild" }] });
   assert.equal(sent.done_by, "me", "his reply in the thread");
 
   const five = cases.find((x) => x.name.startsWith("5."));
@@ -62,4 +62,28 @@ test("the fake keeps the server's rules of who closes an ask and how it becomes 
   const promised = f.call("inbox_update", { id: "tdo_reply", why_open: "promised", due_date: "none" });
   assert.equal(promised.why_open, "promised");
   assert.equal(promised.due, undefined, "due_date none clears it");
+});
+
+// Review of PR #1243: an inbox_add without a key is a new item each time, as the agent API makes one for each call;
+// with the same key and request it is the first item again, and with another request a conflict (inboxstore.Create).
+test("the fake makes an item for each unkeyed add, as the server does", () => {
+  const w = fakeWorld({});
+  const ask = { title: "Trả lời Lan", why_open: "asked_directly", quote: "anh xem giúp em" };
+  const first = w.call("inbox_add", ask);
+  const again = w.call("inbox_add", ask);
+  assert.notEqual(first.id, again.id);
+  assert.equal(w.items.length, 2);
+
+  const keyed = w.call("inbox_add", { ...ask, key: "k1" });
+  assert.equal(w.call("inbox_add", { ...ask, key: "k1" }).id, keyed.id);
+  assert.match(w.call("inbox_add", { ...ask, title: "Khác", key: "k1" }).error, /^conflict/);
+  assert.equal(w.items.length, 3);
+});
+
+// Review of PR #1243 (W2): waiting_on's due_date none is a due left out, due 48 hours on, as the agent API does.
+test("the fake gives a move to waiting with due_date none the 48 hours to chase", () => {
+  const five = cases.find((x) => x.name.startsWith("5."));
+  const moved = fakeWorld(worldOf(five)).call("inbox_update", { id: "tdo_reply",
+    waiting_on: { name: "Việt", quote: "em nhận", message: { kind: "zalo_message", ref: "z_took" }, due_date: "none" } });
+  assert.equal(moved.due, "in 48 hours");
 });

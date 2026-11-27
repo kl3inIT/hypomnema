@@ -71,10 +71,10 @@ func TestABotRecordsTheOwnersCommentThatHeAnsweredTheAsk(t *testing.T) {
 	owner := inboxstore.Actor{Kind: inboxstore.Owner}
 
 	item, err := w.svc.Inbox().Create(ctx, inboxstore.Actor{Kind: inboxstore.Bot, ID: bot.ID}, inboxstore.NewTodo{
-		Title: "Trả lời thread LinhHTT: liệt kê pipeline", State: inboxstore.Open, WhyOpen: inboxstore.AskedDirectly,
+		Title: "Trả lời Hà My: tổng hợp dashboard quý 3", State: inboxstore.Open, WhyOpen: inboxstore.AskedDirectly,
 		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
-		Source: inboxstore.Source{Kind: inboxstore.FromLark, ID: "oc_ai", Quote: "anh liệt kê giúp em pipeline nhé",
-			Ref: &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_root"}},
+		Source: inboxstore.Source{Kind: inboxstore.FromLark, ID: "oc_guild", Quote: "anh tổng hợp giúp em các dashboard quý 3 nhé",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_ask"}},
 	})
 	require.NoError(t, err)
 
@@ -98,7 +98,7 @@ func TestABotRecordsTheOwnersCommentThatHeAnsweredTheAsk(t *testing.T) {
 	assert.InDelta(t, his.Revision, read.History[len(read.History)-1]["revision"], 0, "his comment by its revision")
 
 	_, text, failed = w.use(pi, agenttool.ToolInboxDone,
-		`{"id":"`+item.ID+`","evidence":[{"kind":"lark_message","ref":"om_root"}]}`)
+		`{"id":"`+item.ID+`","evidence":[{"kind":"lark_message","ref":"om_ask"}]}`)
 	assert.True(t, failed, "the owner's reply is not the Bot's work: %s", text)
 	assert.Contains(t, text, "for_owner")
 
@@ -112,4 +112,42 @@ func TestABotRecordsTheOwnersCommentThatHeAnsweredTheAsk(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, closed.DoneBy)
 	assert.Equal(t, inboxstore.Me, closed.DoneBy.Kind)
+}
+
+// Scenario: review of PR #1243 (W2). A Bot moves an item to Waiting on others with waiting_on's due_date none,
+// which is not a day: it is a due left out, so the item is due 48 hours on, the day to chase them, as without one.
+func TestReviewWaitingWithNone(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	c := orchestration.Connection{Integration: "zalo", Label: "main", Account: "Owner"}
+	c.Secret = "conn-" + c.Integration + "-" + c.Label
+	_, err := w.svc.SaveServiceConnection(ctx, c)
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "zalo", "main", true)
+	require.NoError(t, err)
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "hypo", Connections: orchestration.AllowList{Limited: true, Names: []string{"zalo:main"}},
+	})
+	require.NoError(t, err)
+
+	pi, _ := w.inboxPi(bot)
+
+	item, err := w.svc.Inbox().Create(ctx, inboxstore.Actor{Kind: inboxstore.Bot, ID: bot.ID}, inboxstore.NewTodo{
+		Title: "Trả lời Lan: sửa slide", State: inboxstore.Open, WhyOpen: inboxstore.AskedDirectly,
+		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
+		Source: inboxstore.Source{Kind: inboxstore.FromZalo, ID: "team", Account: "main", Quote: "anh sửa giúp em slide",
+			Ref: &inboxstore.Link{Kind: inboxstore.LinkZaloMessage, Ref: "z_ask"}},
+	})
+	require.NoError(t, err)
+
+	got := w.inbox(pi, agenttool.ToolInboxUpdate, map[string]any{"id": item.ID, "waiting_on": map[string]any{
+		"name": "Việt", "quote": "em nhận", "message": map[string]string{"kind": "zalo_message", "ref": "z_took"},
+		"due_date": "none", "timezone": "Asia/Ho_Chi_Minh",
+	}})
+	assert.Equal(t, "person Việt", got.Assignee)
+	assert.NotEmpty(t, got.Due, "due 48 hours on, the day to chase him")
 }
