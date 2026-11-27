@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -129,9 +131,50 @@ func (s *Server) searchUnder(
 		wait = time.Duration(secs) * time.Second
 	}
 
-	// The provider's own refusal of the search says why too, read as every adapter reads one.
-	return nil, websearch.AccountRefused(resp.StatusCode, wait,
-		string(classifyFailure(resp.StatusCode, providerCodes(body), string(body))), errorText(body))
+	// The provider's own refusal of the search says why too: the code its adapter read while the provider's
+	// structured reason was known (withCoolingCode), else as every adapter reads a refusal.
+	code := refusalCoolingCode(body)
+	if code == "" {
+		code = classifyFailure(resp.StatusCode, providerCodes(body), string(body))
+	}
+
+	return nil, websearch.AccountRefused(resp.StatusCode, wait, string(code), errorText(body))
+}
+
+// withCoolingCode puts why a refusal rests its account into the refusal's error body (cooling_code), for a caller
+// that reads only the body (searchUnder).
+func withCoolingCode(resp *http.Response, code CoolingCode) *http.Response {
+	var body errorBody
+
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	if json.Unmarshal(raw, &body) != nil {
+		resp.Body = io.NopCloser(bytes.NewReader(raw))
+
+		return resp
+	}
+
+	body.Error.CoolingCode = code
+	encoded, _ := json.Marshal(body) //nolint:errchkjson // A struct of strings always encodes.
+	resp.Body = io.NopCloser(bytes.NewReader(encoded))
+
+	return resp
+}
+
+// refusalCoolingCode is the cooling_code a refusal's error body carries (withCoolingCode); empty when none, or one
+// outside the set.
+func refusalCoolingCode(body []byte) CoolingCode {
+	var refusal errorBody
+	if json.Unmarshal(body, &refusal) != nil {
+		return ""
+	}
+
+	if slices.Contains(CoolingCodes(), refusal.Error.CoolingCode) {
+		return refusal.Error.CoolingCode
+	}
+
+	return ""
 }
 
 // readSearch reads a search's answer, within maxSearchAnswer.
@@ -320,7 +363,11 @@ func (s *Server) antigravitySearch(
 			kind = typeRateLimit
 		}
 
-		return nil, openAIError(f.Status, kind, f.Code, f.Message, f.RetryAfter), nil
+		// Why Google refused, read while ErrorInfo's reason is still known (issue #1305): the answer passed on
+		// carries only its status word, so the code goes with it.
+		refusal := openAIError(f.Status, kind, f.Code, f.Message, f.RetryAfter)
+
+		return nil, withCoolingCode(refusal, antigravityLimitCode(f, f.RetryAfter)), nil
 	}
 
 	found, err := antigravity.ParseSearch(raw, limit)

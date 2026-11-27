@@ -338,6 +338,22 @@ func antigravityCode(f *antigravity.Failure) CoolingCode {
 	return classifyFailure(f.Status, []string{f.Code, f.Reason}, f.Message)
 }
 
+// antigravityLimitCode is why an Antigravity refusal rests, read as antigravityRefused labels its waits: on a 429 a
+// used-up quota (QUOTA_EXHAUSTED, or a delay of antigravityLongWait or more, as omp reads a long RATE_LIMIT_EXCEEDED,
+// rate-limit-utils.test.ts:338-348), else a throttle, either billing when the credits balance is spent; any other
+// refusal as classifyFailure reads it.
+func antigravityLimitCode(f *antigravity.Failure, wait time.Duration) CoolingCode {
+	if f.Status != http.StatusTooManyRequests {
+		return antigravityCode(f)
+	}
+
+	if f.Reason == antigravity.ReasonQuotaExhausted || wait >= antigravityLongWait {
+		return antigravityRestCode(f, CoolingUsageLimit)
+	}
+
+	return antigravityRestCode(f, CoolingRateLimit)
+}
+
 // antigravityRestCode is why a model of an Antigravity account waits after a 429: what the wait's own branch says
 // (fallback, a used-up quota or a throttle), unless the shared reading finds the credits balance spent
 // (INSUFFICIENT_G1_CREDITS_BALANCE, omp rate-limit-utils.test.ts:357-363), which is billing whatever the wait. The

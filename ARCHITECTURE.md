@@ -4361,7 +4361,9 @@ capabilities do not exist yet.
     …" for `unknown`) with the message as its title. The Images page says the code and the message of the account
     free first (`ImageProviderLink.cooling_code`, `cooling_reason`); the Web search page's subscription link that
     rests because its accounts do says theirs (`WebSearchLink.cooling_code`, `cooling_reason`, from
-    `websearch.AccountRefused`), and so does one whose own search was refused, read by the same classifier.
+    `websearch.AccountRefused`), and so does one whose own search was refused: Antigravity's search answer carries
+    the code it read from Google's ErrorInfo reason (`cooling_code` in its error body: credits spent is `billing`,
+    `QUOTA_EXHAUSTED` `usage_limit`), any other the shared classifier's.
   - A request for an Antigravity or Codex model (chat on `/chat/completions`, `/responses` and `/messages`, and
     Antigravity's images) goes only to the accounts whose own list (read as the gateway's models are) has it, as
     CLIProxyAPI routes a model only to the auths that registered it (`sdk/cliproxy/auth/conductor_selection.go`
