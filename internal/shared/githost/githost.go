@@ -280,7 +280,7 @@ func (github) AutoMerge(r Repo, base string) AutoMerge {
 		Conflict: "mergeStateStatus is DIRTY",
 		Enable:   "gh pr merge <url> --auto --merge --match-head-commit <sha>",
 		Method:   "use --squash or --rebase in place of --merge only when the repository allows only that",
-		Watch:    "gh pr checks <url> --required --watch",
+		Watch:    "gh pr checks <url> --required --watch --interval 60",
 		Merged:   "gh pr view <url> --json state,mergedAt",
 	}
 }

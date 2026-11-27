@@ -284,6 +284,15 @@ func autoMerge(kind, host, path, base, branch string, followed bool) string {
 
 	var b strings.Builder
 
+	// Issue #1259 follows GitHub's REST API rate limit guidance.
+	if githost.Kind(kind) == githost.GitHub {
+		b.WriteString("If GitHub reports a rate limit, run `gh api rate_limit` on the affected host. " +
+			"This call does not count against the primary limit. " +
+			"Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming. " +
+			"For a secondary limit, honor `Retry-After` if present. If neither delay is given for a secondary limit, " +
+			"wait at least one minute before resuming. Report the limit and the wait in your summary.\n")
+	}
+
 	b.WriteString("Then have the host merge it by itself once its required checks pass; never merge it directly. " +
 		"When the task says a review comes first, that the owner merges, or to ask before merging, skip this: " +
 		"leave the pull request open and say so in the summary. Otherwise:\n")
