@@ -29,6 +29,7 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 
 	d := offered()
 	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
 	d.Offer.RoleRouted = true
 	for _, role := range []string{"planner", "explorer", "reviewer"} {
 		d.Offer.Profile = role
@@ -45,6 +46,8 @@ func TestRoutedReadOnlyPromptsDoNotAskForPullRequests(t *testing.T) {
 		assert.NotContains(t, prompt, "is a flake", "a read-only worker fixes no check")
 		assert.NotContains(t, prompt, "gh pr create")
 		assert.NotContains(t, prompt, "publish_branch")
+		assert.Contains(t, prompt, "If GitHub reports a rate limit, run `gh api rate_limit`",
+			"a %s shares the GitHub quota too (issue #1259)", role)
 		assert.NotContains(t, prompt, "Do not end your turn on a plan")
 		assert.NotContains(t, prompt, "never a polling loop", "a read-only worker pushes nothing")
 		if role == "planner" {
