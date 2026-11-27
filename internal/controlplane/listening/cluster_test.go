@@ -2,10 +2,14 @@ package listening_test
 
 import (
 	"context"
+	"encoding/binary"
+	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/blake2b"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/listening"
@@ -170,4 +174,73 @@ func TestVietnamesePostsClusterByStory(t *testing.T) {
 	}
 
 	assert.Positive(t, multi, "a story told on both sources is one cluster with both")
+}
+
+// hashingEmbed is obsei's HashingEmbedder, its model-free embedding (llm/embed.py:30-52): the text in NFKC,
+// case-folded, spaces collapsed, padded with a space each side; each character 3-gram hashed with BLAKE2b to 8 bytes,
+// read little-endian, adds 1 (top bit set) or -1 at the value modulo 512; the vector normalized.
+func hashingEmbed(text string) []float64 {
+	cleaned := " " + strings.Join(strings.Fields(strings.ToLower(norm.NFKC.String(text))), " ") + " "
+	runes := []rune(cleaned)
+	vec := make([]float64, 512)
+
+	for i := 0; i+3 <= len(runes) || i == 0; i++ {
+		gram := string(runes[i:min(i+3, len(runes))])
+		h, _ := blake2b.New(8, nil)
+		_, _ = h.Write([]byte(gram))
+		value := binary.LittleEndian.Uint64(h.Sum(nil))
+
+		if value>>63 == 1 {
+			vec[value%512]++
+		} else {
+			vec[value%512]--
+		}
+	}
+
+	n := 0.0
+	for _, v := range vec {
+		n += v * v
+	}
+
+	for i := range vec {
+		vec[i] /= math.Sqrt(n)
+	}
+
+	return vec
+}
+
+func cosine(a, b []float64) float64 {
+	dot := 0.0
+	for i := range a {
+		dot += a[i] * b[i]
+	}
+
+	return dot
+}
+
+// The embedding side of the decision, rerunnable (review of PR #1303): obsei's model-free embedding on the same
+// twelve posts, with the topic taken out first as clustering takes it out (WithoutTopic: NFKC, lowercase, every run
+// that is not a letter, mark or digit made a space, the topic's words removed). Pairs of one story are not more alike
+// than pairs of two: the least alike pair of one story is below the most alike pair of two, so no threshold
+// separates them. Run `go test -run TestVietnameseHashingEmbeddingOverlaps -v` to see the numbers.
+func TestVietnameseHashingEmbeddingOverlaps(t *testing.T) {
+	t.Parallel()
+
+	sameMin, diffMax := 1.0, 0.0
+
+	for i := range vetcPosts {
+		for j := i + 1; j < len(vetcPosts); j++ {
+			sim := cosine(hashingEmbed(listening.WithoutTopic(vetcPosts[i].text, "VETC")),
+				hashingEmbed(listening.WithoutTopic(vetcPosts[j].text, "VETC")))
+
+			if vetcPosts[i].story == vetcPosts[j].story {
+				sameMin = min(sameMin, sim)
+			} else {
+				diffMax = max(diffMax, sim)
+			}
+		}
+	}
+
+	t.Logf("hashing embedding, topic removed: same-story min %.3f, different-story max %.3f", sameMin, diffMax)
+	assert.Less(t, sameMin, diffMax, "the hashing embedding does not separate the stories")
 }

@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,10 @@ const (
 	// redditUserAgent is in the form Reddit's API rules ask, <platform>:<app id>:<version> (<contact>), which its
 	// keyless feeds serve when they refuse a browser's or a library's (openmagpie connectors/reddit/connector.py:39-60).
 	redditUserAgent = "linux:hypomnema:v1 (+https://github.com/kl3inIT/hypomnema)"
+	// webGap is the gap between two calls to one web search route: last30days' keyless pace, a call a second
+	// (lib/http.py:2413-2416), the only keyless API pace the references set (Agent-Reach's 10 s,
+	// BROWSER_SEARCH_INTERVAL, is for a browser's searches).
+	webGap = time.Second
 	// redditGap is one keyless Reddit call a second (last30days DEFAULT_REDDIT_KEYLESS_RATE, lib/http.py:2413-2416).
 	redditGap = time.Second
 	// arcticGap is Arctic Shift's pace between two lookups (last30days reddit_arctic.PACE_SECONDS: it answers 422
@@ -51,8 +56,8 @@ const (
 	// pendingScore is how young an archived post's score is withheld: Arctic Shift reads it once, soon after the post
 	// (last30days reddit_refs.PENDING_SECONDS, 36 hours).
 	pendingScore = 36 * time.Hour
-	// maxBody bounds a source's answer.
-	maxBody = 8 << 20
+	// maxBody bounds a source's answer (last30days http.MAX_RESPONSE_BYTES, lib/http.py:29).
+	maxBody = 16 << 20
 	// callTimeout bounds one call to a source (last30days reddit_public: 15 seconds).
 	callTimeout = 15 * time.Second
 )
@@ -119,14 +124,52 @@ func webBackend() Backend {
 	}
 }
 
-// webFailure is a web search's error as a failure: every provider resting is a rate limit until the first is free.
+// webFailure is a web search's error as a failure, keeping the chain's typed rests (websearch.FailedError): when
+// every provider that failed now rests, the failure is the rest's (a rate limit, a spent quota, a refusal) until the
+// first is free again, as Agent-Reach keeps a backend's typed code to the answer (runtime/result.py:64-79); every
+// provider resting before it was asked is a rate limit until the first is free.
 func webFailure(err error) error {
 	var resting *websearch.RestingError
 	if errors.As(err, &resting) {
 		return &SourceError{Code: CodeRateLimited, Detail: "every web search provider rests", Until: resting.Until}
 	}
 
-	return AsFailure(err)
+	var failed *websearch.FailedError
+	if !errors.As(err, &failed) {
+		return AsFailure(err)
+	}
+
+	f := &SourceError{Code: CodeBroken, Detail: oneLine(failed.Error())}
+
+	// Providers that answered with nothing are not failures; a failure that did not rest makes it broken.
+	if failed.Others > 0 || len(failed.Rests) == 0 {
+		return f
+	}
+
+	codes := make([]Code, 0, len(failed.Rests))
+	for _, r := range failed.Rests {
+		codes = append(codes, restCode(r.Why))
+
+		if f.Until.IsZero() || r.Until.Before(f.Until) {
+			f.Until = r.Until
+		}
+	}
+
+	f.Code = slices.MinFunc(codes, func(a, b Code) int { return specificity(a) - specificity(b) })
+
+	return f
+}
+
+// restCode is a web search route's rest as a code.
+func restCode(why string) Code {
+	switch why {
+	case websearch.RestRefused:
+		return CodeRefused
+	case websearch.RestNoCredits, websearch.RestDailyLimit:
+		return CodeLimitReached
+	default:
+		return CodeRateLimited
+	}
 }
 
 // answeredBy says which provider answered, after which failed.
@@ -161,7 +204,7 @@ func redditJSONBackend(e Endpoints, client *http.Client) Backend {
 			}
 
 			address := e.RedditURL + "/search.json?" + q.Encode()
-			if err := getJSON(ctx, client, r, host, redditGap, false, address, &listing); err != nil {
+			if err := getJSON(ctx, client, r, host, redditGap, false, host+"/search.json", address, &listing); err != nil {
 				return Result{}, err
 			}
 
@@ -256,12 +299,15 @@ func (p redditPost) item(now time.Time, archived bool) Item {
 	return it
 }
 
-// webArcticBackend finds Reddit threads with the web search, `site:reddit.com <query>`, then reads each thread's
-// score, comments, author and date from Arctic Shift's /api/posts/ids, keyless (last30days reddit_discover.web_refs
-// and reddit_arctic.fetch_posts_by_ids). When the archive cannot be read, the threads stay as the search showed them,
-// without counts, and the detail says so (last30days reddit_hydrate._from_search_result).
+// webArcticBackend finds Reddit threads with the web search, `site:reddit.com <query>`, reads every thread found from
+// Arctic Shift's /api/posts/ids, keyless, then keeps those dated in the window, then those whose title names the
+// topic, then cuts at the stream's limit: last30days hydrates before it filters by date (reddit_hydrate.py:417-532,
+// _in_window after the archive) and puts the threads through its topic bar before they are items
+// (reddit_keyless.py:500-508, reddit_discover.apply_bar). When the archive cannot be read, or rests, the threads stay
+// as the search showed them, without counts, and the detail says so (reddit_hydrate.py:470-477, _from_search_result).
 func webArcticBackend(e Endpoints, client *http.Client) Backend {
 	host := hostOf(e.ArcticURL)
+	path := host + "/api/posts/ids"
 
 	return Backend{
 		Name: BackendWebArctic, Host: host, Probe: needsWeb,
@@ -275,43 +321,16 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 				return Result{}, webFailure(err)
 			}
 
-			type found struct {
-				id   string
-				item Item
-			}
-
-			var threads []found
-
-			seen := map[string]bool{}
-
-			for _, res := range a.Results {
-				id, sub, ok := redditThread(res.URL)
-				if !ok || seen[id] {
-					continue
-				}
-
-				seen[id] = true
-				it := Item{
-					NativeID: id, URL: res.URL, Title: redditTitle(res.Title), Text: res.Snippet,
-					PublishedAt: parseDate(res.PublishedAt),
-				}
-
-				if sub != "" {
-					it.Container = "r/" + sub
-				}
-
-				threads = append(threads, found{id: id, item: it})
-			}
-
+			threads := webThreads(a)
 			if len(threads) == 0 {
 				return Result{Detail: "the web search found no Reddit thread"}, nil
 			}
 
-			threads = threads[:min(len(threads), arcticIDs, r.Limit)]
+			threads = threads[:min(len(threads), arcticIDs)]
 			ids := make([]string, 0, len(threads))
 
 			for _, t := range threads {
-				ids = append(ids, t.id)
+				ids = append(ids, t.NativeID)
 			}
 
 			var archived struct {
@@ -319,7 +338,7 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 				Error string       `json:"error"`
 			}
 
-			err = getJSON(ctx, client, r, host, arcticGap, true,
+			err = getJSON(ctx, client, r, host, arcticGap, true, path,
 				e.ArcticURL+"/api/posts/ids?ids="+strings.Join(ids, ","), &archived)
 
 			byID := map[string]redditPost{}
@@ -331,27 +350,73 @@ func webArcticBackend(e Endpoints, client *http.Client) Backend {
 
 			switch {
 			case err != nil:
-				detail += "; arctic-shift not read: " + AsFailure(err).Error()
+				f := AsFailure(err)
+				detail += "; arctic-shift not read: " + f.Error()
+
+				if !f.Until.IsZero() {
+					detail += " until " + f.Until.UTC().Format(time.RFC3339)
+				}
 			case archived.Data == nil:
 				detail += "; arctic-shift not read: " + oneLine(archived.Error)
 			default:
 				detail += fmt.Sprintf("; arctic-shift filled %d of %d", len(byID), len(threads))
 			}
 
-			items := make([]Item, 0, len(threads))
-			for _, t := range threads {
-				if p, ok := byID[t.id]; ok {
-					items = append(items, p.item(r.To, true))
+			var inWindow, named []Item
 
-					continue
+			for _, t := range threads {
+				it := t
+				if p, ok := byID[t.NativeID]; ok {
+					it = p.item(r.To, true)
 				}
 
-				items = append(items, t.item)
+				if inDays(it.PublishedAt, r.From, r.To) {
+					inWindow = append(inWindow, it)
+				}
 			}
 
-			return Result{Items: items, Detail: detail}, nil
+			for _, it := range inWindow {
+				if namesTopic(it.Title, r.Topic) {
+					named = append(named, it)
+				}
+			}
+
+			if dropped := len(inWindow) - len(named); dropped > 0 {
+				// last30days BarResult.note (reddit_discover.py:125-135).
+				detail += fmt.Sprintf("; %d of %d threads dropped for not naming the topic", dropped, len(inWindow))
+			}
+
+			return Result{Items: named[:min(len(named), r.Limit)], Detail: detail}, nil
 		},
 	}
+}
+
+// webThreads are the Reddit threads a web search found, each once, in its order, as the search showed them.
+func webThreads(a websearch.Answer) []Item {
+	var out []Item
+
+	seen := map[string]bool{}
+
+	for _, res := range a.Results {
+		id, sub, ok := redditThread(res.URL)
+		if !ok || seen[id] {
+			continue
+		}
+
+		seen[id] = true
+		it := Item{
+			NativeID: id, URL: res.URL, Title: redditTitle(res.Title), Text: res.Snippet,
+			PublishedAt: parseDate(res.PublishedAt),
+		}
+
+		if sub != "" {
+			it.Container = "r/" + sub
+		}
+
+		out = append(out, it)
+	}
+
+	return out
 }
 
 // redditTitle is a web result's title of a thread without the search engine's Reddit frame ("r/x on Reddit: …",
@@ -375,8 +440,11 @@ func redditTitle(title string) string {
 // reddit_public: "Anti-bot HTML response"; reddit_health: a challenge or a logged-out page is "blocked").
 //
 // slowDown reads a 422 as Arctic Shift's "slow down", a rate limit (last30days reddit_arctic._is_slow_down).
+//
+// path names the endpoint for its rest (Request.Resting): it is checked once the call has its turn, and a failure
+// that rests is recorded on it, so another search queued behind this one is not sent to a path that just refused.
 func getJSON(ctx context.Context, client *http.Client, r Request, host string, gap time.Duration, slowDown bool,
-	address string, out any,
+	path, address string, out any,
 ) error {
 	if r.Pace != nil {
 		done, err := r.Pace(ctx, host, gap)
@@ -387,6 +455,27 @@ func getJSON(ctx context.Context, client *http.Client, r Request, host string, g
 		defer done()
 	}
 
+	if r.Resting != nil {
+		if rs := r.Resting(path); rs != nil {
+			return &SourceError{Code: rs.Code, Detail: rs.Detail, Until: rs.Until, resting: true}
+		}
+	}
+
+	err := fetchJSON(ctx, client, r, slowDown, address, out)
+	if err != nil && r.Rest != nil {
+		f := AsFailure(err)
+		if until := r.Rest(path, f); !until.IsZero() {
+			f.Until = until
+		}
+
+		return f
+	}
+
+	return err
+}
+
+// fetchJSON is one GET of a JSON answer.
+func fetchJSON(ctx context.Context, client *http.Client, r Request, slowDown bool, address string, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 
@@ -406,7 +495,10 @@ func getJSON(ctx context.Context, client *http.Client, r Request, host string, g
 	defer resp.Body.Close() //nolint:errcheck // A read body's close has nothing to report.
 
 	if resp.StatusCode == http.StatusUnprocessableEntity && slowDown {
-		return Fail(CodeRateLimited, "HTTP 422 slow down")
+		f := HTTPFailure(http.StatusTooManyRequests, resp.Header, r.To)
+		f.Detail = "HTTP 422 slow down"
+
+		return f
 	}
 
 	if resp.StatusCode != http.StatusOK {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -49,6 +50,8 @@ func (p Platform) backendNames() []string {
 // Request is what a backend is asked.
 type Request struct {
 	Query string
+	// Topic is what every item should name: the plan's topic, else its first subquery (Plan.topic).
+	Topic string
 	Limit int
 	// From and To are the window: an item dated outside it is dropped.
 	From, To time.Time
@@ -57,6 +60,12 @@ type Request struct {
 	// Pace waits for the backend's turn at a host, at least gap after the last call there, and gives the function
 	// that ends its turn.
 	Pace func(ctx context.Context, host string, gap time.Duration) (func(), error)
+	// Resting is the rest an HTTP path is in, nil when it may be asked; Rest records a path's failure and gives until
+	// when it rests. A path is one endpoint of a site, which rests on its own as last30days' Reddit paths do
+	// (reddit_health.py:1-33, record and skip_reason), and is checked again once the call has its turn at the host,
+	// as Agent-Reach checks a cooldown again inside its slot (runtime/dispatch.py:247-257).
+	Resting func(path string) *SourceError
+	Rest    func(path string, f *SourceError) time.Time
 }
 
 // Attempt is one backend tried for a stream, as Agent-Reach's meta.attempts (runtime/dispatch.py:255-290): its
@@ -139,6 +148,16 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 		res, err := b.Search(ctx, req)
 		if err != nil {
 			f := AsFailure(err)
+			if f.resting {
+				skip(f)
+
+				if stopsHost(f.Code) {
+					stopped[b.Host] = f.Code
+				}
+
+				continue
+			}
+
 			if ctx.Err() != nil {
 				f = Fail(CodeTimeout, "the search was stopped before this source answered")
 			}
@@ -204,16 +223,16 @@ func (s *Service) runStream(ctx context.Context, p Platform, pin string, sq Subq
 }
 
 // inWindow keeps the items dated inside the window, or not dated, at most the request's limit, each stamped with
-// where it came from: last30days filter_by_date_range (normalize.py:48-74), which keeps an undated web result only
-// on some backends; here an undated item stays, with a low date confidence, since the web search's providers often
-// give no date.
+// where it came from: last30days filter_by_date_range (normalize.py:48-74), which compares days, so an item dated
+// later today is in (normalize.py:66), and keeps an undated web result only on some backends; here an undated item
+// stays, with a low date confidence, since the web search's providers often give no date.
 func (s *Service) inWindow(items []Item, source, backend, label string, req Request) []Item {
 	now := s.now().UTC()
 
 	var out []Item
 
 	for _, it := range items {
-		if it.PublishedAt != nil && (it.PublishedAt.Before(req.From) || it.PublishedAt.After(req.To.Add(time.Hour))) {
+		if !inDays(it.PublishedAt, req.From, req.To) {
 			continue
 		}
 
@@ -229,7 +248,7 @@ func (s *Service) inWindow(items []Item, source, backend, label string, req Requ
 		}
 
 		it.Text = clip(it.Text, maxTextRunes)
-		it.Title = clip(it.Title, maxTitleRunes)
+		it.Title = strings.Join(strings.Fields(it.Title), " ")
 		out = append(out, it)
 
 		if len(out) == req.Limit {
@@ -238,4 +257,16 @@ func (s *Service) inWindow(items []Item, source, backend, label string, req Requ
 	}
 
 	return out
+}
+
+// inDays says an item's date is inside the window, by day as last30days compares them (normalize.py:66): from's day
+// to to's day, both in; an undated item is.
+func inDays(published *time.Time, from, to time.Time) bool {
+	if published == nil {
+		return true
+	}
+
+	day := published.UTC().Format(time.DateOnly)
+
+	return day >= from.UTC().Format(time.DateOnly) && day <= to.UTC().Format(time.DateOnly)
 }

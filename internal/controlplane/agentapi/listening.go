@@ -63,7 +63,7 @@ func listeningTool(sources []string) agenttool.BrowserTool {
 			`"subqueries":{"type":"array","minItems":1,"maxItems":` + strconv.Itoa(listening.MaxSubqueries) + `,` +
 			`"items":{"type":"object","additionalProperties":false,"properties":{` +
 			`"label":{"type":"string","description":"Its name in the answer; q1, q2… when left out."},` +
-			`"query":{"type":"string","minLength":1,"maxLength":300,"description":"The search."},` +
+			`"query":{"type":"string","minLength":1,"description":"The search."},` +
 			`"sources":{"type":"array","items":{"type":"string","enum":[` + list + `]},"description":"The ` +
 			`sources it reads; the plan's sources when left out."},` +
 			`"weight":{"type":"number","exclusiveMinimum":0,"description":"How much its items count in the ` +

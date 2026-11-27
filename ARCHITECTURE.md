@@ -4826,16 +4826,19 @@ Social listening (`internal/controlplane/listening`, `agentapi/listening.go`; is
 [research](docs/research/2026-11-27-social-listening.md)): the tool `listen_search` finds what people say about a
 topic. The calling model writes the plan; the tool answers with items, clusters and each source's coverage, and
 writes no prose (last30days SKILL.md LAW 7).
-- Plan: `topic`, 1 to 5 `subqueries` (`label`, `query` of at most 300 characters, `sources`, `weight`), the
+- Plan: `topic`, 1 to 5 `subqueries` (`label`, `query`, `sources`, `weight`), the
   `sources` a subquery naming none reads, `source_weights`, `window_days` (1 to 365, default 30), `max_results` a
-  stream reads (1 to 25, default 10), and `backends` pinning a source to one backend. A plan that cannot run is the
+  stream keeps (1 to 50, default 25, last30days' default and deep depths), and `backends` pinning a source to one
+  backend. A plan that cannot run is the
   tool's error, naming why; an unknown field is refused.
 - Sources, each an ordered chain of backends (`Platform`, `Backend`: name, host, opt-in, a side-effect-free probe,
   search): `web` is `web_search`, the web search chain above; `reddit` is `reddit_json`, Reddit's keyless
   `/search.json` (with the `<platform>:<app>:<version>` User-Agent), then `web_arctic`, the web search's
-  `site:reddit.com <query>` threads with their score, comments, author and date read from Arctic Shift's keyless
-  `/api/posts/ids` (a score under 36 hours old is left out; threads the archive cannot fill stay as the search showed
-  them). Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
+  `site:reddit.com <query>` threads (20 asked), every one read from Arctic Shift's keyless `/api/posts/ids` for its
+  score, comments, author and date (a score under 36 hours old is left out; threads the archive cannot fill, or
+  while it rests, stay as the search showed them), then those dated in the window, then those whose title names the
+  topic (last30days' topic bar: the topic's first word when longer than three letters and not generic), then cut at
+  the stream's limit; the detail counts the threads dropped. Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
   `web_arctic` was added for that (owner, 2026-11-27).
 - A (subquery, source) stream tries its source's backends in order: one resting, whose probe fails, or whose host
   refused this search is skipped; one that reads nothing in the window is not an answer and the next is asked; the
@@ -4844,27 +4847,36 @@ writes no prose (last30days SKILL.md LAW 7).
   subqueries run one after another; sources run at once.
 - Failure codes, a closed set: `need_login` (401), `refused` (403, a page where JSON was asked), `rate_limited` (429,
   Arctic Shift's 422), `limit_reached` (402), `not_found` (404, 410), `timeout`, `broken`, and `no_results`, the only
-  clean zero. Rests, in memory: refused 6 hours, rate limited what the source said (`Retry-After`,
+  clean zero. Rests, in memory: a wait the source or the chain named, else refused 6 hours, rate limited what the source said (`Retry-After`,
   `x-ratelimit-reset`) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
 - Pacing: one call at a time per host, Reddit's at least 1 s apart, Arctic Shift's 400 ms (`Pacer`), whoever asks.
+  The web searches a plan makes wait in the chain for their route's turn, one call at a time per key or keyless
+  provider and 1 s apart (`websearch.WithPace`), and a route that came to rest meanwhile is skipped. Reddit's
+  `/search.json` and Arctic Shift's `/api/posts/ids` each rest on their own as paths, checked again once a call has
+  its turn, so a search queued behind a 403 or a 429 sends nothing.
+- The web search chain's failure keeps each route's rest (`websearch.FailedError`: rests, providers asked, empty,
+  other failures): when every provider that failed rests, the web's code is the rest's (`rate_limited`,
+  `limit_reached`, `refused`) until the first is free; another failure is `broken`.
 - Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
   anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
   tried with its result, detail and rest (`until`, `skipped`).
 - Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
   container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
-  without one; an item dated outside the window is dropped), text (400 characters), engagement and its 0-100 score
+  without one; an item dated outside the window, compared by day, is dropped), text (400 characters), engagement and its 0-100 score
   on the source's log scale (Reddit's only; a web page has none), parent, the subqueries that found it, fetch time,
   score and cluster. Duplicates are folded: (source, native id), then the normalized address across sources (a
   Reddit thread by its id), then text within a source at Jaccard 0.7. Ranking: each stream ordered by relevance,
   freshness and engagement, streams fused by weighted reciprocal rank (k 60), each item scored by relevance, fused
   rank, freshness and engagement (last30days' local score), at most 3 items an author; the best 40 are answered and
-  the rest counted (`omitted`).
+  the rest counted (`omitted`). An address keeps its encoded path and query, so two queries stay two.
 - Clusters: greedy, an item joining the first cluster whose leader is alike at 0.20 or more, comparing words and
   character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
   or `thin-evidence` when the best score is under 55. The threshold and the lexical comparison were chosen by a
   test on Vietnamese posts (`listening/cluster_test.go`).
 - Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
-  are recorded on the caller's gateway key as `web/search` rows. `go test ./internal/controlplane/listening -run Live`
+  are recorded on the caller's gateway key as `web/search` rows. They go through the web search chain, so a paid
+  key the owner added there is asked first (its cost recorded); with none, the chain's providers are keyless, and
+  Reddit and Arctic Shift are read without an account. `go test ./internal/controlplane/listening -run Live`
   with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
 - Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
   (issues #1288 to #1295).

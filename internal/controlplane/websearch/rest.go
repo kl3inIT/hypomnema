@@ -176,16 +176,6 @@ func reasonOf(err error) string {
 	return clip(err.Error(), 300)
 }
 
-// restingUntil says whether a route rests, until when, and why in words.
-func (s *Service) restingUntil(id string) (time.Time, string, bool) {
-	r, ok := s.restOf(id)
-	if !ok {
-		return time.Time{}, "", false
-	}
-
-	return r.until, restWords(r.why), true
-}
-
 func (s *Service) restOf(id string) (rest, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

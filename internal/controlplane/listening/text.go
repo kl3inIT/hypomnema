@@ -22,8 +22,7 @@ import (
 const (
 	// maxTextRunes cuts an item's text: last30days keeps a Reddit post's first 400 characters as its snippet
 	// (normalize.py:399-400).
-	maxTextRunes  = 400
-	maxTitleRunes = 200
+	maxTextRunes = 400
 )
 
 // stopwords are last30days' (lib/dedupe.py:9-35), English only: no reference has a Vietnamese list, and the
@@ -241,14 +240,14 @@ func NormalizeURL(raw string) string {
 		}
 	}
 
-	out := url.URL{
-		Scheme: strings.ToLower(u.Scheme), Host: host, Path: strings.TrimRight(u.EscapedPath(), "/"),
-		RawQuery: q.Encode(),
+	// The path and the query stay encoded, as the reference's urlencode keeps them: unescaped, "?q=a%26z%3Dc" and
+	// "?q=a&z=c", two searches, would read the same.
+	out := strings.ToLower(u.Scheme) + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
+	if query := q.Encode(); query != "" {
+		out += "?" + query
 	}
 
-	s, _ := url.PathUnescape(out.String())
-
-	return s
+	return out
 }
 
 // The hosts and forms of a Reddit thread's address (last30days reddit_refs.canonical_thread, lib/reddit_refs.py).
@@ -340,4 +339,49 @@ func clip(text string, n int) string {
 	}
 
 	return string(r[:n]) + "…"
+}
+
+// lowSignal are words that name no entity: last30days LOW_SIGNAL_QUERY_TOKENS and its grounding's "still" and
+// "work" (lib/relevance.py:78-90, lib/rerank.py:220).
+var lowSignal = set(strings.Fields("advice animation animations best chance chances code compare comparison " +
+	"differences explain guide guides how latest news odds opinion opinions prediction predictions probability " +
+	"probabilities prompt prompting prompts rate review reviews thoughts tip tips tutorial tutorials update updates " +
+	"use using versus vs worth 30 current days describing especially evidence exist follow hands last matter most " +
+	"new people real recent relevant running up world still work"))
+
+// namesTopic says a text names the topic: last30days names_topic and _entity_grounded (reddit_discover.py:394-402,
+// rerank.py:924-971). The topic's first word, when it is longer than three letters and names something, must be in
+// the text; a topic headed by a short or generic word is checked by its later words of six letters or more when it
+// has four words or more, and passes otherwise, so a short name is never refused for want of a safe anchor.
+func namesTopic(text, topic string) bool {
+	tokens := strings.Fields(normalize(topic))
+	if len(tokens) == 0 {
+		return true
+	}
+
+	haystack := normalize(text)
+	if head := tokens[0]; len([]rune(head)) > 3 && !lowSignal[head] {
+		return strings.Contains(haystack, head)
+	}
+
+	if len(tokens) < 4 {
+		return true
+	}
+
+	anchored := false
+	padded := " " + haystack
+
+	for _, t := range tokens[1:] {
+		if len([]rune(t)) < 6 || stopwords[t] || lowSignal[t] {
+			continue
+		}
+
+		anchored = true
+
+		if strings.Contains(padded, " "+t) {
+			return true
+		}
+	}
+
+	return !anchored
 }

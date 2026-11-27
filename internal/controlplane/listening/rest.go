@@ -17,6 +17,12 @@ const (
 
 // restFor is until when a failure rests its backend; zero: it does not.
 func restFor(f *SourceError, now time.Time) time.Time {
+	// A wait the source or the web search chain named is kept, whatever the code (Agent-Reach keeps the platform's
+	// retry_after_seconds, runtime/dispatch.py:89-99).
+	if f.Until.After(now) && f.Code != CodeNeedLogin && f.Code != CodeNotFound && f.Code != CodeNoResults {
+		return f.Until
+	}
+
 	switch f.Code {
 	case CodeRefused:
 		return now.Add(RefusedRest)

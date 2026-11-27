@@ -62,14 +62,13 @@ const (
 	DefaultWindowDays = 30
 	// MaxWindowDays is the longest window: a year, Reddit's widest bucket below "all" (last30days reddit.py).
 	MaxWindowDays = 365
-	// DefaultResults and MaxResults bound what each (subquery, source) stream reads: last30days' default depth
-	// reads 25 posts (reddit_public.py DEPTH_LIMITS); a web search answers 20 at most (websearch.MaxResults).
-	DefaultResults = 10
-	MaxResults     = 25
+	// DefaultResults and MaxResults bound what each (subquery, source) stream keeps: last30days' default and deep
+	// depths, 25 and 50 threads (reddit_public.py:39-44, DEPTH_LIMITS); its quick depth's 10 is for a quick run,
+	// which a plan asks for with max_results. A web search answers 20 at most (websearch.MaxResults).
+	DefaultResults = 25
+	MaxResults     = 50
 	// PoolSize is how many items the answer lists, the best first: last30days' default pool (fusion.py:537-543).
 	PoolSize = 40
-	// maxQueryRunes bounds a subquery's text.
-	maxQueryRunes = 300
 )
 
 // Plan is what the calling model asks: its subqueries, the sources each reads, and the window (last30days QueryPlan
@@ -221,6 +220,12 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 		return Answer{}, err
 	}
 
+	// The web searches a plan makes wait for their route's turn, one call at a time per key or keyless provider and
+	// webGap apart, where the chain knows the route (websearch.WithPace).
+	ctx = websearch.WithPace(ctx, func(ctx context.Context, route string) (func(), error) {
+		return s.pacer.Wait(ctx, "web:"+route, webGap)
+	})
+
 	now := s.now().UTC()
 	from := now.AddDate(0, 0, -plan.WindowDays)
 
@@ -248,7 +253,10 @@ func (s *Service) Search(ctx context.Context, plan Plan, web WebSearch) (Answer,
 
 			for _, sq := range labels {
 				req := Request{
-					Query: sq.Query, Limit: plan.MaxResults, From: from, To: now, Web: web, Pace: s.pacer.Wait,
+					Query: sq.Query, Topic: plan.topic(), Limit: plan.MaxResults, From: from, To: now, Web: web,
+					Pace:    s.pacer.Wait,
+					Resting: func(path string) *SourceError { return s.restOf("path:" + path) },
+					Rest:    func(path string, f *SourceError) time.Time { return s.rest("path:"+path, f) },
 				}
 				st := s.runStream(ctx, p, plan.Backends[p.Name], sq, req)
 				cov.Streams = append(cov.Streams, st.report)
@@ -375,9 +383,6 @@ func (s *Service) check(plan Plan) (Plan, error) {
 		switch {
 		case sq.Query == "":
 			return Plan{}, fmt.Errorf("%w: subquery %s has no query", ErrInvalid, sq.Label)
-		case len([]rune(sq.Query)) > maxQueryRunes:
-			return Plan{}, fmt.Errorf("%w: subquery %s is longer than %d characters", ErrInvalid, sq.Label,
-				maxQueryRunes)
 		case labels[sq.Label]:
 			return Plan{}, fmt.Errorf("%w: two subqueries are labeled %s", ErrInvalid, sq.Label)
 		case sq.Weight < 0:

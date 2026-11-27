@@ -201,15 +201,20 @@ func TestReviewWebCallsDoNotOverlapOnARoute(t *testing.T) {
 
 	var wg sync.WaitGroup
 
+	errs := make([]error, 3)
+
 	for i := range 3 {
 		wg.Go(func() {
 			p := plan([]string{listening.SourceWeb, listening.SourceReddit}, fmt.Sprintf("VETC %d", i))
-			_, err := s.Search(t.Context(), p, search)
-			assert.NoError(t, err)
+			_, errs[i] = s.Search(t.Context(), p, search)
 		})
 	}
 
 	wg.Wait()
+
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
 	assert.Equal(t, int32(6), calls.Load(), "three plans, a web and a site:reddit.com search each")
 	assert.Equal(t, int32(1), most.Load(), "one call at a time to the provider")
 }
@@ -228,15 +233,21 @@ func TestReviewQueued403(t *testing.T) {
 
 	var wg sync.WaitGroup
 
-	for range 2 {
+	answers := make([]listening.Answer, 2)
+	errs := make([]error, 2)
+
+	for i := range 2 {
 		wg.Go(func() {
-			a, err := s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), nil)
-			assert.NoError(t, err)
-			assert.Equal(t, listening.CodeRefused, coverageOf(t, a, listening.SourceReddit).Code)
+			answers[i], errs[i] = s.Search(t.Context(), plan([]string{listening.SourceReddit}, "VETC"), nil)
 		})
 	}
 
 	wg.Wait()
+
+	for i := range 2 {
+		require.NoError(t, errs[i])
+		assert.Equal(t, listening.CodeRefused, coverageOf(t, answers[i], listening.SourceReddit).Code)
+	}
 	assert.Len(t, reddit.Requests(), 1, "the second search found the path resting after the first's 403")
 }
 
@@ -320,5 +331,6 @@ func TestReviewNormalizeKeepsQueryValueBoundary(t *testing.T) {
 	assert.Equal(t, "https://example.com/search?q=a&z=c", two)
 	assert.Equal(t, "https://voz.vn/t/th%E1%BB%9Bt", listening.NormalizeURL("https://voz.vn/t/thớt/"),
 		"a path is kept encoded, the same whichever way it came")
-	assert.Equal(t, listening.NormalizeURL("https://voz.vn/t/th%E1%BB%9Bt"), listening.NormalizeURL("https://voz.vn/t/thớt"))
+	assert.Equal(t, listening.NormalizeURL("https://voz.vn/t/th%E1%BB%9Bt"),
+		listening.NormalizeURL("https://voz.vn/t/thớt"))
 }

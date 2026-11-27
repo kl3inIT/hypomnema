@@ -65,6 +65,8 @@ type SourceError struct {
 	Detail string
 	// Until is when the source said it may be asked again (Retry-After, x-ratelimit-reset); zero when it did not.
 	Until time.Time
+	// resting: the call was not made, its path resting; the attempt is reported as skipped.
+	resting bool
 }
 
 func (f *SourceError) Error() string {
