@@ -86,6 +86,13 @@ type Outgoing struct {
 	Tags []Tag
 }
 
+// MaxChats is the most chats Chats lists: every chat of an account, for the list of which ones the secretary reads
+// (issue #1270). The API and the Bots' tools page at most MaxPage.
+const MaxChats = 20000
+
+// MaxPage is the most chats or messages one page of the API or of a Bot's tool gives.
+const MaxPage = 500
+
 // Chat is one chat of the account, as kept.
 type Chat struct {
 	// ID is the service's own id of the chat: for WhatsApp its JID.

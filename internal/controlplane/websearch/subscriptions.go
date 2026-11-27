@@ -79,10 +79,16 @@ func Refused(status int, retryAfter time.Duration, message string) error {
 	return &providerError{status: status, retryAfter: min(retryAfter, longestRetryAfter), message: clip(message, 200)}
 }
 
-// subscriptionRoute asks a subscription provider through the gateway.
-func subscriptionRoute(provider string) route {
+// subscriptionRoute asks a subscription provider through the gateway, under the accounts a Scope names (every
+// account when empty): a refusal under some accounts rests those alone.
+func subscriptionRoute(provider, accounts string) route {
+	id := provider + "-search"
+	if accounts != "" {
+		id += "@" + accounts
+	}
+
 	return route{
-		id: provider + "-search", provider: provider, source: SourceSubscription, label: "its subscription: ",
+		id: id, provider: provider, source: SourceSubscription, label: "its subscription: ",
 		timeout: subscriptionTimeouts[provider], ask: (*Service).askSubscription,
 	}
 }

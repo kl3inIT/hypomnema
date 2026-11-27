@@ -212,7 +212,7 @@ type Service struct {
 	signInMu sync.Mutex
 	// after is time.After outside tests: the pause between two refreshes.
 	after func(time.Duration) <-chan time.Time
-	// rr is the round-robin cursor per runtime, for a request with no session;
+	// rr is the round-robin cursor per runtime (and per key's accounts, cursorOf), for a request with no session;
 	// rrMu guards it.
 	rr   map[string]int
 	rrMu sync.Mutex
@@ -522,7 +522,7 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 		return Token{}, err
 	}
 
-	return s.tokenAmong(ctx, runtime, "", session, usable(accounts, runtime), skip)
+	return s.tokenAmong(ctx, runtime, "", session, chosen(ctx, usable(accounts, runtime)), skip)
 }
 
 // TokenFor is Token for a request for a model, which goes only to the accounts whose own list of models has it
@@ -558,7 +558,7 @@ func (s *Service) TokenFor(ctx context.Context, runtime, model, session string, 
 		s.afterAccounts()
 	}
 
-	ofRuntime := usable(accounts, runtime)
+	ofRuntime := chosen(ctx, usable(accounts, runtime))
 	servers, unknown := s.servers(ofRuntime, model)
 
 	switch {
@@ -586,6 +586,38 @@ func usable(accounts []Account, runtime string) []Account {
 	return out
 }
 
+type accountsKey struct{}
+
+// WithAccounts limits the accounts Token, TokenFor and FirstFree take for the request of ctx to ids (issue #1277):
+// a gateway key that may use only the accounts the owner chose, as OmniRoute narrows a provider's connections to an
+// API key's allowed_connections before it picks one (src/sse/services/auth.ts:1136-1138). The accounts are then
+// taken by every rule of Token, in their order among them; when none of them can serve, none other is taken. An
+// empty ids leaves no account to take.
+func WithAccounts(ctx context.Context, ids []string) context.Context {
+	return context.WithValue(ctx, accountsKey{}, slices.Clone(ids))
+}
+
+// cursorOf names the round-robin cursor of the request of ctx: the runtime's, or, for a request limited to some
+// accounts (WithAccounts), one of its own for those accounts, so that its turns neither move nor reset the others'.
+func cursorOf(ctx context.Context, runtime string) string {
+	ids, ok := ctx.Value(accountsKey{}).([]string)
+	if !ok {
+		return runtime
+	}
+
+	return runtime + "\x00" + strings.Join(slices.Sorted(slices.Values(ids)), ",")
+}
+
+// chosen are the accounts the request of ctx may take (WithAccounts): all of them when it names none.
+func chosen(ctx context.Context, accounts []Account) []Account {
+	ids, ok := ctx.Value(accountsKey{}).([]string)
+	if !ok {
+		return accounts
+	}
+
+	return slices.DeleteFunc(slices.Clone(accounts), func(a Account) bool { return !slices.Contains(ids, a.ID) })
+}
+
 // tokenAmong is Token among the given accounts of a runtime. For a model, the account picked is read again right
 // before its token is given, and passed over unless it is still usable and its list still has the model: the
 // accounts and the lists live apart (the database and memory), so no single read holds both (issue #814).
@@ -599,7 +631,7 @@ func (s *Service) tokenAmong(
 	// The accounts in a stable order, so the home a session hashes to does not move between its requests.
 	slices.SortFunc(ofRuntime, func(a, b Account) int { return strings.Compare(a.ID, b.ID) })
 
-	start := s.startIndex(runtime, session, len(ofRuntime), len(skip) == 0)
+	start := s.startIndex(cursorOf(ctx, runtime), session, len(ofRuntime), len(skip) == 0)
 	now := s.clock.Now()
 
 	ordered := make([]Account, 0, len(ofRuntime))
@@ -714,7 +746,7 @@ func (s *Service) notServedNow(ctx context.Context, runtime, model string) error
 		return nil //nolint:nilerr // Nothing more is known: the answer stays the pick's own.
 	}
 
-	ofRuntime := usable(accounts, runtime)
+	ofRuntime := chosen(ctx, usable(accounts, runtime))
 	servers, unknown := s.servers(ofRuntime, model)
 
 	switch {
@@ -795,7 +827,7 @@ func (s *Service) FirstFree(ctx context.Context, runtime string, modelReset func
 	}
 	now := s.clock.Now()
 	var first time.Time
-	for _, account := range accounts {
+	for _, account := range chosen(ctx, accounts) {
 		if !account.usableBy(runtime) {
 			continue
 		}
@@ -856,7 +888,7 @@ func cmpBool(a, b bool) int {
 // once per request (when nothing has been skipped yet) so a retry does not
 // rotate again; a retry then scans from the front, since skip already holds
 // what it tried.
-func (s *Service) startIndex(runtime, session string, n int, fresh bool) int {
+func (s *Service) startIndex(cursor, session string, n int, fresh bool) int {
 	if session != "" {
 		h := fnv.New32a()
 		_, _ = h.Write([]byte(session))
@@ -871,8 +903,8 @@ func (s *Service) startIndex(runtime, session string, n int, fresh bool) int {
 	s.rrMu.Lock()
 	defer s.rrMu.Unlock()
 
-	start := s.rr[runtime] % n
-	s.rr[runtime] = (start + 1) % n
+	start := s.rr[cursor] % n
+	s.rr[cursor] = (start + 1) % n
 
 	return start
 }

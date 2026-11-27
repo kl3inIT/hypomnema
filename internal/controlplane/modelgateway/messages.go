@@ -132,6 +132,13 @@ func (s *Server) serveMessages(w http.ResponseWriter, r *http.Request, path stri
 		return
 	}
 
+	if !s.svc.KeyServes(r.Context(), key, model) {
+		writeAnthropicError(w, http.StatusForbidden, typePermission, "model_not_allowed",
+			accountsRefuseMessage(call.req.Model))
+
+		return
+	}
+
 	call.claudeCode = isClaudeCode(r.Header, call.req.Metadata.UserID)
 
 	call.session = r.Header.Get("X-Claude-Code-Session-Id")
@@ -140,7 +147,7 @@ func (s *Server) serveMessages(w http.ResponseWriter, r *http.Request, path stri
 	}
 
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: call.req.Stream, started: started}
-	serving, served := withServed(r)
+	serving, served := withServed(withKey(r, key))
 	s.passMessages(w, serving, call, model, &record)
 	record.AccountID = served.id
 

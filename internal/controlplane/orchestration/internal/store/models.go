@@ -452,6 +452,7 @@ type GatewayAudioProvider struct {
 	TtsPosition sql.NullInt64
 	UpdatedAt   int64
 	Voice       string
+	TtsModel    string
 }
 
 type GatewayImageProvider struct {
@@ -478,6 +479,18 @@ type GatewayKey struct {
 	RevokeReason       sql.NullString
 	LastUsedAt         sql.NullInt64
 	CoordinatorTokenID sql.NullString
+	OwnAccounts        int64
+}
+
+type GatewayKeyAccount struct {
+	KeyID     string
+	AccountID string
+}
+
+type GatewayKeySearchOrder struct {
+	KeyID    string
+	Provider string
+	Position int64
 }
 
 type GatewayModel struct {
@@ -588,6 +601,14 @@ type GitHost struct {
 	Host      string
 	Kind      string
 	CreatedAt int64
+}
+
+type InboxChatRead struct {
+	Integration string
+	Label       string
+	ChatID      string
+	Reads       int64
+	SetAt       int64
 }
 
 type IntegrationClient struct {
@@ -1232,6 +1253,7 @@ type VideoRevision struct {
 	Look        string
 	PinProvider string
 	PinVoice    string
+	PinModel    string
 }
 
 type VideoSetting struct {

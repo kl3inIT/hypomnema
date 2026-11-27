@@ -1181,12 +1181,17 @@ sequenceDiagram
     order that is on and answers speaks the first scene and then every other one, with the voice asked or that
     provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
     no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
-    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the word times heard
-    from a clip are kept beside it (`<clip>.words.json`) and removed before the clip is spoken again. A revision
-    made from another (a look change, a retry) is **pinned** (`pin_provider`, `pin_voice`): only that provider is
-    asked, with exactly that voice, even an empty one, and the owner's audio settings are not read. Composing is
-    `compose.Compose`; captioning transcribes each scene's clip with its words' times through the speech service,
-    joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
+    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the model is the
+    owner's choice for that provider (ElevenLabs's speech model, issue #1283). Each line is asked with its words'
+    times: ElevenLabs answers its alignment (`/with-timestamps`), and the words built from it are kept beside the
+    clip (`<clip>.words.json`) as they are, each with its own times, so its captions need no transcription; a provider without one (Soniox, or an
+    ElevenLabs answer without alignment) has its clip transcribed at captioning, as before. The word times are
+    removed before the clip is spoken again. A revision made from another (a look change, a retry) is **pinned**
+    (`pin_provider`, `pin_voice`, `pin_model`, migration of #1283): only that provider is asked, with exactly that
+    voice, even an empty one, and that model (empty, as for a pin made before: the model the revision was spoken
+    with, else the provider's default), and the owner's audio settings are not
+    read. Composing is `compose.Compose`; captioning takes each clip's kept word times, or transcribes the clip
+    with its words' times through the speech service, joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
     cues by aidemo's rules (2 lines of 38 characters, at most 12 words, 1-6 s, broken at a sentence end, a clause's
     punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
@@ -4062,15 +4067,43 @@ capabilities do not exist yet.
   every kind. Every key made before, and every key of a Dispatch or a chat, has NULL. A request of a kind the key
   is not given is refused 403 `permission_error` `endpoint_not_allowed` before any provider is asked. Chat is
   limited by the key's models alone.
+- An owner's key may have its own routing (issue #1277, `modelgateway/key_routing.go`), stored next to it as
+  `gateway_search_providers` keeps the global order (migration `gateway_key_routing`): `gateway_keys.own_accounts`
+  with the rows of `gateway_key_accounts` (each an account, removed with it) are the only accounts it may use, and
+  `gateway_key_search_order` (provider, position) is its own web search order; a key with neither is routed as
+  before. Only these accounts, as OmniRoute narrows a provider's connections to a key's `allowed_connections`
+  (`src/sse/services/auth.ts:1136-1138`) and Bifrost's virtual key names its provider keys: the gateway puts the
+  key's accounts in the request's context (`modelgateway.KeyAccounts`), and the control plane's wiring gives them
+  to the subscriptions (`subscription.WithAccounts`), whose `Token`, `TokenFor` and `FirstFree` take only them, by
+  every rule of the global order among them; when each is at its limit the request is answered 429 with
+  `Retry-After` and no other account is tried. Such a 429 speaks for the key's accounts alone: it writes no
+  `gateway_model_cooling` row, which the scheduler reads for every worker; the key's round-robin turn is its own
+  cursor; the accounts' lists of models are read only of its accounts; an image asked of no provider goes only to
+  the image providers it has accounts of, so their wait is its answer. A model whose every target's provider has
+  none of the key's accounts is refused 403 (`model_not_allowed`) and left out of its `/v1/models`; a provider
+  served without accounts is not limited. An account added later is not added; a key whose accounts are all
+  removed keeps `own_accounts` and uses none, and its sheet saves a new name without touching that. Its own search order: `/v1/search` and `/v1/alpha/search` search with
+  `websearch.Scope`, its providers first in its order and the others after in the chain's; a provider off stays off,
+  Codex's and Claude's searches go under the key's accounts, and the cache and a subscription's rest are kept apart
+  for a key with its own accounts. A Dispatch's or a chat's key has none, so the agent API's searches are unchanged.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
   with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
   creation and last use (the later of its last authentication, written at most hourly, and its latest usage row);
   the keys of a Dispatch or a chat are only counted
-  (`live_worker_keys`), and each key's `endpoints` (every kind for a key not limited). `POST /gateway/keys`
-  `{name, models?, endpoints?}` answers the value once, `endpoints` left out for every kind and empty for none (the
-  page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
-  revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
+  (`live_worker_keys`), and each key's `endpoints` (every kind for a key not limited), `accounts` (absent for every
+  account) and `search_order`. `POST /gateway/keys` `{name, models?, endpoints?, accounts?, search_order?}` answers
+  the value once, `endpoints` left out for every kind and empty for none; `PATCH` takes `accounts: ["*"]` for every
+  account again and `search_order: []` for the order of Settings; `DELETE /gateway/keys/{id}` revokes one the owner
+  made. All are the owner's. The page shows its own origin with `/v1` as the base URL. Since issue #1277 a key is
+  made and edited in one sheet at the right side (`gateway-key-sheet.tsx`, 560px, the whole width on a phone; as
+  Bifrost's and new-api's key sheets): the name, then Models as "Every model / Only these" with a chip multiselect
+  grouped by provider (`gateway-model-picker.tsx`, the shadcn combobox), Besides chat as one row of toggle chips
+  with the endpoints in one line, and a Routing section closed by default whose header says what is set (Accounts:
+  "Every account / Only these" with each subscription's accounts as chips; Web search order: "Like Settings / Its
+  own" with numbered chips that move). A new key is shown once with Copy and a Connect a tool snippet (the base URL
+  and the key for OpenAI's format and Claude Code, after LiteLLM's `CreatedKeyDisplay`). The table marks a key with
+  its own routing under its name ("2 Claude accounts", "Own search order").
   The name stays visible when the table scrolls sideways. Models and extra capabilities each show up to three
   chips and open the full list from the remaining count. A key without a stored value shows its prefix and a short
   status that opens the explanation in a popover when pressed (issue #1235).
@@ -4795,7 +4828,9 @@ Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.
 owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, above) and for the owner and Bots
 (`hypomnema audio`, see the client API).
 - Providers: Soniox, then ElevenLabs (owner, 2026-11-17), each asked with one model a kind: Soniox `stt-async-v5`
-  and `tts-rt-v2`, ElevenLabs `scribe_v2` and `eleven_multilingual_v2`. Speech to text and text to speech each ask
+  and `tts-rt-v2`, ElevenLabs `scribe_v2` and, for speech, the model the owner chose from ElevenLabs's `GET
+  /v1/models`, `eleven_v4` by default (issue #1283, [research](docs/research/2026-11-27-elevenlabs-integration.md);
+  `speech.Settings.Model`). Speech to text and text to speech each ask
   the providers that are on in the owner's order for that kind; the first that answers wins and the answer says why
   those before it did not.
 - Keys: each provider takes several, vault secrets `speech-<provider>` and `speech-<provider>-<n>` (the lowest free
@@ -4817,8 +4852,19 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   `https://api.elevenlabs.io`: `POST /v1/speech-to-text` multipart `{model_id, file, timestamps_granularity word,
   language_code?, diarize?}`, its words' `speaker_id` the speakers, a spacing no word, an audio event no speech, the
   length the last word's end; `POST /v1/text-to-speech/{voice_id}?output_format=` (LiteLLM's mp3_44100_128,
-  pcm_24000, opus_48000_128, wav_24000) `{text, model_id, voice_settings: {speed}?}`, OpenAI's voice names mapped
-  to LiteLLM's voices, none Rachel; `GET /v1/voices`, kept a day a key.
+  pcm_24000, opus_48000_128, wav_24000) `{text, model_id, language_code?, voice_settings: {speed}?}`, OpenAI's voice
+  names mapped to LiteLLM's voices, none Rachel; `language_code` is the caller's language (a video's `vi`,
+  `audio_speak`'s `language`), cut to its ISO 639-1 code (`en-US` is `en`), when the model's languages in `GET
+  /v1/models` cover it, else left out with a warning (pipecat's guard); a model older than v2.5
+  (`eleven_multilingual_v2` and the like, which pipecat sends none) never gets one; when the list cannot be read,
+  or does not name the model, it is sent. A video's line
+  goes to `/with-timestamps` (`{audio_base64, alignment}`): `alignment` (not `normalized_alignment`) is split into
+  words on whitespace, each from its first character's start to its last's end, a bracketed audio tag (`[laughs]`)
+  no word (`speech.Speech.Words`). A 429 or 5xx (not one out of credits) is asked again twice, after its
+  `Retry-After` (at most 60 s) or 1 s doubling, before the key rests (the SDK's retry; `speech/retry.go`, for
+  speech and the lists, not Scribe); each attempt has its own 2-minute budget and the waits are apart from it, as
+  the SDK's timeout is a request's. `GET /v1/voices` (the account's own and saved library voices) and `GET
+  /v1/models` (those that speak text, with their languages) are each kept a day a key.
 - A transcript is cut into segments at a speaker change, a pause over 800 ms or past 400 characters, markers and
   sounds left out (MemoryOS `SonioxAsync.group`). Base URLs and the poll's pace are `speech.Config`'s.
 - Usage: each request is one row of `gateway_usage` on its key, as model `audio/<the provider's model>` (`audio/stt`
@@ -4831,14 +4877,22 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   provider again when both are present. A clip voiced before its word times were cached is transcribed on its
   first use with captions.
 - What the owner sets (`gateway_audio_providers`, migration 00103: `provider`, `off`, `stt_position`,
-  `tts_position`; read and written only by the gateway): one switch a provider for both kinds and each kind's order.
+  `tts_position`, then `voice` (00126) and `tts_model` (issue #1283); read and written only by the gateway): one
+  switch a provider for both kinds, each kind's order, a provider's voice for videos and ElevenLabs's speech model.
+  A usage row's kind is told by its model (`speech.KindOf`: the provider's one transcription model, else speech),
+  and a kind's count sums every model it was asked with.
   `GET /gateway/audio` (any token) lists the providers with their switch, `state` (`ready`, `resting` when every key
   rests, `not_set_up` with no key, `off`) and keys (name, state, rest, last used; never a value), and `stt` and `tts`,
   each kind's providers in order with their model and requests today and this month (UTC) with the seconds heard or
   characters spoken. The owner's: `PUT /gateway/audio/providers/{provider}` `{on}`, `PUT /gateway/audio/order/{stt|tts}`
-  `{providers}`, `POST /gateway/audio/providers/{provider}/keys` `{key}` (answers the secret's name) and `DELETE
-  /gateway/audio/providers/{provider}/keys/{name}`. Settings → Gateway → Audio (`web/src/features/models/
-  audio-screen.tsx`) shows and changes them, built from the Web search and Images pages. The CLI: `hypomnema audio
+  `{providers}`, `PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `PUT
+  /gateway/audio/providers/{provider}/model` `{model}` (ElevenLabs only; empty, the default), `POST
+  /gateway/audio/providers/{provider}/keys` `{key}` (answers the secret's name) and `DELETE
+  /gateway/audio/providers/{provider}/keys/{name}`; any token reads `GET /gateway/audio/models` and `GET
+  /gateway/audio/voices`, the providers' own lists. Settings → Gateway → Audio (`web/src/features/models/
+  audio-screen.tsx`) shows and changes them, built from the Web search and Images pages; ElevenLabs's speech row
+  picks its model from its list and its voice for videos by name (typed when the list cannot be read); Soniox's
+  voice is typed by name or id. The CLI: `hypomnema audio
   providers`, `audio providers set <provider> on|off`, `audio order stt|tts <provider> <provider>`, `audio keys add
   <provider> --key-file`, `audio keys rm <provider> <name>`.
 - Not built: live (streaming) transcription, prices for audio, an agent tool for audio. Not yet measured:
@@ -5322,6 +5376,36 @@ its client API, its CLI and the Bots' tools.
   `HYPOMNEMA_TEST_CLAUDE` names it; `triage.eval.mjs` runs the cases of `triage-cases.json` so, only with
   `THU_KY_EVAL=1` (issue #1182). The Routine's
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
+  - **Which chats the secretary reads** ([issue #1270](https://github.com/kl3inIT/hypomnema/issues/1270),
+    [research](docs/research/2026-11-27-chats-the-secretary-reads.md)): a flag per chat of each of the owner's
+    Zalo, WhatsApp and own Lark Connections (`integration:label`), kept by `inboxstore` in `inbox_chat_reads` (a row
+    is the owner's choice, with when he made it; inbox-zero's per-account exclude items). A chat without a row takes
+    its kind's default, the same for every source (owner, 2026-11-27): direct chats and groups are read, a bot's or an
+    official account's is not, a bot being a WhatsApp broadcast list or a chat whose name or id matches
+    `inboxstore.BotPatterns` (the check's `dropChats` defaults until then). `internal/controlplane/inbox` (`Chats`)
+    lists a Connection's chats with their state: Zalo's and WhatsApp's kept chats (up to `messaging.MaxChats`,
+    20,000; the API and the tools still page at most 500) and the Lark sign-in's (`GET /open-apis/im/v1/chats`, up to
+    100 pages). The owner's API, his token only: `GET /inbox/chat-sources` (his accounts with counts read, skipped
+    and by kind, and the defaults), `GET /inbox/chat-sources/{integration}/{label}` (`q` on the name or id in any
+    case, `kind`, `state`, `limit`; the account's counts, the counts for `q` alone and how many match all filters),
+    `PUT …/{chat}` (`reads`), and `POST
+    /inbox/chat-sources/moves` (the one-time move below); the CLI's `inbox chats`, `inbox chats set` and `inbox
+    chats move`. A Bot's pi and its Routine's check get `inbox_chats` (family `inbox`, allowed in a read run): the
+    owner's choices of the accounts the Bot may read and the defaults with their patterns. The check reads it once a
+    run and skips a chat he switched off before any model; when it cannot be read or the run lacks it, none of his
+    chats is read that run. The conversations a run carried get the next run's choices before anything is printed: a
+    chat switched off is dropped, and one whose choice cannot be read is held, unprinted, waking nobody. A carried
+    line of an earlier check is read by its fixed start and end, its chat's id apart from the name (which may hold a
+    line feed); a line that is no known chat, mail thread or meeting is held unprinted.
+    A chat switched off is still synced, kept and read by a Bot when he asks. The move reads `dropChats` of a Bot's
+    `thu-ky/filters.json` (through its folder's helper) and switches off, as his choice, each exact id (`^<id>$`) of a
+    chat one of his accounts has, unless he set that chat already, so that running it again changes nothing. It
+    fails (503) while one of his accounts cannot be listed, and the CLI exits non-zero for an id no account has;
+    `deploy/thu-ky/setup.sh` runs it and stops on that failure before it sets the check, which no longer reads `dropChats` once the control
+    plane has `inbox_chats`. The screen opens from a gear on the Inbox page (`/inbox/chats`,
+    `features/inbox/chats-read-screen.tsx`): a tab per account with its count, the default for new chats, a search,
+    kind and state filters as the Machines page's segmented controls with counts for the search, and a card of rows, each with its kind's icon,
+    why it is in its state (default or set by him, and when) and a switch.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).
 
@@ -5777,7 +5861,10 @@ The owner's commands:
     (issue #1047), the step to take when the key may have leaked; it prints how many devices it removed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
     table; `gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none]` makes and prints an
-    owner key. `gateway keys set <id>` takes `--name`, `--models` and `--endpoints` (`*` restores every kind);
+    owner key, with `--accounts a,b` (the only accounts it may use) and `--search-order codex,claude,exa` (its own
+    web search order; issue #1277). `gateway keys set <id>` takes `--name`, `--models`, `--endpoints` (`*` restores
+    every kind), `--accounts` (`*` restores every account) and `--search-order` (`settings` restores the order of
+    Settings); `gateway keys list` shows a key's own routing after what it may use;
     `gateway keys show-value <id>` reads its value again if stored. `gateway keys list` never prints the value;
     `gateway keys revoke <id>` stops the key. `gateway antigravity-rewrites list` and `gateway antigravity-rewrites set FILE|-`
     manage the owner's find→replace rules for the Antigravity system instruction (issue #591; a JSON array of

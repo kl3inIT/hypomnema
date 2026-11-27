@@ -137,7 +137,7 @@ func (s *Service) Chain(ctx context.Context) ([]Link, error) {
 	}
 
 	for _, p := range SubscriptionProviders() {
-		r := subscriptionRoute(p)
+		r := subscriptionRoute(p, "")
 		l := Link{
 			Provider: p, Source: SourceSubscription, On: !off(p), Usable: s.subs != nil,
 			Usage: counts[[2]string{p, ""}],

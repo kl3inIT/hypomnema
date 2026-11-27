@@ -71,12 +71,15 @@ const (
 	ToolInboxDrop    = "inbox_drop"
 	// ToolInboxComment posts in an item's thread (issue #1111): the Bot's progress, read by the owner on the item.
 	ToolInboxComment = "inbox_comment"
+	// ToolInboxChats lists the owner's choices of which of his chats the secretary reads (issue #1270), which the
+	// triage's check reads before any model.
+	ToolInboxChats = "inbox_chats"
 )
 
 // InboxTools are the Inbox's tools.
 var InboxTools = []string{
 	ToolInboxList, ToolInboxGet, ToolInboxAdd, ToolInboxUpdate, ToolInboxStart, ToolInboxRelease, ToolInboxDone,
-	ToolInboxDrop, ToolInboxComment,
+	ToolInboxDrop, ToolInboxComment, ToolInboxChats,
 }
 
 // ToolChatSearch searches a Bot's own past chats by words and scrolls inside one (issue #805), as Hermes's and

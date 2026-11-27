@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest"
 
 import type { AudioProviderLink } from "@/api/generated/types.gen"
 
-import { audioState, audioUsageText, heardText } from "./audio-state"
+import {
+  audioState,
+  audioUsageText,
+  defaultVoice,
+  heardText,
+  modelChoices,
+  voiceChoices,
+} from "./audio-state"
 import { until } from "./models-state"
 
 const now = new Date("2026-11-17T09:00:00Z").getTime()
@@ -44,5 +51,53 @@ describe("an audio provider", () => {
     )
     expect(heardText(42)).toBe("42 s")
     expect(heardText(600)).toBe("10 min")
+  })
+})
+
+describe("the model and voice pickers", () => {
+  it("list the provider's models, keeping the one in use", () => {
+    const models = [
+      {
+        provider: "elevenlabs" as const,
+        id: "eleven_v4",
+        name: "Eleven v4",
+        languages: ["en", "vi"],
+      },
+      {
+        provider: "elevenlabs" as const,
+        id: "eleven_flash_v2_5",
+        name: "Flash v2.5",
+        languages: [],
+      },
+    ]
+
+    expect(modelChoices(models, "elevenlabs", "eleven_v4")).toEqual([
+      { value: "eleven_v4", label: "Eleven v4", detail: "2 languages" },
+      { value: "eleven_flash_v2_5", label: "Flash v2.5", detail: undefined },
+    ])
+    expect(modelChoices([], "elevenlabs", "eleven_v3")).toEqual([
+      { value: "eleven_v3", label: "eleven_v3" },
+    ])
+  })
+
+  it("list the provider's voices by name after its own default, keeping one set by id", () => {
+    const voices = [
+      { provider: "elevenlabs" as const, id: "v2", name: "Sơn Trần", language: "vi" },
+      { provider: "elevenlabs" as const, id: "v1", name: "Adam" },
+      { provider: "soniox" as const, id: "Adrian", name: "Adrian" },
+    ]
+
+    expect(voiceChoices(voices, "elevenlabs", "v2").map((c) => c.label)).toEqual([
+      "Its own default",
+      "Adam",
+      "Sơn Trần",
+    ])
+    expect(voiceChoices(voices, "elevenlabs", "alloy")[1]).toEqual({
+      value: "alloy",
+      label: "alloy",
+    })
+    expect(voiceChoices([], "soniox", "")).toEqual([
+      { value: defaultVoice, label: "Its own default" },
+    ])
   })
 })
