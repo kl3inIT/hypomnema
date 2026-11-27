@@ -11,12 +11,12 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
 
-// passWorld is the main Bot and two project Bots, each with what it is and the accounts it may use, and an item the
+// passWorld is the main Bot and its project Bots, each with what it is and the accounts it may use, and an item the
 // owner handed to the main Bot.
 type passWorld struct {
 	*world
-	beyond, vmap Bot
-	item         inboxstore.Todo
+	beyond, vmap, vmapData Bot
+	item                   inboxstore.Todo
 }
 
 func newPassWorld(t *testing.T) passWorld {
@@ -40,7 +40,10 @@ func newPassWorld(t *testing.T) passWorld {
 	})
 	require.NoError(t, err)
 
-	vmap, err := w.s.PutBot(ctx, Bot{Name: "VMAP", Persona: "VMAP at VTII: the map app's data and its Lark groups."})
+	vmap, err := w.s.PutBot(ctx, Bot{Name: "VMAP Maps", Persona: "The map app and its Lark groups."})
+	require.NoError(t, err)
+
+	vmapData, err := w.s.PutBot(ctx, Bot{Name: "VMAP Data", Persona: "The map app's datasets."})
 	require.NoError(t, err)
 
 	item, err := w.s.Inbox().Create(ctx, inboxOwner, inboxstore.NewTodo{
@@ -50,10 +53,10 @@ func newPassWorld(t *testing.T) passWorld {
 	require.NoError(t, err)
 
 	item, err = w.s.Inbox().Hand(ctx, inboxstore.Change{Actor: inboxOwner, ID: item.ID, Revision: item.Revision},
-		DefaultBotID, "Do it")
+		DefaultBotID, "cho BeyondPilot check nhóm Kai")
 	require.NoError(t, err)
 
-	return passWorld{world: w, beyond: beyond, vmap: vmap, item: item}
+	return passWorld{world: w, beyond: beyond, vmap: vmap, vmapData: vmapData, item: item}
 }
 
 func asBot(id string) inboxstore.Actor { return inboxstore.Actor{Kind: inboxstore.Bot, ID: id} }
@@ -65,23 +68,37 @@ func (w passWorld) pass(by string, td inboxstore.Todo, to inboxstore.Assignee) (
 }
 
 // Scenario: issue #1118, section 2. The main Bot handed an item is told the project Bots it may pass it to, each
-// with what it is and the accounts it may use, and when to pass it rather than do it or start a Run.
+// with what it is and the accounts it may use. The owner may name one in the hand-over or a later comment (#1276).
 func TestTheMainBotHandedAnItemIsToldTheProjectBots(t *testing.T) {
 	t.Parallel()
 
 	w := newPassWorld(t)
 
+	_, err := w.s.Inbox().Comment(t.Context(), inboxOwner, w.item.ID, "cho VMAP")
+	require.NoError(t, err)
+
 	wakes := w.wakes(w.item.Chat)
-	require.Len(t, wakes, 1)
+	require.Len(t, wakes, 2)
+	assert.Contains(t, wakes[0], "<owner_prompt>\ncho BeyondPilot check nhóm Kai\n</owner_prompt>")
+	assert.Contains(t, wakes[1], "<owner_comment>\ncho VMAP\n</owner_comment>")
 
-	for _, want := range []string{
-		"BeyondPilot", w.beyond.ID, "GenAI Fund", "google:beyondpilot", "whatsapp:beyondpilot",
-		"VMAP", w.vmap.ID, "Lark groups", "every Connection", "pass_to",
-	} {
-		assert.Contains(t, wakes[0], want)
+	for _, wake := range wakes {
+		for _, bot := range []Bot{w.beyond, w.vmap, w.vmapData} {
+			assert.Contains(t, wake, bot.Name+" ("+bot.ID+"): "+bot.Persona)
+		}
+
+		for _, want := range []string{
+			"google:beyondpilot", "whatsapp:beyondpilot", "every Connection",
+			"pass it to that Bot with inbox_update pass_to",
+			"when the owner names no Bot, choose as below",
+			"matches no Bot or more than one", "say which Bots matched",
+			"inbox_comment on the item, then inbox_update hand_back",
+		} {
+			assert.Contains(t, wake, want)
+		}
+
+		assert.NotContains(t, wake, "("+DefaultBotID+"):", "the main Bot is not listed as a project Bot")
 	}
-
-	assert.NotContains(t, wakes[0], DefaultBotID+" (", "the main Bot is not listed as a Bot to pass to")
 }
 
 // Scenario: issue #1118, sections 1, 3 and 4. The main Bot passes the item to the project Bot that fits: it is that
