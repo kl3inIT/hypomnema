@@ -105,8 +105,10 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 			})
 		}
 
-		p.stopSettled()
+		// Not working before the stop clears, so that no pass sees a working pi without the stop and steers it
+		// with what the stop dropped (unsent, issue #1192).
 		p.setWorking(false)
+		p.stopSettled()
 		p.s.turnSettled(ctx, p)
 		p.s.settled()
 	case "turn_end":

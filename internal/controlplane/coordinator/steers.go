@@ -78,14 +78,16 @@ func dispositionOf(data json.RawMessage) string {
 	return d.Disposition
 }
 
-// unsent leaves out the rows this pi has been given while it works, and everything while the owner's stop runs: a
-// turn that ends is given no steer, and what was written goes as a turn after it (t3code CommandPolicy.ts queues what
-// comes while the provider's turn is not running).
+// unsent leaves out the rows this pi has been given while it works, and everything while the owner's stop runs or
+// once the turn is over: a turn that ends is given no steer, and what was written goes as a turn after it (t3code
+// CommandPolicy.ts queues what comes while the provider's turn is not running). The pass that calls it read pi as
+// working before; a steer its stop dropped, sent once the turn settled, would start a turn of its own ahead of the
+// chat's queue, which goes with it as the owner's next turn instead (nextTurn, issue #1192).
 func (p *proc) unsent(msgs []orchestration.ChatMessage) []orchestration.ChatMessage {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.stopAsked {
+	if p.stopAsked || !p.working {
 		return nil
 	}
 
