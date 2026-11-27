@@ -44,7 +44,8 @@ WHERE repository = @repository AND number = @number;
 -- What a read of GitHub's found, kept when the row is still at the version the read began from. When another write
 -- came first, the read is kept only if it found the same head the row now has and that head's checks passed or
 -- failed, and the row either says pending (a head's checks go from pending to ended: review round 3) or ended
--- earlier, by GitHub's completed time (a rerun of the head: review round 4). A read that found the pull request
+-- earlier, by GitHub's completed time (a rerun of the head: review round 4), compared only when both have one: a
+-- result without a time never loses to one with a time (review round 5). A read that found the pull request
 -- merged or closed never wins this way: those come from the pull_request events, and a reopen's pending stands
 -- (review round 4). A new head's reset (another head) wins over the read.
 UPDATE pull_request_ci
@@ -53,7 +54,8 @@ SET head = @head, state = @state, failed = @failed, read_at = @now, completed = 
 WHERE repository = @repository AND number = @number
   AND (version = @version
     OR (head = @head AND (@state = 'passed' OR @state = 'failed')
-      AND (state = 'pending' OR (state IN ('passed', 'failed') AND @completed > completed))));
+      AND (state = 'pending'
+        OR (state IN ('passed', 'failed') AND completed <> '' AND @completed <> '' AND @completed > completed))));
 
 -- name: DeletePullRequestCIBefore :exec
 DELETE FROM pull_request_ci WHERE updated_at < @before;

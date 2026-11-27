@@ -284,7 +284,8 @@ func (s *Store) SetCI(ctx context.Context, ci CI, read bool) (bool, error) {
 // the read began from, and says whether it was kept. An event that changed the row while GitHub was read, such as a
 // new head's reset, wins: the read found the old head (issue #1262, review round 2). One exception: a read that found
 // the row's own head passed or failed is kept when the row says pending (review round 3) or ended earlier by GitHub's
-// completed time, a rerun (review round 4). A read that found the pull request merged or closed never wins so: a
+// completed time, a rerun (review round 4), when both have one: a result without a time never loses to one with a
+// time (review round 5). A read that found the pull request merged or closed never wins so: a
 // reopen's pending stands, and only the pull_request events, or a read with nothing changed since it began, close
 // it (review round 4).
 func (s *Store) KeepRead(ctx context.Context, ci CI, version int64) (bool, error) {
