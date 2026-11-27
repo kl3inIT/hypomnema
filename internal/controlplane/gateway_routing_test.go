@@ -2,7 +2,6 @@ package controlplane
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"io"
 	"log/slog"
@@ -28,7 +27,8 @@ import (
 // routingWorld is the gateway over three Claude accounts, first, second and third, and two Codex accounts, cx-one and
 // cx-two, whose backend is at its rate limit for every one of them: it keeps the tokens it was sent, in order.
 type routingWorld struct {
-	db       *sql.DB
+	// coolings counts the rows the scheduler reads to hold back work on a cooling model (scheduler.go placeTask).
+	coolings func() int
 	gateway  *modelgateway.Service
 	mux      *http.ServeMux
 	accounts map[string]string
@@ -52,7 +52,13 @@ func newRoutingWorld(t *testing.T) *routingWorld {
 	require.NoError(t, err)
 	secrets := vault.New(db, clock, newID, keyring, nil)
 
-	w := &routingWorld{db: db, accounts: map[string]string{}}
+	w := &routingWorld{accounts: map[string]string{}}
+	w.coolings = func() int {
+		var n int
+		require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM gateway_model_cooling").Scan(&n))
+
+		return n
+	}
 
 	for _, name := range []string{"first", "second", "third", "cx-one", "cx-two"} {
 		runtime := "claude"
@@ -117,16 +123,6 @@ func (w *routingWorld) ask(t *testing.T, key, model string) (*httptest.ResponseR
 
 const routedClaudeModel = "claude-subscription/claude-opus-5-5"
 
-// sharedCoolings counts the rows the scheduler reads to hold back work on a cooling model (scheduler.go placeTask).
-func (w *routingWorld) sharedCoolings(t *testing.T) int {
-	t.Helper()
-
-	var n int
-	require.NoError(t, w.db.QueryRowContext(t.Context(), "SELECT count(*) FROM gateway_model_cooling").Scan(&n))
-
-	return n
-}
-
 // Scenario (review of PR #1298): a key limited to two accounts gets 429 when both rest, but the third account still
 // serves every other key: nothing is written of the model's cooling for all. A key over every account, refused by
 // all three, writes it.
@@ -141,14 +137,14 @@ func TestALimitedKeysLimitIsNotEveryones(t *testing.T) {
 
 	rec, _ := w.ask(t, limited, routedClaudeModel)
 	require.Equal(t, http.StatusTooManyRequests, rec.Code, rec.Body.String())
-	assert.Zero(t, w.sharedCoolings(t), "the key's 429 speaks for its own accounts")
+	assert.Zero(t, w.coolings(), "the key's 429 speaks for its own accounts")
 
 	_, every, err := w.gateway.AddKey(t.Context(), "laptop", nil, nil)
 	require.NoError(t, err)
 
 	rec, _ = w.ask(t, every, routedClaudeModel)
 	require.Equal(t, http.StatusTooManyRequests, rec.Code, rec.Body.String())
-	assert.Positive(t, w.sharedCoolings(t), "every account refused: the model cools for all")
+	assert.Positive(t, w.coolings(), "every account refused: the model cools for all")
 }
 
 // Scenario (issue #1277): a key limited to two of three Claude accounts is served only by them. When both are at
