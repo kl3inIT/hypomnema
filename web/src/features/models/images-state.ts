@@ -1,6 +1,6 @@
 import type { ImageProvider, ImageProviderLink } from "@/api/generated/types.gen"
 
-import { type Tone, until } from "./models-state"
+import { restLabel, restTone, type Tone } from "./models-state"
 
 // What the Images page shows of each image provider (issue #431), worked out from the list the server gives in
 // order. The words follow the Web search page's: a provider that can be asked is "Ready", one with no account it
@@ -24,11 +24,12 @@ export function imageState(link: ImageProviderLink, now = Date.now()): ImageStat
         why: "Switched off: a request neither asks it nor may name it.",
       }
     case "resting":
+      // Why the account free first rests (issue #1305); a rate limit when the server does not say.
       return {
         label: link.resting_until
-          ? `Rate limited until ${until(link.resting_until, now)}`
+          ? restLabel(link.cooling_code ?? "rate_limit", link.resting_until, now)
           : "Rate limited",
-        tone: "warning",
+        tone: restTone(link.cooling_code),
         why: "Each of its accounts reached its limit and rests until the time its vendor named.",
       }
     case "not_set_up":

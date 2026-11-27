@@ -32,7 +32,7 @@ type Images interface {
 type ImageSettings interface {
 	ImageSettings(ctx context.Context) ([]modelgateway.ImageProviderSetting, error)
 	ImageCounts(ctx context.Context, now time.Time) (map[string]modelgateway.ImageCount, error)
-	ImageRests(ctx context.Context) (map[string]map[string]time.Time, error)
+	ImageRests(ctx context.Context) (map[string]map[string]modelgateway.Rest, error)
 	SetImageProvider(ctx context.Context, provider string, on bool) error
 	SetImageOrder(ctx context.Context, providers []string) error
 }
@@ -211,20 +211,20 @@ func (s *Server) imageProviders(ctx context.Context) (openapi.Images, error) {
 			},
 		}
 
-		var free time.Time
+		var free modelgateway.Rest
 
 		resting := len(usable[st.Provider]) > 0
 
 		for _, id := range usable[st.Provider] {
-			until, ok := rests[st.Provider][id]
-			if !ok || !until.After(now) {
+			rest, ok := rests[st.Provider][id]
+			if !ok || !rest.Until.After(now) {
 				resting = false
 
 				break
 			}
 
-			if free.IsZero() || until.Before(free) {
-				free = until
+			if free.Until.IsZero() || rest.Until.Before(free.Until) {
+				free = rest
 			}
 		}
 
@@ -234,7 +234,12 @@ func (s *Server) imageProviders(ctx context.Context) (openapi.Images, error) {
 		case len(usable[st.Provider]) == 0:
 			link.State = openapi.ImageProviderLinkStateNotSetUp
 		case resting:
-			link.State, link.RestingUntil = openapi.ImageProviderLinkStateResting, &free
+			link.State, link.RestingUntil = openapi.ImageProviderLinkStateResting, &free.Until
+
+			// Why the account free first rests (issue #1305).
+			if code := openapi.CoolingCode(free.Code); code.Valid() {
+				link.CoolingCode = &code
+			}
 		default:
 			link.State = openapi.ImageProviderLinkStateReady
 		}

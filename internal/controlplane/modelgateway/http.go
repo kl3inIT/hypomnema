@@ -223,6 +223,9 @@ type errorBody struct {
 		Message string `json:"message"`
 		Type    string `json:"type"`
 		Code    string `json:"code"`
+		// CoolingCode is why the first account free again rests, on the gateway's own 429 when none can serve
+		// (issue #1305).
+		CoolingCode CoolingCode `json:"cooling_code,omitempty"`
 	} `json:"error"`
 }
 

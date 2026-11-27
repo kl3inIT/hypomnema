@@ -3945,8 +3945,8 @@ capabilities do not exist yet.
     growing wait, but at most 60 s (issue #1159; OmniRoute clamps a Codex capacity refusal to 5-60 s, CLIProxyAPI's
     transient cooldown is 60 s), though the backend names about six minutes. While the model rests on every account
     the client gets the 429 of a cooling model with the first time one is free, so at most a minute away. A rate limit, a usage limit or a refused token still
-    cools the whole account, and its cooldown's reason is the refusal's code (else its type, else `HTTP <status>`),
-    not `usage limit`. When every account refuses, the usage row keeps the refusal's code, message
+    cools the whole account, with its code (below) and the backend's message as its reason (issue #1305); a model's
+    rest is `overloaded`. When every account refuses, the usage row keeps the refusal's code, message
     and the prompt's moderation flags from the `response.metadata` frame (paths and values, not the prompt), and
     counts the input as estimated with no output; a stream that ended before any output counts no output.
   - A run of answers that did not end ends the client's turn (issue #1052), whatever the prompt's size: a stream cut
@@ -4240,6 +4240,25 @@ capabilities do not exist yet.
     1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
     minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
     401, 402 or 403; 30 seconds after another 5xx.
+  - Why an account rests is one closed set for every adapter (issue #1305, `modelgateway/cooling_code.go`):
+    `usage_limit` (a plan's window or allowance used up), `rate_limit`, `billing` (credits, a balance or a budget
+    spent), `auth` (the key or sign-in refused), `overloaded`, `unknown`. One classifier reads every refusal in
+    opencode's order (`provider-error.ts` `classifyProviderFailure`): a 402 or a billing code is `billing`; a usage
+    code (`GoUsageLimitError`, `FreeUsageLimitError`, Codex's `usage_limit_reached`) is `usage_limit`; a spent
+    balance's or a used-up plan's words count only on a 429; then 401/403 or an auth code, a 429 or rate-limit
+    code or words, a 5xx or the provider's own failure. A Claude 429 is `usage_limit` only with
+    `anthropic-ratelimit-unified-status: rejected` (OmniRoute `isClaudeUsageWall`); an Antigravity model that waits
+    on a used-up quota is `usage_limit`, one that waits on a throttle `rate_limit`; a suspended account or one to
+    verify is `auth`. The waits are unchanged. The reset a refusal names is read from its headers first
+    (`retry-after-ms`, `Retry-After` as seconds or a date, `x-ratelimit-reset-ms`, `x-ratelimit-reset`,
+    `x-ratelimit-reset-after`), else from its words, the pairs after "resets in" summed ("2hr 15min", "3 days";
+    omp `extractRetryHint`); Claude's unified reset still comes before both. The account's cooldown keeps the code
+    (`account_cooldowns.code`, checked against the set; a node Dispatch's rate limit is `rate_limit`) beside the
+    provider's own message (`reason`); the accounts API gives `cooling_code` and `cooling_reason`, `accounts list`
+    prints both, and the Models page's account card says the code in words ("Usage limit, resets 12:42 AM", "Key
+    refused until …", "Credits spent until …", "Rate limited until …", "Provider overloaded until …", "Resting until
+    …" for `unknown`) with the message as its title. The Images page says the code of the account free first
+    (`ImageProviderLink.cooling_code`).
   - A request for an Antigravity or Codex model (chat on `/chat/completions`, `/responses` and `/messages`, and
     Antigravity's images) goes only to the accounts whose own list (read as the gateway's models are) has it, as
     CLIProxyAPI routes a model only to the auths that registered it (`sdk/cliproxy/auth/conductor_selection.go`
@@ -4422,10 +4441,10 @@ capabilities do not exist yet.
     Messages), `User-Agent: hypomnema/<version>` and `x-opencode-session`, a hash of the gateway's session: the
     client's `prompt_cache_key` or session header, else its gateway key. The session also picks the key, as for
     every built-in provider.
-  - A 429 whose body says "Monthly usage limit reached" with "Resets in N days|hours|minutes|seconds", or any
-    refusal naming `GoUsageLimitError`, rests that key until the reset Go named, with no cap (an hour when it named
-    none), and the request moves to the next key at once (omniroute `opencode-monthly-quota-resets-in`, opencode
-    `QUOTA_CODES`). Any other refusal rests the key as every built-in provider's account rests (above).
+  - A usage limit (above: a 429 whose words say "usage limit", 5-hour, weekly or monthly, or any refusal naming
+    `GoUsageLimitError`) rests that key until the reset Go names (its headers, else "Resets in 2hr 15min"), with no
+    cap (an hour when it names none), and the request moves to the next key at once (opencode `QUOTA_TEXT` and
+    `QUOTA_CODES`, issue #1305). Any other refusal rests the key as every built-in provider's account rests (above).
   - Not built: the "Extra Usage" balance, a per-model wire for pi's `models.json` (pi speaks chat to a
     Go model), moving the `ocg/*` models off 9Router on zm (#670).
 - `opencode-zen` (kind `opencode_zen`, issue #965, seeded by its migration unless the owner already named a provider
@@ -4452,7 +4471,9 @@ capabilities do not exist yet.
     usage, recording the `usage.cost` Zen answers, a Zen price in the price book (a Claude or GPT model is priced by
     its maker's row; another Zen model is unpriced), Gemini, `interactions`, image models.
 - When all usable accounts for a model on a text route are cooling (issue #803), the gateway answers 429
-  `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free. It writes
+  `account_unavailable` with `resets_at` and `Retry-After` for the first account to become free, and why that
+  account rests: `cooling_code`, also in its message ("… for now (usage limit)", issue #1305; LiteLLM's
+  `RouterRateLimitError` names its cause the same way). It writes
   `gateway_model_cooling`, keyed by route and public model name. Placement reads that fact, not subscription
   account cooldowns. A rate-limited role Task tries its next usable entry in the same worktree or waits for that
   reset and shows the model and reset time as the wait reason. A Codex `response.failed` usage limit also cools

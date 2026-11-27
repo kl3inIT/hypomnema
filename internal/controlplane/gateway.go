@@ -91,9 +91,20 @@ func listDeadline(ctx context.Context) context.Context {
 }
 
 func (g gatewayAccounts) FirstFree(
-	ctx context.Context, runtime string, modelReset func(string) time.Time,
-) (time.Time, error) {
-	return g.subs.FirstFree(keyAccounts(ctx), runtime, modelReset)
+	ctx context.Context, runtime string, modelReset func(string) modelgateway.Rest,
+) (modelgateway.Rest, error) {
+	var perModel func(string) subscription.Rest
+	if modelReset != nil {
+		perModel = func(account string) subscription.Rest {
+			rest := modelReset(account)
+
+			return subscription.Rest{Until: rest.Until, Code: string(rest.Code)}
+		}
+	}
+
+	rest, err := g.subs.FirstFree(keyAccounts(ctx), runtime, perModel)
+
+	return modelgateway.Rest{Until: rest.Until, Code: modelgateway.CoolingCode(rest.Code)}, err
 }
 
 func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
@@ -140,9 +151,9 @@ func (g gatewayAccounts) MarkTokenRefused(ctx context.Context, refused modelgate
 }
 
 func (g gatewayAccounts) CoolDown(
-	ctx context.Context, runtime, accountID string, until time.Time, reason string,
+	ctx context.Context, runtime, accountID string, until time.Time, code modelgateway.CoolingCode, reason string,
 ) error {
-	return g.subs.CoolDown(ctx, runtime, accountID, until, reason)
+	return g.subs.CoolDown(ctx, runtime, accountID, until, string(code), reason)
 }
 
 // NeedsVerification marks an account Google wants verified (issue #822).
@@ -181,7 +192,9 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 	case errors.As(err, &verify):
 		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrAccountResting, err)
 	case errors.As(err, &cooling):
-		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: cooling.Until, ListUnknown: cooling.ListUnknown}
+		return modelgateway.AccountToken{}, &modelgateway.CoolingError{
+			Until: cooling.Until, Code: modelgateway.CoolingCode(cooling.Code), ListUnknown: cooling.ListUnknown,
+		}
 	case errors.Is(err, subscription.ErrNoAccount):
 		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrNoAccount, err)
 	case errors.Is(err, subscription.ErrModelNotServed):

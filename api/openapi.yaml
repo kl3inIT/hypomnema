@@ -7222,6 +7222,9 @@ components:
             ready: it is asked in its turn. resting: each of its accounts rests until `resting_until`, after a limit.
             not_set_up: no account of it is in use (for Codex, none on a paid plan). off: the owner switched it off.
         resting_until: { type: string, format: date-time }
+        cooling_code:
+          $ref: "#/components/schemas/CoolingCode"
+          description: Why the account free first rests, while the provider rests (issue #1305).
         model:
           type: string
           description: The one model it makes images with, as usage rows name it (image/<model>).
@@ -9149,9 +9152,14 @@ components:
           enum: [active, disabled]
         position: { type: integer }
         cooling_until: { type: string, format: date-time }
+        cooling_code:
+          $ref: "#/components/schemas/CoolingCode"
+          description: Why it rests, while it rests (issue #1305).
         cooling_reason:
           type: string
-          description: Why it rests, a rate limit or what the gateway recorded.
+          description: >-
+            The provider's own words for why it rests, while it rests; rate_limited for an account a node's run
+            cooled after a limit.
         email: { type: string }
         plan: { type: string }
         sign_in:
@@ -9165,6 +9173,15 @@ components:
           format: date-time
           description: When the access token ends, when that is known; it is renewed before then.
         verification: { $ref: "#/components/schemas/AccountVerification" }
+    CoolingCode:
+      type: string
+      enum: [usage_limit, rate_limit, billing, auth, overloaded, unknown]
+      x-enum-varnames: [CoolingUsageLimit, CoolingRateLimit, CoolingBilling, CoolingAuth, CoolingOverloaded, CoolingUnknown]
+      description: >-
+        Why an account rests, one closed set for every provider (issue #1305). usage_limit: a plan's window or
+        allowance used up (a 5-hour, weekly or monthly limit). rate_limit: a short throttle. billing: credits, a
+        balance or a budget spent (402). auth: the key or the sign-in refused (401, 403). overloaded: the provider out
+        of capacity (5xx, 529). unknown: none of these.
     AccountVerification:
       type: object
       description: >-

@@ -219,7 +219,6 @@ func (s *Server) claudeSearch(
 	}
 
 	now := s.svc.clock.Now()
-	resetsAt := claudeResetsAt(resp, now)
 	status := resp.StatusCode
 
 	raw, err := readSearch(resp)
@@ -229,7 +228,7 @@ func (s *Server) claudeSearch(
 
 	if status != http.StatusOK {
 		failure := claude.ParseFailure(status, raw)
-		failure.ResetsAt = resetsAt
+		failure.ResetsAt = claudeResetsAt(resp, raw, now)
 
 		return nil, claudeRefusal(failure, now), nil
 	}

@@ -25,8 +25,9 @@ type placement struct {
 	accounts       []store.Account
 	cooling        map[[2]string]int64
 	gatewayCooling map[[2]string]int64
-	// reasons says why each cooling account cools.
+	// reasons says why each cooling account cools, and codes in which of the closed set (issue #1305).
 	reasons map[[2]string]string
+	codes   map[[2]string]string
 }
 
 type nodeLoad struct {
@@ -102,7 +103,8 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 
 	p := &placement{
 		now: now, nodes: map[string]*nodeLoad{}, groups: map[string]int{}, accounts: accounts,
-		cooling: map[[2]string]int64{}, reasons: map[[2]string]string{}, gatewayCooling: map[[2]string]int64{},
+		cooling: map[[2]string]int64{}, reasons: map[[2]string]string{}, codes: map[[2]string]string{},
+		gatewayCooling: map[[2]string]int64{},
 	}
 	for _, fact := range gatewayCooldowns {
 		p.gatewayCooling[[2]string{fact.Route, fact.Model}] = fact.ResetsAt
@@ -147,6 +149,7 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 	for _, c := range cooldowns {
 		p.cooling[[2]string{c.Runtime, c.AccountRef}] = c.Until
 		p.reasons[[2]string{c.Runtime, c.AccountRef}] = c.Reason
+		p.codes[[2]string{c.Runtime, c.AccountRef}] = c.Code
 	}
 
 	return p, nil
@@ -792,6 +795,7 @@ func (p *placement) accountOut(a store.Account) Account {
 		t := millis(until)
 		out.CoolingUntil = &t
 		out.CoolingReason = p.reasons[[2]string{a.Runtime, a.ID}]
+		out.CoolingCode = p.codes[[2]string{a.Runtime, a.ID}]
 	}
 
 	return out

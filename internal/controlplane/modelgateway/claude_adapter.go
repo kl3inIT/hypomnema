@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/claude"
@@ -153,8 +154,8 @@ func (s *Server) claudeRefused(ctx context.Context, token AccountToken, resp *ht
 	_ = resp.Body.Close()
 
 	failure := claude.ParseFailure(resp.StatusCode, body)
-	failure.ResetsAt = claudeResetsAt(resp, s.svc.clock.Now())
-	s.claudeCool(ctx, token, failure)
+	failure.ResetsAt = claudeResetsAt(resp, body, s.svc.clock.Now())
+	s.claudeCool(ctx, token, failure, claudeCode(failure, resp.Header))
 
 	out := &http.Response{
 		StatusCode: failure.Status, Header: http.Header{"Content-Type": {"application/json"}},
@@ -168,9 +169,22 @@ func (s *Server) claudeRefused(ctx context.Context, token AccountToken, resp *ht
 	return out
 }
 
-func (s *Server) claudeCool(ctx context.Context, token AccountToken, failure *claude.Failure) {
+func (s *Server) claudeCool(ctx context.Context, token AccountToken, failure *claude.Failure, code CoolingCode) {
 	usageLimit := failure.Status == http.StatusTooManyRequests
-	s.cool(ctx, claudeAccountRuntime, token, failure.Status, usageLimit, failure.ResetsAt, "usage limit")
+	s.cool(ctx, claudeAccountRuntime, token, failure.Status, usageLimit, failure.ResetsAt, code, failure.Message)
+}
+
+// claudeCode is why an Anthropic refusal rests the account: its 5-hour or weekly window used up when the 429 says
+// `anthropic-ratelimit-unified-status: rejected` (OmniRoute open-sse/services/claudeLowPriority.ts:241-246
+// isClaudeUsageWall), else what classifyFailure reads of its type, status and message. h is nil for a failure inside
+// the stream.
+func claudeCode(failure *claude.Failure, h http.Header) CoolingCode {
+	if failure.Status == http.StatusTooManyRequests && h != nil &&
+		strings.EqualFold(strings.TrimSpace(h.Get("Anthropic-Ratelimit-Unified-Status")), "rejected") {
+		return CoolingUsageLimit
+	}
+
+	return classifyFailure(failure.Status, []string{failure.Type}, failure.Message)
 }
 
 // claudeAnswer turns the backend's event stream into the answer.
@@ -192,7 +206,7 @@ func (s *Server) claudeAnswer(
 				}
 			}
 
-			s.claudeCool(ctx, token, failure)
+			s.claudeCool(ctx, token, failure, claudeCode(failure, nil))
 
 			return claudeRefusal(failure, now)
 		},
@@ -221,22 +235,17 @@ func claudeRefusal(failure *claude.Failure, now time.Time) *http.Response {
 	return resp
 }
 
-// claudeResetsAt reads when a usage limit ends from the answer's headers:
-// Anthropic's unified reset (a Unix second), else Retry-After (seconds from now).
-func claudeResetsAt(resp *http.Response, now time.Time) time.Time {
+// claudeResetsAt reads when a usage limit ends: Anthropic's unified reset (a
+// Unix second), else the reset the other headers or the words name, as every
+// adapter reads one (providerReset).
+func claudeResetsAt(resp *http.Response, body []byte, now time.Time) time.Time {
 	if reset := resp.Header.Get("Anthropic-Ratelimit-Unified-Reset"); reset != "" {
 		if secs, ok := claude.RetrySeconds(reset); ok && int64(secs) > now.Unix() {
 			return time.Unix(int64(secs), 0)
 		}
 	}
 
-	if retry := resp.Header.Get("Retry-After"); retry != "" {
-		if secs, ok := claude.RetrySeconds(retry); ok {
-			return now.Add(time.Duration(secs) * time.Second)
-		}
-	}
-
-	return time.Time{}
+	return providerReset(resp.Header, body, now)
 }
 
 func claudeRetryAfter(failure *claude.Failure, now time.Time) string {

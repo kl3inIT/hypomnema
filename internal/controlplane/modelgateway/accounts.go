@@ -183,12 +183,12 @@ func (s *Server) underAccounts(
 	var cooling *CoolingError
 	if errors.As(err, &cooling) {
 		if now := s.svc.clock.Now(); runtime == codexRuntime && cooling.Until.Sub(now) > codexWaitsUpTo {
-			return accountCoolingResponse("/v1/responses", cooling.Until, now), nil
+			return accountCoolingResponse("/v1/responses", cooling.Until, cooling.Code, now), nil
 		}
 		// 429 with the time the first account is free again, as CLIProxyAPI
-		// answers when every credential cools (9router answers 503).
-		return openAIError(http.StatusTooManyRequests, "rate_limit_error", "account_unavailable",
-			accountsCoolingMessage, cooling.Until.Sub(s.svc.clock.Now())), nil
+		// answers when every credential cools (9router answers 503), and why
+		// it rests (issue #1305).
+		return accountsCooling(cooling.Until.Sub(s.svc.clock.Now()), cooling.Code), nil
 	}
 	return resp, err
 }
@@ -199,20 +199,20 @@ func (s *Server) underAccounts(
 // target or answer for them all (tryChat).
 func (s *Server) underModelAccounts(
 	ctx context.Context, runtime string, model forModel, session string, usedLast func(AccountToken) bool,
-	modelReset func(string) time.Time, attempt func(AccountToken) (*http.Response, error),
+	modelReset func(string) Rest, attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
-	return s.tryAccounts(ctx, runtime, model, session, usedLast, attempt, func() time.Time {
-		until, err := s.accounts.FirstFree(ctx, runtime, modelReset)
+	return s.tryAccounts(ctx, runtime, model, session, usedLast, attempt, func() Rest {
+		rest, err := s.accounts.FirstFree(ctx, runtime, modelReset)
 		if err != nil {
-			return time.Time{}
+			return Rest{}
 		}
-		return until
+		return rest
 	})
 }
 
 func (s *Server) tryAccounts(
 	ctx context.Context, runtime string, model forModel, session string, usedLast func(AccountToken) bool,
-	attempt func(AccountToken) (*http.Response, error), firstFree func() time.Time,
+	attempt func(AccountToken) (*http.Response, error), firstFree func() Rest,
 ) (*http.Response, error) {
 	if namesModels[runtime] && model.name == "" {
 		return nil, fmt.Errorf("%w: %s", ErrNoModel, runtime)
@@ -288,11 +288,11 @@ func (s *Server) tryAccounts(
 
 	if firstFree != nil && (refusal != nil && refusal.StatusCode == http.StatusTooManyRequests ||
 		refusal == nil && errors.As(stopping, &cooling)) {
-		if until := firstFree(); !until.IsZero() {
+		if rest := firstFree(); !rest.Until.IsZero() {
 			if refusal != nil {
 				drain(refusal)
 			}
-			return nil, &CoolingError{Until: until}
+			return nil, &CoolingError{Until: rest.Until, Code: rest.Code}
 		}
 	}
 	if refusal != nil {
@@ -372,12 +372,15 @@ func (s *Server) tokenAfterRefusal(ctx context.Context, refused AccountToken, mo
 // cool keeps an account out of use after a failure, for as long as 9router-go
 // does: until the reset the provider names (at most two hours); an hour for
 // a quota that is used up; a growing wait after a rate limit or an overload;
-// two minutes after a refusal; thirty seconds after another server error.
+// two minutes after a refusal; thirty seconds after another server error. The
+// account keeps why (code, classifyFailure) beside the provider's words
+// (reason; issue #1305).
 func (s *Server) cool(
-	ctx context.Context, runtime string, token AccountToken, status int, quotaUsedUp bool, reset time.Time, reason string,
+	ctx context.Context, runtime string, token AccountToken, status int, quotaUsedUp bool, reset time.Time,
+	code CoolingCode, reason string,
 ) {
 	if until, ok := s.coolingUntil(token, status, quotaUsedUp, reset); ok {
-		s.park(ctx, runtime, token, until, reason)
+		s.park(ctx, runtime, token, until, code, reason)
 	}
 }
 
@@ -412,8 +415,10 @@ func (s *Server) coolingUntil(
 	return now.Add(wait), true
 }
 
-func (s *Server) park(ctx context.Context, runtime string, token AccountToken, until time.Time, reason string) {
-	err := s.accounts.CoolDown(context.WithoutCancel(ctx), runtime, token.AccountID, until, reason)
+func (s *Server) park(
+	ctx context.Context, runtime string, token AccountToken, until time.Time, code CoolingCode, reason string,
+) {
+	err := s.accounts.CoolDown(context.WithoutCancel(ctx), runtime, token.AccountID, until, code, reason)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "cooling an account down",
 			slog.String("event", "modelgateway.cooldown_failed"), slog.String("account_id", token.AccountID),

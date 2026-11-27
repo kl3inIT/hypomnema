@@ -381,11 +381,12 @@ func (s *Server) MakeImages(ctx context.Context, req ImageRequest) (ImageResult,
 type imageRests struct {
 	mu     sync.Mutex
 	until  map[string]time.Time
+	codes  map[string]CoolingCode
 	levels map[string]int
 }
 
 func newImageRests() *imageRests {
-	return &imageRests{until: map[string]time.Time{}, levels: map[string]int{}}
+	return &imageRests{until: map[string]time.Time{}, codes: map[string]CoolingCode{}, levels: map[string]int{}}
 }
 
 func restKey(provider, account string) string {
@@ -406,8 +407,11 @@ func (r *imageRests) resting(key string, now time.Time) (time.Time, bool) {
 // long as accounts.go's cool would keep the account: the vendor's reset (at
 // most two hours), an hour for a quota used up, a wait doubling from 2 s to
 // 5 minutes after a rate limit or an overload, 2 minutes after a refusal of
-// the account. Another failure rests nothing. It returns the wait.
-func (r *imageRests) rest(key string, now time.Time, status int, quotaUsedUp bool, reset time.Time) time.Duration {
+// the account. Another failure rests nothing. It keeps why (code, issue #1305)
+// and returns the wait.
+func (r *imageRests) rest(
+	key string, now time.Time, status int, quotaUsedUp bool, reset time.Time, code CoolingCode,
+) time.Duration {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -429,7 +433,7 @@ func (r *imageRests) rest(key string, now time.Time, status int, quotaUsedUp boo
 		return 0
 	}
 
-	r.until[key] = now.Add(wait)
+	r.until[key], r.codes[key] = now.Add(wait), code
 
 	return wait
 }
@@ -440,18 +444,19 @@ func (r *imageRests) served(key string) {
 	defer r.mu.Unlock()
 
 	delete(r.until, key)
+	delete(r.codes, key)
 	delete(r.levels, key)
 }
 
 // ImageRests are the accounts whose image model rests now, by provider and
-// account, with when each is free: for the Images page.
-func (s *Server) ImageRests(_ context.Context) (map[string]map[string]time.Time, error) {
+// account, with when each is free and why it rests: for the Images page.
+func (s *Server) ImageRests(_ context.Context) (map[string]map[string]Rest, error) {
 	now := s.svc.clock.Now()
 	r := s.imageRests
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	out := map[string]map[string]time.Time{}
+	out := map[string]map[string]Rest{}
 
 	for key, until := range r.until {
 		parts := strings.SplitN(key, "\x00", 2)
@@ -460,10 +465,10 @@ func (s *Server) ImageRests(_ context.Context) (map[string]map[string]time.Time,
 		}
 
 		if out[parts[0]] == nil {
-			out[parts[0]] = map[string]time.Time{}
+			out[parts[0]] = map[string]Rest{}
 		}
 
-		out[parts[0]][parts[1]] = until
+		out[parts[0]][parts[1]] = Rest{Until: until, Code: r.codes[key]}
 	}
 
 	return out, nil
@@ -678,7 +683,8 @@ func (s *Server) codexImage(
 				failure.Status, code = http.StatusForbidden, "model_not_entitled"
 			}
 
-			wait := s.imageRests.rest(key, now, failure.Status, failure.Type == "usage_limit_reached", failure.ResetsAt)
+			wait := s.imageRests.rest(key, now, failure.Status, failure.Type == "usage_limit_reached", failure.ResetsAt,
+				codexCode(failure))
 
 			return imageRefusal(failure.Status, code, cmpOr(message, http.StatusText(status)), wait), nil
 		})
@@ -910,9 +916,15 @@ func (s *Server) antigravityImage(
 		reset = now.Add(wait)
 	}
 
+	code := antigravityCode(f)
+	if quotaUsedUp {
+		// A quota used up, as the chat's model waits read it (antigravityRefused).
+		code = CoolingUsageLimit
+	}
+
 	wait := time.Duration(0)
 	if f.Reason != antigravity.ReasonNoCapacity {
-		wait = s.imageRests.rest(key, now, f.Status, quotaUsedUp, reset)
+		wait = s.imageRests.rest(key, now, f.Status, quotaUsedUp, reset, code)
 	}
 
 	return antigravity.ImageAnswer{}, imageRefusal(f.Status, f.Code, f.Message, wait), nil

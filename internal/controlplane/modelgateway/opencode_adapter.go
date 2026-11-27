@@ -375,12 +375,7 @@ func (s *Server) openCodeRefused(
 
 	now := s.svc.clock.Now()
 
-	var reset time.Time
-	if secs, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && secs > 0 {
-		reset = now.Add(time.Duration(secs) * time.Second)
-	}
-
-	until := s.openCodeCool(ctx, p, token, resp.StatusCode, body, reset)
+	until := s.openCodeCool(ctx, p, token, resp.StatusCode, body, providerReset(resp.Header, body, now))
 
 	out := &http.Response{
 		StatusCode: resp.StatusCode, Header: http.Header{"Content-Type": {resp.Header.Get("Content-Type")}},
@@ -406,15 +401,18 @@ func (s *Server) openCodeRefused(
 }
 
 // openCodeCool rests a key after a refusal and says until when, when it
-// knows: a used-up Go allowance until the reset Go names, uncapped as
-// omniroute keeps its cooldown, else an hour (quotaCooldown); a used-up Zen
-// balance or budget an hour, whatever Retry-After says (zenQuotaUsedUp);
-// anything else as every built-in
-// provider's account rests (cool).
+// knows: a used-up Go allowance, a 5-hour, weekly or monthly one, until the
+// reset Go names (providerReset), uncapped as omniroute keeps its cooldown,
+// else an hour (quotaCooldown); a used-up Zen balance or budget an hour,
+// whatever Retry-After says (zenQuotaUsedUp); anything else as every
+// built-in provider's account rests (cool). The key keeps why
+// (classifyFailure) beside OpenCode's own words (issue #1305).
 func (s *Server) openCodeCool(
 	ctx context.Context, p openCodeProvider, token AccountToken, status int, body []byte, reset time.Time,
 ) time.Time {
 	now := s.svc.clock.Now()
+	code := classifyFailure(status, providerCodes(body), string(body))
+	message := providerMessage(body)
 
 	if p.zen {
 		if zenQuotaUsedUp(status, body) {
@@ -422,35 +420,28 @@ func (s *Server) openCodeCool(
 			// credit or raises the budget, not after a throttle's wait (opencode provider-error.ts: a quota is
 			// not retried; 9router-go QuotaExhaustedCooldownMs).
 			until := now.Add(quotaCooldown)
-			s.park(ctx, p.runtime, token, until, "OpenCode Zen balance or budget used up")
+			s.park(ctx, p.runtime, token, until, code, message)
 
 			return until
 		}
 
-		s.cool(ctx, p.runtime, token, status, false, reset, "OpenCode Zen refused the key")
+		s.cool(ctx, p.runtime, token, status, false, reset, code, message)
 
 		return reset
 	}
 
-	usedUp, quotaReset := goUsageLimit(status, body, now)
-	if usedUp && quotaReset.After(now) {
-		s.park(ctx, p.runtime, token, quotaReset, "OpenCode Go usage limit")
+	// Any of Go's windows used up, 5-hour, weekly or monthly: its typed GoUsageLimitError, or a 429 whose words say a
+	// usage limit (opencode provider-error.ts:152 QUOTA_TEXT; issue #1305).
+	usedUp := code == CoolingUsageLimit
+	if usedUp && reset.After(now) {
+		s.park(ctx, p.runtime, token, reset, code, message)
 
-		return quotaReset
+		return reset
 	}
 
-	s.cool(ctx, p.runtime, token, status, usedUp, reset, "OpenCode Go refused the key")
+	s.cool(ctx, p.runtime, token, status, usedUp, reset, code, message)
 
 	return reset
-}
-
-// zenQuotaCodes are the codes of OpenCode's account caps that a Zen key can
-// meet: a balance, a plan or a budget used up, not a throttle (opencode
-// packages/ai/src/provider-error.ts QUOTA_CODES, less Go's and the free
-// tier's, which a Zen key's paid models do not answer).
-var zenQuotaCodes = map[string]bool{
-	"insufficient_quota": true, "usage_not_included": true, "billing_error": true,
-	"budgetlimiterror": true, "creditlimitexceeded": true,
 }
 
 // zenCodeLabel is the `[code]` OpenCode keeps at the start of a message whose
@@ -458,102 +449,22 @@ var zenQuotaCodes = map[string]bool{
 var zenCodeLabel = regexp.MustCompile(`^[^:\n]+: \[([A-Za-z0-9_.-]+)\]`)
 
 // zenQuotaUsedUp reads whether a Zen refusal says the key's balance or budget
-// is used up: a 402, or a quota code where opencode reads one
-// (provider-error.ts classifyProviderFailure; utils/provider-codes.ts).
+// is used up: a 402, or a code of a spent balance or budget where opencode
+// reads one (billingCodes: provider-error.ts QUOTA_CODES less Go's and the
+// free tier's, which a Zen key's paid models do not answer;
+// utils/provider-codes.ts).
 func zenQuotaUsedUp(status int, body []byte) bool {
 	if status == http.StatusPaymentRequired {
 		return true
 	}
 
-	for _, code := range openCodeErrorCodes(body) {
-		if zenQuotaCodes[strings.ToLower(code)] {
+	for _, code := range providerCodes(body) {
+		if billingCodes[strings.ToLower(code)] {
 			return true
 		}
 	}
 
 	return false
-}
-
-// openCodeErrorCodes are the codes an error body carries where opencode reads
-// them (utils/provider-codes.ts providerCodes: code, error_type, error.code,
-// error.type, error.error_type), and the `[code]` label of its message.
-func openCodeErrorCodes(body []byte) []string {
-	var codes []string
-
-	var answer struct {
-		Code      any `json:"code"`
-		ErrorType any `json:"error_type"`
-		Error     any `json:"error"`
-		Message   any `json:"message"`
-	}
-
-	if json.Unmarshal(body, &answer) != nil {
-		if m := zenCodeLabel.FindStringSubmatch(string(body)); m != nil {
-			codes = append(codes, m[1])
-		}
-
-		return codes
-	}
-
-	str := func(v any) {
-		if text, ok := v.(string); ok {
-			codes = append(codes, text)
-		}
-	}
-
-	label := func(v any) {
-		if text, ok := v.(string); ok {
-			if m := zenCodeLabel.FindStringSubmatch(text); m != nil {
-				codes = append(codes, m[1])
-			}
-		}
-	}
-
-	str(answer.Code)
-	str(answer.ErrorType)
-	label(answer.Message)
-
-	if inner, ok := answer.Error.(map[string]any); ok {
-		str(inner["code"])
-		str(inner["type"])
-		str(inner["error_type"])
-		label(inner["message"])
-	}
-
-	return codes
-}
-
-// goResetIn is Go's "Resets in N days" (omniroute parseResetCountdownMs).
-var goResetIn = regexp.MustCompile(`resets?\s+in\s+(\d+)\s+(day|days|hour|hours|minute|minutes|second|seconds)\b`)
-
-// goUsageLimit reads whether a refusal says the key's Go allowance is used up,
-// and when it resets when it says: a 429 "Monthly usage limit reached"
-// (omniroute opencode-monthly-quota-resets-in) or a GoUsageLimitError, which
-// opencode does not retry (provider-error.ts QUOTA_CODES).
-func goUsageLimit(status int, body []byte, now time.Time) (usedUp bool, reset time.Time) {
-	text := strings.ToLower(string(body))
-
-	usedUp = strings.Contains(text, "gousagelimiterror") ||
-		(status == http.StatusTooManyRequests && strings.Contains(text, "monthly usage limit reached"))
-	if !usedUp {
-		return false, time.Time{}
-	}
-
-	m := goResetIn.FindStringSubmatch(text)
-	if m == nil {
-		return true, time.Time{}
-	}
-
-	n, err := strconv.Atoi(m[1])
-	if err != nil || n <= 0 {
-		return true, time.Time{}
-	}
-
-	unit := map[string]time.Duration{
-		"day": 24 * time.Hour, "hour": time.Hour, "minute": time.Minute, "second": time.Second,
-	}[strings.TrimSuffix(m[2], "s")]
-
-	return true, now.Add(time.Duration(n) * unit)
 }
 
 // withModel is a JSON body with the model's name replaced, everything else as
