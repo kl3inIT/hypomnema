@@ -1,0 +1,19 @@
+{
+  "id": "product-walkthrough",
+  "name": "Product walkthrough",
+  "use_case": "A full problem-to-proof demo for a landing page or a sales follow-up, opened by a title card and closed by an end card.",
+  "length": { "min_s": 60, "max_s": 90 },
+  "aspects": ["16:9"],
+  "captions": true,
+  "sections": [
+    { "name": "Problem", "purpose": "One concrete scene of the pain; name no product yet.", "words": 30 },
+    { "name": "Promise", "purpose": "One sentence: what this is and the outcome it produces.", "words": 20 },
+    { "name": "Step 1", "purpose": "One idea, pinned to one action on the screen; narrate the intent, not the cursor.", "words": 35 },
+    { "name": "Step 2", "purpose": "One idea, pinned to one action on the screen.", "words": 35 },
+    { "name": "Step 3", "purpose": "One idea, pinned to one action on the screen.", "words": 35 },
+    { "name": "Proof", "purpose": "The result as a number or a before and after; earned, not asserted.", "words": 25 },
+    { "name": "Call to action", "purpose": "One ask, the same one the end card shows.", "words": 15 }
+  ],
+  "look": { "cards": { "title": { "title": "{title}" }, "end": { "title": "Dùng thử ngay", "subtitle": "{title}" } } },
+  "from": "aidemo docs/blog/demo-video-script-template/index.md:20-45 and demo-video-call-to-action/index.md:12; the cards are aidemo's intro and outro, src/starter.ts:68-76; the end card's Vietnamese words are inferred"
+}

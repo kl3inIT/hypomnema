@@ -2458,7 +2458,7 @@ export type VideoRevision = {
    */
   voice?: string;
   captions: boolean;
-  aspect: '9:16' | '16:9';
+  aspect: VideoAspect;
   /**
    * The provider that spoke every scene.
    */
@@ -2545,12 +2545,9 @@ export type VideoMake = {
    * The video's title, on its first make; absent: the take's.
    */
   title?: string;
+  aspect?: VideoAspect;
   /**
-   * Absent: 9:16.
-   */
-  aspect?: '9:16' | '16:9';
-  /**
-   * Absent: true.
+   * Absent: the template's, else true.
    */
   captions?: boolean;
   /**
@@ -2558,6 +2555,10 @@ export type VideoMake = {
    */
   voice?: string;
   look?: VideoLookInput;
+  /**
+   * A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
+   */
+  template?: string;
 };
 
 export type VideoLookChange = {
@@ -2566,15 +2567,16 @@ export type VideoLookChange = {
 
 export type VideoPreview = {
   take: string;
+  aspect?: VideoAspect;
   /**
-   * Absent: 9:16.
-   */
-  aspect?: '9:16' | '16:9';
-  /**
-   * Absent: true.
+   * Absent: the template's, else true.
    */
   captions?: boolean;
   look?: VideoLookInput;
+  /**
+   * A template's id, the look resolved as a make with it; refused with rev.
+   */
+  template?: string;
   /**
    * A revision of the take's video the look starts from, as a look change does; its first line is shown.
    */
@@ -2583,6 +2585,73 @@ export type VideoPreview = {
    * A card of the look to draw in place of the take's picture, as the video shows it between its fades; absent: the picture. A look without that card is refused with conflict. Send in look.cards only the card shown: the contract checks every card sent, so another card without its title yet is refused (400) before the sample is drawn, and the sample draws the card shown alone.
    */
   card?: 'title' | 'end';
+};
+
+/**
+ * The video's shape: 720 × 1280, 1280 × 720, or the App Store's preview at 886 × 1920.
+ */
+export type VideoAspect = '9:16' | '16:9' | '886x1920';
+
+export type VideoTemplates = {
+  templates: Array<VideoTemplate>;
+};
+
+/**
+ * A template of a video (issue
+ */
+export type VideoTemplate = {
+  id: string;
+  name: string;
+  use_case: string;
+  length: VideoTemplateLength;
+  /**
+   * The aspects it is made in, its default first.
+   */
+  aspects: Array<VideoAspect>;
+  /**
+   * Whether its videos have captions unless the make says.
+   */
+  captions: boolean;
+  sections: Array<VideoTemplateSection>;
+  /**
+   * The sections' words.
+   */
+  words: number;
+  look: VideoLook;
+  cards?: VideoTemplateCards;
+};
+
+/**
+ * How long its videos are meant to be, in seconds.
+ */
+export type VideoTemplateLength = {
+  min_s: number;
+  max_s: number;
+};
+
+export type VideoTemplateSection = {
+  name: string;
+  purpose: string;
+  words: number;
+  /**
+   * Its words at 2.5 a second.
+   */
+  seconds: number;
+};
+
+/**
+ * The cards a template's video has, their words as stored, where {title} is the video's title (an end card's call to action over it, as aidemo's outro); absent, none.
+ */
+export type VideoTemplateCards = {
+  accent: string;
+  title?: VideoTemplateCard;
+  end?: VideoTemplateCard;
+};
+
+export type VideoTemplateCard = {
+  title: string;
+  subtitle?: string;
+  duration_ms: number;
 };
 
 /**
@@ -7220,6 +7289,31 @@ export type ListVideoLooksResponses = {
 };
 
 export type ListVideoLooksResponse = ListVideoLooksResponses[keyof ListVideoLooksResponses];
+
+export type ListVideoTemplatesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/videos/templates';
+};
+
+export type ListVideoTemplatesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListVideoTemplatesError = ListVideoTemplatesErrors[keyof ListVideoTemplatesErrors];
+
+export type ListVideoTemplatesResponses = {
+  /**
+   * The templates.
+   */
+  200: VideoTemplates;
+};
+
+export type ListVideoTemplatesResponse = ListVideoTemplatesResponses[keyof ListVideoTemplatesResponses];
 
 export type PreviewVideoLookData = {
   body: VideoPreview;

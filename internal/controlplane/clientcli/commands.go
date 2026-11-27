@@ -878,7 +878,8 @@ var commands = []command{
 		summary: "make an available take into a video, or a new revision of its video, made in the background (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("title", "", "the video's title on its first make (default the take's)")
-			fs.String("aspect", "", "9:16 or 16:9 (default 9:16)")
+			fs.String("template", "", "a template from `videos templates`: its aspect, captions, look and cards")
+			fs.String("aspect", "", "9:16, 16:9 or 886x1920 (default the template's first, else 9:16)")
 			fs.Bool("no-captions", false, "make it without captions")
 			fs.String("voice", "", "the voice to speak with (default each provider's, from `audio voice`)")
 			lookFlags(fs)
@@ -914,10 +915,16 @@ var commands = []command{
 		flags:   jsonFlag, run: videosLooks,
 	},
 	{
+		name:    "videos templates",
+		summary: "the templates a video is made from: length, aspects, cards and the sections' words (owner)",
+		flags:   jsonFlag, run: videosTemplates,
+	},
+	{
 		name: "videos preview", args: "<take_id>", min: 1, max: 1,
 		summary: "save a look sample of a take as a JPEG: the look over its picture at the first step (owner)",
 		flags: func(fs *flag.FlagSet) {
-			fs.String("aspect", "", "9:16 or 16:9 (default 9:16)")
+			fs.String("template", "", "a template from `videos templates`, the look resolved as a make with it")
+			fs.String("aspect", "", "9:16, 16:9 or 886x1920 (default the template's first, else 9:16)")
 			fs.Bool("no-captions", false, "without captions")
 			fs.Int("rev", 0, "start from this revision's look and line, as `videos look` does")
 			fs.String("card", "", "draw the look's title or end card in place of the picture: title or end")
