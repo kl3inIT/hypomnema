@@ -38,12 +38,10 @@ func TestReviewReplacingMovesShareOneDeadline(t *testing.T) {
 			}
 		}
 
-		var wg sync.WaitGroup
 		open := func(name string) {
 			order, deadline := f.request(false)
 			v := &View{life: t.Context(), order: order}
-			f.opened(v)
-			wg.Go(func() { f.move(v.life, v, deadline, bring(name)) })
+			f.move(t.Context(), v, deadline, true, bring(name))
 		}
 
 		open("older")
@@ -89,15 +87,14 @@ func TestReviewMakingAndFrontingShareOneDeadline(t *testing.T) {
 		time.Sleep(5 * time.Second)
 		order, deadline := f.request(false)
 		bot := &View{life: t.Context(), order: order}
-		f.opened(bot)
-
 		var fronted time.Duration
 
-		f.move(bot.life, bot, deadline, func(context.Context) {
+		f.move(t.Context(), bot, deadline, true, func(context.Context) {
 			fronted = time.Since(start)
 		})
 
 		assert.Equal(t, TakeoverWait, <-made, "the owner's tab waits for running calls")
+		synctest.Wait()
 		assert.Equal(t, TakeoverWait, fronted, "the later pane uses the same deadline")
 	})
 }

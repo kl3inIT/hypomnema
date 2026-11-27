@@ -227,9 +227,7 @@ func (e *Engine) watch(
 	go v.pump(streaming)
 
 	// Chrome paints only the tab in front (front.go).
-	e.focus.opened(v)
-
-	go e.front(v, deadline)
+	e.front(v, deadline, true)
 
 	return v, nil
 }
@@ -614,7 +612,7 @@ func (v *View) Close(ctx context.Context) {
 	v.closing.Do(func() {
 		// The view opened before this one brings its tab back to the front (front.go).
 		if before := v.e.focus.closed(v); before != nil {
-			go v.e.front(before, time.Now().Add(v.e.focus.waitFor()))
+			v.e.front(before, time.Now().Add(v.e.focus.waitFor()), false)
 		}
 
 		v.stop()

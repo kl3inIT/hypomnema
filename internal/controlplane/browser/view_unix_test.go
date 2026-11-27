@@ -836,7 +836,7 @@ func TestReviewALaterViewRequestKeepsItsTurnAfterTheOwnersTabIsMade(t *testing.T
 	assert.Equal(t, []string{front("b-cht_2")}, chrome.activated(), "the later request keeps the focus")
 
 	b.Close(t.Context())
-	require.Eventually(t, func() bool { return len(chrome.activated()) == 2 }, 10*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return len(chrome.activated()) >= 2 }, 10*time.Second, 10*time.Millisecond)
 	assert.Equal(t, []string{front("b-cht_2"), front(OwnerTab)}, chrome.activated(),
 		"closing the later pane restores the earlier one")
 }

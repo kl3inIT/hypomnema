@@ -231,11 +231,14 @@ func (f *focus) alone(ctx context.Context, deadline time.Time, do func() error) 
 // have ended, or after the wait, for as long as ctx lasts. A move asked for
 // while another waits replaces it: the newest is made, at the end of the
 // first one's wait (review of PR #1233).
-func (f *focus) move(ctx context.Context, v *View, deadline time.Time, bring func(context.Context)) {
+func (f *focus) move(ctx context.Context, v *View, deadline time.Time, opening bool, bring func(context.Context)) {
 	f.mu.Lock()
-	if len(f.views) == 0 || f.views[len(f.views)-1] != v {
-		f.mu.Unlock()
+	defer f.mu.Unlock()
 
+	if opening {
+		f.opened(v)
+	}
+	if len(f.views) == 0 || f.views[len(f.views)-1] != v {
 		return
 	}
 
@@ -253,21 +256,23 @@ func (f *focus) move(ctx context.Context, v *View, deadline time.Time, bring fun
 		default:
 		}
 
-		f.mu.Unlock()
-
 		return
 	}
 
 	f.moving = true
 	f.wake = make(chan struct{}, 1)
+	go f.runMoves(context.WithoutCancel(ctx))
+}
+
+func (f *focus) runMoves(ctx context.Context) {
+	f.mu.Lock()
 	defer func() {
 		f.moving = false
 		f.mu.Unlock()
 	}()
 
 	// The move outlives the view that asked for it: a newer one may replace it.
-	queueCtx := context.WithoutCancel(ctx)
-	if !f.queue(queueCtx, false) {
+	if !f.queue(ctx, false) {
 		return
 	}
 	defer f.unqueue()
@@ -277,7 +282,7 @@ func (f *focus) move(ctx context.Context, v *View, deadline time.Time, bring fun
 		// tab creation the queue before moving to the newest view.
 		if f.preparing != nil {
 			f.unqueue()
-			f.queue(queueCtx, false)
+			f.queue(ctx, false)
 		}
 
 		w := f.want
@@ -311,11 +316,8 @@ func (f *focus) move(ctx context.Context, v *View, deadline time.Time, bring fun
 	}
 }
 
-// opened counts a view in at its original place in request order.
+// opened counts a view in at its original place in request order. The caller holds mu.
 func (f *focus) opened(v *View) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
 	for i, before := range f.views {
 		if before.order > v.order {
 			f.views = slices.Insert(f.views, i, v)
@@ -351,8 +353,8 @@ func (f *focus) closed(v *View) *View {
 // front brings a view's tab to the front, once the agents' calls running have
 // ended, for as long as the view is open. A tab not brought there leaves the
 // view as it was: it goes on.
-func (e *Engine) front(v *View, deadline time.Time) {
-	e.focus.move(v.life, v, deadline, func(ctx context.Context) {
+func (e *Engine) front(v *View, deadline time.Time, opening bool) {
+	e.focus.move(v.life, v, deadline, opening, func(ctx context.Context) {
 		if err := e.activate(ctx, v.s); err != nil {
 			e.cfg.Logger.WarnContext(ctx, "a tab could not be brought to the front",
 				slog.String("event", "browser.front_failed"), slog.String("tab", v.tab), slog.Any("err", err))
