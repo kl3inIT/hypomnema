@@ -232,6 +232,12 @@ answers (1), then apply 2 to 4 and "Does it involve him?". For each conversation
      place, and only once, in parentheses right after the words it shows: "Thanh: 'vâng' (8527934507495)". Never
      write an id in the middle of a sentence, nor one the link does not need (an account's or a person's id).
 
+## Passing an item to a project Bot
+
+When you pass an item to a project Bot with `inbox_update` `pass_to`, first post on it with `inbox_comment` the
+lines you read that its work needs, each as in 10: its date and time, who wrote it and where, the quote and the
+message's id. A Bot you pass an item to from this run may not read his accounts: it works from what you copied.
+
 ## Items without a priority
 
 Items added before priorities existed have none. In each run, after the batch, list the open and proposed items

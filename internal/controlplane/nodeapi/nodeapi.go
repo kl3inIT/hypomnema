@@ -87,6 +87,9 @@ type Server struct {
 	// storeGuides are the nodes that said at their last hello that they write no guides of their own
 	// (HelloRequest.StoreGuides), kept in memory as devices are: a node says hello before each socket.
 	storeGuides map[string]bool
+	// questionParts are the nodes that said at their last hello that they tell a worker every decision of a
+	// question (HelloRequest.QuestionParts, issue #1219), kept as storeGuides are.
+	questionParts map[string]bool
 	// deviceCalls are the phone tools' calls nodes have been sent, by request id (device.go).
 	deviceCalls map[string]*pendingDevice
 	// takeFiles takes the takes' files nodes upload, and takesHeld settles those a node holds at hello (takes.go).
@@ -100,7 +103,8 @@ type Server struct {
 func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}, streams: map[string]*pendingStream{},
 		answers: map[string]*pendingAnswer{}, devices: map[string]nodeproto.DeviceState{},
-		storeGuides: map[string]bool{}, deviceCalls: map[string]*pendingDevice{}, execs: map[string]*pendingExec{}}
+		storeGuides: map[string]bool{}, questionParts: map[string]bool{}, deviceCalls: map[string]*pendingDevice{},
+		execs: map[string]*pendingExec{}}
 }
 
 // HostCredential is what an offer is given to act on its repository's host:
@@ -428,6 +432,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 
 	s.deviceSaid(n.ID, req.DeviceState)
 	s.guidesSaid(n.ID, req.StoreGuides)
+	s.partsSaid(n.ID, req.QuestionParts)
 	endTakes, dropTakes := s.settleTakes(r.Context(), n.ID, req)
 
 	resp := nodeproto.HelloResponse{
@@ -439,6 +444,8 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		// The node looks for its release at once when this is newer than its own (issue #783).
 		ControlPlaneVersion: platform.Version,
 		EndTakes:            endTakes, DropTakes: dropTakes,
+		// This control plane keeps a question's several decisions (issue #1219).
+		QuestionParts: true,
 	}
 	for _, d := range dispositions {
 		resp.Dispositions = append(resp.Dispositions, nodeproto.Disposition{DispatchID: d.DispatchID, Kind: string(d.Kind)})
@@ -799,6 +806,8 @@ func (c *session) push(ctx context.Context) error {
 		}
 
 		o.Skills = c.srv.skillsFor(c.nodeID, o.Skills)
+		// This control plane keeps a question's several decisions, so the node lets the worker ask them (issue #1219).
+		o.QuestionParts = true
 		if o.Device == "" {
 			android := skillpack.Requirement(skillpack.RequiresDevice, nodeproto.DeviceAndroid)
 			o.Skills = slices.DeleteFunc(slices.Clone(o.Skills), func(sk nodeproto.Skill) bool {
@@ -831,7 +840,7 @@ func (c *session) push(ctx context.Context) error {
 
 		c.answered[a.ID] = true
 
-		if err := c.send(ctx, nodeproto.TypeAnswer, a); err != nil {
+		if err := c.send(ctx, nodeproto.TypeAnswer, c.srv.questionFor(c.nodeID, a)); err != nil {
 			return err
 		}
 	}

@@ -454,6 +454,23 @@ sequenceDiagram
   is moved last and made to take text), so a worker gives at most 9 options of its own and more are refused for it
   to cut (issue #714, after Omnara's "Other" with `AllowsText`, `interaction_tools.go:66-72`;
   `internal/node/workertools`).
+  A question stands alone (issue #1219): `ask` and `finish`'s Gate take `questions`, one decision each and at most 3
+  (Codex's `request_user_input`), each with a header of at most 30 characters (opencode) and options
+  `{label, description}`, the description saying what choosing it changes and where it is learned from, the
+  recommended one first. The first decision stays in the question's `text` and `options`, the next ones in `more`
+  (migration `question_header_and_more`, with `header`), and the answer gives one choice for each, the next ones in
+  its `more`; a question asked before is one decision with no header. A worker still may send one `question` with
+  bare labels. The resumed worker is told each decision with its answer. Node and control plane update on their own
+  schedules, so each says what it takes, as `StoreGuides` and MCP's initialize do: the control plane's offer says
+  `question_parts`, and only then do the worker's tools offer several decisions and descriptions (else they offer
+  one question, refuse several, and write a header or a description into its text); the node's hello says
+  `question_parts`, and a node that does not is sent an answered question of several decisions folded into one,
+  every decision in its text and every answer in its answer's text (`nodeapi/questions.go`). The client API gives a
+  Gate asked with headers the `summary` of the final report its worker stopped with (a Gate asked before gets none
+  and reads as it did), and the question card (`QuestionForm`) shows it above the decisions, three lines measured
+  on the page that open to the whole, then each decision under its header with each option's description under
+  its label, sent as one answer (Paperclip's card); the Task's panel, which shows the summary under it, leaves it
+  out. `hypomnema answer` takes one quoted answer for each decision.
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
@@ -2782,7 +2799,9 @@ flowchart LR
         [issue #618](https://github.com/kl3inIT/hypomnema/issues/618): until 2026-11-16 only the main Bot's),
         as a personal OpenMausBot installation gives every bot the person's connected apps
         (`docs/composio.md`). A worker given it, a coordinator token and a Routine's script never get it, and a
-        Routine's run is no turn of his (`OwnerTurn`); OpenMausBot's `server/cloud-team.ts`, cited here until
+        Routine's run is no turn of his (`OwnerTurn`); his words typed in the Inbox for an item are his turn in its
+        chat, and a Bot the item was passed to on his line may use it in that item's chat (the owner's mark, issue
+        #1229); OpenMausBot's `server/cloud-team.ts`, cited here until
         2026-11-19, keeps personal connections out of a team shared with other people and is not the source
         ([research](docs/research/2026-11-19-scheduled-runs-and-owner-accounts.md)). The
         agent API applies it in its list of accounts and so in the service proxy's check of every request.
@@ -3309,6 +3328,10 @@ flowchart LR
       as a turn (a person's message, a wake-up, an answered Approval for the coordinator), delivered or not, is
       the owner's own: another person's message, a Run's event, a Routine's run and an Approval answered after
       its request each end it (OpenMausBot `outside-lineage.ts`, OpenClaw "a wake is never an owner turn").
+      In an Inbox item's chat, his own words typed in the Inbox (his prompt as he hands the item over, his comment)
+      are his turn as his message is, and a wake-up without his words is not (decision 7 of issue #1229); a chat
+      that holds **the owner's mark** is his turn while its last input is the hand-off that marked it (the Inbox's
+      passing from Bot to Bot, below).
     - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
       roster of the Lark groups its bot is in (`channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
       is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
@@ -4011,6 +4034,9 @@ capabilities do not exist yet.
   `{name, models?, endpoints?}` answers the value once, `endpoints` left out for every kind and empty for none (the
   page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
+  The name stays visible when the table scrolls sideways. Models and extra capabilities each show up to three
+  chips and open the full list from the remaining count. A key without a stored value shows its prefix and a short
+  status that opens the explanation in a popover when pressed (issue #1235).
 - Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
   `GET /gateway/usage?period=24h|7d|30d|90d|12m&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day
   else, starting at the viewer's midnight; 90 days a bar a UTC day and 12 months a bar a calendar month, read from
@@ -4072,7 +4098,8 @@ capabilities do not exist yet.
   release script's dry run (`RELEASE_DRY_RUN=1`) is how a test checks that Codex's license and notice go out with
   the control plane. Codex then lists the models in `/model` instead of its bundled ones, and a level it sends is one the
   gateway passes on.
-- Settings → Connect a tool (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
+- Connect a tool opens from the Gateway keys header with no key chosen, or from a row with that key chosen
+  (issue #1235). The page (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
   Claude Code, Codex, omp and OpenCode with a key (the owner's keys whose value is stored; a key opened with its
   row's Connect on Gateway keys even without, its files then holding `<your gateway key>`), a model the key may use
   from the tool, and the files with their paths and copy buttons; a card shows and copies only the answer for the
@@ -5086,6 +5113,24 @@ its client API, its CLI and the Bots' tools.
   needs that Bot's accounts or context, else to do it itself or start a Run. A project Bot is told to give it back
   to the owner (`hand_back`) or to the main Bot (`pass_to`), and to no other Bot. Each Bot an item is passed to is
   woken in its own chat for the item; the item keeps one `chat_id`, that of the Bot it is given to now.
+- The owner's mark (issue #1229, after OpenMausBot's `handsOnLending` and `handedInUnproven`,
+  `server/host/cloud-lending-turns.ts`, and OpenClaw's `spawnedBySenderIsOwner`,
+  `src/agents/subagents/spawn/spawn-parent-lineage.ts`): each wake-up of an item records who it comes from and the
+  item, `chat_messages.wake_by` and `wake_todo` (`owner` for his own words, his prompt as he hands it over or his
+  comment, which are his turn in that chat as his message is, decision 7; `owner_gave` when he gives it without a
+  word, no turn of his; `bot_for_owner` for a Bot's hand-off on his line; `bot` for any other). A Bot's `pass_to`, or
+  its add of an item for another Bot (`inbox_add`, the client API's `POST /inbox`), is on his line when the chat the
+  Bot acts in (`Change.Chat`, `NewTodo.Chat`, from its token; none in a Routine's run) has as its last turn input his
+  own message or words, or the hand-off that marked it for this same item (`orchestration.whoseTurn`, `lineFor`): a
+  mark never reaches another item, not even one the Bot adds for itself. The chat it wakes then holds the mark while
+  no other turn input ever came there (`LastTurnInput`'s `owner_only`: only his own words, a marked hand-off, a Run's
+  events and his answer to an Approval leave it; any other input, such as a Channel person's message, a `bot`
+  hand-off, his giving the item without a word (`owner_gave`), a background command's end or a Routine's run, clears
+  it for good; the migration records the wake-ups of before as `owner` when they carry his words, and leaves the rest
+  unmarked, which clears): `OwnerTurn` there is true for the marked hand-off, so the Bot uses his own accounts (user
+  Connections) in that chat only, as it may by its Connections list (`Bot.MayUse`). A Run's events there are no turn
+  of his and leave the mark. A new Connection request takes his own words, not a mark (`chatTurnOf`). It has no timer
+  and is kept in the database. Sends still go through his Approval, and the Bot still drafts its replies.
 - Reads: `Get` with its latest 500 events, read in one transaction with the item, as every mutation returns the
   item read in its own; `List` by state set (not closed by default), assignee, source kind, due window (any time but
   the zero time is a bound, the Unix epoch too), with or without snoozed and closed items, by due (none last) then
@@ -5957,7 +6002,7 @@ Node (`internal/node`):
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
   own, away from the user's and the project's); the part that names the gateway is `internal/shared/agentconfig`'s,
-  which writes Settings → Connect a tool's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
+  which writes the Connect a tool page's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
   the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
   opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
   out of its tools. Neither is given an image model. The model's context window and largest output are the

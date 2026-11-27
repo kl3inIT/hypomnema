@@ -125,6 +125,41 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 		strings.Index(p, "Rules:"), "the profile's instruction follows the rules")
 }
 
+// Scenario: the owner must decide before a worker can go on (issue #1219).
+// The rule says the gate stands alone: one decision a question, at most
+// three, each naming its case, each option with what it changes and its
+// reference, the recommended one first. When the owner answers a gate of two
+// decisions, the next turn tells each decision with its own answer.
+func TestTheGateStandsAloneAndEachAnswerIsTold(t *testing.T) {
+	t.Parallel()
+
+	d := offered()
+	p := Prompt(d)
+	assert.Contains(t, p, "pass that question as `gate` to `finish` instead of waiting. The owner reads the gate on "+
+		"its own, without your report, and may not remember the work: ask one decision a question, at most three, "+
+		"each naming the case it is about; give each option a sentence on what changes if it is chosen and the "+
+		"reference it is learned from, or say that no reference does it; put the option you recommend first.\n")
+	assert.Less(t, strings.Index(p, "The owner reads the gate on its own"), strings.Index(p, "Task (implementer):"),
+		"the rule comes before the task, for the prompt cache (issue #672)")
+
+	first, second := 0, 1
+	options := []nodeproto.Option{
+		{Label: "One item each", Description: "Each request is its own item."}, {Label: "Other", AllowsText: true},
+	}
+	d.Accepted = &nodeproto.Accepted{Epoch: 1, Gate: &nodeproto.Question{
+		Header: "Items", Text: "Is each request one item?", Options: options,
+		More:   []nodeproto.Part{{Header: "Server", Text: "Fix the server now?", Options: options}},
+		Answer: &nodeproto.Answer{Option: &first, More: []nodeproto.Choice{{Option: &second, Text: "after the release"}}},
+	}}
+
+	assert.Contains(t, Prompt(d), "The owner answered the questions you asked at `finish`.\n"+
+		"- Items: Is each request one item?\n  The answer: One item each\n"+
+		"- Server: Fix the server now?\n  The answer: Other after the release\n"+
+		"Continue from there.\n")
+	assert.Equal(t, "Items: One item each\nServer: Other after the release", answerText(*d.Accepted.Gate),
+		"a waiting ask is told each answer after its header")
+}
+
 // Scenario: the offer carries the agent's memory and the one about the owner
 // (issue #21). The first message gives both after the agent's instruction,
 // and how to keep a fact only to a worker with the agent API, whose tool

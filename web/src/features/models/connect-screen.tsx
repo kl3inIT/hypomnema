@@ -66,8 +66,8 @@ const tools: { id: GatewayTool; runtime: string; name: string; description: stri
   },
 ]
 
-// ConnectScreen is Settings → Connect a tool (issue #907): a card for each tool with a key and a model to pick and
-// the file that points the tool at the gateway, its path, a copy button and a note on what the file turns on, as
+// ConnectScreen opens from Gateway keys (issues #907 and #1235). Each tool has a card with a key and a model to pick,
+// a file that points it at the gateway, its path, a copy button and a note on what the file turns on, as
 // 9router's CLI tools cards show their "Manual Config" (CodexToolCard.js, ClaudeToolCard.js, OpenCodeToolCard.js
 // getManualConfigs; shared/components/ManualConfigModal.js). Only owner keys whose value is stored are offered
 // (issue #887), as 9router's ApiKeySelect offers its keys; a key opened from its row on Gateway keys is chosen even
@@ -76,6 +76,7 @@ const tools: { id: GatewayTool; runtime: string; name: string; description: stri
 export function ConnectScreen({ keyId }: { keyId?: string }) {
   const keys = useGatewayKeys()
   const offered = connectKeys(keys.data?.data ?? [], keyId)
+  const initialKey = offered.find((key) => key.id === keyId)?.id ?? null
 
   return (
     <SettingsPage
@@ -107,12 +108,7 @@ export function ConnectScreen({ keyId }: { keyId?: string }) {
       )}
       {offered.length > 0 &&
         tools.map((tool) => (
-          <ToolCard
-            key={tool.id}
-            tool={tool}
-            keys={offered}
-            initialKey={offered.some((k) => k.id === keyId) ? keyId! : offered[0]!.id}
-          />
+          <ToolCard key={tool.id} tool={tool} keys={offered} initialKey={initialKey} />
         ))}
     </SettingsPage>
   )
@@ -125,16 +121,17 @@ function ToolCard({
 }: {
   tool: (typeof tools)[number]
   keys: GatewayKey[]
-  initialKey: string
+  initialKey: string | null
 }) {
   const id = useId()
   const [keyId, setKeyId] = useState(initialKey)
   const [model, setModel] = useState<string | undefined>(undefined)
   const config = useQuery({
     ...getGatewayToolConfigOptions({
-      path: { key_id: keyId, tool: tool.id },
+      path: { key_id: keyId ?? "", tool: tool.id },
       query: { base_url: window.location.origin, model },
     }),
+    enabled: keyId !== null,
     placeholderData: keepPreviousData,
     // The file may hold the key: it is read again when the card is opened again, not kept.
     gcTime: 0,
@@ -173,7 +170,9 @@ function ToolCard({
                 >
                   <SelectTrigger id={`${id}-key`} width="full">
                     <SelectValue>
-                      {(value: string) => keys.find((k) => k.id === value)?.name ?? value}
+                      {(value: string | null) =>
+                        keys.find((k) => k.id === value)?.name ?? "Choose a key"
+                      }
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>

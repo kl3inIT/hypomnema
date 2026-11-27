@@ -460,6 +460,10 @@ type NewTodo struct {
 	Project        string `json:",omitempty"`
 	// IdempotencyKey, when given, makes a retried create return the first item.
 	IdempotencyKey string
+	// Chat is the chat with the owner a Bot adds the item in, as Change.Chat: taken from the Bot's session, never
+	// from a field it sends, and empty in a Routine's run. An item a Bot adds for another Bot is passed from it
+	// (Wake.From, issue #1229). It is no part of the request's hash.
+	Chat string `json:"-"`
 }
 
 // WaitingOn is whom the owner waits on, and the message of the item's own source that shows it (issue #1142): By
@@ -635,7 +639,7 @@ func (s *Store) Create(ctx context.Context, actor Actor, n NewTodo) (Todo, error
 		}
 
 		// An item added for a Bot wakes it (issue #1111).
-		if err := s.givenTx(ctx, q, now, actor, id, nil, n.Assignee); err != nil {
+		if err := s.givenTx(ctx, q, now, actor, n.Chat, id, nil, n.Assignee); err != nil {
 			return err
 		}
 

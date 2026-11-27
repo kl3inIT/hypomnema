@@ -75,7 +75,9 @@ func (s *Server) call(ctx context.Context, call orchestration.NodeCall, r nodepr
 
 	switch r.Kind {
 	case nodeproto.ReportAccept:
-		return svc.AcceptDispatch(ctx, call)
+		acc, err := svc.AcceptDispatch(ctx, call)
+
+		return s.acceptedFor(call.NodeID, acc), err
 	case nodeproto.ReportLowDisk:
 		disk, err := decode[nodeproto.DiskSpace](r.Payload)
 		if err != nil {
@@ -84,7 +86,12 @@ func (s *Server) call(ctx context.Context, call orchestration.NodeCall, r nodepr
 
 		return nil, svc.DeclineLowDisk(ctx, call, disk)
 	case nodeproto.ReportHeartbeat:
-		return svc.Heartbeat(ctx, call)
+		beat, err := svc.Heartbeat(ctx, call)
+		for i, a := range beat.Answers {
+			beat.Answers[i] = s.questionFor(call.NodeID, a)
+		}
+
+		return beat, err
 	case nodeproto.ReportExited:
 		return nil, svc.ReportExited(ctx, call)
 	case nodeproto.ReportStopped:
@@ -152,16 +159,31 @@ func (s *Server) call(ctx context.Context, call orchestration.NodeCall, r nodepr
 			return nil, err
 		}
 
-		return svc.ReattachDispatch(ctx, call, p.ProcessRef)
+		acc, err := svc.ReattachDispatch(ctx, call, p.ProcessRef)
+
+		return s.acceptedFor(call.NodeID, acc), err
 	default:
 		return nil, fmt.Errorf("%w: unknown report kind %q", errBadPayload, r.Kind)
 	}
 }
 
+// askOf is a node's question for orchestration. A node before issue #1219
+// sends no header, more or description, so its question is one decision.
 func askOf(a nodeproto.Ask) orchestration.Ask {
-	out := orchestration.Ask{Text: a.Text, To: orchestration.Addressee(a.To)}
-	for _, o := range a.Options {
-		out.Options = append(out.Options, orchestration.Option{Label: o.Label, AllowsText: o.AllowsText})
+	out := orchestration.Ask{
+		Header: a.Header, Text: a.Text, Options: optionsOf(a.Options), To: orchestration.Addressee(a.To),
+	}
+	for _, p := range a.More {
+		out.More = append(out.More, orchestration.Part{Header: p.Header, Text: p.Text, Options: optionsOf(p.Options)})
+	}
+
+	return out
+}
+
+func optionsOf(given []nodeproto.Option) []orchestration.Option {
+	var out []orchestration.Option
+	for _, o := range given {
+		out = append(out, orchestration.Option{Label: o.Label, Description: o.Description, AllowsText: o.AllowsText})
 	}
 
 	return out

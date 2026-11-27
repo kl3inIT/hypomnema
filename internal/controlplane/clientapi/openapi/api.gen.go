@@ -3158,10 +3158,11 @@ type AllowList struct {
 	Names   []string `json:"names"`
 }
 
-// Answer Pick one option by index, and add text when it allows; a question without options takes text.
+// Answer Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
 type Answer struct {
-	Option *int    `json:"option,omitempty"`
-	Text   *string `json:"text,omitempty"`
+	More   *[]Choice `json:"more,omitempty"`
+	Option *int      `json:"option,omitempty"`
+	Text   *string   `json:"text,omitempty"`
 }
 
 // Approval One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
@@ -3906,6 +3907,12 @@ type ChatWake struct {
 // ChatWakeEvent defines model for ChatWake.Event.
 type ChatWakeEvent string
 
+// Choice The answer to one of a question's more decisions, as the first's.
+type Choice struct {
+	Option *int    `json:"option,omitempty"`
+	Text   *string `json:"text,omitempty"`
+}
+
 // CodexModelCatalog Codex's ModelsResponse (codex-rs protocol/src/openai_models.rs), which Codex decodes.
 type CodexModelCatalog struct {
 	Models []CodexModelInfo `json:"models"`
@@ -4519,7 +4526,7 @@ type GatewayRequestList struct {
 	HasMore bool `json:"has_more"`
 }
 
-// GatewayTool A tool Settings → Connect a tool writes a file for.
+// GatewayTool A tool that can be configured from the Connect a tool button on Gateway keys.
 type GatewayTool string
 
 // GatewayToolConfig defines model for GatewayToolConfig.
@@ -4535,7 +4542,7 @@ type GatewayToolConfig struct {
 	// Models The models the key may use from the tool, by name.
 	Models []string `json:"models"`
 
-	// Tool A tool Settings → Connect a tool writes a file for.
+	// Tool A tool that can be configured from the Connect a tool button on Gateway keys.
 	Tool GatewayTool `json:"tool"`
 }
 
@@ -5969,8 +5976,11 @@ type NodeTool struct {
 
 // Option defines model for Option.
 type Option struct {
-	AllowsText *bool  `json:"allows_text,omitempty"`
-	Label      string `json:"label"`
+	AllowsText *bool `json:"allows_text,omitempty"`
+
+	// Description One sentence on what choosing it changes, and the reference it is learned from (issue #1219); an option asked before has none.
+	Description *string `json:"description,omitempty"`
+	Label       string  `json:"label"`
 }
 
 // OwnerAccounts What the Bot may do with the owner's own accounts (issue #1023): use, as any Bot; read, by which each write and send through his Lark sign-in, his Google, his Zalo and his WhatsApp is refused at once, in every chat and Routine of the Bot, whatever his approvals say, and reads stay. Only the owner changes it.
@@ -6101,20 +6111,29 @@ type PushSubscriptionList struct {
 type Question struct {
 	AddressedTo Addressee `json:"addressed_to"`
 
-	// Answer Pick one option by index, and add text when it allows; a question without options takes text.
-	Answer       *Answer        `json:"answer,omitempty"`
-	AnsweredAt   *time.Time     `json:"answered_at,omitempty"`
-	AnsweredBy   *Addressee     `json:"answered_by,omitempty"`
-	CancelReason *string        `json:"cancel_reason,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
-	DispatchId   string         `json:"dispatch_id"`
-	Id           string         `json:"id"`
-	Mode         QuestionMode   `json:"mode"`
-	Options      []Option       `json:"options"`
-	RunId        string         `json:"run_id"`
-	Status       QuestionStatus `json:"status"`
-	TaskId       string         `json:"task_id"`
-	Text         string         `json:"text"`
+	// Answer Pick one option by index, and add text when it allows; a question without options takes text. A question with more decisions takes one choice for each in more, in their order.
+	Answer       *Answer    `json:"answer,omitempty"`
+	AnsweredAt   *time.Time `json:"answered_at,omitempty"`
+	AnsweredBy   *Addressee `json:"answered_by,omitempty"`
+	CancelReason *string    `json:"cancel_reason,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	DispatchId   string     `json:"dispatch_id"`
+
+	// Header A short title of the first decision (issue #1219); none on a question asked before.
+	Header *string      `json:"header,omitempty"`
+	Id     string       `json:"id"`
+	Mode   QuestionMode `json:"mode"`
+
+	// More The decisions asked after the first on the same card, at most 2 (issue #1219), each answered in the answer's more at the same place.
+	More    *[]QuestionPart `json:"more,omitempty"`
+	Options []Option        `json:"options"`
+	RunId   string          `json:"run_id"`
+	Status  QuestionStatus  `json:"status"`
+
+	// Summary For a Gate asked with headers (issue #1219), the summary of the final report the worker stopped with, shown above the options; none for a Gate asked before, which reads as it did.
+	Summary *string `json:"summary,omitempty"`
+	TaskId  string  `json:"task_id"`
+	Text    string  `json:"text"`
 }
 
 // QuestionList defines model for QuestionList.
@@ -6124,6 +6143,14 @@ type QuestionList struct {
 
 // QuestionMode defines model for QuestionMode.
 type QuestionMode string
+
+// QuestionPart One decision a question asks after its first, on the same card (issue
+type QuestionPart struct {
+	// Header A short title of the decision, at most 30 characters.
+	Header  *string  `json:"header,omitempty"`
+	Options []Option `json:"options"`
+	Text    string   `json:"text"`
+}
 
 // QuestionStatus defines model for QuestionStatus.
 type QuestionStatus string
@@ -10669,7 +10696,7 @@ type ClientInterface interface {
 
 	// GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
 	//
-	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 	//
 	// Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
 	GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -15181,7 +15208,7 @@ func (c *Client) UpdateGatewayKey(ctx context.Context, keyId string, body Update
 
 // GetGatewayToolConfig The file that points a tool at the gateway with an owner-made key; only the owner
 //
-// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 //
 // Corresponds with GET /gateway/keys/{key_id}/connect/{tool} (the `GetGatewayToolConfig` operationId).
 func (c *Client) GetGatewayToolConfig(ctx context.Context, keyId string, tool GatewayTool, params *GetGatewayToolConfigParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -35102,7 +35129,7 @@ type ClientWithResponsesInterface interface {
 
 	// GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
 	//
-	// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+	// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -53562,7 +53589,7 @@ func (c *ClientWithResponses) UpdateGatewayKeyWithResponse(ctx context.Context, 
 
 // GetGatewayToolConfigWithResponse The file that points a tool at the gateway with an owner-made key; only the owner
 //
-// Settings → Connect a tool (issue #907). The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
+// The Connect a tool button on Gateway keys opens the page that requests this file. The file names one of the models the key may use from the tool (Codex: those /v1/responses serves), the one asked for or else the first, and holds the key's value when it is stored; else a placeholder, and `key_stored` is false. Not cached: it may hold the key.
 //
 // Returns a wrapper object for the known response body format(s).
 //

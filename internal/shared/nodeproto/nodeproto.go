@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -329,6 +330,11 @@ type HelloRequest struct {
 	// directory as /tmp and /var/tmp (issue #895); nil: a node of an earlier
 	// release, which does not say.
 	TempIsolation *TempIsolation `json:"temp_isolation,omitempty"`
+	// QuestionParts says the node tells its worker every decision of a
+	// question and each one's answer (issue #1219). A node of an earlier
+	// release does not say it, and is sent a question of several decisions
+	// folded into one, its text and its answer's text holding them all.
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // TempIsolation is whether a node runs its workers with their Dispatch's
@@ -595,6 +601,12 @@ type HelloResponse struct {
 	// EndTakes are takes the node is to end, and DropTakes ones it is to remove, of those it said it holds.
 	EndTakes  []TakeEnd `json:"end_takes,omitempty"`
 	DropTakes []string  `json:"drop_takes,omitempty"`
+	// QuestionParts says this control plane keeps a question's several
+	// decisions (issue #1219), as its offers do. The node folds a question it
+	// sends on a connection whose hello did not say it into one
+	// (Ask.OneQuestion): a Dispatch offered by a later control plane may
+	// report to an earlier one after a reconnect.
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.
@@ -695,6 +707,11 @@ type Offer struct {
 	// node writes the "Tools" block of its rules from them
 	// (agenttool.ToolGuide). A node of an earlier release ignores them.
 	Tools []string `json:"tools,omitempty"`
+	// QuestionParts says the control plane keeps a question's several
+	// decisions, their headers and their options' descriptions (issue #1219):
+	// the node then lets the worker ask them. A control plane of an earlier
+	// release does not say it, and its workers ask one question as before.
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // Skill is one skill a worker is given, at one revision; its digest names
@@ -804,18 +821,87 @@ type Resource struct {
 	Custody string `json:"custody,omitempty"`
 }
 
-// Option is one choice of a question.
+// Option is one choice of a question. Description, one sentence on what
+// choosing it changes, came with issue #1219; a node or a control plane
+// before it leaves it out.
 type Option struct {
-	Label      string `json:"label"`
-	AllowsText bool   `json:"allows_text,omitempty"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	AllowsText  bool   `json:"allows_text,omitempty"`
+}
+
+// Part is one decision a question asks after its first (issue #1219).
+type Part struct {
+	Header  string   `json:"header,omitempty"`
+	Text    string   `json:"text"`
+	Options []Option `json:"options,omitempty"`
 }
 
 // Ask is the payload of a question report, and a Gate in a finished one.
+// Text and Options are its first decision, as before issue #1219, so a
+// control plane before it reads that one; Header and More came with it.
 type Ask struct {
+	Header  string   `json:"header,omitempty"`
 	Text    string   `json:"text"`
 	Options []Option `json:"options,omitempty"`
+	More    []Part   `json:"more,omitempty"`
 	// To is "coordinator" or "owner".
 	To string `json:"to"`
+}
+
+// OneQuestion is the question as a control plane before issue #1219 keeps
+// it, which stores one question's text and options' labels only: the header
+// before the text and each option's description after it. A question of
+// several decisions becomes one free-text question that lists each with its
+// options, to be answered in turn, since that control plane would keep only
+// the first decision and its choice; nothing is lost either way.
+func (a Ask) OneQuestion() Ask {
+	if len(a.More) == 0 {
+		var b strings.Builder
+
+		b.WriteString(titled(a.Header, a.Text))
+
+		options := make([]Option, len(a.Options))
+		for i, o := range a.Options {
+			if o.Description != "" {
+				b.WriteString("\n" + strconv.Itoa(i+1) + ". " + o.Label + ": " + o.Description)
+			}
+
+			options[i] = Option{Label: o.Label, AllowsText: o.AllowsText}
+		}
+
+		if len(a.Options) == 0 {
+			options = nil
+		}
+
+		return Ask{Text: b.String(), Options: options, To: a.To}
+	}
+
+	var b strings.Builder
+
+	b.WriteString("Answer each decision in turn:")
+
+	for i, p := range append([]Part{{Header: a.Header, Text: a.Text, Options: a.Options}}, a.More...) {
+		b.WriteString("\n" + strconv.Itoa(i+1) + ". " + titled(p.Header, p.Text))
+
+		for _, o := range p.Options {
+			b.WriteString("\n   - " + o.Label)
+
+			if o.Description != "" {
+				b.WriteString(": " + o.Description)
+			}
+		}
+	}
+
+	return Ask{Text: b.String(), To: a.To}
+}
+
+func titled(header, text string) string {
+	if header == "" {
+		return text
+	}
+
+	return header + ": " + text
 }
 
 // AnswerAck is the payload of an answer_ack report.
@@ -869,6 +955,14 @@ type Reattach struct {
 type Answer struct {
 	Option *int   `json:"option,omitempty"`
 	Text   string `json:"text,omitempty"`
+	// More answers the question's more decisions, in their order (issue #1219).
+	More []Choice `json:"more,omitempty"`
+}
+
+// Choice is the answer to one of a question's more decisions.
+type Choice struct {
+	Option *int   `json:"option,omitempty"`
+	Text   string `json:"text,omitempty"`
 }
 
 // Question is the payload of an answer message: an answered question a
@@ -879,8 +973,10 @@ type Question struct {
 	DispatchID  string   `json:"dispatch_id"`
 	Mode        string   `json:"mode"`
 	AddressedTo string   `json:"addressed_to"`
+	Header      string   `json:"header,omitempty"`
 	Text        string   `json:"text"`
 	Options     []Option `json:"options"`
+	More        []Part   `json:"more,omitempty"`
 	Status      string   `json:"status"`
 	Answer      *Answer  `json:"answer,omitempty"`
 	AnsweredBy  string   `json:"answered_by,omitempty"`

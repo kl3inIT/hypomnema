@@ -176,6 +176,8 @@ question with `hypomnema questions show <question_id> --json`.
 - Answer when the answer follows from the spec, the objective, the owner's words, or the repository's existing code
   (read it), and say what you based it on: the file, or the owner's words quoted:
   `hypomnema answer <question_id> --text-file <file> --json`, or `hypomnema answer <question_id> <option number> --json`.
+  A question that lists `more` decisions takes one quoted answer for each, in their order:
+  `hypomnema answer <question_id> <first answer> <second answer> --json`.
 - Answer, too, a question about an option the Task leaves open, such as how to fix a review finding or which limit
   or library to use, when the worker recommends one that references back and that stays inside the Task's scope:
   answer with that option, then tell the owner in your reply what you answered and why. Workers decide these
