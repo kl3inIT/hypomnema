@@ -1838,7 +1838,7 @@ test("the owner changes a priority with one click and the list orders by it", as
 })
 
 // Scenario: issue #1157, decision 5. On the open item, Cmd+K (Ctrl+K) names it in a chip and offers its commands:
-// the owner sets its priority, moves it to a project and gives it to Hypo, each in a few keys. With the chip cleared,
+// the owner sets its priority, moves it to a department and gives it to Hypo, each in a few keys. With the chip cleared,
 // he types a title and the item he picks opens.
 test("Cmd+K changes the selected item and jumps to another", async ({ page }) => {
   const w = world({ projects: true })
@@ -1862,16 +1862,21 @@ test("Cmd+K changes the selected item and jumps to another", async ({ page }) =>
 
   await page.keyboard.press("ControlOrMeta+k")
   await expect(menu.getByRole("combobox")).toBeFocused()
-  await page.keyboard.type("project")
+  await page.keyboard.type("department")
+  await expect(menu.getByRole("option", { name: "Move to department…" })).toBeVisible()
   await page.keyboard.press("Enter")
   await expect(menu.getByRole("option", { name: "BeyondPilot" })).toBeVisible()
-  await shot(page, "inbox-command-menu-project")
+  await expect(menu.getByRole("option", { name: "No department" })).toBeVisible()
+  await shot(page, "inbox-command-menu-department")
   await menu.getByRole("option", { name: "BeyondPilot" }).click()
   await expect
     .poll(() => w.sent.filter((s) => s.path === "/inbox/tdo_invoice").at(-1)?.body)
     .toEqual({ revision: 2, project_id: "dep_bp" })
-  await expect(item(page).getByRole("combobox", { name: "Project: BeyondPilot" })).toBeVisible()
-  await shot(page, "inbox-item-priority-project")
+  const selector = item(page).getByRole("combobox", { name: "Department: BeyondPilot" })
+  await selector.click()
+  await expect(page.getByPlaceholder("Set department...")).toBeVisible()
+  await shot(page, "inbox-department-selector")
+  await page.getByRole("option", { name: "BeyondPilot" }).click()
 
   await page.keyboard.press("ControlOrMeta+k")
   await menu.getByRole("option", { name: "Give to Hypo" }).click()
@@ -1887,32 +1892,31 @@ test("Cmd+K changes the selected item and jumps to another", async ({ page }) =>
   await expect(item(page).getByRole("heading", { name: "Renew the domain" })).toBeVisible()
 })
 
-// Scenario: issue #1157, decision 4, and issue #1188, decision 2. The project filter, next to the other filter,
-// shows every project at first; it lists the sidebar's departments in its order, VMAP then BeyondPilot, and no way
-// to add, rename or remove one, which the sidebar does. The owner picks VMAP and sees its items only, then No
-// project.
-test("the project filter lists the departments and shows one's items", async ({ page }) => {
+// Scenario: issue #1157, decision 4, and issue #1188, decision 2. The department filter lists the sidebar's
+// departments in order, VMAP then BeyondPilot. The owner picks VMAP and sees its items only, then No department.
+test("the department filter lists the departments and shows one's items", async ({ page }) => {
   const w = world({ projects: true })
   await w.serve(page)
   await page.goto("/inbox")
   await expect(rowsOf(page, "Open")).toHaveCount(2)
 
-  const filter = list(page).getByRole("button", { name: "Project: Every project" })
+  const filter = list(page).getByRole("button", { name: "Department: Every department" })
   await filter.click()
+  await expect(page.getByPlaceholder("Filter by department...")).toBeVisible()
   await expect(page.getByRole("option")).toHaveText([
-    "Every project",
-    /^No project/,
+    "Every department",
+    /^No department/,
     /^VMAP/,
     /^BeyondPilot/,
   ])
-  await expect(page.getByRole("option", { name: /New project|Edit/ })).toHaveCount(0)
-  await shot(page, "inbox-project-filter")
+  await expect(page.getByRole("option", { name: /New department|Edit/ })).toHaveCount(0)
+  await shot(page, "inbox-department-filter")
   await page.getByRole("option", { name: /^VMAP/ }).click()
   await expect(rowsOf(page, "Open")).toHaveCount(2)
   await expect(group(page, "Needs you")).toHaveCount(0)
 
-  await list(page).getByRole("button", { name: "Project: VMAP" }).click()
-  await page.getByRole("option", { name: /^No project/ }).click()
+  await list(page).getByRole("button", { name: "Department: VMAP" }).click()
+  await page.getByRole("option", { name: /^No department/ }).click()
   await expect(rowsOf(page, "Open").filter({ hasText: "VMAP" })).toHaveCount(0)
 })
 

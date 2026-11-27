@@ -4739,6 +4739,7 @@ not checked against the live site in the change that wrote them.
   stay there. muse.ai answers 403 to the same request from the control plane's own HTTP client (issue #798), so
   there is none. While the owner holds the browser the check does not run: the dialog says "Signed in? Give
   control back to finish adding the account." and keeps polling, and nothing is saved until the check says ok.
+  The pool reads Usage once in the account's tab after sign-in, before returning the account.
 - States, each with the cause observed (`muse.db`): signed in; needs sign-in (401, or the page's login text);
   refused (403: region, network or access, tried again at the next question); workspace not ready (`/api/session`
   not `assigned`); page not ready (no ready composer within 30 s); resting (out of
@@ -4753,9 +4754,11 @@ not checked against the live site in the change that wrote them.
   order that is on and not resting or needing a sign-in; one that fails its check before anything was sent is
   recorded and the next is tried. Quota: a quota hint counts only inside a finished answer; the account then
   rests, and Settings → Usage is read (the dock's Settings, its Settings item, the dialog's text, parsed as www's
-  `parse_usage_text`). A resting account is taken back only when a Usage read shows room, read at most every six
-  hours; the reset is kept as Muse writes it ("resets Sep 30") or "unknown", never made a time. Usage is read
-  again after an answer once six hours old.
+  `parse_usage_text`, with the Vietnamese labels observed on zm). A resting account is taken back only when a
+  Usage read shows room, read at most every six hours. The reset is kept as Muse writes it ("resets Sep 30") or
+  "unknown", never made a time. Usage is read again after an answer once six hours old. A failed read keeps its
+  reason beside Usage in Settings and
+  `hypomnema muse accounts` and logs WARN `muse.usage_unread` when the reason changes. A successful read clears it.
 - A question (`driver.go`): a new thread through the page's router (`window.next.router.push('/thread/new')`, a
   navigation when it did not land within 30 s), ready when the path is `/thread/new`, the thread empty, the page
   `complete`, the composer enabled, the shell `hydrated` and no "Connecting..."; or the thread's address. The
@@ -6633,19 +6636,20 @@ Node (`internal/node`):
     their source. After an action, or once the open item leaves the list (answered elsewhere), the next one opens
     (OpenMausBot's `nextAfter`). Keys: `j` and `k` move, `e` marks done, `c` copies the draft, Escape goes back on
     a phone.
-  - Priority and projects (issue #1157), copied from circle (MIT, `ln-dev7/circle` b0ba7dd) with its notice in each
+  - Priority and departments (issue #1157), copied from circle (MIT, `ln-dev7/circle` b0ba7dd) with its notice in each
     file: a to-do's row starts with its priority's icon (`web/src/components/ui/priority.tsx`: circle's icons and
-    `PrioritySelector`), one click to change it, its reason in the icon's tooltip; its project, a department
-    (issue #1188), is a chip with circle's Box icon on the row's second line; the detail's Priority and Project fields are pickers
+    `PrioritySelector`), one click to change it, its reason in the icon's tooltip; its department
+    (issue #1188) is a chip with circle's Box icon on the row's second line; the detail's Priority and Department
+    fields are pickers
     (`components/ui/project-selector.tsx`), with the priority's reason beside it. Inside each group the rows go by
-    priority, urgent first and none last, then as before (`groupRows`). Next to the filter, the project filter
-    (`features/inbox/project-filter.tsx`, after circle's `headers/projects/filter.tsx`): Every project, No project
+    priority, urgent first and none last, then as before (`groupRows`). Next to the filter, the department filter
+    (`features/inbox/project-filter.tsx`, after circle's `headers/projects/filter.tsx`): Every department, No department
     or one department, in the sidebar's order, with counts; departments are made, renamed and removed in the
     sidebar only (issue #1188). ⌘K or Ctrl+K opens the
     command menu (`features/inbox/command-menu.tsx`, after circle's `command-palette.tsx`): on the selected to-do,
-    named in a chip that ⌫ clears, Set priority…, Move to project…, Give to the main Bot, Snooze…, Mark done and
+    named in a chip that ⌫ clears, Set priority…, Move to department…, Give to the main Bot, Snooze…, Mark done and
     Drop; with none, the items to search by title and open. The thread says a priority set with its reason and a
-    project changed.
+    department changed (issue #1272).
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,

@@ -1083,6 +1083,10 @@ export type MuseAccount = {
    * Settings → Usage as Muse showed it ("62% used · resets Sep 30"), or "unknown".
    */
   usage: string;
+  /**
+   * Why the latest Usage read failed.
+   */
+  usage_error?: string;
   usage_read_at?: string;
   checked_at?: string;
 };

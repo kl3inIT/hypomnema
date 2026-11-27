@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inbox department labels</title>
+  <style>
+    :root { font: 1rem/1.5 system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 90rem; margin: 0 auto; padding: clamp(1rem, 4vw, 3rem); }
+    section + section { margin-top: 2.5rem; }
+    .screens { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1fr); gap: 1rem; }
+    figure { margin: 0; }
+    figcaption { margin-bottom: .5rem; font-weight: 600; }
+    img { display: block; width: 100%; height: auto; border: 1px solid GrayText; border-radius: .375rem; }
+    @media (max-width: 48rem) {
+      .screens { grid-template-columns: minmax(0, 1fr); }
+      .phone { max-width: 25rem; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Inbox department labels</h1>
+    <section>
+      <h2>Department filter</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="inbox-department-filter-desktop.png" alt="Open department filter beside the desktop Inbox list">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="inbox-department-filter-phone.png" alt="Open department filter over the phone Inbox list">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Item's department selector</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="inbox-department-selector-desktop.png" alt="Open department selector in the item's desktop detail panel">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="inbox-department-selector-phone.png" alt="Open department selector in the item's phone detail view">
+        </figure>
+      </div>
+    </section>
+    <section>
+      <h2>Move to department command</h2>
+      <div class="screens">
+        <figure>
+          <figcaption>Desktop</figcaption>
+          <img src="inbox-command-menu-department-desktop.png" alt="Move to department page of the desktop command menu">
+        </figure>
+        <figure class="phone">
+          <figcaption>Phone</figcaption>
+          <img src="inbox-command-menu-department-phone.png" alt="Move to department page of the phone command menu">
+        </figure>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
