@@ -629,3 +629,46 @@ test("without inbox_chats his chats are not read", async () => {
   assert.match(got.text, /could not read zalo:main: which chats the owner switched off could not be read \(this run has no inbox_chats/);
   assert.ok(!w.calls.some((c) => c.name === "zalo_messages"));
 });
+
+// Review of #1270, round 2: the carry an earlier check wrote has no account or chat fields, only each conversation's
+// line, and a Lark group's name may hold a line feed or U+2028. The chat's id is read from the line's end apart from
+// its name, so such a chat still gets the owner's choices; a line that is no known chat, mail thread or meeting is
+// kept silent, never printed.
+test("a carried chat of an earlier check is checked whatever its name holds", async () => {
+  const lines = [
+    { where: 'lark:me chat "Team\nAlpha" (id oc_lf)', count: 1, from: ["ou_a"], latest: since, rank: ranks.group },
+    { where: 'lark:me chat "Team Beta" thread omt_9 (id oc_ls)', count: 1, from: ["ou_b"], latest: since, rank: ranks.group },
+    { where: 'zalo:main chat "Gia "đình"\n" (id 3001)', count: 1, from: ["Mai"], latest: since, rank: ranks.group },
+  ];
+  const off = world({
+    choices: [
+      { account: "lark:me", chat: "oc_lf", reads: false, set_at: since },
+      { account: "lark:me", chat: "oc_ls", reads: false, set_at: since },
+      { account: "zalo:main", chat: "3001", reads: false, set_at: since },
+    ],
+  });
+  const got = await check({ tools, call: off.call, state: { ...state, carry: lines }, now });
+  assert.equal(got.wake, false, got.text);
+  assert.doesNotMatch(got.text, /oc_lf|oc_ls|3001/);
+  assert.equal(got.state.carry, undefined, "switched off: dropped");
+
+  const failing = world({ choices: new Error("the control plane is restarting") });
+  const held = await check({ tools, call: failing.call, state: { ...state, carry: lines }, now });
+  assert.equal(held.wake, false, held.text);
+  assert.doesNotMatch(held.text, /oc_lf|oc_ls|3001/);
+  assert.deepEqual(held.state.carry, lines, "kept for a run that can check them");
+});
+
+test("a carried line that is no known chat, mail thread or meeting is kept silent", async () => {
+  const odd = [
+    { where: 'lark:me chat "Team\nAlpha"', count: 1, from: ["ou_a"], latest: since, rank: ranks.group },
+    { where: "something else (id x)", count: 1, from: [], latest: since, rank: ranks.mail },
+  ];
+  const meeting = { where: 'meeting "Stand\nup" (id mtg_1): notes ready, 2 open actions', from: [], rank: ranks.meeting };
+  const got = await check({ tools, call: world().call, state: { ...state, carry: [...odd, meeting] }, now });
+
+  assert.equal(got.wake, true, got.text);
+  assert.match(got.text, /meeting "Stand\nup" \(id mtg_1\)/);
+  assert.doesNotMatch(got.text, /Team|something else/);
+  assert.deepEqual(got.state.carry, odd);
+});
