@@ -141,12 +141,27 @@ async function choicesOf(tools, call) {
 }
 
 
-// chatOf is the account (integration:label) and the chat a conversation is in, with the chat's name, as its fields
-// say or, for one carried by an earlier version, its line; undefined for a mail thread or a meeting.
-export function chatOf(f) {
-  if (f.account && f.chat) return { account: f.account, chat: f.chat, name: f.name };
-  const m = f.where?.match(/^(\S+) chat "(.*)"(?: thread \S+)? \(id ([^)]+)\)$/);
-  return m ? { account: m[1], chat: m[3], name: m[2] } : undefined;
+// carriedOf says what a carried conversation is: a chat with its account (integration:label), id and name, a mail
+// thread or a meeting, as its fields say or, for one carried by an earlier check, its line; undefined when the line is
+// none of them. The line's fixed start and end are read apart from the name between them, which may hold anything,
+// quotes, a line feed or U+2028 (review of #1270, round 2): the chat's id is the end's ` (id <id>)`.
+export function carriedOf(f) {
+  if (f.account && f.chat) return { kind: "chat", account: f.account, chat: f.chat, name: f.name };
+  if (f.kind === "mail" || f.kind === "meeting") return { kind: f.kind };
+  const where = typeof f.where === "string" ? f.where : "";
+  const meeting = /\(id [^\s()]+\): notes ready, \d+ open actions$/u;
+  if (where.startsWith('meeting "') && meeting.test(where)) return { kind: "meeting" };
+  const head = /^(\S+) (chat|mail thread) "/u.exec(where);
+  if (!head) return undefined;
+  const [opened, account, what] = head;
+  if (what === "mail thread") return / \(thread [^\s()]+\)$/u.test(where) ? { kind: "mail" } : undefined;
+  const end = / \(id ([^\s()]+)\)$/u.exec(where);
+  if (!end) return undefined;
+  // The name ends at the last quote before the end, past which only a thread's id may come.
+  const rest = where.slice(opened.length, end.index);
+  const close = rest.lastIndexOf('"');
+  if (close < 0 || !/^(?: thread [^\s()]+)?$/u.test(rest.slice(close + 1))) return undefined;
+  return { kind: "chat", account, chat: end[1], name: rest.slice(0, close) };
 }
 
 // A source's state: mark, the time it was read through; for Zalo and WhatsApp also gaps, the spans of time below
@@ -579,6 +594,7 @@ async function readGmail(call, source, st, now, config) {
   return {
     found: [...threads].map(([id, t]) => ({
       where: `${source.account} mail thread "${t.subject}" (thread ${id})`,
+      kind: "mail",
       count: t.count,
       mine: t.mine,
       from: [...t.from],
@@ -599,7 +615,7 @@ async function readMeetings(call, _source, st, now) {
     found: meetings
       .filter((m) => m.notes === "ready")
       .map((m) => ({
-        where: `meeting "${m.title}" (id ${m.id}): notes ready, ${m.open_actions} open actions`, from: [],
+        where: `meeting "${m.title}" (id ${m.id}): notes ready, ${m.open_actions} open actions`, from: [], kind: "meeting",
         rank: ranks.meeting,
       })),
     state: { mark: complete ? now.toISOString() : st.mark },
@@ -665,14 +681,14 @@ export async function check({ tools, call, state = {}, config = {}, now = new Da
   }
   // What was carried gets this run's choices before anything is printed (review of #1270, round 1): a chat he
   // switched off since is dropped; when his choices cannot be read, a carried chat is held, neither printed nor
-  // dropped, until a run can check it. A mail thread or a meeting is no chat.
+  // dropped, until a run can check it. A mail thread or a meeting is no chat; a line that is none of them is held,
+  // never printed.
   const found = [];
   const held = [];
   for (const f of state.carry ?? []) {
-    const c = chatOf(f);
-    if (!c) found.push({ ...f });
-    else if (unchosen) held.push(f);
-    else if (!skipped(config, c.account, c.chat, c.name)) found.push({ ...f });
+    const c = carriedOf(f);
+    if (!c || (c.kind === "chat" && unchosen)) held.push(f);
+    else if (c.kind !== "chat" || !skipped(config, c.account, c.chat, c.name)) found.push({ ...f });
   }
   for (const source of sources(tools)) {
     const key = keyOf(source);

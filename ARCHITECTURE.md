@@ -5339,7 +5339,9 @@ its client API, its CLI and the Bots' tools.
     owner's choices of the accounts the Bot may read and the defaults with their patterns. The check reads it once a
     run and skips a chat he switched off before any model; when it cannot be read or the run lacks it, none of his
     chats is read that run. The conversations a run carried get the next run's choices before anything is printed: a
-    chat switched off is dropped, and one whose choice cannot be read is held, unprinted, waking nobody.
+    chat switched off is dropped, and one whose choice cannot be read is held, unprinted, waking nobody. A carried
+    line of an earlier check is read by its fixed start and end, its chat's id apart from the name (which may hold a
+    line feed); a line that is no known chat, mail thread or meeting is held unprinted.
     A chat switched off is still synced, kept and read by a Bot when he asks. The move reads `dropChats` of a Bot's
     `thu-ky/filters.json` (through its folder's helper) and switches off, as his choice, each exact id (`^<id>$`) of a
     chat one of his accounts has, unless he set that chat already, so that running it again changes nothing. It

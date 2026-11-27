@@ -295,13 +295,13 @@ test("a row names the chat and the person, not the account's number", () => {
   )
   const bots = (id: string) => (id === "thu-ky" ? "Thư ký" : id)
 
-  expect(placeOf(zalo, { chat: "Vân Anh" }, bots)).toBe("Vân Anh")
-  expect(fromText(zalo, { chat: "Vân Anh" }, bots)).toBe("Zalo · Vân Anh")
+  expect(placeOf(zalo, { chat: "Minh Thư" }, bots)).toBe("Minh Thư")
+  expect(fromText(zalo, { chat: "Minh Thư" }, bots)).toBe("Zalo · Minh Thư")
   expect(placeOf(zalo, {}, bots)).toBe("")
   expect(fromText(zalo, {}, bots)).not.toContain("2223515701293677881")
-  expect(askerOf(zalo, { chat: "Dự Án Ma", sender: "Vân Anh" }, bots)).toBe("Vân Anh")
-  expect(askerOf(zalo, { chat: "Vân Anh", sender: "Đạt", fromMe: true }, bots)).toBe("You")
-  expect(askerOf(zalo, { chat: "Vân Anh" }, bots)).toBe("Vân Anh")
+  expect(askerOf(zalo, { chat: "Dự Án Ma", sender: "Minh Thư" }, bots)).toBe("Minh Thư")
+  expect(askerOf(zalo, { chat: "Minh Thư", sender: "Đạt", fromMe: true }, bots)).toBe("You")
+  expect(askerOf(zalo, { chat: "Minh Thư" }, bots)).toBe("Minh Thư")
 
   const lark = one(
     todo("l", {
@@ -354,7 +354,7 @@ test("a row's line names the person and the place, not the platform", () => {
   expect(
     fromLineOf(group, { chat: "BeyondPilot Platform Discussion", sender: "Eugene" }, bots),
   ).toBe("Eugene · BeyondPilot Platform Discussion")
-  expect(fromLineOf(group, { chat: "Vân Anh", sender: "Vân Anh" }, bots)).toBe("Vân Anh")
+  expect(fromLineOf(group, { chat: "Minh Thư", sender: "Minh Thư" }, bots)).toBe("Minh Thư")
   expect(fromLineOf(group, { chat: "Dự Án Ma" }, bots)).toBe("Dự Án Ma")
   expect(fromLineOf(group, {}, bots)).toBe("")
   expect(fromLineOf(one(todo("h")))).toBe("Added by you")
