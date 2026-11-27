@@ -5910,10 +5910,14 @@ The owner's commands:
   `blocked`, its description the verdict and the review's first finding (its `Findings:` field, else the first
   line under a Findings heading, else its first line of prose), cut to 140 characters, linking the Task on the
   Team page under `HYPOMNEMA_PUBLIC_URL`. A `quick` Task's pull request, which needs no worker review, gets
-  `success` "no review needed: quick Task <id>" on each head the follower reads. Each is queued in
-  `review_statuses` (pull request, head, Task, reason) in the transaction that learns it, a later verdict on the
-  same head replacing it; once a minute, after the reads, the follower reads each queued one's pull request with
-  its repository's token and posts it at the full head SHA (`githost.PostStatus`; on GitHub `POST
+  `success` "no review needed: quick Task <id>" on each of its heads: the Task is kept in `no_review_requests`
+  (repository, branch, the pull request its evidence names) when it succeeds, whatever becomes of its Run, and each
+  pass finds its pull request by that branch (`githost.FindRequest`, as the follower) and queues its open head,
+  until it is merged or closed, no pull request was found within 2 minutes, or a day passed. Each status is queued
+  in `review_statuses` (pull request, full head SHA, Task, reason) in the transaction that learns it, a later
+  verdict on the same head replacing it; a verdict naming an abbreviated head is not queued, since a prefix may
+  name a newer commit too. Once a minute, after the reads, the follower reads each queued one's pull request with
+  its repository's token and posts it on that head when it is exactly the pull request's head (`githost.PostStatus`; on GitHub `POST
   /repos/:owner/:repo/statuses/:sha`, on GitLab `POST /projects/:id/statuses/:sha`). A pull request no longer
   open, a head that moved, a repository without a token and a status still unposted after a day are dropped
   with that outcome; a failed post is tried again next minute. A status is of one commit, so a new head has none

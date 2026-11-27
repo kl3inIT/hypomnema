@@ -55,8 +55,6 @@ type FollowedRequest struct {
 	URL        string
 	Request    githost.Request
 	Head       string
-	// NoReview: its Task needs no worker review (a quick Task); each head read gets `review` = success.
-	NoReview bool
 
 	lookedUp bool
 }
@@ -160,7 +158,6 @@ func followedRequestOf(ctx context.Context, q *store.Queries, run store.Run, tas
 	f := FollowedRequest{
 		TaskID: task.ID, RunID: task.RunID, DispatchID: d.ID, Kind: host.Kind,
 		Repo: githost.Repo{Host: run.RepoHost.String, Path: run.Repo.String}, Branch: pushBranchOf(task),
-		NoReview: task.Kind == "quick",
 	}
 
 	kindOf := registeredKind(ctx, q)
@@ -450,12 +447,6 @@ func (s *Service) FollowPullRequests(ctx context.Context, read ReadPullRequest, 
 					errs = append(errs, err)
 
 					continue
-				}
-			}
-
-			if f.NoReview && st.Status == githost.RequestOpen && reviewSHA.MatchString(f.Head) {
-				if err := s.queueNoReview(ctx, f); err != nil {
-					errs = append(errs, err)
 				}
 			}
 

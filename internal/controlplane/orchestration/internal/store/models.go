@@ -712,6 +712,16 @@ type Model struct {
 	Name     string
 }
 
+type NoReviewRequest struct {
+	TaskID      string
+	RepoHost    string
+	Repo        string
+	Branch      string
+	PullRequest string
+	Since       int64
+	DoneAt      sql.NullInt64
+}
+
 type Node struct {
 	ID                  string
 	Name                string

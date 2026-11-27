@@ -29,3 +29,34 @@ WHERE pull_request = @pull_request
   AND task_id = @task_id
   AND queued_at = @queued_at
   AND done_at IS NULL;
+
+-- name: KeepNoReviewRequest :exec
+-- A Task that succeeds again (after a follow-up) is looked up again from now.
+INSERT INTO no_review_requests (task_id, repo_host, repo, branch, pull_request, since)
+VALUES (@task_id, @repo_host, @repo, @branch, @pull_request, @now)
+ON CONFLICT (task_id) DO UPDATE SET repo_host    = excluded.repo_host,
+                                    repo         = excluded.repo,
+                                    branch       = excluded.branch,
+                                    pull_request = CASE WHEN excluded.pull_request = ''
+                                                        THEN no_review_requests.pull_request
+                                                        ELSE excluded.pull_request END,
+                                    since        = excluded.since,
+                                    done_at      = NULL;
+
+-- name: OpenNoReviewRequests :many
+SELECT * FROM no_review_requests
+WHERE done_at IS NULL
+ORDER BY since, task_id;
+
+-- name: NoteNoReviewRequest :exec
+UPDATE no_review_requests
+SET pull_request = @pull_request
+WHERE task_id = @task_id;
+
+-- name: EndNoReviewRequest :exec
+-- Only the request as it was read: a Task that succeeded again meanwhile is looked up again.
+UPDATE no_review_requests
+SET done_at = @now
+WHERE task_id = @task_id
+  AND since = @since
+  AND done_at IS NULL;

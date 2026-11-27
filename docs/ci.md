@@ -36,7 +36,8 @@ previous layout, see the [CI research note](research/2026-11-10-ci-and-tests.md)
 The control plane posts a commit status named `review` on the heads of the pull requests its Tasks made, in the
 repositories it holds a token for (issue #1279; [architecture](../ARCHITECTURE.md)). It is `success` on the exact
 head a reviewer judged `correct`, `failure` on one judged `incorrect` or `blocked`, and `success` with "no review
-needed: quick Task <id>" on each head of a `quick` Task's pull request. A new push has none until it is reviewed.
+needed: quick Task <id>" on each head of a `quick` Task's pull request, found by the Task's branch even after its
+Run is finished. A new push has none until it is reviewed. A verdict covers only the full head SHA it names.
 The token must be allowed to write commit statuses (a classic token's `repo` scope, or "Commit statuses: write").
 
 When the control plane first runs the change, the migration queues each pull request's latest verdict, and the

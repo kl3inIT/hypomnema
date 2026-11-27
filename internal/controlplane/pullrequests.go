@@ -99,6 +99,7 @@ func (c connections) readPullRequest(ctx context.Context, f orchestration.Follow
 // when publicURL is set.
 func (c connections) reviewStatusHost(publicURL string) orchestration.ReviewStatusHost {
 	return orchestration.ReviewStatusHost{
+		Find: c.readPullRequest,
 		Read: func(ctx context.Context, kind githost.Kind, r githost.Request) (githost.RequestState, error) {
 			client, token, err := c.repoClient(ctx, r.Repo)
 			if err != nil {

@@ -10,6 +10,26 @@ import (
 	"database/sql"
 )
 
+const endNoReviewRequest = `-- name: EndNoReviewRequest :exec
+UPDATE no_review_requests
+SET done_at = ?1
+WHERE task_id = ?2
+  AND since = ?3
+  AND done_at IS NULL
+`
+
+type EndNoReviewRequestParams struct {
+	Now    sql.NullInt64
+	TaskID string
+	Since  int64
+}
+
+// Only the request as it was read: a Task that succeeded again meanwhile is looked up again.
+func (q *Queries) EndNoReviewRequest(ctx context.Context, arg EndNoReviewRequestParams) error {
+	_, err := q.db.ExecContext(ctx, endNoReviewRequest, arg.Now, arg.TaskID, arg.Since)
+	return err
+}
+
 const finishReviewStatus = `-- name: FinishReviewStatus :exec
 UPDATE review_statuses
 SET done_at = ?1,
@@ -41,6 +61,94 @@ func (q *Queries) FinishReviewStatus(ctx context.Context, arg FinishReviewStatus
 		arg.QueuedAt,
 	)
 	return err
+}
+
+const keepNoReviewRequest = `-- name: KeepNoReviewRequest :exec
+INSERT INTO no_review_requests (task_id, repo_host, repo, branch, pull_request, since)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+ON CONFLICT (task_id) DO UPDATE SET repo_host    = excluded.repo_host,
+                                    repo         = excluded.repo,
+                                    branch       = excluded.branch,
+                                    pull_request = CASE WHEN excluded.pull_request = ''
+                                                        THEN no_review_requests.pull_request
+                                                        ELSE excluded.pull_request END,
+                                    since        = excluded.since,
+                                    done_at      = NULL
+`
+
+type KeepNoReviewRequestParams struct {
+	TaskID      string
+	RepoHost    string
+	Repo        string
+	Branch      string
+	PullRequest string
+	Now         int64
+}
+
+// A Task that succeeds again (after a follow-up) is looked up again from now.
+func (q *Queries) KeepNoReviewRequest(ctx context.Context, arg KeepNoReviewRequestParams) error {
+	_, err := q.db.ExecContext(ctx, keepNoReviewRequest,
+		arg.TaskID,
+		arg.RepoHost,
+		arg.Repo,
+		arg.Branch,
+		arg.PullRequest,
+		arg.Now,
+	)
+	return err
+}
+
+const noteNoReviewRequest = `-- name: NoteNoReviewRequest :exec
+UPDATE no_review_requests
+SET pull_request = ?1
+WHERE task_id = ?2
+`
+
+type NoteNoReviewRequestParams struct {
+	PullRequest string
+	TaskID      string
+}
+
+func (q *Queries) NoteNoReviewRequest(ctx context.Context, arg NoteNoReviewRequestParams) error {
+	_, err := q.db.ExecContext(ctx, noteNoReviewRequest, arg.PullRequest, arg.TaskID)
+	return err
+}
+
+const openNoReviewRequests = `-- name: OpenNoReviewRequests :many
+SELECT task_id, repo_host, repo, branch, pull_request, since, done_at FROM no_review_requests
+WHERE done_at IS NULL
+ORDER BY since, task_id
+`
+
+func (q *Queries) OpenNoReviewRequests(ctx context.Context) ([]NoReviewRequest, error) {
+	rows, err := q.db.QueryContext(ctx, openNoReviewRequests)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []NoReviewRequest{}
+	for rows.Next() {
+		var i NoReviewRequest
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.RepoHost,
+			&i.Repo,
+			&i.Branch,
+			&i.PullRequest,
+			&i.Since,
+			&i.DoneAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const queueNoReviewStatus = `-- name: QueueNoReviewStatus :exec

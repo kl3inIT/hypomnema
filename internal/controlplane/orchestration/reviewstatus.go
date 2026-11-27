@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,13 +23,16 @@ import (
 // What is posted, and when:
 //   - a verdict recorded with its head (recordReviewVerdict): correct is success, incorrect or blocked failure
 //     with the review's first finding;
-//   - a quick Task's pull request, when the follower reads its head (FollowPullRequests): success, "no review
-//     needed", as the coordinator's guide says quick work needs green CI and no worker review.
+//   - a quick Task's pull request: success, "no review needed", on each of its heads, as the coordinator's guide
+//     says quick work needs green CI and no worker review. The Task is kept when it succeeds (keepNoReview),
+//     whatever becomes of its Run, which the coordinator may finish at once (review round 1); each pass finds its
+//     pull request by the Task's branch, as the follower does, and queues its head.
 //
 // Each is queued in the transaction that learns it and posted by the control plane's follower with the token of
 // the repository's Connection, the one its pull requests are read with. Before posting, the pull request is read:
-// one no longer open, or whose head is another than the queued one, gets nothing; a repository without a token
-// gets nothing (ErrCannotFollow). A post that fails is tried again by the next pass, for reviewStatusWindow.
+// one no longer open, or whose head is not exactly the queued one, gets nothing; a repository without a token
+// gets nothing (ErrCannotFollow). A head is a full SHA: a verdict naming an abbreviated head is not queued, as a
+// prefix may name a newer commit too (review round 1). A post that fails is tried again by the next pass, for reviewStatusWindow.
 // Pull requests no Task made (Dependabot's, the owner's own branches) are not followed and get nothing: the owner
 // posts theirs by hand (docs/ci.md).
 
@@ -60,15 +64,24 @@ type ReviewStatus struct {
 	TaskID      string
 }
 
-// ReviewStatusHost reads a pull request and posts a status at its host; the control plane gives it the
-// repository's token. Either says ErrCannotFollow when it holds none.
+// ReviewStatusHost finds a branch's pull request, reads one and posts a status at its host; the control plane
+// gives it the repository's token. Each says ErrCannotFollow when it holds none.
 type ReviewStatusHost struct {
+	Find ReadPullRequest
 	Read func(ctx context.Context, kind githost.Kind, r githost.Request) (githost.RequestState, error)
 	Post func(ctx context.Context, s ReviewStatus) error
 }
 
-// queueVerdictStatus queues the status of a verdict on head, replacing what that head had.
+// fullSHA is a whole commit SHA, lowercase hex, as a host names a head.
+var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// queueVerdictStatus queues the status of a verdict on head, replacing what that head had; an abbreviated head is
+// not queued.
 func queueVerdictStatus(ctx context.Context, q *store.Queries, now int64, taskID, pr, head, verdict string) error {
+	if !fullSHA.MatchString(head) {
+		return nil
+	}
+
 	if err := q.QueueReviewVerdictStatus(ctx, store.QueueReviewVerdictStatusParams{
 		PullRequest: pr, HeadSha: head, TaskID: taskID, Reason: verdict, Now: now,
 	}); err != nil {
@@ -78,24 +91,159 @@ func queueVerdictStatus(ctx context.Context, q *store.Queries, now int64, taskID
 	return nil
 }
 
-// queueNoReview queues success on the head of a followed pull request whose Task needs no review.
-func (s *Service) queueNoReview(ctx context.Context, f FollowedRequest) error {
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.QueueNoReviewStatus(ctx, store.QueueNoReviewStatusParams{
-			PullRequest: f.URL, HeadSha: f.Head, TaskID: f.TaskID, Now: now,
-		})
-	})
+// keepNoReview keeps a quick Task that succeeded with a repository, so its pull request gets success "no review
+// needed" (review round 1): with the pull request its report's evidence names, if any, as the follower's hint.
+func keepNoReview(ctx context.Context, q *store.Queries, now int64, task store.Task) error {
+	if task.Kind != "quick" || reviewerProfile(task.Profile) {
+		return nil
+	}
+
+	run, err := q.GetRun(ctx, task.RunID)
 	if err != nil {
-		return fmt.Errorf("queueing the review status of %s: %w", f.URL, err)
+		return notFound(err, "run", task.RunID)
+	}
+
+	if run.Repo.String == "" || run.RepoHost.String == "" {
+		return nil
+	}
+
+	repo := githost.Repo{Host: run.RepoHost.String, Path: run.Repo.String}
+	hint := ""
+
+	if host, err := gitHostOf(ctx, q, repo.Host); err == nil {
+		d, err := q.LastDispatchOfTask(ctx, task.ID)
+
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return fmt.Errorf("reading the last dispatch of task %s: %w", task.ID, err)
+		default:
+			if result, ok := dispatchResult(d); ok {
+				if r := evidenceHint(result, repo, registeredKind(ctx, q)); r != nil {
+					hint = requestURL(host.Kind, *r)
+				}
+			}
+		}
+	}
+
+	if err := q.KeepNoReviewRequest(ctx, store.KeepNoReviewRequestParams{
+		TaskID: task.ID, RepoHost: repo.Host, Repo: repo.Path, Branch: pushBranchOf(task), PullRequest: hint,
+		Now: now,
+	}); err != nil {
+		return fmt.Errorf("keeping quick task %s for its review status: %w", task.ID, err)
 	}
 
 	return nil
+}
+
+// findNoReviewPullRequests finds the pull request of each kept quick Task and queues success on its head; one no
+// longer open, of a repository without a token, of a host no longer registered, without a pull request within
+// the lookup window, or kept longer than reviewStatusWindow is let go.
+func (s *Service) findNoReviewPullRequests(ctx context.Context, host ReviewStatusHost) error {
+	q := s.read()
+
+	kept, err := q.OpenNoReviewRequests(ctx)
+	if err != nil {
+		return fmt.Errorf("listing the quick tasks to find pull requests of: %w", err)
+	}
+
+	kindOf := registeredKind(ctx, q)
+
+	var errs []error
+
+	for _, row := range kept {
+		done, err := s.findNoReview(ctx, q, host, kindOf, row)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("finding the pull request of quick task %s: %w", row.TaskID, err))
+
+			continue
+		}
+
+		if !done {
+			continue
+		}
+
+		err = s.write(ctx, func(q *store.Queries, now int64) error {
+			return q.EndNoReviewRequest(ctx, store.EndNoReviewRequestParams{
+				Now: sql.NullInt64{Int64: now, Valid: true}, TaskID: row.TaskID, Since: row.Since,
+			})
+		})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("letting go of quick task %s: %w", row.TaskID, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// findNoReview finds row's pull request, queues success on its open head, and says whether row is done.
+func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host ReviewStatusHost,
+	kindOf func(string) (githost.Kind, bool), row store.NoReviewRequest,
+) (bool, error) {
+	now := s.clock.Now().UnixMilli()
+	if now-row.Since > reviewStatusWindow.Milliseconds() {
+		return true, nil
+	}
+
+	registered, err := gitHostOf(ctx, q, row.RepoHost)
+	if err != nil {
+		return true, nil //nolint:nilerr // a host no longer registered is not followed
+	}
+
+	repo := githost.Repo{Host: row.RepoHost, Path: row.Repo}
+	f := FollowedRequest{TaskID: row.TaskID, Kind: registered.Kind, Repo: repo, Branch: row.Branch}
+
+	if row.PullRequest != "" {
+		f.Hint = hintOf(row.PullRequest, repo, kindOf)
+	}
+
+	r, st, err := host.Find(ctx, f)
+
+	switch {
+	case errors.Is(err, ErrCannotFollow):
+		return true, nil
+	case errors.Is(err, githost.ErrNoRequest):
+		return row.PullRequest == "" && now-row.Since > lookUpWindow.Milliseconds(), nil
+	case err != nil:
+		return false, err
+	}
+
+	url := requestURL(registered.Kind, r)
+
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		if url != row.PullRequest {
+			if err := q.NoteNoReviewRequest(ctx, store.NoteNoReviewRequestParams{
+				PullRequest: url, TaskID: row.TaskID,
+			}); err != nil {
+				return err
+			}
+		}
+
+		head := strings.ToLower(st.Head)
+		if st.Status != githost.RequestOpen || !fullSHA.MatchString(head) {
+			return nil
+		}
+
+		return q.QueueNoReviewStatus(ctx, store.QueueNoReviewStatusParams{
+			PullRequest: url, HeadSha: head, TaskID: row.TaskID, Now: now,
+		})
+	})
+	if err != nil {
+		return false, fmt.Errorf("queueing the review status of %s: %w", url, err)
+	}
+
+	return st.Status != githost.RequestOpen, nil
 }
 
 // PostReviewStatuses posts each queued status whose pull request is still open at its head, and drops the
 // others. A read or post that fails leaves its status for the next pass; the errors are returned joined, after
 // every one was tried.
 func (s *Service) PostReviewStatuses(ctx context.Context, host ReviewStatusHost) error {
+	var errs []error
+	if err := s.findNoReviewPullRequests(ctx, host); err != nil {
+		errs = append(errs, err)
+	}
+
 	q := s.read()
 
 	waiting, err := q.WaitingReviewStatuses(ctx)
@@ -104,8 +252,6 @@ func (s *Service) PostReviewStatuses(ctx context.Context, host ReviewStatusHost)
 	}
 
 	kindOf := registeredKind(ctx, q)
-
-	var errs []error
 
 	for _, row := range waiting {
 		outcome, err := s.postReviewStatus(ctx, q, host, kindOf, row)
@@ -161,7 +307,7 @@ func (s *Service) postReviewStatus(ctx context.Context, q *store.Queries, host R
 	}
 
 	head := strings.ToLower(st.Head)
-	if head == "" || !sameCommit(head, row.HeadSha) {
+	if head != row.HeadSha {
 		return statusMoved, nil
 	}
 
