@@ -1098,29 +1098,40 @@ func (s *Service) ChatTurn(ctx context.Context, chatID string) (string, error) {
 // the owner, a wake-up (a Run's events, a Routine's run, an Approval answered after its request ended) and a
 // message whose writer is not known each end his turn, whether pi has it yet or not, as OpenMausBot lets the last
 // sender decide (server/host/outside-lineage.ts) and OpenClaw never counts a wake as an owner turn
-// (docs/plugins/tool-plugins.md). A chat with no such message is no turn of his. In an Inbox item's chat that holds
-// the owner's mark (issue #1229), the hand-off that marked it and his own hand-over or comment are his turn too.
+// (docs/plugins/tool-plugins.md). A chat with no such message is no turn of his. In an Inbox item's chat (issue
+// #1229), his own words typed in the Inbox (his prompt as he hands the item over, his comment) are his turn as his
+// message is, and so is the hand-off that marked the chat for him.
 func (s *Service) OwnerTurn(ctx context.Context, chatID string) (bool, error) {
 	t, err := whoseTurn(ctx, s.read(), chatID)
 
-	return t.owner, err
+	return t.owner(), err
 }
 
 // whose is whose a chat's turn is now.
 type whose struct {
-	// owner: the owner's turn (OwnerTurn), which his own accounts are used on.
-	owner bool
-	// ownerLine: the turn answers a line of his own, his message or his hand-over or comment on an Inbox item, or it
-	// is his turn by the mark; a Bot passing an item from it marks the chat it wakes (issue #1229).
-	ownerLine bool
+	// own: the last input is the owner's own words, his message in the chat or what he typed in the Inbox for the
+	// item (decision 7 of issue #1229), as OpenClaw takes owner status from the verified sender
+	// (src/auto-reply/command-auth.ts) and OpenMausBot's answersOwnersLine a line he wrote (server/cloud-lending.ts).
+	own bool
+	// marked is the item the chat's mark is for, when the last input is the hand-off that marked it and nobody else's
+	// input ever came in the chat (issue #1229, rules 1 to 3); empty otherwise.
+	marked string
 }
 
-// whoseTurn reads whose turn a chat is (OwnerTurn) and whether it answers the owner's line, in the caller's
-// transaction or read. The mark (issue #1229) is the control plane's record that a Bot passed an Inbox item into the
-// chat on the owner's line, as OpenMausBot's harness records forOwner on the work it hands on and OpenClaw
-// spawnedBySenderIsOwner on a child (src/agents/subagents/spawn/spawn-parent-lineage.ts), never the model: it makes
-// the chat's turns that the hand-off or the owner started his, holds in that chat only, and keeps no timer. A Run's
-// events there are no turn of his and leave it; anyone else's input clears it for good (LastTurnInput).
+// owner says the turn is the owner's, which his own accounts are used on (OwnerTurn).
+func (w whose) owner() bool { return w.own || w.marked != "" }
+
+// lineFor says whether a Bot passing the item todo on from this turn passes it on the owner's line (issue #1229, rules 1
+// and 5): his own words are behind any item it passes, as his message is; a mark only behind the item it is for, as
+// OpenMausBot's handsOnLending reaches "never further than this turn itself can" (server/host/cloud-lending-turns.ts).
+func (w whose) lineFor(todo string) bool { return w.own || (w.marked != "" && w.marked == todo) }
+
+// whoseTurn reads whose turn a chat is, in the caller's transaction or read. The mark (issue #1229) is the control
+// plane's record that a Bot passed an Inbox item into the chat on the owner's line, as OpenMausBot's harness records
+// forOwner on the work it hands on and OpenClaw spawnedBySenderIsOwner on a child
+// (src/agents/subagents/spawn/spawn-parent-lineage.ts), never the model: it holds in that chat for that item, and keeps
+// no timer. A Run's events there are no turn of his and leave it; anyone else's input clears it for good
+// (LastTurnInput).
 func whoseTurn(ctx context.Context, q *store.Queries, chatID string) (whose, error) {
 	last, err := q.LastTurnInput(ctx, chatID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1131,11 +1142,12 @@ func whoseTurn(ctx context.Context, q *store.Queries, chatID string) (whose, err
 		return whose{}, fmt.Errorf("reading whose turn chat %s is: %w", chatID, err)
 	}
 
-	own := ChatRole(last.Role) == ChatOwner && !last.SenderID.Valid
-	byOwner := last.WakeBy.String == wakeByOwner
-	marked := last.ForOwner == 1 && (byOwner || last.WakeBy.String == wakeByBotForOwner)
+	w := whose{own: (ChatRole(last.Role) == ChatOwner && !last.SenderID.Valid) || last.WakeBy.String == wakeByOwner}
+	if last.WakeBy.String == wakeByBotForOwner && last.OwnerOnly == 1 {
+		w.marked = last.WakeTodo.String
+	}
 
-	return whose{owner: own || marked, ownerLine: own || marked || byOwner}, nil
+	return w, nil
 }
 
 func (s *Service) ReadRun(ctx context.Context, chatID string) (bool, error) {

@@ -11,7 +11,7 @@ import (
 )
 
 const chatMessagesBefore = `-- name: ChatMessagesBefore :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, approval_id, sender_id, sender_name, kind, read_run, recall, wake_by FROM chat_messages WHERE chat_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, approval_id, sender_id, sender_name, kind, read_run, recall, wake_by, wake_todo FROM chat_messages WHERE chat_id = ?1 AND seq < ?2 ORDER BY seq DESC LIMIT ?3
 `
 
 type ChatMessagesBeforeParams struct {
@@ -48,6 +48,7 @@ func (q *Queries) ChatMessagesBefore(ctx context.Context, arg ChatMessagesBefore
 			&i.ReadRun,
 			&i.Recall,
 			&i.WakeBy,
+			&i.WakeTodo,
 		); err != nil {
 			return nil, err
 		}
@@ -63,7 +64,7 @@ func (q *Queries) ChatMessagesBefore(ctx context.Context, arg ChatMessagesBefore
 }
 
 const chatMessagesFrom = `-- name: ChatMessagesFrom :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, approval_id, sender_id, sender_name, kind, read_run, recall, wake_by FROM chat_messages WHERE chat_id = ?1 AND seq >= ?2 ORDER BY seq LIMIT ?3
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, approval_id, sender_id, sender_name, kind, read_run, recall, wake_by, wake_todo FROM chat_messages WHERE chat_id = ?1 AND seq >= ?2 ORDER BY seq LIMIT ?3
 `
 
 type ChatMessagesFromParams struct {
@@ -100,6 +101,7 @@ func (q *Queries) ChatMessagesFrom(ctx context.Context, arg ChatMessagesFromPara
 			&i.ReadRun,
 			&i.Recall,
 			&i.WakeBy,
+			&i.WakeTodo,
 		); err != nil {
 			return nil, err
 		}
