@@ -218,7 +218,7 @@ function Header({
       {type && (
         <ArtifactIcon
           type={type}
-          revision={revision}
+          name={revision?.entry}
           className="size-4 shrink-0 text-muted-foreground"
         />
       )}

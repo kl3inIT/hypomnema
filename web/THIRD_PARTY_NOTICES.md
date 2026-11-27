@@ -28,6 +28,9 @@ Each adapted file names its source.
   (https://github.com/vercel/ai-elements, Apache License 2.0), OpenMausBot's src/components/AttachmentGallery.tsx
   (Apache License 2.0) and assistant-ui's packages/ui/src/components/react/assistant-ui/elements/message-attachment.tsx
   (MIT, Copyright (c) 2026 AgentbaseAI Inc.).
+- File icons and extension associations are copied from Material Icon Theme 5.40.0
+  (https://github.com/material-extensions/vscode-material-icon-theme), MIT, Copyright (c) 2025 Material Extensions.
+  The [license](public/material-file-icons/LICENSE.txt) is shipped with the selected SVGs.
 - A chat's draft kept in the browser (`src/features/chat/drafts.ts`, issue #433) follows t3code's
   apps/web/src/composerDraftStore.ts (MIT, Copyright (c) 2026 T3 Tools Inc.) and OpenMausBot's src/lib/drafts.ts
   (Apache License 2.0): a draft a chat with its uploaded files, saved a moment after a write and when the page hides.

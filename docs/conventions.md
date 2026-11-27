@@ -273,8 +273,9 @@ How the references keep a UI consistent is in
 - **A dialog is as wide as what it holds**: the primitive's default is t3code's `max-w-lg`; a dialog with one
   field narrows it, one with a command or a table of choices widens it, by the dialog's `size` (t3code, Orca: each dialog sets
   its own).
-- **Icons** are lucide's. A brand's mark, which lucide does not carry, is an SVG component in
-  `web/src/components/icons` (Orca, Omnigent).
+- **Icons** use Lucide by default. Brand marks are SVG components in `web/src/components/icons` (Orca,
+  Omnigent). File chips in Bot replies and Inbox comments, the attachment strip, and file Artifacts use
+  [Material Icon Theme](../web/THIRD_PARTY_NOTICES.md) by file extension (issue #1253, owner, 2026-11-27).
 - **A thing that has a logo is shown with it** beside its name: a git host, a runtime, a service, a model's
   maker (owner, 2026-11-10). A generic icon is for what has none.
 - **Where code lives** ([research](research/2026-11-15-web-code-organisation.md); owner, 2026-11-15). A screen
