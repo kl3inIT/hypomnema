@@ -256,6 +256,21 @@ search screens. It holds:
 - **Keys:** add a key and set the provider order (the Web search screen).
 - **Optional sources:** one that is off is never counted as a failure (`quality_nudge.py`).
 
+**Menu.**
+
+- **Settings today.** The Gateway group holds Models, Web search, Images, Muse, Audio, Gateway keys and Usage
+  (`web/src/components/settings-page.tsx`).
+- **Pull requests 1-8.** One entry, "Social listening", goes into Gateway after Web search and Muse, with no group of
+  its own. The Gateway group already keeps search and media providers beside models, as OmniRoute and 9router do.
+  Groups are one level deep, and a section appears once it has a page
+  ([2026-11-10-menus-and-settings.md](2026-11-10-menus-and-settings.md)). A group of one entry adds nothing.
+- **Muse.** It keeps its page, because `muse_ask` also answers research questions beyond listening. Its card on the
+  new page links there.
+- **X and LinkedIn.** They sign in on their own cards.
+- **Pull request 9.** Saved topics add a place "Listening" to the main sidebar beside Meetings and Studio: topics,
+  runs and reports. That is work, not setup; OpenClaw says such places "are workspace destinations, not settings". The
+  source setup then moves behind that page's gear, as Meetings did (#1121, owner 2026-11-23).
+
 ## 6. Pull requests
 
 Nine pull requests, each with its own issue under #781:
