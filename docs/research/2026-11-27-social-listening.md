@@ -113,6 +113,26 @@ again. Then `site:threads.com` web search. Then the official keyword search once
 without that grant it finds only the account's own posts. last30days reads Threads through ScrapeCreators
 (`scripts/lib/threads.py`), which is paid.
 
+**Probes on 2026-11-27 (owner's Muse account `1`, signed in that day):**
+
+- **Muse on Threads.** Asked for Threads posts about Cốc Cốc, VETC and VMAP from the last 30 days. The first answer
+  stopped mid-work ("sent 10 links to open…"). A follow-up in the same thread returned 10 posts. Each post had an
+  author, a date, a verbatim quote (marked as caption, image text or comment) and likes and replies where seen. Two
+  links were opened with curl, and the `og:description` matched the quotes (`@minhtiensg/post/DfUomw4iepN`,
+  `@coccoc.official/post/Dfe40MVAZjj`). Links come wrapped as `l.meta.ai/?u=…`, so the `u` parameter must be
+  unwrapped. Muse also declined to pad: it said that no VMAP post was found.
+- **Grok through the gateway.** `opencode-go/grok-4.7` on `/v1/chat/completions` answered "I can't search X live". X
+  search is a server-side tool of xAI's own API and of the Grok CLI. OpenCode Go does not pass it on. X therefore
+  needs the owner's X API key, an xAI key, or a signed-in Grok CLI.
+
+**Setup falls into three kinds; the logic is the same for all:**
+
+| Kind | Sources | Setup, after |
+|---|---|---|
+| None | Reddit JSON, yt-dlp, Google Play, App Store, HN, Bluesky, web search, forum fetch, Telegram preview | On/off and a daily live test (web search `source: public`; Agent-Reach `check`) |
+| API key | YouTube Data API, Threads API, X API, xAI | Add a key to the vault and rest on a daily limit (the web-search keyed providers) |
+| Signed-in account | Muse, LinkedIn, Grok CLI, TikTok's `ms_token` cookie | Sign in through the owner's tab of the shared Chrome. Cookies go to the vault, accounts are kept in order, and the card shows "sign in again" (the Muse screen; postiz `refreshNeeded`) |
+
 **Other sources the references read** (last30days `scripts/lib/`). Each is listed with the free route where there is
 one:
 
