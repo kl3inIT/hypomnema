@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>#1230 part 2: the make dialog's template picker</title>
+<style>body{font-family:system-ui,sans-serif;background:#111;color:#eee;margin:24px}h2{margin-top:32px}
+.row{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}figure{margin:0}img{border:1px solid #333;max-width:100%}
+.d img{width:640px}.p img{width:300px}figcaption{color:#aaa;font-size:13px;margin-top:4px}</style></head><body>
+<h1>Issue #1230, part 2: Make video's template picker (after review round 1)</h1>
+<p>From the Playwright spec <code>web/tests/studio.spec.ts</code>, "Make video takes a template, its skeleton shown and its look the start", the built web client against its fake API, dark theme (the headless default).</p>
+<h2>No template (None): the existing make scenario, 16:9 with captions off, and the third shape</h2>
+<div class="row"><figure class="d"><img src="studio-make-video-desktop.png"><figcaption>desktop</figcaption></figure>
+<figure class="p"><img src="studio-make-video-phone.png"><figcaption>phone</figcaption></figure></div>
+<h2>App ad picked: its skeleton</h2>
+<div class="row"><figure class="d"><img src="studio-make-template-desktop.png"><figcaption>desktop</figcaption></figure>
+<figure class="p"><img src="studio-make-template-phone.png"><figcaption>phone</figcaption></figure></div>
+<h2>Shape: 9:16 kept, the shapes App ad is not made in disabled</h2>
+<div class="row"><figure class="d"><img src="studio-make-template-shape-desktop.png"><figcaption>desktop</figcaption></figure>
+<figure class="p"><img src="studio-make-template-shape-phone.png"><figcaption>phone</figcaption></figure></div>
+<h2>Cards: App ad's end card, its call to action "Tải ứng dụng ngay" over the take's title</h2>
+<div class="row"><figure class="d"><img src="studio-make-template-card-desktop.png"><figcaption>desktop</figcaption></figure>
+<figure class="p"><img src="studio-make-template-card-phone.png"><figcaption>phone</figcaption></figure></div>
+</body></html>
