@@ -118,14 +118,22 @@ func openStore(ctx context.Context, db *sql.DB) (*store, error) {
 
 // accountState is what the pool last saw of an account.
 type accountState struct {
-	State   string
-	Cause   string
-	Viewer  string
-	Resting bool
-	Usage   *Usage
-	// UsageReadAt is when Settings → Usage was last read.
+	State      string
+	Cause      string
+	Viewer     string
+	Resting    bool
+	Usage      *Usage
+	UsageError string
+	// UsageReadAt is when Settings → Usage was last attempted.
 	UsageReadAt time.Time
 	CheckedAt   time.Time
+}
+
+// The error shares the stored usage JSON with the reading. Existing rows
+// that contain only Usage decode with an empty error.
+type storedUsage struct {
+	Usage
+	Error string `json:"error,omitempty"`
 }
 
 func (s *store) state(ctx context.Context, account string) (accountState, error) {
@@ -151,9 +159,9 @@ func (s *store) state(ctx context.Context, account string) (accountState, error)
 	st.UsageReadAt, st.CheckedAt = millis(usageAt), millis(check)
 
 	if usage != "" {
-		var u Usage
+		var u storedUsage
 		if json.Unmarshal([]byte(usage), &u) == nil {
-			st.Usage = &u
+			st.Usage, st.UsageError = &u.Usage, u.Error
 		}
 	}
 
@@ -188,9 +196,9 @@ func (s *store) rest(ctx context.Context, account string, resting bool, cause st
 	return nil
 }
 
-// setUsage records what Settings → Usage said.
-func (s *store) setUsage(ctx context.Context, account string, u Usage, now time.Time) error {
-	raw, err := json.Marshal(u)
+// setUsage records the reading, any error, and when the attempt was made.
+func (s *store) setUsage(ctx context.Context, account string, u Usage, reason string, now time.Time) error {
+	raw, err := json.Marshal(storedUsage{Usage: u, Error: reason})
 	if err != nil {
 		return err
 	}

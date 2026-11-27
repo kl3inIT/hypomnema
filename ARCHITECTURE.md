@@ -4739,6 +4739,7 @@ not checked against the live site in the change that wrote them.
   stay there. muse.ai answers 403 to the same request from the control plane's own HTTP client (issue #798), so
   there is none. While the owner holds the browser the check does not run: the dialog says "Signed in? Give
   control back to finish adding the account." and keeps polling, and nothing is saved until the check says ok.
+  The pool reads Usage once in the account's tab after sign-in, before returning the account.
 - States, each with the cause observed (`muse.db`): signed in; needs sign-in (401, or the page's login text);
   refused (403: region, network or access, tried again at the next question); workspace not ready (`/api/session`
   not `assigned`); page not ready (no ready composer within 30 s); resting (out of
@@ -4753,9 +4754,11 @@ not checked against the live site in the change that wrote them.
   order that is on and not resting or needing a sign-in; one that fails its check before anything was sent is
   recorded and the next is tried. Quota: a quota hint counts only inside a finished answer; the account then
   rests, and Settings → Usage is read (the dock's Settings, its Settings item, the dialog's text, parsed as www's
-  `parse_usage_text`). A resting account is taken back only when a Usage read shows room, read at most every six
-  hours; the reset is kept as Muse writes it ("resets Sep 30") or "unknown", never made a time. Usage is read
-  again after an answer once six hours old.
+  `parse_usage_text`, with the Vietnamese labels observed on zm). A resting account is taken back only when a
+  Usage read shows room, read at most every six hours. The reset is kept as Muse writes it ("resets Sep 30") or
+  "unknown", never made a time. Usage is read again after an answer once six hours old. A failed read keeps its
+  reason beside Usage in Settings and
+  `hypomnema muse accounts` and logs WARN `muse.usage_unread` when the reason changes. A successful read clears it.
 - A question (`driver.go`): a new thread through the page's router (`window.next.router.push('/thread/new')`, a
   navigation when it did not land within 30 s), ready when the path is `/thread/new`, the thread empty, the page
   `complete`, the composer enabled, the shell `hydrated` and no "Connecting..."; or the thread's address. The
