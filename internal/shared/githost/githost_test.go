@@ -257,7 +257,7 @@ func TestEachKindOfHostTurnsOnItsOwnAutoMerge(t *testing.T) {
 	assert.Equal(t, "no required check on main", m.Ready[1].Lacks)
 	assert.Equal(t, "gh pr view <url> --json isDraft,mergeStateStatus", m.View)
 	assert.Equal(t, "gh pr merge <url> --auto --merge --match-head-commit <sha>", m.Enable)
-	assert.Equal(t, "gh pr checks <url> --required --watch", m.Watch)
+	assert.Equal(t, "gh pr checks <url> --required --watch --interval 60", m.Watch)
 
 	gl, _ := For(GitLab)
 	m = gl.AutoMerge(Repo{"gitlab.company.example", "team/platform/api"}, "develop")

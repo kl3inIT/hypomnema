@@ -299,6 +299,11 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	p := Prompt(d)
 
 	for _, want := range []string{
+		"If GitHub reports a rate limit, run `gh api rate_limit`",
+		"does not count against the primary limit",
+		"Wait until the exhausted quota resets (`X-RateLimit-Reset`) before resuming.",
+		"For a secondary limit, honor `Retry-After`",
+		"Report the limit and the wait in your summary.",
 		"never merge it directly",
 		"When the task says a review comes first, that the owner merges, or to ask before merging, skip this",
 		"`gh api --hostname github.com repos/kl3inIT/second-bite --jq .allow_auto_merge`: prints true",
@@ -321,7 +326,7 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 		"The control plane follows the pull request from there and sends you a follow-up if a check goes red or " +
 			"a conflict appears.",
 		"When auto-merge is not turned on, wait for the required checks with " +
-			"`gh pr checks <url> --required --watch` only when the task needs their result.",
+			"`gh pr checks <url> --required --watch --interval 60` only when the task needs their result.",
 		"Wait for CI only when the task needs its result or the merge steps below say to. When the task says a " +
 			"review comes first, do not wait: report the pushed commit and finish; the coordinator follows CI.",
 	} {
@@ -358,6 +363,7 @@ func TestPromptTurnsOnTheHostsAutoMerge(t *testing.T) {
 	}
 
 	assert.NotContains(t, p, "gh pr merge")
+	assert.NotContains(t, p, "gh api rate_limit")
 
 	d.Offer.Repo, d.Offer.RepoHost, d.Offer.RepoKind = "kl3inIT/second-bite", "github.example.com", "github"
 	assert.Contains(t, Prompt(d),
@@ -378,9 +384,9 @@ func TestPromptWaitsForTheChecksWhenTheControlPlaneCannotFollow(t *testing.T) {
 	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
 
 	p := Prompt(d)
-	assert.Contains(t, p, "4. Wait for the required checks with `gh pr checks <url> --required --watch`; fix a red "+
-		"one your diff causes and push, rerun a flake once as the rules say, and do step 2 again if a conflict "+
-		"appears. Once they are green, call `finish`")
+	assert.Contains(t, p, "4. Wait for the required checks with `gh pr checks <url> --required --watch --interval 60`; "+
+		"fix a red one your diff causes and push, rerun a flake once as the rules say, and do step 2 again if a "+
+		"conflict appears. Once they are green, call `finish`")
 	assert.NotContains(t, p, "The control plane follows the pull request")
 
 	d.Offer.RepoToken = "ghp_x"
