@@ -126,6 +126,23 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 	return count, err
 }
 
+const getBotLiveChat = `-- name: GetBotLiveChat :one
+SELECT c.id FROM chats c
+JOIN bots b ON b.id = c.bot_id
+WHERE c.bot_id = ?1
+ORDER BY c.id = b.main_chat DESC, c.updated_at DESC, c.id
+LIMIT 1
+`
+
+// A chat of a Bot that is still there, its main chat first, else the one updated last (issue #1207): every chat of
+// a Bot reads its one folder, so a comment's files are read through it once the chat the comment named is deleted.
+func (q *Queries) GetBotLiveChat(ctx context.Context, botID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getBotLiveChat, botID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getTodo = `-- name: GetTodo :one
 SELECT id, revision, title, notes, done_when, draft, due_kind, due_date, due_zone, due_at, overdue_at, assignee_kind, assignee, state, snoozed_until, source_kind, source_id, source_account, source_quote, source_ref, created_by_kind, created_by, work_attempt, work_kind, work_id, work_bot, work_started_at, approval_id, done_by_kind, done_by, recorded_by_kind, recorded_by, closed_how, close_reason, evidence, closed_at, duplicate_of, idempotency_key, idempotency_hash, created_at, updated_at, why_open, chat_id, passed_by, priority, priority_reason, project_id FROM todos WHERE id = ?1
 `

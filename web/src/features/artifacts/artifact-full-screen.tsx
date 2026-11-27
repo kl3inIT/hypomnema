@@ -23,14 +23,18 @@ export function ArtifactFullScreen({
 }) {
   const back = onExit ?? onClose
 
-  // Esc goes back, unless the page in the frame has the keyboard: its keys stay its own.
+  // Esc goes back, unless the page in the frame has the keyboard: its keys stay its own. It is taken first, in the
+  // capture phase, and marked handled, so that the page under it (the Inbox closes an item on Escape on a phone)
+  // leaves it, as a dialog keeps Escape to itself (review of PR #1210).
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") back()
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      back()
     }
-    window.addEventListener("keydown", onKey)
+    window.addEventListener("keydown", onKey, true)
 
-    return () => window.removeEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey, true)
   }, [back])
 
   return createPortal(

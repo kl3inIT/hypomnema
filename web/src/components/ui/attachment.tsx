@@ -109,6 +109,8 @@ function AttachmentDescription({ className, ...props }: React.ComponentProps<"sp
       data-slot="attachment-description"
       className={cn(
         "mt-0.5 block min-w-0 truncate text-xs text-muted-foreground group-data-[state=error]/attachment:text-destructive/80",
+        // An error is read whole: it wraps instead of being cut (review of PR #1210).
+        "group-data-[state=error]/attachment:break-words group-data-[state=error]/attachment:whitespace-normal",
         "max-w-full",
         className,
       )}

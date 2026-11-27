@@ -3,8 +3,9 @@
 // mention as a link (AGENTS.md: never a bare internal identifier). The text is kept as it was written; only what is
 // shown changes.
 
-// IdKind is what an app's id the Inbox links names: a meeting, a chat, a Task, a Run or another Inbox item.
-type IdKind = "mtg" | "cht" | "tsk" | "run" | "tdo"
+// IdKind is what an app's id the Inbox links names: a meeting, a chat, a Task, a Run, another Inbox item or an
+// Artifact (issue #1207).
+type IdKind = "mtg" | "cht" | "tsk" | "run" | "tdo" | "art"
 
 // Service is a messaging service whose message ids an item's text names (issue #1186): Zalo's are numbers, WhatsApp's
 // upper-case hexadecimal, Lark's begin with om_ (open-apis/im/v1 message_id).
@@ -23,11 +24,11 @@ export type Ref =
 // 3EB0E056F0533EEF55A863); Lark's om_ message_id and oc_ chat_id (larksuite/cli skills/lark-im/SKILL.md). A number
 // is only a candidate: InboxMarkdown links it once the server keeps a message of that id, else it stays as written.
 const refs =
-  /\b(?:(?:mtg|cht|tsk|run|tdo)_[a-z2-7]{26}|om_[0-9a-z]{16,64}|oc_[0-9a-f]{32}|\d{10,20}|(?=[0-9A-F]*\d)(?=[0-9A-F]*[A-F])[0-9A-F]{16,40})\b/g
+  /\b(?:(?:mtg|cht|tsk|run|tdo|art)_[a-z2-7]{26}|om_[0-9a-z]{16,64}|oc_[0-9a-f]{32}|\d{10,20}|(?=[0-9A-F]*\d)(?=[0-9A-F]*[A-F])[0-9A-F]{16,40})\b/g
 
 // refOf is what one match of refs names.
 function refOf(match: string): Ref {
-  const app = /^(mtg|cht|tsk|run|tdo)_/.exec(match)
+  const app = /^(mtg|cht|tsk|run|tdo|art)_/.exec(match)
   if (app) return { kind: app[1] as IdKind, id: match }
   if (match.startsWith("om_")) return { kind: "message", service: "lark", id: match }
   if (match.startsWith("oc_")) return { kind: "lark_chat", id: match }
@@ -36,7 +37,7 @@ function refOf(match: string): Ref {
 }
 
 // hrefOf is where a link of an id leads: a meeting's page, a chat, a Task on Team, the Team page for a Run, which
-// opens its first Task once the Run is read, and an Inbox item. A message or a Lark chat has no page of the app's:
+// opens its first Task once the Run is read, an Inbox item, and an Artifact's own page. A message or a Lark chat has no page of the app's:
 // its link is a fragment InboxMarkdown reads back, and opens as its service allows. The link carries the id, so that
 // refOfHref finds it again.
 function hrefOf(ref: Ref) {
@@ -51,6 +52,8 @@ function hrefOf(ref: Ref) {
       return `/team?run=${ref.id}`
     case "tdo":
       return `/inbox?item=${ref.id}`
+    case "art":
+      return `/artifacts/${ref.id}`
     case "message":
       return `#message-${ref.service}-${ref.id}`
     case "lark_chat":
@@ -62,7 +65,7 @@ function hrefOf(ref: Ref) {
 export function refOfHref(href: string | undefined): Ref | undefined {
   const at = href ?? ""
   const app =
-    /^\/(?:meetings\/|chats\/|team\?(?:task|run)=|inbox\?item=)((mtg|cht|tsk|run|tdo)_[a-z2-7]{26})$/.exec(
+    /^\/(?:meetings\/|chats\/|team\?(?:task|run)=|inbox\?item=|artifacts\/)((mtg|cht|tsk|run|tdo|art)_[a-z2-7]{26})$/.exec(
       at,
     )
   if (app) return { kind: app[2] as IdKind, id: app[1]! }

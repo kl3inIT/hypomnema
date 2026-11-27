@@ -7373,7 +7373,7 @@ type TodoEvent struct {
 	Before map[string]interface{} `json:"before"`
 	Id     int64                  `json:"id"`
 
-	// Kind created, edited, state, snoozed, linked_approval or commented (after.text is the comment).
+	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
 	Kind string `json:"kind"`
 
 	// Revision The revision the change made.

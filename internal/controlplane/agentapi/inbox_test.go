@@ -417,6 +417,109 @@ func TestABotPostsItsProgressInTheItemsThread(t *testing.T) {
 	assert.True(t, isError, "another Bot's item: %s", text)
 }
 
+// Scenario: issue #1207. The owner hands an item to a Bot; its pi exports a sheet and shows an Artifact, and posts
+// them on the item with inbox_comment: the comment keeps the file's path in the Bot's folder, read through the
+// item's own chat, and the Artifact's id. An Artifact another Bot showed, and a file outside the folder, are refused.
+func TestABotPostsTheWorksFilesAndArtifactsOnTheItem(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	bot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "thu-ky"})
+	require.NoError(t, err)
+
+	other, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "other"})
+	require.NoError(t, err)
+
+	otherPi, otherChat := w.inboxPi(other)
+
+	owner := inboxstore.Actor{Kind: inboxstore.Owner}
+	td, err := w.svc.Inbox().Create(ctx, owner, inboxstore.NewTodo{
+		Title: "Export the October sales", State: inboxstore.Open, Source: inboxstore.Source{Kind: inboxstore.ByHand},
+		Assignee: inboxstore.Assignee{Kind: inboxstore.Me},
+	})
+	require.NoError(t, err)
+
+	td, err = w.svc.Inbox().Hand(ctx, inboxstore.Change{Actor: owner, ID: td.ID, Revision: td.Revision}, bot.ID, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, td.Chat)
+
+	// The Bot's pi in the item's own chat.
+	_, _, err = w.svc.AddToken(ctx, "pi-"+td.Chat, bearertoken.Coordinator)
+	require.NoError(t, err)
+	pi, err := w.svc.AddBotToken(ctx, "pi-"+td.Chat, td.Chat, bot.ID)
+	require.NoError(t, err)
+
+	show := func(pi string) string {
+		_, text, isError := w.use(pi, agenttool.ToolShowArtifact,
+			arguments(t, agenttool.ArtifactCall{Title: "October sales", HTML: "<h1>Sales</h1>"}))
+		require.False(t, isError, text)
+
+		return shownID(t, text)
+	}
+	mine, theirs := show(pi), show(otherPi)
+
+	w.inbox(pi, agenttool.ToolInboxComment, map[string]any{
+		"id": td.ID, "text": "Done: the export and its chart.",
+		"files": []string{"./exports/sales.xlsx"}, "artifacts": []string{mine},
+	})
+
+	got, err := w.svc.Inbox().Get(ctx, td.ID)
+	require.NoError(t, err)
+
+	last := got.Events[len(got.Events)-1]
+	assert.Equal(t, inboxstore.EventCommented, last.Kind)
+	assert.JSONEq(t, `{"text":"Done: the export and its chart.","files":["exports/sales.xlsx"],"artifacts":["`+
+		mine+`"],"chat":"`+td.Chat+`"}`, string(last.After))
+
+	for name, args := range map[string]map[string]any{
+		"another Bot's Artifact": {"id": td.ID, "text": "Theirs.", "artifacts": []string{theirs}},
+		"no such Artifact":       {"id": td.ID, "text": "None.", "artifacts": []string{"art_none"}},
+		"a file outside":         {"id": td.ID, "text": "Outside.", "files": []string{"../other/secret.txt"}},
+		"an absolute path":       {"id": td.ID, "text": "Absolute.", "files": []string{"/etc/passwd"}},
+	} {
+		raw, err := json.Marshal(args)
+		require.NoError(t, err)
+
+		status, text, isError := w.use(pi, agenttool.ToolInboxComment, string(raw))
+		assert.Equal(t, http.StatusOK, status, text)
+		assert.True(t, isError, "%s: %s", name, text)
+	}
+
+	after, err := w.svc.Inbox().Get(ctx, td.ID)
+	require.NoError(t, err)
+	assert.Len(t, after.Events, len(got.Events), "nothing refused is posted")
+
+	// An item the other Bot added in its chat has no chat of its own: its files are read through the Bot's chat.
+	added := w.inbox(otherPi, agenttool.ToolInboxAdd, map[string]any{"title": "Send the deck", "state": "open"})
+	w.inbox(otherPi, agenttool.ToolInboxComment, map[string]any{"id": added.ID, "text": "The deck.",
+		"files": []string{"deck.pdf"}})
+
+	theirItem, err := w.svc.Inbox().Get(ctx, added.ID)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"text":"The deck.","files":["deck.pdf"],"chat":"`+otherChat+`"}`,
+		string(theirItem.Events[len(theirItem.Events)-1].After))
+
+	// Review of PR #1210: the owner deletes the item's chat. The files are still in the Bot's folder, which any of
+	// its chats reads: the comment's files are read through the chat of that Bot still there.
+	kept, err := w.svc.CreateChat(ctx, bot.ID, "")
+	require.NoError(t, err)
+	_, err = w.svc.DeleteChat(ctx, td.Chat)
+	require.NoError(t, err)
+
+	gone, err := w.svc.Inbox().Get(ctx, td.ID)
+	require.NoError(t, err)
+
+	var read struct {
+		Chat  string   `json:"chat"`
+		Files []string `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal(gone.Events[len(got.Events)-1].After, &read))
+	assert.Equal(t, kept.ID, read.Chat, "read through the Bot's chat still there")
+	assert.Equal(t, []string{"exports/sales.xlsx"}, read.Files)
+}
+
 // Scenario: issue #1118. The main Bot's pi passes an item the owner handed it to a project Bot with inbox_update
 // pass_to, and reads through whom that Bot has it; the project Bot's pi passes it to no other project Bot, and gives
 // it back to the main Bot the same way.

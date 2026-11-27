@@ -179,10 +179,14 @@ func inboxWakeText(w inboxstore.Wake, by, rule string) string {
 		return b.String()
 	}
 
+	// The work's result is posted on the item, as Linear's agent ends its work with a response that it shows as a
+	// comment on the issue (linear.app/developers/agent-best-practices; issue #1207).
 	b.WriteString("\nThis chat is the item's own: the owner's comments on it reach you here. Decide yourself: do " +
 		"it here (inbox_start first), start a Run for workers when it is code or long work, or ask the owner when " +
 		"something is missing (inbox_comment, then inbox_update hand_back). Post your progress with inbox_comment: " +
-		"started, the Run's link, the pull request, done. End by closing it with inbox_done and evidence (a pull " +
+		"started, the Run's link, the pull request, done. Post the work's result on the item, not only in this " +
+		"chat: a file you made in inbox_comment's files, an Artifact you showed in its artifacts, a report in its " +
+		"text. End by closing it with inbox_done and evidence (a pull " +
 		"request, a message sent), or by giving it back to the owner with inbox_update hand_back, with a draft " +
 		"for him to send when it needs a reply. Never send a message to a client or a boss yourself.\n")
 	b.WriteString(rule)

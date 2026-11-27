@@ -190,8 +190,11 @@ answers (1), then apply 2, 5 and "Does it involve him?". For each conversation:
    - **A contradiction is said:** when an update goes against an earlier one or the notes ("test trước" and then
      "đang tạm gác"), the comment says so in its first words ("Ngược với 14:13: …"), and the notes' plan follows
      the latest.
+   - **A result goes on the item.** When the work on an item made a file, an Artifact or a report, post it on the
+     item with `inbox_comment`, not only in a chat: a file in `files` (its path in your folder), an Artifact in
+     `artifacts` (its `art_…` id), a report in its text. The owner downloads the file and opens the Artifact there.
    - **No raw ids in prose.** The Inbox shows an id as a link named by what it names: a meeting, a chat, a Run, a
-     Task (`mtg_…`, `cht_…`, `run_…`, `tsk_…`) and another item (`tdo_…`) by their titles; a Zalo or WhatsApp
+     Task (`mtg_…`, `cht_…`, `run_…`, `tsk_…`), another item (`tdo_…`) and an Artifact (`art_…`) by their titles; a Zalo or WhatsApp
      message's id as "message", which opens it in its chat; a Lark chat (`oc_…`) as "Lark chat"; a Lark message
      (`om_…`) as "message" when the item was read in that Lark chat. Write an id as it is, never a name in its
      place, and only once, in parentheses right after the words it shows: "Thanh: 'vâng' (8527934507495)". Never
