@@ -158,6 +158,8 @@ func TestTheOwnersDraftTagsWhomItNamesAndAnswersTheItemsMessage(t *testing.T) {
 		case "/open-apis/im/v1/chats/oc_g/members":
 			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"member_id":"ou_lan","name":"Lan Anh"},` +
 				`{"member_id":"ou_tom","name":"Tom"}],"has_more":false}}`))
+		case "/open-apis/im/v1/messages/om_1":
+			_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"message_id":"om_1","chat_id":"oc_g","create_time":"1"}]}}`))
 		case "/open-apis/im/v1/messages/om_1/reply":
 			larkPath = r.URL.Path
 			_ = json.Unmarshal(body, &lark)
@@ -256,4 +258,75 @@ func TestTheOwnersDraftTagsWhomItNamesAndAnswersTheItemsMessage(t *testing.T) {
 	unreadable = true
 	assert.Equal(t, messaging.Outgoing{Chat: "g1", Text: "@Lan Anh dạ", ReplyTo: "z1"},
 		send(inboxstore.FromZalo, "g1", "z1", "@Lan Anh dạ"), "members unread: sent as written")
+}
+
+func TestLarkSendsWithoutAQuoteWhenTheMessageCannotBeRepliedTo(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		quoteChat string
+		wantReply bool
+	}{
+		{name: "another chat", quoteChat: "oc_other"},
+		{name: "recalled after lookup", quoteChat: "oc_source", wantReply: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const messages = "/open-apis/im/v1/messages"
+
+			var posts []string
+
+			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.Method + " " + r.URL.Path {
+				case "GET " + messages + "/om_quote":
+					_, _ = w.Write([]byte(`{"code":0,"data":{"items":[{"message_id":"om_quote","chat_id":"` +
+						test.quoteChat + `","create_time":"1"}]}}`))
+				case "POST " + messages + "/om_quote/reply":
+					posts = append(posts, "reply")
+
+					if test.wantReply {
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = w.Write([]byte(`{"code":230011,"msg":"The message is recalled."}`))
+
+						return
+					}
+
+					_, _ = w.Write([]byte(`{"code":0,"data":{"message_id":"om_wrong_chat"}}`))
+				case "POST " + messages:
+					posts = append(posts, "plain")
+
+					var body map[string]string
+					assert.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+					assert.Equal(t, "chat_id", r.URL.Query().Get("receive_id_type"))
+					assert.Equal(t, map[string]string{
+						"receive_id": "oc_source", "msg_type": "text", "content": `{"text":"Dạ em gửi ạ"}`,
+					}, body)
+					_, _ = w.Write([]byte(`{"code":0,"data":{"message_id":"om_plain"}}`))
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(api.Close)
+
+			s := inboxSender{
+				larkToken: func(context.Context, string) (string, error) { return "u-lark", nil },
+				larkURL:   api.URL, client: api.Client(),
+			}
+			link, err := s.SendAsOwner(t.Context(), inboxstore.Todo{Source: inboxstore.Source{
+				Kind: inboxstore.FromLark, ID: "oc_source",
+				Ref: &inboxstore.Link{Kind: inboxstore.LinkLarkMessage, Ref: "om_quote"},
+			}}, "Dạ em gửi ạ")
+			api.Close()
+
+			require.NoError(t, err)
+			wantPosts := []string{"plain"}
+			if test.wantReply {
+				wantPosts = []string{"reply", "plain"}
+			}
+
+			assert.Equal(t, wantPosts, posts)
+			assert.Equal(t, inboxstore.Link{Kind: inboxstore.LinkLarkSent, Ref: "om_plain", Account: inboxLarkMe,
+				Chat: "oc_source", Label: sentLabel}, link)
+		})
+	}
 }
