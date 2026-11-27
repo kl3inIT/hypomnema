@@ -49,9 +49,12 @@ test("the fake keeps the server's rules of who closes an ask and how it becomes 
   const onAsk = fakeWorld(worldOf(handed)).call("inbox_done", { id: "tdo_dashboards",
     evidence: [{ kind: "lark_message", ref: "om_ask" }] });
   assert.match(onAsk.error, /^invalid request: a Bot closes as its own only what it did/, "the asker's message is no work");
-  const fixed = fakeWorld(worldOf(handed)).call("inbox_done", { id: "tdo_dashboards",
-    evidence: [{ kind: "pull_request", ref: "https://github.com/o/r/pull/1" }] });
-  assert.equal(fixed.done_by, "bot bot_main", "work handed to the Bot closes as its own with what it made");
+  const pr = { kind: "pull_request", ref: "https://github.com/o/r/pull/1" };
+  const unknown = fakeWorld(worldOf(handed)).call("inbox_done", { id: "tdo_dashboards", evidence: [pr] });
+  assert.match(unknown.error, /^invalid request/, "a pull request of no Run of the attempt");
+  const ran = { ...handed, runs: [{ id: "run_fix", pulls: [pr.ref] }] };
+  const fixed = fakeWorld(worldOf(ran)).call("inbox_done", { id: "tdo_dashboards", evidence: [pr] });
+  assert.equal(fixed.done_by, "bot bot_main", "work handed to the Bot closes as its own with its Run's pull request");
   const notHis = w.call("inbox_done", { id: "tdo_dashboards", for_owner: true, evidence: [{ kind: "comment", ref: "1" }] });
   assert.match(notHis.error, /^invalid request/);
   const done = w.call("inbox_done", { id: "tdo_dashboards", for_owner: true, reason: "Anh: 'gửi rồi'",
@@ -93,4 +96,26 @@ test("the fake gives a move to waiting with due_date none the 48 hours to chase"
   const moved = fakeWorld(worldOf(five)).call("inbox_update", { id: "tdo_reply",
     waiting_on: { name: "Việt", quote: "em nhận", message: { kind: "zalo_message", ref: "z_took" }, due_date: "none" } });
   assert.equal(moved.due, "in 48 hours");
+});
+
+// Review round 2 of PR #1243: a keyed retry is the same request whatever the order of its fields, as the server
+// compares the request it parsed (inboxstore.requestHash), not the JSON text.
+test("the fake compares a keyed retry by its value, not its field order", () => {
+  const w = fakeWorld({});
+  const first = w.call("inbox_add", { key: "k1", title: "Trả lời Lan", quote: "anh xem giúp em",
+    source: { kind: "zalo", chat: "g_team", account: "main" } });
+  const again = w.call("inbox_add", { source: { account: "main", chat: "g_team", kind: "zalo" },
+    quote: "anh xem giúp em", title: "Trả lời Lan", key: "k1" });
+  assert.equal(again.error, undefined);
+  assert.equal(again.id, first.id);
+  assert.equal(w.items.length, 1);
+});
+
+// Review round 2 of PR #1243: a link is no work of the Bot's, the owner's file as any other (inboxstore botsWork).
+test("the fake refuses a Bot's own close on a link", () => {
+  const c = cases.find((x) => x.name.startsWith("16."));
+  const handed = { ...c, items: c.items.map((i) => ({ ...i, state: "doing", assignee: { kind: "bot", id: "bot_main" } })) };
+  const onLink = fakeWorld(worldOf(handed)).call("inbox_done", { id: c.items[0].id,
+    evidence: [{ kind: "url", ref: "https://drive.example.com/q3-dashboards.xlsx" }] });
+  assert.match(onLink.error ?? "", /^invalid request: a Bot closes as its own only what it did/);
 });

@@ -602,7 +602,7 @@
     {
      "ID": "z_when",
      "At": "2026-11-25T03:00:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "Text": "Thứ Sáu anh gửi em bản báo giá nhé",
      "FromMe": true
     }
@@ -686,7 +686,7 @@
          {
           "key": "@_user_1",
           "id": "ou_me",
-          "name": "Phan Đạt"
+          "name": "Quân"
          }
         ],
         "root_id": "om_pr",
@@ -806,7 +806,7 @@
   {
    "name": "16. an ask the owner answered, his comment on the item saying so, is done by him, never by the Bot",
    "from": "issue #1206, comment of 2026-11-27 (its people, work and dates made up here)",
-   "since": "2026-10-14T07:25:00Z",
+   "since": "2026-10-14T04:45:00Z",
    "lark": {
     "chats": [
      {
@@ -822,7 +822,7 @@
      "oc_guild": [
       {
        "message_id": "om_ask",
-       "create_time": "1791943200000",
+       "create_time": "1791940500000",
        "sender": {
         "id": "ou_hamy",
         "sender_type": "user"
@@ -835,7 +835,7 @@
         {
          "key": "@_user_1",
          "id": "ou_me",
-         "name": "Phan Đạt"
+         "name": "Quân"
         }
        ],
        "thread_id": "omt_q3"
@@ -848,7 +848,7 @@
       "list": [
        {
         "message_id": "om_ask",
-        "create_time": "1791943200000",
+        "create_time": "1791940500000",
         "sender": {
          "id": "ou_hamy",
          "sender_type": "user"
@@ -861,13 +861,13 @@
          {
           "key": "@_user_1",
           "id": "ou_me",
-          "name": "Phan Đạt"
+          "name": "Quân"
          }
         ]
        },
        {
         "message_id": "om_reply",
-        "create_time": "1791963060000",
+        "create_time": "1791953520000",
         "sender": {
          "id": "ou_me",
          "sender_type": "user"
@@ -912,7 +912,7 @@
      "priority_reason": "Hạn hôm nay",
      "history": [
       {
-       "at": "2026-10-14T02:05:00Z",
+       "at": "2026-10-14T01:20:00Z",
        "revision": 1,
        "by": "bot bot_main",
        "kind": "created",
@@ -921,7 +921,7 @@
        }
       },
       {
-       "at": "2026-10-14T07:20:00Z",
+       "at": "2026-10-14T04:40:00Z",
        "revision": 2,
        "by": "owner",
        "kind": "commented",
@@ -991,7 +991,7 @@
     {
      "ID": "z_ok",
      "At": "2026-11-26T02:05:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "Text": "ok để anh mở",
      "FromMe": true
     },
@@ -1184,7 +1184,7 @@
     {
      "ID": "w_yes",
      "At": "2026-11-27T03:10:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "Text": "@Kai Yong yes, I'll join the Alibaba Cloud call on Wednesday",
      "FromMe": true,
      "Chat": "120363222@g.us"
@@ -1249,14 +1249,14 @@
     {
      "ID": "z_prom",
      "At": "2026-11-26T02:10:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "Text": "dạ để em đăng ký",
      "FromMe": true
     },
     {
      "ID": "z_link",
      "At": "2026-11-27T03:05:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "Text": "Hay chị đăng ký trực tiếp qua link này nhé: https://claude.ai/team",
      "FromMe": true
     },

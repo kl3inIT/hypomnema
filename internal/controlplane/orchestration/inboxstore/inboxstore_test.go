@@ -333,9 +333,11 @@ func TestTransitions(t *testing.T) {
 		}, storeerr.ErrForbidden, ""},
 		// doing → done: the Bot of the attempt, with evidence.
 		{"bot completes with evidence", func(t *testing.T, w *world) (inboxstore.Todo, error) {
-			return w.inbox.Done(t.Context(), inAttempt(bot(w.kai), w.doing(t)), inboxstore.Closing{
+			d := w.doing(t)
+
+			return w.inbox.Done(t.Context(), inAttempt(bot(w.kai), d), inboxstore.Closing{
 				DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai}, How: inboxstore.ClosedByBot,
-				Evidence: prLink,
+				Evidence: w.ranFor(t, d, "run_done", "https://github.com/o/r/pull/1"),
 			})
 		}, nil, inboxstore.Done},
 		{"bot completes without evidence", func(t *testing.T, w *world) (inboxstore.Todo, error) {

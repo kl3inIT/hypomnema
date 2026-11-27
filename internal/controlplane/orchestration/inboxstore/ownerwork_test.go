@@ -133,30 +133,12 @@ func TestReviewOwnersPromisedReply(t *testing.T) {
 	}
 }
 
-// Scenario: review of PR #1243. Tùng reports a bug to the owner in a Lark thread; the owner hands the item to kai to
-// fix, and kai fixes it and gives the pull request: the work was kai's, so it closes as its own with that evidence,
-// as before #1206, whatever someone asked of the owner.
-func TestReviewDelegatedFix(t *testing.T) {
-	t.Parallel()
-
-	ctx := t.Context()
-	w := newWorld(t)
-
-	doing := w.handedTo(t, w.threadAsk(t))
-	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), inboxstore.Closing{
-		DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai}, How: inboxstore.ClosedByBot, Evidence: prLink})
-	require.NoError(t, err)
-	assert.Equal(t, inboxstore.Done, done.State)
-	require.NotNil(t, done.DoneBy)
-	assert.Equal(t, inboxstore.ABot, done.DoneBy.Kind)
-}
-
-// Scenario: issue #1206, rule 2 of the owner's comment of 2026-11-27. A Bot closes as its own only what it did, with
-// evidence of its work: a Run, a pull request, a link to a file, a message it sent itself, named by account and
-// chat, after the owner approved its send. The owner's message alone (his comment, a message he sent himself, his
-// message in the chat) shows that he did it, so it is recorded for him; a person's message, a message the Bot cannot
-// show it sent (one without its account and chat, a mail, one sent with no send of the Bot's approved), or a
-// meeting's line shows no work of the Bot's.
+// Scenario: issue #1206, rule 2 of the owner's comment of 2026-11-27. A Bot closes as its own only what it did on the
+// item in this attempt (botsWork; TestReviewDelegatedFix, TestReviewApprovalDoesNotIdentifyReplyAuthor and
+// TestReviewOwnerReplyWithOwnerFileURL show what is). The owner's message alone (his comment, a message he sent
+// himself, his message in the chat) shows that he did it, so it is recorded for him; a person's message, a message
+// whose send the Bot did not record (one without its account and chat, his own after an approved send), a mail, a
+// link or a meeting's line shows no work of the Bot's.
 func TestABotClosesAsItsOwnOnlyWithEvidenceOfItsWork(t *testing.T) {
 	t.Parallel()
 
@@ -167,7 +149,6 @@ func TestABotClosesAsItsOwnOnlyWithEvidenceOfItsWork(t *testing.T) {
 	closing := func(evidence ...inboxstore.Link) inboxstore.Closing {
 		return inboxstore.Closing{DoneBy: itsOwn, How: inboxstore.ClosedByBot, Evidence: evidence}
 	}
-	sent := inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "mine", Account: "main", Chat: "team"}
 
 	doing := w.doing(t)
 	his, err := w.inbox.Comment(ctx, owner, doing.ID, "Xong rồi, anh tự gửi.")
@@ -181,10 +162,12 @@ func TestABotClosesAsItsOwnOnlyWithEvidenceOfItsWork(t *testing.T) {
 		"his message in the chat": closing(w.said...),
 		"a person's message": closing(inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "fixed",
 			Account: "main", Chat: "team"}),
-		"a message without its chat":      closing(inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "3EB0SENT"}),
-		"a mail":                          closing(inboxstore.Link{Kind: inboxstore.LinkMail, Ref: "18c2f0a9b1d2e3f5"}),
-		"a message with no send approved": closing(sent),
-		"a meeting's line":                closing(inboxstore.Link{Kind: inboxstore.LinkMeetingLine, Ref: "mtg_1/3"}),
+		"a message without its chat": closing(inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "3EB0SENT"}),
+		"his message from his account": closing(inboxstore.Link{Kind: inboxstore.LinkWhatsAppMessage, Ref: "mine",
+			Account: "main", Chat: "team"}),
+		"a mail":           closing(inboxstore.Link{Kind: inboxstore.LinkMail, Ref: "18c2f0a9b1d2e3f5"}),
+		"a link":           closing(inboxstore.Link{Kind: inboxstore.LinkURL, Ref: "https://example.com/report.xlsx"}),
+		"a meeting's line": closing(inboxstore.Link{Kind: inboxstore.LinkMeetingLine, Ref: "mtg_1/3"}),
 	} {
 		_, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), cl)
 		require.ErrorIs(t, err, storeerr.ErrInvalid, "%s is no work of the Bot's", name)
@@ -192,30 +175,11 @@ func TestABotClosesAsItsOwnOnlyWithEvidenceOfItsWork(t *testing.T) {
 
 	w.unchanged(t, his)
 
-	for _, work := range []inboxstore.Link{
-		{Kind: inboxstore.LinkRun, Ref: "run_1"},
-		{Kind: inboxstore.LinkURL, Ref: "https://example.com/report.xlsx"},
-	} {
-		item := w.doing(t)
-		done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), item), closing(work))
-		require.NoError(t, err, work.Kind)
-		assert.Equal(t, inboxstore.Done, done.State)
-		require.NotNil(t, done.DoneBy)
-		assert.Equal(t, itsOwn, *done.DoneBy)
-	}
-
-	// kai's send of the message was approved by the owner: the message is its own work.
-	r := w.review(t)
-	w.decide(t, r.ApprovalID, "approved")
-	again, err := w.inbox.ApprovalApproved(ctx, by(system, r))
-	require.NoError(t, err)
-	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), again), closing(sent))
+	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing),
+		closing(w.ranFor(t, doing, "run_own", "https://github.com/o/r/pull/2")...))
 	require.NoError(t, err)
 	require.NotNil(t, done.DoneBy)
 	assert.Equal(t, itsOwn, *done.DoneBy)
-
-	_, err = w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), closing(prLink...))
-	require.NoError(t, err)
 }
 
 // Scenario: issue #1206, W1. kai listed Hà My's ask to the owner; he answered "dạ để em gửi tối nay". The same item

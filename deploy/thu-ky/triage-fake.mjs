@@ -256,7 +256,7 @@ export function fakeWorld(world, { now = () => new Date() } = {}) {
     const ok = (data) => ({ status: 200, records: { code: 0, data } });
     const path = args.path ?? "";
     const query = new URLSearchParams(path.split("?")[1] ?? "");
-    if (path.startsWith("/open-apis/authen/v1/user_info")) return ok({ open_id: lark.me, name: "Phan Đạt" });
+    if (path.startsWith("/open-apis/authen/v1/user_info")) return ok({ open_id: lark.me, name: "Quân" });
     if (path.startsWith("/open-apis/contact/v3/users/")) {
       const id = path.split("?")[0].split("/").pop();
       return lark.users[id] ? ok({ user: { open_id: id, name: lark.users[id] } }) : { status: 404, records: { code: 41050 } };

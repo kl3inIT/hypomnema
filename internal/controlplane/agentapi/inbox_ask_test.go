@@ -104,7 +104,7 @@ func TestABotRecordsTheOwnersCommentThatHeAnsweredTheAsk(t *testing.T) {
 	assert.Contains(t, text, "for_owner")
 
 	done := w.inbox(pi, agenttool.ToolInboxDone, map[string]any{
-		"id": item.ID, "for_owner": true, "reason": "Anh Đạt: 'Anh gửi rồi nhé.'",
+		"id": item.ID, "for_owner": true, "reason": "Anh: 'Anh gửi rồi nhé.'",
 		"evidence": []map[string]string{{"kind": inboxstore.LinkComment, "ref": strconv.Itoa(his.Revision)}},
 	})
 	assert.Equal(t, inboxstore.Done, done.State)

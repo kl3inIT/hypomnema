@@ -1583,3 +1583,8 @@ func val[T any](p *T) T {
 
 	return *p
 }
+
+// RecordSent records a message a Bot sent for the item it is doing (issue #1206). Not built yet.
+func (s *Store) RecordSent(_ context.Context, _ Change, _ Link) (Todo, error) {
+	return Todo{}, fmt.Errorf("%w: not built", storeerr.ErrInvalid)
+}
