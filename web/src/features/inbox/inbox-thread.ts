@@ -20,7 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-import type { Todo, TodoEvent, TodoLink } from "@/api/generated/types.gen"
+import type { ChatAttachment, Todo, TodoEvent, TodoLink } from "@/api/generated/types.gen"
 
 import { lineOf, sourceNames, type Source } from "./inbox-state"
 
@@ -43,6 +43,7 @@ export type ThreadEntry =
       // What a Bot's comment carries (issue #1207): the paths of its files in the Bot's folder, read through chat,
       // and the ids of its Artifacts.
       files: string[]
+      attachments?: ChatAttachment[]
       chat?: string
       artifacts: string[]
     }
@@ -154,6 +155,9 @@ export function threadOf(events: readonly TodoEvent[] = []): ThreadEntry[] {
         actor: event.actor,
         text: after.text,
         files: strings(after.files),
+        ...(Array.isArray(after.attachments) && {
+          attachments: after.attachments as ChatAttachment[],
+        }),
         chat: typeof after.chat === "string" && after.chat ? after.chat : undefined,
         artifacts: strings(after.artifacts),
       })

@@ -11669,7 +11669,8 @@ components:
           description: >-
             created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's
             comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and
-            after.artifacts, the ids of Artifacts it showed (issue #1207).
+            after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments
+            (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
         before: { type: object, additionalProperties: true, description: "The fields that changed, before." }
         after:
           type: object
@@ -11859,12 +11860,24 @@ components:
         prompt:
           type: string
           maxLength: 10000
-          description: What the owner asks of the Bot, its first comment; optional.
+          description: What the owner asks of the Bot, its first comment; may be empty when it carries files.
+        chat_id:
+          type: string
+          description: The chat id reserved before uploading files when the item has no chat with this Bot.
+        attachments:
+          type: array
+          description: Files uploaded into the item's chat folder in the Bot's folder.
+          items: { $ref: "#/components/schemas/ChatAttachment" }
     TodoComment:
       type: object
+      description: The text may be empty when the owner sends files.
       required: [text]
       properties:
-        text: { type: string, minLength: 1, maxLength: 10000 }
+        text: { type: string, maxLength: 10000 }
+        attachments:
+          type: array
+          description: The owner's files uploaded into the item's chat folder in the Bot's folder.
+          items: { $ref: "#/components/schemas/ChatAttachment" }
     TodoSend:
       type: object
       required: [revision, text]

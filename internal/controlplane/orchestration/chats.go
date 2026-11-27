@@ -7,20 +7,18 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"path"
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/chatfile"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
-	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
 // Chats with the coordinator on the server (issue #41, PR 3), after Omnara
@@ -298,58 +296,11 @@ type ChatApprovalAnswer struct {
 	DecidedAt *time.Time
 }
 
-// ChatAttachment is a file the owner attached to a message (issue #343), as t3code's chat attachment (name, size,
-// type) and OpenMausBot's file by path: the file was uploaded into the chat's Bot's folder, and pi reads it there.
-type ChatAttachment struct {
-	// Name is the file's name as the owner picked it.
-	Name string `json:"name"`
-	// Path is where it is in the Bot's folder: attachments/<chat id>/<file>.
-	Path string `json:"path"`
-	Size int64  `json:"size"`
-	// Type is its media type as the browser named it; empty when it named none.
-	Type string `json:"type,omitempty"`
-}
+// ChatAttachment is a file uploaded to a chat's Bot's folder for a message or an Inbox wake.
+type ChatAttachment = chatfile.Attachment
 
-// AttachmentsDir is the folder of a chat's attachments in its Bot's folder (issue #343), kept apart from the work
-// as Orca's agent-session-attachments and OpenMausBot's DATA_DIR/attachments are.
-func AttachmentsDir(chatID string) string { return "attachments/" + chatID }
-
-// maxAttachmentField bounds an attachment's name and type.
-const maxAttachmentField = 255
-
-func (a ChatAttachment) check(chatID string) error {
-	dir, file := path.Split(a.Path)
-
-	switch {
-	case dir != AttachmentsDir(chatID)+"/" || file == "" || file == "." || file == ".." || !plainLine(file):
-		return fmt.Errorf("%w: an attachment is a file of %s, not %q", ErrInvalid, AttachmentsDir(chatID), a.Path)
-	case strings.TrimSpace(a.Name) == "":
-		return fmt.Errorf("%w: an attachment needs its name", ErrInvalid)
-	case len(a.Name) > maxAttachmentField || len(a.Type) > maxAttachmentField:
-		return fmt.Errorf("%w: an attachment's name and type are at most %d bytes", ErrInvalid, maxAttachmentField)
-	case !plainLine(a.Name) || !plainLine(a.Type):
-		return fmt.Errorf("%w: an attachment's name and type are one line of text", ErrInvalid)
-	case a.Size < 0 || a.Size > workspacefs.MaxUpload:
-		return fmt.Errorf("%w: an attachment is at most %d MiB", ErrInvalid, workspacefs.MaxUpload>>20)
-	}
-
-	return nil
-}
-
-// plainLine says whether s is UTF-8 without a control character, so that a name is one line of what pi is given.
-func plainLine(s string) bool {
-	if !utf8.ValidString(s) {
-		return false
-	}
-
-	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
-			return false
-		}
-	}
-
-	return true
-}
+// AttachmentsDir is where files attached in a chat are uploaded in its Bot's folder.
+func AttachmentsDir(chatID string) string { return chatfile.Dir(chatID) }
 
 // WakeEvent is what a wake-up's event says (issue #303, for the web's
 // wake-up cards, after t3code's TimelineSystemDivider): it is read from the
@@ -854,7 +805,7 @@ func (m NewChatMessage) check(chatID string) error {
 	}
 
 	for _, a := range m.Attachments {
-		if err := a.check(chatID); err != nil {
+		if err := a.Check(chatID); err != nil {
 			return err
 		}
 	}

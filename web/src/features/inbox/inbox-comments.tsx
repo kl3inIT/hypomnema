@@ -1,6 +1,9 @@
+import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ChevronRight, ListChecks, User } from "lucide-react"
+import { useState } from "react"
 
+import { getChatOptions } from "@/api/generated/@tanstack/react-query.gen"
 import type { Todo, TodoEvent } from "@/api/generated/types.gen"
 import { AgentAvatar } from "@/components/agent-avatar"
 import {
@@ -23,8 +26,13 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Message, MessageContent, MessageHeader } from "@/components/ui/message"
 import { ArtifactCard } from "@/features/artifacts/artifact-card"
 import { useArtifact } from "@/features/artifacts/artifact-state"
+import { AttachDrop } from "@/features/chat/attach-drop"
+import { useAttachments } from "@/features/chat/attachments"
+import { newChatId } from "@/features/chat/chat-id"
 import { Composer } from "@/features/chat/composer"
+import { MessageImages } from "@/features/chat/message-files"
 import { ReplyFiles } from "@/features/chat/reply-files"
+import { imageType } from "@/features/files/files-state"
 import { useServices } from "@/features/settings/use-integrations"
 import { problemOf } from "@/lib/server-error"
 import { since } from "@/lib/time"
@@ -322,6 +330,11 @@ function Comment({
   now: number
   botName: (id: string) => string
 }) {
+  const images = entry.attachments?.filter((file) => imageType(file.path)) ?? []
+  const files = entry.attachments
+    ? entry.attachments.filter((file) => !imageType(file.path)).map((file) => file.path)
+    : entry.files
+
   return (
     <article
       aria-label={`Comment by ${actorName(entry.actor, botName)}`}
@@ -344,9 +357,8 @@ function Comment({
           </div>
           <div className="px-3 pb-2.5">
             <Report text={entry.text} />
-            {entry.chat && entry.files.length > 0 && (
-              <ReplyFiles chat={entry.chat} paths={entry.files} />
-            )}
+            {entry.chat && <MessageImages chat={entry.chat} images={images} inComment />}
+            {entry.chat && files.length > 0 && <ReplyFiles chat={entry.chat} paths={files} />}
             {entry.artifacts.length > 0 && (
               <ul aria-label="Artifacts" className="mt-2 flex flex-col">
                 {entry.artifacts.map((id) => (
@@ -426,16 +438,52 @@ export function CommentComposer({
   botName: (id: string) => string
 }) {
   const write = writeOf(todo, mainBot, botName)
+  // An item given back can still point at its former Bot's chat. Check
+  // which Bot owns it before deciding where to upload the Hand's files.
+  const checkChat = !!todo.chat_id && todo.assignee.kind !== "bot"
+  const previous = useQuery({
+    ...getChatOptions({ path: { chat_id: todo.chat_id ?? "" } }),
+    enabled: checkChat,
+  })
+  const existing = checkChat
+    ? previous.data?.bot === write.bot
+      ? todo.chat_id
+      : undefined
+    : todo.chat_id
   const send = useWriteTodo()
+  const [sending, setSending] = useState(false)
+  const [reservation, setReservation] = useState(() => ({
+    previous: todo.chat_id,
+    id: newChatId(),
+  }))
+  if (reservation.previous !== todo.chat_id) {
+    setReservation({ previous: todo.chat_id, id: newChatId() })
+  }
+
+  const chat = existing ?? reservation.id
+  const bot = write.bot || undefined
+  const checking = checkChat && previous.isPending
+  const canAttach = !!(existing || bot) && (!checkChat || previous.isSuccess)
+  // A pass can arrive while Send is in flight. Its attachments still belong
+  // to the outgoing message until the server answers.
+  const attachments = useAttachments(chat, bot, undefined, sending || !canAttach)
+  const filesWaiting = !canAttach && attachments.items.length > 0
 
   return (
-    <Composer
-      botName={write.bot ? botName(write.bot) : "Hypo"}
-      placeholder={write.placeholder}
-      submit={write.label}
-      working={false}
-      onStop={() => undefined}
-      onSend={(text) => send.mutateAsync({ todo, write, text })}
-    />
+    <AttachDrop attachments={canAttach ? attachments : undefined}>
+      <Composer
+        attachments={canAttach || filesWaiting ? attachments : undefined}
+        botName={bot ? botName(bot) : "Hypo"}
+        placeholder={write.placeholder}
+        submit={write.label}
+        working={false}
+        disabled={checking || filesWaiting}
+        onStop={() => undefined}
+        onSendingChange={setSending}
+        onSend={(text, files) =>
+          send.mutateAsync({ todo, write, text, files, chatId: existing ? undefined : chat })
+        }
+      />
+    </AttachDrop>
   )
 }

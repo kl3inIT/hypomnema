@@ -196,13 +196,8 @@ func (s *Server) SendChatMessage(ctx context.Context, req openapi.SendChatMessag
 ) (openapi.SendChatMessageResponseObject, error) {
 	msg := orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: req.Body.Text}
 
-	for _, a := range val(req.Body.Attachments) {
-		msg.Attachments = append(msg.Attachments, orchestration.ChatAttachment{
-			Name: a.Name, Path: a.Path, Size: a.Size, Type: val(a.Type),
-		})
-	}
+	msg.Attachments = fromAttachments(val(req.Body.Attachments))
 
-	// Written while pi works, it waits in the chat's queue until the turn settles (issue #497).
 	busy := s.coordinator != nil && s.coordinator.Working(req.ChatId)
 
 	m, queued, err := s.svc.SendOwnerMessage(ctx, req.ChatId, msg, busy)

@@ -824,7 +824,8 @@ func TestPiIsGivenThePathsOfTheOwnersFiles(t *testing.T) {
 		"- attachments/cht_1/notes (file, 5 bytes)",
 		"\n\n",
 		"The owner attached these files, in your working directory:\n",
-		"- attachments/cht_1/a.png (image/png, 3 bytes)"), got)
+		"- attachments/cht_1/a.png (image/png, 3 bytes)\n",
+		"Use the read tool to view the attached images."), got)
 }
 
 func contextWithCancel(t *testing.T) (context.Context, context.CancelFunc) {
@@ -1553,4 +1554,23 @@ func TestAStopGivesAnUnreadSteerAgainAsItsOwnTurn(t *testing.T) {
 	assert.Equal(t, []string{
 		"owner: hang settled", "owner: look here", "system: Stopped", "coordinator: echo: look here",
 	}, said(t, svc, chat.ID))
+}
+
+// Inbox wakes keep the control plane's instructions and the owner's input in
+// the same turn. Pi's read tool supplies the image to a vision model.
+func TestInboxWakeGivesPiTheOwnersAttachments(t *testing.T) {
+	t.Parallel()
+
+	got := promptText([]orchestration.ChatMessage{{
+		Role: orchestration.ChatSystem, Kind: orchestration.ChatWake, Text: "The owner commented on an Inbox item.",
+		Attachments: []orchestration.ChatAttachment{
+			{Name: "screen.png", Path: "attachments/cht_item/screen.png", Size: 41, Type: "image/png"},
+			{Name: "brief.pdf", Path: "attachments/cht_item/brief.pdf", Size: 23, Type: "application/pdf"},
+		},
+	}})
+	assert.Contains(t, got, "Message from the Hypomnema control plane:")
+	assert.Contains(t, got, "The owner commented on an Inbox item.")
+	assert.Contains(t, got, "Use the read tool to view the attached images.")
+	assert.Contains(t, got, "attachments/cht_item/screen.png (image/png, 41 bytes)")
+	assert.Contains(t, got, "attachments/cht_item/brief.pdf (application/pdf, 23 bytes)")
 }

@@ -517,17 +517,18 @@ func (q *Queries) InsertTodoEvent(ctx context.Context, arg InsertTodoEventParams
 }
 
 const insertTodoWake = `-- name: InsertTodoWake :exec
-INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at, recall, wake_by, wake_todo)
-VALUES (?1, 'system', 'wake', ?2, 1, ?3, ?4, ?5, ?6)
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at, recall, wake_by, wake_todo, attachments)
+VALUES (?1, 'system', 'wake', ?2, 1, ?3, ?4, ?5, ?6, ?7)
 `
 
 type InsertTodoWakeParams struct {
-	ChatID   string
-	Text     string
-	Now      int64
-	Recall   sql.NullString
-	WakeBy   sql.NullString
-	WakeTodo sql.NullString
+	ChatID      string
+	Text        string
+	Now         int64
+	Recall      sql.NullString
+	WakeBy      sql.NullString
+	WakeTodo    sql.NullString
+	Attachments sql.NullString
 }
 
 // A wake-up of the control plane in an item's own chat (issue #1111): the item handed to the Bot, or the owner's
@@ -543,6 +544,7 @@ func (q *Queries) InsertTodoWake(ctx context.Context, arg InsertTodoWakeParams) 
 		arg.Recall,
 		arg.WakeBy,
 		arg.WakeTodo,
+		arg.Attachments,
 	)
 	return err
 }

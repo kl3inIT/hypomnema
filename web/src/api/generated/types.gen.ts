@@ -5431,7 +5431,7 @@ export type TodoEvent = {
   revision: number;
   actor: TodoActor;
   /**
-   * created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
+   * created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207). An owner comment may carry after.attachments (ChatAttachment objects) and after.chat, the chat they were sent to (issue #1245).
    */
   kind: string;
   /**
@@ -5640,13 +5640,28 @@ export type TodoHand = {
    */
   bot?: string;
   /**
-   * What the owner asks of the Bot, its first comment; optional.
+   * What the owner asks of the Bot, its first comment; may be empty when it carries files.
    */
   prompt?: string;
+  /**
+   * The chat id reserved before uploading files when the item has no chat with this Bot.
+   */
+  chat_id?: string;
+  /**
+   * Files uploaded into the item's chat folder in the Bot's folder.
+   */
+  attachments?: Array<ChatAttachment>;
 };
 
+/**
+ * The text may be empty when the owner sends files.
+ */
 export type TodoComment = {
   text: string;
+  /**
+   * The owner's files uploaded into the item's chat folder in the Bot's folder.
+   */
+  attachments?: Array<ChatAttachment>;
 };
 
 export type TodoSend = {

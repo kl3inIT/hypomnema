@@ -36,6 +36,7 @@ import { recall, type Walk } from "./recall"
 // "Hand to Hypo", and Send is then a button with those words.
 export function Composer({
   onSend,
+  onSendingChange,
   ready,
   onStop,
   working,
@@ -50,6 +51,8 @@ export function Composer({
   submit,
 }: {
   onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
+  // The Inbox keeps the outgoing files in their folder until the send settles.
+  onSendingChange?: (sending: boolean) => void
   // ready is what the message waits for before it leaves the box and the draft, such as a new chat's Bots (issue
   // #1055); a refusal leaves it there and says why.
   ready?: () => Promise<unknown>
@@ -163,6 +166,7 @@ export function Composer({
     // assistant-ui's composer detaches its text and attachments at send. What is typed meanwhile is the next draft.
     if (key) clearDraft(key)
 
+    onSendingChange?.(true)
     try {
       const files = attachments ? await attachments.draft.ready() : []
       await onSend(message, files)
@@ -177,6 +181,7 @@ export function Composer({
       if (typed === "") type(message)
       setError(`Not sent: ${errorText(err)}`)
     } finally {
+      onSendingChange?.(false)
       setSending(false)
     }
   }

@@ -2,7 +2,9 @@ package clientapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 
@@ -162,4 +164,85 @@ func TestTheOwnerHandsAnItemToTheMainBotAndTheBotComments(t *testing.T) {
 	none, err := w.coordinator.CommentTodoWithResponse(ctx, td.Id, openapi.TodoComment{Text: "hi"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, none.StatusCode(), string(none.Body))
+}
+
+// The first Hand opens the chat reserved for its upload. A file-only comment is
+// also owner input, and both the thread and the Bot's pending turn keep the file.
+func TestInboxFilesReachTheOwnersTurn(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newInboxWorld(t)
+	item := w.add(ctx, t, "Review the screenshot", toOwner)
+	const chat = "cht_abcdefghijklmnopqrstuvwxyz"
+	file := func(chat, name, media string) string {
+		return fmt.Sprintf(`[{"name":%q,"path":%q,"type":%q,"size":32}]`, name, "attachments/"+chat+"/"+name, media)
+	}
+	handBody := fmt.Sprintf(`{"revision":%d,"chat_id":%q,"attachments":%s}`,
+		item.Revision, chat, file(chat, "brief.pdf", "application/pdf"))
+	hand, err := w.owner.HandTodoWithBodyWithResponse(ctx, item.Id, "application/json", strings.NewReader(handBody))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, hand.StatusCode(), string(hand.Body))
+	require.Equal(t, ptr(chat), hand.JSON200.ChatId)
+
+	owner, err := w.svc.OwnerTurn(ctx, chat)
+	require.NoError(t, err)
+	require.True(t, owner, "the Hand with only files is the owner's own turn")
+
+	resp, err := w.owner.CommentTodoWithBodyWithResponse(ctx, item.Id, "application/json", strings.NewReader(
+		`{"text":"","attachments":`+file(chat, "screenshot.png", "image/png")+`}`))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode(), string(resp.Body))
+
+	owner, err = w.svc.OwnerTurn(ctx, chat)
+	require.NoError(t, err)
+	assert.True(t, owner, "the comment with only files is the owner's own turn")
+
+	wakes, err := w.svc.Undelivered(ctx, chat)
+	require.NoError(t, err)
+	require.Len(t, wakes, 2)
+	for i, name := range []string{"brief.pdf", "screenshot.png"} {
+		assert.Equal(t, orchestration.ChatWake, wakes[i].Kind)
+		require.Len(t, wakes[i].Attachments, 1)
+		assert.Equal(t, "attachments/"+chat+"/"+name, wakes[i].Attachments[0].Path)
+	}
+	got := w.get(t, item.Id)
+	require.NotNil(t, got.Events)
+	last := (*got.Events)[len(*got.Events)-1]
+	assert.Equal(t, "commented", last.Kind)
+	assert.Equal(t, chat, last.After["chat"])
+	assert.Contains(t, fmt.Sprint(last.After["attachments"]), "attachments/"+chat+"/screenshot.png")
+
+	// A pass changes the destination for new files, while the old comment
+	// still opens its screenshot in the chat that received it.
+	passed, err := w.chatBot.EditTodoWithResponse(ctx, item.Id,
+		openapi.TodoEdit{Revision: got.Revision, Assignee: &w.vmap})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, passed.StatusCode(), string(passed.Body))
+	require.NotNil(t, passed.JSON200.ChatId)
+
+	next := *passed.JSON200.ChatId
+	require.NotEqual(t, chat, next)
+
+	stale, err := w.owner.CommentTodoWithBodyWithResponse(ctx, item.Id, "application/json", strings.NewReader(
+		`{"text":"","attachments":`+file(chat, "screenshot.png", "image/png")+`}`))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, stale.StatusCode(), string(stale.Body))
+
+	sent, err := w.owner.CommentTodoWithBodyWithResponse(ctx, item.Id, "application/json", strings.NewReader(
+		`{"text":"For VMAP","attachments":`+file(next, "tiles.png", "image/png")+`}`))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, sent.StatusCode(), string(sent.Body))
+
+	require.NotNil(t, sent.JSON200.Events)
+	events := *sent.JSON200.Events
+	assert.Equal(t, last, events[len(*got.Events)-1])
+	assert.Equal(t, next, events[len(events)-1].After["chat"])
+
+	wakes, err = w.svc.Undelivered(ctx, next)
+	require.NoError(t, err)
+	require.Len(t, wakes, 2)
+	assert.Empty(t, wakes[0].Attachments, "the pass does not carry the old Bot's files")
+	require.Len(t, wakes[1].Attachments, 1)
+	assert.Equal(t, "attachments/"+next+"/tiles.png", wakes[1].Attachments[0].Path)
 }
