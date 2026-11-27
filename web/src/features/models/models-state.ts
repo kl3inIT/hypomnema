@@ -1,4 +1,4 @@
-import type { Account, Provider } from "@/api/generated/types.gen"
+import type { Account, AccountLimits, Provider } from "@/api/generated/types.gen"
 
 // What the Models page shows, worked out from what the server lists (issue #199). The references that keep
 // subscription accounts put an account under its provider (9router's providers/[id]/ConnectionRow.js, OpenClaw's
@@ -147,4 +147,28 @@ export function subscriptionState(
 // off when every connection of the provider is).
 export function inUse(accounts: Account[]) {
   return accounts.some((account) => account.status === "active")
+}
+
+// limitsWhy says why an account's limits have no windows, or why the windows shown are an earlier reading (issue
+// #1198): the vendor asked to wait, until when; it refused the token, which a new sign-in replaces, as CLIProxyAPI
+// says "unauthorized" with the account and 9router-go stops dialling it; or the call failed. The server's words
+// are its detail, shown on hover. Nothing when the reading is fresh.
+export function limitsWhy(limits: AccountLimits, now = Date.now()): string | null {
+  const earlier = limits.windows.length > 0
+  switch (limits.unavailable) {
+    case undefined:
+    case "not_given":
+    case "sign_in":
+      return null
+    case "resting":
+      return limits.retry_at
+        ? `The vendor asked to wait: read again at ${until(limits.retry_at, now)}.`
+        : "The vendor asked to wait: read again in a few minutes."
+    case "refused":
+      return "The vendor refused its token: sign it in again. The account may be disabled."
+    case "verification":
+      return "Google asks for the account to be verified."
+    default:
+      return earlier ? "Reading them again failed." : "Its limits could not be read."
+  }
 }

@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest"
 
 import type { Account, Provider } from "@/api/generated/types.gen"
 
-import { accountState, inUse, subscriptionState, subscriptionsOf, tryDue } from "./models-state"
+import {
+  accountState,
+  inUse,
+  limitsWhy,
+  subscriptionState,
+  subscriptionsOf,
+  tryDue,
+  until,
+} from "./models-state"
 
 const now = new Date("2026-11-12T10:00:00Z").getTime()
 const later = "2026-11-12T12:00:00Z"
@@ -129,5 +137,30 @@ describe("a subscription", () => {
   it("is in use while any of its accounts is", () => {
     expect(inUse([account("a", { status: "disabled" }), account("b")])).toBe(true)
     expect(inUse([account("a", { status: "disabled" })])).toBe(false)
+  })
+})
+
+describe("why an account's limits are not fresh", () => {
+  const windows = [{ name: "5 hours", used_percent: 40 }]
+
+  it("says nothing of a fresh reading", () => {
+    expect(limitsWhy({ windows, read_at: earlier }, now)).toBeNull()
+  })
+
+  it("says when a resting account is read again", () => {
+    expect(limitsWhy({ windows, unavailable: "resting", retry_at: later }, now)).toBe(
+      `The vendor asked to wait: read again at ${until(later, now)}.`,
+    )
+  })
+
+  it("says to sign in again when the vendor refused the token", () => {
+    expect(limitsWhy({ windows, unavailable: "refused" }, now)).toContain("sign it in again")
+  })
+
+  it("says the reading failed, beside the last windows or without them", () => {
+    expect(limitsWhy({ windows, unavailable: "failed" }, now)).toBe("Reading them again failed.")
+    expect(limitsWhy({ windows: [], unavailable: "failed" }, now)).toBe(
+      "Its limits could not be read.",
+    )
   })
 })

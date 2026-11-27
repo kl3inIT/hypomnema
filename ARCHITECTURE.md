@@ -5586,7 +5586,9 @@ The owner's commands:
     token to `api.anthropic.com/api/oauth/usage` or `chatgpt.com/backend-api/wham/usage`, neither a published
     API; for Antigravity each group's five hours and week, such as `5 hours (Gemini)` and `week (Claude & GPT)`,
     from Cloud Code's `v1internal:retrieveUserQuotaSummary` (issue #576, as 9router-go and 9router read it); the service keeps a reading for 60 seconds, does not ask for 3 minutes after a 429 (or the wait it
-    names, up to 15 minutes) and gives the last reading when a call fails; a token the vendor refuses (401 or 403,
+    names, up to 15 minutes) and gives the last reading when a call fails, with why it is not fresh (resting with
+    when it is asked again, refused or failed; issue #1198) and a WARN `subscription.limits_failed` (account,
+    status, reason) each time the reason of a failed call changes; a token the vendor refuses (401 or 403,
     as a Claude token pasted by hand is) is not sent again until it changes, and the refusal is said in the
     vendor's words; the limits are then what the headers of the account's last answer through the gateway said
     (`anthropic-ratelimit-unified-5h|7d|7d_oi-utilization` and `-reset`, after omp), kept in the server's memory,
@@ -6754,8 +6756,11 @@ Node (`internal/node`):
       window (5 hours, week, a model's own week) with the part used, the Machines page's meter, and when the
       window starts again; a button asks the vendor now. `GET /accounts/{id}/limits` (the owner's; `fresh` asks
       now) gives the reading the subscription service keeps for a minute. An account with nothing to show is
-      answered without windows and with the reason (`unavailable`: `not_given`, `sign_in`, `resting`, `failed`),
-      and the page then shows no bars, or one line when the reading failed.
+      answered without windows and with the reason (`unavailable`: `not_given`, `sign_in`, `resting`, `refused`,
+      `failed`, `verification`), and the page then shows no bars, or one line when the reading failed. An earlier
+      reading given because the call failed has its windows and the reason together, `retry_at` for `resting`
+      (issue #1198, after CLIProxyAPI's `status_message` and `next_retry`); the page says it on a line under "read
+      … ago", the server's `detail` on hover.
   - `/settings/skills` (under Agents, [issue #21](https://github.com/kl3inIT/hypomnema/issues/21)) lists the added
     skills and the built-in ones as two sections of cards or a table, chosen as on the Machines page, with a search
     box (`web/src/features/skills/`). A built-in skill tied to a service wears that service's logo; every other skill
