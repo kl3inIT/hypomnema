@@ -586,20 +586,20 @@ func usable(accounts []Account, runtime string) []Account {
 	return out
 }
 
-type amongKey struct{}
+type accountsKey struct{}
 
-// Among limits the accounts Token, TokenFor and FirstFree take for the request of ctx to ids (issue #1277): a gateway
-// key that may use only the accounts the owner chose, as OmniRoute narrows a provider's connections to an API key's
-// allowed_connections before it picks one (src/sse/services/auth.ts:1136-1138). The accounts are then taken by every
-// rule of Token, in their order among them; when none of them can serve, none other is taken. An empty ids leaves no
-// account to take.
-func Among(ctx context.Context, ids []string) context.Context {
-	return context.WithValue(ctx, amongKey{}, slices.Clone(ids))
+// WithAccounts limits the accounts Token, TokenFor and FirstFree take for the request of ctx to ids (issue #1277):
+// a gateway key that may use only the accounts the owner chose, as OmniRoute narrows a provider's connections to an
+// API key's allowed_connections before it picks one (src/sse/services/auth.ts:1136-1138). The accounts are then
+// taken by every rule of Token, in their order among them; when none of them can serve, none other is taken. An
+// empty ids leaves no account to take.
+func WithAccounts(ctx context.Context, ids []string) context.Context {
+	return context.WithValue(ctx, accountsKey{}, slices.Clone(ids))
 }
 
-// chosen are the accounts of the request of ctx may take (Among): all of them when it names none.
+// chosen are the accounts the request of ctx may take (WithAccounts): all of them when it names none.
 func chosen(ctx context.Context, accounts []Account) []Account {
-	ids, ok := ctx.Value(amongKey{}).([]string)
+	ids, ok := ctx.Value(accountsKey{}).([]string)
 	if !ok {
 		return accounts
 	}

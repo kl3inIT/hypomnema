@@ -134,7 +134,7 @@ func TestAKeyLimitedToTwoAccountsUsesOnlyThem(t *testing.T) {
 
 	rec, sent = w.ask(t, key, "codex-subscription/gpt-6.1-sol")
 	assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
-	assert.Contains(t, rec.Body.String(), "model_not_allowed")
+	assert.Contains(t, rec.Body.String(), "none of the accounts it may use serves it")
 	assert.Empty(t, sent)
 }
 

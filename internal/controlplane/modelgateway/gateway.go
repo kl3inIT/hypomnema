@@ -1118,7 +1118,7 @@ func (s *Service) ModelsFor(ctx context.Context, k Key) ([]Model, error) {
 		return nil, err
 	}
 
-	return slices.DeleteFunc(all, func(m Model) bool { return !k.Allows(m.Name) }), nil
+	return slices.DeleteFunc(all, func(m Model) bool { return !k.Allows(m.Name) || !s.KeyServes(ctx, k, m) }), nil
 }
 
 func keyFromRow(r store.GatewayKey) (Key, error) {

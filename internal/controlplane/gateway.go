@@ -61,14 +61,23 @@ type gatewayAccounts struct{ subs *subscription.Service }
 func (g gatewayAccounts) Token(
 	ctx context.Context, runtime, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.Token(ctx, runtime, session, skip...))
+	return accountToken(g.subs.Token(keyAccounts(ctx), runtime, session, skip...))
 }
 
 // TokenFor is Token for a request for a model: only the accounts whose vendor lists it, when one does (issue #814).
 func (g gatewayAccounts) TokenFor(
 	ctx context.Context, runtime, model, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.TokenFor(listDeadline(ctx), runtime, model, session, skip...))
+	return accountToken(g.subs.TokenFor(keyAccounts(listDeadline(ctx)), runtime, model, session, skip...))
+}
+
+// keyAccounts gives the subscriptions the only accounts the gateway's request may use: its key's own (issue #1277).
+func keyAccounts(ctx context.Context) context.Context {
+	if ids, ok := modelgateway.KeyAccounts(ctx); ok {
+		return subscription.WithAccounts(ctx, ids)
+	}
+
+	return ctx
 }
 
 // listDeadline gives the subscriptions the moment the gateway's request stops waiting for the accounts' lists of
@@ -84,7 +93,7 @@ func listDeadline(ctx context.Context) context.Context {
 func (g gatewayAccounts) FirstFree(
 	ctx context.Context, runtime string, modelReset func(string) time.Time,
 ) (time.Time, error) {
-	return g.subs.FirstFree(ctx, runtime, modelReset)
+	return g.subs.FirstFree(keyAccounts(ctx), runtime, modelReset)
 }
 
 func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
@@ -504,7 +513,8 @@ func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) er
 	name := fs.String("name", "", "the new name")
 	models := fs.String("models", "", "comma-separated models, or * for every model")
 	endpoints := fs.String("endpoints", "", "comma-separated endpoint kinds, none, or * for every kind")
-	accounts := fs.String("accounts", "", "comma-separated accounts, the only ones the key may use, or * for every account")
+	accounts := fs.String("accounts", "", "comma-separated accounts, the only ones the key may use, or * for every "+
+		"account")
 	order := fs.String("search-order", "", "comma-separated web search providers asked first, or settings for the "+
 		"order of Settings")
 

@@ -84,12 +84,22 @@ func (s *Service) KeyServes(ctx context.Context, k Key, m Model) bool {
 	return len(m.Targets) == 0
 }
 
+// accountsRefuseMessage says why a key limited to some accounts may not use a model.
+func accountsRefuseMessage(model string) string {
+	return fmt.Sprintf("this key may not use model %q: none of the accounts it may use serves it", model)
+}
+
 type keyAccountsKey struct{}
 
 // withKey gives a request the accounts its key may use (KeyAccounts).
 func withKey(r *http.Request, k Key) *http.Request {
+	return r.WithContext(keyContext(r.Context(), k))
+}
+
+// keyContext gives ctx the accounts a key may use (KeyAccounts).
+func keyContext(ctx context.Context, k Key) context.Context {
 	if !k.OwnAccounts() {
-		return r
+		return ctx
 	}
 
 	ids := make([]string, 0, len(k.Accounts))
@@ -97,7 +107,7 @@ func withKey(r *http.Request, k Key) *http.Request {
 		ids = append(ids, a.ID)
 	}
 
-	return r.WithContext(context.WithValue(r.Context(), keyAccountsKey{}, ids))
+	return context.WithValue(ctx, keyAccountsKey{}, ids)
 }
 
 // KeyAccounts are the only accounts the request of ctx may be served under (issue #1277); ok is false when it may
