@@ -37,7 +37,8 @@ The control plane posts a commit status named `review` on the heads of the pull 
 repositories it holds a token for (issue #1279; [architecture](../ARCHITECTURE.md)). It is `success` on the exact
 head a reviewer judged `correct`, `failure` on one judged `incorrect` or `blocked`, and `success` with "no review
 needed: quick Task <id>" on each head of a `quick` Task's pull request, found by the Task's branch even after its
-Run is finished, while no narrow or broad Task continues it. A new push has none until it is reviewed. A verdict covers only the full head SHA it names.
+Run is finished, on the heads a quick Task pushed: a head a narrow or broad Task pushed needs its review. A new
+push has none until it is reviewed. A verdict covers only the full head SHA it names.
 The token must be allowed to write commit statuses (a classic token's `repo` scope, or "Commit statuses: write").
 
 When the control plane first runs the change, the migration queues each pull request's latest verdict, and the

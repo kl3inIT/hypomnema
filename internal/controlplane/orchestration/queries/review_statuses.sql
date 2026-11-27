@@ -66,9 +66,21 @@ UPDATE no_review_requests
 SET looked_at = @now
 WHERE task_id = @task_id;
 
--- name: LatestTaskPushingTo :one
--- The Task that pushed last to branch: its own hyp/<id>, or the branch it continues (issue #690), of any Run.
-SELECT * FROM tasks
-WHERE push_branch = CAST(@branch AS TEXT) OR (push_branch IS NULL AND 'hyp/' || id = CAST(@branch AS TEXT))
-ORDER BY created_at DESC, id DESC
+-- name: TaskThatPushed :one
+-- The Task whose Dispatch reported publishing sha to branch (published_heads.go), the latest report first.
+SELECT t.* FROM tasks t
+    JOIN dispatches d ON d.task_id = t.id
+    JOIN dispatch_effects e ON e.dispatch_id = d.id
+WHERE e.kind = 'git_push' AND e.phase = 'done' AND e.ref = CAST(@branch AS TEXT) AND e.payload = CAST(@sha AS TEXT)
+ORDER BY e.updated_at DESC, d.id DESC
+LIMIT 1;
+
+-- name: TaskLastStartedOn :one
+-- The Task pushing to branch, its own hyp/<id> or the branch it continues (issue #690), of any Run, whose Dispatch
+-- started last: a Task that never started never pushed.
+SELECT t.* FROM tasks t
+    JOIN dispatches d ON d.task_id = t.id
+WHERE (t.push_branch = CAST(@branch AS TEXT) OR (t.push_branch IS NULL AND 'hyp/' || t.id = CAST(@branch AS TEXT)))
+  AND d.started_at IS NOT NULL
+ORDER BY d.started_at DESC, d.id DESC
 LIMIT 1;

@@ -98,46 +98,6 @@ func (q *Queries) KeepNoReviewRequest(ctx context.Context, arg KeepNoReviewReque
 	return err
 }
 
-const latestTaskPushingTo = `-- name: LatestTaskPushingTo :one
-SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at, waiting_reason, kind, author_vendor, continues, push_branch, start_from, pr_base FROM tasks
-WHERE push_branch = CAST(?1 AS TEXT) OR (push_branch IS NULL AND 'hyp/' || id = CAST(?1 AS TEXT))
-ORDER BY created_at DESC, id DESC
-LIMIT 1
-`
-
-// The Task that pushed last to branch: its own hyp/<id>, or the branch it continues (issue #690), of any Run.
-func (q *Queries) LatestTaskPushingTo(ctx context.Context, branch string) (Task, error) {
-	row := q.db.QueryRowContext(ctx, latestTaskPushingTo, branch)
-	var i Task
-	err := row.Scan(
-		&i.ID,
-		&i.RunID,
-		&i.Position,
-		&i.Profile,
-		&i.Spec,
-		&i.Runtime,
-		&i.Model,
-		&i.Effort,
-		&i.Status,
-		&i.BlockedReason,
-		&i.FailureCount,
-		&i.Result,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.FinishedAt,
-		&i.NotBefore,
-		&i.CancelRequestedAt,
-		&i.WaitingReason,
-		&i.Kind,
-		&i.AuthorVendor,
-		&i.Continues,
-		&i.PushBranch,
-		&i.StartFrom,
-		&i.PrBase,
-	)
-	return i, err
-}
-
 const lookedUpNoReviewRequest = `-- name: LookedUpNoReviewRequest :exec
 UPDATE no_review_requests
 SET looked_at = ?1
@@ -260,6 +220,96 @@ func (q *Queries) QueueReviewVerdictStatus(ctx context.Context, arg QueueReviewV
 		arg.Now,
 	)
 	return err
+}
+
+const taskLastStartedOn = `-- name: TaskLastStartedOn :one
+SELECT t.id, t.run_id, t.position, t.profile, t.spec, t.runtime, t.model, t.effort, t.status, t.blocked_reason, t.failure_count, t.result, t.created_at, t.updated_at, t.finished_at, t.not_before, t.cancel_requested_at, t.waiting_reason, t.kind, t.author_vendor, t.continues, t.push_branch, t.start_from, t.pr_base FROM tasks t
+    JOIN dispatches d ON d.task_id = t.id
+WHERE (t.push_branch = CAST(?1 AS TEXT) OR (t.push_branch IS NULL AND 'hyp/' || t.id = CAST(?1 AS TEXT)))
+  AND d.started_at IS NOT NULL
+ORDER BY d.started_at DESC, d.id DESC
+LIMIT 1
+`
+
+// The Task pushing to branch, its own hyp/<id> or the branch it continues (issue #690), of any Run, whose Dispatch
+// started last: a Task that never started never pushed.
+func (q *Queries) TaskLastStartedOn(ctx context.Context, branch string) (Task, error) {
+	row := q.db.QueryRowContext(ctx, taskLastStartedOn, branch)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.Position,
+		&i.Profile,
+		&i.Spec,
+		&i.Runtime,
+		&i.Model,
+		&i.Effort,
+		&i.Status,
+		&i.BlockedReason,
+		&i.FailureCount,
+		&i.Result,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FinishedAt,
+		&i.NotBefore,
+		&i.CancelRequestedAt,
+		&i.WaitingReason,
+		&i.Kind,
+		&i.AuthorVendor,
+		&i.Continues,
+		&i.PushBranch,
+		&i.StartFrom,
+		&i.PrBase,
+	)
+	return i, err
+}
+
+const taskThatPushed = `-- name: TaskThatPushed :one
+SELECT t.id, t.run_id, t.position, t.profile, t.spec, t.runtime, t.model, t.effort, t.status, t.blocked_reason, t.failure_count, t.result, t.created_at, t.updated_at, t.finished_at, t.not_before, t.cancel_requested_at, t.waiting_reason, t.kind, t.author_vendor, t.continues, t.push_branch, t.start_from, t.pr_base FROM tasks t
+    JOIN dispatches d ON d.task_id = t.id
+    JOIN dispatch_effects e ON e.dispatch_id = d.id
+WHERE e.kind = 'git_push' AND e.phase = 'done' AND e.ref = CAST(?1 AS TEXT) AND e.payload = CAST(?2 AS TEXT)
+ORDER BY e.updated_at DESC, d.id DESC
+LIMIT 1
+`
+
+type TaskThatPushedParams struct {
+	Branch string
+	Sha    string
+}
+
+// The Task whose Dispatch reported publishing sha to branch (published_heads.go), the latest report first.
+func (q *Queries) TaskThatPushed(ctx context.Context, arg TaskThatPushedParams) (Task, error) {
+	row := q.db.QueryRowContext(ctx, taskThatPushed, arg.Branch, arg.Sha)
+	var i Task
+	err := row.Scan(
+		&i.ID,
+		&i.RunID,
+		&i.Position,
+		&i.Profile,
+		&i.Spec,
+		&i.Runtime,
+		&i.Model,
+		&i.Effort,
+		&i.Status,
+		&i.BlockedReason,
+		&i.FailureCount,
+		&i.Result,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FinishedAt,
+		&i.NotBefore,
+		&i.CancelRequestedAt,
+		&i.WaitingReason,
+		&i.Kind,
+		&i.AuthorVendor,
+		&i.Continues,
+		&i.PushBranch,
+		&i.StartFrom,
+		&i.PrBase,
+	)
+	return i, err
 }
 
 const waitingReviewStatuses = `-- name: WaitingReviewStatuses :many

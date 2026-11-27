@@ -27,8 +27,8 @@ import (
 //     says quick work needs green CI and no worker review. The Task is kept when it succeeds (keepNoReview; the
 //     migration keeps those that succeeded before), whatever becomes of its Run, which the coordinator may finish
 //     at once (review round 1); each pass finds its pull request by the Task's branch, as the follower does, and
-//     queues its head, only while the latest Task pushing to that branch is quick: a narrow or broad Task that
-//     continues it, in any Run, makes its heads need their review (review round 2).
+//     queues a head only when a quick Task pushed it (quickHead): a narrow or broad Task that continues it, in any Run,
+//     makes the heads it pushes need their review (review rounds 2 and 3).
 //
 // Each is queued in the transaction that learns it and posted by the control plane's follower with the token of
 // the repository's Connection, the one its pull requests are read with. Before posting, the pull request is read:
@@ -188,19 +188,26 @@ func (s *Service) findNoReviewPullRequests(ctx context.Context, host ReviewStatu
 	return errors.Join(errs...)
 }
 
-// stillQuick reports whether the latest Task pushing to branch, of any Run, is quick: a Task that continues a
-// quick one takes its branch and pull request, and its heads need what its own kind needs.
-func stillQuick(ctx context.Context, q *store.Queries, branch string) (bool, error) {
-	latest, err := q.LatestTaskPushingTo(ctx, branch)
+// quickHead reports whether head of branch was pushed by a quick Task: a Task that continues a quick one takes
+// its branch and pull request, and the heads it pushes need what its own kind needs (review rounds 2 and 3). The
+// Task that decides is the one whose Dispatch reported publishing that head; for a head no Dispatch reported (a
+// push without publish_branch, or a node too old to report it), the Task pushing to branch whose Dispatch started
+// last, so a Task created later but never run, such as one canceled before it ran, decides nothing.
+func quickHead(ctx context.Context, q *store.Queries, branch, head string) (bool, error) {
+	pusher, err := q.TaskThatPushed(ctx, store.TaskThatPushedParams{Branch: branch, Sha: head})
+	if errors.Is(err, sql.ErrNoRows) {
+		pusher, err = q.TaskLastStartedOn(ctx, branch)
+	}
+
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 
 	if err != nil {
-		return false, fmt.Errorf("reading the latest task pushing to %s: %w", branch, err)
+		return false, fmt.Errorf("reading the task that pushed %s to %s: %w", head, branch, err)
 	}
 
-	return latest.Kind == "quick", nil
+	return pusher.Kind == "quick", nil
 }
 
 // findNoReview finds row's pull request, queues success on its open head, and says whether row is done.
@@ -210,11 +217,6 @@ func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host Revie
 	now := s.clock.Now().UnixMilli()
 	if now-row.Since > reviewStatusWindow.Milliseconds() {
 		return true, nil
-	}
-
-	quick, err := stillQuick(ctx, q, row.Branch)
-	if err != nil || !quick {
-		return !quick && err == nil, err
 	}
 
 	if row.PullRequest == "" && now-row.Since >= noRequestFastFor.Milliseconds() &&
@@ -250,6 +252,14 @@ func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host Revie
 	}
 
 	url := requestURL(registered.Kind, r)
+	head := strings.ToLower(st.Head)
+
+	quick := false
+	if st.Status == githost.RequestOpen && fullSHA.MatchString(head) {
+		if quick, err = quickHead(ctx, q, row.Branch, head); err != nil {
+			return false, err
+		}
+	}
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
 		if url != row.PullRequest {
@@ -260,8 +270,7 @@ func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host Revie
 			}
 		}
 
-		head := strings.ToLower(st.Head)
-		if st.Status != githost.RequestOpen || !fullSHA.MatchString(head) {
+		if !quick {
 			return nil
 		}
 
@@ -273,7 +282,8 @@ func (s *Service) findNoReview(ctx context.Context, q *store.Queries, host Revie
 		return false, fmt.Errorf("queueing the review status of %s: %w", url, err)
 	}
 
-	return st.Status != githost.RequestOpen, nil
+	// A head another kind of Task pushed hands the pull request to that Task: its heads need what it needs.
+	return st.Status != githost.RequestOpen || (fullSHA.MatchString(head) && !quick), nil
 }
 
 // PostReviewStatuses posts each queued status whose pull request is still open at its head, and drops the
@@ -358,7 +368,7 @@ func (s *Service) postReviewStatus(ctx context.Context, q *store.Queries, host R
 	}
 
 	if row.Reason == "quick" {
-		quick, err := stillQuick(ctx, q, pushBranchOf(task))
+		quick, err := quickHead(ctx, q, pushBranchOf(task), head)
 		if err != nil {
 			return "", err
 		}
