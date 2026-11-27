@@ -532,7 +532,8 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 	assert.Equal(t, "usage_limit", cooling.Code, "why the account free first rests (issue #1305)")
 	free, err := w.subs.FirstFree(t.Context(), "codex", nil)
 	require.NoError(t, err)
-	assert.Equal(t, subscription.Rest{Until: until, Code: "usage_limit"}, free)
+	assert.Equal(t, subscription.Rest{Until: until, Code: "usage_limit", Reason: "5-hour limit reached"}, free)
+	assert.Equal(t, "5-hour limit reached", cooling.Reason, "the provider's words (review of PR #1307)")
 	modelReset := subscription.Rest{Until: until.Add(time.Hour), Code: "overloaded"}
 	free, err = w.subs.FirstFree(t.Context(), "codex", func(string) subscription.Rest { return modelReset })
 	require.NoError(t, err)
