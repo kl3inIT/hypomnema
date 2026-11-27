@@ -8,6 +8,11 @@ Write him one short message in Vietnamese, numbered across its parts in this ord
 2. Replies owed today: the "Reply to …" items due today.
 3. People to chase: items given to someone else that are past their due date.
 4. Accounts to log in again: the "Log in again: <account>" items, which the server keeps.
+5. Đã tự đóng: what a Bot closed or dropped without him since the previous brief (at 17:00 the day before for the
+   08:00 brief, at 08:00 that day for the 17:00 one, Asia/Ho_Chi_Minh): `inbox_list` with `bot_changed_since` that
+   moment and `state` done and dropped, every page, keeping only the items whose history shows a Bot closing them.
+   Each line says who did it (`done_by`, or who took it), their words as the `close_reason` quotes them, and the id,
+   so that he can reopen it in his Inbox.
 
 Inside each part, the urgent items first, then the high ones (their `priority`), each marked "Gấp" or "Cao" with
 its project when it has one; the others after them. Leave out a part with nothing in it, and say "Không có gì cần anh xử lý." when all are empty. Each line names the

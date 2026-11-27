@@ -7373,7 +7373,7 @@ type TodoEvent struct {
 	Before map[string]interface{} `json:"before"`
 	Id     int64                  `json:"id"`
 
-	// Kind created, edited, state, snoozed, linked_approval or commented (after.text is the comment).
+	// Kind created, edited, state, snoozed, linked_approval or commented: after.text is the comment, and a Bot's comment may carry after.files, paths in the Bot's folder read through the chat after.chat, and after.artifacts, the ids of Artifacts it showed (issue #1207).
 	Kind string `json:"kind"`
 
 	// Revision The revision the change made.
@@ -7392,13 +7392,13 @@ type TodoHand struct {
 
 // TodoLink A typed reference, to where an item came from or to what shows it is done.
 type TodoLink struct {
-	// Account The owner's account a message he sent was sent from; zalo_sent, whatsapp_sent, lark_sent only.
+	// Account The owner's account the message is in: a message he sent (zalo_sent, whatsapp_sent, lark_sent), or a person's message given as evidence (zalo_message, whatsapp_message, lark_message).
 	Account *string `json:"account,omitempty"`
 
-	// Chat The chat a message the owner sent is in, its id at the service; the *_sent kinds only.
+	// Chat The chat the message is in, its id at the service; with account only.
 	Chat *string `json:"chat,omitempty"`
 
-	// Kind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered.
+	// Kind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
 	Kind  TodoLinkKind `json:"kind"`
 	Label *string      `json:"label,omitempty"`
 
@@ -7406,7 +7406,7 @@ type TodoLink struct {
 	Ref string `json:"ref"`
 }
 
-// TodoLinkKind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered.
+// TodoLinkKind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
 type TodoLinkKind string
 
 // TodoList defines model for TodoList.

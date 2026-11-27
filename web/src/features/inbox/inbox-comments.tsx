@@ -21,8 +21,12 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Message, MessageContent, MessageHeader } from "@/components/ui/message"
+import { ArtifactCard } from "@/features/artifacts/artifact-card"
+import { useArtifact } from "@/features/artifacts/artifact-state"
 import { Composer } from "@/features/chat/composer"
+import { ReplyFiles } from "@/features/chat/reply-files"
 import { useServices } from "@/features/settings/use-integrations"
+import { problemOf } from "@/lib/server-error"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
@@ -44,7 +48,8 @@ import { useMessage, type KeptChats } from "./use-origin"
 
 // An Inbox item's comments (issue #1143), on a line as GitHub's issue timeline: ReUI's Timeline holds each entry
 // with its icon on the line; a comment is a card of the chat's message parts with the chat's Markdown, its ids as
-// links (InboxMarkdown, issue #1173); changes in a
+// links (InboxMarkdown, issue #1173), and a Bot's files and Artifacts under its text, drawn by the chat's ReplyFiles
+// and ArtifactCard, as Gitea draws a comment's attachments under it (issue #1207); changes in a
 // row by one actor fold into AI Elements' chain of thought, adapted in components/chain-of-thought.tsx; a Bot's
 // report folds its <details> sections in the app's Collapsible, as CodeRabbit's summary comment; and the chat's
 // composer writes, handing the item over when no Bot has it.
@@ -339,11 +344,39 @@ function Comment({
           </div>
           <div className="px-3 pb-2.5">
             <Report text={entry.text} />
+            {entry.chat && entry.files.length > 0 && (
+              <ReplyFiles chat={entry.chat} paths={entry.files} />
+            )}
+            {entry.artifacts.length > 0 && (
+              <ul aria-label="Artifacts" className="mt-2 flex flex-col">
+                {entry.artifacts.map((id) => (
+                  <li key={id}>
+                    <CommentArtifact id={id} />
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </MessageContent>
       </Message>
     </article>
   )
+}
+
+// CommentArtifact is an Artifact a Bot's comment carries (issue #1207), drawn by the chat's own card once it is
+// read; one the server refuses says the server's message in its place.
+function CommentArtifact({ id }: { id: string }) {
+  const artifact = useArtifact(id)
+  if (artifact.data) return <ArtifactCard card={artifact.data} />
+  if (artifact.isError) {
+    return (
+      <p className="pb-2 text-sm text-destructive">
+        An Artifact could not be opened: {problemOf(artifact.error).message}
+      </p>
+    )
+  }
+
+  return <p className="pb-2 text-sm text-muted-foreground">Reading the Artifact…</p>
 }
 
 // Report shows a comment with its <details> sections folded under their titles (reportOf).

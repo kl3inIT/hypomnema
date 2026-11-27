@@ -74,29 +74,29 @@ WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?13 AS INTEGER)))))
-  AND (CAST(?17 AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
-        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(?18 AS INTEGER)))
+  AND (CAST(?17 AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = CAST(?17 AS TEXT) AND e.at >= CAST(?18 AS INTEGER)))
 `
 
 type CountTodosParams struct {
-	AnyState      int64
-	States        string
-	AssigneeKind  string
-	Assignee      string
-	SourceKind    string
-	ProjectKind   string
-	Project       string
-	HasDueFrom    int64
-	DueFrom       int64
-	HasDueTo      int64
-	DueTo         int64
-	WithSnoozed   int64
-	Now           int64
-	WithStale     int64
-	StaleBefore   int64
-	NeedsYou      int64
-	HasOwnerSince int64
-	OwnerSince    int64
+	AnyState     int64
+	States       string
+	AssigneeKind string
+	Assignee     string
+	SourceKind   string
+	ProjectKind  string
+	Project      string
+	HasDueFrom   int64
+	DueFrom      int64
+	HasDueTo     int64
+	DueTo        int64
+	WithSnoozed  int64
+	Now          int64
+	WithStale    int64
+	StaleBefore  int64
+	NeedsYou     int64
+	ChangedBy    string
+	ChangedSince int64
 }
 
 // How many items match the filter of ListTodos, every page together.
@@ -118,12 +118,29 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 		arg.WithStale,
 		arg.StaleBefore,
 		arg.NeedsYou,
-		arg.HasOwnerSince,
-		arg.OwnerSince,
+		arg.ChangedBy,
+		arg.ChangedSince,
 	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const getBotLiveChat = `-- name: GetBotLiveChat :one
+SELECT c.id FROM chats c
+JOIN bots b ON b.id = c.bot_id
+WHERE c.bot_id = ?1
+ORDER BY c.id = b.main_chat DESC, c.updated_at DESC, c.id
+LIMIT 1
+`
+
+// A chat of a Bot that is still there, its main chat first, else the one updated last (issue #1207): every chat of
+// a Bot reads its one folder, so a comment's files are read through it once the chat the comment named is deleted.
+func (q *Queries) GetBotLiveChat(ctx context.Context, botID string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getBotLiveChat, botID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getTodo = `-- name: GetTodo :one
@@ -604,20 +621,18 @@ func (q *Queries) ListOpenTodosOfBot(ctx context.Context, bot string) ([]Todo, e
 	return items, nil
 }
 
-const listOwnerTodoEvents = `-- name: ListOwnerTodoEvents :many
-SELECT id, todo_id, at, revision, actor_kind, actor, kind, "before", "after" FROM todo_events WHERE todo_id = ?1 AND actor_kind = 'owner' AND at >= ?2
-ORDER BY id DESC LIMIT ?3
+const listTodoEvents = `-- name: ListTodoEvents :many
+SELECT id, todo_id, at, revision, actor_kind, actor, kind, "before", "after" FROM todo_events WHERE todo_id = ?1 ORDER BY id DESC LIMIT ?2
 `
 
-type ListOwnerTodoEventsParams struct {
+type ListTodoEventsParams struct {
 	TodoID string
-	Since  int64
 	Lim    int64
 }
 
-// The latest changes the owner made to an item at or after since, newest first, at most lim (issue #1119).
-func (q *Queries) ListOwnerTodoEvents(ctx context.Context, arg ListOwnerTodoEventsParams) ([]TodoEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listOwnerTodoEvents, arg.TodoID, arg.Since, arg.Lim)
+// The latest events of an item, newest first, at most lim.
+func (q *Queries) ListTodoEvents(ctx context.Context, arg ListTodoEventsParams) ([]TodoEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listTodoEvents, arg.TodoID, arg.Lim)
 	if err != nil {
 		return nil, err
 	}
@@ -649,18 +664,27 @@ func (q *Queries) ListOwnerTodoEvents(ctx context.Context, arg ListOwnerTodoEven
 	return items, nil
 }
 
-const listTodoEvents = `-- name: ListTodoEvents :many
-SELECT id, todo_id, at, revision, actor_kind, actor, kind, "before", "after" FROM todo_events WHERE todo_id = ?1 ORDER BY id DESC LIMIT ?2
+const listTodoEventsBy = `-- name: ListTodoEventsBy :many
+SELECT id, todo_id, at, revision, actor_kind, actor, kind, "before", "after" FROM todo_events WHERE todo_id = ?1 AND actor_kind = ?2 AND at >= ?3
+ORDER BY id DESC LIMIT ?4
 `
 
-type ListTodoEventsParams struct {
-	TodoID string
-	Lim    int64
+type ListTodoEventsByParams struct {
+	TodoID    string
+	ActorKind string
+	Since     int64
+	Lim       int64
 }
 
-// The latest events of an item, newest first, at most lim.
-func (q *Queries) ListTodoEvents(ctx context.Context, arg ListTodoEventsParams) ([]TodoEvent, error) {
-	rows, err := q.db.QueryContext(ctx, listTodoEvents, arg.TodoID, arg.Lim)
+// The latest changes an actor of a kind (the owner, issue #1119; a Bot, issue #1204) made to an item at or after
+// since, newest first, at most lim.
+func (q *Queries) ListTodoEventsBy(ctx context.Context, arg ListTodoEventsByParams) ([]TodoEvent, error) {
+	rows, err := q.db.QueryContext(ctx, listTodoEventsBy,
+		arg.TodoID,
+		arg.ActorKind,
+		arg.Since,
+		arg.Lim,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -714,8 +738,8 @@ WHERE (CAST(?1 AS INTEGER) = 1 OR t.state IN (SELECT value FROM json_each(CAST(?
       OR (t.assignee_kind = 'me' AND t.draft <> '')
       OR (t.assignee_kind = 'me' AND t.idempotency_hash = 'signin')
       OR (t.assignee_kind = 'me' AND t.overdue_at IS NOT NULL AND t.overdue_at <= CAST(?13 AS INTEGER)))))
-  AND (CAST(?17 AS INTEGER) = 0 OR EXISTS (SELECT 1 FROM todo_events e
-        WHERE e.todo_id = t.id AND e.actor_kind = 'owner' AND e.at >= CAST(?18 AS INTEGER)))
+  AND (CAST(?17 AS TEXT) = '' OR EXISTS (SELECT 1 FROM todo_events e
+        WHERE e.todo_id = t.id AND e.actor_kind = CAST(?17 AS TEXT) AND e.at >= CAST(?18 AS INTEGER)))
   AND (CAST(?19 AS INTEGER) = 0
     OR coalesce(t.due_at, 9223372036854775807) > CAST(?20 AS INTEGER)
     OR (coalesce(t.due_at, 9223372036854775807) = CAST(?20 AS INTEGER) AND t.created_at > ?21)
@@ -725,29 +749,29 @@ LIMIT ?23
 `
 
 type ListTodosParams struct {
-	AnyState      int64
-	States        string
-	AssigneeKind  string
-	Assignee      string
-	SourceKind    string
-	ProjectKind   string
-	Project       string
-	HasDueFrom    int64
-	DueFrom       int64
-	HasDueTo      int64
-	DueTo         int64
-	WithSnoozed   int64
-	Now           int64
-	WithStale     int64
-	StaleBefore   int64
-	NeedsYou      int64
-	HasOwnerSince int64
-	OwnerSince    int64
-	HasCursor     int64
-	CursorDue     int64
-	CursorAt      int64
-	CursorID      string
-	Lim           int64
+	AnyState     int64
+	States       string
+	AssigneeKind string
+	Assignee     string
+	SourceKind   string
+	ProjectKind  string
+	Project      string
+	HasDueFrom   int64
+	DueFrom      int64
+	HasDueTo     int64
+	DueTo        int64
+	WithSnoozed  int64
+	Now          int64
+	WithStale    int64
+	StaleBefore  int64
+	NeedsYou     int64
+	ChangedBy    string
+	ChangedSince int64
+	HasCursor    int64
+	CursorDue    int64
+	CursorAt     int64
+	CursorID     string
+	Lim          int64
 }
 
 // One page of the items that match, by due (those without one last), then created, then id, after the cursor of
@@ -755,7 +779,8 @@ type ListTodosParams struct {
 // without a project; one, only those of project (issue #1157). A proposal nobody touched since
 // stale_before is stale (issue #966): left out unless with_stale, and never one that needs the owner. Touched is
 // any event after created, and every event moves the revision on, so an untouched item is at revision 1. With
-// has_owner_since, only the items the owner changed at or after owner_since (issue #1119).
+// changed_by, only the items an actor of that kind changed at or after changed_since: the owner (issue #1119) or a
+// Bot (issue #1204).
 func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, error) {
 	rows, err := q.db.QueryContext(ctx, listTodos,
 		arg.AnyState,
@@ -774,8 +799,8 @@ func (q *Queries) ListTodos(ctx context.Context, arg ListTodosParams) ([]Todo, e
 		arg.WithStale,
 		arg.StaleBefore,
 		arg.NeedsYou,
-		arg.HasOwnerSince,
-		arg.OwnerSince,
+		arg.ChangedBy,
+		arg.ChangedSince,
 		arg.HasCursor,
 		arg.CursorDue,
 		arg.CursorAt,

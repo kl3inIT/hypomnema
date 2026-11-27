@@ -4888,7 +4888,7 @@ gateway chat model writes its summary, decisions and actions.
   recording from the CLI or a desktop app, editing a line's whole text (only a word is replaced), removing a found word from the list, sharing a meeting.
 
 Inbox (`orchestration/inboxstore`, migrations 00143, 00148, 00153, 00164, 00165, 00166, 00167 and
-00169; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124, #1157 and #1163, parts 1 to 3 of the
+00169; issues #838, #845, #966, #1004, #1105, #1111, #1118, #1124, #1157, #1163 and #1204, parts 1 to 3 of the
 Inbox, the sources a Bot reads, handing an item to a Bot, passing it from Bot to Bot, a removed Bot's items, and
 priority and projects): the store of the to-dos that have to happen, whoever does them, its state machine,
 its client API, its CLI and the Bots' tools.
@@ -4915,7 +4915,8 @@ its client API, its CLI and the Bots' tools.
   (`done_by_kind`/`done_by` apart from `recorded_by_kind`/`recorded_by`, `closed_how`, `close_reason`, `evidence`
   a JSON array of at most 20 `{kind, ref, label}` of kinds `url`, `chat_message` (ref the message's seq), `mail`,
   `run`, `pull_request`, `meeting_line`, `lark_message`, `zalo_message`, `whatsapp_message`, and `zalo_sent`,
-  `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`;
+  `whatsapp_sent`, `lark_sent`, a message the owner sent himself, which also name `account` and `chat`, as a
+  `lark_message`, `zalo_message` or `whatsapp_message` given as a person's message does (issue #1204);
   `closed_at`); `duplicate_of`; `chat_id`, the item's own chat with the Bot it was given to (migration 00165, issue
   #1111; cleared in `deleteChatTx` when that chat is deleted); `passed_by`, the Bot that gave the item to the Bot it
   is given to (issue #1118), set again with every change of the assignee: the acting Bot when a Bot gives it to
@@ -4967,8 +4968,15 @@ its client API, its CLI and the Bots' tools.
   direct chat's other party, through `messaging.MemberLister` of the held session, `integration.Service.Members`;
   a Lark chat's by `GET /open-apis/im/v1/chats/:id` and `.../members`); what cannot be read is not evidence; the
   closing event's `answered_in` says that chat's name, which the item's activity shows; another service is never
-  matched); a Bot closes or drops no item that is another Bot's (given to another, or added by another and not
-  given to it); `closed_how`
+  matched); a Bot records an open item done by a person (`done_by_kind` `person`), or drops a proposal it added
+  that a person took, with that person's message as evidence and their words in the reason (issue #1204,
+  `personSent`): a `zalo_message`, `whatsapp_message` or `lark_message` naming the item's own account and a chat,
+  read before the write at the change's revision through the same `Sent` (`SentMessage.Sender`, the sender's id,
+  empty for the owner's own), which exists, was not sent by the owner, was sent by a person, is later than the item,
+  and is in the item's chat, in another chat of that account where the asker is a member (as above, the closing's
+  `answered_in` naming it), or, for an item `waiting`, anywhere on that account from the sender of the message its
+  latest `waiting_on` names; never on an item the owner added himself; a Bot closes or drops no item that is another
+  Bot's (given to another, or added by another and not given to it); `closed_how`
   `ai` and `time` are refused; nothing in review is closed while it waits; a doing or review item is given to
   another only once its attempt ended (released, closed or its Approval answered); a duplicate's target exists, is
   not the item nor a duplicate, and the item is the target of none;
@@ -5015,9 +5023,18 @@ its client API, its CLI and the Bots' tools.
   `inbox_comment`; close with evidence or hand it back with a draft. `Comment` adds a comment at the item's
   revision, which it moves on (`TouchTodo`): the owner on any item, his comment waking the Bot in the item's chat in
   `<owner_comment>` when it has one (Orca's item mail); a Bot on the items it added, is given or has the chat of,
-  waking nobody. A wake-up that carries the owner's words keeps them in `chat_messages.recall` (his comment, or the
-  item's title and his prompt for a hand-over; none for an item a Bot passed or given with no prompt), which the
-  turn it starts is recalled by and the row is found by (issue #805, under Bots: "Search and recall").
+  waking nobody. A Bot's comment carries the work's result (`CommentWith`, `inboxstore/attached.go`; issue #1207,
+  after Gitea's comment attachments, `models/issues/comment.go`): at most 5 files (paths relative to the Bot's
+  folder, as a reply's `MEDIA:` lines name them; one outside it refused) and 5 Artifacts, each one the Bot showed
+  (another Bot's refused, as Gitea's `validateAttachmentForIssue`), kept in the comment's event as `after.files`,
+  `after.artifacts` and `after.chat`, the chat the files are read through: the item's own chat when it is that
+  Bot's, else the chat the Bot commented from. Once that chat is deleted, the item's history reads `after.chat` as
+  a chat of the same Bot still there, its main chat first (`liveChats`, `GetBotLiveChat`), since every chat of a Bot
+  reads its one folder; the event keeps the chat it named. The wake-up of a handed item tells the Bot to post the result there
+  (a file, an Artifact, a report), not only in its chat, as Linear's agent ends with a response shown as a comment. A wake-up that carries the owner's words keeps them in
+  `chat_messages.recall` (his comment, or the item's title and his prompt for a hand-over; none for an item a Bot
+  passed or given with no prompt), which the turn it starts is recalled by and the row is found by (issue #805,
+  under Bots: "Search and recall").
 - Waiting on others (`inboxstore/waiting.go`; issue #1142, the owner's rules of 2026-11-25: an item is his when he
   is asked, tagged or written to or he promised; waiting on someone when he gave the work to a person, a person
   owes him something he needs for his own work (a file, an access, an API, a payment, the sign-off of his work), or
@@ -5108,7 +5125,7 @@ its client API, its CLI and the Bots' tools.
   due_at, timezone}` with only `id` and `revision` beside it, which calls `WaitOn` with the due given, else
   `inboxDefaultChase`), `inbox_start`,
   `inbox_release`, `inbox_done` (`for_owner` records it for him), `inbox_drop`, `inbox_comment` (a comment in the
-  item's thread, issue #1111), for a Bot's pi only. Who acts and
+  item's thread, issue #1111, with `files` and `artifacts`, issue #1207), for a Bot's pi only. Who acts and
   where comes from the pi's token as in the client API (`orchestration.InboxWorkOf`: the chat, or the Routine's run
   the chat was opened for while it is live); each call reads the item and writes at the revision read (or the one
   given) and with the item's attempt when the Bot is doing it there, so a Bot never handles attempt ids. An item
@@ -5129,7 +5146,9 @@ its client API, its CLI and the Bots' tools.
   to chase them. `inbox_list` takes the API's filters, `due_from` and `due_to` included, and `owner_changed_since`
   (issue #1119): only the items the owner himself changed at or after a moment (an event of his), in any state,
   snoozed or stale, each with his changes since then as its history, which the triage Routine learns from
-  (`inboxstore.Filter.OwnerChangedSince`). `inbox_list` also answers the owner's `projects`, the departments' names
+  (`inboxstore.Filter.OwnerChangedSince`); and its mirror `bot_changed_since` (issue #1204,
+  `Filter.BotChangedSince`, not with the other): the items a Bot changed, each with the Bots' changes, from which
+  the brief lists what was closed without him since the previous brief. `inbox_list` also answers the owner's `projects`, the departments' names
   in the sidebar's order (issue #1188), and filters by `project` (a name, or `none`); `inbox_add` and `inbox_update` take `priority` (0–4, as Linear's MCP takes it),
   `priority_reason` and `project` by name (`none` takes it out), and an item reads its priority's name, reason and
   project (issue #1157). A Routine's run that reads
@@ -5190,7 +5209,8 @@ its client API, its CLI and the Bots' tools.
   `inbox_update` tell every Bot (issue #1173): what is needed, by when and when it is done. Every later update of an
   item (another message, a reply, a meeting's line, another place it was seen) is an `inbox_comment` on it, dated,
   with its source and any contradiction with an earlier one said, never a line added to its notes; an id is written
-  once, in parentheses after the words it shows (issue #1186). `deploy/thu-ky/triage.test.mjs` runs the prompt with
+  once, in parentheses after the words it shows (issue #1186); a file, an Artifact or a report the work made is
+  posted on the item with `inbox_comment`'s `files` and `artifacts` (issue #1207). `deploy/thu-ky/triage.test.mjs` runs the prompt with
   a real Claude Code against `triage-world.mjs`, the Bot's tools as an MCP server, only when
   `HYPOMNEMA_TEST_CLAUDE` names it; `triage.eval.mjs` runs the cases of `triage-cases.json` so, only with
   `THU_KY_EVAL=1` (issue #1182). The Routine's
@@ -6444,7 +6464,7 @@ Node (`internal/node`):
     Enter a new paragraph (a line in a list item stays a line break; issue #1186), and its ids, as a comment's, are
     links named by what they name (`features/inbox/inbox-text.ts`, `inbox-markdown.tsx`): `mtg_…` the meeting's
     title to its page, `cht_…` the chat's title to the chat, `tsk_…` the Task's first line to it on Team, `run_…` the
-    Run's objective to its first Task on Team, `tdo_…` the item's title to it in the Inbox; a Zalo (10 to 20 digits)
+    Run's objective to its first Task on Team, `tdo_…` the item's title to it in the Inbox, `art_…` the Artifact's title to its page (issue #1207); a Zalo (10 to 20 digits)
     or WhatsApp (upper-case hexadecimal) message's id, once `GET /integrations/{integration}/connections/{label}/messages?id=`
     finds it among the kept messages of one of the owner's accounts there (the item's own first), "message", a
     popover with the message in its chat, it and the five before it as the server keeps them (neither service has an
@@ -6471,7 +6491,11 @@ Node (`internal/node`):
     thread, or the name alone for Lark; "You took it back"), two or more changes in a row by one actor folded into "Hypo did 5 steps · 10:03–10:41" (AI Elements'
     chain of thought, `web/src/components/chain-of-thought.tsx`), and each comment a card with its face, name, a
     Bot tag and time, its Markdown rendered by the chat's renderer, its ids as links, and each top-level `<details>` folded under its
-    `<summary>` in a Collapsible (`reportOf`, as CodeRabbit's summary comment). Under them a link to the item's chat
+    `<summary>` in a Collapsible (`reportOf`, as CodeRabbit's summary comment); under a Bot's text, its files as the
+    chat's `ReplyFiles` chips, downloaded from the Bot's folder through `after.chat` (red with the server's message
+    when refused), and its Artifacts as the chat's `ArtifactCard`, read by `GET /artifacts/{id}`, opening full
+    screen, where Escape closes only the Artifact (it takes the key first and marks it handled; issue #1207). A
+    chip's error wraps, read whole (`components/ui/attachment.tsx`). Under them a link to the item's chat
     and the chat's composer (Enter sends): on an item no Bot has it reads "Message Hypo…" and **Hand to Hypo**
     hands it to the main Bot with the text as its prompt (`POST /inbox/{id}/hand`); on one a Bot has, Send
     comments (`POST /inbox/{id}/comments`), or hands it to that Bot again when the item has no chat; on a closed

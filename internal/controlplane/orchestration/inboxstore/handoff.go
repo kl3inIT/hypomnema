@@ -142,8 +142,10 @@ func checkComment(text string) error {
 	return nil
 }
 
-// commentTx adds a comment to the item's thread at the revision read, which it moves on as every change does.
-func commentTx(ctx context.Context, q *store.Queries, now int64, actor Actor, id string, revision int64, text string,
+// commentTx adds a comment to the item's thread at the revision read, which it moves on as every change does: after
+// holds its text, and what it carries besides (Attached.after).
+func commentTx(ctx context.Context, q *store.Queries, now int64, actor Actor, id string, revision int64,
+	after map[string]any,
 ) error {
 	n, err := q.TouchTodo(ctx, store.TouchTodoParams{Now: now, ID: id, Revision: revision})
 	if err != nil {
@@ -154,7 +156,7 @@ func commentTx(ctx context.Context, q *store.Queries, now int64, actor Actor, id
 		return fmt.Errorf("%w: to-do %s changed meanwhile", storeerr.ErrConflict, id)
 	}
 
-	return addEvent(ctx, q, id, now, revision+1, actor, EventCommented, map[string]any{}, map[string]any{"text": text})
+	return addEvent(ctx, q, id, now, revision+1, actor, EventCommented, map[string]any{}, after)
 }
 
 // Comment adds a comment to an item's thread (issue #1111). The owner comments on any item, and his comment wakes
@@ -162,6 +164,11 @@ func commentTx(ctx context.Context, q *store.Queries, now int64, actor Actor, id
 // on the items it added, is given or has the chat of, to say where its work is (Linear's agent activity). A comment
 // changes no field and needs no revision: it is added to the item as it is.
 func (s *Store) Comment(ctx context.Context, actor Actor, id, text string) (Todo, error) {
+	return s.CommentWith(ctx, actor, id, text, Attached{})
+}
+
+// CommentWith adds a comment as Comment does, with the files and Artifacts a Bot's comment carries (issue #1207).
+func (s *Store) CommentWith(ctx context.Context, actor Actor, id, text string, att Attached) (Todo, error) {
 	if err := checkActor(actor); err != nil {
 		return Todo{}, err
 	}
@@ -174,9 +181,14 @@ func (s *Store) Comment(ctx context.Context, actor Actor, id, text string) (Todo
 		return Todo{}, err
 	}
 
+	att, err := att.checked(actor)
+	if err != nil {
+		return Todo{}, err
+	}
+
 	var got Todo
 
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
 		cur, err := q.GetTodo(ctx, id)
 		if err != nil {
 			return storeutil.NotFound(err, "to-do", id)
@@ -198,7 +210,12 @@ func (s *Store) Comment(ctx context.Context, actor Actor, id, text string) (Todo
 			}
 		}
 
-		if err := commentTx(ctx, q, now, actor, id, cur.Revision, text); err != nil {
+		after, err := att.after(ctx, q, actor, text, cur, chatBot)
+		if err != nil {
+			return err
+		}
+
+		if err := commentTx(ctx, q, now, actor, id, cur.Revision, after); err != nil {
 			return err
 		}
 
@@ -272,7 +289,8 @@ func (s *Store) Hand(ctx context.Context, c Change, bot, prompt string) (Todo, e
 		}
 
 		if strings.TrimSpace(prompt) != "" {
-			if err := commentTx(ctx, q, now, c.Actor, t.ID, int64(t.Revision), prompt); err != nil {
+			first := map[string]any{"text": prompt}
+			if err := commentTx(ctx, q, now, c.Actor, t.ID, int64(t.Revision), first); err != nil {
 				return err
 			}
 		}
