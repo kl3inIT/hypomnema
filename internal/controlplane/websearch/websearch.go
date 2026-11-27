@@ -624,3 +624,28 @@ func (s *Service) ask(ctx context.Context, r route, query string, limit int) (re
 
 	return r.ask(s, ctx, r, query, limit)
 }
+
+// FailedError will be a search no provider answered, with each route's rest (review of PR #1303); declared here for
+// the tests written first.
+type FailedError struct {
+	Failures             []Failure
+	Rests                []RouteRest
+	Asked, Empty, Others int
+}
+
+// RouteRest is a route's rest.
+type RouteRest struct {
+	Provider string
+	Why      string
+	Until    time.Time
+}
+
+func (e *FailedError) Error() string { return ErrFailed.Error() }
+
+func (e *FailedError) Is(target error) bool { return target == ErrFailed }
+
+// Pace waits for a route's turn.
+type Pace func(ctx context.Context, route string) (func(), error)
+
+// WithPace makes the searches asked with ctx wait for each route's turn.
+func WithPace(ctx context.Context, _ Pace) context.Context { return ctx }

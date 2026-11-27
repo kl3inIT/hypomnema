@@ -1036,3 +1036,101 @@ func TestASearchEveryProviderAnswersEmptyIsNoResults(t *testing.T) {
 	require.ErrorIs(t, err, websearch.ErrFailed)
 	assert.NotErrorIs(t, err, websearch.ErrNoResults)
 }
+
+// Scenario (issue #1287, review of PR #1303): when every provider asked is rate limited, the failure keeps each
+// route's rest, typed, with its real wait, so social listening reports rate_limited until the first is free, not
+// broken.
+func TestAFailedSearchKeepsEachProvidersRest(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, options{})
+	for _, p := range []*provider{w.exa, w.exaMCP, w.parallel, w.parallelMCP, w.tavily, w.firecrawl, w.tinyFish, w.you} {
+		p.set(refuses(http.StatusTooManyRequests, "30"))
+	}
+
+	_, err := w.svc.Search(t.Context(), "everyone is busy", 0, "")
+	require.ErrorIs(t, err, websearch.ErrFailed)
+
+	var failed *websearch.FailedError
+	require.ErrorAs(t, err, &failed)
+	assert.Equal(t, 5, failed.Asked)
+	assert.Zero(t, failed.Others)
+	require.Len(t, failed.Rests, 5)
+
+	for _, r := range failed.Rests {
+		assert.Equal(t, websearch.RestRateLimited, r.Why, r.Provider)
+		assert.Equal(t, w.clock.Now().Add(30*time.Second), r.Until, r.Provider)
+	}
+}
+
+// Scenario (issue #1287, review of PR #1303): a caller that paces waits for each route's turn, named by the route,
+// and a route that came to rest while it waited is not asked: the second of two searches queued on one provider
+// does not reach it after the first was rate limited.
+func TestAPacedSearchWaitsForTheRoutesTurnAndChecksItsRestAgain(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, options{off: keylessOnly("exa")})
+	release := make(chan struct{})
+
+	var once sync.Once
+
+	free := func() { once.Do(func() { close(release) }) }
+	// A failing test still lets the provider answer, so its server can close.
+	t.Cleanup(free)
+	w.exaMCP.set(func(rw http.ResponseWriter, r *http.Request) {
+		<-release
+		refuses(http.StatusTooManyRequests, "60")(rw, r)
+	})
+
+	var (
+		mu     sync.Mutex
+		routes []string
+		turn   = make(chan struct{}, 1)
+	)
+
+	pace := func(ctx context.Context, route string) (func(), error) {
+		mu.Lock()
+		routes = append(routes, route)
+		mu.Unlock()
+
+		select {
+		case turn <- struct{}{}:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+
+		return func() { <-turn }, nil
+	}
+	ctx := websearch.WithPace(t.Context(), pace)
+
+	first := make(chan error, 1)
+
+	go func() {
+		_, err := w.svc.Search(ctx, "first", 0, "")
+		first <- err
+	}()
+
+	require.Eventually(t, func() bool { return w.exaMCP.calls.Load() == 1 }, 5*time.Second, 5*time.Millisecond)
+
+	second := make(chan error, 1)
+
+	go func() {
+		_, err := w.svc.Search(ctx, "second", 0, "")
+		second <- err
+	}()
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+
+		return len(routes) == 2
+	}, 5*time.Second, 5*time.Millisecond)
+	free()
+
+	require.ErrorIs(t, <-first, websearch.ErrFailed)
+
+	var resting *websearch.RestingError
+	require.ErrorAs(t, <-second, &resting, "the second found the route resting once it had the turn")
+	assert.Equal(t, int32(1), w.exaMCP.calls.Load())
+	assert.Equal(t, []string{"public:exa", "public:exa"}, routes)
+}

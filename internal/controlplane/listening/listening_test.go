@@ -369,7 +369,7 @@ func TestTheWebSourceReadsTheWebSearchChain(t *testing.T) {
 
 	a, err := s.Search(t.Context(), p, web)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"VETC/10"}, asked)
+	assert.Equal(t, []string{"VETC/20"}, asked, "the default 25, cut to the web search's 20")
 	require.Len(t, a.Items, 1)
 	assert.Equal(t, "voz.vn", a.Items[0].Container)
 	assert.Equal(t, "https://voz.vn/t/vetc.1", a.Items[0].NativeID)
