@@ -174,8 +174,11 @@ type Server struct {
 	// meetings is what the meetings' tools read (issue #1023, meetings.go); nil when the control plane gave none.
 	meetings Meetings
 	// bg runs a Bot's background commands (issue #1084, background.go); nil when the control plane gave none.
-	bg     Background
-	logger *slog.Logger
+	bg Background
+	// botFiles reads a Bot's folder, so that a file its Inbox comment names counts as its work only when it is
+	// there (issue #1206, botfiles.go); nil reads none.
+	botFiles BotFiles
+	logger   *slog.Logger
 	// calls is how many tool calls run now (ToolCalls).
 	calls atomic.Int64
 }

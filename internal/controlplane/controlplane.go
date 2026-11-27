@@ -690,6 +690,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// A Bot reads them with its meetings' tools, to add their actions to the owner's Inbox (issue #1023).
 	agents.WithMeetings(meetingWork)
 
+	// A file a Bot's Inbox comment names is its work only when its folder holds it (issue #1206).
+	if bots != nil {
+		agents.WithBotFiles(bots)
+	}
+
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithRunCoordinator(cfg.CoordinatorToken).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
 		WithHostTokens(tokens).WithGitSSHKey(sshKey).WithGitHubApp(clientGitHubApp{app}).

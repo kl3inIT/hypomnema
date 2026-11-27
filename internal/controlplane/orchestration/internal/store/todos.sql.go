@@ -20,6 +20,70 @@ func (q *Queries) ClearTodoChats(ctx context.Context, chatID sql.NullString) err
 	return err
 }
 
+const countAttemptPullRequest = `-- name: CountAttemptPullRequest :one
+SELECT count(*) FROM runs r JOIN tasks t ON t.run_id = r.id JOIN dispatches d ON d.task_id = t.id
+WHERE r.bot_id = CAST(?1 AS TEXT)
+  AND t.profile <> 'reviewer' AND substr(t.profile, 1, 9) <> 'reviewer-'
+  AND (r.id = CAST(?2 AS TEXT) OR (r.chat_id = CAST(?3 AS TEXT) AND r.created_at >= ?4))
+  AND (EXISTS (SELECT 1 FROM pull_request_lookups l WHERE l.dispatch_id = d.id AND l.url = CAST(?5 AS TEXT))
+    OR (json_valid(d.result) AND EXISTS (SELECT 1 FROM json_each(d.result, '$.evidence') e
+        WHERE json_extract(e.value, '$.kind') = 'pull_request' AND json_extract(e.value, '$.ref') = CAST(?5 AS TEXT))))
+`
+
+type CountAttemptPullRequestParams struct {
+	Bot      string
+	WorkRun  string
+	WorkChat string
+	Since    int64
+	Url      string
+}
+
+// Whether a pull request is the work of a Bot's attempt at an Inbox item (issue #1206): one that a task of a Run of
+// the attempt (as CountAttemptRun) gave as evidence when it finished, or that was looked up for one of its dispatches.
+// A review task's report names the pull request it reviewed, not one it opened: it is left out, as the pull requests
+// the control plane follows leave it out (pullrequests.go, reviewerProfile).
+func (q *Queries) CountAttemptPullRequest(ctx context.Context, arg CountAttemptPullRequestParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAttemptPullRequest,
+		arg.Bot,
+		arg.WorkRun,
+		arg.WorkChat,
+		arg.Since,
+		arg.Url,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countAttemptRun = `-- name: CountAttemptRun :one
+SELECT count(*) FROM runs
+WHERE id = ?1 AND bot_id = CAST(?2 AS TEXT)
+  AND (id = CAST(?3 AS TEXT) OR (chat_id = CAST(?4 AS TEXT) AND created_at >= ?5))
+`
+
+type CountAttemptRunParams struct {
+	ID       string
+	Bot      string
+	WorkRun  string
+	WorkChat string
+	Since    int64
+}
+
+// Whether a Run is the work of a Bot's attempt at an Inbox item (issue #1206): the attempt's own Run, or a Run of that
+// Bot reporting to the attempt's chat that was made since the attempt started.
+func (q *Queries) CountAttemptRun(ctx context.Context, arg CountAttemptRunParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAttemptRun,
+		arg.ID,
+		arg.Bot,
+		arg.WorkRun,
+		arg.WorkChat,
+		arg.Since,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countDuplicatesOf = `-- name: CountDuplicatesOf :one
 SELECT count(*) FROM todos WHERE duplicate_of = ?1 AND state = 'duplicate'
 `
@@ -126,6 +190,23 @@ func (q *Queries) CountTodos(ctx context.Context, arg CountTodosParams) (int64, 
 	return count, err
 }
 
+const deleteChatDepartment = `-- name: DeleteChatDepartment :exec
+DELETE FROM todo_chat_departments
+WHERE source_kind = ?1 AND source_account = ?2 AND source_id = ?3
+`
+
+type DeleteChatDepartmentParams struct {
+	SourceKind    string
+	SourceAccount string
+	SourceID      string
+}
+
+// The owner took an item read in a chat out of any department: the chat is in none.
+func (q *Queries) DeleteChatDepartment(ctx context.Context, arg DeleteChatDepartmentParams) error {
+	_, err := q.db.ExecContext(ctx, deleteChatDepartment, arg.SourceKind, arg.SourceAccount, arg.SourceID)
+	return err
+}
+
 const getBotLiveChat = `-- name: GetBotLiveChat :one
 SELECT c.id FROM chats c
 JOIN bots b ON b.id = c.bot_id
@@ -141,6 +222,25 @@ func (q *Queries) GetBotLiveChat(ctx context.Context, botID string) (string, err
 	var id string
 	err := row.Scan(&id)
 	return id, err
+}
+
+const getChatDepartment = `-- name: GetChatDepartment :one
+SELECT department_id FROM todo_chat_departments
+WHERE source_kind = ?1 AND source_account = ?2 AND source_id = ?3
+`
+
+type GetChatDepartmentParams struct {
+	SourceKind    string
+	SourceAccount string
+	SourceID      string
+}
+
+// The department the owner put a chat of his accounts in (issue #1206), by the source of an item read there.
+func (q *Queries) GetChatDepartment(ctx context.Context, arg GetChatDepartmentParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getChatDepartment, arg.SourceKind, arg.SourceAccount, arg.SourceID)
+	var department_id string
+	err := row.Scan(&department_id)
+	return department_id, err
 }
 
 const getTodo = `-- name: GetTodo :one
@@ -962,6 +1062,35 @@ func (q *Queries) ListTodosOfWork(ctx context.Context, arg ListTodosOfWorkParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const putChatDepartment = `-- name: PutChatDepartment :exec
+INSERT INTO todo_chat_departments (source_kind, source_account, source_id, department_id, todo_id, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+ON CONFLICT (source_kind, source_account, source_id) DO UPDATE
+SET department_id = excluded.department_id, todo_id = excluded.todo_id, updated_at = excluded.updated_at
+`
+
+type PutChatDepartmentParams struct {
+	SourceKind    string
+	SourceAccount string
+	SourceID      string
+	DepartmentID  string
+	TodoID        string
+	Now           int64
+}
+
+// The owner put an item read in a chat into a department: the chat is in it from now on.
+func (q *Queries) PutChatDepartment(ctx context.Context, arg PutChatDepartmentParams) error {
+	_, err := q.db.ExecContext(ctx, putChatDepartment,
+		arg.SourceKind,
+		arg.SourceAccount,
+		arg.SourceID,
+		arg.DepartmentID,
+		arg.TodoID,
+		arg.Now,
+	)
+	return err
 }
 
 const setTodoChat = `-- name: SetTodoChat :exec

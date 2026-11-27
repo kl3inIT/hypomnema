@@ -2259,6 +2259,7 @@ func (e TodoDueKind) Valid() bool {
 // Defines values for TodoLinkKind.
 const (
 	TodoLinkKindChatMessage     TodoLinkKind = "chat_message"
+	TodoLinkKindComment         TodoLinkKind = "comment"
 	TodoLinkKindLarkMessage     TodoLinkKind = "lark_message"
 	TodoLinkKindLarkSent        TodoLinkKind = "lark_sent"
 	TodoLinkKindMail            TodoLinkKind = "mail"
@@ -2276,6 +2277,8 @@ const (
 func (e TodoLinkKind) Valid() bool {
 	switch e {
 	case TodoLinkKindChatMessage:
+		return true
+	case TodoLinkKindComment:
 		return true
 	case TodoLinkKindLarkMessage:
 		return true
@@ -7754,15 +7757,15 @@ type TodoLink struct {
 	// Chat The chat the message is in, its id at the service; with account only.
 	Chat *string `json:"chat,omitempty"`
 
-	// Kind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
+	// Kind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item. comment is the owner's comment on the item itself, by the revision it made: the evidence a Bot gives that he did it.
 	Kind  TodoLinkKind `json:"kind"`
 	Label *string      `json:"label,omitempty"`
 
-	// Ref The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq.
+	// Ref The URL, or the id of the message, mail, Run, pull request or meeting line; a chat message's seq; a comment's revision.
 	Ref string `json:"ref"`
 }
 
-// TodoLinkKind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
+// TodoLinkKind zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item. comment is the owner's comment on the item itself, by the revision it made: the evidence a Bot gives that he did it.
 type TodoLinkKind string
 
 // TodoList defines model for TodoList.
