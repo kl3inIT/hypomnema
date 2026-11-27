@@ -77,12 +77,13 @@ func TestCatalogIDsStayUniqueAndResolvable(t *testing.T) {
 	for _, p := range Presets {
 		assert.False(t, seen[p.ID], p.ID)
 		seen[p.ID] = true
-		assert.Equal(t, p.ID, ByID(p.ID).ID)
+		found, ok := PresetByID(p.ID)
+		assert.True(t, ok, p.ID)
+		assert.Equal(t, p.ID, found.ID)
 	}
 
-	assert.Equal(t, "karaoke", ByID("karaoke").ID)
-	assert.Equal(t, "clean", ByID("does-not-exist").ID, "unknown falls back to Clean, never crashes")
-	assert.Equal(t, DefaultPreset, ByID("nope").ID)
+	_, ok := PresetByID("does-not-exist")
+	assert.False(t, ok, "an unknown id is no preset")
 }
 
 func TestMobileAspectTightensWordsPerLine(t *testing.T) {
@@ -94,7 +95,7 @@ func TestMobileAspectTightensWordsPerLine(t *testing.T) {
 		assert.GreaterOrEqual(t, p.MaxWordsPerLine(1.0), 1, p.ID, "never below one")
 	}
 
-	clean := ByID("clean")
+	clean := presetOf(t, "clean")
 	assert.Equal(t, clean.BaseMaxWordsPerLine, clean.MaxWordsPerLine(16.0/9.0), "a wide video keeps its base")
 }
 
@@ -114,15 +115,15 @@ func TestHexParses(t *testing.T) {
 func TestWordByWordStylesDeclareTheirWordCount(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, 1, ByID("one-word").WordsAtATime)
-	assert.Equal(t, 2, ByID("word-pair").WordsAtATime)
-	assert.True(t, ByID("one-word").WordByWord())
-	assert.False(t, ByID("clean").WordByWord())
-	assert.Equal(t, 0, ByID("clean").WordsAtATime)
+	assert.Equal(t, 1, presetOf(t, "one-word").WordsAtATime)
+	assert.Equal(t, 2, presetOf(t, "word-pair").WordsAtATime)
+	assert.True(t, presetOf(t, "one-word").WordByWord())
+	assert.False(t, presetOf(t, "clean").WordByWord())
+	assert.Equal(t, 0, presetOf(t, "clean").WordsAtATime)
 
 	for _, id := range []string{"one-word", "word-pair"} {
-		assert.Greater(t, ByID(id).FontScale, 1.2, "%s should be noticeably bigger", id)
-		assert.Equal(t, PositionBottom, ByID(id).Position, "%s should sit low in the frame", id)
+		assert.Greater(t, presetOf(t, id).FontScale, 1.2, "%s should be noticeably bigger", id)
+		assert.Equal(t, PositionBottom, presetOf(t, id).Position, "%s should sit low in the frame", id)
 	}
 }
 
@@ -258,4 +259,14 @@ func TestPresetTable(t *testing.T) {
 	for i := range want {
 		assert.Equal(t, want[i], Presets[i], want[i].ID)
 	}
+}
+
+// presetOf is the preset of an id the catalog has.
+func presetOf(t *testing.T, id string) Preset {
+	t.Helper()
+
+	p, ok := PresetByID(id)
+	require.True(t, ok, id)
+
+	return p
 }

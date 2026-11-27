@@ -13,7 +13,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
-
 // The memory's tool (issues #21, #536, #589) is one definition for a worker
 // and a Bot's pi, as OpenMausBot's memory_update is one tool of its `agents`
 // server for every engine (server/drivers/agents-catalog.ts). It is

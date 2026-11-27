@@ -143,29 +143,8 @@ func TestAShareLinkIsKeptHashedAndSealedNeverInPlaintext(t *testing.T) {
 	require.ErrorIs(t, w.s.DeleteArtifactShare(ctx, sh.ID), ErrNotFound)
 }
 
-// credentialStateBefore returns the version of the migration before this one, which `make migration-fix` renumbers
-// before the merge.
-// credentialState is the version of the credential_state migration.
-func credentialState(t *testing.T) int64 {
-	t.Helper()
-
-	entries, err := fs.ReadDir(migrations, "migrations")
-	require.NoError(t, err)
-
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), "_credential_state.sql") {
-			version, err := strconv.ParseInt(strings.SplitN(e.Name(), "_", 2)[0], 10, 64)
-			require.NoError(t, err)
-
-			return version
-		}
-	}
-
-	require.FailNow(t, "no credential_state migration")
-
-	return 0
-}
-
+// credentialStateBefore returns the version of the migration before the credential_state migration, which `make
+// migration-fix` renumbers before the merge.
 func credentialStateBefore(t *testing.T) int64 {
 	t.Helper()
 

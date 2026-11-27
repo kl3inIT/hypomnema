@@ -185,17 +185,6 @@ type placedFrame struct {
 	top float64
 }
 
-// place lays out every cue's frames, as estimated, and places them (fit is left out: the tests of the layout that
-// need no ffmpeg).
-func (r *renderer) place(cues []Cue, chosen Position, rings []compose.Ring) ([]placedFrame, error) {
-	laid, err := r.layoutCues(cues)
-	if err != nil {
-		return nil, err
-	}
-
-	return r.placeCues(laid, chosen, rings), nil
-}
-
 // layoutCues is every cue's frames, each block laid out from the font's measures. As demotape draws only the first
 // cue, by start, that covers an instant (CaptionBurner.swift, captionOverlay, line 187, over the cues sorted by
 // Captions.reconcile, Captions.swift, line 162), a cue is shown only once the cues that start before it have

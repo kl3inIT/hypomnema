@@ -75,7 +75,7 @@ func TestRemoveTreeCannotFollowSwappedParent(t *testing.T) {
 			require.NoError(t, os.Symlink(outside, parent))
 			return true
 		}
-		require.Error(t, RemoveTree(t.Context(), filepath.Join(parent, name), stopped))
+		require.Error(t, RemoveManagedTree(t.Context(), filepath.Join(parent, name), "", "", stopped))
 		require.FileExists(t, filepath.Join(outside, name, "state.db"))
 	}
 }

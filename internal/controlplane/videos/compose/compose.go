@@ -829,11 +829,6 @@ func Thumbnail(ctx context.Context, tools ffmpeg.Tools, video, out string) error
 	return runner{tools: tools}.ffmpeg(ctx, "-i", video, "-frames:v", "1", "-q:v", "3", "-f", "image2", out)
 }
 
-// LengthMs is a media file's length, in ms, as ffprobe reads it.
-func LengthMs(ctx context.Context, tools ffmpeg.Tools, file string) (int64, error) {
-	return runner{tools: tools}.durationMs(ctx, file)
-}
-
 func copyFile(from, to string) error {
 	raw, err := os.ReadFile(from) //nolint:gosec // The caller's own file.
 	if err != nil {
