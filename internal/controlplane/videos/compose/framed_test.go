@@ -366,3 +366,28 @@ func TestATurnedTakeIsNotFramed(t *testing.T) {
 	_, _, err := composeOne(t, tools, dir, Portrait, DefaultFrame(ChromeFull), Background{}, Size{})
 	require.NoError(t, err)
 }
+
+// The App Store's aspect (issue #1230, row 4) is a video of exactly 886 × 1920, square pixels, a full frame's picture
+// filling it: Apple's size for the modern iPhone class.
+func TestTheAppStoreAspectIsAppleSize(t *testing.T) {
+	t.Parallel()
+
+	tools := tools(t)
+	dir := t.TempDir()
+	seg := colorSegment(t, tools, dir, "0.mp4", 432, 936, []string{"0xff0000"}, []int64{1000})
+	writeTake(t, dir, devicetool.Take{
+		ID: "tk_store", DurationMs: seg.LengthMs, Segments: []devicetool.TakeSegment{seg},
+		Steps: []devicetool.TakeStep{{AtMs: 0, Text: "Một"}},
+	})
+
+	res, out, err := composeOne(t, tools, dir, AppStore, DefaultFrame(ChromeFull), Background{}, Size{})
+	require.NoError(t, err)
+	assert.Equal(t, Size{886, 1920}, res.Size)
+	assert.Equal(t, "1:1", sar(t, tools, out))
+
+	px := frameAt(t, tools, out, 500, res.Size)
+	for _, at := range [][2]int{{20, 20}, {443, 960}, {866, 1900}} {
+		p := px[3*(at[1]*res.Size.Width+at[0]):]
+		assert.True(t, within(p, [3]int{235, 16, 16}, 30), "the picture fills the video at %v: %v", at, p[:3])
+	}
+}

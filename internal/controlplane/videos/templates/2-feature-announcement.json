@@ -1,0 +1,15 @@
+{
+  "id": "feature-announcement",
+  "name": "Feature announcement",
+  "use_case": "Thirty seconds on one feature that shipped: what it is, why it matters, and where to try it.",
+  "length": { "min_s": 30, "max_s": 30 },
+  "aspects": ["9:16", "16:9"],
+  "captions": true,
+  "sections": [
+    { "name": "What shipped", "purpose": "Show the new thing happening and name it once.", "words": 18 },
+    { "name": "Why it matters", "purpose": "The before and after: what used to take longer, or was impossible.", "words": 30 },
+    { "name": "One click to try", "purpose": "Exactly where to go: one deep link, one ask, no menu.", "words": 25 }
+  ],
+  "look": { "cards": {} },
+  "from": "aidemo docs/blog/feature-announcement-video/index.md:21-29"
+}

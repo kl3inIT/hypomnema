@@ -379,6 +379,11 @@ func TestARoutineBotOpensOnlyWhatIsClear(t *testing.T) {
 	assert.Equal(t, string(asked), (*got.Events)[0].After["why_open"])
 
 	// A Gmail thread and a meeting are named the same way (issue #1105).
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "google", Label: "work", Secret: "conn-google-work",
+	})
+	require.NoError(t, err)
+
 	gmail, meeting := openapi.TodoSourceKindGmail, openapi.TodoSourceKindMeeting
 	mail := openapi.TodoLink{Kind: openapi.TodoLinkKindMail, Ref: "18c2f0a9b1d2e3f5"}
 	line := openapi.TodoLink{Kind: openapi.TodoLinkKindMeetingLine, Ref: "mtg_1/12"}

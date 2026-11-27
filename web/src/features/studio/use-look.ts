@@ -1,7 +1,10 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 
 import "@/api/client"
-import { listVideoLooksOptions } from "@/api/generated/@tanstack/react-query.gen"
+import {
+  listVideoLooksOptions,
+  listVideoTemplatesOptions,
+} from "@/api/generated/@tanstack/react-query.gen"
 import { previewVideoLook } from "@/api/generated/sdk.gen"
 import type { VideoPreview } from "@/api/generated/types.gen"
 import { useObjectURL } from "@/hooks/use-object-url"
@@ -11,6 +14,10 @@ import { useObjectURL } from "@/hooks/use-object-url"
 
 // useVideoLooks is GET /videos/looks while the section is shown.
 export const useVideoLooks = (enabled: boolean) => useQuery({ ...listVideoLooksOptions(), enabled })
+
+// useVideoTemplates is GET /videos/templates while Make video is open (issue #1230, row 5).
+export const useVideoTemplates = (enabled: boolean) =>
+  useQuery({ ...listVideoTemplatesOptions(), enabled })
 
 // useLookSample is the look sample of a request, as an object URL. A request is keyed by its body: when the owner
 // changes a field, the sample asked before is aborted (the query's signal, which the server takes as a client

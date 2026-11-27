@@ -310,9 +310,9 @@ type MakeRequest struct {
 	Take string
 	// Title is the video's on its first make; empty: the take's.
 	Title string
-	// Aspect is 9:16 or 16:9; empty: 9:16.
+	// Aspect is 9:16, 16:9 or 886x1920; empty: the template's first, else 9:16.
 	Aspect string
-	// Captions; nil: on.
+	// Captions; nil: the template's, else on.
 	Captions *bool
 	// Voice is the voice asked for; empty: each provider's set one.
 	Voice string
@@ -323,26 +323,41 @@ type MakeRequest struct {
 	RequestID string
 	// Look is the sections of the look sent; nil: the saved default's (issue #908, row 2).
 	Look *LookInput
+	// Template is a template's id: its aspect, captions and look's sections where the request leaves them out
+	// (issue #1230, row 3); empty: none.
+	Template string
 }
 
 // Make queues a revision of the take's video, making the video on the
 // take's first make. Its lines are the latest revision's, or the take's
 // scenes' on the first make. Its look is the sections sent, the others the
 // saved default's; an owner's make that sends sections saves them as the
-// default, in the same transaction (issue #908, rows 2 and 3).
+// default, in the same transaction (issue #908, rows 2 and 3). A template's
+// look sections stand where none is sent, and are never saved (#1230, row 3).
 func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, error) {
 	req.Title, req.Voice = strings.TrimSpace(req.Title), strings.TrimSpace(req.Voice)
+
+	tpl, err := templateOf(req.Template)
+	if err != nil {
+		return Video{}, Revision{}, err
+	}
+
+	if req.Aspect, err = aspectWith(tpl, req.Aspect); err != nil {
+		return Video{}, Revision{}, err
+	}
+
 	if req.Aspect == "" {
 		req.Aspect = string(compose.Portrait)
 	}
 
+	req.Captions = captionsWith(tpl, req.Captions)
 	captionsOn := req.Captions == nil || *req.Captions
 
 	switch {
 	case !takeIDs.MatchString(req.Take):
 		return Video{}, Revision{}, fmt.Errorf("%w: take is a take's id, such as tk_0a1b2c3d4e5f6a7b", ErrInvalid)
-	case req.Aspect != string(compose.Portrait) && req.Aspect != string(compose.Landscape):
-		return Video{}, Revision{}, fmt.Errorf("%w: the aspect is 9:16 or 16:9", ErrInvalid)
+	case !knownAspect(req.Aspect):
+		return Video{}, Revision{}, fmt.Errorf("%w: the aspect is 9:16, 16:9 or 886x1920", ErrInvalid)
 	case utf8.RuneCountInString(req.Title) > devicetool.MaxTitle:
 		return Video{}, Revision{}, fmt.Errorf("%w: a title is at most %d characters", ErrInvalid, devicetool.MaxTitle)
 	case len(req.Voice) > maxVoice:
@@ -361,6 +376,10 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 	parts := []string{"make", req.Take, req.Title, req.Aspect, strconv.FormatBool(captionsOn), req.Voice}
 	if req.Look != nil {
 		parts = append(parts, req.Look.canonical())
+	}
+
+	if tpl != nil {
+		parts = append(parts, "template", tpl.ID)
 	}
 
 	hash := requestHash(parts...)
@@ -386,7 +405,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		return Video{}, Revision{}, fmt.Errorf("%w: %w", ErrConflict, err)
 	}
 
-	var id string
+	var id, title string
 
 	var lines []string
 
@@ -404,7 +423,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			id = platform.NewID("vid")
-			title := cmp.Or(req.Title, take.Title)
+			title = cmp.Or(req.Title, take.Title)
 
 			if err := q.InsertVideo(ctx, store.InsertVideoParams{
 				ID: id, TakeID: take.ID, Title: title, MadeBy: req.By, MadeByName: req.ByName, Now: now,
@@ -418,7 +437,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		case err != nil:
 			return err
 		default:
-			id = v.ID
+			id, title = v.ID, v.Title
 
 			last, err := q.LastRev(ctx, id)
 			if err != nil {
@@ -445,7 +464,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 			return err
 		}
 
-		look, err := resolveLook(req.Look, saved)
+		look, err := resolveLook(lookWith(tpl, title, req.Look), saved)
 		if err != nil {
 			return err
 		}

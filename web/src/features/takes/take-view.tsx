@@ -99,6 +99,7 @@ export function TakeView({
         {ready && onOpenVideo && (
           <MakeVideo
             take={id}
+            title={video?.title ?? take.title}
             again={video !== undefined}
             why={take.steps.length === 0 ? noSteps : undefined}
             onMade={(v) => onOpenVideo(v.id)}

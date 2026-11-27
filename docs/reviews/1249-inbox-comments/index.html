@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Inbox comment scrolling · Issue #1249</title>
+    <link rel="icon" href="data:,">
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #f5f6f8;
+        --surface: #ffffff;
+        --border: #e3e5ea;
+        --ink: #16181d;
+        --muted: #646b78;
+        --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --page: #0f1115;
+          --surface: #17191e;
+          --border: #2a2e36;
+          --ink: #eceef2;
+          --muted: #a8adba;
+        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 var(--font); }
+      main { max-width: 1240px; margin: auto; padding: 24px 16px 32px; }
+      h1 { margin: 0; font-size: 24px; font-weight: 650; letter-spacing: -0.01em; }
+      h2 { margin: 24px 0 8px; font-size: 16px; font-weight: 600; }
+      .grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+      figure { margin: 0; padding: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+      figcaption { margin-bottom: 8px; color: var(--muted); }
+      img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 8px; }
+      .phone img { max-width: 393px; }
+      @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Inbox comment scrolling</h1>
+      <section aria-labelledby="opening">
+        <h2 id="opening">Opening at the newest comment</h2>
+        <div class="grid">
+          <figure>
+            <figcaption>Desktop</figcaption>
+            <img src="inbox-newest-comment-desktop.png" alt="Inbox opened at Contract update 10 with the composer in view">
+          </figure>
+          <figure class="phone">
+            <figcaption>Phone</figcaption>
+            <img src="inbox-newest-comment-phone.png" alt="The phone shows Contract update 10 above the composer">
+          </figure>
+        </div>
+      </section>
+      <section aria-labelledby="reading">
+        <h2 id="reading">Reading the description while a comment arrives</h2>
+        <div class="grid">
+          <figure>
+            <figcaption>Desktop</figcaption>
+            <img src="inbox-scrolled-up-desktop.png" alt="The description stays in view with the scroll-to-latest button at the bottom">
+          </figure>
+          <figure class="phone">
+            <figcaption>Phone</figcaption>
+            <img src="inbox-scrolled-up-phone.png" alt="The phone shows the description and the scroll-to-latest button">
+          </figure>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1208,6 +1208,10 @@ func (s *Store) edit(ctx context.Context, q *store.Queries, c Change, e Edit, du
 	}
 
 	if e.Source != nil {
+		if err := checkSourceAccount(ctx, q, *e.Source); err != nil {
+			return nil, err
+		}
+
 		next.SourceKind, next.SourceID, next.SourceAccount = e.Source.Kind, e.Source.ID, e.Source.Account
 		next.SourceQuote, next.SourceRef = e.Source.Quote, ref
 	}
