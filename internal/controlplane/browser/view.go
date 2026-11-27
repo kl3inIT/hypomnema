@@ -141,6 +141,8 @@ type View struct {
 	// hold is who drives the tab (control.go).
 	hold *ownerhold.Hold
 	conn *websocket.Conn
+	// life is the view's own context, which Close ends: a move of its tab to the front waits on it (front.go).
+	life context.Context //nolint:containedctx // The view's own lifetime, which Close ends.
 	stop context.CancelFunc
 
 	messages chan streamMessage
@@ -186,8 +188,6 @@ func (e *Engine) watch(ctx context.Context, tab string, hold *ownerhold.Hold) (*
 		return nil, err
 	}
 
-	e.front(ctx, s)
-
 	port, err := os.ReadFile(filepath.Join(e.sockets(), s.name+streamFile))
 	if err != nil {
 		e.unviewed(s)
@@ -213,11 +213,16 @@ func (e *Engine) watch(ctx context.Context, tab string, hold *ownerhold.Hold) (*
 	conn.SetReadLimit(maxStreamMessage)
 
 	v := &View{
-		e: e, s: s, tab: tab, hold: hold, conn: conn, stop: stop,
+		e: e, s: s, tab: tab, hold: hold, conn: conn, life: streaming, stop: stop,
 		messages: make(chan streamMessage, 8), again: make(chan struct{}, 1),
 	}
 
 	go v.pump(streaming)
+
+	// Chrome paints only the tab in front (front.go).
+	e.focus.opened(v)
+
+	go e.front(v)
 
 	return v, nil
 }
@@ -580,6 +585,11 @@ func (e *Engine) human(ctx context.Context, s *session, tool string, arguments j
 // however it went (ownerhold.Closed); only releaseControl ends it at once.
 func (v *View) Close(ctx context.Context) {
 	v.closing.Do(func() {
+		// The view opened before this one brings its tab back to the front (front.go).
+		if before := v.e.focus.closed(v); before != nil {
+			go v.e.front(before)
+		}
+
 		v.stop()
 		_ = v.conn.Close(websocket.StatusNormalClosure, "")
 
@@ -593,44 +603,6 @@ func (v *View) Close(ctx context.Context) {
 func (e *Engine) released(ctx context.Context, tab, reason string) {
 	e.cfg.Logger.InfoContext(ctx, "a tab went back to its agent",
 		slog.String("event", "browser.released"), slog.String("tab", tab), slog.String("reason", reason))
-}
-
-// front brings a tab to the front of Chrome's window as its view opens.
-// Every tab is in the one window, and Chrome paints only the tab in front:
-// the stream of a tab behind another sends no frame, as the view of a Bot's
-// tab showed none once the owner's own tab was made in front of it (issue
-// #1113). As agent-browser's tab switch brings the tab it switches to to the
-// front (cli/src/native/browser.rs, Page.bringToFront) and OpenMausBot shows
-// the tab a viewer picks (server/browser/viewers/core.ts, tabSelect), here
-// with the browser's own Target.activateTarget, as agent-browser revives a
-// tab with it (browser.rs:1233). The tab watched last is the one in front. A
-// tab not brought there leaves the view as it was: it goes on.
-func (e *Engine) front(ctx context.Context, s *session) {
-	e.mu.Lock()
-	cdp := e.cdp
-	e.mu.Unlock()
-
-	err := func() error {
-		target, err := e.boundTarget(s)
-		if err != nil {
-			return err
-		}
-
-		ctx, cancel := context.WithTimeout(ctx, frontTimeout)
-		defer cancel()
-
-		conn, err := dialCDP(ctx, cdp, nil)
-		if err != nil {
-			return err
-		}
-		defer conn.close()
-
-		return conn.send(ctx, "Target.activateTarget", map[string]any{"targetId": target}, "", nil)
-	}()
-	if err != nil {
-		e.cfg.Logger.WarnContext(ctx, "a tab could not be brought to the front",
-			slog.String("event", "browser.front_failed"), slog.String("session", s.name), slog.Any("err", err))
-	}
 }
 
 // Tab is one tab of the shared browser.

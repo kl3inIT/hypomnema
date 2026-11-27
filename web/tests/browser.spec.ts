@@ -462,6 +462,23 @@ test("taking control of the owner's tab leaves the Bot's tab to the Bot", async 
     ).toBeVisible({ timeout: 10_000 })
     await shot(page, "sidebar-browser-two-held")
   }
+
+  // Back in his own tab he hands it back: its view names the Bot's tab he still holds, and no agent of its own.
+  await page.getByRole("tab", { name: "My browser" }).first().click()
+  await expect.poll(() => server.asked).toEqual(["owner", "b-cht_1", "owner"])
+  await page.getByRole("button", { name: /Hand back/ }).click()
+  await expect(page.getByRole("button", { name: /Take control/ })).toBeVisible()
+  await expect(page.getByText("You hold “Maps search”.", { exact: true })).toBeVisible({
+    timeout: 10_000,
+  })
+  if (info.project.name !== "phone") {
+    await expect(
+      page.getByText(
+        "You hold “Maps search”. Its agent's browser tools are paused until you hand it back.",
+      ),
+    ).toBeVisible({ timeout: 10_000 })
+  }
+  await shot(page, "pane-browser-owner-tab-bot-held")
 })
 
 // A control plane with no browser offers none: "+" has only a new chat.

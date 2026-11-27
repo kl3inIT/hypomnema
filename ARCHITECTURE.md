@@ -694,9 +694,13 @@ sequenceDiagram
     `input_mouse` and `input_keyboard`, navigation runs as the session's own command, and all of them need
     control: without it they are dropped and the page is told again who controls. At most 4 views are open; a
     tab that is watched is not closed as idle. Every tab is in one window of Chrome, which paints only the tab in
-    front: a view brings its tab there as it opens (`Target.activateTarget`, as agent-browser's tab switch brings
-    a tab to the front), so the tab watched last streams; before issue #1113 a Bot's tab behind the owner's sent
-    no frame. Each view and each take-over is logged
+    front (`front.go`): a view brings its tab there as it opens (`Target.activateTarget`, as agent-browser's tab
+    switch brings a tab to the front), so the tab watched last streams, and when that view closes the view opened
+    before it brings its own tab back; before issue #1113 a Bot's tab behind the owner's sent no frame. Moving the
+    focus is the owner's action queued behind the agents' calls running in the browser, as OpenMausBot's viewer
+    brings a tab to the front through its control (`server/browser/viewers/core.ts:845`): it waits for them, at
+    most 15 seconds, and a call asked for meanwhile waits for it, since a page may fail a call that needs the
+    focus when it moves mid-way. Each view and each take-over is logged
     (`clientapi.browser_view_opened`, `_closed`, `browser.taken`, `browser.released`) with who, which tab, from
     where and how long; frames and keys are not.
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` name the browser and its pinned version,

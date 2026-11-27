@@ -132,6 +132,8 @@ type Engine struct {
 	sessions map[string]*session
 	// holds say who drives each tab: its agent, or the owner (control.go).
 	holds holds
+	// focus says which tab is in front, and when it may move (front.go).
+	focus focus
 	// icons are the icons of the sites the tabs show (favicon.go), with a lock of their own.
 	icons favicons
 	// isolated are the browser contexts of the control plane's own (contexts.go), with a lock of their own.
@@ -212,7 +214,16 @@ func (e *Engine) Call(ctx context.Context, agent, tool string, arguments json.Ra
 		return refusal(), nil
 	}
 
+	// A tab is not brought to the front while the call runs: it takes the focus from the agent's page.
+	if err := e.focus.enter(ctx); err != nil {
+		hold.Leave()
+
+		return nil, err
+	}
+
 	result, err := e.call(ctx, agent, tool, arguments)
+
+	e.focus.leave()
 
 	if hold.Leave() {
 		return refusal(), nil

@@ -74,12 +74,15 @@ export function heldLine(tabs: BrowserTab[] | undefined, held: boolean): string 
 }
 
 // elsewhereLine says, in the view of a tab the owner does not hold, which other tabs he holds, or null when none:
-// this tab's agent goes on (issue #1113), and "Hand back" is in those tabs' views.
+// an agent's tab says its agent goes on (issue #1113), and "Hand back" is in those tabs' views. The owner's own tab
+// has no agent to go on.
 export function elsewhereLine(tabs: BrowserTab[] | undefined, tab: string): string | null {
   const taken = (tabs ?? []).filter((t) => t.held && t.id !== tab)
   if (taken.length === 0) return null
 
-  return `You hold ${joined(taken.map(heldName))}. This tab's agent goes on.`
+  const held = `You hold ${joined(taken.map(heldName))}.`
+
+  return tab === ownerTab ? held : `${held} This tab's agent goes on.`
 }
 
 // chatTabs are the tabs of the chats in a pane, whichever agent opened them (issue #557): those whose chat is one
