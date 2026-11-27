@@ -5130,9 +5130,12 @@ its client API, its CLI and the Bots' tools.
   carry the secretary's rules. `triage` reads only, every 15 minutes, behind its check `new-messages.mjs`, so its
   runs send nothing; `brief`, at 08:00 and 17:00 Hanoi time, is told in his Lark chat with the Bot. A check past its cap keeps the rest of a span by what it read, never by a position: the second it
   stopped in and the messages of it counted (Zalo, WhatsApp), the mails read (Gmail), the chats read and the one it
-  stopped in (Lark, whose cap is checked at each page); issue #1071. A run gets at most 15 conversations (`perRun`),
-  direct chats and those that tag or name the owner first, then groups, mail and meetings; the rest is carried in the
-  check's state, named first next time and waking the Bot even with nothing new (issue #1101). A conversation of
+  stopped in (Lark, whose cap is checked at each page); issue #1071. The check counts the owner's own new messages
+  (Zalo, WhatsApp, Lark, his sent Gmail) apart from others' and wakes the Bot on them too, so that his short yes to a
+  request for work is read; `triage.md` reads a reply against the ask it answers, an accepted or promised job being
+  an open `promised` item (issue #1182). A run gets at most 15 conversations (`perRun`), direct chats and those that
+  tag or name the owner first, then groups, chats with only his own new messages, mail and meetings; the rest is
+  carried in the check's state, named first next time and waking the Bot even with nothing new (issue #1101). A conversation of
   Zalo or WhatsApp is named `<integration>:<label>`, the label the reads' answers give when the Bot has one account
   and its tools' schemas name none (issue #1124). After the batch, `triage` gives a priority with its reason and a
   project to each open or proposed item of its own that has none (those added before #1157; the store lets a Bot
@@ -5143,7 +5146,8 @@ its client API, its CLI and the Bots' tools.
   with its source and any contradiction with an earlier one said, never a line added to its notes; an id is written
   once, in parentheses after the words it shows (issue #1186). `deploy/thu-ky/triage.test.mjs` runs the prompt with
   a real Claude Code against `triage-world.mjs`, the Bot's tools as an MCP server, only when
-  `HYPOMNEMA_TEST_CLAUDE` names it. The Routine's
+  `HYPOMNEMA_TEST_CLAUDE` names it; `triage.eval.mjs` runs the cases of `triage-cases.json` so, only with
+  `THU_KY_EVAL=1` (issue #1182). The Routine's
   `--timeout` bounds only the check; the Bot's turn has `PromptTimeout`, 60 minutes.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).

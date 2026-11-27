@@ -99,7 +99,9 @@ the quote and nothing else.
 
 ## Triage, one conversation at a time
 
-The check names the conversations with new messages since the last check. For each conversation:
+The check names the conversations with new messages since the last check, his own counted apart. A conversation
+named only for his own messages ("N of his own") holds his reply, his promise or work he gave: read back to what it
+answers (1), then apply 2, 5 and "Does it involve him?". For each conversation:
 
 1. Read every message of the window, not only the last few. Then read back before it, page by page, to the last ask
    to him and his answers after it, however far that is: never stop at a fixed count.
@@ -108,8 +110,8 @@ The check names the conversations with new messages since the last check. For ea
    `inbox_done`, `for_owner`, and his message as evidence (`zalo_sent`, `whatsapp_sent` or `lark_sent`, with the
    account, the chat and the message's id). His answer may be in another chat of the same account where the person
    who asked is a member (a group they are both in): it counts too, given the same way with that chat, and you
-   quote his answer in the `reason`; one in another service does not. An answer that only promises it ("em gửi
-   sau", "chiều em báo cô") is not done: see 5.
+   quote his answer in the `reason`; one in another service does not. A yes to an ask for work is not the work, and
+   neither is a promise: see 5.
 3. Look with `inbox_list` (by source, and by assignee) before you add anything, so that nothing is added twice.
    One topic seen in several chats is one item: each other place is an update of it (rule 11), never a second item.
 4. A direct ask to him (he is tagged, named, or written to in a direct chat) that he has not answered:
@@ -117,10 +119,27 @@ The check names the conversations with new messages since the last check. For ea
    - and, when it asks for work, a second item for that work, with its due date when one was said, else none.
    When someone already took the ask (rule 2 above), their claim is the answer: add no "Reply to", and the work is a
    Waiting item given to them.
-5. His own promise ("để em check", "đợi tý", "em gửi sau", "chiều em báo cô") is an open item with `why_open`
-   `promised`, also when it is how he answered an ask: the reply is given, the work is owed. Its due is the time he
-   promised ("chiều tối" is that day's evening). It closes only when what he promised was sent: his message there
-   with it, given as evidence; a later "dạ" or a thank-you does not close it.
+5. **His reply to an ask.** Read it against the message it answers, never alone: "ok" means what it says yes to.
+   - An ask for work asks him to make, send, change or check something that can be seen done (a report updated, a
+     file sent), however it is worded: "em gửi chị file nhé", "em có thể update báo cáo này không ạ", "em xem giúp
+     chị được không". A question about a fact or his opinion is not one.
+   - He **accepted** it when his reply says yes without doing it ("dạ oki chị", "ok em", "dạ vâng", "được ạ", "để
+     em", "em nhận", "Sure"). He **promised** it when he says he will do it, with or without a time ("để em check",
+     "đợi tý", "em gửi sau", "chiều em báo cô"). Either is an open item with `why_open` `promised`, also in a group
+     where he was not tagged. The reply is given (close his "Reply to <person>" as in 2), and the work is owed. Its
+     title is the work, its quote the ask and his reply. Its due is the time he promised ("chiều tối" is that day's
+     evening), else the time the asker gave, else none; never invent one.
+   - He **delivered** it when his message there carries what was asked (the answer, the file, the link): that is 2,
+     and nothing is owed. When he accepted and delivered within the window, add nothing.
+   - An **acknowledgement** ("ok", "dạ", "vâng", "cảm ơn", 👍) to a message that asked no work of him (information,
+     a thank-you, a changed time, thanks for work he already delivered) owes nothing.
+   - A **question back** ("deadline khi nào ạ?") is not an answer: the ask stays as in 4.
+   - **Unsure** (a sticker or a reaction alone, "ok" to what may be information or work, a yes to only part of it):
+     the work is his proposal with the note "Có thể anh đã nhận: '<quote>'", never nothing.
+   - It closes only when what he accepted or promised was sent: his message there with it, given as evidence. A
+     later "dạ" or a thank-you does not close it.
+   - A teammate's "ok" moves nothing (an unclear claim, "Does it involve him?"); his own "ok" to an ask for work
+     makes it his. Both keep the work in his Inbox.
 6. Anything you only infer that may involve him is proposed, never given to a person; a complaint between others
    that does not name him is rule 4: add nothing.
 7. Every item carries the words it came from (`quote`) and where you read it, in `source` and `message`:

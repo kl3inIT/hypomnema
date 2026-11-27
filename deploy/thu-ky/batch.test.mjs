@@ -128,6 +128,49 @@ test("direct chats and those that tag or name the owner come first, then groups,
   assert.ok(told(two.text).every((id) => ["g_named", "oc_kai", "oc_tagged", "u_lan"].includes(id)), two.text);
 });
 
+// Issue #1182: a chat with only the owner's own new messages ranks after the groups and before mail, so that the
+// direct asks of others still fill the batch first (owner, 2026-11-20 and 2026-11-26).
+test("a chat with only his own new messages comes after others' asks and groups, before mail", async () => {
+  const w = world({
+    chats: [
+      { ID: "u_mine", Kind: "dm", Name: "Linh" },
+      { ID: "g_pmo", Kind: "group", Name: "PMO" },
+      { ID: "u_lan", Kind: "dm", Name: "Lan" },
+    ],
+    messages: [
+      { Chat: "u_mine", ChatName: "Linh", ID: "z1", At: at(60), SenderName: "Đạt", FromMe: true, Text: "dạ oki chị" },
+      { Chat: "g_pmo", ChatName: "PMO", ID: "z2", At: at(55), SenderName: "Minh", Text: "ok" },
+      { Chat: "u_lan", ChatName: "Lan", ID: "z3", At: at(20), SenderName: "Lan", Text: "anh ơi" },
+    ],
+    mail: [{
+      id: "x1", threadId: "t_mail", internalDate: String(Date.parse(at(70))), labelIds: ["INBOX"],
+      payload: { headers: [{ name: "From", value: "kai@genaifund.sg" }, { name: "Subject", value: "Deck" }] },
+    }],
+  });
+  const state = { sources: { "zalo:main": mark, "google:me": mark } };
+  const got = await check({ tools: w.tools, call: w.call, state, now: new Date(at(600)) });
+
+  assert.deepEqual(told(got.text), ["u_lan", "g_pmo", "u_mine", "t_mail"], got.text);
+
+  const one = await check({ tools: w.tools, call: w.call, state, config: { perRun: 1 }, now: new Date(at(600)) });
+  assert.deepEqual(told(one.text), ["u_lan"], "a direct ask fills the batch before his own messages");
+  assert.deepEqual(one.state.carry.map((f) => f.where.match(/\(id ([^)]+)\)/)?.[1] ?? f.where), ["g_pmo", "u_mine",
+    'google:me mail thread "Deck" (thread t_mail)']);
+});
+
+test("a carried chat of his own messages keeps them, and new ones from others are added", async () => {
+  const w = world({ messages: [{ Chat: "u_linh", ChatName: "Linh", ID: "m2", At: at(550), SenderName: "Linh" }] });
+  const carry = [{ where: 'zalo:main chat "Linh" (id u_linh)', count: 0, mine: 1, from: [], latest: at(10), rank: 2 }];
+  const got = await check({ tools: w.tools, call: w.call, state: { sources: { "zalo:main": at(500) }, carry },
+    now: new Date(at(600)) });
+
+  assert.match(got.text, /\(id u_linh\): 1 new from Linh and 1 of his own/, got.text);
+
+  const alone = await check({ tools: w.tools, call: world({}).call, state: { sources: { "zalo:main": at(500) }, carry },
+    now: new Date(at(600)) });
+  assert.match(alone.text, /\(id u_linh\): 1 of his own, latest/, alone.text);
+});
+
 test("with carry left and nothing new, the check still wakes the Bot", async () => {
   const w = world({});
   const carry = [{ where: 'zalo:main chat "G1" (id g_1)', count: 1, from: ["Lan"], latest: at(10), rank: 1 }];
