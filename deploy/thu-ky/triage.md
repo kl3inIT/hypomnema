@@ -106,7 +106,9 @@ named only for his own messages ("N of his own") holds his reply, his promise or
 answers (1), then apply 2, 5 and "Does it involve him?". For each conversation:
 
 1. Read every message of the window, not only the last few. Then read back before it, page by page, to the last ask
-   to him and his answers after it, however far that is: never stop at a fixed count.
+   to him and his answers after it, however far that is: never stop at a fixed count. In a Lark thread (the check
+   names it, `thread omt_…`), read the thread with `container_id_type=thread` and the thread's id, not only the
+   group: the group's list holds only the thread's first message. Link the reply itself, not the first message.
 2. Already answered: when his own last message there comes after the last ask to him and does what was asked (the
    answer itself, the file, the report), add nothing for it, and close the open "Reply to …" item of that chat with
    `inbox_done`, `for_owner`, and his message as evidence (`zalo_sent`, `whatsapp_sent` or `lark_sent`, with the

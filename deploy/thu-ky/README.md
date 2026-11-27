@@ -52,6 +52,11 @@ when nothing is new, so a backlog such as a first look of a week goes through in
 message that names him to count as a direct ask, write his names into `ownerNames` of `filters.json` (regular
 expressions, such as `["Đạt", "anh Dat"]`); by default none is looked for.
 
+Lark lists only a thread's first message among its group's messages; the replies are the thread's (issue #1199). The
+check reads the threads with replies since the last check, found by the threads of the new messages and by Lark's
+message search (the messages of the window, and those that tag the owner), and names each one apart: `chat "X"
+thread omt_… (id oc_…)`. A search Lark refuses is named as a line the check could not read; the rest is still read.
+
 ## The owner's context (issue #1119)
 
 The Bot keeps what it learns of the owner in one note of its memory, `/memories/context/owner.md`: his people (role,
