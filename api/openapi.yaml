@@ -7454,13 +7454,15 @@ components:
           description: The browser the control plane runs, by name and pinned version.
         held:
           type: boolean
-          description: Whether the owner holds the browser; agents' calls are refused meanwhile.
+          description: >-
+            Whether the owner holds any tab. Each tab says whether it is held: taking control holds only the tab
+            taken, and only that tab's agent's calls are refused meanwhile.
         tabs:
           type: array
           items: { $ref: "#/components/schemas/BrowserTab" }
     BrowserTab:
       type: object
-      required: [id, kind, url, title, views]
+      required: [id, kind, url, title, views, held]
       properties:
         id: { type: string }
         kind:
@@ -7488,6 +7490,9 @@ components:
             Its page's icon, as a data: address of an image, once the control plane has read it from the page.
             Absent until then, and for a page that names none it can give.
         views: { type: integer, description: How many views of it are open. }
+        held:
+          type: boolean
+          description: Whether the owner holds this tab; its agent's browser calls are refused meanwhile.
     BrowserViewTicket:
       type: object
       required: [ticket, expires_at]

@@ -10,14 +10,14 @@ package browser
 // with disposeOnDetach false, a tab made in it with Target.createTarget) and
 // czg86389-hub/muse2api drives Chrome over raw DevTools (engine.py:499-525).
 //
-// Every step of such a tab enters and leaves the owner's hold as an agent's
-// call does (Engine.Call): while the owner holds the browser no step runs,
-// and one that was running when the owner took it answers ErrHeld, its
-// result dropped. What the owner does in his own tab (OpenOwnerTab,
-// ProfileCookies, ClearProfileCookies) is the owner's own path, as his input
-// in a view is (human, view.go), and does not wait for the hold; a script the
-// control plane runs in that tab (EvaluateOwnerTab) is its own step, refused
-// under the hold as a context's are.
+// Such a tab is no tab the owner watches or takes, and none of the owner's
+// holds pauses it: a hold is one tab's (control.go, issue #1113), and what
+// the owner types in a tab he holds never reaches another context. What the
+// owner does in his own tab (OpenOwnerTab, ProfileCookies,
+// ClearProfileCookies) is the owner's own path, as his input in a view is
+// (human, view.go), and does not wait for the hold; a script the control
+// plane runs in that tab (EvaluateOwnerTab) is its own step, refused while
+// the owner holds his tab, as an agent's call in its own tab is (Engine.Call).
 
 import (
 	"context"
@@ -35,8 +35,8 @@ import (
 // Errors of a context's tab.
 var (
 	// ErrHeld reports a step that did not run, or whose result was dropped,
-	// because the owner holds the browser.
-	ErrHeld = errors.New("interrupted by the owner, who took the browser")
+	// because the owner holds its tab.
+	ErrHeld = errors.New("interrupted by the owner, who took the tab")
 	// ErrPageGone reports a tab or a Chrome that went away under a step: the
 	// next Page makes a new context and tab.
 	ErrPageGone = errors.New("the browser's tab went away")
@@ -89,20 +89,6 @@ type Page struct {
 // when it has none. The cookies of a context that is already there are left
 // as the context has them.
 func (e *Engine) Page(ctx context.Context, key string, cookies []Cookie) (*Page, error) {
-	if !e.control.Enter() {
-		return nil, ErrHeld
-	}
-
-	p, err := e.page(ctx, key, cookies)
-
-	if e.control.Leave() {
-		return nil, ErrHeld
-	}
-
-	return p, err
-}
-
-func (e *Engine) page(ctx context.Context, key string, cookies []Cookie) (*Page, error) {
 	cdp, err := e.ensure(ctx)
 	if err != nil {
 		return nil, err
@@ -275,20 +261,12 @@ func (e *Engine) DisposeContext(ctx context.Context, key string) {
 	iso.conn.close()
 }
 
-// step runs one DevTools command of the tab under the owner's hold.
+// step runs one DevTools command of the tab.
 func (p *Page) step(ctx context.Context, method string, params any, result any) error {
-	if !p.e.control.Enter() {
-		return ErrHeld
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	err := p.iso.conn.send(ctx, method, params, p.iso.session, result)
 
 	cancel()
-
-	if p.e.control.Leave() {
-		return ErrHeld
-	}
 
 	if err != nil {
 		if errors.Is(err, errCDPClosed) || strings.Contains(err.Error(), "No session with given id") ||
@@ -403,18 +381,10 @@ func (p *Page) Cookies(ctx context.Context) ([]Cookie, error) {
 		Cookies []Cookie `json:"cookies"`
 	}
 
-	if !p.e.control.Enter() {
-		return nil, ErrHeld
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	err := p.iso.conn.send(ctx, "Storage.getCookies", map[string]any{"browserContextId": p.iso.contextID}, "", &got)
 
 	cancel()
-
-	if p.e.control.Leave() {
-		return nil, ErrHeld
-	}
 
 	if err != nil {
 		return nil, fmt.Errorf("%w: reading cookies: %w", ErrPageGone, err)
@@ -425,7 +395,7 @@ func (p *Page) Cookies(ctx context.Context) ([]Cookie, error) {
 
 // OpenOwnerTab loads an http or https address in the owner's own tab, made
 // when it is not there, for a sign-in the owner makes in his view of it. It
-// is the owner's path: it runs while he holds the browser.
+// is the owner's path: it runs while he holds his tab.
 func (e *Engine) OpenOwnerTab(ctx context.Context, address string) error {
 	if u, err := url.Parse(address); err != nil || (u.Scheme != "https" && u.Scheme != "http") {
 		return fmt.Errorf("%w: not a web address", ErrBadArguments)
@@ -471,17 +441,18 @@ func (e *Engine) OpenOwnerTab(ctx context.Context, address string) error {
 // muse.ai refuses from any other client (issue #798; Muse-Chat-MCP's
 // checkAuth, muse-driver.mjs:162-185, evaluates it in its page too). It is
 // the control plane's step in the owner's tab, not the owner's: while the
-// owner holds the browser it is refused with ErrHeld, and one that was
+// owner holds his tab it is refused with ErrHeld, and one that was
 // running when he took it answers ErrHeld, its result dropped. With no
 // owner's tab open it answers ErrNoSuchTab.
 func (e *Engine) EvaluateOwnerTab(ctx context.Context, expression string, result any) error {
-	if !e.control.Enter() {
+	hold, ok := e.holds.enter(OwnerTab)
+	if !ok {
 		return ErrHeld
 	}
 
 	got, err := e.evaluateOwnerTab(ctx, expression)
 
-	if e.control.Leave() {
+	if hold.Leave() {
 		return ErrHeld
 	}
 

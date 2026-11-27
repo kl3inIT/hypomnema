@@ -3723,7 +3723,7 @@ type Browser struct {
 	// Chrome The browser the control plane runs, by name and pinned version.
 	Chrome string `json:"chrome"`
 
-	// Held Whether the owner holds the browser; agents' calls are refused meanwhile.
+	// Held Whether the owner holds any tab. Each tab says whether it is held: taking control holds only the tab taken, and only that tab's agent's calls are refused meanwhile.
 	Held bool `json:"held"`
 
 	// Installed Whether the browser's programs were fetched; they are at the first use.
@@ -3745,7 +3745,10 @@ type BrowserTab struct {
 
 	// Favicon Its page's icon, as a data: address of an image, once the control plane has read it from the page. Absent until then, and for a page that names none it can give.
 	Favicon *string `json:"favicon,omitempty"`
-	Id      string  `json:"id"`
+
+	// Held Whether the owner holds this tab; its agent's browser calls are refused meanwhile.
+	Held bool   `json:"held"`
+	Id   string `json:"id"`
 
 	// Kind Whose tab it is: a worker's (a Dispatch), the coordinator's, one opened with the owner's own token, or the owner's own tab in the web client.
 	Kind   BrowserTabKind `json:"kind"`

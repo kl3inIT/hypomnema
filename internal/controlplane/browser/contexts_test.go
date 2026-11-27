@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/ownerhold"
 )
 
 // runningEngine is an Engine that takes the Chrome at cdp as running, with
@@ -87,53 +89,34 @@ func TestAContextIsMadeWithItsCookiesAndItsTab(t *testing.T) {
 	assert.Contains(t, chrome.sent()[len(chrome.sent())-1], `Target.disposeBrowserContext {"browserContextId":"C1"}`)
 }
 
-// While the owner holds the browser no step runs; a step running when he
-// takes it answers ErrHeld, what it read dropped.
-func TestTheOwnersHoldStopsAContextsSteps(t *testing.T) {
+// holdOf is a tab's hold, the one its views take.
+func holdOf(e *Engine, tab string) *ownerhold.Hold {
+	e.holds.mu.Lock()
+	defer e.holds.mu.Unlock()
+
+	return e.holds.of(tab)
+}
+
+// A context's tab is no tab the owner takes: holding his own tab, or an
+// agent's, leaves its steps running (issue #1113), as a hold is one tab's.
+func TestAContextsStepsRunWhileTheOwnerHoldsATab(t *testing.T) {
 	t.Parallel()
 
-	var e *Engine
-
-	var taking atomic.Bool
-
 	chrome := contextChrome()
-	inner := chrome.answer
-	chrome.answer = func(method, session string) (string, []string) {
-		if method == "Runtime.evaluate" && taking.Load() {
-			// The owner takes the browser while the page answers.
-			go e.control.Take(t.Context(), time.Now())
+	e := runningEngine(chrome.serve(t))
 
-			for held, _ := e.control.State(); !held; held, _ = e.control.State() {
-				time.Sleep(time.Millisecond)
-			}
-		}
-
-		return inner(method, session)
-	}
-
-	e = runningEngine(chrome.serve(t))
+	holdOf(e, OwnerTab).Take(t.Context(), time.Now())
+	holdOf(e, "d-one").Take(t.Context(), time.Now())
 
 	p, err := e.Page(t.Context(), "acc_1", nil)
 	require.NoError(t, err)
 
-	taking.Store(true)
-
 	var state map[string]any
 
-	require.ErrorIs(t, p.Evaluate(t.Context(), "1", &state), ErrHeld)
-	assert.Nil(t, state, "what the step read is dropped")
-
-	before := len(chrome.sent())
-
-	require.ErrorIs(t, p.InsertText(t.Context(), "x"), ErrHeld)
-	_, err = p.Cookies(t.Context())
-	require.ErrorIs(t, err, ErrHeld)
-	_, err = e.Page(t.Context(), "acc_2", nil)
-	require.ErrorIs(t, err, ErrHeld)
-	assert.Len(t, chrome.sent(), before, "nothing is sent while the owner holds the browser")
-
-	require.True(t, e.control.Release())
+	require.NoError(t, p.Evaluate(t.Context(), "1", &state))
 	require.NoError(t, p.InsertText(t.Context(), "x"))
+	_, err = p.Cookies(t.Context())
+	require.NoError(t, err)
 }
 
 // A tab that went away is made again in the same context; a Chrome that went
@@ -189,7 +172,7 @@ func TestTheProfilesCookiesAreReadAndClearedByDomain(t *testing.T) {
 
 	chrome := contextChrome()
 	e := runningEngine(chrome.serve(t))
-	e.control.Take(t.Context(), time.Now())
+	holdOf(e, OwnerTab).Take(t.Context(), time.Now())
 
 	cookies, err := e.ProfileCookies(t.Context(), "muse.ai")
 	require.NoError(t, err)
@@ -212,7 +195,7 @@ func TestTheProfilesCookiesAreReadAndClearedByDomain(t *testing.T) {
 }
 
 // A script runs in the owner's own tab, attached to it on a connection of its
-// own, only while the owner does not hold the browser; with no owner's tab it
+// own, only while the owner does not hold that tab; with no owner's tab it
 // answers ErrNoSuchTab.
 func TestAScriptRunsInTheOwnersTabUnlessHeld(t *testing.T) {
 	t.Parallel()
@@ -252,14 +235,17 @@ func TestAScriptRunsInTheOwnersTabUnlessHeld(t *testing.T) {
 	assert.Contains(t, sent[1], `S1 Runtime.evaluate {"awaitPromise":true,"expression":"check()","returnByValue":true}`)
 	assert.Contains(t, sent[2], `Target.detachFromTarget {"sessionId":"S1"}`)
 
-	e.control.Take(t.Context(), time.Now())
+	holdOf(e, "d-one").Take(t.Context(), time.Now())
+	require.NoError(t, e.EvaluateOwnerTab(t.Context(), "check()", &got), "an agent's tab held is not the owner's")
+
+	holdOf(e, OwnerTab).Take(t.Context(), time.Now())
 
 	got.Status = 0
 
 	require.ErrorIs(t, e.EvaluateOwnerTab(t.Context(), "check()", &got), ErrHeld)
 	assert.Zero(t, got.Status)
-	assert.Len(t, chrome.sent(), 3, "nothing is sent while the owner holds the browser")
+	assert.Len(t, chrome.sent(), 6, "nothing is sent while the owner holds his tab")
 
-	require.True(t, e.control.Release())
+	require.True(t, holdOf(e, OwnerTab).Release())
 	require.NoError(t, e.EvaluateOwnerTab(t.Context(), "check()", &got))
 }

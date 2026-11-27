@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/ownerhold"
 )
 
 // Filming an agent's tab for a take (issue #1189, rows 1, 4 to 7). The frames
@@ -80,8 +82,10 @@ type Film struct {
 	restore Size
 	// Viewport is the tab's size while it is filmed.
 	Viewport Size
+	// owner is who drives the tab (control.go).
+	owner *ownerhold.Hold
 
-	// holds are the spans the owner held the browser since the film started, the last one open while he holds it:
+	// holds are the spans the owner held the tab since the film started, the last one open while he holds it:
 	// a frame is judged by when Chrome drew it, not when it arrived.
 	holdMu sync.Mutex
 	holds  []holdSpan
@@ -91,7 +95,7 @@ type Film struct {
 	stopped  sync.Once
 }
 
-// holdSpan is when the owner held the browser; to is zero while he holds it.
+// holdSpan is when the owner held the tab; to is zero while he holds it.
 type holdSpan struct{ from, to time.Time }
 
 // Done is closed when the tab or Chrome went away under the film.
@@ -99,17 +103,18 @@ func (f *Film) Done() <-chan struct{} { return f.gone }
 
 // Film starts filming an agent's tab at viewport, or at the size it has when
 // viewport is zero; frame is given each frame on the connection's goroutine,
-// and must not wait there. A frame drawn while the owner holds the browser is
+// and must not wait there. A frame drawn while the owner holds the tab is
 // not given: what the owner types is not filmed, as a phone take pauses for
 // the owner's takeover (issue #817).
 func (e *Engine) Film(ctx context.Context, agent string, viewport Size, frame func(Frame)) (*Film, error) {
-	if !e.control.Enter() {
+	hold, ok := e.holds.enter(agent)
+	if !ok {
 		return nil, ErrHeld
 	}
 
-	f, err := e.film(ctx, agent, viewport, frame)
+	f, err := e.film(ctx, agent, viewport, frame, hold)
 
-	if e.control.Leave() {
+	if hold.Leave() {
 		if f != nil {
 			f.Stop(ctx)
 		}
@@ -120,7 +125,9 @@ func (e *Engine) Film(ctx context.Context, agent string, viewport Size, frame fu
 	return f, err
 }
 
-func (e *Engine) film(ctx context.Context, agent string, viewport Size, frame func(Frame)) (*Film, error) {
+func (e *Engine) film(
+	ctx context.Context, agent string, viewport Size, frame func(Frame), hold *ownerhold.Hold,
+) (*Film, error) {
 	s, cdp, _, err := e.attach(ctx, agent)
 	if err != nil {
 		return nil, err
@@ -153,7 +160,7 @@ func (e *Engine) film(ctx context.Context, agent string, viewport Size, frame fu
 		viewport = before
 	}
 
-	f := &Film{e: e, s: s, cdp: cdp, restore: before, Viewport: viewport, gone: make(chan struct{})}
+	f := &Film{e: e, s: s, cdp: cdp, restore: before, Viewport: viewport, owner: hold, gone: make(chan struct{})}
 
 	if err := e.setViewport(ctx, s, cdp, viewport); err != nil {
 		return nil, err
@@ -172,10 +179,10 @@ func (e *Engine) film(ctx context.Context, agent string, viewport Size, frame fu
 	return f, nil
 }
 
-// watchHold keeps the spans the owner holds the browser, until the film ends.
+// watchHold keeps the spans the owner holds the tab, until the film ends.
 func (f *Film) watchHold() {
 	for {
-		held, changed := f.e.control.State()
+		held, changed := f.owner.State()
 		now := f.e.cfg.Clock.Now()
 
 		f.holdMu.Lock()
@@ -197,7 +204,7 @@ func (f *Film) watchHold() {
 	}
 }
 
-// drawnInHold says whether a frame drawn at at was drawn while the owner held the browser, or after a hold began
+// drawnInHold says whether a frame drawn at at was drawn while the owner held the tab, or after a hold began
 // that is not yet seen to end.
 func (f *Film) drawnInHold(at time.Time) bool {
 	f.holdMu.Lock()
@@ -212,7 +219,7 @@ func (f *Film) drawnInHold(at time.Time) bool {
 	return false
 }
 
-// boundTarget is the tab agent-browser pinned a session to, from the file it keeps it in. The caller holds s.mu.
+// boundTarget is the tab agent-browser pinned a session to, from the file it keeps it in.
 func (e *Engine) boundTarget(s *session) (string, error) {
 	var bound struct {
 		TargetID string `json:"targetId"`
@@ -308,7 +315,7 @@ func detached(params json.RawMessage, session string) bool {
 	return json.Unmarshal(params, &got) == nil && got.SessionID == session
 }
 
-// frame acknowledges a frame and gives it on, unless the owner holds the browser.
+// frame acknowledges a frame and gives it on, unless the owner holds the tab.
 func (f *Film) frame(ctx context.Context, params json.RawMessage, session string, frame func(Frame)) {
 	var got struct {
 		Data      string `json:"data"`
@@ -332,8 +339,8 @@ func (f *Film) frame(ctx context.Context, params json.RawMessage, session string
 		at = time.Unix(int64(sec), int64(frac*1e9))
 	}
 
-	// Not kept while the owner holds the browser, nor when Chrome drew it during his hold and it came after.
-	if held, _ := f.e.control.State(); held || f.drawnInHold(at) {
+	// Not kept while the owner holds the tab, nor when Chrome drew it during his hold and it came after.
+	if held, _ := f.owner.State(); held || f.drawnInHold(at) {
 		return
 	}
 
@@ -351,16 +358,16 @@ func (f *Film) ended() { f.goneOnce.Do(func() { close(f.gone) }) }
 // starts with when its page draws nothing new, as autodemo takes a screenshot
 // when no frame came (src/perform.js:234-239).
 //
-// It is not taken while the owner holds the browser, and one he took the browser during is dropped, as an agent's
+// It is not taken while the owner holds the tab, and one he took the tab during is dropped, as an agent's
 // call is (Engine.Call).
 func (f *Film) Still(ctx context.Context) ([]byte, error) {
-	if !f.e.control.Enter() {
+	if !f.owner.Enter() {
 		return nil, ErrHeld
 	}
 
 	shot, err := f.still(ctx)
 
-	if f.e.control.Leave() {
+	if f.owner.Leave() {
 		return nil, ErrHeld
 	}
 
@@ -443,13 +450,14 @@ func (e *Engine) setViewport(ctx context.Context, s *session, cdp string, size S
 // (cli/src/native/element.rs, get_element_bounding_box), the element's
 // getBoundingClientRect in CSS pixels. A take's step rings its center (row 5).
 func (e *Engine) Box(ctx context.Context, agent, selector string) (Box, error) {
-	if !e.control.Enter() {
+	hold, ok := e.holds.enter(agent)
+	if !ok {
 		return Box{}, ErrHeld
 	}
 
 	b, err := e.box(ctx, agent, selector)
 
-	if e.control.Leave() {
+	if hold.Leave() {
 		return Box{}, ErrHeld
 	}
 

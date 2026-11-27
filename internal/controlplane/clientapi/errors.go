@@ -100,8 +100,14 @@ func codeOf(err error) openapi.ErrorCode {
 }
 
 // writeError answers a handler's error. An internal error is logged and its
-// details are not shown.
+// details are not shown. A request the page abandoned is answered with
+// nothing and not logged: the client left and nobody reads the answer, as
+// the model gateway leaves it (modelgateway/web.go, webFailed; issue #1113).
 func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
+	if r.Context().Err() != nil {
+		return
+	}
+
 	code := codeOf(err)
 	message := err.Error()
 

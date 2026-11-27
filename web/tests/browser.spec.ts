@@ -92,8 +92,9 @@ async function frame(page: Page) {
 }
 
 // fakeServer answers the API and plays a tab on the WebSocket: it says who controls, the tab's size and address,
-// and sends one frame; asked for control it gives it. As the control plane, it keeps the owner's hold until the
-// owner hands it back, not when a view closes (issue #603). It keeps the tabs tickets were asked for, the
+// and sends one frame; asked for control it gives it, of that tab only (issue #1113). As the control plane, it keeps
+// the owner's hold until the owner hands it back, not when a view closes (issue #603). `held` starts with the
+// owner's own tab held. It keeps the tabs tickets were asked for, the
 // WebSockets it was given and what the page sent.
 async function fakeServer(
   page: Page,
@@ -104,7 +105,7 @@ async function fakeServer(
   const sockets: WebSocketRoute[] = []
   const sent: Record<string, unknown>[] = []
   const picture = await frame(page)
-  let held = options.held ?? false
+  const held = new Set<string>(options.held ? ["owner"] : [])
 
   await page.addInitScript({ content: "localStorage.setItem('hypomnema.token', 'secret')" })
   await page.route("**/api/v1/**", async (route) => {
@@ -129,7 +130,12 @@ async function fakeServer(
           return json({ code: "unavailable", message: "this control plane has no browser" }, 503)
         }
 
-        return json({ installed: true, running: true, held, tabs: listed })
+        return json({
+          installed: true,
+          running: true,
+          held: held.size > 0,
+          tabs: listed.map((t) => ({ ...t, held: held.has(t.id) })),
+        })
       case "GET /bots":
         return json({ data: [{ id: "coordinator", name: "Atlas", main: true }] })
       case "GET /chats":
@@ -177,23 +183,24 @@ async function fakeServer(
   })
   await page.routeWebSocket(/\/api\/v1\/browser\/views\//, (ws) => {
     sockets.push(ws)
+    const tab = asked.at(-1)!
     ws.onMessage((message) => {
       const input = JSON.parse(String(message)) as Record<string, unknown>
       sent.push(input)
       if (input.type === "takeControl") {
-        held = true
+        held.add(tab)
         ws.send(JSON.stringify({ type: "control", controller: "you" }))
       }
       if (input.type === "releaseControl") {
-        held = false
+        held.delete(tab)
         ws.send(JSON.stringify({ type: "control", controller: "agent" }))
       }
       if (input.type === "navigate")
         ws.send(JSON.stringify({ type: "url", url: String(input.url) }))
     })
-    ws.send(JSON.stringify({ type: "control", controller: held ? "you" : "agent" }))
+    ws.send(JSON.stringify({ type: "control", controller: held.has(tab) ? "you" : "agent" }))
     ws.send(JSON.stringify({ type: "viewport", width: 1280, height: 720 }))
-    ws.send(JSON.stringify({ type: "url", url: tabs.find((t) => t.id === asked.at(-1))!.url }))
+    ws.send(JSON.stringify({ type: "url", url: tabs.find((t) => t.id === tab)!.url }))
     ws.send(picture)
   })
 
@@ -380,10 +387,10 @@ test("a dropped view comes back by itself", async ({ page }) => {
   await painted(page)
 })
 
-// Scenario: the owner holds the browser and goes to the chat's tab in the same pane, then back. The browser's view
-// closes, but the page does not hand the browser back: only "Hand back" does, and the control plane keeps the hold
+// Scenario: the owner holds his tab and goes to the chat's tab in the same pane, then back. The browser's view
+// closes, but the page does not hand the tab back: only "Hand back" does, and the control plane keeps the hold
 // meanwhile (issue #603). The sidebar still says the owner holds it, and the tab comes back held.
-test("switching to another tab of the pane keeps the owner's hold on the browser", async ({
+test("switching to another tab of the pane keeps the owner's hold on his tab", async ({
   page,
 }, info) => {
   test.skip(info.project.name === "phone", "a phone has no sidebar")
@@ -395,18 +402,83 @@ test("switching to another tab of the pane keeps the owner's hold on the browser
   server.sockets[0].onClose(() => closed++)
   await page.getByRole("button", { name: /Take control/ }).click()
   await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
-  await expect(page.getByText("You hold the browser.")).toBeVisible({ timeout: 10_000 })
+  await expect(
+    page.getByText("You hold your own tab. The agents go on in their own tabs."),
+  ).toBeVisible({ timeout: 10_000 })
 
   await paneTab(page, "health page").click()
   await expect(page.getByText("add a health page")).toBeVisible()
   await expect.poll(() => closed).toBe(1)
   expect(server.of("releaseControl")).toHaveLength(0)
-  await expect(page.getByText("You hold the browser.")).toBeVisible()
+  await expect(
+    page.getByText("You hold your own tab. The agents go on in their own tabs."),
+  ).toBeVisible()
 
   await paneTab(page, "My browser").click()
   await expect.poll(() => server.sockets).toHaveLength(2)
   await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
-  await expect(page.getByText("You hold the browser.")).toBeVisible()
+  await expect(
+    page.getByText("You hold your own tab. The agents go on in their own tabs."),
+  ).toBeVisible()
+})
+
+// Scenario (issue #1113): the owner opens a Bot's chat to sign in to a site in his own tab, takes control there, and
+// looks at the Bot's tab. Taking control held only his tab: the Bot's tab streams, says its agent drives it and that
+// the owner holds his own tab elsewhere, and the sidebar names the tab held. Taking the Bot's tab too holds it, and
+// the sidebar says its agent waits.
+test("taking control of the owner's tab leaves the Bot's tab to the Bot", async ({
+  page,
+}, info) => {
+  const server = await fakeServer(page)
+  await page.goto("/chats/cht_1")
+
+  await open(page, "My browser")
+  await painted(page)
+  await page.getByRole("button", { name: /Take control/ }).click()
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+  if (info.project.name !== "phone") {
+    await expect(
+      page.getByText("You hold your own tab. The agents go on in their own tabs."),
+    ).toBeVisible({ timeout: 10_000 })
+  }
+
+  await open(page, "Maps search")
+  await expect.poll(() => server.asked).toEqual(["owner", "b-cht_1"])
+  await painted(page)
+  await expect(page.getByRole("button", { name: /Take control/ })).toBeVisible()
+  await expect(page.getByText("You hold your own tab. This tab's agent goes on.")).toBeVisible({
+    timeout: 10_000,
+  })
+  await shot(page, "pane-browser-held-elsewhere")
+
+  await page.getByRole("button", { name: /Take control/ }).click()
+  await expect(page.getByRole("button", { name: /Hand back/ })).toBeVisible()
+  await expect(page.getByText("This tab's agent goes on.")).toHaveCount(0)
+  if (info.project.name !== "phone") {
+    await expect(
+      page.getByText(
+        "You hold your own tab and “Maps search”. Its agent's browser tools are paused until you hand it back.",
+      ),
+    ).toBeVisible({ timeout: 10_000 })
+    await shot(page, "sidebar-browser-two-held")
+  }
+
+  // Back in his own tab he hands it back: its view names the Bot's tab he still holds, and no agent of its own.
+  await page.getByRole("tab", { name: "My browser" }).first().click()
+  await expect.poll(() => server.asked).toEqual(["owner", "b-cht_1", "owner"])
+  await page.getByRole("button", { name: /Hand back/ }).click()
+  await expect(page.getByRole("button", { name: /Take control/ })).toBeVisible()
+  await expect(page.getByText("You hold “Maps search”.", { exact: true })).toBeVisible({
+    timeout: 10_000,
+  })
+  if (info.project.name !== "phone") {
+    await expect(
+      page.getByText(
+        "You hold “Maps search”. Its agent's browser tools are paused until you hand it back.",
+      ),
+    ).toBeVisible({ timeout: 10_000 })
+  }
+  await shot(page, "pane-browser-owner-tab-bot-held")
 })
 
 // A control plane with no browser offers none: "+" has only a new chat.
@@ -420,13 +492,15 @@ test("a control plane with no browser offers no browser", async ({ page }) => {
   await expect(page.getByRole("menuitem")).toHaveText(["New chat"])
 })
 
-// While the owner holds the browser the sidebar says so, on every page.
-test("the sidebar says that the owner holds the browser", async ({ page }, info) => {
+// While the owner holds a tab the sidebar says so, on every page.
+test("the sidebar says that the owner holds his tab", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "a phone has no sidebar")
   await fakeServer(page, { held: true })
   await page.goto("/routines")
 
-  await expect(page.getByText("You hold the browser.")).toBeVisible()
+  await expect(
+    page.getByText("You hold your own tab. The agents go on in their own tabs."),
+  ).toBeVisible()
   await shot(page, "sidebar-browser-held")
 })
 
