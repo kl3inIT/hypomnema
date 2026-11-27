@@ -66,6 +66,14 @@ func (a audioSettings) Chain(ctx context.Context) ([]speech.Link, speech.Setting
 	return a.speech.Chain(ctx)
 }
 
+func (a audioSettings) Models(ctx context.Context, provider, kind string) ([]speech.ModelChoice, error) {
+	return a.speech.Models(ctx, provider, kind)
+}
+
+func (a audioSettings) Voices(ctx context.Context) ([]speech.Voice, []speech.Failure, error) {
+	return a.speech.Voices(ctx)
+}
+
 // agentAudio is the speech as the agent API gives it: a worker's recorded as
 // modelgateway.WorkerAudio records it, a Bot's pi's as modelgateway.BotAudio
 // records its `hypomnema audio`, on the key of the chat's running pi.

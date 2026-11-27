@@ -799,7 +799,7 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 }
 
 const listGatewayAudioProviders = `-- name: ListGatewayAudioProviders :many
-SELECT provider, off, stt_position, tts_position, updated_at, voice FROM gateway_audio_providers ORDER BY provider
+SELECT provider, off, stt_position, tts_position, updated_at, voice, stt_model, tts_model FROM gateway_audio_providers ORDER BY provider
 `
 
 // What the owner set on Settings, Gateway, Audio (issue #694).
@@ -819,6 +819,8 @@ func (q *Queries) ListGatewayAudioProviders(ctx context.Context) ([]GatewayAudio
 			&i.TtsPosition,
 			&i.UpdatedAt,
 			&i.Voice,
+			&i.SttModel,
+			&i.TtsModel,
 		); err != nil {
 			return nil, err
 		}
@@ -1557,6 +1559,23 @@ func (q *Queries) SetGatewayAudioOff(ctx context.Context, arg SetGatewayAudioOff
 	return err
 }
 
+const setGatewayAudioSTTModel = `-- name: SetGatewayAudioSTTModel :exec
+INSERT INTO gateway_audio_providers (provider, stt_model, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET stt_model = excluded.stt_model, updated_at = excluded.updated_at
+`
+
+type SetGatewayAudioSTTModelParams struct {
+	Provider string
+	Model    string
+	Now      int64
+}
+
+// The model a provider is asked with for each kind (issue #1285, row 1); empty: its newest.
+func (q *Queries) SetGatewayAudioSTTModel(ctx context.Context, arg SetGatewayAudioSTTModelParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayAudioSTTModel, arg.Provider, arg.Model, arg.Now)
+	return err
+}
+
 const setGatewayAudioSTTPosition = `-- name: SetGatewayAudioSTTPosition :exec
 INSERT INTO gateway_audio_providers (provider, stt_position, updated_at) VALUES (?1, ?2, ?3)
 ON CONFLICT (provider) DO UPDATE SET stt_position = excluded.stt_position, updated_at = excluded.updated_at
@@ -1570,6 +1589,22 @@ type SetGatewayAudioSTTPositionParams struct {
 
 func (q *Queries) SetGatewayAudioSTTPosition(ctx context.Context, arg SetGatewayAudioSTTPositionParams) error {
 	_, err := q.db.ExecContext(ctx, setGatewayAudioSTTPosition, arg.Provider, arg.Position, arg.Now)
+	return err
+}
+
+const setGatewayAudioTTSModel = `-- name: SetGatewayAudioTTSModel :exec
+INSERT INTO gateway_audio_providers (provider, tts_model, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET tts_model = excluded.tts_model, updated_at = excluded.updated_at
+`
+
+type SetGatewayAudioTTSModelParams struct {
+	Provider string
+	Model    string
+	Now      int64
+}
+
+func (q *Queries) SetGatewayAudioTTSModel(ctx context.Context, arg SetGatewayAudioTTSModelParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayAudioTTSModel, arg.Provider, arg.Model, arg.Now)
 	return err
 }
 

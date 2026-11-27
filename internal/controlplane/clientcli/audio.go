@@ -36,7 +36,7 @@ func audioSpeakFlags(fs *flag.FlagSet) {
 	fs.String("o", "", "the same as --out")
 	fs.String("voice", "", "a voice of the provider, or one of OpenAI's names (default: the provider's)")
 	fs.String("format", "", "mp3, wav, pcm or opus (default: mp3)")
-	fs.Float64("speed", 0, "ElevenLabs's voice speed, 0.25 to 4 (default: its own)")
+	fs.Float64("speed", 0, "the voice's speed: Soniox 0.7 to 1.3, ElevenLabs its own range (default: the provider's)")
 	fs.String("language", "", "the text's language for Soniox (default: en)")
 	fs.String("provider", "", "ask only this provider: soniox or elevenlabs (default: the first that answers)")
 	jsonFlag(fs)

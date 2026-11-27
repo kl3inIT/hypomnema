@@ -81,13 +81,14 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 	done func(n int), chosen func(spoken) error,
 ) (spoken, error) {
 	if pin != nil {
-		out := spoken{provider: pin.provider, model: speech.Model(pin.provider, speech.KindTTS), voice: pin.voice}
+		// A pinned call reads no settings, so it is spoken with the provider's newest model (issue #908, row 4).
+		out := spoken{provider: pin.provider, model: speech.DefaultModel(pin.provider, speech.KindTTS), voice: pin.voice}
 		if err := chosen(out); err != nil {
 			return spoken{}, err
 		}
 
 		for k, line := range lines {
-			clip, err := s.clip(ctx, source, line, pin.provider, pin.voice, true)
+			clip, err := s.clip(ctx, source, line, pin.provider, out.model, pin.voice, true)
 			if err != nil {
 				return spoken{}, fmt.Errorf("scene %d, %s: %w", k+1, pin.provider, err)
 			}
@@ -122,7 +123,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 			continue
 		}
 
-		clip, err := s.clip(ctx, source, lines[0], p, voiceOf(p), false)
+		clip, err := s.clip(ctx, source, lines[0], p, set.Model(p, speech.KindTTS), voiceOf(p), false)
 		if err != nil {
 			if ctx.Err() != nil {
 				return spoken{}, ctx.Err()
@@ -133,7 +134,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 			continue
 		}
 
-		out = spoken{clips: []string{clip}, provider: p, model: speech.Model(p, speech.KindTTS), voice: voiceOf(p)}
+		out = spoken{clips: []string{clip}, provider: p, model: set.Model(p, speech.KindTTS), voice: voiceOf(p)}
 
 		break
 	}
@@ -153,7 +154,7 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 	done(1)
 
 	for k, line := range lines[1:] {
-		clip, err := s.clip(ctx, source, line, out.provider, out.voice, false)
+		clip, err := s.clip(ctx, source, line, out.provider, out.model, out.voice, false)
 		if err != nil {
 			return spoken{}, fmt.Errorf("scene %d, %s: %w", k+2, out.provider, err)
 		}
@@ -173,11 +174,12 @@ func (s *Service) settings(ctx context.Context) (speech.Settings, error) {
 	return s.cfg.Settings(ctx)
 }
 
-// clip is a line spoken by a provider: from the cache, or asked and kept there. A pinned clip asks its provider
-// alone, without the owner's settings (issue #908, row 4).
-func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, voice string, pinned bool,
+// clip is a line spoken by a provider with a model: from the cache, or asked and kept there. A pinned clip asks its
+// provider alone, without the owner's settings (issue #908, row 4). The words' times are asked with the speech, and
+// kept beside the clip when the provider gives them, so its captions need no transcription (issue #1285, row 2).
+func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, model, voice string, pinned bool,
 ) (string, error) {
-	hash := voiceHash(text, provider, speech.Model(provider, speech.KindTTS), voice, Language)
+	hash := voiceHash(text, provider, model, voice, Language)
 	path := filepath.Join(s.cfg.Dir, voiceDir, hash+"."+clipFormat)
 
 	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
@@ -186,6 +188,7 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 
 	out, err := s.cfg.Speech.Speak(ctx, source, speech.SpeakRequest{
 		Input: text, Voice: voice, Format: clipFormat, Language: Language, Provider: provider, Pinned: pinned,
+		Timestamps: true,
 	})
 	if err != nil {
 		return "", err
@@ -205,9 +208,32 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 		return "", err
 	}
 
+	if words := captionWords(out.Words); len(words) > 0 {
+		raw, err := json.Marshal(words)
+		if err != nil {
+			return "", err
+		}
+
+		if err := writeCache(path+wordsSuffix, raw); err != nil {
+			return "", err
+		}
+	}
+
 	return path, nil
 }
 
+// captionWords are the speech's words as the captions time them, in seconds.
+func captionWords(words []speech.Word) []captions.Word {
+	out := make([]captions.Word, 0, len(words))
+	for _, w := range words {
+		out = append(out, captions.Word{Word: w.Word, Start: w.Start.Seconds(), End: max(w.Start, w.End).Seconds()})
+	}
+
+	return out
+}
+
+// clipWords are a clip's words with their times: those its provider gave with it, else heard from it again by
+// speech-to-text and kept beside it.
 func (s *Service) clipWords(ctx context.Context, source AudioSource, clip string) ([]captions.Word, error) {
 	info, err := os.Stat(clip)
 	if err != nil {

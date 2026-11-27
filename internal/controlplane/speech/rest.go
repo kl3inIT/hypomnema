@@ -56,10 +56,14 @@ type providerError struct {
 	retryAfter time.Duration
 	message    string
 	noCredits  bool
+	// balance names the provider whose 402 says its prepaid balance is spent (issue #1285, row 4).
+	balance string
 }
 
 func (e *providerError) Error() string {
 	switch {
+	case e.balance != "" && e.status == http.StatusPaymentRequired:
+		return e.balance + " balance is empty (402)"
 	case e.noCredits:
 		return fmt.Sprintf("out of credits (%d)", e.status)
 	case e.status == http.StatusTooManyRequests:
@@ -213,4 +217,15 @@ func clip(text string, n int) string {
 	}
 
 	return string(runes[:n])
+}
+
+// sonioxError reads a Soniox refusal in Soniox's words: its 402 means the organization's prepaid balance is spent
+// (docs.soniox.com /api-reference/errors; issue #1285, row 4).
+func sonioxError(err error) error {
+	var refused *providerError
+	if errors.As(err, &refused) && refused.status == http.StatusPaymentRequired {
+		refused.balance = "Soniox"
+	}
+
+	return err
 }

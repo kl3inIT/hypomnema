@@ -15,6 +15,8 @@ type GatewayAudioProvider struct {
 	TtsPosition sql.NullInt64
 	UpdatedAt   int64
 	Voice       string
+	SttModel    string
+	TtsModel    string
 }
 
 type GatewayImageProvider struct {

@@ -21,14 +21,15 @@ import (
 //	POST   /v1/files                          the recording, multipart `file`
 //	POST   /v1/transcriptions                 {model, file_id, enable_speaker_diarization?, language_hints?,
 //	                                           context: {terms}?}
-//	GET    /v1/transcriptions/{id}            each second until completed, or error, up to 30 minutes
+//	GET    /v1/transcriptions/{id}            every 5 seconds until completed, or error, up to 30 minutes
 //	GET    /v1/transcriptions/{id}/transcript {text, tokens: [{text, start_ms, end_ms, speaker?, language?}]}
 //	DELETE /v1/transcriptions/{id}, /v1/files/{id}   always, best effort
 //
 // and its TTS as OmniRoute asks it (open-sse/handlers/audioSpeech.ts:324-356):
 // POST https://tts-rt.soniox.com/tts {text, model, language, voice,
-// audio_format}, answered with the audio's bytes. Every call carries the key
-// as a bearer token.
+// audio_format, speed?, reduce_silence?, client_reference_id}, answered with
+// the audio's bytes, or over its WebSocket when the words' times are asked
+// (soniox_tts.go). Every call carries the key as a bearer token.
 
 // sonioxDefaultVoice and sonioxDefaultLanguage are OmniRoute's (audioSpeech.ts:298-299): Soniox's TTS needs both,
 // and every Soniox voice speaks every language it has.
@@ -54,9 +55,9 @@ type sonioxToken struct {
 	IsAudioEvent bool   `json:"is_audio_event"`
 }
 
-// sonioxTranscribe runs one transcription with a key.
-func (s *Service) sonioxTranscribe(ctx context.Context, k Key, req TranscribeRequest) (Transcript, error) {
-	base := s.cfg.SonioxURL
+// sonioxTranscribe runs one transcription with a key and its model.
+func (s *Service) sonioxTranscribe(ctx context.Context, r route, req TranscribeRequest) (Transcript, error) {
+	base, k := s.cfg.SonioxURL, r.key
 
 	raw, err := s.postForm(ctx, base+"/files", bearer(k), req.Audio, nil, maxSmallAnswer)
 	if err != nil {
@@ -77,7 +78,7 @@ func (s *Service) sonioxTranscribe(ctx context.Context, k Key, req TranscribeReq
 	// (MemoryOS cleanUp; LiteLLM's SONIOX_DEFAULT_CLEANUP of the file and the transcription).
 	defer s.sonioxDelete(ctx, k, "/files/"+url.PathEscape(file))
 
-	job := map[string]any{"model": SonioxSTTModel, "file_id": file}
+	job := map[string]any{"model": cmpOr(r.model, SonioxSTTModel), "file_id": file}
 	if req.Speakers {
 		job["enable_speaker_diarization"] = true
 	}
@@ -242,8 +243,28 @@ func speakerOf(v any) string {
 	}
 }
 
-// sonioxSpeak makes speech with a key: OpenAI's pcm is Soniox's pcm_s16le.
-func (s *Service) sonioxSpeak(ctx context.Context, k Key, req SpeakRequest) ([]byte, error) {
+// The bounds of Soniox's speech (docs.soniox.com /api-reference/tts/generate_tts; LiveKit
+// livekit-plugins-soniox tts.py:150 checks the speed so; issue #1285, rows 3 and 6).
+const (
+	sonioxMinSpeed      = 0.7
+	sonioxMaxSpeed      = 1.3
+	sonioxMaxCharacters = 5000
+)
+
+// sonioxSpeak makes speech with a key and its model: over the WebSocket with the words' times when they are asked
+// and the model gives them, else over REST. OpenAI's pcm is Soniox's pcm_s16le.
+func (s *Service) sonioxSpeak(ctx context.Context, r route, req SpeakRequest) ([]byte, []Word, error) {
+	k, model := r.key, cmpOr(r.model, SonioxTTSModel)
+
+	switch {
+	case len([]rune(req.Input)) > sonioxMaxCharacters:
+		return nil, nil, fmt.Errorf("%w: Soniox speaks at most %d characters a request", ErrInvalid,
+			sonioxMaxCharacters)
+	case req.Speed != 0 && (req.Speed < sonioxMinSpeed || req.Speed > sonioxMaxSpeed):
+		return nil, nil, fmt.Errorf("%w: Soniox's speed is from %.1f to %.1f", ErrInvalid, sonioxMinSpeed,
+			sonioxMaxSpeed)
+	}
+
 	format := req.Format
 	if format == "pcm" {
 		format = "pcm_s16le"
@@ -260,10 +281,47 @@ func (s *Service) sonioxSpeak(ctx context.Context, k Key, req SpeakRequest) ([]b
 	}
 
 	body := map[string]any{
-		"text": req.Input, "model": SonioxTTSModel, "language": language, "voice": voice, "audio_format": format,
+		"model": model, "language": language, "voice": voice, "audio_format": format,
+		"client_reference_id": clip(req.Reference, 256),
 	}
 
-	return s.speak(ctx, s.cfg.SonioxTTSURL, bearer(k), body)
+	if req.Speed != 0 {
+		body["speed"] = req.Speed
+	}
+
+	catalog := s.sonioxModelOf(ctx, k, model)
+
+	// reduce_silence goes only to a model that says it supports it: another refuses it (LiveKit tts.py:68).
+	if req.ReduceSilence {
+		if catalog.SupportsSilenceReduction {
+			body["reduce_silence"] = true
+		} else {
+			s.cfg.Logger.WarnContext(ctx, "Soniox's model does not shorten silences; asked without",
+				slog.String("event", "speech.soniox_reduce_silence_dropped"), slog.String("model", model))
+		}
+	}
+
+	release, err := s.sonioxTTSLimit(k).acquire(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
+
+	// A model the catalog says gives no times is asked over REST, and the words are heard again by the caller.
+	if req.Timestamps && (catalog.ID == "" || catalog.SupportsTimestamps) {
+		audio, alignment, err := s.sonioxStream(ctx, k, body, req.Input)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return audio, AlignedWords(req.Input, alignment), nil
+	}
+
+	body["text"] = req.Input
+
+	audio, err := s.speak(ctx, s.cfg.SonioxTTSURL, bearer(k), body)
+
+	return audio, nil, err
 }
 
 // speak posts a JSON body and returns the audio a success carries.

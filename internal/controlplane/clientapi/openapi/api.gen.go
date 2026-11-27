@@ -3340,7 +3340,10 @@ type AudioKind string
 
 // AudioKindLink defines model for AudioKindLink.
 type AudioKindLink struct {
-	// Model The one model it is asked with for this kind, as usage rows name it (audio/<model>).
+	// DefaultModel The provider's newest model for this kind, asked when the owner chose none.
+	DefaultModel string `json:"default_model"`
+
+	// Model The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice, else default_model.
 	Model string `json:"model"`
 
 	// On The owner's switch for the provider.
@@ -3349,6 +3352,23 @@ type AudioKindLink struct {
 
 	// Usage This control plane's requests, by UTC day and month.
 	Usage AudioUsage `json:"usage"`
+}
+
+// AudioModelChange defines model for AudioModelChange.
+type AudioModelChange struct {
+	// Model A model's id, such as tts-rt-v2; empty: the newest.
+	Model string `json:"model"`
+}
+
+// AudioModelChoice defines model for AudioModelChoice.
+type AudioModelChoice struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// AudioModels defines model for AudioModels.
+type AudioModels struct {
+	Models []AudioModelChoice `json:"models"`
 }
 
 // AudioNewKey defines model for AudioNewKey.
@@ -3446,6 +3466,24 @@ type AudioUsage struct {
 // AudioVoice defines model for AudioVoice.
 type AudioVoice struct {
 	Voice string `json:"voice"`
+}
+
+// AudioVoiceChoice defines model for AudioVoiceChoice.
+type AudioVoiceChoice struct {
+	// Id The voice a request names.
+	Id string `json:"id"`
+
+	// Language The voice's language as its provider labels it.
+	Language *string       `json:"language,omitempty"`
+	Name     string        `json:"name"`
+	Provider AudioProvider `json:"provider"`
+}
+
+// AudioVoices defines model for AudioVoices.
+type AudioVoices struct {
+	// Errors The providers whose voices could not be read, and why.
+	Errors *[]WebSearchError  `json:"errors,omitempty"`
+	Voices []AudioVoiceChoice `json:"voices"`
 }
 
 // BlockedReason defines model for BlockedReason.
@@ -6833,7 +6871,10 @@ type SpeakRequest struct {
 	Language *string        `json:"language,omitempty"`
 	Provider *AudioProvider `json:"provider,omitempty"`
 
-	// Speed ElevenLabs's voice speed.
+	// ReduceSilence Shorten the pauses between words; sent to Soniox only for a model that supports it.
+	ReduceSilence *bool `json:"reduce_silence,omitempty"`
+
+	// Speed The voice's speed: Soniox takes 0.7 to 1.3, ElevenLabs its voice setting's range.
 	Speed *float32 `json:"speed,omitempty"`
 
 	// Voice A voice of the provider (the gateway's GET /v1/audio/voices) or one of OpenAI's names; left out, each provider's default.
@@ -9197,6 +9238,9 @@ type SetAudioProviderJSONRequestBody = AudioProviderChange
 // AddAudioKeyJSONRequestBody defines body for AddAudioKey for application/json ContentType.
 type AddAudioKeyJSONRequestBody = AudioNewKey
 
+// SetAudioModelJSONRequestBody defines body for SetAudioModel for application/json ContentType.
+type SetAudioModelJSONRequestBody = AudioModelChange
+
 // SetAudioVoiceJSONRequestBody defines body for SetAudioVoice for application/json ContentType.
 type SetAudioVoiceJSONRequestBody = AudioVoice
 
@@ -10694,6 +10738,31 @@ type ClientInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKey(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListAudioModels The models a provider can be asked with for a kind, from its catalog
+	//
+	// Soniox's text-to-speech models from GET /v1/tts-models and its speech-to-text models of async jobs from GET /v1/models, read with its keys and kept a day; ElevenLabs's one model.
+	//
+	// Corresponds with GET /gateway/audio/providers/{provider}/models/{kind} (the `ListAudioModels` operationId).
+	ListAudioModels(ctx context.Context, provider AudioProvider, kind AudioKind, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetAudioModelWithBody Set the model a provider is asked with for a kind; only the owner
+	//
+	// Empty sets it back to the provider's newest model. It counts from the next request.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/models/{kind} (the `SetAudioModel` operationId).
+	SetAudioModelWithBody(ctx context.Context, provider AudioProvider, kind AudioKind, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetAudioModel Set the model a provider is asked with for a kind; only the owner
+	//
+	// Empty sets it back to the provider's newest model. It counts from the next request.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/models/{kind} (the `SetAudioModel` operationId).
+	SetAudioModel(ctx context.Context, provider AudioProvider, kind AudioKind, body SetAudioModelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SetAudioVoiceWithBody Set the voice a provider speaks a video with when none is asked; only the owner
 	//
 	// Empty sets it back to the provider's own default. It counts from the next revision made.
@@ -10711,6 +10780,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
 	SetAudioVoice(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name
+	//
+	// What the gateway's GET /v1/audio/voices lists: Soniox's built-in voices of its text-to-speech model and the account's cloned voices ready for it, and ElevenLabs's voices, each kept a day. A provider whose list could not be read is in `errors`.
+	//
+	// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
+	ListAudioVoices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 	//
@@ -15060,6 +15136,61 @@ func (c *Client) RemoveAudioKey(ctx context.Context, provider AudioProvider, nam
 	return c.Client.Do(req)
 }
 
+// ListAudioModels The models a provider can be asked with for a kind, from its catalog
+//
+// Soniox's text-to-speech models from GET /v1/tts-models and its speech-to-text models of async jobs from GET /v1/models, read with its keys and kept a day; ElevenLabs's one model.
+//
+// Corresponds with GET /gateway/audio/providers/{provider}/models/{kind} (the `ListAudioModels` operationId).
+func (c *Client) ListAudioModels(ctx context.Context, provider AudioProvider, kind AudioKind, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAudioModelsRequest(c.Server, provider, kind)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetAudioModelWithBody Set the model a provider is asked with for a kind; only the owner
+//
+// Empty sets it back to the provider's newest model. It counts from the next request.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/models/{kind} (the `SetAudioModel` operationId).
+func (c *Client) SetAudioModelWithBody(ctx context.Context, provider AudioProvider, kind AudioKind, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetAudioModelRequestWithBody(c.Server, provider, kind, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetAudioModel Set the model a provider is asked with for a kind; only the owner
+//
+// Empty sets it back to the provider's newest model. It counts from the next request.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/models/{kind} (the `SetAudioModel` operationId).
+func (c *Client) SetAudioModel(ctx context.Context, provider AudioProvider, kind AudioKind, body SetAudioModelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetAudioModelRequest(c.Server, provider, kind, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // SetAudioVoiceWithBody Set the voice a provider speaks a video with when none is asked; only the owner
 //
 // Empty sets it back to the provider's own default. It counts from the next revision made.
@@ -15088,6 +15219,23 @@ func (c *Client) SetAudioVoiceWithBody(ctx context.Context, provider AudioProvid
 // Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
 func (c *Client) SetAudioVoice(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetAudioVoiceRequest(c.Server, provider, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name
+//
+// What the gateway's GET /v1/audio/voices lists: Soniox's built-in voices of its text-to-speech model and the account's cloned voices ready for it, and ElevenLabs's voices, each kept a day. A provider whose list could not be read is in `errors`.
+//
+// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
+func (c *Client) ListAudioVoices(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAudioVoicesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -24587,6 +24735,101 @@ func NewRemoveAudioKeyRequest(server string, provider AudioProvider, name string
 	return req, nil
 }
 
+// NewListAudioModelsRequest constructs an http.Request for the ListAudioModels method
+func NewListAudioModelsRequest(server string, provider AudioProvider, kind AudioKind) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "kind", kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/audio/providers/%s/models/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetAudioModelRequest calls the generic SetAudioModel builder with application/json body
+func NewSetAudioModelRequest(server string, provider AudioProvider, kind AudioKind, body SetAudioModelJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetAudioModelRequestWithBody(server, provider, kind, "application/json", bodyReader)
+}
+
+// NewSetAudioModelRequestWithBody constructs an http.Request for the SetAudioModel method, with any body, and a specified content type
+func NewSetAudioModelRequestWithBody(server string, provider AudioProvider, kind AudioKind, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "kind", kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/audio/providers/%s/models/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewSetAudioVoiceRequest calls the generic SetAudioVoice builder with application/json body
 func NewSetAudioVoiceRequest(server string, provider AudioProvider, body SetAudioVoiceJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -24630,6 +24873,33 @@ func NewSetAudioVoiceRequestWithBody(server string, provider AudioProvider, cont
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListAudioVoicesRequest constructs an http.Request for the ListAudioVoices method
+func NewListAudioVoicesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/gateway/audio/voices")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -35015,6 +35285,33 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /gateway/audio/providers/{provider}/keys/{name} (the `RemoveAudioKey` operationId).
 	RemoveAudioKeyWithResponse(ctx context.Context, provider AudioProvider, name string, reqEditors ...RequestEditorFn) (*RemoveAudioKeyResponse, error)
 
+	// ListAudioModelsWithResponse The models a provider can be asked with for a kind, from its catalog
+	//
+	// Soniox's text-to-speech models from GET /v1/tts-models and its speech-to-text models of async jobs from GET /v1/models, read with its keys and kept a day; ElevenLabs's one model.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/audio/providers/{provider}/models/{kind} (the `ListAudioModels` operationId).
+	ListAudioModelsWithResponse(ctx context.Context, provider AudioProvider, kind AudioKind, reqEditors ...RequestEditorFn) (*ListAudioModelsResponse, error)
+
+	// SetAudioModelWithBodyWithResponse Set the model a provider is asked with for a kind; only the owner
+	//
+	// Empty sets it back to the provider's newest model. It counts from the next request.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/models/{kind} (the `SetAudioModel` operationId).
+	SetAudioModelWithBodyWithResponse(ctx context.Context, provider AudioProvider, kind AudioKind, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error)
+
+	// SetAudioModelWithResponse Set the model a provider is asked with for a kind; only the owner
+	//
+	// Empty sets it back to the provider's newest model. It counts from the next request.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /gateway/audio/providers/{provider}/models/{kind} (the `SetAudioModel` operationId).
+	SetAudioModelWithResponse(ctx context.Context, provider AudioProvider, kind AudioKind, body SetAudioModelJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error)
+
 	// SetAudioVoiceWithBodyWithResponse Set the voice a provider speaks a video with when none is asked; only the owner
 	//
 	// Empty sets it back to the provider's own default. It counts from the next revision made.
@@ -35032,6 +35329,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /gateway/audio/providers/{provider}/voice (the `SetAudioVoice` operationId).
 	SetAudioVoiceWithResponse(ctx context.Context, provider AudioProvider, body SetAudioVoiceJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAudioVoiceResponse, error)
+
+	// ListAudioVoicesWithResponse The voices of the text-to-speech providers that are on and have a key, by name
+	//
+	// What the gateway's GET /v1/audio/voices lists: Soniox's built-in voices of its text-to-speech model and the account's cloned voices ready for it, and ElevenLabs's voices, each kept a day. A provider whose list could not be read is in `errors`.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
+	ListAudioVoicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAudioVoicesResponse, error)
 
 	// GetImagesWithResponse The image providers in the order a request asks them, each with its switch, state, model and usage
 	//
@@ -41792,6 +42098,102 @@ func (r RemoveAudioKeyResponse) ContentType() string {
 	return ""
 }
 
+type ListAudioModelsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AudioModels
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListAudioModelsResponse) GetJSON200() *AudioModels {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListAudioModelsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListAudioModelsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAudioModelsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAudioModelsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAudioModelsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetAudioModelResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Audio
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetAudioModelResponse) GetJSON200() *Audio {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetAudioModelResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetAudioModelResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetAudioModelResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetAudioModelResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetAudioModelResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type SetAudioVoiceResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -41834,6 +42236,54 @@ func (r SetAudioVoiceResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetAudioVoiceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListAudioVoicesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AudioVoices
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListAudioVoicesResponse) GetJSON200() *AudioVoices {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListAudioVoicesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListAudioVoicesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAudioVoicesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAudioVoicesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAudioVoicesResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -53333,6 +53783,51 @@ func (c *ClientWithResponses) RemoveAudioKeyWithResponse(ctx context.Context, pr
 	return ParseRemoveAudioKeyResponse(rsp)
 }
 
+// ListAudioModelsWithResponse The models a provider can be asked with for a kind, from its catalog
+//
+// Soniox's text-to-speech models from GET /v1/tts-models and its speech-to-text models of async jobs from GET /v1/models, read with its keys and kept a day; ElevenLabs's one model.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/audio/providers/{provider}/models/{kind} (the `ListAudioModels` operationId).
+func (c *ClientWithResponses) ListAudioModelsWithResponse(ctx context.Context, provider AudioProvider, kind AudioKind, reqEditors ...RequestEditorFn) (*ListAudioModelsResponse, error) {
+	rsp, err := c.ListAudioModels(ctx, provider, kind, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAudioModelsResponse(rsp)
+}
+
+// SetAudioModelWithBodyWithResponse Set the model a provider is asked with for a kind; only the owner
+//
+// Empty sets it back to the provider's newest model. It counts from the next request.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/models/{kind} (the `SetAudioModel` operationId).
+func (c *ClientWithResponses) SetAudioModelWithBodyWithResponse(ctx context.Context, provider AudioProvider, kind AudioKind, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error) {
+	rsp, err := c.SetAudioModelWithBody(ctx, provider, kind, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetAudioModelResponse(rsp)
+}
+
+// SetAudioModelWithResponse Set the model a provider is asked with for a kind; only the owner
+//
+// Empty sets it back to the provider's newest model. It counts from the next request.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /gateway/audio/providers/{provider}/models/{kind} (the `SetAudioModel` operationId).
+func (c *ClientWithResponses) SetAudioModelWithResponse(ctx context.Context, provider AudioProvider, kind AudioKind, body SetAudioModelJSONRequestBody, reqEditors ...RequestEditorFn) (*SetAudioModelResponse, error) {
+	rsp, err := c.SetAudioModel(ctx, provider, kind, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetAudioModelResponse(rsp)
+}
+
 // SetAudioVoiceWithBodyWithResponse Set the voice a provider speaks a video with when none is asked; only the owner
 //
 // Empty sets it back to the provider's own default. It counts from the next revision made.
@@ -53361,6 +53856,21 @@ func (c *ClientWithResponses) SetAudioVoiceWithResponse(ctx context.Context, pro
 		return nil, err
 	}
 	return ParseSetAudioVoiceResponse(rsp)
+}
+
+// ListAudioVoicesWithResponse The voices of the text-to-speech providers that are on and have a key, by name
+//
+// What the gateway's GET /v1/audio/voices lists: Soniox's built-in voices of its text-to-speech model and the account's cloned voices ready for it, and ElevenLabs's voices, each kept a day. A provider whose list could not be read is in `errors`.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /gateway/audio/voices (the `ListAudioVoices` operationId).
+func (c *ClientWithResponses) ListAudioVoicesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAudioVoicesResponse, error) {
+	rsp, err := c.ListAudioVoices(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAudioVoicesResponse(rsp)
 }
 
 // GetImagesWithResponse The image providers in the order a request asks them, each with its switch, state, model and usage
@@ -60403,6 +60913,72 @@ func ParseRemoveAudioKeyResponse(rsp *http.Response) (*RemoveAudioKeyResponse, e
 	return response, nil
 }
 
+// ParseListAudioModelsResponse parses an HTTP response from a ListAudioModelsWithResponse call
+func ParseListAudioModelsResponse(rsp *http.Response) (*ListAudioModelsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAudioModelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AudioModels
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetAudioModelResponse parses an HTTP response from a SetAudioModelWithResponse call
+func ParseSetAudioModelResponse(rsp *http.Response) (*SetAudioModelResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetAudioModelResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Audio
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseSetAudioVoiceResponse parses an HTTP response from a SetAudioVoiceWithResponse call
 func ParseSetAudioVoiceResponse(rsp *http.Response) (*SetAudioVoiceResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -60419,6 +60995,39 @@ func ParseSetAudioVoiceResponse(rsp *http.Response) (*SetAudioVoiceResponse, err
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Audio
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListAudioVoicesResponse parses an HTTP response from a ListAudioVoicesWithResponse call
+func ParseListAudioVoicesResponse(rsp *http.Response) (*ListAudioVoicesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAudioVoicesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AudioVoices
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -67370,9 +67979,18 @@ type ServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(w http.ResponseWriter, r *http.Request, provider AudioProvider, name string)
+	// ListAudioModels The models a provider can be asked with for a kind, from its catalog
+	// (GET /gateway/audio/providers/{provider}/models/{kind})
+	ListAudioModels(w http.ResponseWriter, r *http.Request, provider AudioProvider, kind AudioKind)
+	// SetAudioModel Set the model a provider is asked with for a kind; only the owner
+	// (PUT /gateway/audio/providers/{provider}/models/{kind})
+	SetAudioModel(w http.ResponseWriter, r *http.Request, provider AudioProvider, kind AudioKind)
 	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
 	// (PUT /gateway/audio/providers/{provider}/voice)
 	SetAudioVoice(w http.ResponseWriter, r *http.Request, provider AudioProvider)
+	// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name
+	// (GET /gateway/audio/voices)
+	ListAudioVoices(w http.ResponseWriter, r *http.Request)
 	// GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 	// (GET /gateway/images)
 	GetImages(w http.ResponseWriter, r *http.Request)
@@ -71105,6 +71723,76 @@ func (siw *ServerInterfaceWrapper) RemoveAudioKey(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListAudioModels operation middleware
+func (siw *ServerInterfaceWrapper) ListAudioModels(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider AudioProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", r.PathValue("provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "kind" -------------
+	var kind AudioKind
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAudioModels(w, r, provider, kind)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetAudioModel operation middleware
+func (siw *ServerInterfaceWrapper) SetAudioModel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider AudioProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", r.PathValue("provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "kind" -------------
+	var kind AudioKind
+
+	err = runtime.BindStyledParameterWithOptions("simple", "kind", r.PathValue("kind"), &kind, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetAudioModel(w, r, provider, kind)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetAudioVoice operation middleware
 func (siw *ServerInterfaceWrapper) SetAudioVoice(w http.ResponseWriter, r *http.Request) {
 
@@ -71122,6 +71810,20 @@ func (siw *ServerInterfaceWrapper) SetAudioVoice(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetAudioVoice(w, r, provider)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAudioVoices operation middleware
+func (siw *ServerInterfaceWrapper) ListAudioVoices(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAudioVoices(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -77740,6 +78442,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/gateway/audio/providers/{provider}/keys", wrapper.AddAudioKey)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/gateway/audio/providers/{provider}/keys/{name}", wrapper.RemoveAudioKey)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/providers/{provider}/voice", wrapper.SetAudioVoice)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/audio/providers/{provider}/models/{kind}", wrapper.ListAudioModels)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/providers/{provider}/models/{kind}", wrapper.SetAudioModel)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/gateway/audio/voices", wrapper.ListAudioVoices)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/gateway/audio/order/{kind}", wrapper.SetAudioOrder)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots", wrapper.ListBots)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots", wrapper.CreateBot)
@@ -81723,6 +82428,87 @@ func (response RemoveAudioKeydefaultJSONResponse) VisitRemoveAudioKeyResponse(w 
 	return err
 }
 
+type ListAudioModelsRequestObject struct {
+	Provider AudioProvider `json:"provider"`
+	Kind     AudioKind     `json:"kind"`
+}
+
+type ListAudioModelsResponseObject interface {
+	VisitListAudioModelsResponse(w http.ResponseWriter) error
+}
+
+type ListAudioModels200JSONResponse AudioModels
+
+func (response ListAudioModels200JSONResponse) VisitListAudioModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAudioModelsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListAudioModelsdefaultJSONResponse) VisitListAudioModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAudioModelRequestObject struct {
+	Provider AudioProvider `json:"provider"`
+	Kind     AudioKind     `json:"kind"`
+	Body     *SetAudioModelJSONRequestBody
+}
+
+type SetAudioModelResponseObject interface {
+	VisitSetAudioModelResponse(w http.ResponseWriter) error
+}
+
+type SetAudioModel200JSONResponse Audio
+
+func (response SetAudioModel200JSONResponse) VisitSetAudioModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAudioModeldefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetAudioModeldefaultJSONResponse) VisitSetAudioModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SetAudioVoiceRequestObject struct {
 	Provider AudioProvider `json:"provider"`
 	Body     *SetAudioVoiceJSONRequestBody
@@ -81752,6 +82538,44 @@ type SetAudioVoicedefaultJSONResponse struct {
 }
 
 func (response SetAudioVoicedefaultJSONResponse) VisitSetAudioVoiceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAudioVoicesRequestObject struct {
+}
+
+type ListAudioVoicesResponseObject interface {
+	VisitListAudioVoicesResponse(w http.ResponseWriter) error
+}
+
+type ListAudioVoices200JSONResponse AudioVoices
+
+func (response ListAudioVoices200JSONResponse) VisitListAudioVoicesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAudioVoicesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListAudioVoicesdefaultJSONResponse) VisitListAudioVoicesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -90180,9 +91004,18 @@ type StrictServerInterface interface {
 	// RemoveAudioKey Remove one of an audio provider's keys from the vault; only the owner
 	// (DELETE /gateway/audio/providers/{provider}/keys/{name})
 	RemoveAudioKey(ctx context.Context, request RemoveAudioKeyRequestObject) (RemoveAudioKeyResponseObject, error)
+	// ListAudioModels The models a provider can be asked with for a kind, from its catalog
+	// (GET /gateway/audio/providers/{provider}/models/{kind})
+	ListAudioModels(ctx context.Context, request ListAudioModelsRequestObject) (ListAudioModelsResponseObject, error)
+	// SetAudioModel Set the model a provider is asked with for a kind; only the owner
+	// (PUT /gateway/audio/providers/{provider}/models/{kind})
+	SetAudioModel(ctx context.Context, request SetAudioModelRequestObject) (SetAudioModelResponseObject, error)
 	// SetAudioVoice Set the voice a provider speaks a video with when none is asked; only the owner
 	// (PUT /gateway/audio/providers/{provider}/voice)
 	SetAudioVoice(ctx context.Context, request SetAudioVoiceRequestObject) (SetAudioVoiceResponseObject, error)
+	// ListAudioVoices The voices of the text-to-speech providers that are on and have a key, by name
+	// (GET /gateway/audio/voices)
+	ListAudioVoices(ctx context.Context, request ListAudioVoicesRequestObject) (ListAudioVoicesResponseObject, error)
 	// GetImages The image providers in the order a request asks them, each with its switch, state, model and usage
 	// (GET /gateway/images)
 	GetImages(ctx context.Context, request GetImagesRequestObject) (GetImagesResponseObject, error)
@@ -93571,6 +94404,67 @@ func (sh *strictHandler) RemoveAudioKey(w http.ResponseWriter, r *http.Request, 
 	}
 }
 
+// ListAudioModels operation middleware
+func (sh *strictHandler) ListAudioModels(w http.ResponseWriter, r *http.Request, provider AudioProvider, kind AudioKind) {
+	var request ListAudioModelsRequestObject
+
+	request.Provider = provider
+	request.Kind = kind
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAudioModels(ctx, request.(ListAudioModelsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAudioModels")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAudioModelsResponseObject); ok {
+		if err := validResponse.VisitListAudioModelsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetAudioModel operation middleware
+func (sh *strictHandler) SetAudioModel(w http.ResponseWriter, r *http.Request, provider AudioProvider, kind AudioKind) {
+	var request SetAudioModelRequestObject
+
+	request.Provider = provider
+	request.Kind = kind
+
+	var body SetAudioModelJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetAudioModel(ctx, request.(SetAudioModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetAudioModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetAudioModelResponseObject); ok {
+		if err := validResponse.VisitSetAudioModelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // SetAudioVoice operation middleware
 func (sh *strictHandler) SetAudioVoice(w http.ResponseWriter, r *http.Request, provider AudioProvider) {
 	var request SetAudioVoiceRequestObject
@@ -93597,6 +94491,30 @@ func (sh *strictHandler) SetAudioVoice(w http.ResponseWriter, r *http.Request, p
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetAudioVoiceResponseObject); ok {
 		if err := validResponse.VisitSetAudioVoiceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAudioVoices operation middleware
+func (sh *strictHandler) ListAudioVoices(w http.ResponseWriter, r *http.Request) {
+	var request ListAudioVoicesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAudioVoices(ctx, request.(ListAudioVoicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAudioVoices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAudioVoicesResponseObject); ok {
+		if err := validResponse.VisitListAudioVoicesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

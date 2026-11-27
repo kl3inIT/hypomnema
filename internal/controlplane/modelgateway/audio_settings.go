@@ -40,6 +40,18 @@ func (s *Service) AudioSettings(ctx context.Context) (speech.Settings, error) {
 
 			out.Voices[r.Provider] = r.Voice
 		}
+
+		for kind, model := range map[string]string{speech.KindSTT: r.SttModel, speech.KindTTS: r.TtsModel} {
+			if model == "" {
+				continue
+			}
+
+			if out.Models == nil {
+				out.Models = map[speech.Slot]string{}
+			}
+
+			out.Models[speech.Slot{Provider: r.Provider, Kind: kind}] = model
+		}
 	}
 
 	placed := func(position func(store.GatewayAudioProvider) sql.NullInt64) []string {
@@ -112,6 +124,44 @@ func (s *Service) SetAudioVoice(ctx context.Context, provider, voice string) err
 	})
 }
 
+// MaxModel bounds a model's id: Soniox's longest (docs.soniox.com /api-reference/tts/websocket-api, "Model name is
+// too long (max length 50)"), with room.
+const MaxModel = 100
+
+// SetAudioModel keeps the model a provider is asked with for a kind, stt or tts (issue #1285, row 1); empty: its
+// newest. It counts from the next request.
+func (s *Service) SetAudioModel(ctx context.Context, provider, kind, model string) error {
+	model = strings.TrimSpace(model)
+
+	switch {
+	case !slices.Contains(speech.Providers(), provider):
+		return fmt.Errorf("%w: no audio provider %q", ErrNotFound, provider)
+	case !slices.Contains(speech.Kinds(), kind):
+		return fmt.Errorf("%w: the kind is %s", ErrInvalid, strings.Join(speech.Kinds(), " or "))
+	case len(model) > MaxModel || strings.ContainsFunc(model, func(r rune) bool { return r <= ' ' }):
+		return fmt.Errorf("%w: a model is an id of at most %d characters, without spaces", ErrInvalid, MaxModel)
+	}
+
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		var err error
+		if kind == speech.KindSTT {
+			err = q.SetGatewayAudioSTTModel(ctx, store.SetGatewayAudioSTTModelParams{
+				Provider: provider, Model: model, Now: now,
+			})
+		} else {
+			err = q.SetGatewayAudioTTSModel(ctx, store.SetGatewayAudioTTSModelParams{
+				Provider: provider, Model: model, Now: now,
+			})
+		}
+
+		if err != nil {
+			return fmt.Errorf("setting audio provider %s's %s model: %w", provider, kind, err)
+		}
+
+		return nil
+	})
+}
+
 // SetAudioOrder keeps the order a kind, stt or tts, asks the providers in: each once.
 func (s *Service) SetAudioOrder(ctx context.Context, kind string, providers []string) error {
 	all := speech.Providers()
@@ -163,18 +213,26 @@ type AudioCount struct {
 
 // AudioCounts are each provider's requests of each kind (speech.KindSTT,
 // speech.KindTTS) of the UTC day and month now is in, from the usage rows:
-// a provider is asked with one model a kind (speech.Model), which tells the
-// kind of a row; a request no provider was asked for is no provider's.
+// the model a row was asked with tells its kind, the owner's choice or one a
+// kind was asked with by default (speech.KnownModels); a request no provider
+// was asked for is no provider's.
 func (s *Service) AudioCounts(ctx context.Context, now time.Time) (map[string]map[string]AudioCount, error) {
 	q := store.New(s.db)
 	month := monthStart(now)
 	day := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
 
+	set, err := s.AudioSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	kinds := map[string]string{}
 
 	for _, p := range speech.Providers() {
 		for _, k := range speech.Kinds() {
-			kinds[ModelAudioPrefix+speech.Model(p, k)] = k
+			for _, m := range append(speech.KnownModels(p, k), set.Model(p, k)) {
+				kinds[ModelAudioPrefix+m] = k
+			}
 		}
 	}
 

@@ -18,8 +18,39 @@ import (
 const userAgent = "hypomnema"
 
 // send asks a provider and returns the body of a success, or its refusal, as
-// web search's send does (websearch/providers.go).
+// web search's send does (websearch/providers.go); a refusal that may pass is
+// asked again (retry.go) when the body can be sent again.
 func (s *Service) send(req *http.Request, limit int64) ([]byte, error) {
+	var body []byte
+
+	err := s.retrying(req.Context(), func(attempt int) error {
+		if attempt > 0 {
+			if req.GetBody == nil && req.Body != nil {
+				return errNoReplay
+			}
+
+			if req.GetBody != nil {
+				replay, err := req.GetBody()
+				if err != nil {
+					return err
+				}
+
+				req.Body = replay
+			}
+		}
+
+		var err error
+
+		body, err = s.sendOnce(req, limit)
+
+		return err
+	})
+
+	return body, err
+}
+
+// sendOnce asks a provider once.
+func (s *Service) sendOnce(req *http.Request, limit int64) ([]byte, error) {
 	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := s.client.Do(req)

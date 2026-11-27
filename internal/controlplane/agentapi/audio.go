@@ -113,7 +113,7 @@ func speakTool(bot bool) agenttool.BrowserTool {
 			`provider's when left out."},` +
 			`"format":{"type":"string","enum":["mp3","wav","pcm","opus"],"description":"The file's format; ` +
 			`mp3 when left out, or the path's extension when it is one of them."},` +
-			`"speed":{"type":"number","minimum":0.25,"maximum":4,"description":"ElevenLabs's voice speed."},` +
+			`"speed":{"type":"number","minimum":0.25,"maximum":4,"description":"The voice's speed: Soniox takes 0.7 to 1.3, ElevenLabs its own range."},` +
 			`"language":{"type":"string","description":"The text's language as an ISO-639-1 code, for ` +
 			`Soniox; en when left out."},` +
 			`"path":{"type":"string","description":"Where to save the speech, absolute or relative to the ` +

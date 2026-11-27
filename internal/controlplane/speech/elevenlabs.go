@@ -55,8 +55,9 @@ type elevenLabsWord struct {
 }
 
 // elevenLabsTranscribe runs one Scribe transcription with a key.
-func (s *Service) elevenLabsTranscribe(ctx context.Context, k Key, req TranscribeRequest) (Transcript, error) {
-	fields := []field{{"model_id", ElevenLabsSTTModel}, {"timestamps_granularity", "word"}}
+func (s *Service) elevenLabsTranscribe(ctx context.Context, r route, req TranscribeRequest) (Transcript, error) {
+	k := r.key
+	fields := []field{{"model_id", cmpOr(r.model, ElevenLabsSTTModel)}, {"timestamps_granularity", "word"}}
 	if req.Language != "" {
 		fields = append(fields, field{"language_code", req.Language})
 	}
@@ -144,9 +145,11 @@ func elevenLabsVoice(voice string) string {
 	return voice
 }
 
-// elevenLabsSpeak makes speech with a key.
-func (s *Service) elevenLabsSpeak(ctx context.Context, k Key, req SpeakRequest) ([]byte, error) {
-	body := map[string]any{"text": req.Input, "model_id": ElevenLabsTTSModel}
+// elevenLabsSpeak makes speech with a key and its model.
+func (s *Service) elevenLabsSpeak(ctx context.Context, r route, req SpeakRequest) ([]byte, error) {
+	k := r.key
+
+	body := map[string]any{"text": req.Input, "model_id": cmpOr(r.model, ElevenLabsTTSModel)}
 	if req.Speed > 0 {
 		body["voice_settings"] = map[string]any{"speed": req.Speed}
 	}
@@ -215,9 +218,10 @@ func (s *Service) elevenLabsVoicesOf(ctx context.Context, k Key) ([]Voice, error
 
 // Voices lists the voices of the text-to-speech providers that are on and
 // have a key, in the owner's order: 9router's GET /v1/audio/voices
-// (9router-go internal/handlers/router.go:132-143). Soniox has no list in
-// the references; its one voice they name, OmniRoute's default, is given. A
-// provider whose list cannot be read is left out, and its reason returned.
+// (9router-go internal/handlers/router.go:132-143). Soniox's are the built-in
+// voices of the model the owner chose and the account's cloned voices ready
+// for it (issue #1285, row 5). A provider whose list cannot be read is left
+// out, and its reason returned.
 func (s *Service) Voices(ctx context.Context) ([]Voice, []Failure, error) {
 	set, err := s.settings(ctx)
 	if err != nil {
@@ -239,14 +243,19 @@ func (s *Service) Voices(ctx context.Context) ([]Voice, []Failure, error) {
 			continue
 		}
 
-		if p == ProviderSoniox {
-			out = append(out, Voice{ID: sonioxDefaultVoice, Name: sonioxDefaultVoice, Provider: ProviderSoniox})
-
-			continue
-		}
-
 		for _, k := range s.leastRecentlyUsed(keys[p]) {
-			voices, err := s.elevenLabsVoicesOf(ctx, k)
+			var (
+				voices []Voice
+				err    error
+			)
+
+			if p == ProviderSoniox {
+				voices, err = s.sonioxVoicesOf(ctx, k, set.Model(p, KindTTS))
+				err = sonioxError(err)
+			} else {
+				voices, err = s.elevenLabsVoicesOf(ctx, k)
+			}
+
 			if err != nil {
 				failures = append(failures, Failure{Provider: p, Reason: "key " + k.Name + ": " + reasonOf(err)})
 
