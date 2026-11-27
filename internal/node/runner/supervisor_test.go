@@ -681,6 +681,21 @@ func TestRestartReclaimsTempBeforeShimPID(t *testing.T) {
 	require.ErrorContains(t, shim.Main(t.Context(), dir), "claiming permission")
 }
 
+// Scenario: issue #1219. An offer of a control plane that keeps a question's
+// several decisions lets the worker's tools take them.
+func TestAControlPlaneThatKeepsDecisionsLetsTheWorkerAskThem(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "ask")
+	d := g.dispatch()
+	d.Offer.QuestionParts = true
+
+	r := newReporter()
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
+	require.Eventually(t, func() bool { return r.asked() == 1 }, 20*time.Second, 20*time.Millisecond)
+	assert.True(t, bridge.QuestionPartsEnabled(bridge.Dir(g.sup.dir("dsp_1"))))
+}
+
 // Scenario: the worker asks the owner through its tool. The question is
 // reported, the control plane's id is recorded, the answer reaches the
 // waiting tool with the option's label, and it is acknowledged.
@@ -707,6 +722,8 @@ func TestAskIsRelayedAndAnswered(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, bridge.Agent{URL: "https://hypomnema.example", Key: "the-dispatch's-key",
 		Worktree: d.Offer.Worktree}, agent)
+	assert.False(t, bridge.QuestionPartsEnabled(bridge.Dir(g.sup.dir("dsp_1"))),
+		"a control plane that does not say it keeps several decisions is asked one question (issue #1219)")
 
 	g.sup.Asked("dsp_1", "rep_q", "q_1")
 

@@ -254,6 +254,9 @@ type Offer struct {
 	// tools the worker gets, from which its node writes the "Tools" block
 	// (issue #723).
 	Tools []string `json:"tools,omitempty"`
+	// QuestionParts is set by the node API as the offer is sent: this control
+	// plane keeps a question's several decisions (issue #1219).
+	QuestionParts bool `json:"question_parts,omitempty"`
 }
 
 // StopRequest is a stop asked of a Dispatch on the node.

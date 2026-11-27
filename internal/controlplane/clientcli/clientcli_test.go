@@ -1170,6 +1170,29 @@ func TestParseAnswer(t *testing.T) {
 	assert.Equal(t, openapi.Answer{Text: text("8080")}, got, "a number without options is text")
 }
 
+// Scenario: the owner answers a Gate of two decisions from the CLI (issue
+// #1219): one argument for each, each read as one decision's answer, and a
+// count that does not match is refused, naming how many it asks.
+func TestParseAnswersOfSeveralDecisions(t *testing.T) {
+	t.Parallel()
+
+	options := []openapi.Option{{Label: "Yes", Description: new("Do it now.")}, {Label: "Other", AllowsText: new(true)}}
+	q := openapi.Question{
+		Header: new("Items"), Text: "One item each?", Options: options,
+		More: &[]openapi.QuestionPart{{Header: new("Server"), Text: "Fix it now?", Options: options}},
+	}
+
+	got, err := parseAnswers(q, []string{"yes", "after the release"})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Answer{
+		Option: new(0), More: &[]openapi.Choice{{Option: new(1), Text: new("after the release")}},
+	}, got)
+
+	_, err = parseAnswers(q, []string{"yes"})
+	require.ErrorIs(t, err, ErrUsage)
+	require.ErrorContains(t, err, "asks 2 decisions")
+}
+
 // syncBuffer is a bytes.Buffer safe for one writer and one reader.
 type syncBuffer struct {
 	mu  sync.Mutex

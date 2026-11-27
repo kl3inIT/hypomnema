@@ -208,6 +208,71 @@ func TestGateEndsTheDispatchAndResumesWithTheAnswer(t *testing.T) {
 	assert.Empty(t, fresh.GateQuestionID, "only the Dispatch right after a gate resumes from it")
 }
 
+// Scenario: a worker stops at a Gate of two decisions, each with a header
+// and options that say what they change (issue #1219). The owner reads them
+// as listed, with the worker's summary; he must answer both, each at its
+// place, and the next Dispatch is given both answers. A question asked with
+// one decision reads as before: no header, no more, and no summary unless it
+// is a Gate.
+func TestAGateOfSeveralDecisionsIsAnsweredAsOne(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
+	_, c := w.start(task.ID)
+
+	options := []Option{
+		{Label: "One item each (Recommended)", Description: "Each request is its own item. From: Linear."},
+		{Label: "Other", AllowsText: true},
+	}
+	gate := Ask{
+		Header: "Items", Text: "Is each request one Inbox item?", Options: options, To: AddressOwner,
+		More: []Part{{Header: " Server ", Text: " Fix the server now? ", Options: options}},
+	}
+
+	tooMany := gate
+	tooMany.More = []Part{gate.More[0], gate.More[0], gate.More[0]}
+	require.ErrorIs(t, w.finish(c, Outcome{Gate: &tooMany}), ErrInvalid, "at most 3 decisions")
+
+	require.NoError(t, w.finish(c, Outcome{Gate: &gate, Result: Result{Summary: "Planned #1206; three choices left."}}))
+
+	open, err := w.s.ListQuestions(t.Context(), QuestionFilter{AddressedTo: AddressOwner, Status: QuestionOpen})
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+	got := open[0]
+	assert.Equal(t, "Items", got.Header)
+	assert.Equal(t, options, got.Options)
+	assert.Equal(t, []Part{{Header: "Server", Text: "Fix the server now?", Options: options}}, got.More)
+	assert.Equal(t, "Planned #1206; three choices left.", got.Summary, "the card shows the worker's summary")
+	assert.Equal(t, got.Summary, w.question(got.ID).Summary)
+
+	_, err = w.s.AnswerQuestion(t.Context(), got.ID, AddressOwner, Answer{Option: choice(0)})
+	require.ErrorIs(t, err, ErrInvalid, "each decision is answered")
+	_, err = w.s.AnswerQuestion(t.Context(), got.ID, AddressOwner,
+		Answer{Option: choice(0), More: []Choice{{Option: choice(0), Text: "now"}}})
+	require.ErrorIs(t, err, ErrInvalid, "the second decision's first option takes no text")
+
+	answer := Answer{Option: choice(0), More: []Choice{{Option: choice(1), Text: "after the release"}}}
+	_, err = w.s.AnswerQuestion(t.Context(), got.ID, AddressOwner, answer)
+	require.NoError(t, err)
+	assert.Equal(t, TaskReady, w.task(task.ID).Status)
+
+	next, err := w.create(task.ID, DispatchSpec{Continue: true})
+	require.NoError(t, err)
+	acc, err := w.s.AcceptDispatch(t.Context(), w.call(next, 0))
+	require.NoError(t, err)
+	require.NotNil(t, acc.Gate)
+	assert.Equal(t, got.More, acc.Gate.More)
+	assert.Equal(t, &answer, acc.Gate.Answer)
+	assert.Empty(t, acc.Gate.Summary, "a node is not sent the summary")
+
+	_, cb := w.start(w.tasks(NewTask{Ref: "b", Spec: "b"})[0].ID)
+	one := w.question(w.ask(cb, libraryChoice(AddressOwner)))
+	assert.Empty(t, one.Header)
+	assert.Nil(t, one.More)
+	assert.Empty(t, one.Summary, "a worker that waits has no final report yet")
+}
+
 // Scenario: the Run is canceled while a Gate waits. The Gate is closed with
 // its Task.
 func TestCancelClosesAnOpenGate(t *testing.T) {

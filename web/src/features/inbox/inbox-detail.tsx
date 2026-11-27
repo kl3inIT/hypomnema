@@ -114,7 +114,7 @@ export function InboxDetail({
 
   return (
     <article aria-label="Item" className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1.5">
+      <header className="inbox-topbar flex min-h-12 shrink-0 items-center gap-1 border-b bg-background px-2 py-1.5 md:flex-wrap">
         {phone && (
           <Button variant="ghost" size="sm" onClick={onBack}>
             <ChevronLeft data-icon="inline-start" />
@@ -142,14 +142,14 @@ export function InboxDetail({
           <ChevronDown />
         </Button>
         {position && (
-          <span className="px-1 text-xs text-muted-foreground tabular-nums">
+          <span className="px-1 text-xs text-muted-foreground tabular-nums max-md:truncate">
             {position.index + 1} of {position.count} in {groupNames[position.group]}
           </span>
         )}
         {actions.length > 0 && (
           <RowActions
-            className="ms-auto flex flex-wrap"
-            labelled
+            className="ms-auto flex max-md:shrink-0 md:flex-wrap"
+            labelled={!phone}
             actions={actions}
             onAction={(action, until) => !pending && onAction(action, until)}
           />

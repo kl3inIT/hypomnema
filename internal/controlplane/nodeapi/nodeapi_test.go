@@ -44,6 +44,8 @@ type plane struct {
 	reports int
 	// tempIsolation is what the node says at hello of its workers' temp isolation (issue #895).
 	tempIsolation *nodeproto.TempIsolation
+	// questionParts is what the node says at hello: it tells its worker every decision of a question (issue #1219).
+	questionParts bool
 }
 
 func newPlane(t *testing.T) *plane {
@@ -82,7 +84,7 @@ func (p *plane) hello(token string, claims ...nodeproto.Claim) (int, nodeproto.H
 		InstanceID: "inst_1", DaemonVersion: "test", WorktreeRoot: "/srv/wt",
 		Runtimes: []nodeproto.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}},
 		System:   nodeproto.SystemInfo{OS: "linux", Arch: "arm64"},
-		Claims:   claims, TempIsolation: p.tempIsolation,
+		Claims:   claims, TempIsolation: p.tempIsolation, QuestionParts: p.questionParts,
 	})
 	require.NoError(p.t, err)
 
@@ -653,6 +655,143 @@ func TestAnswerAndStopArePushed(t *testing.T) {
 	var stop nodeproto.Stop
 	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeStop).Payload, &stop))
 	assert.Equal(t, nodeproto.Stop{DispatchID: offer.DispatchID, Epoch: 1}, stop)
+}
+
+// Scenario: a worker asks two decisions at once, with headers and options
+// that say what they change (issue #1219). The control plane keeps them, and
+// says so in the offer. A node that said at hello that it reads several
+// decisions is pushed the answer with each decision's choice. A node of an
+// earlier release, which tells its worker only a question's text and one
+// answer, is pushed the question folded into one, every decision in its text
+// and every answer in its answer's text, through the push and the
+// heartbeat's reply alike, so none is lost (review of PR #1228).
+func TestAQuestionOfTwoDecisionsCrossesTheWire(t *testing.T) {
+	t.Parallel()
+
+	// before is a Question as a node before issue #1219 reads it.
+	type before struct {
+		Text    string `json:"text"`
+		Options []struct {
+			Label string `json:"label"`
+		} `json:"options"`
+		Answer struct {
+			Option *int   `json:"option"`
+			Text   string `json:"text"`
+		} `json:"answer"`
+	}
+
+	for _, current := range []bool{true, false} {
+		t.Run(map[bool]string{true: "a node that reads them", false: "a node of an earlier release"}[current],
+			func(t *testing.T) {
+				t.Parallel()
+
+				p := newPlane(t)
+				p.questionParts = current
+				conn := p.connect()
+				p.task()
+
+				var offer nodeproto.Offer
+				require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+				assert.True(t, offer.QuestionParts, "this control plane says it keeps several decisions")
+				require.Equal(t, nodeproto.AckCommitted,
+					p.report(conn, nodeproto.Report{Kind: nodeproto.ReportAccept, DispatchID: offer.DispatchID}).Status)
+				require.Equal(t, nodeproto.AckCommitted, p.report(conn, nodeproto.Report{
+					Kind: nodeproto.ReportStarted, DispatchID: offer.DispatchID, Epoch: 1,
+					Payload: payload(t, nodeproto.Started{ProcessRef: "pid:42@1", CLISessionRef: "sess_1"}),
+				}).Status)
+
+				options := []nodeproto.Option{
+					{Label: "goth", Description: "A library. From: Gitea."}, {Label: "Other", AllowsText: true},
+				}
+				ack := p.report(conn, nodeproto.Report{
+					Kind: nodeproto.ReportQuestion, DispatchID: offer.DispatchID, Epoch: 1,
+					Payload: payload(t, nodeproto.Ask{
+						Header: "OAuth", Text: "goth or hand-written OAuth?", Options: options, To: "owner",
+						More: []nodeproto.Part{{Header: "Scope", Text: "Ask for email too?", Options: options}},
+					}),
+				})
+				require.Equal(t, nodeproto.AckCommitted, ack.Status, ack.Error)
+
+				var asked struct {
+					QuestionID string `json:"question_id"`
+				}
+				require.NoError(t, json.Unmarshal(ack.Response, &asked))
+
+				stored, err := p.svc.GetQuestion(t.Context(), asked.QuestionID)
+				require.NoError(t, err)
+				assert.Equal(t, "OAuth", stored.Header)
+				assert.Equal(t, "A library. From: Gitea.", stored.Options[0].Description)
+				require.Len(t, stored.More, 1)
+				assert.Equal(t, "Scope", stored.More[0].Header)
+
+				first, other := 0, 1
+				_, err = p.svc.AnswerQuestion(t.Context(), asked.QuestionID, orchestration.AddressOwner,
+					orchestration.Answer{Option: &first, More: []orchestration.Choice{{Option: &other, Text: "only the name"}}})
+				require.NoError(t, err)
+
+				pushed := p.next(conn, nodeproto.TypeAnswer).Payload
+				beat := p.report(conn, nodeproto.Report{
+					Kind: nodeproto.ReportHeartbeat, DispatchID: offer.DispatchID, Epoch: 1,
+				})
+				require.Equal(t, nodeproto.AckCommitted, beat.Status, beat.Error)
+
+				var replied struct {
+					Answers []json.RawMessage `json:"answers"`
+				}
+				require.NoError(t, json.Unmarshal(beat.Response, &replied))
+				require.Len(t, replied.Answers, 1)
+
+				for _, raw := range []json.RawMessage{pushed, replied.Answers[0]} {
+					if current {
+						var answer nodeproto.Question
+						require.NoError(t, json.Unmarshal(raw, &answer))
+						assert.Equal(t, []nodeproto.Part{{Header: "Scope", Text: "Ask for email too?", Options: options}},
+							answer.More)
+						assert.Equal(t, &nodeproto.Answer{
+							Option: &first, More: []nodeproto.Choice{{Option: &other, Text: "only the name"}},
+						}, answer.Answer)
+
+						continue
+					}
+
+					var old before
+					require.NoError(t, json.Unmarshal(raw, &old))
+					assert.Equal(t, "1. OAuth: goth or hand-written OAuth?\n2. Scope: Ask for email too?", old.Text)
+					assert.Empty(t, old.Options, "nothing to pick: the answer is the text")
+					assert.Nil(t, old.Answer.Option)
+					assert.Equal(t, "1. OAuth: goth\n2. Scope: Other only the name", old.Answer.Text)
+				}
+			})
+	}
+}
+
+// Scenario: review of PR #1228. A resolved Gate of several decisions is sent to the node that takes the next
+// Dispatch: whole to a node that reads them, folded into its text and its answer's text for one that does not, and a
+// Gate of one decision as it is to both.
+func TestAResolvedGateReachesANodeOfEitherRelease(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{questionParts: map[string]bool{"node_new": true}}
+	first, second := 0, 1
+	options := []orchestration.Option{{Label: "Yes", Description: "Do it now."}, {Label: "No"}}
+	gate := orchestration.Question{
+		ID: "qst_1", Mode: orchestration.QuestionGate, Header: "Items", Text: "One item each?", Options: options,
+		More:   []orchestration.Part{{Header: "Server", Text: "Fix it now?", Options: options}},
+		Answer: &orchestration.Answer{Option: &first, More: []orchestration.Choice{{Option: &second}}},
+	}
+
+	whole := s.acceptedFor("node_new", orchestration.Accepted{Epoch: 2, Gate: &gate})
+	assert.Equal(t, &gate, whole.Gate)
+
+	old := s.acceptedFor("node_old", orchestration.Accepted{Epoch: 2, Gate: &gate})
+	require.NotNil(t, old.Gate)
+	assert.Equal(t, "1. Items: One item each?\n2. Server: Fix it now?", old.Gate.Text)
+	assert.Equal(t, &orchestration.Answer{Text: "1. Items: Yes\n2. Server: No"}, old.Gate.Answer)
+	assert.Equal(t, 2, old.Epoch)
+
+	one := gate
+	one.More, one.Answer = nil, &orchestration.Answer{Option: &first}
+	assert.Equal(t, &one, s.acceptedFor("node_old", orchestration.Accepted{Gate: &one}).Gate)
 }
 
 // Scenario: reports that can never apply are rejected for good, so the node
