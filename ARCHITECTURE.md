@@ -5245,7 +5245,9 @@ again on it. A turn that calls no tool keeps the list it had.
 | `node_exec`, `node_process`, `node_process_kill` (below) | yes | yes | yes |
 | `ask`, `finish` (the node's own) | yes | no | no |
 
-The consolidated tool routes give no tools to the coordinator token or Routine scripts. The owner's `hypomnema mcp` and
+The consolidated tool routes give the coordinator token and a non-read Routine script the browser's tools alone, each
+in a tab of its own (`c-<token>`, `r-<routine>`; see the browser above), and the phone's on its own route; a read
+run gets no browser. The owner's `hypomnema mcp` and
 `hypomnema tools list` / `tools call` use the token from `client.json` and share the same tool adapter. On the
 owner's machine, add the server with `claude mcp add hypomnema -- hypomnema mcp` or
 `codex mcp add hypomnema -- hypomnema mcp` (see the [CLI guide](README.md#using-your-tools-and-accounts-locally)).

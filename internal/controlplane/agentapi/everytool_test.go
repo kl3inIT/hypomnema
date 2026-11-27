@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/messaging"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
@@ -102,6 +105,23 @@ func TestEveryListedToolIsReachedOnTheCurrentRoutes(t *testing.T) {
 
 	worker := w.workerUnder("tools: [phone]\n", "laptop", chat.ID)
 
+	// The owner's turn in the pi's chat, and what his accounts hold, so that the reads of WhatsApp and Zalo get past
+	// the owner's-turn gate and reach their handlers with what they need (review round 2 of PR #1236).
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "what did the PMO group say?")
+	require.NoError(t, err)
+
+	note := filepath.Join(t.TempDir(), "quote.txt")
+	require.NoError(t, os.WriteFile(note, []byte("the quote"), 0o600))
+	w.whatsapp.files = map[string]messaging.Media{"m1": {Path: note, MimeType: "text/plain", FileName: "quote.txt"}}
+
+	reads := map[string]string{}
+	for _, service := range []string{"whatsapp", "zalo"} {
+		reads[service+"_chats"] = `{}`
+		reads[service+"_messages"] = `{"chat":"120363@g.us"}`
+		reads[service+"_media"] = `{"chat":"120363@g.us","message":"m1"}`
+		reads[service+"_history"] = `{"chat":"120363@g.us","count":10}`
+	}
+
 	var allPhone []string
 	for _, d := range devicetool.Tools() {
 		allPhone = append(allPhone, d.Name)
@@ -129,11 +149,24 @@ func TestEveryListedToolIsReachedOnTheCurrentRoutes(t *testing.T) {
 				path = agenttool.PathDeviceCall
 			}
 
+			arguments, read := reads[tool]
+			if !read {
+				arguments = `{}`
+			}
+
 			tabs, phones := len(engine.calls), len(phone.calls)
 			status, body := w.call(http.MethodPost, path, agent.key,
-				agenttool.BrowserCall{Tool: tool, Arguments: json.RawMessage(`{}`)})
+				agenttool.BrowserCall{Tool: tool, Arguments: json.RawMessage(arguments)})
 
 			answered(t, agent.name+"'s "+tool, status, body)
+
+			if read {
+				var result struct {
+					IsError bool `json:"isError"`
+				}
+				require.NoError(t, json.Unmarshal(body, &result), "%s: %s", tool, body)
+				assert.False(t, result.IsError, "%s reads on the owner's turn, past the gate: %s", tool, body)
+			}
 
 			switch {
 			case strings.HasPrefix(tool, "agent_browser_"):
