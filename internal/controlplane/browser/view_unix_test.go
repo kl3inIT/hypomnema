@@ -537,9 +537,24 @@ func TestTakingControlHoldsOnlyTheTabTaken(t *testing.T) {
 // front as it opens, as agent-browser's own tab switch does (Page.bringToFront), or the tab's stream sends no frame
 // once another tab came in front, the owner's made for his view say (issue #1113).
 func TestAViewBringsItsTabToTheFront(t *testing.T) {
+	r, chrome := frontRig(t)
+
+	r.watch(t, OwnerTab)
+	require.Eventually(t, func() bool { return len(chrome.activated()) == 1 }, 10*time.Second, 10*time.Millisecond)
+	r.watch(t, "b-cht_1")
+	require.Eventually(t, func() bool { return len(chrome.activated()) == 2 }, 10*time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, []string{front(OwnerTab), front("b-cht_1")}, chrome.activated())
+}
+
+// frontRig is a rig whose Chrome is a fake that keeps what it is asked, with the Bot's tab of chat cht_1 open and a
+// stream for it and for the owner's tab.
+func frontRig(t *testing.T) (rig, *activations) {
+	t.Helper()
+
 	r := newRig(t, Config{})
 
-	chrome := &fakeChrome{answer: func(string, string) (string, []string) { return `{}`, nil }}
+	chrome := &activations{&fakeChrome{answer: func(string, string) (string, []string) { return `{}`, nil }}}
 	address, err := url.Parse(chrome.serve(t))
 	require.NoError(t, err)
 	r.touch(t, "devtools", address.Port())
@@ -550,26 +565,97 @@ func TestAViewBringsItsTabToTheFront(t *testing.T) {
 	r.stream(t, OwnerTab)
 	r.stream(t, sessionName("b-cht_1"))
 
-	r.watch(t, OwnerTab)
-	r.watch(t, "b-cht_1")
+	return r, chrome
+}
 
-	activated := func() []string {
-		chrome.mu.Lock()
-		defer chrome.mu.Unlock()
+type activations struct{ *fakeChrome }
 
-		var got []string
+// activated are the tabs Chrome was asked to bring to the front, in order.
+func (c *activations) activated() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-		for _, command := range chrome.got {
-			if strings.HasPrefix(command, "Target.activateTarget") {
-				got = append(got, command)
-			}
+	var got []string
+
+	for _, command := range c.got {
+		if strings.HasPrefix(command, "Target.activateTarget") {
+			got = append(got, command)
 		}
-
-		return got
 	}
 
-	assert.Equal(t, []string{
-		`Target.activateTarget {"targetId":"T-` + sessionName(OwnerTab) + `"}`,
-		`Target.activateTarget {"targetId":"T-` + sessionName("b-cht_1") + `"}`,
-	}, activated())
+	return got
+}
+
+// front is the command that brings an agent's tab to the front.
+func front(agent string) string {
+	return `Target.activateTarget {"targetId":"T-` + sessionName(agent) + `"}`
+}
+
+// Review of PR #1233: a tab is brought to the front as the owner's action, queued behind the agents' calls running in
+// the browser, as OpenMausBot's viewer brings a tab to the front through its control (server/browser/viewers/core.ts,
+// tabSelect: control.human(...showTab)): moving the focus away from a Bot's tab mid-call failed a wait that needs the
+// focus (agent_browser_wait_for_text, LOST_FOCUS). Opening the view does not wait for it, and the call is answered
+// before the tab moves.
+func TestReviewOpeningOwnerViewWhileBotActs(t *testing.T) {
+	r, chrome := frontRig(t)
+
+	first := r.watch(t, OwnerTab)
+	require.Eventually(t, func() bool { return len(chrome.activated()) == 1 }, 10*time.Second, 10*time.Millisecond)
+	first.Close(t.Context())
+
+	r.touch(t, "slow", "")
+
+	answered := make(chan json.RawMessage, 1)
+
+	go func() {
+		result, _ := r.Call(t.Context(), "b-cht_1", "agent_browser_wait_for_text", nil)
+		answered <- result
+	}()
+
+	require.Eventually(t, func() bool {
+		raw, _ := os.ReadFile(filepath.Join(r.bin, "log"))
+
+		return strings.Contains(string(raw), "agent_browser_wait_for_text")
+	}, 10*time.Second, 10*time.Millisecond, "the Bot's call is running")
+
+	r.watch(t, OwnerTab)
+	time.Sleep(300 * time.Millisecond)
+
+	select {
+	case <-answered:
+		t.Fatal("the call takes a second; the view opened while it ran")
+	default:
+	}
+
+	assert.Len(t, chrome.activated(), 1, "the owner's tab is not brought to the front while the Bot's call runs")
+
+	select {
+	case result := <-answered:
+		assert.False(t, isRefusal(t, result))
+	case <-time.After(10 * time.Second):
+		t.Fatal("the Bot's call was not answered")
+	}
+
+	require.Eventually(t, func() bool { return len(chrome.activated()) == 2 }, 10*time.Second, 10*time.Millisecond,
+		"the owner's tab comes to the front once the call ended")
+	assert.Equal(t, front(OwnerTab), chrome.activated()[1])
+}
+
+// Review of PR #1233: the owner holds his tab in one pane, watches the Bot's in another, and closes that pane. The
+// view still open is the only one left, and its tab goes back to the front, where Chrome paints it.
+func TestReviewHeldViewAfterOtherPaneCloses(t *testing.T) {
+	r, chrome := frontRig(t)
+
+	mine := r.watch(t, OwnerTab)
+	do(t, mine, `{"type":"takeControl"}`)
+	require.Eventually(t, func() bool { return len(chrome.activated()) == 1 }, 10*time.Second, 10*time.Millisecond)
+
+	bots := r.watch(t, "b-cht_1")
+	require.Eventually(t, func() bool { return len(chrome.activated()) == 2 }, 10*time.Second, 10*time.Millisecond)
+
+	bots.Close(t.Context())
+
+	require.Eventually(t, func() bool { return len(chrome.activated()) == 3 }, 10*time.Second, 10*time.Millisecond,
+		"the view left brings its tab to the front again")
+	assert.Equal(t, []string{front(OwnerTab), front("b-cht_1"), front(OwnerTab)}, chrome.activated())
 }

@@ -105,6 +105,13 @@ describe("elsewhereLine", () => {
     )
   })
 
+  // Review of PR #1233: the owner's own tab has no agent to go on.
+  it("says nothing of an agent in the owner's own tab", () => {
+    expect(elsewhereLine([owner, { ...bot, held: true, title: "Maps search" }], "owner")).toBe(
+      "You hold “Maps search”.",
+    )
+  })
+
   it("says nothing of the tab itself or when nothing else is held", () => {
     expect(elsewhereLine([owner, { ...bot, held: true }], "b-c1")).toBeNull()
     expect(elsewhereLine([owner, bot], "b-c1")).toBeNull()
