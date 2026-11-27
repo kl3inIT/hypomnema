@@ -1038,6 +1038,63 @@ func (e ImageProviderLinkState) Valid() bool {
 	}
 }
 
+// Defines values for InboxChatKind.
+const (
+	InboxChatBot    InboxChatKind = "bot"
+	InboxChatDirect InboxChatKind = "direct"
+	InboxChatGroup  InboxChatKind = "group"
+)
+
+// Valid indicates whether the value is a known member of the InboxChatKind enum.
+func (e InboxChatKind) Valid() bool {
+	switch e {
+	case InboxChatBot:
+		return true
+	case InboxChatDirect:
+		return true
+	case InboxChatGroup:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InboxChatSetBy.
+const (
+	InboxChatByDefault InboxChatSetBy = "default"
+	InboxChatByOwner   InboxChatSetBy = "owner"
+)
+
+// Valid indicates whether the value is a known member of the InboxChatSetBy enum.
+func (e InboxChatSetBy) Valid() bool {
+	switch e {
+	case InboxChatByDefault:
+		return true
+	case InboxChatByOwner:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InboxChatState.
+const (
+	InboxChatRead    InboxChatState = "read"
+	InboxChatSkipped InboxChatState = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the InboxChatState enum.
+func (e InboxChatState) Valid() bool {
+	switch e {
+	case InboxChatRead:
+		return true
+	case InboxChatSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for IntegrationKind.
 const (
 	IntegrationKindAccount IntegrationKind = "account"
@@ -4750,6 +4807,134 @@ type Images struct {
 	// Providers The image providers, in the order a request that names none asks them.
 	Providers []ImageProviderLink `json:"providers"`
 }
+
+// InboxChat defines model for InboxChat.
+type InboxChat struct {
+	// Id The service's id of the chat.
+	Id string `json:"id"`
+
+	// Kind A direct chat, a group, or a bot's or an official account's chat.
+	Kind InboxChatKind `json:"kind"`
+
+	// LastMessageAt When its latest kept message was sent; Lark gives none.
+	LastMessageAt *time.Time `json:"last_message_at,omitempty"`
+	Name          string     `json:"name"`
+
+	// Reads Whether the triage's check reads it.
+	Reads bool `json:"reads"`
+
+	// SetAt When the owner set it.
+	SetAt *time.Time `json:"set_at,omitempty"`
+
+	// SetBy Why the chat is in its state, its kind's default or the owner's choice.
+	SetBy InboxChatSetBy `json:"set_by"`
+}
+
+// InboxChatChoice defines model for InboxChatChoice.
+type InboxChatChoice struct {
+	Reads bool `json:"reads"`
+}
+
+// InboxChatCounts defines model for InboxChatCounts.
+type InboxChatCounts struct {
+	All     int `json:"all"`
+	Bot     int `json:"bot"`
+	Direct  int `json:"direct"`
+	Group   int `json:"group"`
+	Read    int `json:"read"`
+	Skipped int `json:"skipped"`
+}
+
+// InboxChatDefaults Whether a chat the owner never set is read, by its kind, the same for every source; bot_patterns name a bot's or an official account's chat by its name or id (regular expressions, in any case).
+type InboxChatDefaults struct {
+	Bot         bool     `json:"bot"`
+	BotPatterns []string `json:"bot_patterns"`
+	Direct      bool     `json:"direct"`
+	Group       bool     `json:"group"`
+}
+
+// InboxChatKind A direct chat, a group, or a bot's or an official account's chat.
+type InboxChatKind string
+
+// InboxChatList defines model for InboxChatList.
+type InboxChatList struct {
+	Counts InboxChatCounts `json:"counts"`
+	Data   []InboxChat     `json:"data"`
+
+	// Matched How many chats the filters keep.
+	Matched int `json:"matched"`
+}
+
+// InboxChatMove defines model for InboxChatMove.
+type InboxChatMove struct {
+	// Bot The Bot's id, whose folder holds thu-ky/filters.json; the main Bot when left out.
+	Bot *string `json:"bot,omitempty"`
+}
+
+// InboxChatMoved defines model for InboxChatMoved.
+type InboxChatMoved struct {
+	// Defaults The default patterns, which the bot default holds.
+	Defaults []string `json:"defaults"`
+
+	// Kept The chats the owner had set already, left as they are.
+	Kept []InboxChatRef `json:"kept"`
+
+	// Left The patterns that are not one chat's id, not moved.
+	Left []string `json:"left"`
+
+	// Moved The chats switched off as the owner's choice now.
+	Moved []InboxChatRef `json:"moved"`
+
+	// NotRead The accounts whose chats could not be listed, with why.
+	NotRead []string `json:"not_read"`
+
+	// Unknown The chat ids none of his accounts has.
+	Unknown []string `json:"unknown"`
+}
+
+// InboxChatRef defines model for InboxChatRef.
+type InboxChatRef struct {
+	Chat        string `json:"chat"`
+	Integration string `json:"integration"`
+	Label       string `json:"label"`
+}
+
+// InboxChatSet defines model for InboxChatSet.
+type InboxChatSet struct {
+	Chat        string    `json:"chat"`
+	Integration string    `json:"integration"`
+	Label       string    `json:"label"`
+	Reads       bool      `json:"reads"`
+	SetAt       time.Time `json:"set_at"`
+}
+
+// InboxChatSetBy Why the chat is in its state, its kind's default or the owner's choice.
+type InboxChatSetBy string
+
+// InboxChatSource defines model for InboxChatSource.
+type InboxChatSource struct {
+	// Account The account as the owner knows it: a number, a name.
+	Account string           `json:"account"`
+	Counts  *InboxChatCounts `json:"counts,omitempty"`
+
+	// Integration zalo, whatsapp or lark.
+	Integration string `json:"integration"`
+	Label       string `json:"label"`
+
+	// Problem Why its chats cannot be listed now.
+	Problem *string `json:"problem,omitempty"`
+}
+
+// InboxChatSourceList defines model for InboxChatSourceList.
+type InboxChatSourceList struct {
+	Data []InboxChatSource `json:"data"`
+
+	// Defaults Whether a chat the owner never set is read, by its kind, the same for every source; bot_patterns name a bot's or an official account's chat by its name or id (regular expressions, in any case).
+	Defaults InboxChatDefaults `json:"defaults"`
+}
+
+// InboxChatState Whether the secretary reads the chat or skips it.
+type InboxChatState string
 
 // InboxNeedsYou defines model for InboxNeedsYou.
 type InboxNeedsYou struct {
@@ -8760,6 +8945,14 @@ type CreateTodoParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListInboxChatsParams defines parameters for ListInboxChats.
+type ListInboxChatsParams struct {
+	Q     *string         `form:"q,omitempty" json:"q,omitempty"`
+	Kind  *InboxChatKind  `form:"kind,omitempty" json:"kind,omitempty"`
+	State *InboxChatState `form:"state,omitempty" json:"state,omitempty"`
+	Limit *int            `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // RelaySupersetRequestParams defines parameters for RelaySupersetRequest.
 type RelaySupersetRequestParams struct {
 	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
@@ -9244,6 +9437,12 @@ type GenerateImagesJSONRequestBody = ImageRequest
 
 // CreateTodoJSONRequestBody defines body for CreateTodo for application/json ContentType.
 type CreateTodoJSONRequestBody = NewTodo
+
+// MoveInboxDropChatsJSONRequestBody defines body for MoveInboxDropChats for application/json ContentType.
+type MoveInboxDropChatsJSONRequestBody = InboxChatMove
+
+// SetInboxChatJSONRequestBody defines body for SetInboxChat for application/json ContentType.
+type SetInboxChatJSONRequestBody = InboxChatChoice
 
 // EditTodoJSONRequestBody defines body for EditTodo for application/json ContentType.
 type EditTodoJSONRequestBody = TodoEdit
@@ -11080,6 +11279,56 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /inbox (the `CreateTodo` operationId).
 	CreateTodo(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListInboxChatSources The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+	//
+	// Issue #1270. His Zalo and WhatsApp accounts and his own Lark sign-ins, each with its chats counted: read, skipped, and of each kind; an account whose chats cannot be listed now says why. The defaults are what a chat he never set takes, the same for every source.
+	//
+	// Corresponds with GET /inbox/chat-sources (the `ListInboxChatSources` operationId).
+	ListInboxChatSources(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveInboxDropChatsWithBody Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	//
+	// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+	MoveInboxDropChatsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveInboxDropChats Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	//
+	// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+	MoveInboxDropChats(ctx context.Context, body MoveInboxDropChatsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
+	//
+	// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+	//
+	// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
+	ListInboxChats(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetInboxChatWithBody Set whether the secretary reads one chat; only the owner
+	//
+	// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+	SetInboxChatWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetInboxChat Set whether the secretary reads one chat; only the owner
+	//
+	// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+	SetInboxChat(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	//
@@ -15957,6 +16206,116 @@ func (c *Client) CreateTodoWithBody(ctx context.Context, params *CreateTodoParam
 // Corresponds with POST /inbox (the `CreateTodo` operationId).
 func (c *Client) CreateTodo(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateTodoRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListInboxChatSources The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+//
+// Issue #1270. His Zalo and WhatsApp accounts and his own Lark sign-ins, each with its chats counted: read, skipped, and of each kind; an account whose chats cannot be listed now says why. The defaults are what a chat he never set takes, the same for every source.
+//
+// Corresponds with GET /inbox/chat-sources (the `ListInboxChatSources` operationId).
+func (c *Client) ListInboxChatSources(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListInboxChatSourcesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveInboxDropChatsWithBody Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+//
+// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+func (c *Client) MoveInboxDropChatsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveInboxDropChatsRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveInboxDropChats Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+//
+// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+func (c *Client) MoveInboxDropChats(ctx context.Context, body MoveInboxDropChatsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveInboxDropChatsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
+//
+// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+//
+// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
+func (c *Client) ListInboxChats(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListInboxChatsRequest(c.Server, integration, label, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetInboxChatWithBody Set whether the secretary reads one chat; only the owner
+//
+// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+func (c *Client) SetInboxChatWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetInboxChatRequestWithBody(c.Server, integration, label, chat, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetInboxChat Set whether the secretary reads one chat; only the owner
+//
+// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+func (c *Client) SetInboxChat(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetInboxChatRequest(c.Server, integration, label, chat, body)
 	if err != nil {
 		return nil, err
 	}
@@ -26212,6 +26571,238 @@ func NewCreateTodoRequestWithBody(server string, params *CreateTodoParams, conte
 	return req, nil
 }
 
+// NewListInboxChatSourcesRequest constructs an http.Request for the ListInboxChatSources method
+func NewListInboxChatSourcesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewMoveInboxDropChatsRequest calls the generic MoveInboxDropChats builder with application/json body
+func NewMoveInboxDropChatsRequest(server string, body MoveInboxDropChatsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewMoveInboxDropChatsRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewMoveInboxDropChatsRequestWithBody constructs an http.Request for the MoveInboxDropChats method, with any body, and a specified content type
+func NewMoveInboxDropChatsRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources/moves")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListInboxChatsRequest constructs an http.Request for the ListInboxChats method
+func NewListInboxChatsRequest(server string, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Q != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "q", *params.Q, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Kind != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", *params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetInboxChatRequest calls the generic SetInboxChat builder with application/json body
+func NewSetInboxChatRequest(server string, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetInboxChatRequestWithBody(server, integration, label, chat, "application/json", bodyReader)
+}
+
+// NewSetInboxChatRequestWithBody constructs an http.Request for the SetInboxChat method, with any body, and a specified content type
+func NewSetInboxChatRequestWithBody(server string, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "chat", chat, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/inbox/chat-sources/%s/%s/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetInboxNeedsYouRequest constructs an http.Request for the GetInboxNeedsYou method
 func NewGetInboxNeedsYouRequest(server string) (*http.Request, error) {
 	var err error
@@ -35438,6 +36029,60 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /inbox (the `CreateTodo` operationId).
 	CreateTodoWithResponse(ctx context.Context, params *CreateTodoParams, body CreateTodoJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTodoResponse, error)
 
+	// ListInboxChatSourcesWithResponse The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+	//
+	// Issue #1270. His Zalo and WhatsApp accounts and his own Lark sign-ins, each with its chats counted: read, skipped, and of each kind; an account whose chats cannot be listed now says why. The defaults are what a chat he never set takes, the same for every source.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /inbox/chat-sources (the `ListInboxChatSources` operationId).
+	ListInboxChatSourcesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListInboxChatSourcesResponse, error)
+
+	// MoveInboxDropChatsWithBodyWithResponse Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	//
+	// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+	MoveInboxDropChatsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveInboxDropChatsResponse, error)
+
+	// MoveInboxDropChatsWithResponse Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	//
+	// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+	MoveInboxDropChatsWithResponse(ctx context.Context, body MoveInboxDropChatsJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveInboxDropChatsResponse, error)
+
+	// ListInboxChatsWithResponse An account's chats with whether the secretary reads each and why; only the owner
+	//
+	// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
+	ListInboxChatsWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*ListInboxChatsResponse, error)
+
+	// SetInboxChatWithBodyWithResponse Set whether the secretary reads one chat; only the owner
+	//
+	// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+	SetInboxChatWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetInboxChatResponse, error)
+
+	// SetInboxChatWithResponse Set whether the secretary reads one chat; only the owner
+	//
+	// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+	SetInboxChatWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody, reqEditors ...RequestEditorFn) (*SetInboxChatResponse, error)
+
 	// GetInboxNeedsYouWithResponse How many things in the Inbox need the owner now, for the sidebar
 	//
 	// The to-dos that need him, each once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue, with a reply drafted for him, or a "log in again" item. Then the pending Approvals and the open questions workers asked him, from their own lists; an Approval a to-do in review waits for counts once, as that to-do, unless the to-do is snoozed.
@@ -43463,6 +44108,198 @@ func (r CreateTodoResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CreateTodoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListInboxChatSourcesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxChatSourceList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListInboxChatSourcesResponse) GetJSON200() *InboxChatSourceList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListInboxChatSourcesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListInboxChatSourcesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListInboxChatSourcesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListInboxChatSourcesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListInboxChatSourcesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MoveInboxDropChatsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxChatMoved
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r MoveInboxDropChatsResponse) GetJSON200() *InboxChatMoved {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r MoveInboxDropChatsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r MoveInboxDropChatsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MoveInboxDropChatsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MoveInboxDropChatsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MoveInboxDropChatsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListInboxChatsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxChatList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListInboxChatsResponse) GetJSON200() *InboxChatList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListInboxChatsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListInboxChatsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListInboxChatsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListInboxChatsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListInboxChatsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetInboxChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InboxChatSet
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetInboxChatResponse) GetJSON200() *InboxChatSet {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetInboxChatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetInboxChatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetInboxChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetInboxChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetInboxChatResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -54068,6 +54905,96 @@ func (c *ClientWithResponses) CreateTodoWithResponse(ctx context.Context, params
 	return ParseCreateTodoResponse(rsp)
 }
 
+// ListInboxChatSourcesWithResponse The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+//
+// Issue #1270. His Zalo and WhatsApp accounts and his own Lark sign-ins, each with its chats counted: read, skipped, and of each kind; an account whose chats cannot be listed now says why. The defaults are what a chat he never set takes, the same for every source.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /inbox/chat-sources (the `ListInboxChatSources` operationId).
+func (c *ClientWithResponses) ListInboxChatSourcesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListInboxChatSourcesResponse, error) {
+	rsp, err := c.ListInboxChatSources(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListInboxChatSourcesResponse(rsp)
+}
+
+// MoveInboxDropChatsWithBodyWithResponse Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+//
+// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+func (c *ClientWithResponses) MoveInboxDropChatsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveInboxDropChatsResponse, error) {
+	rsp, err := c.MoveInboxDropChatsWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveInboxDropChatsResponse(rsp)
+}
+
+// MoveInboxDropChatsWithResponse Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+//
+// Issue #1270. Each pattern of dropChats that is one chat's id (^<id>$) and names a chat of one of his accounts switches that chat off as his choice, unless he set it already, so that running it again changes nothing. The answer names what was moved, what was set already, the ids no account has, the default patterns and the patterns that are not one chat's id. A Bot without the file moves nothing.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /inbox/chat-sources/moves (the `MoveInboxDropChats` operationId).
+func (c *ClientWithResponses) MoveInboxDropChatsWithResponse(ctx context.Context, body MoveInboxDropChatsJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveInboxDropChatsResponse, error) {
+	rsp, err := c.MoveInboxDropChats(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveInboxDropChatsResponse(rsp)
+}
+
+// ListInboxChatsWithResponse An account's chats with whether the secretary reads each and why; only the owner
+//
+// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
+func (c *ClientWithResponses) ListInboxChatsWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*ListInboxChatsResponse, error) {
+	rsp, err := c.ListInboxChats(ctx, integration, label, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListInboxChatsResponse(rsp)
+}
+
+// SetInboxChatWithBodyWithResponse Set whether the secretary reads one chat; only the owner
+//
+// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+func (c *ClientWithResponses) SetInboxChatWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetInboxChatResponse, error) {
+	rsp, err := c.SetInboxChatWithBody(ctx, integration, label, chat, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetInboxChatResponse(rsp)
+}
+
+// SetInboxChatWithResponse Set whether the secretary reads one chat; only the owner
+//
+// Issue #1270. The owner's choice replaces the chat's default and any choice before. A chat switched off is still kept and read when he asks a Bot; only the triage's check skips it.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /inbox/chat-sources/{integration}/{label}/{chat} (the `SetInboxChat` operationId).
+func (c *ClientWithResponses) SetInboxChatWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, chat string, body SetInboxChatJSONRequestBody, reqEditors ...RequestEditorFn) (*SetInboxChatResponse, error) {
+	rsp, err := c.SetInboxChat(ctx, integration, label, chat, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetInboxChatResponse(rsp)
+}
+
 // GetInboxNeedsYouWithResponse How many things in the Inbox need the owner now, for the sidebar
 //
 // The to-dos that need him, each once: not closed, not snoozed, and proposed but not stale, or in review with a pending Approval, or the owner's own and overdue, with a reply drafted for him, or a "log in again" item. Then the pending Approvals and the open questions workers asked him, from their own lists; an Approval a to-do in review waits for counts once, as that to-do, unless the to-do is snoozed.
@@ -61576,6 +62503,138 @@ func ParseCreateTodoResponse(rsp *http.Response) (*CreateTodoResponse, error) {
 	return response, nil
 }
 
+// ParseListInboxChatSourcesResponse parses an HTTP response from a ListInboxChatSourcesWithResponse call
+func ParseListInboxChatSourcesResponse(rsp *http.Response) (*ListInboxChatSourcesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListInboxChatSourcesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxChatSourceList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseMoveInboxDropChatsResponse parses an HTTP response from a MoveInboxDropChatsWithResponse call
+func ParseMoveInboxDropChatsResponse(rsp *http.Response) (*MoveInboxDropChatsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MoveInboxDropChatsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxChatMoved
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListInboxChatsResponse parses an HTTP response from a ListInboxChatsWithResponse call
+func ParseListInboxChatsResponse(rsp *http.Response) (*ListInboxChatsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListInboxChatsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxChatList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetInboxChatResponse parses an HTTP response from a SetInboxChatWithResponse call
+func ParseSetInboxChatResponse(rsp *http.Response) (*SetInboxChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetInboxChatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InboxChatSet
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetInboxNeedsYouResponse parses an HTTP response from a GetInboxNeedsYouWithResponse call
 func ParseGetInboxNeedsYouResponse(rsp *http.Response) (*GetInboxNeedsYouResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -67472,6 +68531,18 @@ type ServerInterface interface {
 	// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
 	// (POST /inbox)
 	CreateTodo(w http.ResponseWriter, r *http.Request, params CreateTodoParams)
+	// ListInboxChatSources The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+	// (GET /inbox/chat-sources)
+	ListInboxChatSources(w http.ResponseWriter, r *http.Request)
+	// MoveInboxDropChats Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	// (POST /inbox/chat-sources/moves)
+	MoveInboxDropChats(w http.ResponseWriter, r *http.Request)
+	// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
+	// (GET /inbox/chat-sources/{integration}/{label})
+	ListInboxChats(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, params ListInboxChatsParams)
+	// SetInboxChat Set whether the secretary reads one chat; only the owner
+	// (PUT /inbox/chat-sources/{integration}/{label}/{chat})
+	SetInboxChat(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, chat string)
 	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	// (GET /inbox/needs-you)
 	GetInboxNeedsYou(w http.ResponseWriter, r *http.Request)
@@ -72144,6 +73215,168 @@ func (siw *ServerInterfaceWrapper) CreateTodo(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateTodo(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListInboxChatSources operation middleware
+func (siw *ServerInterfaceWrapper) ListInboxChatSources(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInboxChatSources(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MoveInboxDropChats operation middleware
+func (siw *ServerInterfaceWrapper) MoveInboxDropChats(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MoveInboxDropChats(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListInboxChats operation middleware
+func (siw *ServerInterfaceWrapper) ListInboxChats(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListInboxChatsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInboxChats(w, r, integration, label, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetInboxChat operation middleware
+func (siw *ServerInterfaceWrapper) SetInboxChat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "chat" -------------
+	var chat string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat", r.PathValue("chat"), &chat, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetInboxChat(w, r, integration, label, chat)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -77874,6 +79107,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox", wrapper.ListTodos)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox", wrapper.CreateTodo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/needs-you", wrapper.GetInboxNeedsYou)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/chat-sources", wrapper.ListInboxChatSources)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/chat-sources/moves", wrapper.MoveInboxDropChats)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/chat-sources/{integration}/{label}", wrapper.ListInboxChats)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/inbox/chat-sources/{integration}/{label}/{chat}", wrapper.SetInboxChat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.GetTodo)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/inbox/{todo_id}", wrapper.EditTodo)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/inbox/{todo_id}/accept", wrapper.AcceptTodo)
@@ -83098,6 +84335,166 @@ type CreateTododefaultJSONResponse struct {
 }
 
 func (response CreateTododefaultJSONResponse) VisitCreateTodoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxChatSourcesRequestObject struct {
+}
+
+type ListInboxChatSourcesResponseObject interface {
+	VisitListInboxChatSourcesResponse(w http.ResponseWriter) error
+}
+
+type ListInboxChatSources200JSONResponse InboxChatSourceList
+
+func (response ListInboxChatSources200JSONResponse) VisitListInboxChatSourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxChatSourcesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListInboxChatSourcesdefaultJSONResponse) VisitListInboxChatSourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveInboxDropChatsRequestObject struct {
+	Body *MoveInboxDropChatsJSONRequestBody
+}
+
+type MoveInboxDropChatsResponseObject interface {
+	VisitMoveInboxDropChatsResponse(w http.ResponseWriter) error
+}
+
+type MoveInboxDropChats200JSONResponse InboxChatMoved
+
+func (response MoveInboxDropChats200JSONResponse) VisitMoveInboxDropChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveInboxDropChatsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response MoveInboxDropChatsdefaultJSONResponse) VisitMoveInboxDropChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxChatsRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+	Params      ListInboxChatsParams
+}
+
+type ListInboxChatsResponseObject interface {
+	VisitListInboxChatsResponse(w http.ResponseWriter) error
+}
+
+type ListInboxChats200JSONResponse InboxChatList
+
+func (response ListInboxChats200JSONResponse) VisitListInboxChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInboxChatsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListInboxChatsdefaultJSONResponse) VisitListInboxChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInboxChatRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+	Chat        string          `json:"chat"`
+	Body        *SetInboxChatJSONRequestBody
+}
+
+type SetInboxChatResponseObject interface {
+	VisitSetInboxChatResponse(w http.ResponseWriter) error
+}
+
+type SetInboxChat200JSONResponse InboxChatSet
+
+func (response SetInboxChat200JSONResponse) VisitSetInboxChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetInboxChatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetInboxChatdefaultJSONResponse) VisitSetInboxChatResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -90282,6 +91679,18 @@ type StrictServerInterface interface {
 	// CreateTodo Add a to-do; the owner or a Bot, never a coordinator
 	// (POST /inbox)
 	CreateTodo(ctx context.Context, request CreateTodoRequestObject) (CreateTodoResponseObject, error)
+	// ListInboxChatSources The owner's accounts whose chats the secretary may read, with how many it reads and skips; only the owner
+	// (GET /inbox/chat-sources)
+	ListInboxChatSources(ctx context.Context, request ListInboxChatSourcesRequestObject) (ListInboxChatSourcesResponseObject, error)
+	// MoveInboxDropChats Move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once; only the owner
+	// (POST /inbox/chat-sources/moves)
+	MoveInboxDropChats(ctx context.Context, request MoveInboxDropChatsRequestObject) (MoveInboxDropChatsResponseObject, error)
+	// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
+	// (GET /inbox/chat-sources/{integration}/{label})
+	ListInboxChats(ctx context.Context, request ListInboxChatsRequestObject) (ListInboxChatsResponseObject, error)
+	// SetInboxChat Set whether the secretary reads one chat; only the owner
+	// (PUT /inbox/chat-sources/{integration}/{label}/{chat})
+	SetInboxChat(ctx context.Context, request SetInboxChatRequestObject) (SetInboxChatResponseObject, error)
 	// GetInboxNeedsYou How many things in the Inbox need the owner now, for the sidebar
 	// (GET /inbox/needs-you)
 	GetInboxNeedsYou(ctx context.Context, request GetInboxNeedsYouRequestObject) (GetInboxNeedsYouResponseObject, error)
@@ -94567,6 +95976,124 @@ func (sh *strictHandler) CreateTodo(w http.ResponseWriter, r *http.Request, para
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreateTodoResponseObject); ok {
 		if err := validResponse.VisitCreateTodoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListInboxChatSources operation middleware
+func (sh *strictHandler) ListInboxChatSources(w http.ResponseWriter, r *http.Request) {
+	var request ListInboxChatSourcesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInboxChatSources(ctx, request.(ListInboxChatSourcesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInboxChatSources")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListInboxChatSourcesResponseObject); ok {
+		if err := validResponse.VisitListInboxChatSourcesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MoveInboxDropChats operation middleware
+func (sh *strictHandler) MoveInboxDropChats(w http.ResponseWriter, r *http.Request) {
+	var request MoveInboxDropChatsRequestObject
+
+	var body MoveInboxDropChatsJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MoveInboxDropChats(ctx, request.(MoveInboxDropChatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MoveInboxDropChats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MoveInboxDropChatsResponseObject); ok {
+		if err := validResponse.VisitMoveInboxDropChatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListInboxChats operation middleware
+func (sh *strictHandler) ListInboxChats(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, params ListInboxChatsParams) {
+	var request ListInboxChatsRequestObject
+
+	request.Integration = integration
+	request.Label = label
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInboxChats(ctx, request.(ListInboxChatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInboxChats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListInboxChatsResponseObject); ok {
+		if err := validResponse.VisitListInboxChatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetInboxChat operation middleware
+func (sh *strictHandler) SetInboxChat(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, chat string) {
+	var request SetInboxChatRequestObject
+
+	request.Integration = integration
+	request.Label = label
+	request.Chat = chat
+
+	var body SetInboxChatJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetInboxChat(ctx, request.(SetInboxChatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetInboxChat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetInboxChatResponseObject); ok {
+		if err := validResponse.VisitSetInboxChatResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

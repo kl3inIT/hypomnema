@@ -33,6 +33,17 @@ routine() {
   fi
 }
 
+# Which chats the triage reads is the owner's choice per chat, kept by the control plane (issue #1270). Before the
+# check that reads those choices is set, the chat ids the Bot's thu-ky/filters.json named in dropChats become his
+# choices, switched off: run again, it changes nothing, and a chat he switched on since stays on. It stops here when
+# the control plane cannot do it (one released before #1270), so that the new check never reads a chat dropChats left
+# out.
+if [ -n "$bot" ]; then
+  hypomnema inbox chats move --bot "$bot"
+else
+  hypomnema inbox chats move
+fi
+
 # The triage: every 15 minutes, read only, so every send and every write outside the control plane is refused at
 # once in its runs and its check, whatever the Bot may do in its chats (#956). Its prompt carries the secretary's
 # rules, since the Bot keeps its own persona. Its check (new-messages.mjs) counts the new messages first and wakes the

@@ -5595,6 +5595,145 @@ export type TodoList = {
   next_cursor?: string;
 };
 
+/**
+ * A direct chat, a group, or a bot's or an official account's chat.
+ */
+export type InboxChatKind = 'direct' | 'group' | 'bot';
+
+/**
+ * Whether the secretary reads the chat or skips it.
+ */
+export type InboxChatState = 'read' | 'skipped';
+
+/**
+ * Why the chat is in its state, its kind's default or the owner's choice.
+ */
+export type InboxChatSetBy = 'default' | 'owner';
+
+export type InboxChatCounts = {
+  all: number;
+  read: number;
+  skipped: number;
+  direct: number;
+  group: number;
+  bot: number;
+};
+
+/**
+ * Whether a chat the owner never set is read, by its kind, the same for every source; bot_patterns name a bot's or an official account's chat by its name or id (regular expressions, in any case).
+ */
+export type InboxChatDefaults = {
+  direct: boolean;
+  group: boolean;
+  bot: boolean;
+  bot_patterns: Array<string>;
+};
+
+export type InboxChatSource = {
+  /**
+   * zalo, whatsapp or lark.
+   */
+  integration: string;
+  label: string;
+  /**
+   * The account as the owner knows it: a number, a name.
+   */
+  account: string;
+  counts?: InboxChatCounts;
+  /**
+   * Why its chats cannot be listed now.
+   */
+  problem?: string;
+};
+
+export type InboxChatSourceList = {
+  data: Array<InboxChatSource>;
+  defaults: InboxChatDefaults;
+};
+
+export type InboxChat = {
+  /**
+   * The service's id of the chat.
+   */
+  id: string;
+  name: string;
+  kind: InboxChatKind;
+  /**
+   * When its latest kept message was sent; Lark gives none.
+   */
+  last_message_at?: string;
+  /**
+   * Whether the triage's check reads it.
+   */
+  reads: boolean;
+  set_by: InboxChatSetBy;
+  /**
+   * When the owner set it.
+   */
+  set_at?: string;
+};
+
+export type InboxChatList = {
+  data: Array<InboxChat>;
+  counts: InboxChatCounts;
+  /**
+   * How many chats the filters keep.
+   */
+  matched: number;
+};
+
+export type InboxChatChoice = {
+  reads: boolean;
+};
+
+export type InboxChatSet = {
+  integration: string;
+  label: string;
+  chat: string;
+  reads: boolean;
+  set_at: string;
+};
+
+export type InboxChatMove = {
+  /**
+   * The Bot's id, whose folder holds thu-ky/filters.json; the main Bot when left out.
+   */
+  bot?: string;
+};
+
+export type InboxChatRef = {
+  integration: string;
+  label: string;
+  chat: string;
+};
+
+export type InboxChatMoved = {
+  /**
+   * The chats switched off as the owner's choice now.
+   */
+  moved: Array<InboxChatRef>;
+  /**
+   * The chats the owner had set already, left as they are.
+   */
+  kept: Array<InboxChatRef>;
+  /**
+   * The chat ids none of his accounts has.
+   */
+  unknown: Array<string>;
+  /**
+   * The patterns that are not one chat's id, not moved.
+   */
+  left: Array<string>;
+  /**
+   * The default patterns, which the bot default holds.
+   */
+  defaults: Array<string>;
+  /**
+   * The accounts whose chats could not be listed, with why.
+   */
+  not_read: Array<string>;
+};
+
 export type InboxNeedsYou = {
   count: number;
 };
@@ -14262,6 +14401,118 @@ export type GetInboxNeedsYouResponses = {
 };
 
 export type GetInboxNeedsYouResponse = GetInboxNeedsYouResponses[keyof GetInboxNeedsYouResponses];
+
+export type ListInboxChatSourcesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/inbox/chat-sources';
+};
+
+export type ListInboxChatSourcesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListInboxChatSourcesError = ListInboxChatSourcesErrors[keyof ListInboxChatSourcesErrors];
+
+export type ListInboxChatSourcesResponses = {
+  /**
+   * The sources.
+   */
+  200: InboxChatSourceList;
+};
+
+export type ListInboxChatSourcesResponse = ListInboxChatSourcesResponses[keyof ListInboxChatSourcesResponses];
+
+export type MoveInboxDropChatsData = {
+  body: InboxChatMove;
+  path?: never;
+  query?: never;
+  url: '/inbox/chat-sources/moves';
+};
+
+export type MoveInboxDropChatsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type MoveInboxDropChatsError = MoveInboxDropChatsErrors[keyof MoveInboxDropChatsErrors];
+
+export type MoveInboxDropChatsResponses = {
+  /**
+   * What was moved.
+   */
+  200: InboxChatMoved;
+};
+
+export type MoveInboxDropChatsResponse = MoveInboxDropChatsResponses[keyof MoveInboxDropChatsResponses];
+
+export type ListInboxChatsData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: {
+    q?: string;
+    kind?: InboxChatKind;
+    state?: InboxChatState;
+    limit?: number;
+  };
+  url: '/inbox/chat-sources/{integration}/{label}';
+};
+
+export type ListInboxChatsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListInboxChatsError = ListInboxChatsErrors[keyof ListInboxChatsErrors];
+
+export type ListInboxChatsResponses = {
+  /**
+   * The chats.
+   */
+  200: InboxChatList;
+};
+
+export type ListInboxChatsResponse = ListInboxChatsResponses[keyof ListInboxChatsResponses];
+
+export type SetInboxChatData = {
+  body: InboxChatChoice;
+  path: {
+    integration: string;
+    label: string;
+    chat: string;
+  };
+  query?: never;
+  url: '/inbox/chat-sources/{integration}/{label}/{chat}';
+};
+
+export type SetInboxChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetInboxChatError = SetInboxChatErrors[keyof SetInboxChatErrors];
+
+export type SetInboxChatResponses = {
+  /**
+   * The choice.
+   */
+  200: InboxChatSet;
+};
+
+export type SetInboxChatResponse = SetInboxChatResponses[keyof SetInboxChatResponses];
 
 export type GetTodoData = {
   body?: never;

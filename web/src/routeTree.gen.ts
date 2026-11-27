@@ -21,6 +21,7 @@ import { Route as BotsIndexRouteImport } from './routes/bots.index'
 import { Route as BotsIdRouteImport } from './routes/bots.$id'
 import { Route as BotsNewRouteImport } from './routes/bots.new'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
+import { Route as InboxChatsRouteImport } from './routes/inbox_.chats'
 import { Route as MeetingsMeetingIdRouteImport } from './routes/meetings_.$meetingId'
 import { Route as MeetingsSettingsRouteImport } from './routes/meetings_.settings'
 import { Route as STokenRouteImport } from './routes/s.$token'
@@ -108,6 +109,11 @@ const BotsNewRoute = BotsNewRouteImport.update({
 const ChatsChatIdRoute = ChatsChatIdRouteImport.update({
   id: '/chats/$chatId',
   path: '/chats/$chatId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InboxChatsRoute = InboxChatsRouteImport.update({
+  id: '/inbox_/chats',
+  path: '/inbox/chats',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MeetingsMeetingIdRoute = MeetingsMeetingIdRouteImport.update({
@@ -263,6 +269,7 @@ export interface FileRoutesByFullPath {
   '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
+  '/inbox/chats': typeof InboxChatsRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
   '/meetings/settings': typeof MeetingsSettingsRoute
   '/s/$token': typeof STokenRoute
@@ -305,6 +312,7 @@ export interface FileRoutesByTo {
   '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
+  '/inbox/chats': typeof InboxChatsRoute
   '/meetings/$meetingId': typeof MeetingsMeetingIdRoute
   '/meetings/settings': typeof MeetingsSettingsRoute
   '/s/$token': typeof STokenRoute
@@ -348,6 +356,7 @@ export interface FileRoutesById {
   '/bots/$id': typeof BotsIdRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
+  '/inbox_/chats': typeof InboxChatsRoute
   '/meetings_/$meetingId': typeof MeetingsMeetingIdRoute
   '/meetings_/settings': typeof MeetingsSettingsRoute
   '/s/$token': typeof STokenRoute
@@ -392,6 +401,7 @@ export interface FileRouteTypes {
     | '/bots/$id'
     | '/bots/new'
     | '/chats/$chatId'
+    | '/inbox/chats'
     | '/meetings/$meetingId'
     | '/meetings/settings'
     | '/s/$token'
@@ -434,6 +444,7 @@ export interface FileRouteTypes {
     | '/bots/$id'
     | '/bots/new'
     | '/chats/$chatId'
+    | '/inbox/chats'
     | '/meetings/$meetingId'
     | '/meetings/settings'
     | '/s/$token'
@@ -476,6 +487,7 @@ export interface FileRouteTypes {
     | '/bots/$id'
     | '/bots/new'
     | '/chats/$chatId'
+    | '/inbox_/chats'
     | '/meetings_/$meetingId'
     | '/meetings_/settings'
     | '/s/$token'
@@ -519,6 +531,7 @@ export interface RootRouteChildren {
   BotsIdRoute: typeof BotsIdRoute
   BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
+  InboxChatsRoute: typeof InboxChatsRoute
   MeetingsMeetingIdRoute: typeof MeetingsMeetingIdRoute
   MeetingsSettingsRoute: typeof MeetingsSettingsRoute
   STokenRoute: typeof STokenRoute
@@ -634,6 +647,13 @@ declare module '@tanstack/react-router' {
       path: '/chats/$chatId'
       fullPath: '/chats/$chatId'
       preLoaderRoute: typeof ChatsChatIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/inbox_/chats': {
+      id: '/inbox_/chats'
+      path: '/inbox/chats'
+      fullPath: '/inbox/chats'
+      preLoaderRoute: typeof InboxChatsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/meetings_/$meetingId': {
@@ -847,6 +867,7 @@ const rootRouteChildren: RootRouteChildren = {
   BotsIdRoute: BotsIdRoute,
   BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
+  InboxChatsRoute: InboxChatsRoute,
   MeetingsMeetingIdRoute: MeetingsMeetingIdRoute,
   MeetingsSettingsRoute: MeetingsSettingsRoute,
   STokenRoute: STokenRoute,
