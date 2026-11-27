@@ -44,9 +44,8 @@ type Attached struct {
 	// From is the Bot's chat it comments from: its files are read through the item's own chat when that is the
 	// Bot's, else through this one.
 	From string
-	// Checked says the caller read each file in the Bot's folder (the agent API, issue #1206): only then is the
-	// comment the Bot's work as evidence (botsWork).
-	Checked bool
+	// Read are the files the caller found in the Bot's folder (the agent API, issue #1206). Not built yet.
+	Read []string
 }
 
 // checked is what a comment carries, its paths made relative as the chat reads them (media.ts folderPath), or why
@@ -69,7 +68,7 @@ func (a Attached) checked(actor Actor) (Attached, error) {
 			MaxCommentFiles, MaxCommentArtifacts)
 	}
 
-	out := Attached{From: a.From, Checked: a.Checked}
+	out := Attached{From: a.From, Read: a.Read}
 
 	for _, f := range a.Files {
 		p, err := folderPath(f)
@@ -152,7 +151,7 @@ func (a Attached) after(ctx context.Context, q *store.Queries, actor Actor, text
 	}
 
 	after["files"], after["chat"] = a.Files, chat
-	if a.Checked {
+	if len(a.Read) > 0 {
 		after["files_checked"] = true
 	}
 

@@ -124,15 +124,15 @@ test("the fake refuses a Bot's own close on a link", () => {
 // taught (departments' chats) takes it when the Bot names none; a department named must be one of his; a chat nobody
 // taught gets none. The owner's context, when a case gives it, is the run's.
 test("the fake puts an item from a known chat in its department, as the server does", () => {
-  const w = fakeWorld({ departments: [{ name: "VMAP", chats: [{ kind: "lark", account: "me", id: "oc_mdoc" }] },
-    { name: "BeyondPilot", chats: [] }] });
-  assert.deepEqual(w.call("inbox_list", {}).projects, ["VMAP", "BeyondPilot"]);
+  const w = fakeWorld({ departments: [{ name: "Atlas", chats: [{ kind: "lark", account: "me", id: "oc_nova" }] },
+    { name: "Harbor", chats: [] }] });
+  assert.deepEqual(w.call("inbox_list", {}).projects, ["Atlas", "Harbor"]);
   const known = w.call("inbox_add", { title: "a", why_open: "asked_directly",
-    source: { kind: "lark", chat: "oc_mdoc", account: "me" } });
-  assert.equal(known.project, "VMAP");
-  const named = w.call("inbox_add", { title: "b", why_open: "asked_directly", project: "BeyondPilot",
-    source: { kind: "lark", chat: "oc_mdoc", account: "me" } });
-  assert.equal(named.project, "BeyondPilot");
+    source: { kind: "lark", chat: "oc_nova", account: "me" } });
+  assert.equal(known.project, "Atlas");
+  const named = w.call("inbox_add", { title: "b", why_open: "asked_directly", project: "Harbor",
+    source: { kind: "lark", chat: "oc_nova", account: "me" } });
+  assert.equal(named.project, "Harbor");
   const unknown = w.call("inbox_add", { title: "c", why_open: "asked_directly",
     source: { kind: "zalo", chat: "u_new", account: "main" } });
   assert.equal(unknown.project, undefined);

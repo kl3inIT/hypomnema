@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/inboxstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
+	"github.com/kl3inIT/hypomnema/internal/shared/artifactpack"
 )
 
 // ranFor is a Run the Bot doing item td started from the item's own chat, as a Bot's `hypomnema run` from that chat
@@ -151,7 +153,8 @@ func TestReviewOwnerReplyWithOwnerFileURL(t *testing.T) {
 	}
 
 	commented, err := w.inbox.CommentWith(ctx, bot(w.kai), doing.ID, "Bảng tổng hợp đây ạ.",
-		inboxstore.Attached{Files: []string{"exports/q3-dashboards.xlsx"}, From: w.chat, Checked: true})
+		inboxstore.Attached{Files: []string{"exports/q3-dashboards.xlsx"}, From: w.chat,
+			Read: []string{"exports/q3-dashboards.xlsx"}})
 	require.NoError(t, err)
 
 	doing.Revision = commented.Revision
@@ -287,10 +290,61 @@ func TestRound3MissingFileIsNotWork(t *testing.T) {
 	require.ErrorIs(t, err, storeerr.ErrInvalid, "a path the agent API did not read")
 
 	read, err := w.inbox.CommentWith(ctx, bot(w.kai), doing.ID, "Báo cáo đây ạ.",
-		inboxstore.Attached{Files: []string{"exports/q3.xlsx"}, From: w.chat, Checked: true})
+		inboxstore.Attached{Files: []string{"exports/q3.xlsx"}, From: w.chat, Read: []string{"exports/q3.xlsx"}})
 	require.NoError(t, err)
 	doing.Revision = read.Revision
 	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), itsOwn(commentOf(last(read))...))
 	require.NoError(t, err)
 	assert.Equal(t, inboxstore.Done, done.State)
+}
+
+// Scenario: review round 4 of PR #1243. The agent API reads a comment's files at the paths the comment keeps, after
+// the store's cleaning ("./", spaces), and a comment is the Bot's work only when every file it keeps was read there:
+// a path read as written ("other.md ") is not the path kept ("other.md"), and an Artifact the Bot showed before does
+// not make a missing file its work.
+func TestRound5FilesReadAtThePathKept(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	itsOwn := func(evidence ...inboxstore.Link) inboxstore.Closing {
+		return inboxstore.Closing{DoneBy: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.kai},
+			How: inboxstore.ClosedByBot, Evidence: evidence}
+	}
+
+	shown, _, err := w.svc.ShowArtifact(ctx, orchestration.ArtifactMaker{Bot: w.kai, Chat: w.chat},
+		orchestration.ShowArtifact{Title: "Báo cáo cũ", Pack: oldPage(t)})
+	require.NoError(t, err)
+
+	doing := w.handedTo(t, w.threadAsk(t))
+	for name, att := range map[string]inboxstore.Attached{
+		"read as written, kept cleaned":  {Files: []string{"other.md "}, Read: []string{"other.md "}},
+		"a missing file and an Artifact": {Files: []string{"missing.md"}, Artifacts: []string{shown.ID}},
+		"one of two files read":          {Files: []string{"a.md", "b.md"}, Read: []string{"a.md"}},
+	} {
+		att.From = w.chat
+		c, err := w.inbox.CommentWith(ctx, bot(w.kai), doing.ID, "Kết quả đây ạ.", att)
+		require.NoError(t, err, name)
+		doing.Revision = c.Revision
+		_, err = w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), itsOwn(commentOf(last(c))...))
+		require.ErrorIs(t, err, storeerr.ErrInvalid, name)
+	}
+
+	c, err := w.inbox.CommentWith(ctx, bot(w.kai), doing.ID, "Kết quả đây ạ.", inboxstore.Attached{
+		Files: []string{"./result.md "}, Read: []string{"result.md"}, Artifacts: []string{shown.ID}, From: w.chat})
+	require.NoError(t, err)
+	doing.Revision = c.Revision
+	done, err := w.inbox.Done(ctx, inAttempt(bot(w.kai), doing), itsOwn(commentOf(last(c))...))
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Done, done.State)
+}
+
+// oldPage is an Artifact's one page.
+func oldPage(t *testing.T) artifactpack.Pack {
+	t.Helper()
+
+	p, err := artifactpack.Check([]artifactpack.File{{Path: "index.html", Data: []byte("<p>old</p>")}})
+	require.NoError(t, err)
+
+	return p
 }

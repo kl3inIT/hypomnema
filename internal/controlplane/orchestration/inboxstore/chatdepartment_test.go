@@ -68,3 +68,44 @@ func TestTheOwnersDepartmentChangeTeachesItsChat(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, w.askIn(t, inboxstore.FromZalo, "main", "g_data", "").Project, "he took it out of any")
 }
+
+// Scenario: review round 4 of PR #1243. The chat's department reaches an item the triage already listed too: once
+// the owner put the chat in a department, the triage's next update of an older item of that chat without one, which
+// names no project (it makes the ask his promise), puts it there. An item with a department, an update naming one,
+// and the owner's own update keep theirs.
+func TestAnUpdateTakesTheChatsDepartment(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	w := newWorld(t)
+	atlas := w.project(t, "Atlas")
+	harbor := w.project(t, "Harbor")
+	promised := inboxstore.Promised
+
+	older := w.askIn(t, inboxstore.FromZalo, "main", "g_data", "")
+	kept := w.askIn(t, inboxstore.FromZalo, "main", "g_data", harbor.ID)
+	named := w.askIn(t, inboxstore.FromZalo, "main", "g_data", "")
+	his := w.askIn(t, inboxstore.FromZalo, "main", "g_data", "")
+
+	taught := w.askIn(t, inboxstore.FromZalo, "main", "g_data", "")
+	_, err := w.inbox.Edit(ctx, by(owner, taught), inboxstore.Edit{Project: &atlas.ID})
+	require.NoError(t, err)
+
+	got, err := w.inbox.Edit(ctx, by(bot(w.kai), older), inboxstore.Edit{WhyOpen: &promised})
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.Promised, got.WhyOpen)
+	assert.Equal(t, atlas.ID, got.Project, "the chat's department")
+
+	got, err = w.inbox.Edit(ctx, by(bot(w.kai), kept), inboxstore.Edit{WhyOpen: &promised})
+	require.NoError(t, err)
+	assert.Equal(t, harbor.ID, got.Project, "an item with a department keeps it")
+
+	got, err = w.inbox.Edit(ctx, by(bot(w.kai), named), inboxstore.Edit{Project: &harbor.ID})
+	require.NoError(t, err)
+	assert.Equal(t, harbor.ID, got.Project, "an update naming one")
+
+	title := "Trả lời: xem lại số liệu tuần"
+	got, err = w.inbox.Edit(ctx, by(owner, his), inboxstore.Edit{Title: &title})
+	require.NoError(t, err)
+	assert.Empty(t, got.Project, "the owner's own update")
+}

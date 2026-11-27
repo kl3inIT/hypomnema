@@ -27,7 +27,7 @@ func (f folder) Ask(_ context.Context, bot string, req workspacefs.Request) (wor
 	return workspacefs.Result{File: &workspacefs.File{Path: req.Path, Bytes: 1}}, nil
 }
 
-// Scenario: review round 3 of PR #1243, through the agent API. The owner handed a Bot an ask and commented that he
+// Scenario: review rounds 3 and 4 of PR #1243, through the agent API. The owner handed a Bot an ask and commented that he
 // sent the report himself; the Bot comments with a path of a file it never made, and closes the item as its own on
 // that comment: refused, as is the same on a control plane that cannot read the Bot's folder. A file the Bot made,
 // which its folder holds, is its work.
@@ -47,6 +47,8 @@ func TestRound3MissingFileIsNotWorkThroughTheAgentAPI(t *testing.T) {
 		require.NoError(t, err)
 
 		files[bot.ID+"/exports/report.xlsx"] = true
+		// A file whose name ends in a space: the comment keeps "other.md", which is not there.
+		files[bot.ID+"/other.md "] = true
 		pi, _ := w.inboxPi(bot)
 		owner := inboxstore.Actor{Kind: inboxstore.Owner}
 
@@ -78,7 +80,10 @@ func TestRound3MissingFileIsNotWorkThroughTheAgentAPI(t *testing.T) {
 		text, failed := closeOn("exports/never-made.xlsx")
 		assert.True(t, failed, "reads %v: a file never made is no work: %s", reads, text)
 
-		text, failed = closeOn("exports/report.xlsx")
-		assert.Equal(t, !reads, failed, "reads %v: the file it made: %s", reads, text)
+		text, failed = closeOn("other.md ")
+		assert.True(t, failed, "reads %v: the path kept is not the file read: %s", reads, text)
+
+		text, failed = closeOn("./exports/report.xlsx ")
+		assert.Equal(t, !reads, failed, "reads %v: the file it made, at the path kept: %s", reads, text)
 	}
 }

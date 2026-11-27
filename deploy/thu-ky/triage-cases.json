@@ -3,11 +3,11 @@
  "cases": [
   {
    "name": "1. an untagged ask for work in a group, accepted with 'dạ oki chị', is an open promise with no due",
-   "from": "issue #1182, chị Linh's ask of 2026-11-26 (read on Lark, run here on Zalo)",
+   "from": "issue #1182, case 1; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "g_mdoc",
-    "name": "[MDOC] Community & Growth",
+    "id": "g_nova",
+    "name": "[NOVA] Cộng đồng",
     "kind": "group"
    },
    "since": "2026-11-25T03:30:00Z",
@@ -15,19 +15,19 @@
     {
      "ID": "z_hung",
      "At": "2026-11-25T01:10:00Z",
-     "SenderName": "Hùng",
-     "Text": "Báo cáo community tuần này em gửi trong drive rồi nhé mọi người"
+     "SenderName": "Phong",
+     "Text": "Biên bản họp tuần này em để trong drive rồi nhé mọi người"
     },
     {
      "ID": "z_ask",
      "At": "2026-11-25T02:25:00Z",
-     "SenderName": "Linh",
-     "Text": "chỗ anh Thành đã có superset mới, em có thể update báo cáo daily community này theo các chỉ số trong đó không ạ"
+     "SenderName": "Trang",
+     "Text": "bên anh Khoa vừa có bảng Metabase mới, em có thể cập nhật báo cáo tuần của nhóm theo các chỉ số trong đó không ạ"
     },
     {
      "ID": "z_ok",
      "At": "2026-11-25T03:46:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ oki chị"
     }
@@ -45,11 +45,11 @@
   },
   {
    "name": "2. 'dạ oki chị' to a changed meeting time owes nothing",
-   "from": "plan case 2",
+   "from": "issue #1182, case 2; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "u_linh",
-    "name": "Linh",
+    "id": "u_trang",
+    "name": "Trang",
     "kind": "dm"
    },
    "since": "2026-11-25T02:55:00Z",
@@ -57,13 +57,13 @@
     {
      "ID": "z_info",
      "At": "2026-11-25T03:00:00Z",
-     "SenderName": "Linh",
+     "SenderName": "Trang",
      "Text": "chiều họp lùi sang 3h nhé em"
     },
     {
      "ID": "z_ok",
      "At": "2026-11-25T03:05:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ oki chị"
     }
@@ -74,11 +74,11 @@
   },
   {
    "name": "3. 'dạ' to a thank-you owes nothing",
-   "from": "plan case 3",
+   "from": "issue #1182, case 3; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "u_linh",
-    "name": "Linh",
+    "id": "u_trang",
+    "name": "Trang",
     "kind": "dm"
    },
    "since": "2026-11-25T02:55:00Z",
@@ -86,20 +86,20 @@
     {
      "ID": "z_sent",
      "At": "2026-11-25T01:00:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "Em gửi chị báo cáo tuần: https://docs.example.com/report-w47"
     },
     {
      "ID": "z_thanks",
      "At": "2026-11-25T03:00:00Z",
-     "SenderName": "Linh",
+     "SenderName": "Trang",
      "Text": "cảm ơn em nhé"
     },
     {
      "ID": "z_da",
      "At": "2026-11-25T03:02:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ"
     }
@@ -110,11 +110,11 @@
   },
   {
    "name": "4. the link he sends closes the promise, with that message as evidence; 'ok em' and 'dạ' after it owe nothing",
-   "from": "plan case 4",
+   "from": "issue #1182, case 4; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "g_mdoc",
-    "name": "[MDOC] Community & Growth",
+    "id": "g_nova",
+    "name": "[NOVA] Cộng đồng",
     "kind": "group"
    },
    "since": "2026-11-26T01:55:00Z",
@@ -122,8 +122,8 @@
     {
      "id": "tdo_report",
      "revision": 2,
-     "title": "Cập nhật báo cáo daily community theo chỉ số Superset mới",
-     "notes": "## Source\nZalo nhóm [MDOC] Community & Growth, 25/11: chị Linh nhờ, anh nhận \"dạ oki chị\".",
+     "title": "Cập nhật báo cáo tuần của nhóm theo chỉ số Metabase mới",
+     "notes": "## Source\nZalo nhóm [NOVA] Cộng đồng, 25/11: chị Trang nhờ, anh nhận \"dạ oki chị\".",
      "state": "open",
      "why_open": "promised",
      "assignee": {
@@ -133,9 +133,9 @@
      "priority_reason": "Đã nhận làm",
      "source": {
       "kind": "zalo",
-      "id": "g_mdoc",
+      "id": "g_nova",
       "account": "main",
-      "quote": "em có thể update báo cáo daily community này theo các chỉ số trong đó không ạ / dạ oki chị",
+      "quote": "em có thể cập nhật báo cáo tuần của nhóm theo các chỉ số trong đó không ạ / dạ oki chị",
       "ref": {
        "kind": "zalo_message",
        "ref": "z_ok"
@@ -151,33 +151,33 @@
     {
      "ID": "z_ask",
      "At": "2026-11-25T02:25:00Z",
-     "SenderName": "Linh",
-     "Text": "chỗ anh Thành đã có superset mới, em có thể update báo cáo daily community này theo các chỉ số trong đó không ạ"
+     "SenderName": "Trang",
+     "Text": "bên anh Khoa vừa có bảng Metabase mới, em có thể cập nhật báo cáo tuần của nhóm theo các chỉ số trong đó không ạ"
     },
     {
      "ID": "z_ok",
      "At": "2026-11-25T03:46:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ oki chị"
     },
     {
      "ID": "z_link",
      "At": "2026-11-26T02:00:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
-     "Text": "Em đã update báo cáo daily community theo các chỉ số Superset mới rồi ạ: https://superset.example.com/dashboard/12"
+     "Text": "Em đã cập nhật báo cáo tuần theo các chỉ số Metabase mới rồi ạ: https://metabase.example.com/dashboard/12"
     },
     {
      "ID": "z_okem",
      "At": "2026-11-26T02:10:00Z",
-     "SenderName": "Linh",
+     "SenderName": "Trang",
      "Text": "ok em"
     },
     {
      "ID": "z_da",
      "At": "2026-11-26T02:11:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ"
     }
@@ -195,11 +195,11 @@
   },
   {
    "name": "5. 'dạ chiều em gửi chị nhé' makes the listed ask his promise, due that evening, and keeps it open",
-   "from": "plan case 5",
+   "from": "issue #1182, case 5; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "u_linh",
-    "name": "Linh",
+    "id": "u_trang",
+    "name": "Trang",
     "kind": "dm"
    },
    "since": "2026-11-25T02:50:00Z",
@@ -207,7 +207,7 @@
     {
      "id": "tdo_reply",
      "revision": 1,
-     "title": "Trả lời Linh: gửi file số liệu community tháng 11",
+     "title": "Trả lời Trang: gửi file số liệu bán hàng tháng 10",
      "state": "open",
      "why_open": "asked_directly",
      "assignee": {
@@ -218,9 +218,9 @@
      "priority_reason": "Hạn hôm nay",
      "source": {
       "kind": "zalo",
-      "id": "u_linh",
+      "id": "u_trang",
       "account": "main",
-      "quote": "em gửi chị file số liệu community tháng 11 nhé",
+      "quote": "em gửi chị file số liệu bán hàng tháng 10 nhé",
       "ref": {
        "kind": "zalo_message",
        "ref": "z_ask"
@@ -236,13 +236,13 @@
     {
      "ID": "z_ask",
      "At": "2026-11-25T02:00:00Z",
-     "SenderName": "Linh",
-     "Text": "em gửi chị file số liệu community tháng 11 nhé"
+     "SenderName": "Trang",
+     "Text": "em gửi chị file số liệu bán hàng tháng 10 nhé"
     },
     {
      "ID": "z_promise",
      "At": "2026-11-25T03:00:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ chiều em gửi chị nhé"
     }
@@ -265,11 +265,11 @@
   },
   {
    "name": "6. accepted and delivered within the window: nothing is owed",
-   "from": "plan case 6",
+   "from": "issue #1182, case 6; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "u_linh",
-    "name": "Linh",
+    "id": "u_trang",
+    "name": "Trang",
     "kind": "dm"
    },
    "since": "2026-11-25T02:55:00Z",
@@ -277,22 +277,22 @@
     {
      "ID": "z_ask",
      "At": "2026-11-25T03:00:00Z",
-     "SenderName": "Linh",
-     "Text": "em gửi chị link dashboard community nhé"
+     "SenderName": "Trang",
+     "Text": "em gửi chị link dashboard bán hàng nhé"
     },
     {
      "ID": "z_ok",
      "At": "2026-11-25T03:02:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ oki chị"
     },
     {
      "ID": "z_link",
      "At": "2026-11-25T03:22:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
-     "Text": "Link đây ạ: https://superset.example.com/dashboard/12"
+     "Text": "Link đây ạ: https://metabase.example.com/dashboard/12"
     }
    ],
    "expect": {
@@ -301,11 +301,11 @@
   },
   {
    "name": "7. a later thank-you and 'dạ' do not close an accepted job",
-   "from": "plan case 7",
+   "from": "issue #1182, case 7; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "g_mdoc",
-    "name": "[MDOC] Community & Growth",
+    "id": "g_nova",
+    "name": "[NOVA] Cộng đồng",
     "kind": "group"
    },
    "since": "2026-11-26T01:55:00Z",
@@ -313,8 +313,8 @@
     {
      "id": "tdo_report",
      "revision": 2,
-     "title": "Cập nhật báo cáo daily community theo chỉ số Superset mới",
-     "notes": "## Source\nZalo nhóm [MDOC] Community & Growth, 25/11: chị Linh nhờ, anh nhận \"dạ oki chị\".",
+     "title": "Cập nhật báo cáo tuần của nhóm theo chỉ số Metabase mới",
+     "notes": "## Source\nZalo nhóm [NOVA] Cộng đồng, 25/11: chị Trang nhờ, anh nhận \"dạ oki chị\".",
      "state": "open",
      "why_open": "promised",
      "assignee": {
@@ -324,9 +324,9 @@
      "priority_reason": "Đã nhận làm",
      "source": {
       "kind": "zalo",
-      "id": "g_mdoc",
+      "id": "g_nova",
       "account": "main",
-      "quote": "em có thể update báo cáo daily community này theo các chỉ số trong đó không ạ / dạ oki chị",
+      "quote": "em có thể cập nhật báo cáo tuần của nhóm theo các chỉ số trong đó không ạ / dạ oki chị",
       "ref": {
        "kind": "zalo_message",
        "ref": "z_ok"
@@ -342,26 +342,26 @@
     {
      "ID": "z_ask",
      "At": "2026-11-25T02:25:00Z",
-     "SenderName": "Linh",
-     "Text": "chỗ anh Thành đã có superset mới, em có thể update báo cáo daily community này theo các chỉ số trong đó không ạ"
+     "SenderName": "Trang",
+     "Text": "bên anh Khoa vừa có bảng Metabase mới, em có thể cập nhật báo cáo tuần của nhóm theo các chỉ số trong đó không ạ"
     },
     {
      "ID": "z_ok",
      "At": "2026-11-25T03:46:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ oki chị"
     },
     {
      "ID": "z_thanks",
      "At": "2026-11-26T02:00:00Z",
-     "SenderName": "Linh",
+     "SenderName": "Trang",
      "Text": "cảm ơn em nhé"
     },
     {
      "ID": "z_da",
      "At": "2026-11-26T02:01:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ"
     }
@@ -375,11 +375,11 @@
   },
   {
    "name": "8. a sticker alone after an ask for work is his proposal with the note",
-   "from": "plan case 8",
+   "from": "issue #1182, case 8; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "u_linh",
-    "name": "Linh",
+    "id": "u_trang",
+    "name": "Trang",
     "kind": "dm"
    },
    "since": "2026-11-25T02:55:00Z",
@@ -387,13 +387,13 @@
     {
      "ID": "z_ask",
      "At": "2026-11-25T03:00:00Z",
-     "SenderName": "Linh",
-     "Text": "em làm giúp chị slide tổng kết community tháng 11 cho buổi họp thứ Hai nhé"
+     "SenderName": "Trang",
+     "Text": "em làm giúp chị slide tổng kết bán hàng tháng 10 cho buổi họp thứ Hai nhé"
     },
     {
      "ID": "z_sticker",
      "At": "2026-11-25T03:05:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "",
      "MediaType": "sticker"
@@ -416,11 +416,11 @@
   },
   {
    "name": "9. a question back is not an answer: the ask stays one direct ask",
-   "from": "plan case 9",
+   "from": "issue #1182, case 9; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "u_linh",
-    "name": "Linh",
+    "id": "u_trang",
+    "name": "Trang",
     "kind": "dm"
    },
    "since": "2026-11-25T02:55:00Z",
@@ -428,13 +428,13 @@
     {
      "ID": "z_ask",
      "At": "2026-11-25T03:00:00Z",
-     "SenderName": "Linh",
-     "Text": "em update giúp chị báo cáo daily community theo superset mới được không?"
+     "SenderName": "Trang",
+     "Text": "em cập nhật giúp chị báo cáo tuần theo bảng Metabase mới được không?"
     },
     {
      "ID": "z_q",
      "At": "2026-11-25T03:05:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "dạ deadline khi nào chị?"
     }
@@ -456,11 +456,11 @@
   },
   {
    "name": "10. 'Sure' to 'Can you send the deck by Friday?' is an open promise due Friday",
-   "from": "plan case 10; inbox-zero's ai-regression 'Sure, I'll review them today'",
+   "from": "issue #1182, case 10; its people, groups, times and words made up",
    "chat": {
     "service": "whatsapp",
     "id": "6591234567@s.whatsapp.net",
-    "name": "Kai Yong",
+    "name": "Ethan Ng",
     "kind": "dm"
    },
    "since": "2026-11-25T01:55:00Z",
@@ -468,13 +468,13 @@
     {
      "ID": "w_ask",
      "At": "2026-11-25T02:00:00Z",
-     "SenderName": "Kai Yong",
-     "Text": "Hi Dat, can you send the deck by Friday?"
+     "SenderName": "Ethan Ng",
+     "Text": "Hi Quan, can you send the deck by Friday?"
     },
     {
      "ID": "w_sure",
      "At": "2026-11-25T02:30:00Z",
-     "SenderName": "Phan Đạt",
+     "SenderName": "Quân",
      "FromMe": true,
      "Text": "Sure"
     }
@@ -492,11 +492,11 @@
   },
   {
    "name": "11. a teammate's 'ok' to an ask to him moves nothing",
-   "from": "plan case 11; triage.md 'An unclear claim never moves anything' (#1142)",
+   "from": "issue #1182, case 11; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
-    "id": "g_vmap",
-    "name": "VMAP core",
+    "id": "g_atlas",
+    "name": "Atlas core",
     "kind": "group"
    },
    "since": "2026-11-25T02:55:00Z",
@@ -504,7 +504,7 @@
     {
      "id": "tdo_reply",
      "revision": 1,
-     "title": "Trả lời Linh: kiểm tra log lỗi API hôm qua",
+     "title": "Trả lời Trang: kiểm tra log lỗi API hôm qua",
      "state": "open",
      "why_open": "asked_directly",
      "assignee": {
@@ -515,9 +515,9 @@
      "priority_reason": "Hạn hôm nay",
      "source": {
       "kind": "zalo",
-      "id": "g_vmap",
+      "id": "g_atlas",
       "account": "main",
-      "quote": "@Phan Đạt anh check giúp em log lỗi API hôm qua với ạ",
+      "quote": "@Quân anh check giúp em log lỗi API hôm qua với ạ",
       "ref": {
        "kind": "zalo_message",
        "ref": "z_ask"
@@ -533,13 +533,13 @@
     {
      "ID": "z_ask",
      "At": "2026-11-25T02:00:00Z",
-     "SenderName": "Linh",
-     "Text": "@Phan Đạt anh check giúp em log lỗi API hôm qua với ạ"
+     "SenderName": "Trang",
+     "Text": "@Quân anh check giúp em log lỗi API hôm qua với ạ"
     },
     {
      "ID": "z_teamok",
      "At": "2026-11-25T03:00:00Z",
-     "SenderName": "Đức Anh",
+     "SenderName": "Bảo",
      "Text": "ok"
     }
    ],
@@ -555,11 +555,11 @@
   },
   {
    "name": "12. a reply that sets when the work happens is that promise with its time, on the same item",
-   "from": "issue #1206, the ELITEX case (made up here)",
+   "from": "issue #1206, case 12; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
     "id": "u_minh",
-    "name": "Minh ELITEX",
+    "name": "Minh (khách)",
     "kind": "dm"
    },
    "since": "2026-11-25T02:55:00Z",
@@ -596,7 +596,7 @@
     {
      "ID": "z_ask",
      "At": "2026-11-25T01:00:00Z",
-     "SenderName": "Minh ELITEX",
+     "SenderName": "Minh (khách)",
      "Text": "Anh gửi em báo giá website trong tuần này được không ạ?"
     },
     {
@@ -625,26 +625,26 @@
   },
   {
    "name": "13. a tag in a Lark thread is one direct ask, linked to the reply, not the thread's first message",
-   "from": "issue #1206, TuanNT's tag (#1199; made up here)",
+   "from": "issue #1206, case 13; its people, groups, times and words made up",
    "since": "2026-11-27T03:00:00Z",
    "lark": {
     "chats": [
      {
-      "chat_id": "oc_vmap",
-      "name": "VMAP core",
+      "chat_id": "oc_atlas",
+      "name": "Atlas core",
       "chat_mode": "group"
      }
     ],
     "users": {
-     "ou_tuan": "Tuấn"
+     "ou_vinh": "Vinh"
     },
     "messages": {
-     "oc_vmap": [
+     "oc_atlas": [
       {
        "message_id": "om_pr",
        "create_time": "1795743000000",
        "sender": {
-        "id": "ou_tuan",
+        "id": "ou_vinh",
         "sender_type": "user"
        },
        "msg_type": "text",
@@ -657,13 +657,13 @@
     },
     "threads": {
      "omt_pr": {
-      "chat": "oc_vmap",
+      "chat": "oc_atlas",
       "list": [
        {
         "message_id": "om_pr",
         "create_time": "1795743000000",
         "sender": {
-         "id": "ou_tuan",
+         "id": "ou_vinh",
          "sender_type": "user"
         },
         "msg_type": "text",
@@ -675,7 +675,7 @@
         "message_id": "om_tag",
         "create_time": "1795749000000",
         "sender": {
-         "id": "ou_tuan",
+         "id": "ou_vinh",
          "sender_type": "user"
         },
         "msg_type": "text",
@@ -714,19 +714,19 @@
   },
   {
    "name": "14. a teammate who delivers the ask closes it, done by them, with their message",
-   "from": "issue #1206, Luma fixed by Đức Anh (#1204; made up here)",
+   "from": "issue #1206, case 14; its people, groups, times and words made up",
    "chat": {
     "service": "whatsapp",
     "id": "120363111@g.us",
-    "name": "Vadan team",
+    "name": "Nhóm Sao Mai",
     "kind": "group"
    },
    "since": "2026-11-27T03:00:00Z",
    "items": [
     {
-     "id": "tdo_luma",
+     "id": "tdo_mapkey",
      "revision": 1,
-     "title": "Sửa key Luma (Lan nhờ)",
+     "title": "Sửa key bản đồ (Lan nhờ)",
      "state": "open",
      "why_open": "asked_directly",
      "assignee": {
@@ -736,7 +736,7 @@
       "kind": "whatsapp",
       "id": "120363111@g.us",
       "account": "main",
-      "quote": "@Phan Đạt key Luma lỗi rồi anh ơi",
+      "quote": "@Quân key bản đồ lỗi rồi anh ơi",
       "ref": {
        "kind": "whatsapp_message",
        "ref": "w_ask"
@@ -755,20 +755,20 @@
      "ID": "w_ask",
      "At": "2026-11-27T01:00:00Z",
      "SenderName": "Lan",
-     "Text": "@Phan Đạt key Luma lỗi rồi anh ơi"
+     "Text": "@Quân key bản đồ lỗi rồi anh ơi"
     },
     {
      "ID": "w_fixed",
      "At": "2026-11-27T03:10:00Z",
-     "SenderName": "Đức Anh",
-     "Text": "Em sửa key Luma xong rồi, đã live trên production"
+     "SenderName": "Bảo",
+     "Text": "Em sửa key bản đồ xong rồi, đã live trên production"
     }
    ],
    "expect": {
     "adds": 0,
     "done": [
      {
-      "id": "tdo_luma",
+      "id": "tdo_mapkey",
       "done_by": "person",
       "evidence": "w_fixed"
      }
@@ -777,11 +777,11 @@
   },
   {
    "name": "15. a group ask a teammate took is theirs: nothing is added",
-   "from": "issue #1206, Đức Anh's Recap link (#1142; made up here)",
+   "from": "issue #1206, case 15; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
     "id": "g_team",
-    "name": "Vadan team",
+    "name": "Nhóm Sao Mai",
     "kind": "group"
    },
    "since": "2026-11-27T03:00:00Z",
@@ -789,13 +789,13 @@
     {
      "ID": "z_ask",
      "At": "2026-11-27T03:05:00Z",
-     "SenderName": "Nathan",
-     "Text": "Ai gửi giúp mình link Recap buổi họp hôm qua với"
+     "SenderName": "Hiếu",
+     "Text": "Ai gửi giúp mình link biên bản buổi họp hôm qua với"
     },
     {
      "ID": "z_took",
      "At": "2026-11-27T03:07:00Z",
-     "SenderName": "Đức Anh",
+     "SenderName": "Bảo",
      "Text": "để em gửi anh nhé"
     }
    ],
@@ -805,7 +805,7 @@
   },
   {
    "name": "16. an ask the owner answered, his comment on the item saying so, is done by him, never by the Bot",
-   "from": "issue #1206, comment of 2026-11-27 (its people, work and dates made up here)",
+   "from": "issue #1206, case 16; its people, groups, times and words made up",
    "since": "2026-10-14T04:45:00Z",
    "lark": {
     "chats": [
@@ -945,7 +945,7 @@
   },
   {
    "name": "17. a new ask on a topic already listed is a comment on that item, not a second item",
-   "from": "issue #1206, comment of 2026-11-27 (its group, people, times and words made up here)",
+   "from": "issue #1206, case 17; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
     "id": "g_orchard",
@@ -1016,13 +1016,13 @@
   },
   {
    "name": "18. a meeting: his action is his promise, one already listed is a comment on it, another's own adds nothing",
-   "from": "issue #1206, Meetings (#1142; made up here)",
+   "from": "issue #1206, case 18; its people, groups, times and words made up",
    "since": "2026-11-26T09:55:00Z",
    "items": [
     {
      "id": "tdo_slide",
      "revision": 1,
-     "title": "Gửi cô Laura slide tổng kết tháng 11",
+     "title": "Gửi cô Hạnh slide tổng kết tháng 11",
      "state": "open",
      "why_open": "promised",
      "assignee": {
@@ -1049,16 +1049,16 @@
    "meetings": [
     {
      "id": "mtg_week",
-     "title": "Họp tuần Vadan",
+     "title": "Họp tuần Sao Mai",
      "notes_ready_at": "2026-11-26T10:00:00Z",
      "summary": "Tổng kết tháng 11 và chuẩn bị buổi demo thứ Sáu.",
      "items": [
       {
        "id": "itm_1",
        "kind": "action",
-       "text": "Gửi cô Laura slide tổng kết tháng 11",
+       "text": "Gửi cô Hạnh slide tổng kết tháng 11",
        "who": "You",
-       "quote": "để anh gửi cô Laura slide tổng kết",
+       "quote": "để anh gửi cô Hạnh slide tổng kết",
        "line": 3,
        "done": false
       },
@@ -1066,7 +1066,7 @@
        "id": "itm_2",
        "kind": "action",
        "text": "Sửa lỗi đăng nhập trên app",
-       "who": "Việt",
+       "who": "Bảo",
        "quote": "em sửa lỗi đăng nhập nhé",
        "line": 5,
        "done": false
@@ -1086,12 +1086,12 @@
        "n": 3,
        "at": "3m10s",
        "speaker": "You",
-       "text": "Slide tổng kết thì để anh gửi cô Laura slide tổng kết."
+       "text": "Slide tổng kết thì để anh gửi cô Hạnh slide tổng kết."
       },
       {
        "n": 5,
        "at": "5m02s",
-       "speaker": "Việt",
+       "speaker": "Bảo",
        "text": "Lỗi đăng nhập trên app thì em sửa lỗi đăng nhập nhé."
       },
       {
@@ -1128,18 +1128,18 @@
   },
   {
    "name": "19. his answer in another group the asker is in closes the ask, done by him",
-   "from": "issue #1206, Kai answered in another group (#1163; made up here)",
+   "from": "issue #1206, case 19; its people, groups, times and words made up",
    "chats": [
     {
      "service": "whatsapp",
      "id": "6591234567@s.whatsapp.net",
-     "name": "Kai Yong",
+     "name": "Ethan Ng",
      "kind": "dm"
     },
     {
      "service": "whatsapp",
      "id": "120363222@g.us",
-     "name": "BeyondPilot",
+     "name": "Harbor",
      "kind": "group"
     }
    ],
@@ -1148,7 +1148,7 @@
     {
      "id": "tdo_kai",
      "revision": 1,
-     "title": "Trả lời Kai: có dự cuộc gọi Alibaba Cloud thứ Tư không?",
+     "title": "Trả lời Ethan: có dự cuộc gọi với nhà cung cấp cloud thứ Tư không?",
      "state": "open",
      "why_open": "asked_directly",
      "assignee": {
@@ -1158,7 +1158,7 @@
       "kind": "whatsapp",
       "id": "6591234567@s.whatsapp.net",
       "account": "main",
-      "quote": "Dat, will you join the Alibaba Cloud call on Wednesday?",
+      "quote": "Quan, will you join the the cloud vendor call on Wednesday?",
       "ref": {
        "kind": "whatsapp_message",
        "ref": "w_kai"
@@ -1177,15 +1177,15 @@
     {
      "ID": "w_kai",
      "At": "2026-11-27T01:00:00Z",
-     "SenderName": "Kai Yong",
-     "Text": "Dat, will you join the Alibaba Cloud call on Wednesday?",
+     "SenderName": "Ethan Ng",
+     "Text": "Quan, will you join the the cloud vendor call on Wednesday?",
      "Chat": "6591234567@s.whatsapp.net"
     },
     {
      "ID": "w_yes",
      "At": "2026-11-27T03:10:00Z",
      "SenderName": "Quân",
-     "Text": "@Kai Yong yes, I'll join the Alibaba Cloud call on Wednesday",
+     "Text": "@Ethan Ng yes, I'll join the the cloud vendor call on Wednesday",
      "FromMe": true,
      "Chat": "120363222@g.us"
     }
@@ -1203,11 +1203,11 @@
   },
   {
    "name": "20. when the asker did the promised work herself, it is done by her",
-   "from": "issue #1206, Claude Team that Vân Anh registered herself (#1164; made up here)",
+   "from": "issue #1206, case 20; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
     "id": "u_vananh",
-    "name": "Vân Anh",
+    "name": "Mai",
     "kind": "dm"
    },
    "since": "2026-11-27T03:00:00Z",
@@ -1215,7 +1215,7 @@
     {
      "id": "tdo_team",
      "revision": 1,
-     "title": "Đăng ký Claude Team và gửi hoá đơn cho Vân Anh",
+     "title": "Đăng ký gói Figma Team và gửi hoá đơn cho Mai",
      "state": "open",
      "why_open": "promised",
      "assignee": {
@@ -1225,7 +1225,7 @@
       "kind": "zalo",
       "id": "u_vananh",
       "account": "main",
-      "quote": "Em đăng ký Claude Team giúp chị rồi gửi hoá đơn nhé / dạ để em đăng ký",
+      "quote": "Em đăng ký gói Figma Team giúp chị rồi gửi hoá đơn nhé / dạ để em đăng ký",
       "ref": {
        "kind": "zalo_message",
        "ref": "z_prom"
@@ -1243,8 +1243,8 @@
     {
      "ID": "z_req",
      "At": "2026-11-26T02:00:00Z",
-     "SenderName": "Vân Anh",
-     "Text": "Em đăng ký Claude Team giúp chị rồi gửi hoá đơn nhé"
+     "SenderName": "Mai",
+     "Text": "Em đăng ký gói Figma Team giúp chị rồi gửi hoá đơn nhé"
     },
     {
      "ID": "z_prom",
@@ -1257,13 +1257,13 @@
      "ID": "z_link",
      "At": "2026-11-27T03:05:00Z",
      "SenderName": "Quân",
-     "Text": "Hay chị đăng ký trực tiếp qua link này nhé: https://claude.ai/team",
+     "Text": "Hay chị đăng ký trực tiếp qua link này nhé: https://figma.example.com/team",
      "FromMe": true
     },
     {
      "ID": "z_done",
      "At": "2026-11-27T03:20:00Z",
-     "SenderName": "Vân Anh",
+     "SenderName": "Mai",
      "Text": "Chị đăng ký xong rồi nhé em, cảm ơn em"
     }
    ],
@@ -1279,30 +1279,30 @@
    }
   },
   {
-   "name": "21. a message in a chat the owner put in VMAP makes an item in VMAP",
-   "from": "issue #1206, the department rule of 2026-11-27 (made up)",
+   "name": "21. a message in a chat the owner put in Atlas makes an item in Atlas",
+   "from": "issue #1206, case 21; its people, groups, times and words made up",
    "since": "2026-10-22T02:00:00Z",
    "departments": [
     {
-     "name": "VMAP",
+     "name": "Atlas",
      "chats": [
       {
        "kind": "lark",
        "account": "me",
-       "id": "oc_mdoc_research"
+       "id": "oc_nova_research"
       }
      ]
     },
     {
-     "name": "BeyondPilot",
+     "name": "Harbor",
      "chats": []
     }
    ],
    "lark": {
     "chats": [
      {
-      "chat_id": "oc_mdoc_research",
-      "name": "[MDOC] Data & AI Research",
+      "chat_id": "oc_nova_research",
+      "name": "[NOVA] Nghiên cứu dữ liệu",
       "chat_mode": "group"
      }
     ],
@@ -1310,7 +1310,7 @@
      "ou_huyen": "Huyền"
     },
     "messages": {
-     "oc_mdoc_research": [
+     "oc_nova_research": [
       {
        "message_id": "om_ask",
        "create_time": "1792635000000",
@@ -1338,15 +1338,15 @@
     "adds": 1,
     "count": [
      {
-      "project": "VMAP",
+      "project": "Atlas",
       "n": 1
      }
     ]
    }
   },
   {
-   "name": "22. a message from a contact the owner's context places in BeyondPilot makes an item in BeyondPilot",
-   "from": "issue #1206, the department rule of 2026-11-27 (made up)",
+   "name": "22. a message from a contact the owner's context places in Harbor makes an item in Harbor",
+   "from": "issue #1206, case 22; its people, groups, times and words made up",
    "chat": {
     "service": "whatsapp",
     "id": "6590000001@s.whatsapp.net",
@@ -1356,15 +1356,15 @@
    "since": "2026-10-22T02:00:00Z",
    "departments": [
     {
-     "name": "VMAP",
+     "name": "Atlas",
      "chats": []
     },
     {
-     "name": "BeyondPilot",
+     "name": "Harbor",
      "chats": []
     }
    ],
-   "context": "## People\n- Ryan Tan: investor relations at the fund, BeyondPilot; English; he calls him Ryan. (WhatsApp 6590000001@s.whatsapp.net)\n\n## Projects and teams\n- BeyondPilot (department BeyondPilot): the WhatsApp chat with Ryan Tan (6590000001@s.whatsapp.net). (item tdo_example)\n",
+   "context": "## People\n- Ryan Tan: partner relations at the fund, Harbor; English; he calls him Ryan. (WhatsApp 6590000001@s.whatsapp.net)\n\n## Projects and teams\n- Harbor (department Harbor): the WhatsApp chat with Ryan Tan (6590000001@s.whatsapp.net). (item tdo_example)\n",
    "messages": [
     {
      "ID": "w_ask",
@@ -1377,7 +1377,7 @@
     "adds": 1,
     "count": [
      {
-      "project": "BeyondPilot",
+      "project": "Harbor",
       "n": 1
      }
     ]
@@ -1385,7 +1385,7 @@
   },
   {
    "name": "23. an ask in a direct chat no department is known for gets none",
-   "from": "issue #1206, the department rule of 2026-11-27 (made up)",
+   "from": "issue #1206, case 23; its people, groups, times and words made up",
    "chat": {
     "service": "zalo",
     "id": "u_long",
@@ -1395,11 +1395,11 @@
    "since": "2026-10-22T02:00:00Z",
    "departments": [
     {
-     "name": "VMAP",
+     "name": "Atlas",
      "chats": []
     },
     {
-     "name": "BeyondPilot",
+     "name": "Harbor",
      "chats": []
     }
    ],
