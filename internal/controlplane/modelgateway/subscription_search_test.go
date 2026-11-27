@@ -283,6 +283,63 @@ const antigravitySearchAnswer = `{"response":{"candidates":[{"content":{"role":"
 // as 9router calls it: generateContent, not streamed, under the account's
 // project, the small Gemini model with Google Search grounding, in the IDE's
 // search envelope. Each page grounded is a result once, its snippet the
+// Scenario (review round 2 of PR #1307): Google refuses the search itself with a 429 whose ErrorInfo names why: the
+// credits balance spent, or the quota used up. The web search's Antigravity link rests with the code the shared
+// reading gives while that reason is still known (billing, usage_limit; omp packages/ai/test/
+// rate-limit-utils.test.ts:338-363), and Google's words, not as a plain rate limit.
+func TestAnAntigravitySearchRefusalKeepsGooglesReason(t *testing.T) {
+	t.Parallel()
+
+	for reason, code := range map[string]string{
+		"INSUFFICIENT_G1_CREDITS_BALANCE": "billing",
+		"QUOTA_EXHAUSTED":                 "usage_limit",
+		"RATE_LIMIT_EXCEEDED":             "rate_limit",
+	} {
+		t.Run(reason, func(t *testing.T) {
+			t.Parallel()
+
+			got := &seen{}
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v1internal:generateContent" {
+					http.NotFound(w, r)
+
+					return
+				}
+
+				got.add(r)
+				plain(http.StatusTooManyRequests, `{"error":{"code":429,"status":"RESOURCE_EXHAUSTED",`+
+					`"message":"Google says no","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",`+
+					`"reason":"`+reason+`"}]}}`)(w, r)
+			}))
+			t.Cleanup(backend.Close)
+
+			web := websearch.New(websearch.Config{}).WithSubscriptions(searchGateway(t, modelgateway.Config{
+				Subscriptions: &googleAccount{}, AntigravityBaseURL: backend.URL,
+				AntigravityManifestURL: backend.URL + "/manifest",
+			}))
+
+			_, err := web.Search(t.Context(), "go", 0, websearch.ProviderAntigravity)
+			require.ErrorIs(t, err, websearch.ErrFailed)
+			assert.Equal(t, 1, got.calls())
+
+			chain, err := web.Chain(t.Context())
+			require.NoError(t, err)
+
+			var link websearch.Link
+
+			for _, l := range chain {
+				if l.Provider == websearch.ProviderAntigravity && l.Source == websearch.SourceSubscription {
+					link = l
+				}
+			}
+
+			assert.Equal(t, websearch.RestRateLimited, link.Rest, "it rests as a 429 does")
+			assert.Equal(t, code, link.CoolingCode)
+			assert.Equal(t, "Google says no", link.CoolingReason)
+		})
+	}
+}
+
 // sentences it grounds; without grounding there is nothing.
 func TestAnAntigravityAccountSearchesTheWeb(t *testing.T) {
 	t.Parallel()
