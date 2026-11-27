@@ -190,7 +190,8 @@ const (
 	LinkPullRequest = "pull_request"
 	LinkMeetingLine = "meeting_line"
 	// LinkLarkMessage, LinkZaloMessage and LinkWhatsAppMessage are a message at Lark, Zalo or WhatsApp; Ref is its
-	// id there.
+	// id there. As evidence they may name the owner's Account and the Chat too: a person's message, which a Bot
+	// gives when it records that person did the item (Done, Drop; issue #1204), checked as the owner's sent message is.
 	LinkLarkMessage     = "lark_message"
 	LinkZaloMessage     = "zalo_message"
 	LinkWhatsAppMessage = "whatsapp_message"
@@ -212,8 +213,15 @@ var linkKinds = []string{
 // sentService is the source kind, the messaging service, of a Link to a message the owner sent.
 var sentService = map[string]string{LinkZaloSent: FromZalo, LinkWhatsAppSent: FromWhatsApp, LinkLarkSent: FromLark}
 
+// messageService is the source kind, the messaging service, of a Link to a message of a chat there, which in
+// evidence is a person's message when it names its account and chat (issue #1204).
+var messageService = map[string]string{
+	LinkZaloMessage: FromZalo, LinkWhatsAppMessage: FromWhatsApp, LinkLarkMessage: FromLark,
+}
+
 // Link is a typed reference: evidence that a to-do is done, or where it came from. Account and Chat are set for a
-// message the owner sent (LinkZaloSent, LinkWhatsAppSent, LinkLarkSent) only.
+// message the owner sent (LinkZaloSent, LinkWhatsAppSent, LinkLarkSent), and in evidence for a person's message
+// (LinkZaloMessage, LinkWhatsAppMessage, LinkLarkMessage; issue #1204) only.
 type Link struct {
 	Kind    string `json:"kind"`
 	Ref     string `json:"ref"`
@@ -229,6 +237,9 @@ type SentMessage struct {
 	At   time.Time
 	// FromMe says the owner sent it himself.
 	FromMe bool
+	// Sender is the id of the person who sent it, as the service names a message's sender (issue #1204); empty for
+	// the owner's own message and for one a person did not send (a bot's, the system's).
+	Sender string
 }
 
 // ChatMembers are the people in a chat of the owner's own account now, as its service lists them (issue #1163): a
@@ -804,7 +815,8 @@ func checkLink(l Link) error {
 		len(l.Chat) > MaxID):
 		return fmt.Errorf("%w: a %s names the owner's account and the chat it was sent in", storeerr.ErrInvalid, l.Kind)
 	case sentService[l.Kind] == "" && (l.Account != "" || l.Chat != ""):
-		return fmt.Errorf("%w: only a message the owner sent names an account and a chat", storeerr.ErrInvalid)
+		return fmt.Errorf("%w: only a message the owner sent names an account and a chat, or a person's message "+
+			"given as evidence", storeerr.ErrInvalid)
 	case l.Kind == LinkMeetingLine && !meetingLine(l.Ref):
 		return fmt.Errorf("%w: a meeting's line is named \"<meeting>/<line>\", the line by its number",
 			storeerr.ErrInvalid)
@@ -839,6 +851,16 @@ func checkEvidence(links []Link) error {
 	}
 
 	for _, l := range links {
+		// A person's message names its account and chat, both (issue #1204); the rest of it is any Link's.
+		if messageService[l.Kind] != "" && (l.Account != "" || l.Chat != "") {
+			if l.Account == "" || l.Chat == "" || len(l.Account) > MaxID || len(l.Chat) > MaxID {
+				return fmt.Errorf("%w: a %s given as a person's message names the owner's account and the chat it "+
+					"is in", storeerr.ErrInvalid, l.Kind)
+			}
+
+			l.Account, l.Chat = "", ""
+		}
+
 		if err := checkLink(l); err != nil {
 			return err
 		}
@@ -1046,6 +1068,10 @@ type Filter struct {
 	// closed, reopened, snoozed…), in any state, snoozed or stale, each with his own changes since then in Events
 	// (issue #1119): what the triage Routine learns from. States still narrows it.
 	OwnerChangedSince time.Time
+	// BotChangedSince is its mirror (issue #1204): only the items a Bot changed at or after it, each with the Bots'
+	// changes since then in Events, such as what a Bot closed by itself since the previous brief. Not with
+	// OwnerChangedSince.
+	BotChangedSince time.Time
 }
 
 // Page is one page of List.
@@ -1078,7 +1104,7 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 		SourceKind: cnt.SourceKind, ProjectKind: cnt.ProjectKind, Project: cnt.Project, HasDueFrom: cnt.HasDueFrom,
 		DueFrom: cnt.DueFrom, HasDueTo: cnt.HasDueTo,
 		DueTo: cnt.DueTo, WithSnoozed: cnt.WithSnoozed, WithStale: cnt.WithStale, StaleBefore: cnt.StaleBefore,
-		Now: cnt.Now, NeedsYou: cnt.NeedsYou, HasOwnerSince: cnt.HasOwnerSince, OwnerSince: cnt.OwnerSince,
+		Now: cnt.Now, NeedsYou: cnt.NeedsYou, ChangedBy: cnt.ChangedBy, ChangedSince: cnt.ChangedSince,
 		Lim: int64(limit) + 1,
 	}
 
@@ -1095,7 +1121,8 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 		events = map[string][]store.TodoEvent{}
 	)
 
-	// The page, its total and the owner's changes are read together, so the total counts the items the page shows.
+	// The page, its total and the owner's or the Bots' changes are read together, so the total counts the items the
+	// page shows.
 	err = s.snapshot(ctx, func(q *store.Queries) error {
 		if rows, err = q.ListTodos(ctx, p); err != nil {
 			return fmt.Errorf("listing the to-dos: %w", err)
@@ -1105,15 +1132,15 @@ func (s *Store) List(ctx context.Context, f Filter, cursor string, limit int) (P
 			return fmt.Errorf("counting the to-dos: %w", err)
 		}
 
-		if cnt.HasOwnerSince == 0 {
+		if cnt.ChangedBy == "" {
 			return nil
 		}
 
 		for _, row := range rows[:min(len(rows), limit)] {
-			if events[row.ID], err = q.ListOwnerTodoEvents(ctx, store.ListOwnerTodoEventsParams{
-				TodoID: row.ID, Since: cnt.OwnerSince, Lim: MaxEvents,
+			if events[row.ID], err = q.ListTodoEventsBy(ctx, store.ListTodoEventsByParams{
+				TodoID: row.ID, ActorKind: cnt.ChangedBy, Since: cnt.ChangedSince, Lim: MaxEvents,
 			}); err != nil {
-				return fmt.Errorf("reading the owner's changes of to-do %s: %w", row.ID, err)
+				return fmt.Errorf("reading the %s's changes of to-do %s: %w", cnt.ChangedBy, row.ID, err)
 			}
 		}
 
@@ -1167,10 +1194,19 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 	now := s.clock.Now()
 	p := store.CountTodosParams{Now: now.UnixMilli(), States: "[]", StaleBefore: now.Add(-StaleAfter).UnixMilli()}
 
-	owner := !f.OwnerChangedSince.IsZero()
+	since, by := f.OwnerChangedSince, Owner
+	if !f.BotChangedSince.IsZero() {
+		since, by = f.BotChangedSince, Bot
+	}
+
+	if !f.OwnerChangedSince.IsZero() && !f.BotChangedSince.IsZero() {
+		return p, fmt.Errorf("%w: the owner's changes or the Bots', not both", storeerr.ErrInvalid)
+	}
+
+	changed := !since.IsZero()
 
 	states := f.States
-	if len(states) == 0 && !f.WithClosed && !owner {
+	if len(states) == 0 && !f.WithClosed && !changed {
 		states = []string{Proposed, Open, Doing, Review}
 	}
 
@@ -1230,8 +1266,8 @@ func (s *Store) filterParams(f Filter) (store.CountTodosParams, error) {
 		p.WithStale = 1
 	}
 
-	if owner {
-		p.HasOwnerSince, p.OwnerSince, p.WithSnoozed, p.WithStale = 1, f.OwnerChangedSince.UnixMilli(), 1, 1
+	if changed {
+		p.ChangedBy, p.ChangedSince, p.WithSnoozed, p.WithStale = by, since.UnixMilli(), 1, 1
 	}
 
 	return p, nil

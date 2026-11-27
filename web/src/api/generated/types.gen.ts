@@ -5256,7 +5256,7 @@ export type TodoDue = {
 };
 
 /**
- * zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered.
+ * zalo_sent, whatsapp_sent and lark_sent are a message the owner sent himself in a chat of his own account, named by account, chat and its id: the evidence a Bot gives that he answered. As evidence, a lark_message, zalo_message or whatsapp_message named by account and chat too is a person's message, the evidence a Bot gives that they did the item.
  */
 export type TodoLinkKind = 'url' | 'chat_message' | 'mail' | 'run' | 'pull_request' | 'meeting_line' | 'lark_message' | 'zalo_message' | 'whatsapp_message' | 'zalo_sent' | 'whatsapp_sent' | 'lark_sent';
 
@@ -5271,11 +5271,11 @@ export type TodoLink = {
   ref: string;
   label?: string;
   /**
-   * The owner's account a message he sent was sent from; zalo_sent, whatsapp_sent, lark_sent only.
+   * The owner's account the message is in: a message he sent (zalo_sent, whatsapp_sent, lark_sent), or a person's message given as evidence (zalo_message, whatsapp_message, lark_message).
    */
   account?: string;
   /**
-   * The chat a message the owner sent is in, its id at the service; the *_sent kinds only.
+   * The chat the message is in, its id at the service; with account only.
    */
   chat?: string;
 };

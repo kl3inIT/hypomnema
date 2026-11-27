@@ -17,7 +17,8 @@ import (
 
 // Scenario: issue #1004, section 4. The owner's sent message a Bot gives as evidence is read where it is: a Zalo or
 // WhatsApp one from what the server keeps of that account, by its chat and id; a Lark one from Lark's API with his
-// own sign-in, his when its sender is the user he is. A message that is not there is not found.
+// own sign-in, his when its sender is the user he is. A person's message says its sender, his own none (issue
+// #1204). A message that is not there is not found.
 func TestTheOwnersSentMessageIsReadWhereItIs(t *testing.T) {
 	t.Parallel()
 
@@ -52,11 +53,16 @@ func TestTheOwnersSentMessageIsReadWhereItIs(t *testing.T) {
 	sent := inboxSent{
 		messages: func(_ context.Context, integration, label string, q messaging.Query) ([]messaging.Message, error) {
 			asked = q
-			if integration != "zalo" || label != "main" || q.ID != "z1" {
+			switch {
+			case integration != "zalo" || label != "main":
 				return []messaging.Message{}, nil
+			case q.ID == "z1":
+				return []messaging.Message{{ID: "z1", Chat: q.Chat, At: at, FromMe: true, Sender: "84900000000"}}, nil
+			case q.ID == "z2":
+				return []messaging.Message{{ID: "z2", Chat: q.Chat, At: at, Sender: "84911111111"}}, nil
 			}
 
-			return []messaging.Message{{ID: "z1", Chat: q.Chat, At: at, FromMe: true}}, nil
+			return []messaging.Message{}, nil
 		},
 		larkToken: func(_ context.Context, label string) (string, error) {
 			require.Equal(t, "me", label)
@@ -73,6 +79,10 @@ func TestTheOwnersSentMessageIsReadWhereItIs(t *testing.T) {
 	assert.Equal(t, inboxstore.SentMessage{Chat: "lan", At: at, FromMe: true}, got)
 	assert.Equal(t, messaging.Query{Chat: "lan", ID: "z1", Limit: 1}, asked)
 
+	got, err = sent.SentMessage(ctx, inboxstore.FromZalo, "main", "lan", "z2")
+	require.NoError(t, err)
+	assert.Equal(t, inboxstore.SentMessage{Chat: "lan", At: at, Sender: "84911111111"}, got, "a person's, by sender")
+
 	_, err = sent.SentMessage(ctx, inboxstore.FromWhatsApp, "main", "lan", "z1")
 	require.ErrorIs(t, err, storeerr.ErrNotFound)
 
@@ -83,6 +93,7 @@ func TestTheOwnersSentMessageIsReadWhereItIs(t *testing.T) {
 	got, err = sent.SentMessage(ctx, inboxstore.FromLark, "me", "oc_lan", "om_hers")
 	require.NoError(t, err)
 	assert.False(t, got.FromMe, "Lan's message is not his")
+	assert.Equal(t, "ou_lan", got.Sender, "a person's message says who sent it")
 
 	_, err = sent.SentMessage(ctx, inboxstore.FromLark, "me", "oc_lan", "om_gone")
 	require.ErrorIs(t, err, storeerr.ErrNotFound)

@@ -13,7 +13,7 @@ triage). Nothing here is built into the server; the server code it relies on is 
 | `triage.md` | The prompt of the `triage` Routine, every 15 minutes, read only: triage per conversation, drafts, meetings, accounts to log in again, a priority and a project on its items that have none, notes that say the need and the plan with every later update a comment (issue #1186), and what it learns of the owner. |
 | `triage.test.mjs`, `triage-world.mjs` | A run of `triage.md` with a real Claude Code against the Bot's tools as an MCP server: a new message on a known item is a comment, not a line of its notes (issue #1186). Only with `HYPOMNEMA_TEST_CLAUDE=claude node --test deploy/thu-ky/triage.test.mjs`; CI skips it. |
 | `new-messages.mjs` | The check of `triage`: counts the new messages, wakes the Bot only when some are left. |
-| `brief.md` | The prompt of the `brief` Routine, at 08:00 and 17:00, told on Lark. |
+| `brief.md` | The prompt of the `brief` Routine, at 08:00 and 17:00, told on Lark: what waits on him, and what a Bot closed without him since the previous brief (issue #1204). |
 
 ## Set it up (the owner, on the machine where `hypomnema` is logged in as him)
 

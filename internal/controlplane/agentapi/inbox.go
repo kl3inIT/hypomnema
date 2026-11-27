@@ -77,10 +77,10 @@ func inboxLinkSchema(about string) map[string]any {
 			"ref": map[string]any{"type": "string", "description": "The URL, or the id of the message, mail, Run, " +
 				"pull request or meeting line; a message of this chat by its seq."},
 			"label": map[string]any{"type": "string"},
-			"account": map[string]any{"type": "string", "description": "zalo_sent, whatsapp_sent, lark_sent: the " +
-				"owner's account (as the zalo_*, whatsapp_* tools name it, or his Lark Connection) it was sent from."},
-			"chat": map[string]any{"type": "string", "description": "zalo_sent, whatsapp_sent, lark_sent: the " +
-				"chat's id at the service."},
+			"account": map[string]any{"type": "string", "description": "zalo_sent, whatsapp_sent, lark_sent, and " +
+				"a person's zalo_message, whatsapp_message or lark_message given as evidence: the owner's account " +
+				"(as the zalo_*, whatsapp_* tools name it, or his Lark Connection) it is in."},
+			"chat": map[string]any{"type": "string", "description": "With account: the chat's id at the service."},
 		},
 	}
 }
@@ -195,6 +195,9 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 			"owner_changed_since": map[string]any{"type": "string", "description": "Only the items the owner " +
 				"himself added, edited, closed, reopened or snoozed at or after this moment, RFC 3339, in any " +
 				"state, each with his changes since then as its history: what he corrected of yours."},
+			"bot_changed_since": map[string]any{"type": "string", "description": "Only the items a Bot added, " +
+				"edited, closed or dropped at or after this moment, RFC 3339, in any state, each with the Bots' " +
+				"changes since then as its history: what was closed without him. Not with owner_changed_since."},
 			"cursor": map[string]any{"type": "string"},
 			"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": inboxstore.MaxPage},
 		}, nil},
@@ -225,20 +228,30 @@ func inboxTools(a agent) []agenttool.BrowserTool {
 		{agenttool.ToolInboxRelease, "Give up a to-do you are doing, with the reason: it is open again. Use it " +
 			"when you cannot finish it.",
 			map[string]any{"id": id, "revision": revision, "reason": reason}, []string{"id", "reason"}},
-		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did, or, with for_owner, his " +
+		{agenttool.ToolInboxDone, "Close a to-do as done, with evidence: what you did; with for_owner, his " +
 			"own message that he did it (in this chat, or one he sent after it was made in the item's Zalo, " +
 			"WhatsApp or Lark chat, or in another chat of that account where the person who asked is a member: " +
-			"zalo_sent, whatsapp_sent, lark_sent). Use it once the work is done or he answered.", map[string]any{
-			"id": id, "revision": revision, "evidence": evidence, "reason": reason,
-			"for_owner": map[string]any{"type": "boolean", "description": "The owner did it; you record it."},
-		}, []string{"id", "evidence"}},
+			"zalo_sent, whatsapp_sent, lark_sent); or, with done_by, an open item you added that a person did, " +
+			"with their message that delivers it (zalo_message, whatsapp_message or lark_message with the account " +
+			"and the chat: sent after the item was made, in its chat, in another chat of that account where the " +
+			"person who asked is a member, or, for an item waiting on them, anywhere on that account) and its " +
+			"words in reason. Use it once the work is done or he answered; a promise, \"ok\" or thanks is not done.",
+			map[string]any{
+				"id": id, "revision": revision, "evidence": evidence, "reason": reason,
+				"for_owner": map[string]any{"type": "boolean", "description": "The owner did it; you record it."},
+				"done_by": map[string]any{"type": "string", "maxLength": inboxstore.MaxName, "description": "A " +
+					"person did it, by name as the owner's context names them; you record it. Not with for_owner."},
+			}, []string{"id", "evidence"}},
 		{agenttool.ToolInboxComment, "Post a comment in a to-do's thread, which the owner reads on the item: " +
 			"what you started, the Run's link, the pull request, what you need from him, done. Use it on an item " +
 			"you added or were given, to tell him where its work is; his comments on it reach you in its chat.",
 			map[string]any{"id": id, "text": map[string]any{"type": "string", "maxLength": inboxstore.MaxComment}},
 			[]string{"id", "text"}},
 		{agenttool.ToolInboxDrop, "Drop a to-do the owner said is not needed, with his message as evidence and " +
-			"the reason. Use it only on his word.", map[string]any{"id": id, "revision": revision, "reason": reason, "evidence": evidence},
+			"the reason; or a proposal you added whose work a person clearly took, with their message as evidence " +
+			"(zalo_message, whatsapp_message or lark_message with the account and the chat, as for inbox_done's " +
+			"done_by) and its words in reason. Use it only on his word or on such a message.",
+			map[string]any{"id": id, "revision": revision, "reason": reason, "evidence": evidence},
 			[]string{"id", "reason", "evidence"}},
 	}
 
@@ -331,6 +344,8 @@ type inboxArgs struct {
 	Reason   string            `json:"reason"`
 	Evidence []inboxstore.Link `json:"evidence"`
 	ForOwner bool              `json:"for_owner"`
+	// DoneBy is the person who did it, whom inbox_done records (issue #1204).
+	DoneBy string `json:"done_by"`
 }
 
 // inboxListArgs are inbox_list's arguments.
@@ -348,8 +363,10 @@ type inboxListArgs struct {
 	DueTo          string   `json:"due_to"`
 	// OwnerChangedSince lists the items the owner changed since a moment, each with his changes (issue #1119).
 	OwnerChangedSince string `json:"owner_changed_since"`
-	Cursor            string `json:"cursor"`
-	Limit             int    `json:"limit"`
+	// BotChangedSince lists the items a Bot changed since a moment, each with the Bots' changes (issue #1204).
+	BotChangedSince string `json:"bot_changed_since"`
+	Cursor          string `json:"cursor"`
+	Limit           int    `json:"limit"`
 }
 
 // inboxWaitingArgs is waiting_on: the due only when it moves an item.
@@ -609,6 +626,7 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 	}{
 		{"due_from", in.DueFrom, &f.DueFrom}, {"due_to", in.DueTo, &f.DueTo},
 		{"owner_changed_since", in.OwnerChangedSince, &f.OwnerChangedSince},
+		{"bot_changed_since", in.BotChangedSince, &f.BotChangedSince},
 	} {
 		if bound.value == "" {
 			continue
@@ -632,7 +650,7 @@ func (s *Server) inboxList(ctx context.Context, in inboxListArgs) (any, error) {
 	items := make([]todoOut, 0, len(page.Items))
 
 	for _, t := range page.Items {
-		items = append(items, todoView(t, !f.OwnerChangedSince.IsZero(), names))
+		items = append(items, todoView(t, !f.OwnerChangedSince.IsZero() || !f.BotChangedSince.IsZero(), names))
 	}
 
 	known := make([]string, 0, len(projects))
@@ -853,8 +871,15 @@ func (s *Server) inboxChange(ctx context.Context, a agent, c inboxCaller, tool s
 			Reason: in.Reason, Evidence: in.Evidence,
 		}
 
-		if in.ForOwner {
+		doneBy := strings.TrimSpace(in.DoneBy)
+
+		switch {
+		case in.ForOwner && doneBy != "":
+			return nil, fmt.Errorf("%w: for_owner or done_by, not both", orchestration.ErrInvalid)
+		case in.ForOwner:
 			cl.DoneBy = inboxstore.Assignee{Kind: inboxstore.Me}
+		case doneBy != "":
+			cl.DoneBy = inboxstore.Assignee{Kind: inboxstore.Person, Name: doneBy}
 		}
 
 		t, err = inbox.Done(ctx, ch, cl)

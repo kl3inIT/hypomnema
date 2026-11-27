@@ -17,9 +17,9 @@ import (
 )
 
 // inboxSent reads a message the owner sent in a chat of his own account, which a Bot gives as evidence that he
-// answered an Inbox item (issue #1004): a Zalo or WhatsApp message from what the server keeps of that account (its
-// messaging store, by the Connection's label, the chat and the id); a Lark message from Lark's API with the owner's
-// own sign-in, since the server keeps none of his Lark messages (checked on zm on 2026-11-20: no table holds them;
+// answered an Inbox item (issue #1004), or a person's message there, evidence that they did it (issue #1204): a Zalo
+// or WhatsApp message from what the server keeps of that account (its messaging store, by the Connection's label,
+// the chat and the id); a Lark message from Lark's API with the owner's own sign-in, since the server keeps none of his Lark messages (checked on zm on 2026-11-20: no table holds them;
 // channel_messages keeps only the ids of the events a Lark app's bot took). It reads too who asked and who is in a
 // chat now, for his answer in another chat where the asker is (issue #1163): from the service, through the session
 // the server holds of a Zalo or WhatsApp account, and from Lark's API.
@@ -33,7 +33,8 @@ type inboxSent struct {
 	client  *http.Client
 }
 
-// SentMessage reads one message of a chat of the owner's account at service.
+// SentMessage reads one message of a chat of the owner's account at service: his own, or a person's with its
+// sender (issue #1204).
 func (s inboxSent) SentMessage(ctx context.Context, service, account, chat, id string,
 ) (inboxstore.SentMessage, error) {
 	switch service {
@@ -43,7 +44,12 @@ func (s inboxSent) SentMessage(ctx context.Context, service, account, chat, id s
 			return inboxstore.SentMessage{}, err
 		}
 
-		return inboxstore.SentMessage{Chat: m.Chat, At: m.At, FromMe: m.FromMe}, nil
+		out := inboxstore.SentMessage{Chat: m.Chat, At: m.At, FromMe: m.FromMe}
+		if !m.FromMe {
+			out.Sender = m.Sender
+		}
+
+		return out, nil
 	case inboxstore.FromLark:
 		token, err := s.larkToken(ctx, account)
 		if err != nil {
@@ -60,7 +66,12 @@ func (s inboxSent) SentMessage(ctx context.Context, service, account, chat, id s
 			return inboxstore.SentMessage{}, err
 		}
 
-		return inboxstore.SentMessage{Chat: m.chat, At: m.at, FromMe: me != "" && m.from == me}, nil
+		out := inboxstore.SentMessage{Chat: m.chat, At: m.at, FromMe: me != "" && m.from == me}
+		if !out.FromMe {
+			out.Sender = m.from
+		}
+
+		return out, nil
 	}
 
 	return inboxstore.SentMessage{}, fmt.Errorf("%w: %s keeps no messages of the owner", storeerr.ErrInvalid, service)
