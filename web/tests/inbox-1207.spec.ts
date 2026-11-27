@@ -208,6 +208,24 @@ test("a Bot's comment shows its files and its Artifact", async ({ page }) => {
   expect((await download).suggestedFilename()).toBe("doanh-so-thang-10.xlsx")
 
   await comment.getByRole("link", { name: "Download don-hang-cu.csv" }).click()
-  await expect(comment.getByText("exports/don-hang-cu.csv is not there any more.")).toBeVisible()
+  const problem = comment.getByText("exports/don-hang-cu.csv is not there any more.")
+  await expect(problem).toBeVisible()
+  // The server's message is read whole on the chip, not cut (review of PR #1210).
+  expect(await problem.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
   await shot(page, "inbox-1207-missing-file")
+})
+
+// Scenario: review of PR #1210. On a phone with a keyboard, the owner opens the chart full screen and presses
+// Escape: the chart closes and the item stays open.
+test("Escape closes the full-screen Artifact, not the item", async ({ page }) => {
+  await serve(page)
+  await page.goto(`/inbox?item=todo%3A${item.id}`)
+
+  await result(page).getByRole("button", { name: "Open Doanh số tháng 10 theo tuần" }).click()
+  const full = page.getByRole("dialog", { name: "Artifact, full screen" })
+  await expect(full).toBeVisible()
+
+  await page.keyboard.press("Escape")
+  await expect(full).toBeHidden()
+  await expect(detail(page).getByRole("heading", { name: item.title })).toBeVisible()
 })
