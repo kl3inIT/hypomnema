@@ -64,7 +64,10 @@ func redditWeb(_ context.Context, query string, limit int) (websearch.Answer, er
 	}
 
 	return websearch.Answer{Provider: "exa", Query: query, Results: []websearch.Result{
-		{Title: "r/VietNam on Reddit: VETC trừ tiền hai lần", URL: "https://www.reddit.com/r/VietNam/comments/abc123/vetc_tru_tien/"},
+		{
+			Title: "r/VietNam on Reddit: VETC trừ tiền hai lần",
+			URL:   "https://www.reddit.com/r/VietNam/comments/abc123/vetc_tru_tien/",
+		},
 		{Title: "u/someone", URL: "https://www.reddit.com/user/someone/"},
 		{Title: "App VETC lỗi đăng nhập : r/vozforums", URL: "https://old.reddit.com/r/vozforums/comments/def456/app_vetc/"},
 		{Title: "VETC", URL: "https://vetc.com.vn/"},
@@ -87,7 +90,7 @@ func archive(t *testing.T) (*site, string) {
 	})
 }
 
-// Design rows "Reddit backend" and "Failure codes": Reddit's keyless JSON answering 403 is `refused`, never zero
+// Design rows "Reddit backend" and "SourceError codes": Reddit's keyless JSON answering 403 is `refused`, never zero
 // results; it rests 6 hours, asked by no search until then, while the web search's Reddit threads, filled in from
 // Arctic Shift, serve Reddit.
 func TestARedditRefusalRestsSixHoursAndTheArchiveServes(t *testing.T) {

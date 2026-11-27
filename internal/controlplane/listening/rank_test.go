@@ -21,7 +21,8 @@ func TestDuplicatesAreFoldedIntoTheFirst(t *testing.T) {
 	t.Parallel()
 
 	items := []listening.Item{
-		{Source: "reddit", NativeID: "abc", URL: "https://www.reddit.com/r/VietNam/comments/abc/vetc/", Title: "VETC trừ tiền",
+		{Source: "reddit", NativeID: "abc", URL: "https://www.reddit.com/r/VietNam/comments/abc/vetc/",
+			Title:      "VETC trừ tiền",
 			Engagement: map[string]float64{"score": 10}, Subqueries: []string{"q1"}},
 		{Source: "reddit", NativeID: "abc", URL: "https://old.reddit.com/comments/abc", Title: "VETC trừ tiền",
 			Engagement: map[string]float64{"score": 25, "num_comments": 4}, Subqueries: []string{"q2"}},
@@ -30,8 +31,10 @@ func TestDuplicatesAreFoldedIntoTheFirst(t *testing.T) {
 		{Source: "web", NativeID: "a", URL: "https://www.voz.vn/t/vetc.1/?utm_source=fb#post-2", Title: "Thớt VETC"},
 		{Source: "web", NativeID: "b", URL: "https://voz.vn/t/vetc.1", Title: "Thớt VETC, trang 2", Text: "longer text"},
 		{Source: "web", NativeID: "c", URL: "https://tinhte.vn/a", Title: "VETC trừ tiền hai lần ở trạm thu phí Long Thành"},
-		{Source: "web", NativeID: "d", URL: "https://otofun.net/b", Title: "VETC trừ tiền hai lần ở trạm thu phí Long Thành!"},
-		{Source: "reddit", NativeID: "e", URL: "https://www.reddit.com/comments/e/", Title: "VETC trừ tiền hai lần ở trạm thu phí Long Thành"},
+		{Source: "web", NativeID: "d", URL: "https://otofun.net/b",
+			Title: "VETC trừ tiền hai lần ở trạm thu phí Long Thành!"},
+		{Source: "reddit", NativeID: "e", URL: "https://www.reddit.com/comments/e/",
+			Title: "VETC trừ tiền hai lần ở trạm thu phí Long Thành"},
 	}
 
 	got := listening.Dedupe(items)

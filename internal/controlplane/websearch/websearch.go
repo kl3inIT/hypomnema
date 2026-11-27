@@ -374,6 +374,8 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 
 	var (
 		tried     bool
+		asked     int
+		empty     int
 		firstFree time.Time
 		// skipKeys is a provider whose failure was not its key's: its other keys are not asked.
 		skipKeys = map[string]bool{}
@@ -415,10 +417,12 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 		}
 
 		tried = true
+		asked++
 
 		if err == nil && len(rep.results) == 0 {
 			// A provider with nothing to show is not an answer: the next is asked (omp: no renderable content).
 			err = errors.New("no results")
+			empty++
 		}
 
 		s.record(ctx, r, err == nil, rep.costDollars)
@@ -452,8 +456,22 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 		return Answer{}, &RestingError{Until: firstFree}
 	}
 
-	return Answer{}, fmt.Errorf("%w: %s", ErrFailed, failureText(failures))
+	err := fmt.Errorf("%w: %s", ErrFailed, failureText(failures))
+	if asked > 0 && empty == asked {
+		// Every provider asked answered, with nothing: a clean zero, which social listening tells apart from a
+		// failure (issue #1287; last30days lib/health.py:37, no-results).
+		return Answer{}, noResultsError{err}
+	}
+
+	return Answer{}, err
 }
+
+// noResultsError is an ErrFailed whose every provider asked found nothing: it is ErrNoResults too.
+type noResultsError struct{ error }
+
+func (e noResultsError) Is(target error) bool { return target == ErrNoResults }
+
+func (e noResultsError) Unwrap() error { return e.error }
 
 func failureText(failures []Failure) string {
 	if len(failures) == 0 {

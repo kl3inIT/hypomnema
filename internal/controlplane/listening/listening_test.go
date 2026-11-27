@@ -52,14 +52,16 @@ type backend struct {
 }
 
 func (b *backend) spec(name, host string) listening.Backend {
-	return listening.Backend{Name: name, Host: host, Search: func(context.Context, listening.Request) (listening.Result, error) {
+	search := func(context.Context, listening.Request) (listening.Result, error) {
 		b.mu.Lock()
 		defer b.mu.Unlock()
 
 		b.calls++
 
 		return listening.Result{Items: b.items}, b.err
-	}}
+	}
+
+	return listening.Backend{Name: name, Host: host, Search: search}
 }
 
 func (b *backend) Calls() int {
@@ -111,7 +113,7 @@ func TestTheFirstUsableBackendServesAndEachTriedIsNamed(t *testing.T) {
 	refused := &backend{err: listening.Fail(listening.CodeRefused, "HTTP 403")}
 	served := &backend{items: []listening.Item{post("p1", "VETC thu phí", 1)}}
 	unprobed := (&backend{}).spec("needs_login", "b.example")
-	unprobed.Probe = func(listening.Request) *listening.Failure {
+	unprobed.Probe = func(listening.Request) *listening.SourceError {
 		return listening.Fail(listening.CodeNeedLogin, "no account is signed in")
 	}
 
@@ -146,7 +148,9 @@ func TestAnOptInBackendIsAskedOnlyWhenPinned(t *testing.T) {
 	optIn := &backend{items: []listening.Item{post("p2", "opt-in", 1)}}
 	spec := optIn.spec("signed_in", "b.example")
 	spec.OptIn = true
-	s := service(c, listening.Platform{Name: "forum", Backends: []listening.Backend{first.spec("json", "a.example"), spec}})
+	s := service(c, listening.Platform{Name: "forum", Backends: []listening.Backend{
+		first.spec("json", "a.example"), spec,
+	}})
 
 	_, err := s.Search(t.Context(), plan([]string{"forum"}, "x"), nil)
 	require.NoError(t, err)
@@ -171,7 +175,8 @@ func TestARefusalStopsTheSameSitesOtherBackendsOnly(t *testing.T) {
 	sameSite := &backend{items: []listening.Item{post("p1", "x", 1)}}
 	otherSite := &backend{items: []listening.Item{post("p2", "y", 1)}}
 	s := service(c, listening.Platform{Name: "forum", Backends: []listening.Backend{
-		refused.spec("json", "forum.example"), sameSite.spec("html", "forum.example"), otherSite.spec("archive", "archive.example"),
+		refused.spec("json", "forum.example"), sameSite.spec("html", "forum.example"),
+		otherSite.spec("archive", "archive.example"),
 	}})
 
 	a, err := s.Search(t.Context(), plan([]string{"forum"}, "x"), nil)
@@ -186,7 +191,7 @@ func TestARefusalStopsTheSameSitesOtherBackendsOnly(t *testing.T) {
 	}, tried[1])
 }
 
-// Design row "Failure codes": the codes are a closed set, and an HTTP answer or an error maps to one of them.
+// Design row "SourceError codes": the codes are a closed set, and an HTTP answer or an error maps to one of them.
 func TestFailuresMapToTheClosedSetOfCodes(t *testing.T) {
 	t.Parallel()
 
@@ -355,7 +360,10 @@ func TestTheWebSourceReadsTheWebSearchChain(t *testing.T) {
 		asked = append(asked, fmt.Sprintf("%s/%d", q, limit))
 
 		return websearch.Answer{Provider: "exa", Query: q, Results: []websearch.Result{
-			{Title: "VETC lỗi", URL: "https://voz.vn/t/vetc.1/?utm_source=x", Snippet: "trừ tiền hai lần", PublishedAt: "2026-11-20"},
+			{
+				Title: "VETC lỗi", URL: "https://voz.vn/t/vetc.1/?utm_source=x", Snippet: "trừ tiền hai lần",
+				PublishedAt: "2026-11-20",
+			},
 		}, Errors: []websearch.Failure{{Provider: "tavily", Reason: "HTTP 429"}}}, nil
 	}
 

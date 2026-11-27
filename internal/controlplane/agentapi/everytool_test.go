@@ -72,7 +72,8 @@ func TestEveryListedToolIsReachedOnTheCurrentRoutes(t *testing.T) {
 	phone := &sharedPhone{}
 	w := newWorldWith(t, 0, func(s *agentapi.Server) {
 		s.WithBrowser(engine).WithAudio(&fakeAudio{}).WithWeb(&fakeWeb{}).WithImages(&fakeImages{}).
-			WithDevice(phone).WithMuse(&fakeMuse{on: true}).WithListening(newFakeListening()).WithBrowserTakes(&filmingBrowser{}).
+			WithDevice(phone).WithMuse(&fakeMuse{on: true}).WithListening(newFakeListening()).
+			WithBrowserTakes(&filmingBrowser{}).
 			WithMeetings(recordedMeetings{}).
 			WithNodeExec(&machines{}, &machines{}, func(context.Context, orchestration.Node) (string, error) {
 				return "", nil

@@ -32,7 +32,7 @@ const (
 	ToolMuseMessages = "muse_messages"
 )
 
-// The social listening tool (issue #1287): what people say about a topic, across sources, through the control
+// ToolListenSearch is the social listening tool (issue #1287): what people say about a topic, across sources, through the control
 // plane's listening capability (internal/controlplane/listening).
 const ToolListenSearch = "listen_search"
 

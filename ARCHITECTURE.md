@@ -98,7 +98,7 @@ flowchart TB
         PI["pi --mode rpc"]
         RO["read-only: prompt.md (persona, memory),<br/>models.json, settings.json, mcp.json,<br/>the chat's skills folder, AGENTS.md"]
         RW["read-write: the Bot's folder,<br/>the chat's sessions"]
-        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>audio_transcribe, audio_speak,<br/>muse_ask, muse_chats, muse_messages,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn,<br/>chat_search over its own chats"]
+        MCP["hypomnema mcp: memory, show_artifact, routines,<br/>web_search, web_fetch, generate_image,<br/>audio_transcribe, audio_speak,<br/>muse_ask, muse_chats, muse_messages,<br/>listen_search,<br/>the browser's, the phone's,<br/>superset_* with a Superset account,<br/>whatsapp_*, zalo_* on the owner's turn,<br/>chat_search over its own chats"]
     end
     GW["model gateway /v1<br/>the chat's key (hypomnema model-key)"]
 
@@ -4789,6 +4789,53 @@ not checked against the live site in the change that wrote them.
 - Not built: Muse's images and videos as tools (#781, step 3), a history screen for `muse.db`, watching an account's
   tab live, Muse Spark through `api.meta.ai`.
 
+Social listening (`internal/controlplane/listening`, `agentapi/listening.go`; issue #1287, step 2 of #781,
+[research](docs/research/2026-11-27-social-listening.md)): the tool `listen_search` finds what people say about a
+topic. The calling model writes the plan; the tool answers with items, clusters and each source's coverage, and
+writes no prose (last30days SKILL.md LAW 7).
+- Plan: `topic`, 1 to 5 `subqueries` (`label`, `query` of at most 300 characters, `sources`, `weight`), the
+  `sources` a subquery naming none reads, `source_weights`, `window_days` (1 to 365, default 30), `max_results` a
+  stream reads (1 to 25, default 10), and `backends` pinning a source to one backend. A plan that cannot run is the
+  tool's error, naming why; an unknown field is refused.
+- Sources, each an ordered chain of backends (`Platform`, `Backend`: name, host, opt-in, a side-effect-free probe,
+  search): `web` is `web_search`, the web search chain above; `reddit` is `reddit_json`, Reddit's keyless
+  `/search.json` (with the `<platform>:<app>:<version>` User-Agent), then `web_arctic`, the web search's
+  `site:reddit.com <query>` threads with their score, comments, author and date read from Arctic Shift's keyless
+  `/api/posts/ids` (a score under 36 hours old is left out; threads the archive cannot fill stay as the search showed
+  them). Reddit's JSON answered 403 from zm and from a node on 2026-11-27, as last30days reports from every network;
+  `web_arctic` was added for that (owner, 2026-11-27).
+- A (subquery, source) stream tries its source's backends in order: one resting, whose probe fails, or whose host
+  refused this search is skipped; one that reads nothing in the window is not an answer and the next is asked; the
+  first with items serves. An opt-in backend is asked only when pinned. After `need_login`, `refused`,
+  `rate_limited` or `limit_reached`, the same host's other backends are not asked in that search. A source's
+  subqueries run one after another; sources run at once.
+- Failure codes, a closed set: `need_login` (401), `refused` (403, a page where JSON was asked), `rate_limited` (429,
+  Arctic Shift's 422), `limit_reached` (402), `not_found` (404, 410), `timeout`, `broken`, and `no_results`, the only
+  clean zero. Rests, in memory: refused 6 hours, rate limited what the source said (`Retry-After`,
+  `x-ratelimit-reset`) else an hour, limit reached until 00:00 UTC, timeout a minute, broken two minutes.
+- Pacing: one call at a time per host, Reddit's at least 1 s apart, Arctic Shift's 400 ms (`Pacer`), whoever asks.
+- Coverage, one line per source: `ok`, `partial` (some streams not read), `no_results` (every stream read, none found
+  anything) or `not_read`, with the most actionable code, and per stream the backend that served and each backend
+  tried with its result, detail and rest (`until`, `skipped`).
+- Items: id (a hash of source and native id), source, `seen_in`, backend, native id, address, title, author,
+  container (subreddit, site), date with its confidence (`high` for the source's own date in the window, `low`
+  without one; an item dated outside the window is dropped), text (400 characters), engagement and its 0-100 score
+  on the source's log scale (Reddit's only; a web page has none), parent, the subqueries that found it, fetch time,
+  score and cluster. Duplicates are folded: (source, native id), then the normalized address across sources (a
+  Reddit thread by its id), then text within a source at Jaccard 0.7. Ranking: each stream ordered by relevance,
+  freshness and engagement, streams fused by weighted reciprocal rank (k 60), each item scored by relevance, fused
+  rank, freshness and engagement (last30days' local score), at most 3 items an author; the best 40 are answered and
+  the rest counted (`omitted`).
+- Clusters: greedy, an item joining the first cluster whose leader is alike at 0.20 or more, comparing words and
+  character 3-grams in NFKC with the topic's words taken out; up to 3 representatives by MMR; tagged `single-source`,
+  or `thin-evidence` when the best score is under 55. The threshold and the lexical comparison were chosen by a
+  test on Vietnamese posts (`listening/cluster_test.go`).
+- Every worker runtime and a Bot's pi get `listen_search` (family `listening`, `listen_*`); the web searches it makes
+  are recorded on the caller's gateway key as `web/search` rows. `go test ./internal/controlplane/listening -run Live`
+  with `HYPOMNEMA_LISTENING_LIVE=1` reads the real Reddit and Arctic Shift.
+- Not built: the Sources screen and its daily live test, other sources, signed-in accounts and saved topics
+  (issues #1288 to #1295).
+
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
 [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): speech to text and text to speech with the
@@ -5352,6 +5399,7 @@ again on it. A turn that calls no tool keeps the list it had.
 | `web_search`, `web_fetch`, `generate_image` | by its runtime (below) | all three | all three |
 | `audio_transcribe`, `audio_speak` (issue #723) | every runtime | both | both |
 | `muse_ask`, `muse_chats`, `muse_messages` (Muse, above) | every runtime, while the Muse page's switch is on | yes, while on | yes, while on |
+| `listen_search` (Social listening, above) | every runtime | yes | yes |
 | `superset_dashboards`, `superset_dashboard`, `superset_chart_data`, `superset_filter_values`, `superset_api` (Superset, above) | with a Superset Connection its Run was given | with one on for chats and on its Bot's list | all Superset Connections |
 | `whatsapp_*`, `zalo_*` (Messaging, above) | no | for its Bot's Connections, reads on the owner's turn | all messaging Connections, sends follow the same approval policy |
 | the browser's (agent-browser) | yes, its Dispatch's tab | yes, its chat's tab (issue #536, step 4) | yes, its own tab per token |
