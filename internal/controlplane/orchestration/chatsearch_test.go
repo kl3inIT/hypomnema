@@ -224,9 +224,11 @@ func TestAnUnmarkedFillerIsFillerToo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, block, "Vé chuyển nhượng hết hạn ngày mai.", "a content word typed without its marks")
 
-	block, err = s.Recall(ctx, here, "Ai đã bán căn hộ?")
-	require.NoError(t, err)
-	assert.Contains(t, block, "Lan bán căn hộ ở Huế.", "a marked word is its own")
+	for _, message := range []string{"Ai đã bán căn hộ?", "Bán à, bán ạ?"} {
+		block, err = s.Recall(ctx, here, message)
+		require.NoError(t, err)
+		assert.Contains(t, block, "Lan bán căn hộ ở Huế.", "a marked word is its own: %s", message)
+	}
 
 	assert.Equal(t, []string{"Thể lệ cần biết: Vé chuyển nhượng hết hạn ngày mai."}, searched(t, s, here, "ve chuyen"),
 		"chat_search finds a content word typed without its marks")
