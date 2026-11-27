@@ -62,6 +62,11 @@ type Limits struct {
 	// Resets are the limit resets the account can use (resets.go); none for a
 	// vendor that gives none, or when they could not be read.
 	Resets Resets
+	// Stale is why this is an earlier reading and not one made now (issue
+	// #1198): a *LimitsRestingError, an error that is ErrLimitsRefused, or
+	// another failure of the call. Nil for a reading just made or under a
+	// minute old. CLIProxyAPI shows an account's status_message the same way.
+	Stale error
 }
 
 // LimitReader is a Vendor that can say how much of an account's limits is used.
@@ -75,6 +80,23 @@ var ErrNoLimits = errors.New("this kind of account does not say its limits")
 // ErrLimitsResting is returned while an account is not asked after a 429 and
 // has no earlier reading to give.
 var ErrLimitsResting = errors.New("the vendor asked to wait before its limits are read again")
+
+// LimitsRestingError is ErrLimitsResting with when the vendor is asked again,
+// as CLIProxyAPI gives an account's next_retry.
+type LimitsRestingError struct {
+	Until time.Time
+}
+
+func (e *LimitsRestingError) Error() string {
+	return ErrLimitsResting.Error() + ", at " + e.Until.UTC().Format(time.RFC3339)
+}
+
+func (e *LimitsRestingError) Unwrap() error { return ErrLimitsResting }
+
+// ErrLimitsRefused is what a vendor's 401 or 403 to the limits call is: it
+// refused the account's token, which was signed out or whose account was
+// disabled (9router-go errclass: authentication_error and permission_error).
+var ErrLimitsRefused = errors.New("the vendor refused the account's token for its limits")
 
 // limitsRefusedError is a vendor's answer other than 200 to the limits call.
 type limitsRefusedError struct {
@@ -103,6 +125,10 @@ func (e *limitsRefusedError) Error() string {
 	}
 }
 
+func (e *limitsRefusedError) Is(target error) bool {
+	return target == ErrLimitsRefused && (e.status == http.StatusUnauthorized || e.status == http.StatusForbidden)
+}
+
 // limitsEntry is what the service keeps of an account's limits, in memory as
 // the references keep theirs.
 type limitsEntry struct {
@@ -119,6 +145,9 @@ type limitsEntry struct {
 	// heard is what the vendor said of the windows on an answer served
 	// under the account (NoteAnswer).
 	heard Limits
+	// failedAs is the reason of the last failed call, logged when it changed;
+	// empty after a call that succeeded.
+	failedAs string
 }
 
 // Limits says how much of an account's windows is used. A reading younger
@@ -154,7 +183,7 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 	}
 
 	if now.Before(entry.restUntil) {
-		return entry.orElse(ErrLimitsResting, now)
+		return entry.orElse(&LimitsRestingError{Until: entry.restUntil}, now)
 	}
 
 	token, err := s.usableToken(ctx, a)
@@ -187,6 +216,8 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 
 		var refused *limitsRefusedError
 
+		reason := err
+
 		switch {
 		case !errors.As(err, &refused):
 		case refused.status == http.StatusTooManyRequests:
@@ -195,13 +226,16 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 				wait = refused.wait
 			}
 
+			reason = &LimitsRestingError{Until: now.Add(wait)}
 			s.changeLimits(id, func(e *limitsEntry) { e.restUntil = now.Add(wait) })
 		case refused.status == http.StatusUnauthorized || refused.status == http.StatusForbidden:
 			s.changeLimits(id, func(e *limitsEntry) { e.refused, e.refusedVersion = err, token.Version })
 			s.markPlan(ctx, a, refused.status)
 		}
 
-		return entry.orElse(err, now)
+		s.logLimitsFailed(ctx, id, err, reason)
+
+		return entry.orElse(reason, now)
 	}
 
 	if _, ok := reader.(limitsWithResets); !ok {
@@ -212,18 +246,66 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 
 	limits := Limits{Windows: windows, ReadAt: now, Resets: resets}
 	s.changeLimits(id, func(e *limitsEntry) {
-		e.limits, e.read, e.restUntil, e.refused = limits, true, time.Time{}, nil
+		e.limits, e.read, e.restUntil, e.refused, e.failedAs = limits, true, time.Time{}, nil, ""
 	})
 
 	return limits, nil
 }
 
+// logLimitsFailed logs a failed limits call, once each time its reason
+// changes, so that an account asked again and again with the same failure
+// does not fill the log (omp logs "Claude usage fetch error" as a warning;
+// issue #1198). A cached reason, given without a call, is not logged.
+func (s *Service) logLimitsFailed(ctx context.Context, id string, err, reason error) {
+	status := 0
+	if refused := (*limitsRefusedError)(nil); errors.As(err, &refused) {
+		status = refused.status
+	}
+
+	kind := limitsReason(reason)
+	key := kind + " " + strconv.Itoa(status)
+
+	changed := false
+	s.changeLimits(id, func(e *limitsEntry) { changed, e.failedAs = e.failedAs != key, key })
+
+	if !changed {
+		return
+	}
+
+	attrs := []any{
+		slog.String("event", "subscription.limits_failed"), slog.String("account_id", id),
+		slog.Int("status", status), slog.String("reason", kind), slog.String("error", err.Error()),
+	}
+	if resting := (*LimitsRestingError)(nil); errors.As(reason, &resting) {
+		attrs = append(attrs, slog.Time("retry_at", resting.Until))
+	}
+
+	s.logger.WarnContext(ctx, "an account's limits were not read", attrs...)
+}
+
+// limitsReason is the kind of a failed limits call: resting after a 429,
+// refused on a 401 or 403, or failed.
+func limitsReason(err error) string {
+	switch {
+	case errors.Is(err, ErrLimitsResting):
+		return "resting"
+	case errors.Is(err, ErrLimitsRefused):
+		return "refused"
+	default:
+		return "failed"
+	}
+}
+
 // orElse is the last reading of the call, or what was heard on an answer, or
-// the error. A window heard whose reset has passed has started again and is
-// left out: what it holds now is not known (inferred).
+// the error; a reading given in its place says the error as why it is not
+// fresh. A window heard whose reset has passed has started again and is left
+// out: what it holds now is not known (inferred).
 func (e limitsEntry) orElse(err error, now time.Time) (Limits, error) {
 	if e.read {
-		return e.limits, nil
+		earlier := e.limits
+		earlier.Stale = err
+
+		return earlier, nil
 	}
 
 	var still []Window
@@ -235,7 +317,7 @@ func (e limitsEntry) orElse(err error, now time.Time) (Limits, error) {
 	}
 
 	if len(still) > 0 {
-		return Limits{Windows: still, ReadAt: e.heard.ReadAt}, nil
+		return Limits{Windows: still, ReadAt: e.heard.ReadAt, Stale: err}, nil
 	}
 
 	return Limits{}, err

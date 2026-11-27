@@ -64,6 +64,7 @@ func (e AccountStatus) Valid() bool {
 const (
 	AccountLimitsUnavailableFailed       AccountLimitsUnavailable = "failed"
 	AccountLimitsUnavailableNotGiven     AccountLimitsUnavailable = "not_given"
+	AccountLimitsUnavailableRefused      AccountLimitsUnavailable = "refused"
 	AccountLimitsUnavailableResting      AccountLimitsUnavailable = "resting"
 	AccountLimitsUnavailableSignIn       AccountLimitsUnavailable = "sign_in"
 	AccountLimitsUnavailableVerification AccountLimitsUnavailable = "verification"
@@ -75,6 +76,8 @@ func (e AccountLimitsUnavailable) Valid() bool {
 	case AccountLimitsUnavailableFailed:
 		return true
 	case AccountLimitsUnavailableNotGiven:
+		return true
+	case AccountLimitsUnavailableRefused:
 		return true
 	case AccountLimitsUnavailableResting:
 		return true
@@ -2771,22 +2774,22 @@ func (e WebSearchRequestProvider) Valid() bool {
 
 // Defines values for WebSearchRest.
 const (
-	DailyLimit WebSearchRest = "daily_limit"
-	NoCredits  WebSearchRest = "no_credits"
-	RateLimit  WebSearchRest = "rate_limit"
-	Refused    WebSearchRest = "refused"
+	WebSearchRestDailyLimit WebSearchRest = "daily_limit"
+	WebSearchRestNoCredits  WebSearchRest = "no_credits"
+	WebSearchRestRateLimit  WebSearchRest = "rate_limit"
+	WebSearchRestRefused    WebSearchRest = "refused"
 )
 
 // Valid indicates whether the value is a known member of the WebSearchRest enum.
 func (e WebSearchRest) Valid() bool {
 	switch e {
-	case DailyLimit:
+	case WebSearchRestDailyLimit:
 		return true
-	case NoCredits:
+	case WebSearchRestNoCredits:
 		return true
-	case RateLimit:
+	case WebSearchRestRateLimit:
 		return true
-	case Refused:
+	case WebSearchRestRefused:
 		return true
 	default:
 		return false
@@ -3061,14 +3064,17 @@ type AccountLimitWindow struct {
 
 // AccountLimits defines model for AccountLimits.
 type AccountLimits struct {
-	// Detail What went wrong, in the server's words, when the call failed.
+	// Detail What went wrong, in the server's words, when the call failed or was refused.
 	Detail *string `json:"detail,omitempty"`
 
 	// ReadAt When the vendor gave this reading.
 	ReadAt *time.Time          `json:"read_at,omitempty"`
 	Resets *AccountLimitResets `json:"resets,omitempty"`
 
-	// Unavailable Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed; Google wants the account verified first.
+	// RetryAt When the vendor is asked again, when unavailable is resting.
+	RetryAt *time.Time `json:"retry_at,omitempty"`
+
+	// Unavailable Why there are no windows, or, beside windows, why they are an earlier reading than now (read_at says when): this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the vendor refused the account's token (401 or 403: signed out, or the account disabled); the call failed; Google wants the account verified first.
 	Unavailable *AccountLimitsUnavailable `json:"unavailable,omitempty"`
 
 	// VerificationUrl Where the owner verifies the account, when unavailable is verification and Google gave a link.
@@ -3076,7 +3082,7 @@ type AccountLimits struct {
 	Windows         []AccountLimitWindow `json:"windows"`
 }
 
-// AccountLimitsUnavailable Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed; Google wants the account verified first.
+// AccountLimitsUnavailable Why there are no windows, or, beside windows, why they are an earlier reading than now (read_at says when): this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the vendor refused the account's token (401 or 403: signed out, or the account disabled); the call failed; Google wants the account verified first.
 type AccountLimitsUnavailable string
 
 // AccountList defines model for AccountList.

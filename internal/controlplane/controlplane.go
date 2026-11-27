@@ -583,16 +583,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		messages: integrations.Messages, members: integrations.Members, larkToken: larkToken,
 		larkURL: "https://" + serviceproxy.LarkHost, client: &http.Client{Timeout: 30 * time.Second},
 	})
-	// The owner sends a reply from the Inbox through his own accounts (issue #1111).
+	// The owner sends a reply from the Inbox through his own accounts (issue #1111), tagging whom it names (#1200).
 	ownerReplies := inboxSender{
-		send: integrations.Send, larkToken: larkToken,
+		send: integrations.Send, messages: integrations.Messages, members: integrations.Members, larkToken: larkToken,
 		googleToken: func(ctx context.Context, label string) (string, error) {
 			token, err := integrations.Token(ctx, integration.GoogleID, label)
 
 			return token.AccessToken, err
 		},
 		larkURL: "https://" + serviceproxy.LarkHost, gmailURL: "https://gmail.googleapis.com",
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{Timeout: 30 * time.Second}, log: logger,
 	}
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		ChatFallbacks: svc.ChatFallbacks,

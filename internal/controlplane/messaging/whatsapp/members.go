@@ -42,19 +42,30 @@ func (a *account) Members(ctx context.Context, chat string) (messaging.Members, 
 }
 
 // groupMembers are a group's participants, each by his JID, his number's JID and his LID, those WhatsApp gives
-// (types.GroupParticipant), and the group's name.
+// (types.GroupParticipant), listed too person by person, and the group's name.
 func groupMembers(info *types.GroupInfo) messaging.Members {
 	m := messaging.Members{Name: info.Name, IDs: []string{}}
 
 	for _, p := range info.Participants {
+		var person []string
+
 		for _, jid := range []types.JID{p.JID, p.PhoneNumber, p.LID} {
 			if jid.IsEmpty() {
 				continue
 			}
 
-			if id := jid.ToNonAD().String(); !slices.Contains(m.IDs, id) {
+			id := jid.ToNonAD().String()
+			if !slices.Contains(m.IDs, id) {
 				m.IDs = append(m.IDs, id)
 			}
+
+			if !slices.Contains(person, id) {
+				person = append(person, id)
+			}
+		}
+
+		if len(person) > 0 {
+			m.People = append(m.People, person)
 		}
 	}
 

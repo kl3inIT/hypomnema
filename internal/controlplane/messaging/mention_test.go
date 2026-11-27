@@ -30,3 +30,45 @@ func TestAMentionIsTaggedOnlyWhereTheTextWritesIt(t *testing.T) {
 		assert.Equal(t, tc.tagged, len(missing) == 0, "%q tags %q", tc.text, tc.id)
 	}
 }
+
+// Scenario: issue #1200. A draft tags a member where it writes "@" and a name he goes by in the chat: the longest
+// name first, in any case, ending where a word ends, so "@Duy" is not found inside "@Duyên" and "@Duy Tran" is
+// Duy Tran, not Duy. A name nobody, or two people, go by stays text, never a shorter name's tag; an address's "@"
+// tags nobody.
+func TestADraftTagsOnlyTheOnePersonANameIs(t *testing.T) {
+	t.Parallel()
+
+	people := []messaging.Named{
+		{ID: "u-lan", Names: []string{"Lan Anh"}},
+		{ID: "u-tuan", Names: []string{"Anh Tuấn"}},
+		{ID: "u-minh", Names: []string{"Anh Minh"}},
+		{ID: "u-duy", Names: []string{"Duy"}},
+		{ID: "u-duytran", Names: []string{"Duy Tran", "duy tran"}},
+		{ID: "u-ha1", Names: []string{"Hà"}},
+		{ID: "u-ha2", Names: []string{"Hà"}},
+		{ID: "u-hai", Names: []string{"Hà Linh"}},
+		{ID: "u-hai2", Names: []string{"Hà Linh"}},
+		{Names: []string{"Nobody"}},
+	}
+
+	for _, tc := range []struct {
+		text string
+		want []messaging.Tag
+	}{
+		{"@Lan Anh dạ vâng chị", []messaging.Tag{{ID: "u-lan", At: 0, Len: 8, Name: "Lan Anh"}}},
+		{"dạ @lan anh, em gửi", []messaging.Tag{{ID: "u-lan", At: 5, Len: 8, Name: "lan anh"}}},
+		{"@Anh dạ", nil},
+		{"@Duyên ơi", nil},
+		{"@Duy ơi", []messaging.Tag{{ID: "u-duy", At: 0, Len: 4, Name: "Duy"}}},
+		{"@Duy Tran và @Duy", []messaging.Tag{
+			{ID: "u-duytran", At: 0, Len: 9, Name: "Duy Tran"}, {ID: "u-duy", At: 14, Len: 4, Name: "Duy"},
+		}},
+		{"@Hà ơi", nil},
+		{"@Hà Linh ơi", nil},
+		{"mail lan@Lan Anh", nil},
+		{"@Nobody", nil},
+		{"Lan Anh dạ", nil},
+	} {
+		assert.Equal(t, tc.want, messaging.FindTags(tc.text, people), "%q", tc.text)
+	}
+}

@@ -3276,13 +3276,17 @@ export type AccountLimits = {
    */
   read_at?: string;
   /**
-   * Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed; Google wants the account verified first.
+   * Why there are no windows, or, beside windows, why they are an earlier reading than now (read_at says when): this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the vendor refused the account's token (401 or 403: signed out, or the account disabled); the call failed; Google wants the account verified first.
    */
-  unavailable?: 'not_given' | 'sign_in' | 'resting' | 'failed' | 'verification';
+  unavailable?: 'not_given' | 'sign_in' | 'resting' | 'refused' | 'failed' | 'verification';
   /**
-   * What went wrong, in the server's words, when the call failed.
+   * What went wrong, in the server's words, when the call failed or was refused.
    */
   detail?: string;
+  /**
+   * When the vendor is asked again, when unavailable is resting.
+   */
+  retry_at?: string;
   /**
    * Where the owner verifies the account, when unavailable is verification and Google gave a link.
    */

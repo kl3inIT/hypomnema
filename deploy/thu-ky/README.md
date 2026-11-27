@@ -11,8 +11,9 @@ triage). Nothing here is built into the server; the server code it relies on is 
 |---|---|
 | `setup.sh` | Makes or updates the two Routines of a Bot (the main Bot by default) with `hypomnema` commands, as the owner. It makes no Bot. |
 | `triage.md` | The prompt of the `triage` Routine, every 15 minutes, read only: triage per conversation, drafts, meetings, accounts to log in again, a priority and a project on its items that have none, notes that say the need and the plan with every later update a comment (issue #1186), and what it learns of the owner. |
-| `triage.test.mjs`, `triage-world.mjs` | A run of `triage.md` with a real Claude Code against the Bot's tools as an MCP server: a new message on a known item is a comment, not a line of its notes (issue #1186). Only with `HYPOMNEMA_TEST_CLAUDE=claude node --test deploy/thu-ky/triage.test.mjs`; CI skips it. |
-| `new-messages.mjs` | The check of `triage`: counts the new messages, wakes the Bot only when some are left. |
+| `triage.test.mjs`, `triage-world.mjs`, `triage-run.mjs` | A run of `triage.md` with a real Claude Code against the Bot's tools as an MCP server: a new message on a known item is a comment, not a line of its notes (issue #1186). Only with `HYPOMNEMA_TEST_CLAUDE=claude node --test deploy/thu-ky/triage.test.mjs`; CI skips it. |
+| `triage-cases.json`, `triage.eval.mjs` | The cases of the owner's short replies to asks ("dạ oki chị" to a request for work, "ok" to information, a sticker, a question back; issue #1182), each a thread and what the triage must add, close or leave, run with `triage.md` and a real model. Only with `THU_KY_EVAL=1 node --test deploy/thu-ky/triage.eval.mjs` on a node with the gateway; CI never runs it. Run it after a change to `triage.md`. |
+| `new-messages.mjs` | The check of `triage`: counts the new messages, others' and the owner's own apart, and wakes the Bot only when some are left. |
 | `brief.md` | The prompt of the `brief` Routine, at 08:00 and 17:00, told on Lark: what waits on him, and what a Bot closed without him since the previous brief (issue #1204). |
 
 ## Set it up (the owner, on the machine where `hypomnema` is logged in as him)
@@ -31,9 +32,22 @@ without a release: write the fields to change into `thu-ky/filters.json` in the 
 `defaults` in `new-messages.mjs`). Its state, when each source was last read, is `thu-ky/new-messages.json` there;
 removing it makes the next check look back one hour.
 
+The owner's own new messages wake the triage too (issue #1182): his "dạ oki chị" to a request for work is work he
+took, and is read even when no one writes after it. So his chats where only he writes would wake it for nothing: his
+Lark chat with the main Bot, where he answers the brief, and his chat with himself (Zalo's "My Documents", his own
+number on WhatsApp). Put their ids into `dropChats` of `filters.json`. A field there replaces the default, so copy the
+default list of `new-messages.mjs` and add the ids, each a regular expression:
+
+```json
+{ "dropChats": ["^Zalo ", "\\bOA\\b", "official account", "quảng cáo", "newsletter", "@broadcast$",
+  "^oc_<the brief's Lark chat>$", "^<his Zalo self-chat id>$", "^<his number>@s\\.whatsapp\\.net$"] }
+```
+
+The brief's Lark chat id is the `oc_…` of the main Bot's Lark Channel chat with him (the brief Routine's chat).
+
 Each run gets a batch the Bot finishes (issue #1101): the check names at most `perRun` conversations (15), and keeps
 the rest as `carry` in its state. Direct chats and conversations that tag the owner (Lark) or name him come first,
-then groups, then mail, then meetings. What was carried is named first at the next check, and wakes the Bot even
+then groups, then chats with only his own new messages, then mail, then meetings. What was carried is named first at the next check, and wakes the Bot even
 when nothing is new, so a backlog such as a first look of a week goes through in turns of 15 minutes. For a group
 message that names him to count as a direct ask, write his names into `ownerNames` of `filters.json` (regular
 expressions, such as `["Đạt", "anh Dat"]`); by default none is looked for.
