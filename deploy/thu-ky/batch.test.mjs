@@ -15,9 +15,12 @@ function world({ chats = [], messages = [], lark = { chats: [], messages: {} }, 
     { name: "zalo_messages" },
     { name: "account_read", description: "Use the account name (lark:me, google:me), API hostname. Lark accounts that sign in as the owner (lark:me); any other" },
     { name: "meeting_list" },
+    { name: "inbox_chats" },
   ];
   const call = async (name, args) => {
     switch (name) {
+      case "inbox_chats":
+        return { defaults: { direct: true, group: true, bot: false, bot_patterns: ["^Zalo ", "\\bOA\\b"] }, chats: [] };
       case "zalo_chats":
         return { chats: chats.slice(0, args.limit ?? 50) };
       case "zalo_messages": {

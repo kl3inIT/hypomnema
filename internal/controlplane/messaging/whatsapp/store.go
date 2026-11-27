@@ -263,9 +263,19 @@ func clampLimit(n int) int {
 	return n
 }
 
+// clampChats is how many chats a list gives: up to messaging.MaxChats, every chat for the secretary's list (issue
+// #1270); the API and the tools ask for at most maxLimit.
+func clampChats(n int) int {
+	if n <= 0 {
+		return defaultLimit
+	}
+
+	return min(n, messaging.MaxChats)
+}
+
 func (m *mirror) chats(ctx context.Context, account string, limit int) ([]messaging.Chat, error) {
 	rows, err := m.db.QueryContext(ctx, `SELECT jid, kind, name, last_message_ts FROM wa_chats
-		WHERE account = ? ORDER BY last_message_ts DESC, jid LIMIT ?`, account, clampLimit(limit))
+		WHERE account = ? ORDER BY last_message_ts DESC, jid LIMIT ?`, account, clampChats(limit))
 	if err != nil {
 		return nil, fmt.Errorf("whatsapp: listing chats: %w", err)
 	}

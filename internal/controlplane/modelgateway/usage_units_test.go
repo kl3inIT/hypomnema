@@ -115,7 +115,7 @@ func TestEachKindIsCountedInItsOwnUnitAndPriced(t *testing.T) {
 	assert.Equal(t, 90*time.Second, heard.Audio)
 	assert.Equal(t, int64(2500), cost(heard), "90 s at $0.0000277778 a second")
 
-	spoken := row("audio/eleven_multilingual_v2", "elevenlabs", "")
+	spoken := row("audio/eleven_v4", "elevenlabs", "")
 	assert.Equal(t, int64(1200), spoken.Characters)
 	assert.Equal(t, int64(96000), cost(spoken), "1,200 characters at $0.00008 each")
 

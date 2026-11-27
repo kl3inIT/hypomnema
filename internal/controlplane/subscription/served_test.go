@@ -637,3 +637,21 @@ func TestAModelLostDuringARefreshWhileAListIsUnknownIsTriedAgain(t *testing.T) {
 	assert.True(t, cooling.ListUnknown, "whatever an account answered before")
 	assert.Empty(t, token.AccountID)
 }
+
+// Scenario (review of PR #1298): a gateway key limited to the Pro account asks for a model. Only the Pro account's
+// list is read for it: the Ultra account, outside the key's list, is not called.
+func TestALimitedKeyReadsOnlyItsAccountsLists(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+	pro, _ := twoAccounts(t, w)
+
+	w.google.set(func(g *google) { g.listed = 0 })
+
+	token, err := w.subs.TokenFor(subscription.WithAccounts(t.Context(), []string{pro.ID}), "antigravity",
+		"gemini-4-hydrogen-sonar", "")
+	require.NoError(t, err)
+	assert.Equal(t, pro.ID, token.AccountID)
+
+	w.google.set(func(g *google) { assert.Equal(t, 1, g.listed, "the key's one account's list, and no other") })
+}

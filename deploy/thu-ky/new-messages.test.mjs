@@ -15,14 +15,27 @@ const tools = [
     description: "Read a connected account using its service API. Use the account name (lark:me, google:me), API hostname, method and path with query. Lark accounts that sign in as the owner (lark:me); any other Lark account is an app's bot.",
   },
   { name: "meeting_list" },
+  { name: "inbox_chats" },
 ];
 
 // world answers each tool call as the owner's accounts would; chats, messages, mail and lark hold what is there.
-function world({ chats = [], messages = {}, mail = [], lark = { chats: [], messages: {} }, meetings = [] } = {}) {
+function world({
+  chats = [], messages = {}, mail = [], lark = { chats: [], messages: {} }, meetings = [], choices = [],
+} = {}) {
   const calls = [];
   const call = async (name, args) => {
     calls.push({ name, args });
     switch (name) {
+      case "inbox_chats":
+        // The owner's choices of which chats the secretary reads (issue #1270), as the control plane answers them.
+        if (choices instanceof Error) throw choices;
+        return {
+          defaults: {
+            direct: true, group: true, bot: false,
+            bot_patterns: ["^Zalo ", "\\bOA\\b", "official account", "quảng cáo", "newsletter", "@broadcast$"],
+          },
+          chats: choices,
+        };
       case "zalo_chats":
         return { chats: chats.slice(0, args.limit ?? 50) };
       case "zalo_messages": {
@@ -311,7 +324,7 @@ test("one account is named by the label its reads give", async () => {
     const answer = await w.call(name, args);
     return name.startsWith("zalo_") ? { account: "main", ...answer } : answer;
   };
-  const one = [{ name: "zalo_chats", inputSchema: { properties: { limit: {} } } }, { name: "zalo_messages" }];
+  const one = [{ name: "zalo_chats", inputSchema: { properties: { limit: {} } } }, { name: "zalo_messages" }, { name: "inbox_chats" }];
   const got = await check({ tools: one, call, state: { sources: { zalo: since } }, now });
 
   assert.equal(got.wake, true);
@@ -488,4 +501,174 @@ test("a Lark thread found before the cap is read next run, its chat not counted 
   assert.match(next.text, /chat "VMAP core" thread omt_1 \(id oc_core\): 1 new from ou_kai/);
   assert.doesNotMatch(next.text, /\(id oc_core\): 1 new from ou_laura/, "the chat was read through");
   assert.deepEqual(next.state.sources["lark:me"].gaps, []);
+});
+
+// Issue #1270: the owner switches chats off and on for the secretary on his Inbox's chats screen, kept by the control
+// plane per account and chat. The check reads his choices (inbox_chats) and skips a chat he switched off before any
+// model, reads a bot's chat he switched on, and no longer reads chat ids from dropChats of filters.json. Every name
+// and id here is made up.
+
+test("a chat the owner switched off is skipped, one he switched on is read", async () => {
+  const at = "2026-11-21T01:55:00Z";
+  const w = world({
+    chats: [
+      { ID: "u_lan", Kind: "dm", Name: "Lan", LastMessageAt: at },
+      { ID: "oa_pay", Kind: "dm", Name: "Zalo Pay", LastMessageAt: at },
+      { ID: "oa_shop", Kind: "dm", Name: "Shop ABC OA", LastMessageAt: at },
+      { ID: "g_pmo", Kind: "group", Name: "PMO", LastMessageAt: at },
+    ],
+    messages: {
+      u_lan: [{ ID: "m1", At: at, FromMe: false, SenderName: "Lan", Text: "anh ơi" }],
+      oa_pay: [{ ID: "m2", At: at, FromMe: false, SenderName: "Zalo Pay", Text: "Hóa đơn tháng 11" }],
+      oa_shop: [{ ID: "m3", At: at, FromMe: false, SenderName: "Shop ABC OA", Text: "Sale" }],
+      g_pmo: [{ ID: "m4", At: at, FromMe: false, SenderName: "Minh", Text: "họp lúc 3h" }],
+    },
+    lark: {
+      chats: [
+        { chat_id: "oc_off", name: "Family", chat_mode: "group" },
+        { chat_id: "oc_core", name: "VMAP core", chat_mode: "group" },
+      ],
+      messages: {
+        oc_off: [{ create_time: String(Date.parse(at)), sender: { id: "ou_mai", sender_type: "user" } }],
+        oc_core: [{ create_time: String(Date.parse(at)), sender: { id: "ou_hung", sender_type: "user" } }],
+      },
+    },
+    choices: [
+      { account: "zalo:main", chat: "u_lan", reads: false, set_at: since },
+      { account: "zalo:main", chat: "oa_pay", reads: true, set_at: since },
+      { account: "lark:me", chat: "oc_off", reads: false, set_at: since },
+      { account: "zalo:other", chat: "g_pmo", reads: false, set_at: since },
+    ],
+  });
+  // Today's filters.json: the defaults and one chat by its exact id, which the one-time move made his choice.
+  const config = { dropChats: ["^Zalo ", "\\bOA\\b", "^g_pmo$"] };
+  const got = await check({ tools, call: w.call, state, now, config });
+
+  assert.equal(got.wake, true, got.text);
+  assert.doesNotMatch(got.text, /u_lan/, "switched off by the owner");
+  assert.doesNotMatch(got.text, /oc_off/, "switched off by the owner");
+  assert.doesNotMatch(got.text, /oa_shop/, "a bot's by default");
+  assert.match(got.text, /zalo:main chat "Zalo Pay" \(id oa_pay\): 1 new/, "a bot's switched on");
+  assert.match(got.text, /zalo:main chat "PMO" \(id g_pmo\)/, "dropChats ids are his choices now; another account's choice is not this one's");
+  assert.match(got.text, /lark:me chat "VMAP core"/);
+  assert.match(got.text, /chats the owner switched off/);
+  assert.equal(w.calls.filter((c) => c.name === "inbox_chats").length, 1, "read once a run");
+  assert.ok(!w.calls.some((c) => c.args?.path?.includes("container_id=oc_off")), "nothing of it is read");
+});
+
+test("when his choices cannot be read, his chats wait for the next run", async () => {
+  const at = "2026-11-21T01:55:00Z";
+  const w = world({
+    chats: [{ ID: "u_lan", Kind: "dm", Name: "Lan", LastMessageAt: at }],
+    messages: { u_lan: [{ ID: "m1", At: at, FromMe: false, SenderName: "Lan", Text: "anh ơi" }] },
+    mail: [mailOf("a", "Kai <kai@example.com>")],
+    choices: new Error("the control plane is restarting"),
+  });
+  const got = await check({ tools, call: w.call, state, now });
+
+  assert.doesNotMatch(got.text, /u_lan/);
+  assert.match(got.text, /could not read zalo:main: which chats the owner switched off could not be read/);
+  assert.match(got.text, /could not read lark:me: which chats the owner switched off could not be read/);
+  assert.match(got.text, /google:me mail thread "About a"/, "mail is no chat: it is still read");
+  assert.equal(got.state.sources["zalo:main"], since, "its time is kept");
+  assert.ok(!w.calls.some((c) => c.name === "zalo_messages"));
+});
+
+// Review of #1270, round 1: what a run had no room for is carried to the next one, and the owner may switch a carried
+// chat off meanwhile. The carried conversations get his choices of the run that prints them: a chat he switched off
+// is dropped before anything is printed; when his choices cannot be read, a carried chat is kept, not printed, and
+// wakes nobody, while a carried mail thread is still told.
+test("a carried chat he switched off since is never printed", async () => {
+  const at = "2026-11-21T01:55:00Z";
+  const chats = Array.from({ length: 16 }, (_, i) => ({ ID: `g_${i}`, Kind: "group", Name: `G${i}`, LastMessageAt: at }));
+  const messages = Object.fromEntries(chats.map((c, i) => [c.ID, [{ ID: `m${i}`, At: at, FromMe: false, SenderName: "Lan", Text: "?" }]]));
+  const first = await check({ tools, call: world({ chats, messages }).call, state, now });
+  assert.equal(first.state.carry.length, 1, first.text);
+  const [left] = first.state.carry;
+  const id = left.where.match(/\(id ([^)]+)\)/)[1];
+
+  const off = world({ choices: [{ account: "zalo:main", chat: id, reads: false, set_at: since }] });
+  const next = await check({ tools, call: off.call, state: first.state, now: new Date(now.getTime() + 15 * 60_000) });
+
+  assert.equal(next.wake, false, next.text);
+  assert.doesNotMatch(next.text, new RegExp(`id ${id}\\b`));
+  assert.equal(next.state.carry, undefined, "dropped from the queue");
+});
+
+test("a carried chat whose choice cannot be read is kept, not printed, and wakes nobody", async () => {
+  const carry = [
+    { where: 'zalo:main chat "Lan" (id u_lan)', count: 1, from: ["Lan"], latest: since, rank: ranks.direct },
+    { where: 'lark:me chat "VMAP core" thread omt_1 (id oc_core)', count: 1, from: ["ou_hung"], latest: since, rank: ranks.group },
+  ];
+  const w = world({ choices: new Error("the control plane is restarting") });
+  const got = await check({ tools, call: w.call, state: { ...state, carry }, now });
+
+  assert.equal(got.wake, false, got.text);
+  assert.doesNotMatch(got.text, /u_lan|oc_core/);
+  assert.deepEqual(got.state.carry, carry, "kept for the run that can check them");
+
+  const mail = { where: 'google:me mail thread "Deck" (thread t_deck)', count: 1, from: ["Kai"], latest: since, rank: ranks.mail };
+  const withMail = await check({ tools, call: w.call, state: { ...state, carry: [...carry, mail] }, now });
+  assert.equal(withMail.wake, true, withMail.text);
+  assert.match(withMail.text, /mail thread "Deck"/);
+  assert.doesNotMatch(withMail.text, /u_lan|oc_core/);
+  assert.deepEqual(withMail.state.carry, carry);
+});
+
+// Review of #1270, round 1: a run without inbox_chats (the Bot's Inbox tools switched off) cannot know which chats
+// the owner switched off: it reads none of his chats, as when the tool fails, rather than the defaults.
+test("without inbox_chats his chats are not read", async () => {
+  const at = "2026-11-21T01:55:00Z";
+  const w = world({
+    chats: [{ ID: "u_lan", Kind: "dm", Name: "Lan", LastMessageAt: at }],
+    messages: { u_lan: [{ ID: "m1", At: at, FromMe: false, SenderName: "Lan", Text: "anh ơi" }] },
+  });
+  const got = await check({ tools: tools.filter((t) => t.name !== "inbox_chats"), call: w.call, state, now });
+
+  assert.doesNotMatch(got.text, /u_lan/);
+  assert.match(got.text, /could not read zalo:main: which chats the owner switched off could not be read \(this run has no inbox_chats/);
+  assert.ok(!w.calls.some((c) => c.name === "zalo_messages"));
+});
+
+// Review of #1270, round 2: the carry an earlier check wrote has no account or chat fields, only each conversation's
+// line, and a Lark group's name may hold a line feed or U+2028. The chat's id is read from the line's end apart from
+// its name, so such a chat still gets the owner's choices; a line that is no known chat, mail thread or meeting is
+// kept silent, never printed.
+test("a carried chat of an earlier check is checked whatever its name holds", async () => {
+  const lines = [
+    { where: 'lark:me chat "Team\nAlpha" (id oc_lf)', count: 1, from: ["ou_a"], latest: since, rank: ranks.group },
+    { where: 'lark:me chat "Team Beta" thread omt_9 (id oc_ls)', count: 1, from: ["ou_b"], latest: since, rank: ranks.group },
+    { where: 'zalo:main chat "Gia "đình"\n" (id 3001)', count: 1, from: ["Mai"], latest: since, rank: ranks.group },
+  ];
+  const off = world({
+    choices: [
+      { account: "lark:me", chat: "oc_lf", reads: false, set_at: since },
+      { account: "lark:me", chat: "oc_ls", reads: false, set_at: since },
+      { account: "zalo:main", chat: "3001", reads: false, set_at: since },
+    ],
+  });
+  const got = await check({ tools, call: off.call, state: { ...state, carry: lines }, now });
+  assert.equal(got.wake, false, got.text);
+  assert.doesNotMatch(got.text, /oc_lf|oc_ls|3001/);
+  assert.equal(got.state.carry, undefined, "switched off: dropped");
+
+  const failing = world({ choices: new Error("the control plane is restarting") });
+  const held = await check({ tools, call: failing.call, state: { ...state, carry: lines }, now });
+  assert.equal(held.wake, false, held.text);
+  assert.doesNotMatch(held.text, /oc_lf|oc_ls|3001/);
+  assert.deepEqual(held.state.carry, lines, "kept for a run that can check them");
+});
+
+test("a carried line that is no known chat, mail thread or meeting is kept silent", async () => {
+  const odd = [
+    { where: 'lark:me chat "Team\nAlpha"', count: 1, from: ["ou_a"], latest: since, rank: ranks.group },
+    { where: "something else (id x)", count: 1, from: [], latest: since, rank: ranks.mail },
+  ];
+  const meeting = { where: 'meeting "Stand\nup" (id mtg_1): notes ready, 2 open actions', from: [], rank: ranks.meeting };
+  const got = await check({ tools, call: world().call, state: { ...state, carry: [...odd, meeting] }, now });
+
+  assert.equal(got.wake, true, got.text);
+  assert.match(got.text, /meeting "Stand\nup" \(id mtg_1\)/);
+  assert.doesNotMatch(got.text, /Team|something else/);
+  assert.deepEqual(got.state.carry, odd);
 });

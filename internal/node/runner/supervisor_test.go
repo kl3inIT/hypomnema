@@ -691,6 +691,7 @@ func TestAControlPlaneThatKeepsDecisionsLetsTheWorkerAskThem(t *testing.T) {
 	d.Offer.QuestionParts = true
 
 	r := newReporter()
+	t.Cleanup(func() { g.sup.Release(d.ID) })
 	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
 	require.Eventually(t, func() bool { return r.asked() == 1 }, 20*time.Second, 20*time.Millisecond)
 	assert.True(t, bridge.QuestionPartsEnabled(bridge.Dir(g.sup.dir("dsp_1"))))

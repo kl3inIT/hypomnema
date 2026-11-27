@@ -125,6 +125,8 @@ type Server struct {
 	messaging Messaging
 	// inboxSender sends the owner's replies from the Inbox (issue #1111); nil when the control plane wired none.
 	inboxSender InboxSender
+	// inboxChats lists the owner's chats with whether the secretary reads each (issue #1270).
+	inboxChats InboxChats
 	// inboxSends holds one Send at a time for each Inbox item, by its id.
 	inboxSends sync.Map
 	approvals  Approvals
@@ -191,8 +193,8 @@ type GatewayModels interface {
 // (modelgateway.Service).
 type GatewayKeys interface {
 	ListKeys(ctx context.Context) ([]modelgateway.Key, error)
-	AddKey(ctx context.Context, name string, models []string, endpoints []modelgateway.Endpoint,
-	) (modelgateway.Key, string, error)
+	AddRoutedKey(ctx context.Context, name string, models []string, endpoints []modelgateway.Endpoint,
+		routing modelgateway.KeyRouting) (modelgateway.Key, string, error)
 	UpdateKey(ctx context.Context, id string, change modelgateway.KeyUpdate) (modelgateway.Key, error)
 	KeyValue(ctx context.Context, id string) (string, error)
 	RevokeKey(ctx context.Context, id string) error
