@@ -347,16 +347,23 @@ func audioKeysRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() { e.printf("%s was removed from the vault\n", name) })
 }
 
-// flagSpeed is the --speed flag: none when left at 0; refused, rather than dropped, when it is not a number within
-// from and to (review of #1302: a video made at the provider's speed for a speed typed wrong).
+// flagSpeed is the --speed flag: none when it is left out, the provider's own; refused, rather than dropped, when it
+// is given and is not a number within from and to, 0 included (review of #1302: a video made at the provider's speed
+// for a speed typed wrong).
 func flagSpeed(fs *flag.FlagSet, from, to float64) (*float64, error) {
+	given := false
+
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == "speed" })
+
+	if !given {
+		return nil, nil //nolint:nilnil // No speed asked.
+	}
+
 	speed, err := strconv.ParseFloat(str(fs, "speed"), 64)
 
 	switch {
 	case err != nil:
 		return nil, fmt.Errorf("--speed is a number from %g to %g", from, to)
-	case speed == 0:
-		return nil, nil //nolint:nilnil // No speed asked.
 	case math.IsNaN(speed) || speed < from || speed > to:
 		return nil, fmt.Errorf("--speed is a number from %g to %g, not %s", from, to, str(fs, "speed"))
 	}

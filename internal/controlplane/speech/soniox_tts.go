@@ -174,9 +174,17 @@ func (s *Service) sonioxTTSModels(ctx context.Context, k Key) ([]sonioxTTSModel,
 	return answer.Models, nil
 }
 
-// sonioxModelOf is a TTS model as the catalog gives it; its ID is empty when the catalog could not be read or
-// does not name it, and the model is asked as if it supported what it is asked.
+// sonioxCatalogTimeout bounds the catalog read a speech request makes before its first attempt, so that a catalog
+// that does not answer never holds the speech past its own budget (review of #1302, round 2). Hypomnema's own
+// bound: a GET of a small list.
+const sonioxCatalogTimeout = 10 * time.Second
+
+// sonioxModelOf is a TTS model as the catalog gives it; its ID is empty when the catalog could not be read in
+// sonioxCatalogTimeout or does not name it, and the model is asked as if it supported what it is asked.
 func (s *Service) sonioxModelOf(ctx context.Context, k Key, model string) sonioxTTSModel {
+	ctx, cancel := context.WithTimeout(ctx, sonioxCatalogTimeout)
+	defer cancel()
+
 	models, err := s.sonioxTTSModels(ctx, k)
 	if err != nil {
 		return sonioxTTSModel{}
