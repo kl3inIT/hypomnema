@@ -1,6 +1,7 @@
 package agentapi_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -114,15 +115,19 @@ func TestABotPassedAnItemOnTheOwnersLineReadsHisWhatsAppInTheItemsChat(t *testin
 	td := w.handed("check xem")
 	hypo := w.piIn(w.main, td.Chat)
 
+	// The first hop: his prompt is his turn in the main Bot's chat (decision 7).
+	read, text := w.readsGroup(hypo)
+	require.True(t, read, "the main Bot reads whatsapp:main on his prompt: %s", text)
+
 	passed := w.inbox(hypo, agenttool.ToolInboxUpdate, map[string]any{"id": td.ID, "pass_to": w.beyond.ID})
 	require.Equal(t, "bot "+w.beyond.ID, passed.Assignee)
 
 	chat := w.chatOf(td.ID)
 	beyond := w.piIn(w.beyond, chat)
 
-	read, text := w.readsGroup(beyond)
+	read, text = w.readsGroup(beyond)
 	require.True(t, read, "the woken turn reads whatsapp:main: %s", text)
-	assert.Equal(t, []string{"whatsapp:main:120363@g.us"}, w.whatsapp.asked)
+	assert.Len(t, w.whatsapp.asked, 2)
 
 	other, _ := w.inboxPi(w.beyond)
 	read, text = w.readsGroup(other)
@@ -138,7 +143,7 @@ func TestABotPassedAnItemOnTheOwnersLineReadsHisWhatsAppInTheItemsChat(t *testin
 	read, text = w.readsGroup(beyond)
 	assert.False(t, read, "after a Channel person's message in the item's chat")
 	assert.Contains(t, text, "runs only on his own request")
-	assert.Len(t, w.whatsapp.asked, 1, "nothing more was read")
+	assert.Len(t, w.whatsapp.asked, 2, "nothing more was read")
 }
 
 // Scenario: issue #1229, rule 1. An item the main Bot adds for BeyondPilot on the owner's message, in its own chat,
@@ -192,4 +197,85 @@ func TestARoutinesHandOffLendsNoAccounts(t *testing.T) {
 	assert.False(t, read, "a Routine's hand-off")
 	assert.Contains(t, text, "runs only on his own request")
 	assert.Empty(t, w.whatsapp.asked)
+}
+
+// Scenario: review of PR #1237, issue #1229 rules 2 and 5. From the item's marked chat BeyondPilot adds another item
+// for itself with the Inbox's tool: the new item's chat is no turn of the owner's, and the group is not read there.
+func TestReviewOwnerMarkStaysWithItsItem(t *testing.T) {
+	t.Parallel()
+
+	w := newMarkWorld(t)
+
+	td := w.handed("check xem")
+	hypo := w.piIn(w.main, td.Chat)
+	w.inbox(hypo, agenttool.ToolInboxUpdate, map[string]any{"id": td.ID, "pass_to": w.beyond.ID})
+
+	beyond := w.piIn(w.beyond, w.chatOf(td.ID))
+
+	added := w.inbox(beyond, agenttool.ToolInboxAdd, map[string]any{
+		"title": "Đọc nhóm khác của Kai", "assignee_kind": inboxstore.ABot, "assignee": w.beyond.ID,
+	})
+
+	own := w.piIn(w.beyond, w.chatOf(added.ID))
+
+	read, text := w.readsGroup(own)
+	assert.False(t, read, "an item it gave itself from the marked chat")
+	assert.Contains(t, text, "runs only on his own request")
+}
+
+// larkLabels are the labels of the Lark accounts pi may use now.
+func (w markWorld) larkLabels(pi string) []string {
+	w.t.Helper()
+
+	status, body := w.call(http.MethodGet, agenttool.PathConnections+"?integration=lark", pi, nil)
+	require.Equal(w.t, http.StatusOK, status, string(body))
+
+	var out agenttool.ConnectionList
+	require.NoError(w.t, json.Unmarshal(body, &out))
+
+	labels := []string{}
+	for _, c := range out.Data {
+		labels = append(labels, c.Label)
+	}
+
+	return labels
+}
+
+// Scenario: decision 7 of issue #1229, the case seen on zm on 2026-11-27 (tdo_jnjgnyn3h2xmzcga5u73xiv72e, events 23
+// and 24). The owner hands an item to Hypo with his words, to send a file to anh Tuấn on Lark: Hypo's turn in the
+// item's chat may use lark:me, and so may the VMAP Bot it passes the item to. Handed over without a word, it may not.
+func TestReviewOwnerMarkTheOwnersPromptIsHisTurn(t *testing.T) {
+	t.Parallel()
+
+	w := newMarkWorld(t)
+	ctx := t.Context()
+
+	//nolint:gosec // G101: the names of vault secrets, not credentials
+	for _, c := range []orchestration.Connection{
+		{Integration: "lark", Label: "work", Account: "Hypomnema", Secret: "conn-lark-work", AppID: "cli_work"},
+		{
+			Integration: "lark", Label: "me", Account: "Đạt", Secret: "conn-lark-me", AppID: "cli_work",
+			AppLabel: "work",
+		},
+	} {
+		_, err := w.svc.SaveServiceConnection(ctx, c)
+		require.NoError(t, err)
+		_, err = w.svc.SetConnectionChats(ctx, "lark", c.Label, true)
+		require.NoError(t, err)
+	}
+
+	vmap, err := w.svc.PutBot(ctx, orchestration.Bot{
+		Name: "VMAP Bot", Connections: orchestration.AllowList{Limited: true, Names: []string{"lark:work", "lark:me"}},
+	})
+	require.NoError(t, err)
+
+	td := w.handed("bạn có gửi luôn file này cho anh tuấn qua lark đc k")
+	hypo := w.piIn(w.main, td.Chat)
+	assert.Contains(t, w.larkLabels(hypo), "me", "his prompt from the Inbox is his turn")
+
+	w.inbox(hypo, agenttool.ToolInboxUpdate, map[string]any{"id": td.ID, "pass_to": vmap.ID})
+	assert.Contains(t, w.larkLabels(w.piIn(vmap, w.chatOf(td.ID))), "me", "passed on his prompt")
+
+	silent := w.handed("")
+	assert.NotContains(t, w.larkLabels(w.piIn(w.main, silent.Chat)), "me", "handed over without a word")
 }

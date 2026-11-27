@@ -60,8 +60,8 @@ func (w passWorld) runEvent(chat string) {
 }
 
 // Scenario: issue #1229, rules 1 and 2. The owner hands an item to the main Bot, whose turn on his line passes it to
-// BeyondPilot: BeyondPilot's turns in the item's chat count as his for his own accounts. Its other chats do not, nor
-// does the main Bot's chat, where the owner's hand-over alone is no turn of his, as before.
+// BeyondPilot: BeyondPilot's turns in the item's chat count as his for his own accounts. Its other chats do not. The
+// main Bot's chat is his turn by his prompt (decision 7).
 func TestAHandOffFromTheOwnersLineIsHisTurnInTheItemsChat(t *testing.T) {
 	t.Parallel()
 
@@ -72,7 +72,7 @@ func TestAHandOffFromTheOwnersLineIsHisTurnInTheItemsChat(t *testing.T) {
 	require.NotEmpty(t, got.Chat)
 
 	assert.True(t, w.ownerTurn(got.Chat), "the hand-off from his line is his turn in the item's chat")
-	assert.False(t, w.ownerTurn(w.item.Chat), "the main Bot's chat is as before")
+	assert.True(t, w.ownerTurn(w.item.Chat), "his prompt in the Inbox is his turn in the main Bot's chat")
 
 	other, err := w.s.CreateChat(ctx, w.beyond.ID, "")
 	require.NoError(t, err)
@@ -126,31 +126,35 @@ func TestAHandOffNotFromTheOwnersLineIsNoTurnOfHis(t *testing.T) {
 	assert.False(t, run.ownerTurn(got.Chat), "a Run's events woke the passing turn")
 }
 
-// Scenario: issue #1229, rule 3. Someone else's message in the item's chat clears the mark for good: the owner's
-// comment after it, and his handing the item to the same Bot again, bring it back no more.
+// Scenario: issue #1229, rule 3. Someone else's message in the item's chat clears the mark for good: the main Bot
+// passing the item into the same chat again, from the owner's message, brings it back no more.
 func TestAMessageOfSomeoneElseClearsTheMarkForGood(t *testing.T) {
 	t.Parallel()
 
 	w := newPassWorld(t)
 	ctx := t.Context()
 
-	got := w.passFrom(DefaultBotID, w.item.Chat, w.item, w.beyond.ID)
+	mainChat, err := w.s.CreateChat(ctx, DefaultBotID, "")
+	require.NoError(t, err)
+	_, err = w.s.AddChatMessage(ctx, mainChat.ID, ChatOwner, "ask BeyondPilot to read the group")
+	require.NoError(t, err)
+
+	got, err := w.s.Inbox().Create(ctx, asBot(DefaultBotID), inboxstore.NewTodo{
+		Title: "Read the pilot's group", State: inboxstore.Open, Chat: mainChat.ID,
+		Source:   inboxstore.Source{Kind: inboxstore.FromChat, ID: mainChat.ID},
+		Assignee: inboxstore.Assignee{Kind: inboxstore.ABot, Name: w.beyond.ID},
+	})
+	require.NoError(t, err)
 	require.True(t, w.ownerTurn(got.Chat))
 
 	w.linh(got.Chat)
 	assert.False(t, w.ownerTurn(got.Chat), "Linh spoke in the item's chat")
 
-	cur, err := w.s.Inbox().Comment(ctx, inboxOwner, got.ID, "check the group again")
-	require.NoError(t, err)
-	assert.False(t, w.ownerTurn(got.Chat), "his comment does not bring the mark back")
-
-	cur, err = w.s.Inbox().Edit(ctx, inboxstore.Change{Actor: asBot(w.beyond.ID), ID: cur.ID, Revision: cur.Revision,
+	cur, err := w.s.Inbox().Edit(ctx, inboxstore.Change{Actor: asBot(w.beyond.ID), ID: got.ID, Revision: got.Revision,
 		Chat: got.Chat}, inboxstore.Edit{Assignee: &inboxstore.Assignee{Kind: inboxstore.Me}})
 	require.NoError(t, err)
 
-	again, err := w.s.Inbox().Hand(ctx, inboxstore.Change{Actor: inboxOwner, ID: cur.ID, Revision: cur.Revision},
-		w.beyond.ID, "check it once more")
-	require.NoError(t, err)
+	again := w.passFrom(DefaultBotID, mainChat.ID, cur, w.beyond.ID)
 	require.Equal(t, got.Chat, again.Chat, "the item's chat with BeyondPilot is the same")
 	assert.False(t, w.ownerTurn(again.Chat), "cleared for good")
 }
