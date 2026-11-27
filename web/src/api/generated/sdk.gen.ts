@@ -3371,7 +3371,7 @@ export const moveInboxDropChats = <ThrowOnError extends boolean = true>(options:
 /**
  * An account's chats with whether the secretary reads each and why; only the owner
  *
- * Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+ * Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
  */
 export const listInboxChats = <ThrowOnError extends boolean = true>(options: Options<ListInboxChatsData, ThrowOnError>): RequestResult<ListInboxChatsResponses, ListInboxChatsErrors, ThrowOnError> => (options.client ?? client).get<ListInboxChatsResponses, ListInboxChatsErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

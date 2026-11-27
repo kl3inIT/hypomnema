@@ -5333,7 +5333,8 @@ its client API, its CLI and the Bots' tools.
     20,000; the API and the tools still page at most 500) and the Lark sign-in's (`GET /open-apis/im/v1/chats`, up to
     100 pages). The owner's API, his token only: `GET /inbox/chat-sources` (his accounts with counts read, skipped
     and by kind, and the defaults), `GET /inbox/chat-sources/{integration}/{label}` (`q` on the name or id in any
-    case, `kind`, `state`, `limit`; the account's counts and how many match), `PUT …/{chat}` (`reads`), and `POST
+    case, `kind`, `state`, `limit`; the account's counts, the counts for `q` alone and how many match all filters),
+    `PUT …/{chat}` (`reads`), and `POST
     /inbox/chat-sources/moves` (the one-time move below); the CLI's `inbox chats`, `inbox chats set` and `inbox
     chats move`. A Bot's pi and its Routine's check get `inbox_chats` (family `inbox`, allowed in a read run): the
     owner's choices of the accounts the Bot may read and the defaults with their patterns. The check reads it once a
@@ -5349,7 +5350,7 @@ its client API, its CLI and the Bots' tools.
     `deploy/thu-ky/setup.sh` runs it and stops on that failure before it sets the check, which no longer reads `dropChats` once the control
     plane has `inbox_chats`. The screen opens from a gear on the Inbox page (`/inbox/chats`,
     `features/inbox/chats-read-screen.tsx`): a tab per account with its count, the default for new chats, a search,
-    kind and state filters as the Machines page's segmented controls, and a card of rows, each with its kind's icon,
+    kind and state filters as the Machines page's segmented controls with counts for the search, and a card of rows, each with its kind's icon,
     why it is in its state (default or set by him, and when) and a switch.
 - Not built: the system closing a reply from the messages as they arrive (the Bot records it), the web page (part 5
   of #838).

@@ -212,6 +212,14 @@ func TestTheOwnerFindsAChatAndSwitchesItOff(t *testing.T) {
 	assert.Equal(t, "Lan Anh", found.Data[0].Name)
 	assert.Equal(t, 1, found.Matched)
 	assert.Equal(t, 4, found.Counts.All, "the counts are the account's")
+	assert.Equal(t, ptr(openapi.InboxChatCounts{All: 1, Direct: 1, Read: 1}), found.SearchCounts)
+
+	bots := openapi.InboxChatBot
+	narrowed := w.chatsOf(t, "zalo:main", openapi.ListInboxChatsParams{Q: ptr("00"), Kind: &bots, Limit: ptr(1)})
+	require.Len(t, narrowed.Data, 1)
+	assert.Equal(t, 2, narrowed.Matched)
+	assert.Equal(t, ptr(openapi.InboxChatCounts{All: 4, Direct: 1, Group: 1, Bot: 2, Read: 2, Skipped: 2}),
+		narrowed.SearchCounts, "search counts are taken before the kind filter and limit")
 
 	for name, c := range map[string]*openapi.ClientWithResponses{"chat bot": w.chatBot, "routine bot": w.routineBot} {
 		got, err := c.SetInboxChatWithResponse(ctx, "zalo", "main", "1001", openapi.InboxChatChoice{Reads: false})
@@ -240,7 +248,6 @@ func TestTheOwnerFindsAChatAndSwitchesItOff(t *testing.T) {
 		"1001": "direct skipped by owner", "3003": "bot skipped by default",
 	}, readsByID(w.chatsOf(t, "zalo:main", openapi.ListInboxChatsParams{State: &skipped})))
 
-	bots := openapi.InboxChatBot
 	assert.Equal(t, map[string]string{
 		"3003": "bot skipped by default", "4004": "bot read by owner",
 	}, readsByID(w.chatsOf(t, "zalo:main", openapi.ListInboxChatsParams{Kind: &bots})))

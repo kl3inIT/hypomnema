@@ -5680,6 +5680,7 @@ export type InboxChat = {
 export type InboxChatList = {
   data: Array<InboxChat>;
   counts: InboxChatCounts;
+  search_counts?: InboxChatCounts;
   /**
    * How many chats the filters keep.
    */

@@ -5488,7 +5488,8 @@ paths:
       summary: An account's chats with whether the secretary reads each and why; only the owner
       description: >-
         Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a
-        state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+        state. counts are the whole account's, search_counts are for q alone, and matched is how many all the
+        filters keep, of which at most limit are given.
       parameters:
         - name: q
           in: query
@@ -12006,6 +12007,9 @@ components:
           type: array
           items: { $ref: "#/components/schemas/InboxChat" }
         counts: { $ref: "#/components/schemas/InboxChatCounts" }
+        search_counts:
+          $ref: "#/components/schemas/InboxChatCounts"
+          description: Counts for a non-empty search, before kind, state and limit are applied.
         matched: { type: integer, description: "How many chats the filters keep." }
     InboxChatChoice:
       type: object

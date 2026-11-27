@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
@@ -143,7 +144,15 @@ func (s *Server) ListInboxChats(ctx context.Context, req openapi.ListInboxChatsR
 		return nil, err
 	}
 
-	kept := inbox.Filter(chats, val(req.Params.Q), string(val(req.Params.Kind)), string(val(req.Params.State)))
+	searched := chats
+	var searchCounts *openapi.InboxChatCounts
+
+	if q := strings.TrimSpace(val(req.Params.Q)); q != "" {
+		searched = inbox.Filter(chats, q, "", "")
+		searchCounts = ptr(countsOut(inbox.CountOf(searched)))
+	}
+
+	kept := inbox.Filter(searched, "", string(val(req.Params.Kind)), string(val(req.Params.State)))
 	limit := defaultInboxChats
 	if req.Params.Limit != nil {
 		limit = *req.Params.Limit
@@ -151,7 +160,7 @@ func (s *Server) ListInboxChats(ctx context.Context, req openapi.ListInboxChatsR
 
 	out := openapi.ListInboxChats200JSONResponse{
 		Data: make([]openapi.InboxChat, 0, min(len(kept), limit)), Counts: countsOut(inbox.CountOf(chats)),
-		Matched: len(kept),
+		Matched: len(kept), SearchCounts: searchCounts,
 	}
 
 	for _, ch := range kept[:min(len(kept), limit)] {

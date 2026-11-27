@@ -4862,7 +4862,8 @@ type InboxChatList struct {
 	Data   []InboxChat     `json:"data"`
 
 	// Matched How many chats the filters keep.
-	Matched int `json:"matched"`
+	Matched      int              `json:"matched"`
+	SearchCounts *InboxChatCounts `json:"search_counts,omitempty"`
 }
 
 // InboxChatMove defines model for InboxChatMove.
@@ -11310,7 +11311,7 @@ type ClientInterface interface {
 
 	// ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
 	//
-	// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+	// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
 	//
 	// Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
 	ListInboxChats(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -16276,7 +16277,7 @@ func (c *Client) MoveInboxDropChats(ctx context.Context, body MoveInboxDropChats
 
 // ListInboxChats An account's chats with whether the secretary reads each and why; only the owner
 //
-// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
 //
 // Corresponds with GET /inbox/chat-sources/{integration}/{label} (the `ListInboxChats` operationId).
 func (c *Client) ListInboxChats(ctx context.Context, integration IntegrationID, label ConnectionLabel, params *ListInboxChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -36061,7 +36062,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListInboxChatsWithResponse An account's chats with whether the secretary reads each and why; only the owner
 	//
-	// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+	// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -54955,7 +54956,7 @@ func (c *ClientWithResponses) MoveInboxDropChatsWithResponse(ctx context.Context
 
 // ListInboxChatsWithResponse An account's chats with whether the secretary reads each and why; only the owner
 //
-// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+// Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
 //
 // Returns a wrapper object for the known response body format(s).
 //

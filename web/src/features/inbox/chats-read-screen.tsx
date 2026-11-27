@@ -122,6 +122,7 @@ function SourceChats({ source, title }: { source: InboxChatSource; title: string
     state: state === "all" ? undefined : state,
   })
   const counts = chats.data?.counts ?? source.counts
+  const filterCounts = chats.data?.search_counts ?? counts
 
   return (
     <div className="flex flex-col gap-3 pt-3">
@@ -145,7 +146,7 @@ function SourceChats({ source, title }: { source: InboxChatSource; title: string
           value={kind}
           options={kinds}
           name={(k) => (k === "all" ? "All" : kindNames[k])}
-          count={(k) => (counts ? (k === "all" ? counts.all : counts[k]) : undefined)}
+          count={(k) => filterCounts?.[k]}
           onChange={setKind}
         />
         <Segmented
@@ -153,7 +154,7 @@ function SourceChats({ source, title }: { source: InboxChatSource; title: string
           value={state}
           options={states}
           name={(s) => stateNames[s]}
-          count={(s) => (counts ? (s === "all" ? counts.all : counts[s]) : undefined)}
+          count={(s) => filterCounts?.[s]}
           onChange={setState}
         />
       </div>

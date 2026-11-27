@@ -5765,7 +5765,7 @@ export const listInboxChatsQueryKey = (options: Options<ListInboxChatsData>) => 
 /**
  * An account's chats with whether the secretary reads each and why; only the owner
  *
- * Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's; matched how many the filters keep, of which at most limit are given.
+ * Issue #1270. Every chat of the account, the latest first, or those whose name or id has q, of a kind, in a state. counts are the whole account's, search_counts are for q alone, and matched is how many all the filters keep, of which at most limit are given.
  */
 export const listInboxChatsOptions = (options: Options<ListInboxChatsData>) => queryOptions<ListInboxChatsResponse, ListInboxChatsError, ListInboxChatsResponse, ReturnType<typeof listInboxChatsQueryKey>>({
   queryFn: async ({ queryKey, signal }) => {
