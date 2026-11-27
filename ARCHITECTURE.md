@@ -3163,7 +3163,10 @@ flowchart LR
       (NeedsCare: it asks the owner); the bridge sends with zca-js's `sendMessage`, a file by a path written for the
       call under `zalo-outgoing/` and removed after, an image with the size read from its header (adapted from the
       Hermes Zalo plugin, `third_party/hermes-zalo-plugin`), a reply quoting the kept message. What is sent is kept
-      as the owner's.
+      as the owner's. The bridge's `send` takes `mentions` `[{pos, uid, len}]`, zca-js's `Mention`, in a group only;
+      `messaging.Outgoing.Tags` (byte offsets of `@` and a name in the text) become them in UTF-16 units, as
+      JavaScript counts a string, and a tag the text does not write is refused. Only the Inbox's Send tags
+      ([issue #1200](https://github.com/kl3inIT/hypomnema/issues/1200)); `zalo_send` does not.
     - **The past from the phone** ([issue #697](https://github.com/kl3inIT/hypomnema/issues/697), step 4): Zalo's
       servers give a web session none of the past (step 2 walks empty pages), so `POST …/phone-sync` asks the
       owner's phone for it as Zalo PC's "Sync messages" does, ported from softtyos/zca-js
@@ -5045,7 +5048,17 @@ its client API, its CLI and the Bots' tools.
   names none; `POST /open-apis/im/v1/messages?receive_id_type=chat_id`), and a reply in the Gmail thread to the
   Reply-To or From of the item's mail, "Re:" its subject, `In-Reply-To` and `References` its Message-ID (inbox-zero's
   `replyToEmail`), header values kept on one line; the evidence is a `zalo_sent`, `whatsapp_sent`, `lark_sent` or
-  `mail` link. `Todo.chat_id` is the item's chat, and `Todo.passed_by` the Bot it was passed through (issue #1118).
+  `mail` link. Issue #1200: the reply answers the item's own message (its `message` link): Zalo's quote and
+  WhatsApp's `ContextInfo` of the message when the server keeps it (else it goes unquoted, as the Hermes Zalo
+  plugin sends a reply whose quote it lacks), Lark's `POST /open-apis/im/v1/messages/:message_id/reply`. In a group
+  (not a direct chat), a draft that writes `@` and a member's name tags him (`messaging.FindTags`, from zaloclaw's
+  `parseOutboundMentions` and the Hermes Zalo plugin's `_build_outbound_mentions`): the longest name first, in any
+  case, ending where a word ends (`@Duy` is not found in `@Duyên`), among the names the chat gives its members now
+  (`Sent.Members`), the names their 500 latest kept messages give the senders (Zalo, WhatsApp; a WhatsApp person
+  by his number and his LID is one, `messaging.Members.People`, tagged by the id he wrote last by) or Lark's list of
+  the chat's members. A name nobody or two people go by stays text, and so does every name when the members cannot
+  be read. Zalo sends the tag in `Outgoing.Tags`; WhatsApp writes `@` and the number with the id in
+  `Outgoing.Mentions` (issue #852); Lark writes `<at user_id="ou_…">Name</at>` in the text message. `Todo.chat_id` is the item's chat, and `Todo.passed_by` the Bot it was passed through (issue #1118).
   Issue #1157: `Todo.priority`, `priority_reason` and `project_id`, a department's id (issue #1188), given in
   `POST /inbox` and `PATCH /inbox/{id}` (an empty `project_id` takes the item out); `GET /inbox?project=<id>|none`.
   The projects are read from `GET /departments`; the Inbox has no list of its own.

@@ -445,8 +445,8 @@ func TestAFileGivenUpBeforeIsAskedOfThePhone(t *testing.T) {
 }
 
 // Scenario: issue #1163. Who is in a chat is read to tell whether the owner answered someone in another chat: a
-// group's participants as WhatsApp lists them, each by his JID, his number and his LID, once each, with the group's
-// name; a direct chat's other party by its JID and the LID whatsmeow learned for it, with the name kept. A chat that
+// group's participants as WhatsApp lists them, each by his JID, his number and his LID, once each and person by
+// person, with the group's name; a direct chat's other party by its JID and the LID whatsmeow learned for it, with the name kept. A chat that
 // is neither, such as the status broadcast, has no members to read.
 func TestAChatsMembersAreReadByEveryIDTheyHave(t *testing.T) {
 	t.Parallel()
@@ -462,8 +462,9 @@ func TestAChatsMembersAreReadByEveryIDTheyHave(t *testing.T) {
 			{JID: hoa, PhoneNumber: hoa},
 		},
 	})
-	assert.Equal(t, messaging.Members{Name: "Nhóm dự án", IDs: []string{lanLID.String(), lan.String(), hoa.String()}},
-		got)
+	assert.Equal(t, messaging.Members{Name: "Nhóm dự án", IDs: []string{lanLID.String(), lan.String(), hoa.String()},
+		People: [][]string{{lanLID.String(), lan.String()}, {hoa.String()}}}, got,
+		"a person known by his number and his LID is one person (issue #1200)")
 
 	acc := linkedAccount(t)
 	ctx := t.Context()

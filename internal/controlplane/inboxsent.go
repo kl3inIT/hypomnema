@@ -142,6 +142,15 @@ type chatMembers struct {
 	inboxstore.ChatMembers
 
 	direct bool
+	// people are the members person by person, each by his ids and the name the service lists him by, Lark's
+	// (issue #1200).
+	people []chatPerson
+}
+
+// chatPerson is a member of a chat: every id the service knows him by and the name it lists him by, when it does.
+type chatPerson struct {
+	ids  []string
+	name string
 }
 
 func (s inboxSent) chatMembers(ctx context.Context, service, account, chat string) (chatMembers, error) {
@@ -152,7 +161,19 @@ func (s inboxSent) chatMembers(ctx context.Context, service, account, chat strin
 			return chatMembers{}, err
 		}
 
-		return chatMembers{ChatMembers: inboxstore.ChatMembers{Name: m.Name, IDs: m.IDs}, direct: m.Direct}, nil
+		in := chatMembers{ChatMembers: inboxstore.ChatMembers{Name: m.Name, IDs: m.IDs}, direct: m.Direct}
+
+		for _, ids := range m.People {
+			in.people = append(in.people, chatPerson{ids: ids})
+		}
+
+		if m.People == nil {
+			for _, id := range m.IDs {
+				in.people = append(in.people, chatPerson{ids: []string{id}})
+			}
+		}
+
+		return in, nil
 	case inboxstore.FromLark:
 		token, err := s.larkToken(ctx, account)
 		if err != nil {
@@ -247,8 +268,8 @@ func (s inboxSent) larkMessage(ctx context.Context, token, id string) (larkMessa
 const larkMemberPages = 100
 
 // larkMembers are a Lark chat's name, whether it is a direct chat (GET /open-apis/im/v1/chats/:chat_id, chat_mode
-// p2p) and its members by their open_id (GET /open-apis/im/v1/chats/:chat_id/members, page after page), read with
-// the owner's own sign-in.
+// p2p) and its members by their open_id with their names (GET /open-apis/im/v1/chats/:chat_id/members, page after
+// page; its items' member_id and name), read with the owner's own sign-in.
 func (s inboxSent) larkMembers(ctx context.Context, token, chat string) (chatMembers, error) {
 	var info struct {
 		Data struct {
@@ -276,6 +297,7 @@ func (s inboxSent) larkMembers(ctx context.Context, token, chat string) (chatMem
 			Data struct {
 				Items []struct {
 					MemberID string `json:"member_id"`
+					Name     string `json:"name"`
 				} `json:"items"`
 				HasMore   bool   `json:"has_more"`
 				PageToken string `json:"page_token"`
@@ -289,6 +311,7 @@ func (s inboxSent) larkMembers(ctx context.Context, token, chat string) (chatMem
 		for _, m := range got.Data.Items {
 			if m.MemberID != "" {
 				out.IDs = append(out.IDs, m.MemberID)
+				out.people = append(out.people, chatPerson{ids: []string{m.MemberID}, name: m.Name})
 			}
 		}
 
