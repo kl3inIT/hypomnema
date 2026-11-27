@@ -19,7 +19,9 @@
 //     start to spread their per-address limits (Hermes
 //     plugins/web/keyless_mcp.py, _ring_order); then the subscriptions,
 //     last (OmniRoute's fallbackOnly); a call that names one gets that one
-//     only: OmniRoute's autoSearchCandidates;
+//     only: OmniRoute's autoSearchCandidates; a gateway key with its own
+//     order has its providers asked first, the rest after in this order
+//     (Scope, issue #1277);
 //   - a provider that fails is noted and the next one is asked, and the answer
 //     says which one answered after which failed: omp web/search/index.ts
 //     (fallbackNotes);
@@ -282,6 +284,44 @@ func New(cfg Config) *Service {
 // Search asks the web for query: limit results at most (0: DefaultResults),
 // from the provider named, or from the first that answers when none is.
 func (s *Service) Search(ctx context.Context, query string, limit int, provider string) (Answer, error) {
+	return s.SearchIn(ctx, Scope{}, query, limit, provider)
+}
+
+// Scope is what one caller sets of a search's chain (issue #1277): a gateway key's own order, and a name for the
+// accounts its subscription searches may use. The zero Scope is the owner's chain as Settings has it.
+type Scope struct {
+	// Order are the providers asked first, in this order, by a search that names none; the others follow in the
+	// chain's order. A provider switched off stays off. OmniRoute's preferred_connections: the next eligible one
+	// when a preferred is unavailable.
+	Order []string
+	// Accounts names the accounts the caller's subscription searches go to, empty for every account: its searches
+	// are kept apart from the others' in the cache, and a subscription that rests for them rests for them alone.
+	Accounts string
+}
+
+// first puts the routes of the scope's providers first, in its order; the others keep theirs.
+func (sc Scope) first(routes []route) []route {
+	if len(sc.Order) == 0 {
+		return routes
+	}
+
+	rank := func(r route) int {
+		if i := slices.Index(sc.Order, r.provider); i >= 0 {
+			return i
+		}
+
+		return len(sc.Order)
+	}
+
+	out := slices.Clone(routes)
+	slices.SortStableFunc(out, func(a, b route) int { return rank(a) - rank(b) })
+
+	return out
+}
+
+// SearchIn is Search with a caller's own Scope.
+func (s *Service) SearchIn(ctx context.Context, scope Scope, query string, limit int, provider string,
+) (Answer, error) {
 	query = strings.TrimSpace(query)
 	provider = strings.ToLower(strings.TrimSpace(provider))
 
@@ -307,7 +347,7 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 
 	limit = min(limit, MaxResults)
 	// A setting the owner changes makes another search: an answer kept from before is not given for it.
-	key := cacheKey(query, provider, limit, set)
+	key := cacheKey(query, provider, limit, set, scope)
 
 	if a, ok := s.cached(key); ok {
 		a.Cached = true
@@ -325,7 +365,7 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 		run, cancel := context.WithTimeout(context.WithoutCancel(ctx), searchBudget)
 		defer cancel()
 
-		a, err := s.search(run, query, limit, provider, set)
+		a, err := s.search(run, query, limit, provider, set, scope)
 		if err == nil {
 			s.keep(key, a)
 		}
@@ -366,9 +406,10 @@ func (s *Service) settings(ctx context.Context) (Settings, error) {
 }
 
 // search asks each way the call may use in turn until one answers.
-func (s *Service) search(ctx context.Context, query string, limit int, provider string, set Settings,
+func (s *Service) search(ctx context.Context, query string, limit int, provider string, set Settings, scope Scope,
 ) (Answer, error) {
-	routes, failures := s.routes(ctx, provider, set, true)
+	routes, failures := s.routes(ctx, provider, set, true, scope.Accounts)
+	routes = scope.first(routes)
 
 	var (
 		tried     bool
@@ -494,8 +535,10 @@ type route struct {
 
 // routes are the ways a call may ask, in the order they are tried, and the
 // failures of those that could not even be set up. turn moves the keyless
-// ring's start: a search does, the page's listing does not.
-func (s *Service) routes(ctx context.Context, provider string, set Settings, turn bool) ([]route, []Failure) {
+// ring's start: a search does, the page's listing does not. accounts is the
+// Scope's, which the subscriptions' routes rest under.
+func (s *Service) routes(ctx context.Context, provider string, set Settings, turn bool, accounts string,
+) ([]route, []Failure) {
 	var failures []Failure
 
 	keys, err := s.keys(ctx)
@@ -542,7 +585,7 @@ func (s *Service) routes(ctx context.Context, provider string, set Settings, tur
 	if s.subs != nil {
 		for _, p := range SubscriptionProviders() {
 			if !off(p) && (provider == "" || provider == p) {
-				out = append(out, subscriptionRoute(p))
+				out = append(out, subscriptionRoute(p, accounts))
 			}
 		}
 	}

@@ -309,8 +309,14 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.svc.KeyServes(r.Context(), key, model) {
+		writeError(w, http.StatusForbidden, typePermission, "model_not_allowed", accountsRefuseMessage(req.model))
+
+		return
+	}
+
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: req.stream, started: started}
-	serving, served := withServed(r)
+	serving, served := withServed(withKey(r, key))
 	s.serveChat(w, serving, req, model, key, &record)
 	record.AccountID = served.id
 	record.Duration = s.svc.clock.Now().Sub(started)

@@ -2,6 +2,9 @@ package clientcli
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +14,25 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/muse"
 )
+
+func TestMuseAccountsShowsWhyUsageIsUnknown(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/v1/gateway/muse", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"tools_on":true,"accounts":[{"id":"acc_1","label":"research","position":1,
+			"on":true,"state":"signed_in","resting":false,"usage":"unknown",
+			"usage_error":"Muse's Settings were not found"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	w := &world{home: t.TempDir()}
+	require.NoError(t, saveConfig(w.home, Config{URL: srv.URL, Token: "test"}))
+
+	out, err := w.cmd(t, "muse", "accounts")
+	require.NoError(t, err)
+	assert.Contains(t, out, "unknown (Muse's Settings were not found)")
+}
 
 // thePool stands for the Muse pool.
 type thePool struct {

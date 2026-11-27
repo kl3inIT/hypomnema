@@ -598,6 +598,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		LarkURL: "https://" + serviceproxy.LarkHost, GmailURL: "https://gmail.googleapis.com",
 		Client: &http.Client{Timeout: 30 * time.Second}, Log: logger,
 	})
+	// The owner's chats with whether the secretary reads each (issue #1270).
+	secretaryChats := inbox.NewChats(inbox.Config{
+		Chats: integrations.Chats, ChatReads: svc.Inbox().ChatReads, LarkToken: larkToken,
+		LarkURL: "https://" + serviceproxy.LarkHost, Client: &http.Client{Timeout: 30 * time.Second},
+	})
 	gatewayServer := modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		ChatFallbacks: svc.ChatFallbacks,
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
@@ -692,6 +697,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithWorkspaces(nodes.Files, bots).WithChatFiles(newChatFiles(cfg.ChatRmCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithMessaging(integrations).WithInboxSender(ownerReplies).
+		WithInboxChats(secretaryChats).
 		WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
 		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).

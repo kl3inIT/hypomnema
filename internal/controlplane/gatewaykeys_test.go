@@ -310,3 +310,86 @@ func TestGatewayKeyCLIWithoutVaultAndWithEveryEndpoint(t *testing.T) {
 		"SELECT endpoints FROM gateway_keys WHERE id = ?", key.ID).Scan(&storedEndpoints))
 	assert.Nil(t, storedEndpoints)
 }
+
+// Scenario (issue #1277): the owner gives a key its own accounts and search order from the CLI, sees them in the
+// list, and sets both back to the default; the client API sets and shows the same.
+func TestTheOwnerSetsAKeysRoutingFromTheCLIAndTheAPI(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc), nil)
+	claude, err := svc.AddAccount(ctx, "claude", "work")
+	require.NoError(t, err)
+
+	var output bytes.Buffer
+	cli := owner{gateway: gateway, out: &output}
+	require.NoError(t, cli.gatewayCommand(ctx, []string{"keys", "add", "beyondpilot", "--accounts", claude.ID,
+		"--search-order", "codex,claude,exa"}))
+	assert.Contains(t, output.String(), "; only accounts "+claude.ID+"; searches codex, claude, exa first")
+
+	keys, err := gateway.ListKeys(ctx)
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	id := keys[0].ID
+
+	output.Reset()
+	require.NoError(t, cli.gatewayCommand(ctx, []string{"keys", "list"}))
+	assert.Contains(t, output.String(), "searches codex, claude, exa first")
+
+	require.ErrorIs(t, cli.gatewayCommand(ctx, []string{"keys", "set", id, "--search-order", "google"}),
+		modelgateway.ErrInvalid)
+
+	output.Reset()
+	require.NoError(t, cli.gatewayCommand(ctx, []string{"keys", "set", id, "--accounts", "*", "--search-order",
+		"settings"}))
+	assert.NotContains(t, output.String(), "only accounts")
+	assert.NotContains(t, output.String(), "searches")
+
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+
+	mux := http.NewServeMux()
+	require.NoError(t, clientapi.New(svc, slog.New(slog.DiscardHandler), stop).WithGatewayKeys(gateway).Register(mux))
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	_, token, err := svc.AddToken(ctx, "web", bearertoken.Owner)
+	require.NoError(t, err)
+	api, err := openapi.NewClientWithResponses(srv.URL+clientapi.BasePath,
+		openapi.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
+			r.Header.Set("Authorization", "Bearer "+token)
+
+			return nil
+		}))
+	require.NoError(t, err)
+
+	accounts := []string{claude.ID}
+	order := []openapi.WebSearchProvider{openapi.WebSearchProviderClaude, openapi.WebSearchProviderExa}
+	made, err := api.CreateGatewayKeyWithResponse(ctx, openapi.NewGatewayKey{
+		Name: "app", Accounts: &accounts, SearchOrder: &order,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, made.StatusCode(), string(made.Body))
+	require.NotNil(t, made.JSON201.Key.Accounts)
+	assert.Equal(t, []openapi.GatewayKeyAccount{{Id: claude.ID, Runtime: "claude"}}, *made.JSON201.Key.Accounts)
+	assert.Equal(t, order, made.JSON201.Key.SearchOrder)
+
+	every, none := []string{modelgateway.AllAccounts}, []openapi.WebSearchProvider{}
+	reset, err := api.UpdateGatewayKeyWithResponse(ctx, made.JSON201.Key.Id, openapi.GatewayKeyUpdate{
+		Accounts: &every, SearchOrder: &none,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, reset.StatusCode(), string(reset.Body))
+	assert.Nil(t, reset.JSON200.Accounts, "every account again")
+	assert.Empty(t, reset.JSON200.SearchOrder)
+
+	missing := []string{"acc_gone"}
+	bad, err := api.UpdateGatewayKeyWithResponse(ctx, made.JSON201.Key.Id, openapi.GatewayKeyUpdate{Accounts: &missing})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, bad.StatusCode(), string(bad.Body))
+}

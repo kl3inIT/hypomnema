@@ -104,7 +104,7 @@ func TestAnAccountsStateIsKept(t *testing.T) {
 
 	require.NoError(t, s.setState(ctx, "acc_1", StateSignedIn, "", "v1", now))
 	require.NoError(t, s.rest(ctx, "acc_1", true, "out of quota"))
-	require.NoError(t, s.setUsage(ctx, "acc_1", Usage{UsedPercent: 100, Reset: "Sep 30", Found: true}, now))
+	require.NoError(t, s.setUsage(ctx, "acc_1", Usage{UsedPercent: 100, Reset: "Sep 30", Found: true}, "", now))
 	require.NoError(t, s.setState(ctx, "acc_1", StateSignedIn, "", "", now))
 
 	st, err := s.state(ctx, "acc_1")

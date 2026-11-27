@@ -150,3 +150,105 @@ func TestASubscriptionsSearchRestsAfterA429AndCanBeTurnedOff(t *testing.T) {
 	_, err = websearch.New(websearch.Config{}).Search(t.Context(), "go", 0, websearch.ProviderClaude)
 	require.ErrorIs(t, err, websearch.ErrInvalid)
 }
+
+// scoped is a world whose one free provider is Exa's public MCP, which answers, and whose subscriptions answer as
+// subs says; off turns providers off.
+func scoped(t *testing.T, subs *subscriptions, off ...string) (*websearch.Service, *world) {
+	t.Helper()
+
+	w := newWorld(t, options{})
+	set := websearch.Settings{Off: append(keylessOnly("exa"), off...)}
+
+	svc := websearch.New(websearch.Config{
+		ExaMCPURL: w.exaMCP.url, Now: w.clock.Now,
+		Settings: func(context.Context) (websearch.Settings, error) { return set, nil },
+	})
+
+	return svc.WithSubscriptions(subs), w
+}
+
+// Scenario (issue #1277): a gateway key's own order is Codex, Claude, then Exa. Its search asks Codex, which is at
+// its limit, then Claude, which answers: Exa is not asked. The same search without the key's order is Exa's, first
+// in the owner's order. A key whose order names only Claude, which fails, goes on in the owner's order: Exa answers
+// and Codex, last there, is not asked. A provider switched off stays off for a key that names it.
+func TestAKeysOwnSearchOrderAsksItsProvidersFirst(t *testing.T) {
+	t.Parallel()
+
+	keyOrder := websearch.Scope{Order: []string{websearch.ProviderCodex, websearch.ProviderClaude, websearch.ProviderExa}}
+	subs := &subscriptions{answers: map[string]func() ([]websearch.Result, error){
+		websearch.ProviderCodex: func() ([]websearch.Result, error) {
+			return nil, websearch.Refused(http.StatusTooManyRequests, 30*time.Second, "usage limit")
+		},
+		websearch.ProviderClaude: found("claude"),
+	}}
+	svc, w := scoped(t, subs)
+
+	a, err := svc.SearchIn(t.Context(), keyOrder, "go 1.27", 3, "")
+	require.NoError(t, err)
+	assert.Equal(t, websearch.ProviderClaude, a.Provider)
+	assert.Equal(t, []string{"codex:go 1.27:3", "claude:go 1.27:3"}, subs.calls())
+	assert.Zero(t, w.exaMCP.calls.Load(), "Exa comes after the key's subscriptions")
+
+	a, err = svc.Search(t.Context(), "go 1.27", 3, "")
+	require.NoError(t, err)
+	assert.Equal(t, websearch.ProviderExa, a.Provider, "another key keeps the owner's order")
+	assert.False(t, a.Cached, "the key's answer is not another key's")
+	assert.Len(t, subs.calls(), 2)
+
+	failing := &subscriptions{answers: map[string]func() ([]websearch.Result, error){
+		websearch.ProviderClaude: func() ([]websearch.Result, error) {
+			return nil, websearch.Refused(http.StatusServiceUnavailable, 0, "overloaded")
+		},
+		websearch.ProviderCodex: found("codex"),
+	}}
+	svc, _ = scoped(t, failing)
+
+	a, err = svc.SearchIn(t.Context(), websearch.Scope{Order: []string{websearch.ProviderClaude}}, "go", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, websearch.ProviderExa, a.Provider, "the providers it leaves out follow in the owner's order")
+	assert.Equal(t, []string{"claude:go:5"}, failing.calls())
+
+	off := &subscriptions{answers: map[string]func() ([]websearch.Result, error){
+		websearch.ProviderCodex: found("codex"), websearch.ProviderClaude: found("claude"),
+	}}
+	svc, _ = scoped(t, off, websearch.ProviderCodex)
+
+	a, err = svc.SearchIn(t.Context(), keyOrder, "go", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, websearch.ProviderClaude, a.Provider)
+	assert.Equal(t, []string{"claude:go:5"}, off.calls(), "a provider off is skipped though the key names it")
+}
+
+// Scenario (issue #1277): Codex's search under a key's own accounts answers 429. It rests for that key's accounts
+// alone: the owner's next search, under every account, asks Codex.
+func TestASubscriptionRestsForTheKeysAccountsAlone(t *testing.T) {
+	t.Parallel()
+
+	limited := true
+	subs := &subscriptions{answers: map[string]func() ([]websearch.Result, error){
+		websearch.ProviderCodex: func() ([]websearch.Result, error) {
+			if limited {
+				return nil, websearch.Refused(http.StatusTooManyRequests, time.Minute, "usage limit")
+			}
+
+			return found("codex")()
+		},
+		websearch.ProviderClaude: found("claude"),
+	}}
+	svc, _ := scoped(t, subs, websearch.ProviderExa)
+	key := websearch.Scope{Order: []string{websearch.ProviderCodex}, Accounts: "only:acc_1"}
+
+	a, err := svc.SearchIn(t.Context(), key, "first", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, websearch.ProviderClaude, a.Provider)
+
+	limited = false
+
+	a, err = svc.Search(t.Context(), "second", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, websearch.ProviderCodex, a.Provider, "Codex rests only for the key's accounts")
+
+	a, err = svc.SearchIn(t.Context(), key, "third", 0, "")
+	require.NoError(t, err)
+	assert.Equal(t, websearch.ProviderClaude, a.Provider, "the key's accounts still rest")
+}

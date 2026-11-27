@@ -131,6 +131,8 @@ func (s *Service) SignInCheck(ctx context.Context, id, label string) (SignIn, er
 	s.cfg.Logger.InfoContext(ctx, "a Muse account was signed in", slog.String("event", "muse.signed_in"),
 		slog.String("account", again.ID))
 
+	_, _ = s.readUsage(ctx, again.ID, false)
+
 	views, err := s.Accounts(ctx)
 	if err != nil {
 		return SignIn{}, err

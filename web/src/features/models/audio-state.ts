@@ -1,9 +1,11 @@
 import type {
   AudioKey,
   AudioKind,
+  AudioModelInfo,
   AudioProvider,
   AudioProviderLink,
   AudioUsage,
+  AudioVoiceInfo,
   WebSearchRest,
 } from "@/api/generated/types.gen"
 
@@ -117,4 +119,51 @@ export function audioUsageText(kind: AudioKind, usage: AudioUsage) {
       : `${count.format(usage.month.characters)} characters spoken`
 
   return `${part("Today", usage.today)} · ${part("this month", usage.month)} · ${amount}`
+}
+
+// A choice in a picker: what is saved, and what is read. The model and voice pickers list the provider's own
+// models and voices (issue #1283, rows 1 and 5), as open-webui's audio settings list ElevenLabs's from its
+// /v1/models and /v1/voices (backend/open_webui/routers/audio/__init__.py), a voice by its name.
+export type AudioChoice = { value: string; label: string; detail?: string }
+
+// defaultVoice is the value of "its own default voice", which is saved as no voice.
+export const defaultVoice = "@default"
+
+// modelChoices are a provider's speech models, the one in use kept first when the list does not have it (a list
+// that could not be read, or a model the provider no longer offers).
+export function modelChoices(
+  models: AudioModelInfo[],
+  provider: AudioProvider,
+  current: string,
+): AudioChoice[] {
+  const out: AudioChoice[] = models
+    .filter((m) => m.provider === provider)
+    .map((m) => ({ value: m.id, label: m.name || m.id, detail: languagesText(m.languages) }))
+  if (current && !out.some((c) => c.value === current))
+    out.unshift({ value: current, label: current })
+
+  return out
+}
+
+function languagesText(languages: string[]) {
+  if (languages.length === 0) return undefined
+
+  return languages.length === 1 ? "1 language" : `${languages.length} languages`
+}
+
+// voiceChoices are a provider's voices by name, after its own default; a voice set by id or by another name that
+// the list does not have is kept, as it was set.
+export function voiceChoices(
+  voices: AudioVoiceInfo[],
+  provider: AudioProvider,
+  current: string,
+): AudioChoice[] {
+  const out: AudioChoice[] = voices
+    .filter((v) => v.provider === provider)
+    .map((v) => ({ value: v.id, label: v.name || v.id, detail: v.language }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+  if (current && !out.some((c) => c.value === current))
+    out.unshift({ value: current, label: current })
+
+  return [{ value: defaultVoice, label: "Its own default" }, ...out]
 }

@@ -88,12 +88,14 @@ func (s *Server) alphaSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := keyContext(r.Context(), k)
+	scope := searchScope(ctx, k)
 	out := alphaSearchResponse{Results: []alphaSearchResult{}}
 	texts := make([]string, 0, len(queries))
 
 	for _, q := range queries {
 		start := s.svc.clock.Now()
-		answer, err := s.web.Search(r.Context(), q, limit, "")
+		answer, err := s.web.SearchIn(ctx, scope, q, limit, "")
 		s.recordWeb(r, WebCall{
 			KeyID: k.ID, Model: ModelWebSearch, Provider: answer.Provider, Attempts: len(answer.Errors) + 1, Err: err,
 			Duration: s.svc.clock.Now().Sub(start),

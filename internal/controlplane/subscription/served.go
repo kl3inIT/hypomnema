@@ -148,8 +148,8 @@ func (s *Service) servedOf(ctx context.Context, runtime string) servedView {
 
 	// An account whose reading failed adds what it was last read to serve, or nothing; it hides no other's (omp
 	// packages/catalog/src/provider-models/google.ts keeps a catalog it could not read again and skips an account
-	// that is refused).
-	for _, a := range usable(accounts, runtime) {
+	// that is refused). A request limited to some accounts (WithAccounts) reads theirs alone: no other is called.
+	for _, a := range chosen(ctx, usable(accounts, runtime)) {
 		r := s.reading(ctx, runtime, a.ID, deadline)
 		if r.at.IsZero() {
 			v.reading = v.reading || r.reading != nil
@@ -177,7 +177,7 @@ func (s *Service) firstServed(
 		return good
 	}
 
-	for _, a := range usable(accounts, runtime) {
+	for _, a := range chosen(ctx, usable(accounts, runtime)) {
 		r := s.reading(ctx, runtime, a.ID, deadline)
 		if !r.answered() || (ok && !r.at.After(good.read)) {
 			continue

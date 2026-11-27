@@ -261,7 +261,7 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request, edit bool) {
 	}
 
 	start := s.svc.clock.Now()
-	res, err := s.MakeImages(r.Context(), req)
+	res, err := s.MakeImages(keyContext(r.Context(), k), req)
 	s.recordImages(r.Context(), ImageCall{
 		KeyID: k.ID, Request: req, Result: res, Err: err, Duration: s.svc.clock.Now().Sub(start),
 	})

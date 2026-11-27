@@ -397,7 +397,7 @@ func (s *Server) ListMessagingChats(ctx context.Context, req openapi.ListMessagi
 		return nil, errNoMessaging
 	}
 
-	chats, err := s.messaging.Chats(ctx, req.Integration, req.Label, val(req.Params.Limit))
+	chats, err := s.messaging.Chats(ctx, req.Integration, req.Label, min(val(req.Params.Limit), messaging.MaxPage))
 	if err != nil {
 		return nil, err
 	}

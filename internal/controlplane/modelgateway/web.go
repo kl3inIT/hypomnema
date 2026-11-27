@@ -253,7 +253,8 @@ func (s *Server) webSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := s.svc.clock.Now()
-	answer, err := s.web.Search(r.Context(), in.Query, in.MaxResults, in.Provider)
+	ctx := keyContext(r.Context(), k)
+	answer, err := s.web.SearchIn(ctx, searchScope(ctx, k), in.Query, in.MaxResults, in.Provider)
 	s.recordWeb(r, WebCall{
 		KeyID: k.ID, Model: ModelWebSearch, Provider: answer.Provider, Attempts: len(answer.Errors) + 1, Err: err,
 		Duration: s.svc.clock.Now().Sub(start),

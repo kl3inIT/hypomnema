@@ -1302,6 +1302,31 @@ var commands = []command{
 		flags: jsonFlag, run: inboxReopen,
 	},
 	{
+		name: "inbox chats", args: "[<integration>:<label>]", max: 1,
+		summary: "the owner's accounts whose chats the secretary reads, or one's chats with whether it reads each (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("q", "", "only the chats whose name or id has these words")
+			fs.String("kind", "", "only the chats of this kind: direct, group or bot")
+			fs.String("state", "", "only the chats the secretary reads (read) or skips (skipped)")
+			jsonFlag(fs)
+		},
+		run: inboxChats,
+	},
+	{
+		name: "inbox chats set", args: "<integration>:<label> <chat_id> on|off", min: 3, max: 3,
+		summary: "set whether the secretary reads a chat; off, it is still kept and read on request (owner)",
+		flags:   jsonFlag, run: inboxChatsSet,
+	},
+	{
+		name:    "inbox chats move",
+		summary: "move the chat ids of a Bot's thu-ky/filters.json dropChats into the owner's choices, once (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("bot", "", "the Bot whose folder holds thu-ky/filters.json, by name or id (default the main Bot)")
+			jsonFlag(fs)
+		},
+		run: inboxChatsMove,
+	},
+	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",
 		flags: jsonFlag, run: skillsList,
 	},

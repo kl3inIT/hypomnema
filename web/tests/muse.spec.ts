@@ -14,6 +14,7 @@ type Account = {
   cause?: string
   resting: boolean
   usage: string
+  usage_error?: string
 }
 
 function start(): { tools_on: boolean; accounts: Account[] } {
@@ -48,6 +49,7 @@ function start(): { tools_on: boolean; accounts: Account[] } {
         cause: "muse.ai refused the account (403: region, network or access)",
         resting: false,
         usage: "unknown",
+        usage_error: "muse.ai's page did not become ready: Muse's Settings were not found",
       },
       {
         id: "acc_4",
@@ -223,6 +225,12 @@ test("the owner sees the Muse accounts with their states and usage", async ({ pa
   await expect(row(page, "backup")).toContainText("Out of quota")
   await expect(row(page, "travel")).toContainText("Refused")
   await expect(row(page, "travel")).toContainText("403")
+  await expect(row(page, "travel")).toContainText("Usage unknown")
+  await expect(
+    row(page, "travel").getByText(
+      "muse.ai's page did not become ready: Muse's Settings were not found",
+    ),
+  ).toBeVisible()
   await expect(row(page, "spare")).toContainText("Off")
   await expect(page.getByRole("switch", { name: "Agents' Muse tools" })).toBeChecked()
 

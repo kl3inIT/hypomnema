@@ -85,6 +85,10 @@ func toMuseAccount(a muse.Account) openapi.MuseAccount {
 		out.Cause = ptr(a.Cause)
 	}
 
+	if a.UsageError != "" {
+		out.UsageError = ptr(a.UsageError)
+	}
+
 	if !a.UsageReadAt.IsZero() {
 		out.UsageReadAt = ptr(a.UsageReadAt)
 	}
