@@ -1181,12 +1181,14 @@ sequenceDiagram
     order that is on and answers speaks the first scene and then every other one, with the voice asked or that
     provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
     no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
-    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the word times heard
-    from a clip are kept beside it (`<clip>.words.json`) and removed before the clip is spoken again. A revision
+    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the word times of a clip
+    are kept beside it (`<clip>.words.json`) and removed before the clip is spoken again: those its speech came with
+    (`Timestamps`, Soniox's WebSocket; issue #1285), else those heard from it. A revision
     made from another (a look change, a retry) is **pinned** (`pin_provider`, `pin_voice`): only that provider is
     asked, with exactly that voice, even an empty one, and the owner's audio settings are not read. Composing is
-    `compose.Compose`; captioning transcribes each scene's clip with its words' times through the speech service,
-    joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
+    `compose.Compose`; captioning takes each scene's clip's kept word times, else transcribes it with its words'
+    times through the speech service and joins Soniox's tokens into words; it moves them to the scene's place on
+    the video and keeps them within it, cuts
     cues by aidemo's rules (2 lines of 38 characters, at most 12 words, 1-6 s, broken at a sentence end, a clause's
     punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
@@ -1758,7 +1760,7 @@ sequenceDiagram
     /audio/transcriptions` `{audio (base64, at most 128 MiB), file_name?, mime_type?, language?, speakers?,
     provider?}` answering `{provider, model, text, language?, duration, segments: [{start, end, text, speaker?}],
     words: [{word, start, end, speaker?}], errors?}`, and `POST /audio/speech` `{input, voice?, format?, speed?,
-    language?, provider?}` answering `{provider, model, format, mime_type, audio (base64), characters, errors?}`, for
+    reduce_silence?, language?, provider?}` answering `{provider, model, format, mime_type, audio (base64), characters, errors?}`, for
     any token; `hypomnema audio transcribe <file> [--speakers] [--language] [--provider]` prints the text, or a line
     a segment with its time and speaker, then who heard it; `hypomnema audio speak <text> -o <file> [--voice]
     [--format] [--speed] [--language] [--provider]` saves the speech (the file's extension is its format when none is
@@ -4048,8 +4050,8 @@ capabilities do not exist yet.
   `speaker_labels`) make the answer `verbose_json`: `{task, text, language, duration, provider, model, segments:
   [{id, start, end, text, speaker?}], words?: [{word, start, end, speaker?}] (when the word granularity is asked),
   errors?}`; srt and vtt are a cue a segment, as LiteLLM renders them. Speech is OpenAI's JSON `{input (at most
-  4,096 characters), voice?, model?, response_format mp3|wav|pcm|opus, speed?}` (plus `language` for Soniox and
-  `provider`), answered with the audio's bytes. A `model` picks the provider only (`soniox/…`, `stt-*`, `tts-*`
+  4,096 characters), voice?, model?, response_format mp3|wav|pcm|opus, speed?}` (plus `language` and
+  `reduce_silence` for Soniox, and `provider`), answered with the audio's bytes. A `model` picks the provider only (`soniox/…`, `stt-*`, `tts-*`
   Soniox; `elevenlabs/…`, `scribe*`, `eleven_*` ElevenLabs; `whisper-1`, `tts-1` none). A non-JSON answer names who
   answered in `X-Hypomnema-Provider`, `X-Hypomnema-Model` and `X-Hypomnema-Fallback-Reasons` (OmniRoute's
   headers). The voices are `{object: "list", data: [{id, name, provider, language?}], errors?}`. Errors: 400, 403
@@ -4791,27 +4793,52 @@ not checked against the live site in the change that wrote them.
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
 `clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
-[research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): speech to text and text to speech with the
+[research](docs/research/2026-11-17-meetings-and-gateway-audio.md), Soniox's update
+[research](docs/research/2026-11-27-soniox-v6-and-tts-timestamps.md)): speech to text and text to speech with the
 owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, above) and for the owner and Bots
 (`hypomnema audio`, see the client API).
-- Providers: Soniox, then ElevenLabs (owner, 2026-11-17), each asked with one model a kind: Soniox `stt-async-v5`
-  and `tts-rt-v2`, ElevenLabs `scribe_v2` and `eleven_multilingual_v2`. Speech to text and text to speech each ask
-  the providers that are on in the owner's order for that kind; the first that answers wins and the answer says why
-  those before it did not.
+- Providers: Soniox, then ElevenLabs (owner, 2026-11-17), each asked with the model the owner chose for each kind on
+  Settings → Gateway → Audio (columns `stt_model`, `tts_model` of `gateway_audio_providers`; `PUT
+  /gateway/audio/providers/{provider}/models/{kind}` `{model}`, empty for the newest; issue #1285), else its newest
+  (`speech.DefaultModel`): Soniox `stt-async-v6` and `tts-rt-v2`, ElevenLabs `scribe_v2` and
+  `eleven_multilingual_v2`. `GET /gateway/audio/providers/{provider}/models/{kind}` lists the choices: Soniox's
+  `GET /v1/tts-models` and its async models of `GET /v1/models`, aliases left out; ElevenLabs's one model. A pinned
+  call reads no settings and is asked with the newest. Speech to text and text to speech each ask the providers
+  that are on in the owner's order for that kind; the first that answers wins and the answer says why those before
+  it did not. A request the named provider cannot take (Soniox's speed out of 0.7-1.3) is 400.
 - Keys: each provider takes several, vault secrets `speech-<provider>` and `speech-<provider>-<n>` (the lowest free
   number), read at each call, asked least recently used first; a key that is rate limited (429: its `Retry-After`,
   else 2 s doubling to 5 minutes), out of credits (402 or the words, 5 minutes doubling to an hour) or refused
   (401, 403: 2 minutes) rests on its own and the provider's next key is asked, as web search's keys; any other
-  failure goes to the next provider. In memory. Every key resting is 429; no provider on with a key, 503.
+  failure goes to the next provider. In memory. Every key resting is 429; no provider on with a key, 503. Before a
+  key rests, a 408, 429, 500 or 503 is asked again twice (`speech/retry.go`, the ElevenLabs SDK's
+  `core/http_client.py` and Soniox's list): after its `Retry-After` when that is at most 30 s (a longer one rests
+  the key at once), else 1 s then 2 s, ±10 %; a streamed upload is not asked again. Soniox's 402 reads "Soniox
+  balance is empty".
 - Soniox (MemoryOS `voice/SonioxApi.java`, `SonioxAsync.java`; LiteLLM `llms/soniox/`), bearer key, base
   `https://api.soniox.com/v1`: `POST /files` (the recording, multipart `file`, streamed), `POST /transcriptions`
   `{model, file_id, enable_speaker_diarization?, language_hints + language_hints_strict, or
-  enable_language_identification}`, `GET /transcriptions/{id}` each second until `completed` (or `error`) up to 30
-  minutes, `GET /transcriptions/{id}/transcript` (`{text, tokens: [{text, start_ms, end_ms, speaker, language,
+  enable_language_identification}`, `GET /transcriptions/{id}` every 5 seconds (soniox-python's `wait`) until
+  `completed` (or `error`) up to 30 minutes, `GET /transcriptions/{id}/transcript` (`{text, tokens: [{text, start_ms, end_ms, speaker, language,
   is_audio_event}]}`), then `DELETE` the transcription and the file, best effort, even after the caller left. The
   length is `audio_duration_ms`. Its speech is OmniRoute's: `POST https://tts-rt.soniox.com/tts` `{text, model,
-  language (en), voice (Adrian, also for OpenAI's voice names), audio_format (pcm as pcm_s16le)}`; its one voice
-  listed is Adrian, OmniRoute's default (no reference lists more).
+  language (en), voice (Adrian, also for OpenAI's voice names), audio_format (pcm as pcm_s16le), speed? (0.7-1.3),
+  reduce_silence? (only for a model whose `/v1/tts-models` entry has `supports_silence_reduction`),
+  client_reference_id (the request's `Reference`, else a new `hypomnema-<hex>`)}`. Speech asked with its words'
+  times (`SpeakRequest.Timestamps`, Studio's) goes over `wss://tts-rt.soniox.com/tts-websocket` instead, as pipecat
+  speaks it: the key as a bearer header, one stream with the same config and `return_timestamps: true`, the line as
+  one text with `text_end`, the base64 audio and the `timestamps` arrays appended until `terminated`, an
+  `error_code` read as that status's refusal; a model the catalog says gives no timestamps is asked over REST. A
+  line over 5,000 characters is refused before the call, and each key's Soniox speech waits for a place: at most 3
+  at once and 100 a minute (`speech/limit.go`, Soniox's REST limits). Its voices are `GET /v1/shared-voices?model=`
+  (the TTS model chosen, each page) and the cloned voices of `GET /v1/voices` that are `ready` for it, kept a day a
+  key and model; Studio's voice picker lists them by name (`GET /gateway/audio/voices`).
+- The words of spoken text with their times (`speech.AlignedWords`, shared by every provider that gives per-character
+  times): the characters cut at spaces, a `[tag]` one word and dropped, `*` no character, a word from its first
+  character's start to its last's end (pipecat `services/soniox/tts.py` `_to_word_times`), then matched back to
+  the line's own words by a longest common subsequence of their letters and digits (NFC, lower case), a run of the
+  line's words between two matches sharing the time of the spoken words between them by letters; the words are told
+  in the line's spelling.
 - ElevenLabs (9router-go `internal/handlers/media/elevenlabs_stt.go`, `voices.go`; Bifrost
   `core/providers/elevenlabs/`; LiteLLM `llms/elevenlabs/text_to_speech/`), `xi-api-key`, base
   `https://api.elevenlabs.io`: `POST /v1/speech-to-text` multipart `{model_id, file, timestamps_granularity word,
@@ -4904,7 +4931,7 @@ gateway chat model writes its summary, decisions and actions.
   WebSocket `/api/v1/meetings/{id}/stream/{ticket}?track=&offset=` (outside the contract, as a terminal's, both
   server deadlines lifted): PCM16 24 kHz mono frames of at most 64 KiB and one `{"type":"end"}` in; `ready`,
   `preview`, `line` (kept), `finished`, `error {code}` out; a ping every 20 s; a track with no audio for 60 s
-  or past 5 h ends. The control plane relays each track to Soniox's realtime WebSocket (`stt-rt-v5`, the key as a
+  or past 5 h ends. The control plane relays each track to Soniox's realtime WebSocket (`stt-rt-v6`, the key as a
   bearer header, endpoint detection, diarization except an online microphone, which is the owner, shown "You" and
   not renamed; the Dictionary as `context.terms`; a keepalive after 5 s without audio; the end as an empty text
   frame), keys from the same vault pool. A failed Soniox stream reopens after 2/5/10/20/30 s, replays the last 5 s
