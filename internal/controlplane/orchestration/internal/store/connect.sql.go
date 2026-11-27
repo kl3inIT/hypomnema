@@ -184,7 +184,7 @@ func (q *Queries) ListStoppingDispatchesOfNode(ctx context.Context, nodeID strin
 }
 
 const listUndeliveredAnswersOfNode = `-- name: ListUndeliveredAnswersOfNode :many
-SELECT q.id, q.dispatch_id, q.task_id, q.run_id, q.mode, q.addressed_to, q.text, q.options, q.status, q.cancel_reason, q.answer, q.answered_by, q.answered_at, q.delivered_at, q.remind_at, q.created_at, q.updated_at FROM questions q JOIN dispatches d ON d.id = q.dispatch_id
+SELECT q.id, q.dispatch_id, q.task_id, q.run_id, q.mode, q.addressed_to, q.text, q.options, q.status, q.cancel_reason, q.answer, q.answered_by, q.answered_at, q.delivered_at, q.remind_at, q.created_at, q.updated_at, q.header, q.more FROM questions q JOIN dispatches d ON d.id = q.dispatch_id
 WHERE d.node_id = ?1 AND q.mode = 'wait' AND q.status = 'answered' AND q.delivered_at IS NULL
 ORDER BY q.answered_at, q.id
 `
@@ -216,6 +216,8 @@ func (q *Queries) ListUndeliveredAnswersOfNode(ctx context.Context, nodeID strin
 			&i.RemindAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Header,
+			&i.More,
 		); err != nil {
 			return nil, err
 		}

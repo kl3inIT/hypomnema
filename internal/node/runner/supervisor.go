@@ -341,6 +341,12 @@ func (s *Supervisor) Start(ctx context.Context, rt Runtime, d statedb.Dispatch, 
 			return err
 		}
 	}
+	// The worker asks several decisions only of a control plane that keeps them (issue #1219).
+	if o.QuestionParts {
+		if err := bridge.EnableQuestionParts(bridge.Dir(dir)); err != nil {
+			return err
+		}
+	}
 
 	if err := ctx.Err(); err != nil {
 		return err
@@ -561,15 +567,59 @@ func (s *Supervisor) Answer(id string, q nodeproto.Question) {
 	}
 }
 
+// answerText is the answer a waiting `ask` returns: the chosen option and
+// its text, and for a question of several decisions each one's, after its
+// header (issue #1219), as opencode tells its model each question with its
+// answer (packages/core/src/tool/plugin/question.ts:38-46).
 func answerText(q nodeproto.Question) string {
-	a := q.Answer
-	label := ""
-
-	if a.Option != nil && *a.Option >= 0 && *a.Option < len(q.Options) {
-		label = q.Options[*a.Option].Label
+	ds := decisions(q)
+	if len(ds) == 1 {
+		return ds[0].answer
 	}
 
-	return strings.TrimSpace(label + " " + a.Text)
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, d.header+": "+d.answer)
+	}
+
+	return strings.Join(out, "\n")
+}
+
+// decision is one decision of an answered question, with its answer.
+type decision struct {
+	header, text, answer string
+}
+
+// decisions are an answered question's decisions in order: the first, then
+// the more, each with the answer at its place. A question asked before issue
+// #1219 is one.
+func decisions(q nodeproto.Question) []decision {
+	if q.Answer == nil {
+		return nil
+	}
+
+	out := []decision{{header: q.Header, text: q.Text, answer: choiceText(q.Options, q.Answer.Option, q.Answer.Text)}}
+
+	for i, p := range q.More {
+		var c nodeproto.Choice
+		if i < len(q.Answer.More) {
+			c = q.Answer.More[i]
+		}
+
+		out = append(out, decision{header: p.Header, text: p.Text, answer: choiceText(p.Options, c.Option, c.Text)})
+	}
+
+	return out
+}
+
+func choiceText(options []nodeproto.Option, option *int, text string) string {
+	label := ""
+
+	if option != nil && *option >= 0 && *option < len(options) {
+		label = options[*option].Label
+	}
+
+	return strings.TrimSpace(label + " " + text)
 }
 
 // relay submits the questions the worker asked that the daemon has not.

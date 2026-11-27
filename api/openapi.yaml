@@ -6411,14 +6411,42 @@ components:
       required: [label]
       properties:
         label: { type: string }
+        description:
+          type: string
+          description: >-
+            One sentence on what choosing it changes, and the reference it is learned from (issue #1219); an option
+            asked before has none.
         allows_text: { type: boolean }
-    Answer:
+    QuestionPart:
+      type: object
+      description: One decision a question asks after its first, on the same card (issue #1219).
+      required: [text, options]
+      properties:
+        header: { type: string, description: "A short title of the decision, at most 30 characters." }
+        text: { type: string }
+        options:
+          type: array
+          items: { $ref: "#/components/schemas/Option" }
+    Choice:
       type: object
       additionalProperties: false
-      description: Pick one option by index, and add text when it allows; a question without options takes text.
+      description: The answer to one of a question's more decisions, as the first's.
       properties:
         option: { type: integer, minimum: 0 }
         text: { type: string, maxLength: 20000 }
+    Answer:
+      type: object
+      additionalProperties: false
+      description: >-
+        Pick one option by index, and add text when it allows; a question without options takes text. A question
+        with more decisions takes one choice for each in more, in their order.
+      properties:
+        option: { type: integer, minimum: 0 }
+        text: { type: string, maxLength: 20000 }
+        more:
+          type: array
+          maxItems: 2
+          items: { $ref: "#/components/schemas/Choice" }
     Question:
       type: object
       required: [id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, created_at]
@@ -6429,10 +6457,24 @@ components:
         run_id: { type: string }
         mode: { $ref: "#/components/schemas/QuestionMode" }
         addressed_to: { $ref: "#/components/schemas/Addressee" }
+        header:
+          type: string
+          description: "A short title of the first decision (issue #1219); none on a question asked before."
         text: { type: string }
         options:
           type: array
           items: { $ref: "#/components/schemas/Option" }
+        more:
+          type: array
+          description: >-
+            The decisions asked after the first on the same card, at most 2 (issue #1219), each answered in the
+            answer's more at the same place.
+          items: { $ref: "#/components/schemas/QuestionPart" }
+        summary:
+          type: string
+          description: >-
+            For a Gate asked with headers (issue #1219), the summary of the final report the worker stopped with,
+            shown above the options; none for a Gate asked before, which reads as it did.
         status: { $ref: "#/components/schemas/QuestionStatus" }
         cancel_reason: { type: string }
         answer: { $ref: "#/components/schemas/Answer" }
