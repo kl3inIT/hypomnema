@@ -71,6 +71,10 @@ func (s *Service) ToolConfig(ctx context.Context, keyID string, tool Tool, model
 		return ToolConfig{}, err
 	}
 
+	if key, err = withRouting(ctx, store.New(s.db), key, row.OwnAccounts == 1); err != nil {
+		return ToolConfig{}, err
+	}
+
 	var models []Model
 
 	switch tool {

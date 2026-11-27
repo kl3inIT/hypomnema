@@ -41,8 +41,8 @@ type AudioSettings interface {
 	SetAudioOrder(ctx context.Context, kind string, providers []string) error
 	SetAudioVoice(ctx context.Context, provider, voice string) error
 	SetAudioModel(ctx context.Context, provider, kind, model string) error
-	// Models are the models a provider can be asked with for a kind; Voices the voices of the providers that are on.
-	Models(ctx context.Context, provider, kind string) ([]speech.ModelChoice, error)
+	// Models and Voices are the providers' own lists, for the model and voice pickers (issue #1283, rows 1 and 5).
+	Models(ctx context.Context) ([]speech.ModelInfo, []speech.Failure, error)
 	Voices(ctx context.Context) ([]speech.Voice, []speech.Failure, error)
 }
 
@@ -244,14 +244,20 @@ func (s *Server) SetAudioVoice(ctx context.Context, req openapi.SetAudioVoiceReq
 	return openapi.SetAudioVoice200JSONResponse(out), nil
 }
 
-// SetAudioModel keeps the model a provider is asked with for a kind and answers the providers (issue #1285, row 1).
+// SetAudioModel keeps the model a provider is asked with for a kind, tts when none is named, and answers the
+// providers.
 func (s *Server) SetAudioModel(ctx context.Context, req openapi.SetAudioModelRequestObject,
 ) (openapi.SetAudioModelResponseObject, error) {
 	if s.audioSettings == nil {
 		return nil, errNoAudio
 	}
 
-	if err := s.audioSettings.SetAudioModel(ctx, string(req.Provider), string(req.Kind), req.Body.Model); err != nil {
+	kind := speech.KindTTS
+	if req.Body.Kind != nil {
+		kind = string(*req.Body.Kind)
+	}
+
+	if err := s.audioSettings.SetAudioModel(ctx, string(req.Provider), kind, req.Body.Model); err != nil {
 		return nil, gatewayKeyError(err)
 	}
 
@@ -263,28 +269,32 @@ func (s *Server) SetAudioModel(ctx context.Context, req openapi.SetAudioModelReq
 	return openapi.SetAudioModel200JSONResponse(out), nil
 }
 
-// ListAudioModels answers the models a provider can be asked with for a kind, for the owner's choice.
-func (s *Server) ListAudioModels(ctx context.Context, req openapi.ListAudioModelsRequestObject,
+// ListAudioModels answers the models the owner may choose from, each with its kind.
+func (s *Server) ListAudioModels(ctx context.Context, _ openapi.ListAudioModelsRequestObject,
 ) (openapi.ListAudioModelsResponseObject, error) {
 	if s.audioSettings == nil {
 		return nil, errNoAudio
 	}
 
-	models, err := s.audioSettings.Models(ctx, string(req.Provider), string(req.Kind))
+	models, failures, err := s.audioSettings.Models(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	out := openapi.AudioModels{Models: make([]openapi.AudioModelChoice, 0, len(models))}
+	out := openapi.ListAudioModels200JSONResponse{
+		Models: make([]openapi.AudioModelInfo, 0, len(models)), Errors: audioErrors(failures),
+	}
 	for _, m := range models {
-		out.Models = append(out.Models, openapi.AudioModelChoice{Id: m.ID, Name: m.Name})
+		out.Models = append(out.Models, openapi.AudioModelInfo{
+			Provider: openapi.AudioProvider(m.Provider), Kind: openapi.AudioKind(m.Kind), Id: m.ID, Name: m.Name,
+			Languages: m.Languages,
+		})
 	}
 
-	return openapi.ListAudioModels200JSONResponse(out), nil
+	return out, nil
 }
 
-// ListAudioVoices answers the voices of the providers that are on, by name, for the voice picker (issue #1285,
-// row 5).
+// ListAudioVoices answers the voices of the providers that are on.
 func (s *Server) ListAudioVoices(ctx context.Context, _ openapi.ListAudioVoicesRequestObject,
 ) (openapi.ListAudioVoicesResponseObject, error) {
 	if s.audioSettings == nil {
@@ -296,9 +306,11 @@ func (s *Server) ListAudioVoices(ctx context.Context, _ openapi.ListAudioVoicesR
 		return nil, err
 	}
 
-	out := openapi.AudioVoices{Voices: make([]openapi.AudioVoiceChoice, 0, len(voices)), Errors: audioErrors(failures)}
+	out := openapi.ListAudioVoices200JSONResponse{
+		Voices: make([]openapi.AudioVoiceInfo, 0, len(voices)), Errors: audioErrors(failures),
+	}
 	for _, v := range voices {
-		item := openapi.AudioVoiceChoice{Id: v.ID, Name: v.Name, Provider: openapi.AudioProvider(v.Provider)}
+		item := openapi.AudioVoiceInfo{Provider: openapi.AudioProvider(v.Provider), Id: v.ID, Name: v.Name}
 		if v.Language != "" {
 			item.Language = ptr(v.Language)
 		}
@@ -306,7 +318,7 @@ func (s *Server) ListAudioVoices(ctx context.Context, _ openapi.ListAudioVoicesR
 		out.Voices = append(out.Voices, item)
 	}
 
-	return openapi.ListAudioVoices200JSONResponse(out), nil
+	return out, nil
 }
 
 // AddAudioKey keeps one more key of a provider in the vault, under the lowest
@@ -435,8 +447,7 @@ func (s *Server) audioProviders(ctx context.Context) (openapi.Audio, error) {
 			c := counts[p][kind]
 			list = append(list, openapi.AudioKindLink{
 				Provider: openapi.AudioProvider(p), On: on[p], Model: set.Model(p, kind),
-				DefaultModel: speech.DefaultModel(p, kind),
-				Usage:        openapi.AudioUsage{Today: audioTally(c.Today), Month: audioTally(c.Month)},
+				Usage: openapi.AudioUsage{Today: audioTally(c.Today), Month: audioTally(c.Month)},
 			})
 		}
 

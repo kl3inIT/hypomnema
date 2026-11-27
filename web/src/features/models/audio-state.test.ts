@@ -5,10 +5,9 @@ import type { AudioProviderLink } from "@/api/generated/types.gen"
 import {
   audioState,
   audioUsageText,
+  defaultVoice,
   heardText,
   modelChoices,
-  modelValue,
-  newest,
   voiceChoices,
 } from "./audio-state"
 import { until } from "./models-state"
@@ -55,38 +54,71 @@ describe("an audio provider", () => {
   })
 })
 
-describe("the model and voice choices", () => {
-  it("offer the newest model first, then the catalog's, keeping the one chosen", () => {
-    const catalog = [
-      { id: "tts-rt-v2", name: "TTS v2" },
-      { id: "tts-rt-v1", name: "tts-rt-v1" },
+describe("the model and voice pickers", () => {
+  it("list the provider's models, keeping the one in use", () => {
+    const models = [
+      {
+        provider: "elevenlabs" as const,
+        kind: "tts" as const,
+        id: "eleven_v4",
+        name: "Eleven v4",
+        languages: ["en", "vi"],
+      },
+      {
+        provider: "elevenlabs" as const,
+        kind: "tts" as const,
+        id: "eleven_flash_v2_5",
+        name: "Flash v2.5",
+        languages: [],
+      },
+      {
+        provider: "soniox" as const,
+        kind: "tts" as const,
+        id: "tts-rt-v2",
+        name: "TTS v2",
+        languages: [],
+      },
+      {
+        provider: "soniox" as const,
+        kind: "stt" as const,
+        id: "stt-async-v6",
+        name: "Async v6",
+        languages: ["vi"],
+      },
     ]
 
-    expect(modelChoices("tts-rt-v2", "tts-rt-v2", catalog)).toEqual([
-      { value: newest, label: "Newest (tts-rt-v2)" },
-      { value: "tts-rt-v2", label: "TTS v2 · tts-rt-v2" },
-      { value: "tts-rt-v1", label: "tts-rt-v1" },
+    expect(modelChoices(models, "elevenlabs", "eleven_v4")).toEqual([
+      { value: "eleven_v4", label: "Eleven v4", detail: "2 languages" },
+      { value: "eleven_flash_v2_5", label: "Flash v2.5", detail: undefined },
     ])
-    expect(modelChoices("tts-rt-v0", "tts-rt-v2", undefined).map((c) => c.value)).toEqual([
-      newest,
-      "tts-rt-v0",
+    // Soniox's transcription models are apart from its speech models (issue #1285, row 1).
+    expect(modelChoices(models, "soniox", "stt-async-v6", "stt")).toEqual([
+      { value: "stt-async-v6", label: "Async v6", detail: "1 language" },
     ])
-    expect(modelValue("tts-rt-v2", "tts-rt-v2")).toBe(newest)
-    expect(modelValue("tts-rt-v1", "tts-rt-v2")).toBe("tts-rt-v1")
+    expect(modelChoices(models, "soniox", "tts-rt-v2").map((c) => c.value)).toEqual(["tts-rt-v2"])
+    expect(modelChoices([], "elevenlabs", "eleven_v3")).toEqual([
+      { value: "eleven_v3", label: "eleven_v3" },
+    ])
   })
 
-  it("offer a provider's voices by name, keeping the one set", () => {
+  it("list the provider's voices by name after its own default, keeping one set by id", () => {
     const voices = [
-      { id: "Maya", name: "Maya", provider: "soniox" as const },
-      { id: "21b9c8e2", name: "narrator", provider: "soniox" as const },
-      { id: "21m00Tcm4", name: "Rachel", provider: "elevenlabs" as const },
+      { provider: "elevenlabs" as const, id: "v2", name: "Sơn Trần", language: "vi" },
+      { provider: "elevenlabs" as const, id: "v1", name: "Adam" },
+      { provider: "soniox" as const, id: "Adrian", name: "Adrian" },
     ]
 
-    expect(voiceChoices("soniox", "Linh", voices)).toEqual([
-      { value: newest, label: "Its own default" },
-      { value: "Maya", label: "Maya" },
-      { value: "21b9c8e2", label: "narrator" },
-      { value: "Linh", label: "Linh" },
+    expect(voiceChoices(voices, "elevenlabs", "v2").map((c) => c.label)).toEqual([
+      "Its own default",
+      "Adam",
+      "Sơn Trần",
+    ])
+    expect(voiceChoices(voices, "elevenlabs", "alloy")[1]).toEqual({
+      value: "alloy",
+      label: "alloy",
+    })
+    expect(voiceChoices([], "soniox", "")).toEqual([
+      { value: defaultVoice, label: "Its own default" },
     ])
   })
 })

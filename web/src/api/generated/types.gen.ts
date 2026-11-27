@@ -806,13 +806,9 @@ export type AudioKindLink = {
    */
   on: boolean;
   /**
-   * The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice, else default_model.
+   * The model it is asked with for this kind, as usage rows name it (audio/<model>): the owner's choice, else the default.
    */
   model: string;
-  /**
-   * The provider's newest model for this kind, asked when the owner chose none.
-   */
-  default_model: string;
   usage: AudioUsage;
 };
 
@@ -841,37 +837,45 @@ export type AudioVoice = {
   voice: string;
 };
 
-export type AudioModelChange = {
-  /**
-   * A model's id, such as tts-rt-v2; empty: the newest.
-   */
+export type AudioModelChoice = {
   model: string;
+  kind?: AudioKind;
 };
 
 export type AudioModels = {
-  models: Array<AudioModelChoice>;
-};
-
-export type AudioModelChoice = {
-  id: string;
-  name: string;
-};
-
-export type AudioVoices = {
-  voices: Array<AudioVoiceChoice>;
+  models: Array<AudioModelInfo>;
   /**
-   * The providers whose voices could not be read, and why.
+   * The lists that could not be read, and why.
    */
   errors?: Array<WebSearchError>;
 };
 
-export type AudioVoiceChoice = {
+export type AudioModelInfo = {
+  provider: AudioProvider;
+  kind: AudioKind;
+  id: string;
+  name: string;
   /**
-   * The voice a request names.
+   * The language codes it covers, as the provider lists them, such as vi.
+   */
+  languages: Array<string>;
+};
+
+export type AudioVoices = {
+  voices: Array<AudioVoiceInfo>;
+  /**
+   * The lists that could not be read, and why.
+   */
+  errors?: Array<WebSearchError>;
+};
+
+export type AudioVoiceInfo = {
+  provider: AudioProvider;
+  /**
+   * The voice's id
    */
   id: string;
   name: string;
-  provider: AudioProvider;
   /**
    * The voice's language as its provider labels it.
    */
@@ -976,7 +980,7 @@ export type SpeakRequest = {
    */
   format?: 'mp3' | 'wav' | 'pcm' | 'opus';
   /**
-   * The voice's speed: Soniox takes 0.7 to 1.3, ElevenLabs its voice setting's range.
+   * The voice's speed: Soniox takes 0.7 to 1.3; ElevenLabs is sent it within 0.7 to 1.2, and none for a model that does not apply it, such as eleven_v4.
    */
   speed?: number;
   /**
@@ -984,7 +988,7 @@ export type SpeakRequest = {
    */
   reduce_silence?: boolean;
   /**
-   * The text's language for Soniox; en when left out.
+   * The text's language as an ISO-639-1 code, such as vi. Soniox speaks it, en when left out; ElevenLabs is sent it when its model covers it, and left to find it otherwise.
    */
   language?: string;
   provider?: AudioProvider;
@@ -2552,7 +2556,7 @@ export type VideoMake = {
    */
   voice?: string;
   /**
-   * The speed every line is spoken at, Soniox's range; absent: the provider's own. A revision made from this one keeps it.
+   * The speed every line is spoken at, Soniox's range; absent: the provider's own. ElevenLabs is sent it within its 0.7 to 1.2, and none for a model that does not apply it. A revision made from this one keeps it.
    */
   speed?: number;
   look?: VideoLookInput;
@@ -2979,11 +2983,27 @@ export type GatewayKey = {
    * What it may use besides chat (issue
    */
   endpoints: Array<GatewayEndpoint>;
+  /**
+   * The only accounts it may use (issue #1277), each with its runtime; absent when it may use every account. Its requests go only to these, in their order among them; a provider none of them is of is not used.
+   */
+  accounts?: Array<GatewayKeyAccount>;
+  /**
+   * Its own web search order (issue #1277): these are asked first, the others after in the order of Settings. Empty for the order of Settings.
+   */
+  search_order: Array<WebSearchProvider>;
   created_at: string;
   /**
    * When the gateway last served a request with it; absent when never.
    */
   last_used_at?: string;
+};
+
+export type GatewayKeyAccount = {
+  id: string;
+  /**
+   * The account's runtime: claude, codex, antigravity, opencode_go…
+   */
+  runtime: string;
 };
 
 export type GatewayKeyList = {
@@ -3007,6 +3027,14 @@ export type NewGatewayKey = {
    * What it may use besides chat; every kind when left out, none when empty. A key that may use every kind should leave it out, so a kind added later is given too.
    */
   endpoints?: Array<GatewayEndpoint>;
+  /**
+   * The ids of the only accounts it may use (issue #1277); every account when left out, as an account added later is then. An account added later is not added to a key that names its accounts.
+   */
+  accounts?: Array<string>;
+  /**
+   * Its own web search order (issue #1277): these are asked first, the others after in the order of Settings; the order of Settings when left out or empty. A provider switched off stays off.
+   */
+  search_order?: Array<WebSearchProvider>;
 };
 
 export type GatewayKeyUpdate = {
@@ -3022,6 +3050,14 @@ export type GatewayKeyUpdate = {
    * The new list of kinds besides chat; empty means none, omitted means unchanged, and ["*"] means every kind, including kinds added later. The wildcard cannot be combined with named kinds.
    */
   endpoints?: Array<GatewayEndpointSelection>;
+  /**
+   * The ids of the only accounts it may use from now on (issue #1277); ["*"] means every account again, omitted means unchanged. The wildcard cannot be combined with named accounts.
+   */
+  accounts?: Array<string>;
+  /**
+   * Its own web search order (issue #1277); empty means the order of Settings again, omitted means unchanged.
+   */
+  search_order?: Array<WebSearchProvider>;
 };
 
 export type GatewayEndpointSelection = 'search' | 'fetch' | 'images' | 'audio' | '*';
@@ -10421,42 +10457,13 @@ export type SetAudioVoiceResponses = {
 
 export type SetAudioVoiceResponse = SetAudioVoiceResponses[keyof SetAudioVoiceResponses];
 
-export type ListAudioModelsData = {
-  body?: never;
-  path: {
-    provider: AudioProvider;
-    kind: AudioKind;
-  };
-  query?: never;
-  url: '/gateway/audio/providers/{provider}/models/{kind}';
-};
-
-export type ListAudioModelsErrors = {
-  /**
-   * An error.
-   */
-  default: Error;
-};
-
-export type ListAudioModelsError = ListAudioModelsErrors[keyof ListAudioModelsErrors];
-
-export type ListAudioModelsResponses = {
-  /**
-   * The models.
-   */
-  200: AudioModels;
-};
-
-export type ListAudioModelsResponse = ListAudioModelsResponses[keyof ListAudioModelsResponses];
-
 export type SetAudioModelData = {
-  body: AudioModelChange;
+  body: AudioModelChoice;
   path: {
     provider: AudioProvider;
-    kind: AudioKind;
   };
   query?: never;
-  url: '/gateway/audio/providers/{provider}/models/{kind}';
+  url: '/gateway/audio/providers/{provider}/model';
 };
 
 export type SetAudioModelErrors = {
@@ -10476,6 +10483,31 @@ export type SetAudioModelResponses = {
 };
 
 export type SetAudioModelResponse = SetAudioModelResponses[keyof SetAudioModelResponses];
+
+export type ListAudioModelsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/audio/models';
+};
+
+export type ListAudioModelsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListAudioModelsError = ListAudioModelsErrors[keyof ListAudioModelsErrors];
+
+export type ListAudioModelsResponses = {
+  /**
+   * The models.
+   */
+  200: AudioModels;
+};
+
+export type ListAudioModelsResponse = ListAudioModelsResponses[keyof ListAudioModelsResponses];
 
 export type ListAudioVoicesData = {
   body?: never;

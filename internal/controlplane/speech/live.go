@@ -191,7 +191,7 @@ func (l *Live) Sent() time.Duration {
 func (l *Live) dial(ctx context.Context) (*websocket.Conn, error) {
 	var conn *websocket.Conn
 
-	err := l.svc.each(ctx, KindSTT, ProviderSoniox, false, func(ctx context.Context, r route) error {
+	err := l.svc.each(ctx, KindSTT, ProviderSoniox, "", false, func(ctx context.Context, r route) error {
 		c, err := l.svc.sonioxDial(ctx, r.key, l.req)
 		conn = c
 

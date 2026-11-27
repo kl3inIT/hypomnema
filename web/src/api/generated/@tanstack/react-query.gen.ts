@@ -2998,30 +2998,10 @@ export const setAudioVoiceMutation = (options?: Partial<Options<SetAudioVoiceDat
   return mutationOptions;
 };
 
-export const listAudioModelsQueryKey = (options: Options<ListAudioModelsData>) => createQueryKey('listAudioModels', options);
-
-/**
- * The models a provider can be asked with for a kind, from its catalog
- *
- * Soniox's text-to-speech models from GET /v1/tts-models and its speech-to-text models of async jobs from GET /v1/models, read with its keys and kept a day; ElevenLabs's one model.
- */
-export const listAudioModelsOptions = (options: Options<ListAudioModelsData>) => queryOptions<ListAudioModelsResponse, ListAudioModelsError, ListAudioModelsResponse, ReturnType<typeof listAudioModelsQueryKey>>({
-  queryFn: async ({ queryKey, signal }) => {
-    const { data } = await listAudioModels({
-      ...options,
-      ...queryKey[0],
-      signal,
-      throwOnError: true
-    });
-    return data;
-  },
-  queryKey: listAudioModelsQueryKey(options)
-});
-
 /**
  * Set the model a provider is asked with for a kind; only the owner
  *
- * Empty sets it back to the provider's newest model. It counts from the next request.
+ * One of the provider's models (GET /gateway/audio/models) for its kind, tts when left out; empty sets it back to its default: eleven_v4 for ElevenLabs's speech, tts-rt-v2 and stt-async-v6 for Soniox's. ElevenLabs hears with Scribe alone. It counts from the next request.
  */
 export const setAudioModelMutation = (options?: Partial<Options<SetAudioModelData>>): UseMutationOptions<SetAudioModelResponse, SetAudioModelError, Options<SetAudioModelData>> => {
   const mutationOptions: UseMutationOptions<SetAudioModelResponse, SetAudioModelError, Options<SetAudioModelData>> = {
@@ -3037,12 +3017,32 @@ export const setAudioModelMutation = (options?: Partial<Options<SetAudioModelDat
   return mutationOptions;
 };
 
+export const listAudioModelsQueryKey = (options?: Options<ListAudioModelsData>) => createQueryKey('listAudioModels', options);
+
+/**
+ * The models the owner may choose from, each with its kind and the languages it covers
+ *
+ * ElevenLabs's models that speak text (its GET /v1/models) and Soniox's speech models (GET /v1/tts-models) and transcription models of async jobs (GET /v1/models), of each provider that is on and has a key, read with its first key that answers and kept a day. A list that cannot be read is left out, and why is in errors.
+ */
+export const listAudioModelsOptions = (options?: Options<ListAudioModelsData>) => queryOptions<ListAudioModelsResponse, ListAudioModelsError, ListAudioModelsResponse, ReturnType<typeof listAudioModelsQueryKey>>({
+  queryFn: async ({ queryKey, signal }) => {
+    const { data } = await listAudioModels({
+      ...options,
+      ...queryKey[0],
+      signal,
+      throwOnError: true
+    });
+    return data;
+  },
+  queryKey: listAudioModelsQueryKey(options)
+});
+
 export const listAudioVoicesQueryKey = (options?: Options<ListAudioVoicesData>) => createQueryKey('listAudioVoices', options);
 
 /**
- * The voices of the text-to-speech providers that are on and have a key, by name
+ * The voices of the text-to-speech providers that are on and have a key, by name and id
  *
- * What the gateway's GET /v1/audio/voices lists: Soniox's built-in voices of its text-to-speech model and the account's cloned voices ready for it, and ElevenLabs's voices, each kept a day. A provider whose list could not be read is in `errors`.
+ * ElevenLabs's are its GET /v1/voices, the account's own voices and the library voices it saved; Soniox's are the built-in voices of its speech model (GET /v1/shared-voices) and the account's cloned voices ready for it (GET /v1/voices); each kept a day. A list that cannot be read is left out, and why is in errors.
  */
 export const listAudioVoicesOptions = (options?: Options<ListAudioVoicesData>) => queryOptions<ListAudioVoicesResponse, ListAudioVoicesError, ListAudioVoicesResponse, ReturnType<typeof listAudioVoicesQueryKey>>({
   queryFn: async ({ queryKey, signal }) => {

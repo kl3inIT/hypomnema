@@ -131,9 +131,13 @@ func videosMake(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		body.Captions = &off
 	}
 
-	if speed, _ := strconv.ParseFloat(str(fs, "speed"), 64); speed > 0 {
-		body.Speed = &speed
+	// A video is spoken at Soniox's 0.7-1.3, as POST /videos takes it.
+	speed, err := flagSpeed(fs, 0.7, 1.3)
+	if err != nil {
+		return err
 	}
+
+	body.Speed = speed
 
 	look, err := lookArg(fs)
 	if err != nil {

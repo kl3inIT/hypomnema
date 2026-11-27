@@ -180,8 +180,8 @@ func TestTheMinuteLimitCountsTheRequestsAskedAgain(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	svc := New(Config{
-		SonioxURL: srv.URL, SonioxTTSURL: srv.URL + "/tts", Now: clock, Jitter: func() float64 { return 0 },
-		Sleep: func(_ context.Context, d time.Duration) error {
+		SonioxURL: srv.URL, SonioxTTSURL: srv.URL + "/tts", Now: clock,
+		Wait: func(_ context.Context, d time.Duration) error {
 			mu.Lock()
 			defer mu.Unlock()
 

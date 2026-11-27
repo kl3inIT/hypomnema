@@ -8,7 +8,8 @@ import (
 
 // Soniox's text-to-speech takes at most 3 requests at once and 100 a minute (docs.soniox.com
 // /tts/rest-api/limits-and-quotas; issue #1285, row 6). Each key keeps to them on its own, since a key is one
-// project's: a request waits for a place rather than be refused with a 429. The limits are in memory.
+// project's: a request, and each time it is asked again (retry.go), waits for a place rather than be refused with a
+// 429. The limits are in memory.
 const (
 	sonioxTTSConcurrent = 3
 	sonioxTTSPerMinute  = 100
@@ -95,7 +96,7 @@ func (s *Service) sonioxTTSLimit(k Key) *limiter {
 
 	l, ok := s.limits[k.Name]
 	if !ok {
-		l = newLimiter(sonioxTTSConcurrent, sonioxTTSPerMinute, limitWindow, s.now, s.sleep)
+		l = newLimiter(sonioxTTSConcurrent, sonioxTTSPerMinute, limitWindow, s.now, s.cfg.Wait)
 		s.limits[k.Name] = l
 	}
 

@@ -151,10 +151,12 @@ type Revision struct {
 }
 
 // voicePin is a provider and the exact voice it speaks with, even an empty one: its own default (issue #908, row
-// 4). A pinned revision asks only that provider, and never reads the owner's audio settings.
+// 4), and the model that voice was spoken by (issue #1283); empty: the provider's default. A pinned revision asks
+// only that provider, and never reads the owner's audio settings.
 type voicePin struct {
 	provider string
 	voice    string
+	model    string
 }
 
 // Progress is how many of a revision's scenes the stage it is at has done,
@@ -552,7 +554,7 @@ func (s *Service) insertRevision(ctx context.Context, q *store.Queries, now int6
 		Aspect:   r.aspect, Look: r.look, RequestedBy: r.by, RequestID: r.requestID, RequestHash: r.hash, Now: now,
 	}
 	if r.pin != nil {
-		p.PinProvider, p.PinVoice = r.pin.provider, r.pin.voice
+		p.PinProvider, p.PinVoice, p.PinModel = r.pin.provider, r.pin.voice, r.pin.model
 	}
 
 	return q.InsertRevision(ctx, p)
@@ -713,7 +715,7 @@ func revisionOf(r store.VideoRevision) Revision {
 	out.Look, _ = parseLook(r.Look)
 
 	if r.PinProvider != "" {
-		out.pin = &voicePin{provider: r.PinProvider, voice: r.PinVoice}
+		out.pin = &voicePin{provider: r.PinProvider, voice: r.PinVoice, model: r.PinModel}
 	}
 
 	if out.Lines == nil {

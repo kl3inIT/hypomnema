@@ -2,30 +2,21 @@ package speech
 
 import (
 	"strings"
-	"time"
 	"unicode"
 
 	"golang.org/x/text/unicode/norm"
 )
 
-// Words timed from a speech provider's per-character times, for Studio's captions (issue #1285, row 2; the same
-// move as #1283, row 3, for ElevenLabs, whose alignment has the same three arrays). Both providers give the
-// characters of the text as they spoke it: Soniox's WebSocket over the preprocessed text (docs.soniox.com
-// /tts/rt/timestamps, "Preprocessed text"), ElevenLabs's `alignment`. What is learned from where:
-//
-//   - the characters are cut into words at a space; a bracketed audio tag (`[excited]`) is one word, spaces and
-//     all, and `*` that stresses a word is no character of it: pipecat services/soniox/tts.py:537-575
-//     (_to_word_times);
-//   - a word starts at its first character and ends at its last, and the tags are dropped from the words: issue
-//     #1283's design, row 3, after agent-demo-video captions.ts:46-65 (alignmentWords) and ElevenLabs's
-//     stripAudioTags (changelog 2026-10-26);
-//   - the words are told in the line's own spelling, matched back to it, since Soniox's characters are of the
-//     normalized text and it gives no map back to the input (docs.soniox.com /tts/rt/timestamps): the issue's
-//     row 2. The matching is a longest common subsequence of the words compared by their letters and digits,
-//     lower-cased and composed (NFC), so that a Vietnamese word written with combining marks still matches; a
-//     run of the line's words left between two matched ones, such as "59%" spoken as "năm mươi chín phần trăm",
-//     shares the time of the spoken words between the same two, by its letters. Hypomnema's own choice: no
-//     reference maps the normalized words back.
+// Words timed from a speech provider's per-character times, for Studio's captions (issue #1285, row 2), built on the
+// one splitter both providers share, alignmentWords (elevenlabs.go, issue #1283, row 3): the characters cut into words
+// at whitespace, a bracketed audio tag dropped and splitting the words beside it, a word from its first character's
+// start to its last's end. Soniox's characters are of the text as it normalized it, with no map back to the input
+// (docs.soniox.com /tts/rt/timestamps, "Preprocessed text"), so its words are then matched back to the line's own:
+// a longest common subsequence of the words compared by their letters and digits, lower-cased and composed (NFC),
+// so that a Vietnamese word written with combining marks still matches; a run of the line's words left between two
+// matched ones, such as "59%" spoken as "năm mươi chín phần trăm", shares the time of the spoken words between the
+// same two, by its letters. The matching is Hypomnema's own: no reference maps the normalized words back, and the
+// issue's row 2 asks for the line's spelling.
 
 // Alignment is the time of each character a provider spoke, in seconds from the start of its audio.
 type Alignment struct {
@@ -45,7 +36,7 @@ func (a *Alignment) Add(part Alignment) {
 // AlignedWords are the words of text, without its audio tags and stresses, each timed from the characters spoken;
 // none when nothing was spoken.
 func AlignedWords(text string, a Alignment) []Word {
-	spoken := spokenWords(a)
+	spoken := alignmentWords(a.Characters, a.Starts, a.Ends)
 	if len(spoken) == 0 {
 		return nil
 	}
@@ -56,53 +47,6 @@ func AlignedWords(text string, a Alignment) []Word {
 	}
 
 	return matchWords(line, spoken)
-}
-
-// spokenWords cuts the characters into words, without the tags.
-func spokenWords(a Alignment) []Word {
-	var (
-		out   []Word
-		word  strings.Builder
-		start float64
-		end   float64
-	)
-
-	flush := func() {
-		w := word.String()
-		word.Reset()
-
-		if w == "" || isTag(w) {
-			return
-		}
-
-		out = append(out, Word{Word: w, Start: seconds(start), End: seconds(max(start, end))})
-	}
-
-	n := min(len(a.Characters), len(a.Starts), len(a.Ends))
-	for i := range n {
-		c := a.Characters[i]
-		if c == "*" {
-			continue
-		}
-
-		inTag := strings.LastIndex(word.String(), "[") > strings.LastIndex(word.String(), "]")
-		if strings.TrimSpace(c) == "" && !inTag {
-			flush()
-
-			continue
-		}
-
-		if word.Len() == 0 {
-			start = a.Starts[i]
-		}
-
-		word.WriteString(c)
-		end = a.Ends[i]
-	}
-
-	flush()
-
-	return out
 }
 
 // lineWords are the words of a line as it was written: its tags and stresses left out.
@@ -159,9 +103,6 @@ func glue(words []string) []string {
 
 	return out
 }
-
-// isTag says whether a spoken word is an audio tag.
-func isTag(w string) bool { return strings.HasPrefix(w, "[") && strings.HasSuffix(w, "]") }
 
 // key is a word compared: its letters and digits, composed and lower-cased.
 func key(w string) string {
@@ -278,5 +219,3 @@ func commonWords(line []string, spoken []Word) [][2]int {
 
 	return pairs
 }
-
-func seconds(s float64) time.Duration { return time.Duration(s * float64(time.Second)) }

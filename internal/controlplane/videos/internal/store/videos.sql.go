@@ -217,7 +217,7 @@ func (q *Queries) GetMusic(ctx context.Context, id string) (VideoMusic, error) {
 }
 
 const getRevision = `-- name: GetRevision :one
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, speed FROM video_revisions WHERE video_id = ?1 AND rev = ?2
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed FROM video_revisions WHERE video_id = ?1 AND rev = ?2
 `
 
 type GetRevisionParams struct {
@@ -253,6 +253,7 @@ func (q *Queries) GetRevision(ctx context.Context, arg GetRevisionParams) (Video
 		&i.Look,
 		&i.PinProvider,
 		&i.PinVoice,
+		&i.PinModel,
 		&i.Speed,
 	)
 	return i, err
@@ -337,9 +338,9 @@ func (q *Queries) InsertMusic(ctx context.Context, arg InsertMusicParams) error 
 
 const insertRevision = `-- name: InsertRevision :exec
 INSERT INTO video_revisions (video_id, rev, parent, state, lines, voice, speed, captions, aspect, look, pin_provider,
-                             pin_voice, requested_by, request_id, request_hash, created_at, updated_at)
+                             pin_voice, pin_model, requested_by, request_id, request_hash, created_at, updated_at)
 VALUES (?1, ?2, ?3, 'queued', ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-        ?11, ?12, ?13, ?14, ?15, ?15)
+        ?11, ?12, ?13, ?14, ?15, ?16, ?16)
 `
 
 type InsertRevisionParams struct {
@@ -354,6 +355,7 @@ type InsertRevisionParams struct {
 	Look        string
 	PinProvider string
 	PinVoice    string
+	PinModel    string
 	RequestedBy string
 	RequestID   string
 	RequestHash string
@@ -373,6 +375,7 @@ func (q *Queries) InsertRevision(ctx context.Context, arg InsertRevisionParams) 
 		arg.Look,
 		arg.PinProvider,
 		arg.PinVoice,
+		arg.PinModel,
 		arg.RequestedBy,
 		arg.RequestID,
 		arg.RequestHash,
@@ -491,7 +494,7 @@ func (q *Queries) ListMusic(ctx context.Context) ([]VideoMusic, error) {
 }
 
 const listRevisions = `-- name: ListRevisions :many
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, speed FROM video_revisions WHERE video_id = ?1 ORDER BY rev
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed FROM video_revisions WHERE video_id = ?1 ORDER BY rev
 `
 
 func (q *Queries) ListRevisions(ctx context.Context, videoID string) ([]VideoRevision, error) {
@@ -528,6 +531,7 @@ func (q *Queries) ListRevisions(ctx context.Context, videoID string) ([]VideoRev
 			&i.Look,
 			&i.PinProvider,
 			&i.PinVoice,
+			&i.PinModel,
 			&i.Speed,
 		); err != nil {
 			return nil, err
@@ -578,7 +582,7 @@ func (q *Queries) ListVideos(ctx context.Context) ([]Video, error) {
 }
 
 const nextQueued = `-- name: NextQueued :one
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, speed FROM video_revisions WHERE state = 'queued' ORDER BY created_at, video_id, rev LIMIT 1
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed FROM video_revisions WHERE state = 'queued' ORDER BY created_at, video_id, rev LIMIT 1
 `
 
 func (q *Queries) NextQueued(ctx context.Context) (VideoRevision, error) {
@@ -609,6 +613,7 @@ func (q *Queries) NextQueued(ctx context.Context) (VideoRevision, error) {
 		&i.Look,
 		&i.PinProvider,
 		&i.PinVoice,
+		&i.PinModel,
 		&i.Speed,
 	)
 	return i, err
@@ -640,7 +645,7 @@ func (q *Queries) RequestChanges(ctx context.Context, arg RequestChangesParams) 
 }
 
 const revisionByRequest = `-- name: RevisionByRequest :one
-SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, speed FROM video_revisions WHERE requested_by = ?1 AND request_id = ?2
+SELECT video_id, rev, parent, state, lines, voice, captions, aspect, provider, model, used_voice, length_ms, failed_stage, failed_cause, note, warnings, requested_by, request_id, request_hash, created_at, updated_at, look, pin_provider, pin_voice, pin_model, speed FROM video_revisions WHERE requested_by = ?1 AND request_id = ?2
 `
 
 type RevisionByRequestParams struct {
@@ -676,6 +681,7 @@ func (q *Queries) RevisionByRequest(ctx context.Context, arg RevisionByRequestPa
 		&i.Look,
 		&i.PinProvider,
 		&i.PinVoice,
+		&i.PinModel,
 		&i.Speed,
 	)
 	return i, err

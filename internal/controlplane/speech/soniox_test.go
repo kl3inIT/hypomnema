@@ -201,7 +201,7 @@ func newSoniox(t *testing.T, f *soniox, settings func(context.Context) (speech.S
 	svc := speech.New(speech.Config{
 		Keys: sonioxKeys("speech-soniox"), Settings: settings,
 		SonioxURL: api, SonioxTTSURL: tts, SonioxTTSWebSocketURL: ws, PollInterval: time.Millisecond,
-		Sleep: func(_ context.Context, d time.Duration) error {
+		Wait: func(_ context.Context, d time.Duration) error {
 			mu.Lock()
 			defer mu.Unlock()
 
@@ -209,15 +209,14 @@ func newSoniox(t *testing.T, f *soniox, settings func(context.Context) (speech.S
 
 			return nil
 		},
-		Jitter: func() float64 { return 0 },
 	})
 
 	return svc, &slept
 }
 
 // A refusal that may pass, 408, 429, 500 or 503, is asked again twice (issue #1285, row 4): after the Retry-After
-// it names, else after 1 s, then 2 s. A third is the answer; another refusal is not asked again, nor one whose
-// Retry-After is longer than 30 s: that key rests instead.
+// it names, at most a minute, else after 1 s, then 2 s, as ElevenLabs's are (retry.go). A third is the answer;
+// another refusal is not asked again.
 func TestARefusalThatMayPassIsAskedAgainTwice(t *testing.T) {
 	t.Parallel()
 
@@ -233,7 +232,7 @@ func TestARefusalThatMayPassIsAskedAgainTwice(t *testing.T) {
 		"408, then speech":       {[]int{408}, nil, true, 2, []time.Duration{time.Second}},
 		"500 three times":        {[]int{500, 500, 500}, nil, false, 3, []time.Duration{time.Second, 2 * time.Second}},
 		"400 once":               {[]int{400}, nil, false, 1, nil},
-		"429 for a minute":       {[]int{429}, map[int]string{429: "60"}, false, 1, nil},
+		"429 for 90 s":           {[]int{429}, map[int]string{429: "90"}, true, 2, []time.Duration{time.Minute}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -276,14 +275,16 @@ func TestTheModelsAreTheNewestUnlessTheOwnerChose(t *testing.T) {
 	assert.Equal(t, "stt-async-v6", speech.Settings{}.Model(speech.ProviderSoniox, speech.KindSTT))
 	assert.Equal(t, "tts-rt-v2", speech.Settings{}.Model(speech.ProviderSoniox, speech.KindTTS))
 	assert.Equal(t, "stt-rt-v6", speech.SonioxRealtimeModel)
-	assert.Equal(t, []string{"stt-async-v6", "stt-async-v5"}, speech.KnownModels(speech.ProviderSoniox, speech.KindSTT))
+	assert.Equal(t, speech.KindSTT, speech.KindOf(speech.ProviderSoniox, "stt-async-v5"), "a former model counts")
+	assert.Equal(t, speech.KindSTT, speech.KindOf(speech.ProviderSoniox, "stt-async-v7"))
+	assert.Equal(t, speech.KindTTS, speech.KindOf(speech.ProviderSoniox, "tts-rt-v2"))
 
 	chosen := ""
 	f := &soniox{}
 	svc, _ := newSoniox(t, f, func(context.Context) (speech.Settings, error) {
 		set := speech.Settings{Off: []string{speech.ProviderElevenLabs}}
 		if chosen != "" {
-			set.Models = map[speech.Slot]string{{Provider: speech.ProviderSoniox, Kind: speech.KindSTT}: chosen}
+			set.STTModels = map[string]string{speech.ProviderSoniox: chosen}
 		}
 
 		return set, nil
@@ -316,7 +317,7 @@ func TestTimedSpeechIsSpokenOverTheWebSocket(t *testing.T) {
 	svc, _ := newSoniox(t, f, sonioxOnly)
 
 	out, err := svc.Speak(t.Context(), speech.SpeakRequest{
-		Input: "Ủa, bánh mì giảm!", Language: "vi", Voice: "Maya", Speed: 1.2, Timestamps: true, Reference: "video-1",
+		Input: "Ủa, bánh mì giảm!", Language: "vi", Voice: "Maya", Speed: 1.2, Timings: true, Reference: "video-1",
 		ReduceSilence: true,
 	})
 	require.NoError(t, err)
@@ -363,13 +364,16 @@ func TestSonioxVoicesAndModelsComeFromItsCatalog(t *testing.T) {
 		{ID: "21b9c8e2-1c3a", Name: "narrator", Provider: "soniox"},
 	}, voices)
 
-	tts, err := svc.Models(t.Context(), speech.ProviderSoniox, speech.KindTTS)
+	models, failures, err := svc.Models(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, []speech.ModelChoice{{ID: "tts-rt-v2", Name: "TTS v2"}, {ID: "tts-rt-v1", Name: "TTS v1"}}, tts)
+	assert.Empty(t, failures)
 
-	stt, err := svc.Models(t.Context(), speech.ProviderSoniox, speech.KindSTT)
-	require.NoError(t, err)
-	assert.Equal(t, []speech.ModelChoice{{ID: "stt-async-v6", Name: "Async v6"}}, stt)
+	ids := make([]string, 0, len(models))
+	for _, m := range models {
+		ids = append(ids, m.Kind+":"+m.ID)
+	}
+
+	assert.Equal(t, []string{"tts:tts-rt-v2", "tts:tts-rt-v1", "stt:stt-async-v6"}, ids)
 }
 
 // A 503 that names a Retry-After over 30 s, within the call's time, is waited for and asked again (review of #1302,
@@ -385,4 +389,38 @@ func TestASonioxRetryAfterOverThirtySecondsIsWaited(t *testing.T) {
 	assert.Equal(t, "speech", string(out.Audio))
 	assert.Len(t, f.ttsAsked, 2)
 	assert.Equal(t, []time.Duration{31 * time.Second}, *slept)
+}
+
+// A transcription's upload is asked once, as before (issue #1285, row 7 changes only the poll): a refused upload
+// fails at once, without waiting its Retry-After.
+func TestATranscriptionsUploadIsAskedOnce(t *testing.T) {
+	t.Parallel()
+
+	var posts int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		posts++
+
+		w.Header().Set("Retry-After", "7")
+		http.Error(w, `{"error_type":"busy"}`, http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	var waits []time.Duration
+
+	svc := speech.New(speech.Config{
+		Keys: sonioxKeys("speech-soniox"), Settings: sonioxOnly, SonioxURL: srv.URL,
+		Wait: func(_ context.Context, d time.Duration) error {
+			waits = append(waits, d)
+
+			return nil
+		},
+	})
+
+	_, err := svc.Transcribe(t.Context(), speech.TranscribeRequest{
+		Audio: speech.RecordingOf([]byte("ID3 audio"), "a.mp3", "audio/mpeg"),
+	})
+	require.ErrorIs(t, err, speech.ErrFailed)
+	assert.Equal(t, 1, posts)
+	assert.Empty(t, waits)
 }

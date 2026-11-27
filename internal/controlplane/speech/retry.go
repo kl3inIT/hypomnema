@@ -3,82 +3,74 @@ package speech
 import (
 	"context"
 	"errors"
-	"math"
 	"net/http"
-	"slices"
 	"time"
 )
 
-// A refusal that may pass is asked again, as the Fern-made ElevenLabs SDK asks (elevenlabs-python
-// src/elevenlabs/core/http_client.py:99-123, max_retries 2 at :379) and the statuses Soniox says to retry
-// (docs.soniox.com /api-reference/tts/generate_tts errors; issue #1285, row 4):
-//
-//   - 408, 429, 500 and 503 are asked again, twice at most;
-//   - after the Retry-After the answer named, else after 1 s, doubling, moved by up to ±10 % (the SDK's symmetric
-//     jitter of JITTER_FACTOR 0.2 around the backoff, at most a minute);
-//   - a Retry-After over 30 s is not waited for: the key rests that long and the provider's next key is asked
-//     (rest.go). Hypomnema's own choice, since its keys are a pool where the SDK has one key;
-//   - an account out of credits is not asked again, nor a body that cannot be sent again.
-//
-// A refusal still there after the last is the key's, as before: it rests (rest.go).
+// A text-to-speech request, ElevenLabs's or Soniox's, that times out (408), is rate limited (429) or fails on its side
+// (5xx) is asked again twice before its failure counts (issue #1283, row 6; issue #1285, row 4: Soniox's
+// generate_tts errors name 408, 429, 500 and 503), as ElevenLabs's own SDK does (elevenlabs-python
+// core/http_client.py:99-123, 379-382, which retries 408 too): it waits the Retry-After the answer named, at most 60 seconds, else 1 second doubling with each retry.
+// Only then does the key rest and the next key or provider get asked, as before (rest.go, each). Each attempt has
+// its own speechTimeout and the waits are apart from it, as the SDK's timeout is one request's and it sleeps
+// between them (http_client.py:379-382), so both retries happen even after two Retry-After of 60 seconds (review
+// of #1300). The SDK's jitter is left out: one control plane asks, so there is no herd to spread.
 const (
 	retries        = 2
-	retryFirstWait = time.Second
-	retryLongest   = time.Minute
-	retryJitter    = 0.2
-	// retryLongestAfter is the longest Retry-After waited for before asking again.
-	retryLongestAfter = 30 * time.Second
+	retryFirst     = time.Second
+	retryLongest   = 60 * time.Second
+	retryNotBefore = time.Millisecond
 )
 
-// retryStatuses are the statuses asked again.
-var retryStatuses = []int{
-	http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusInternalServerError,
-	http.StatusServiceUnavailable,
-}
-
-// errNoReplay: the request's body was a stream and cannot be sent again.
-var errNoReplay = errors.New("the request cannot be sent again")
-
-// retrying runs attempt, numbered from 0, until it answers, fails in a way that does not pass, or is asked twice
-// again. The last failure is returned.
-func (s *Service) retrying(ctx context.Context, attempt func(n int) error) error {
-	var last error
-
+// retrying asks once, then again after a refusal that may pass, at most retries times; each attempt within its own
+// speechTimeout.
+func (s *Service) retrying(ctx context.Context, ask func(ctx context.Context) error) error {
 	for n := 0; ; n++ {
-		err := attempt(n)
-		if errors.Is(err, errNoReplay) {
-			return last
-		}
+		err := s.attempt(ctx, ask)
 
-		wait, ok := s.retryWait(err, n)
-		if !ok {
+		wait, again := retryWait(err, n)
+		if !again || n == retries {
 			return err
 		}
 
-		last = err
-
-		if s.sleep(ctx, wait) != nil {
+		if err := s.cfg.Wait(ctx, wait); err != nil {
 			return err
 		}
 	}
 }
 
-// retryWait says whether a failure is asked again after the n-th attempt, and after how long.
-func (s *Service) retryWait(err error, n int) (time.Duration, bool) {
-	var refused *providerError
+func (s *Service) attempt(ctx context.Context, ask func(ctx context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, speechTimeout)
+	defer cancel()
 
-	switch {
-	case n >= retries, !errors.As(err, &refused), refused.noCredits:
+	return ask(ctx)
+}
+
+// retryWait is how long to wait before asking again after the nth retry's error, and whether to.
+func retryWait(err error, n int) (time.Duration, bool) {
+	var refused *providerError
+	if !errors.As(err, &refused) || refused.noCredits ||
+		(refused.status != http.StatusTooManyRequests && refused.status != http.StatusRequestTimeout &&
+			refused.status < http.StatusInternalServerError) {
 		return 0, false
-	case !slices.Contains(retryStatuses, refused.status):
-		return 0, false
-	case refused.retryAfter > retryLongestAfter:
-		return 0, false
-	case refused.retryAfter > 0:
-		return refused.retryAfter, true
 	}
 
-	backoff := min(float64(retryFirstWait)*math.Pow(2, float64(n)), float64(retryLongest))
+	if refused.retryAfter >= retryNotBefore {
+		return min(refused.retryAfter, retryLongest), true
+	}
 
-	return time.Duration(backoff * (1 + s.jitter()*retryJitter)), true
+	return min(retryFirst<<n, retryLongest), true
+}
+
+// wait sleeps for d, or until ctx ends.
+func wait(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }

@@ -383,3 +383,88 @@ func TestEachKindHasItsOwnOrderAndCounts(t *testing.T) {
 		counts["soniox"][speech.KindSTT].Today)
 	assert.Equal(t, modelgateway.AudioTally{Answered: 1, Characters: 5}, counts["soniox"][speech.KindTTS].Month)
 }
+
+// Scenario: the owner chooses ElevenLabs's speech model (issue #1283, row 1); it is in the settings each request
+// reads, empty sets back the default, and ElevenLabs, which hears with Scribe alone, takes no transcription model
+// (Soniox's are chosen too: issue #1285, row 1). The speech spoken with the model chosen before and with the one
+// chosen now are both counted as speech.
+func TestTheOwnerChoosesElevenLabssSpeechModel(t *testing.T) {
+	t.Parallel()
+
+	g := audioGateway(t, &fakeSoniox{})
+	ctx := t.Context()
+
+	set, err := g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "eleven_v4", set.Model(speech.ProviderElevenLabs, speech.KindTTS), "the default")
+
+	require.NoError(t, g.svc.SetAudioModel(ctx, "elevenlabs", "tts", " eleven_v3 "))
+
+	set, err = g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"elevenlabs": "eleven_v3"}, set.Models)
+	assert.Equal(t, "eleven_v3", set.Model(speech.ProviderElevenLabs, speech.KindTTS))
+
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "elevenlabs", "stt", "scribe_v3"), modelgateway.ErrInvalid)
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "elevenlabs", "tts", "eleven v3"), modelgateway.ErrInvalid)
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "elevenlabs", "both", "x"), modelgateway.ErrInvalid)
+	require.ErrorIs(t, g.svc.SetAudioModel(ctx, "google", "tts", "x"), modelgateway.ErrNotFound)
+
+	speak := func(want string) {
+		t.Helper()
+
+		status, header, body := g.post(t, "/v1/audio/speech", g.key, `{"input":"Xin chào","provider":"elevenlabs"}`)
+		require.Equal(t, http.StatusOK, status, body)
+		assert.Contains(t, header.Get("X-Hypomnema-Model"), want)
+	}
+
+	speak("eleven_v3")
+
+	require.NoError(t, g.svc.SetAudioModel(ctx, "elevenlabs", "tts", ""))
+
+	set, err = g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, set.Models)
+
+	speak("eleven_v4")
+
+	counts, err := g.svc.AudioCounts(ctx, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, modelgateway.AudioTally{Answered: 2, Characters: 16}, counts["elevenlabs"][speech.KindTTS].Today)
+	assert.Zero(t, counts["elevenlabs"][speech.KindSTT].Today)
+}
+
+// Soniox's transcription and speech models are the owner's to choose too (issue #1285, row 1), each kept apart; the
+// requests heard with the model before an upgrade, stt-async-v5, and after it, stt-async-v6, are one tally.
+func TestTheOwnerChoosesSonioxsModelsAndTheTallyKeepsAcrossAnUpgrade(t *testing.T) {
+	t.Parallel()
+
+	g := audioGateway(t, &fakeSoniox{})
+	ctx := t.Context()
+
+	set, err := g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "stt-async-v6", set.Model(speech.ProviderSoniox, speech.KindSTT), "the newest")
+	assert.Equal(t, "tts-rt-v2", set.Model(speech.ProviderSoniox, speech.KindTTS))
+
+	require.NoError(t, g.svc.SetAudioModel(ctx, "soniox", "stt", "stt-async-v7"))
+	require.NoError(t, g.svc.SetAudioModel(ctx, "soniox", "tts", "tts-rt-v3"))
+
+	set, err = g.svc.AudioSettings(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "stt-async-v7", set.Model(speech.ProviderSoniox, speech.KindSTT))
+	assert.Equal(t, "tts-rt-v3", set.Model(speech.ProviderSoniox, speech.KindTTS))
+
+	for _, model := range []string{"stt-async-v5", ""} {
+		require.NoError(t, g.svc.SetAudioModel(ctx, "soniox", "stt", model))
+
+		status, _, body := g.transcription(t, g.key, nil)
+		require.Equal(t, http.StatusOK, status, body)
+	}
+
+	counts, err := g.svc.AudioCounts(ctx, time.Now())
+	require.NoError(t, err)
+	assert.Equal(t, 2, counts[speech.ProviderSoniox][speech.KindSTT].Today.Answered)
+	assert.Equal(t, 2, counts[speech.ProviderSoniox][speech.KindSTT].Month.Answered)
+	assert.Zero(t, counts[speech.ProviderSoniox][speech.KindTTS].Month.Answered)
+}

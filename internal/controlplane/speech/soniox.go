@@ -301,27 +301,54 @@ func (s *Service) sonioxSpeak(ctx context.Context, r route, req SpeakRequest) ([
 		}
 	}
 
-	release, err := s.sonioxTTSLimit(k).acquire(ctx)
+	// A model the catalog says gives no times is asked over REST, and the words are heard again by the caller.
+	stream := req.Timings && (catalog.ID == "" || catalog.SupportsTimestamps)
+
+	var (
+		audio     []byte
+		alignment Alignment
+	)
+
+	// Each attempt, the first and each one asked again (retry.go), waits for its own place, so that every request
+	// Soniox counts keeps to its limits (limit.go; review of #1302).
+	err := s.retrying(ctx, func(ctx context.Context) error {
+		release, err := s.sonioxTTSLimit(k).acquire(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
+
+		if stream {
+			audio, alignment, err = s.sonioxStream(ctx, k, body, req.Input)
+
+			return err
+		}
+
+		audio, err = s.speak(ctx, s.cfg.SonioxTTSURL, bearer(k), withText(body, req.Input))
+
+		return err
+	})
 	if err != nil {
 		return nil, nil, err
 	}
-	defer release()
 
-	// A model the catalog says gives no times is asked over REST, and the words are heard again by the caller.
-	if req.Timestamps && (catalog.ID == "" || catalog.SupportsTimestamps) {
-		audio, alignment, err := s.sonioxStream(ctx, k, body, req.Input)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		return audio, AlignedWords(req.Input, alignment), nil
+	if !stream {
+		return audio, nil, nil
 	}
 
-	body["text"] = req.Input
+	return audio, AlignedWords(req.Input, alignment), nil
+}
 
-	audio, err := s.speak(ctx, s.cfg.SonioxTTSURL, bearer(k), body)
+// withText is a REST body: the config and the text.
+func withText(config map[string]any, text string) map[string]any {
+	out := make(map[string]any, len(config)+1)
+	for k, v := range config {
+		out[k] = v
+	}
 
-	return audio, nil, err
+	out["text"] = text
+
+	return out
 }
 
 // speak posts a JSON body and returns the audio a success carries.

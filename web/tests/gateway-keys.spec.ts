@@ -1,10 +1,20 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 
 import { shot } from "./shot.js"
-import type { GatewayKey as Key, GatewayKeyUpdate } from "../src/api/generated/types.gen.js"
+import type {
+  GatewayKey as Key,
+  GatewayKeyAccount,
+  GatewayKeyUpdate,
+  NewGatewayKey,
+} from "../src/api/generated/types.gen.js"
 
 // The Gateway keys page of Settings (issue #199, step 6), built, against a fake client API, on a phone and a
-// desktop.
+// desktop. The key's form is a sheet (issue #1277). UI_THEME picks the theme of the pictures UI_CHECK keeps.
+
+test.beforeEach(async ({ page }) => {
+  const theme = process.env.UI_THEME
+  if (theme) await page.addInitScript((choice) => localStorage.setItem("theme", choice), theme)
+})
 
 const now = Date.now()
 const iso = (ms: number) => new Date(ms).toISOString()
@@ -19,6 +29,18 @@ const secret = "hyp_gateway_v1_Ab12Cd34ef56gh78ij90klmnopqrstuv_x9"
 const laptopSecret = "hyp_gateway_v1_Zx81Qa34ef56gh78ij90klmnopqrstuv_Pq4x"
 const mask = (value: string) => value.slice(0, 6) + "•".repeat(value.length - 10) + value.slice(-4)
 
+// The subscription accounts signed in: two Claude accounts and one Codex account.
+const accounts = [
+  { id: "acc_1", runtime: "claude", label: "work", status: "active", position: 1 },
+  { id: "acc_2", runtime: "claude", label: "home", status: "active", position: 2 },
+  { id: "acc_3", runtime: "codex", label: "chatgpt", status: "active", position: 1 },
+]
+
+const accountsOf = (ids?: string[]): GatewayKeyAccount[] | undefined =>
+  ids && !ids.includes("*")
+    ? ids.map((id) => ({ id, runtime: accounts.find((a) => a.id === id)?.runtime ?? "" }))
+    : undefined
+
 async function fakeServer(page: Page, start?: Key[]) {
   let keys: Key[] = start ?? [
     {
@@ -28,6 +50,7 @@ async function fakeServer(page: Page, start?: Key[]) {
       masked_value: mask(laptopSecret),
       models: ["*"],
       endpoints: ["search", "fetch", "images", "audio"],
+      search_order: [],
       created_at: iso(now - 9 * 86_400_000),
       last_used_at: iso(now - 40 * 60_000),
     },
@@ -37,7 +60,21 @@ async function fakeServer(page: Page, start?: Key[]) {
       prefix: "hyp_gateway_v1_Lm40Pr",
       models: ["gpt-5.5-codex", "claude-sonnet-5-5"],
       endpoints: [],
+      search_order: [],
       created_at: iso(now - 2 * 86_400_000),
+    },
+    {
+      id: "gwk_3",
+      name: "beyondpilot",
+      prefix: "hyp_gateway_v1_Bp77Qa",
+      models: ["*"],
+      endpoints: ["search", "fetch"],
+      accounts: [
+        { id: "acc_1", runtime: "claude" },
+        { id: "acc_2", runtime: "claude" },
+      ],
+      search_order: ["codex", "claude", "exa"],
+      created_at: iso(now - 86_400_000),
     },
   ]
   const values = new Map([["gwk_1", laptopSecret]])
@@ -51,13 +88,9 @@ async function fakeServer(page: Page, start?: Key[]) {
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 
     if (call === "POST /gateway/keys") {
-      const body = request.postDataJSON() as {
-        name: string
-        models?: string[]
-        endpoints?: Key["endpoints"]
-      }
+      const body = request.postDataJSON() as NewGatewayKey
       calls.push(
-        `${call} ${body.name} ${(body.models ?? []).join(",") || "every model"}; ${body.endpoints?.join(",") ?? "every kind"}`,
+        `${call} ${body.name} ${(body.models ?? []).join(",") || "every model"}; ${body.endpoints?.join(",") ?? "every kind"}; ${body.accounts?.join(",") ?? "every account"}; ${body.search_order?.join(",") ?? "like Settings"}`,
       )
 
       const key: Key = {
@@ -67,6 +100,8 @@ async function fakeServer(page: Page, start?: Key[]) {
         masked_value: mask(secret),
         models: body.models?.length ? body.models : ["*"],
         endpoints: body.endpoints ?? ["search", "fetch", "images", "audio"],
+        accounts: accountsOf(body.accounts),
+        search_order: body.search_order ?? [],
         created_at: iso(now),
       }
       keys = [...keys, key]
@@ -88,8 +123,10 @@ async function fakeServer(page: Page, start?: Key[]) {
 
     if (request.method() === "PATCH" && path.startsWith("/gateway/keys/")) {
       const body = request.postDataJSON() as GatewayKeyUpdate
-      calls.push(`${call} ${body.name} ${body.models?.join(",")}; ${body.endpoints?.join(",")}`)
-      const { endpoints, ...access } = body
+      calls.push(
+        `${call} ${body.name} ${body.models?.join(",")}; ${body.endpoints?.join(",")}; ${body.accounts?.join(",")}; ${body.search_order?.join(",")}`,
+      )
+      const { endpoints, accounts: chosen, search_order, ...access } = body
       const kinds = endpoints?.filter((kind) => kind !== "*")
       keys = keys.map((key) =>
         key.id === id
@@ -99,6 +136,8 @@ async function fakeServer(page: Page, start?: Key[]) {
               endpoints: endpoints?.includes("*")
                 ? ["search", "fetch", "images", "audio"]
                 : (kinds ?? key.endpoints),
+              accounts: chosen ? accountsOf(chosen) : key.accounts,
+              search_order: search_order ?? key.search_order,
             }
           : key,
       )
@@ -117,6 +156,8 @@ async function fakeServer(page: Page, start?: Key[]) {
         return json({ id: "tok_1", name: "web", kind: "owner" })
       case "GET /gateway/keys":
         return json({ data: keys, live_worker_keys: 2 })
+      case "GET /accounts":
+        return json({ data: accounts })
       case "GET /gateway/models":
         return json({
           data: [
@@ -195,6 +236,10 @@ test("the owner sees the gateway's address and keys", async ({ page, isMobile })
   await expect(desktop).toContainText("Never")
   await expect(desktop).toContainText("Chat only")
   await expect(page.getByTestId("worker-keys")).toContainText("2 more keys")
+  // A key with its own routing is marked under its name (issue #1277); the others are not.
+  const routed = page.getByRole("row", { name: "beyondpilot" }).getByLabel("Own routing")
+  await expect(routed).toHaveText(/2 Claude accounts\s*Own search order/)
+  await expect(laptop.getByLabel("Own routing")).toHaveCount(0)
   expect(await fits(page)).toBe(true)
   await shot(page, "gateway-keys")
 })
@@ -208,6 +253,7 @@ test("a long model list shows three chips and opens the full list", async ({ pag
       prefix: "hyp_gateway_v1_Lm40Pr",
       models,
       endpoints: ["search", "fetch", "images", "audio"],
+      search_order: [],
       created_at: iso(now - 2 * 86_400_000),
     },
     {
@@ -217,6 +263,7 @@ test("a long model list shows three chips and opens the full list", async ({ pag
       masked_value: mask(laptopSecret),
       models: ["*"],
       endpoints: ["search", "fetch", "images", "audio"],
+      search_order: [],
       created_at: iso(now - 9 * 86_400_000),
     },
   ])
@@ -253,54 +300,97 @@ test("a long model list shows three chips and opens the full list", async ({ pag
   await shot(page, "gateway-keys-long-expanded")
 })
 
-// Scenario: the owner makes a key for one tool, limited to some models, and copies it; the list masks its value.
-// The models are grouped by the provider that serves them; a provider's box
-// takes all of its models, and the search narrows the list. A key with no model chosen is refused before it is sent.
-// Besides chat a key may search, read pages, make images and hear or make speech (issue #694), each ticked at first; one unticked is not given
-// (issue #664), and a key given every kind names none, so a kind added later is given too.
-test("the owner creates a key and sees its value", async ({ page }) => {
+// pick chooses a model in the sheet's chip multiselect: searched, then picked from the list.
+async function pick(sheet: Locator, query: string, name: RegExp) {
+  const search = sheet.getByRole("combobox", { name: "Search models" })
+  await search.fill(query)
+  await sheet.page().getByRole("option", { name }).click()
+  await search.fill("")
+}
+
+// Scenario (issue #1277): the owner makes a key for one tool in the sheet at the right side. The name comes first;
+// Only these models opens a chip multiselect whose list is grouped by provider, and a key with no model chosen is
+// refused before it is sent. Besides chat is one row of chips, each on at first; one turned off is not given (issue
+// #664), and a key given every kind names none. Routing is closed, its header saying the key follows Settings; opened,
+// the key takes one Claude account and its own search order, Codex, Claude, then Exa. Once made, the sheet shows the
+// key once with what a tool needs, and the table marks the key's own routing.
+test("the owner creates a key in the sheet and sees its value", async ({ page, isMobile }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/gateway-keys")
+  if (isMobile) await page.keyboard.press("Escape")
 
   await page.getByRole("button", { name: "Create key" }).click()
-  const dialog = page.getByRole("dialog", { name: /gateway key|Copy the key/ })
-  await dialog.getByLabel("Name").fill("opencode-phone")
-  await dialog.getByRole("radio", { name: /Only these models/ }).click()
-  await dialog.getByRole("button", { name: "Create key" }).click()
-  await expect(dialog).toContainText("Choose a model, or every model.")
+  const sheet = page.getByRole("dialog", { name: /gateway key|Copy the key/ })
+  await expect(sheet).toBeVisible()
+  const box = await sheet.boundingBox()
+  const width = page.viewportSize()!.width
+  if (isMobile) {
+    expect(box!.width).toBeGreaterThan(width - 2)
+  } else {
+    expect(box!.width).toBeGreaterThan(540)
+    expect(box!.width).toBeLessThan(580)
+  }
+  await expect(sheet.getByTestId("routing-summary")).toHaveText("like Settings")
+  await expect(sheet.getByRole("region", { name: "Accounts" })).toHaveCount(0)
+  await shot(page, "gateway-keys-sheet-create")
 
-  await expect(dialog.getByRole("group", { name: "Claude subscription" })).toContainText(
+  await sheet.getByLabel("Name").fill("opencode-phone")
+  await sheet.getByRole("button", { name: "Only these", exact: true }).click()
+  await sheet.getByRole("button", { name: "Create key" }).click()
+  await expect(sheet).toContainText("Choose a model, or every model.")
+
+  await sheet.getByRole("combobox", { name: "Search models" }).click()
+  await expect(page.getByRole("group", { name: "Claude subscription" })).toContainText(
     "Claude Opus 5.5",
   )
-  await expect(dialog.getByRole("group", { name: "openrouter" })).toContainText("deepseek-v4")
-  await dialog.getByRole("checkbox", { name: "Every model of Claude subscription" }).click()
-  await dialog.getByRole("checkbox", { name: /GPT-5.5-Codex/ }).click()
-  await expect(dialog.getByTestId("chosen-count")).toContainText("3 selected")
-  await expect(dialog.getByRole("checkbox", { name: /GPT-5.5-Codex/ })).toBeChecked()
-  await dialog.getByLabel("Search models").focus()
-  // The boxes fade to their colour; the picture waits for it.
-  await page.waitForTimeout(300)
-  await shot(page, "gateway-keys-create")
+  await expect(page.getByRole("group", { name: "openrouter" })).toContainText("deepseek-v4")
+  await pick(sheet, "opus", /Claude Opus 5.5/)
+  await pick(sheet, "sonnet", /Claude Sonnet 5.5/)
+  await pick(sheet, "codex", /GPT-5.5-Codex/)
+  await expect(sheet.getByTestId("chosen-count")).toContainText("3 of 6 chosen")
+  await sheet.getByLabel("Name").click()
 
-  await dialog.getByLabel("Search models").fill("gemini")
-  await expect(dialog.getByRole("group", { name: "Antigravity" })).toBeVisible()
-  await expect(dialog.getByRole("group", { name: "Claude subscription" })).toHaveCount(0)
-  await dialog.getByLabel("Search models").fill("")
-  await expect(dialog.getByRole("checkbox", { name: /Web search/ })).toBeChecked()
-  await expect(
-    dialog.getByRole("checkbox", { name: /Speech to text and text to speech/ }),
-  ).toBeChecked()
-  await dialog.getByRole("checkbox", { name: /Making and editing images/ }).click()
-  await expect(
-    dialog.getByRole("checkbox", { name: /Making and editing images/ }),
-  ).not.toBeChecked()
-  await shot(page, "gateway-keys-create-endpoints")
-  await dialog.getByRole("button", { name: "Create key" }).click()
+  const besides = sheet.getByRole("group", { name: "Besides chat" })
+  await expect(besides.getByRole("button", { name: "Web search" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  await besides.getByRole("button", { name: "Making and editing images" }).click()
+  await expect(besides.getByRole("button", { name: "Making and editing images" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  )
+  await expect(sheet).toContainText("/v1/web/fetch")
+  await shot(page, "gateway-keys-sheet-models")
 
-  await expect(dialog).toContainText("You can copy it again from the list")
-  await expect(dialog.getByLabel("The new key")).toHaveValue(secret)
-  await shot(page, "gateway-keys-created")
-  await dialog.getByRole("button", { name: "Done" }).click()
+  await sheet.getByRole("button", { name: /^Routing/ }).click()
+  const accountsChoice = sheet.getByRole("region", { name: "Accounts" })
+  await accountsChoice.getByRole("button", { name: "Only these" }).click()
+  await accountsChoice
+    .getByRole("group", { name: "Claude accounts" })
+    .getByRole("button", { name: "work" })
+    .click()
+  const order = sheet.getByRole("region", { name: "Web search order" })
+  await order.getByRole("button", { name: "Its own" }).click()
+  for (const provider of ["Codex", "Claude", "Exa"]) {
+    await order.getByRole("button", { name: `Add ${provider}` }).click()
+  }
+  await expect(order.getByRole("list", { name: "Asked first" })).toHaveText(
+    /1\s*Codex.*2\s*Claude.*3\s*Exa/,
+  )
+  await expect(sheet.getByTestId("routing-summary")).toHaveText("1 account · own search order")
+  await order.scrollIntoViewIfNeeded()
+  await shot(page, "gateway-keys-sheet-routing")
+  await sheet.getByRole("button", { name: "Create key" }).click()
+
+  await expect(sheet).toContainText("You can copy it again from the list")
+  await expect(sheet.getByLabel("The new key")).toHaveValue(secret)
+  const connect = sheet.getByLabel("Connect a tool")
+  await expect(connect).toContainText("/v1")
+  await expect(connect).toContainText(`OPENAI_API_KEY=${secret}`)
+  await expect(connect).toContainText(`ANTHROPIC_AUTH_TOKEN=${secret}`)
+  await shot(page, "gateway-keys-sheet-created")
+  await sheet.getByRole("button", { name: "Done" }).click()
 
   const phone = page.getByRole("row", { name: "opencode-phone" })
   await expect(phone).toContainText(mask(secret))
@@ -308,15 +398,29 @@ test("the owner creates a key and sees its value", async ({ page }) => {
   await expect(phone).toContainText("Read pages")
   await expect(phone.getByText("Images", { exact: true })).toHaveCount(0)
   await expect(phone).toContainText("Audio")
+  await expect(phone.getByLabel("Own routing")).toHaveText(/1 Claude account\s*Own search order/)
   await expect(page.getByText(secret)).toHaveCount(0)
   expect(calls).toContain(
-    "POST /gateway/keys opencode-phone claude-opus-5-5,claude-sonnet-5-5,gpt-5.5-codex; search,fetch,audio",
+    "POST /gateway/keys opencode-phone claude-opus-5-5,claude-sonnet-5-5,gpt-5.5-codex; search,fetch,audio; acc_1; codex,claude,exa",
   )
+  await shot(page, "gateway-keys-badges")
 })
+
+// press is a press as the device makes it: a tap on a phone, whose finger leaves the screen, a click on a desktop. A
+// click on a phone leaves the pointer where it pressed, hovering whatever opens there; a toast that comes up under it
+// then waits for the pointer to leave before it goes, and covers the page meanwhile.
+async function press(locator: Locator, isMobile: boolean) {
+  if (isMobile) {
+    await locator.tap()
+  } else {
+    await locator.click()
+  }
+}
 
 test("the owner copies from the masked list, shows and hides, then edits the same key", async ({
   page,
   context,
+  isMobile,
 }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"])
   const calls = await fakeServer(page)
@@ -338,25 +442,29 @@ test("the owner copies from the masked list, shows and hides, then edits the sam
   await expect(laptop.getByText(laptopSecret, { exact: true })).toHaveCount(0)
 
   await laptop.getByRole("button", { name: "Edit opencode-laptop" }).click()
-  const dialog = page.getByRole("dialog", { name: "Edit opencode-laptop" })
-  await expect(dialog.getByLabel("Name")).toHaveValue("opencode-laptop")
-  await expect(dialog.getByRole("radio", { name: /Every model/ })).toBeChecked()
-  const images = dialog.getByRole("checkbox", { name: /Making and editing images/ })
-  await expect(images).toBeChecked()
-  await dialog.getByLabel("Name").fill("opencode-tool")
-  await dialog.getByRole("radio", { name: /Only these models/ }).click()
-  await dialog.getByRole("checkbox", { name: "GPT-5.5-Codex" }).click()
+  const sheet = page.getByRole("dialog", { name: "Edit opencode-laptop" })
+  await expect(sheet.getByLabel("Name")).toHaveValue("opencode-laptop")
+  await expect(sheet.getByRole("button", { name: "Every model" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+  const images = sheet.getByRole("button", { name: "Making and editing images" })
+  await expect(images).toHaveAttribute("aria-pressed", "true")
+  await sheet.getByLabel("Name").fill("opencode-tool")
+  await sheet.getByRole("button", { name: "Only these", exact: true }).click()
+  await pick(sheet, "codex", /GPT-5.5-Codex/)
+  await sheet.getByLabel("Name").click()
   await images.click()
-  await shot(page, "gateway-keys-edit")
-  await dialog.getByRole("button", { name: "Save changes" }).click()
-  await expect(dialog).toHaveCount(0)
+  await shot(page, "gateway-keys-sheet-edit")
+  await press(sheet.getByRole("button", { name: "Save changes" }), isMobile)
+  await expect(sheet).toHaveCount(0)
 
   const edited = page.getByRole("row", { name: "opencode-tool" })
   await expect(edited).toContainText("GPT-5.5-Codex")
   await expect(edited.getByText("Images", { exact: true })).toHaveCount(0)
   await expect(edited).toContainText(mask(laptopSecret))
   expect(calls).toContain(
-    "PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; search,fetch,audio",
+    "PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; search,fetch,audio; undefined; undefined",
   )
   await edited.getByRole("button", { name: "Show key for opencode-tool" }).click()
   await expect(edited.getByText(laptopSecret, { exact: true })).toBeVisible()
@@ -364,11 +472,47 @@ test("the owner copies from the masked list, shows and hides, then edits the sam
 
   await edited.getByRole("button", { name: "Edit opencode-tool" }).click()
   const edit = page.getByRole("dialog", { name: "Edit opencode-tool" })
-  await edit.getByRole("checkbox", { name: /Making and editing images/ }).click()
-  await edit.getByRole("button", { name: "Save changes" }).click()
+  await edit.getByRole("button", { name: "Making and editing images" }).click()
+  await press(edit.getByRole("button", { name: "Save changes" }), isMobile)
   await expect(edit).toHaveCount(0)
   await expect(edited.getByText("Images", { exact: true })).toBeVisible()
-  expect(calls).toContain("PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; *")
+  expect(calls).toContain(
+    "PATCH /gateway/keys/gwk_1 opencode-tool gpt-5.5-codex; *; undefined; undefined",
+  )
+})
+
+// Scenario (issue #1277): the owner opens a key with its own routing. The Routing header says so while closed; open,
+// it shows the key's accounts and order, and the owner sets both back to Settings.
+test("the owner sets a key's own routing back to Settings", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/gateway-keys")
+
+  await page.getByRole("button", { name: "Edit beyondpilot" }).click()
+  const sheet = page.getByRole("dialog", { name: "Edit beyondpilot" })
+  await expect(sheet.getByTestId("routing-summary")).toHaveText("2 accounts · own search order")
+  await shot(page, "gateway-keys-sheet-edit-routed")
+  await sheet.getByRole("button", { name: /^Routing/ }).click()
+  const accountsChoice = sheet.getByRole("region", { name: "Accounts" })
+  const claude = accountsChoice.getByRole("group", { name: "Claude accounts" })
+  await expect(claude.getByRole("button", { name: "work" })).toHaveAttribute("aria-pressed", "true")
+  await expect(claude.getByRole("button", { name: "home" })).toHaveAttribute("aria-pressed", "true")
+  const order = sheet.getByRole("region", { name: "Web search order" })
+  await expect(order.getByRole("list", { name: "Asked first" })).toHaveText(
+    /1\s*Codex.*2\s*Claude.*3\s*Exa/,
+  )
+  await order.scrollIntoViewIfNeeded()
+  await shot(page, "gateway-keys-sheet-edit-routing")
+
+  await accountsChoice.getByRole("button", { name: "Every account" }).click()
+  await order.getByRole("button", { name: "Like Settings" }).click()
+  await expect(sheet.getByTestId("routing-summary")).toHaveText("like Settings")
+  await sheet.getByRole("button", { name: "Save changes" }).click()
+  await expect(sheet).toHaveCount(0)
+
+  await expect(
+    page.getByRole("row", { name: "beyondpilot" }).getByLabel("Own routing"),
+  ).toHaveCount(0)
+  expect(calls).toContain("PATCH /gateway/keys/gwk_3 beyondpilot ; undefined; *; ")
 })
 
 // Scenario: the owner revokes a key after being told a tool using it is refused from now on.

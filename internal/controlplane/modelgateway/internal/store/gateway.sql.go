@@ -10,6 +10,46 @@ import (
 	"database/sql"
 )
 
+const accountExists = `-- name: AccountExists :one
+SELECT count(*) FROM accounts WHERE id = ?1
+`
+
+func (q *Queries) AccountExists(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, accountExists, id)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const addGatewayKeyAccount = `-- name: AddGatewayKeyAccount :exec
+INSERT INTO gateway_key_accounts (key_id, account_id) VALUES (?1, ?2)
+`
+
+type AddGatewayKeyAccountParams struct {
+	KeyID     string
+	AccountID string
+}
+
+func (q *Queries) AddGatewayKeyAccount(ctx context.Context, arg AddGatewayKeyAccountParams) error {
+	_, err := q.db.ExecContext(ctx, addGatewayKeyAccount, arg.KeyID, arg.AccountID)
+	return err
+}
+
+const addGatewayKeySearchProvider = `-- name: AddGatewayKeySearchProvider :exec
+INSERT INTO gateway_key_search_order (key_id, provider, position) VALUES (?1, ?2, ?3)
+`
+
+type AddGatewayKeySearchProviderParams struct {
+	KeyID    string
+	Provider string
+	Position int64
+}
+
+func (q *Queries) AddGatewayKeySearchProvider(ctx context.Context, arg AddGatewayKeySearchProviderParams) error {
+	_, err := q.db.ExecContext(ctx, addGatewayKeySearchProvider, arg.KeyID, arg.Provider, arg.Position)
+	return err
+}
+
 const addGatewayUsageDaily = `-- name: AddGatewayUsageDaily :exec
 INSERT INTO gateway_usage_daily (day, caller, model, provider, upstream_model, account_id, requests, ok, failed,
                                  client_gone, no_account, prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
@@ -118,6 +158,24 @@ func (q *Queries) AddGatewayUsageDaily(ctx context.Context, arg AddGatewayUsageD
 	return err
 }
 
+const clearGatewayKeyAccounts = `-- name: ClearGatewayKeyAccounts :exec
+DELETE FROM gateway_key_accounts WHERE key_id = ?1
+`
+
+func (q *Queries) ClearGatewayKeyAccounts(ctx context.Context, keyID string) error {
+	_, err := q.db.ExecContext(ctx, clearGatewayKeyAccounts, keyID)
+	return err
+}
+
+const clearGatewayKeySearchOrder = `-- name: ClearGatewayKeySearchOrder :exec
+DELETE FROM gateway_key_search_order WHERE key_id = ?1
+`
+
+func (q *Queries) ClearGatewayKeySearchOrder(ctx context.Context, keyID string) error {
+	_, err := q.db.ExecContext(ctx, clearGatewayKeySearchOrder, keyID)
+	return err
+}
+
 const countGatewayAudioCalls = `-- name: CountGatewayAudioCalls :many
 SELECT provider, model,
        CAST(SUM(outcome = 'ok') AS INTEGER) AS answered,
@@ -137,7 +195,7 @@ type CountGatewayAudioCallsRow struct {
 	Characters int64
 }
 
-// Each audio provider's requests since a moment, by the model it was asked with (one model a provider and kind):
+// Each audio provider's requests since a moment, by the model it was asked with (speech.KindOf tells its kind):
 // what answered, what failed, the milliseconds transcribed and the characters spoken, for the Audio page.
 func (q *Queries) CountGatewayAudioCalls(ctx context.Context, since int64) ([]CountGatewayAudioCallsRow, error) {
 	rows, err := q.db.QueryContext(ctx, countGatewayAudioCalls, since)
@@ -385,7 +443,7 @@ func (q *Queries) GetChatBotForKey(ctx context.Context, chatID string) (string, 
 }
 
 const getGatewayKey = `-- name: GetGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE id = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id, own_accounts FROM gateway_keys WHERE id = ?1
 `
 
 func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
@@ -408,12 +466,13 @@ func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, err
 		&i.RevokeReason,
 		&i.LastUsedAt,
 		&i.CoordinatorTokenID,
+		&i.OwnAccounts,
 	)
 	return i, err
 }
 
 const getGatewayKeyByHash = `-- name: GetGatewayKeyByHash :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE key_hash = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id, own_accounts FROM gateway_keys WHERE key_hash = ?1
 `
 
 func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (GatewayKey, error) {
@@ -436,6 +495,7 @@ func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (Gate
 		&i.RevokeReason,
 		&i.LastUsedAt,
 		&i.CoordinatorTokenID,
+		&i.OwnAccounts,
 	)
 	return i, err
 }
@@ -458,7 +518,7 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 }
 
 const getLatestGatewayKeyOfChat = `-- name: GetLatestGatewayKeyOfChat :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id, own_accounts FROM gateway_keys WHERE chat_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 // The newest key of a chat, working or not (issue #723): a voice message heard before the chat's pi starts is
@@ -483,12 +543,13 @@ func (q *Queries) GetLatestGatewayKeyOfChat(ctx context.Context, chatID sql.Null
 		&i.RevokeReason,
 		&i.LastUsedAt,
 		&i.CoordinatorTokenID,
+		&i.OwnAccounts,
 	)
 	return i, err
 }
 
 const getLatestGatewayKeyOfDispatch = `-- name: GetLatestGatewayKeyOfDispatch :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE dispatch_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id, own_accounts FROM gateway_keys WHERE dispatch_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) GetLatestGatewayKeyOfDispatch(ctx context.Context, dispatchID sql.NullString) (GatewayKey, error) {
@@ -511,12 +572,13 @@ func (q *Queries) GetLatestGatewayKeyOfDispatch(ctx context.Context, dispatchID 
 		&i.RevokeReason,
 		&i.LastUsedAt,
 		&i.CoordinatorTokenID,
+		&i.OwnAccounts,
 	)
 	return i, err
 }
 
 const getLiveGatewayKeyOfDispatch = `-- name: GetLiveGatewayKeyOfDispatch :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id, own_accounts FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
 ORDER BY created_at DESC, id DESC LIMIT 1
 `
 
@@ -541,12 +603,13 @@ func (q *Queries) GetLiveGatewayKeyOfDispatch(ctx context.Context, dispatchID sq
 		&i.RevokeReason,
 		&i.LastUsedAt,
 		&i.CoordinatorTokenID,
+		&i.OwnAccounts,
 	)
 	return i, err
 }
 
 const getLiveOwnerGatewayKey = `-- name: GetLiveOwnerGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys WHERE id = ?1 AND revoked_at IS NULL
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id, own_accounts FROM gateway_keys WHERE id = ?1 AND revoked_at IS NULL
   AND dispatch_id IS NULL AND chat_id IS NULL AND bot_id IS NULL
 `
 
@@ -570,6 +633,7 @@ func (q *Queries) GetLiveOwnerGatewayKey(ctx context.Context, id string) (Gatewa
 		&i.RevokeReason,
 		&i.LastUsedAt,
 		&i.CoordinatorTokenID,
+		&i.OwnAccounts,
 	)
 	return i, err
 }
@@ -738,6 +802,72 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 	return err
 }
 
+const listAllGatewayKeyAccounts = `-- name: ListAllGatewayKeyAccounts :many
+SELECT ka.key_id, ka.account_id, a.runtime FROM gateway_key_accounts ka JOIN accounts a ON a.id = ka.account_id
+ORDER BY ka.key_id, a.runtime, a.position, a.id
+`
+
+type ListAllGatewayKeyAccountsRow struct {
+	KeyID     string
+	AccountID string
+	Runtime   string
+}
+
+func (q *Queries) ListAllGatewayKeyAccounts(ctx context.Context) ([]ListAllGatewayKeyAccountsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllGatewayKeyAccounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllGatewayKeyAccountsRow{}
+	for rows.Next() {
+		var i ListAllGatewayKeyAccountsRow
+		if err := rows.Scan(&i.KeyID, &i.AccountID, &i.Runtime); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllGatewayKeySearchOrders = `-- name: ListAllGatewayKeySearchOrders :many
+SELECT key_id, provider FROM gateway_key_search_order ORDER BY key_id, position
+`
+
+type ListAllGatewayKeySearchOrdersRow struct {
+	KeyID    string
+	Provider string
+}
+
+func (q *Queries) ListAllGatewayKeySearchOrders(ctx context.Context) ([]ListAllGatewayKeySearchOrdersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAllGatewayKeySearchOrders)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllGatewayKeySearchOrdersRow{}
+	for rows.Next() {
+		var i ListAllGatewayKeySearchOrdersRow
+		if err := rows.Scan(&i.KeyID, &i.Provider); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAntigravityRewrites = `-- name: ListAntigravityRewrites :many
 SELECT position, find, replacement FROM antigravity_prompt_rewrites ORDER BY position
 `
@@ -799,7 +929,7 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 }
 
 const listGatewayAudioProviders = `-- name: ListGatewayAudioProviders :many
-SELECT provider, off, stt_position, tts_position, updated_at, voice, stt_model, tts_model FROM gateway_audio_providers ORDER BY provider
+SELECT provider, off, stt_position, tts_position, updated_at, voice, tts_model, stt_model FROM gateway_audio_providers ORDER BY provider
 `
 
 // What the owner set on Settings, Gateway, Audio (issue #694).
@@ -819,8 +949,8 @@ func (q *Queries) ListGatewayAudioProviders(ctx context.Context) ([]GatewayAudio
 			&i.TtsPosition,
 			&i.UpdatedAt,
 			&i.Voice,
-			&i.SttModel,
 			&i.TtsModel,
+			&i.SttModel,
 		); err != nil {
 			return nil, err
 		}
@@ -868,8 +998,76 @@ func (q *Queries) ListGatewayImageProviders(ctx context.Context) ([]GatewayImage
 	return items, nil
 }
 
+const listGatewayKeyAccounts = `-- name: ListGatewayKeyAccounts :many
+SELECT ka.key_id, ka.account_id, a.runtime FROM gateway_key_accounts ka JOIN accounts a ON a.id = ka.account_id
+WHERE ka.key_id = ?1 ORDER BY a.runtime, a.position, a.id
+`
+
+type ListGatewayKeyAccountsRow struct {
+	KeyID     string
+	AccountID string
+	Runtime   string
+}
+
+// A key's own routing (issue #1277): the accounts it may use when own_accounts is set, each with its runtime, and
+// its own web search order.
+func (q *Queries) ListGatewayKeyAccounts(ctx context.Context, keyID string) ([]ListGatewayKeyAccountsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewayKeyAccounts, keyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGatewayKeyAccountsRow{}
+	for rows.Next() {
+		var i ListGatewayKeyAccountsRow
+		if err := rows.Scan(&i.KeyID, &i.AccountID, &i.Runtime); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGatewayKeySearchOrder = `-- name: ListGatewayKeySearchOrder :many
+SELECT key_id, provider FROM gateway_key_search_order WHERE key_id = ?1 ORDER BY position
+`
+
+type ListGatewayKeySearchOrderRow struct {
+	KeyID    string
+	Provider string
+}
+
+func (q *Queries) ListGatewayKeySearchOrder(ctx context.Context, keyID string) ([]ListGatewayKeySearchOrderRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewayKeySearchOrder, keyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGatewayKeySearchOrderRow{}
+	for rows.Next() {
+		var i ListGatewayKeySearchOrderRow
+		if err := rows.Scan(&i.KeyID, &i.Provider); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGatewayKeys = `-- name: ListGatewayKeys :many
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id FROM gateway_keys ORDER BY name
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id, own_accounts FROM gateway_keys ORDER BY name
 `
 
 func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
@@ -898,6 +1096,7 @@ func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 			&i.RevokeReason,
 			&i.LastUsedAt,
 			&i.CoordinatorTokenID,
+			&i.OwnAccounts,
 		); err != nil {
 			return nil, err
 		}
@@ -1543,6 +1742,22 @@ func (q *Queries) RevokeGatewayKeysOfNode(ctx context.Context, arg RevokeGateway
 	return err
 }
 
+const setGatewayAudioModel = `-- name: SetGatewayAudioModel :exec
+INSERT INTO gateway_audio_providers (provider, tts_model, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET tts_model = excluded.tts_model, updated_at = excluded.updated_at
+`
+
+type SetGatewayAudioModelParams struct {
+	Provider string
+	Model    string
+	Now      int64
+}
+
+func (q *Queries) SetGatewayAudioModel(ctx context.Context, arg SetGatewayAudioModelParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayAudioModel, arg.Provider, arg.Model, arg.Now)
+	return err
+}
+
 const setGatewayAudioOff = `-- name: SetGatewayAudioOff :exec
 INSERT INTO gateway_audio_providers (provider, off, updated_at) VALUES (?1, ?2, ?3)
 ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at
@@ -1570,7 +1785,7 @@ type SetGatewayAudioSTTModelParams struct {
 	Now      int64
 }
 
-// The model a provider is asked with for each kind (issue #1285, row 1); empty: its newest.
+// The transcription model a provider hears with (issue #1285, row 1); empty: its newest.
 func (q *Queries) SetGatewayAudioSTTModel(ctx context.Context, arg SetGatewayAudioSTTModelParams) error {
 	_, err := q.db.ExecContext(ctx, setGatewayAudioSTTModel, arg.Provider, arg.Model, arg.Now)
 	return err
@@ -1589,22 +1804,6 @@ type SetGatewayAudioSTTPositionParams struct {
 
 func (q *Queries) SetGatewayAudioSTTPosition(ctx context.Context, arg SetGatewayAudioSTTPositionParams) error {
 	_, err := q.db.ExecContext(ctx, setGatewayAudioSTTPosition, arg.Provider, arg.Position, arg.Now)
-	return err
-}
-
-const setGatewayAudioTTSModel = `-- name: SetGatewayAudioTTSModel :exec
-INSERT INTO gateway_audio_providers (provider, tts_model, updated_at) VALUES (?1, ?2, ?3)
-ON CONFLICT (provider) DO UPDATE SET tts_model = excluded.tts_model, updated_at = excluded.updated_at
-`
-
-type SetGatewayAudioTTSModelParams struct {
-	Provider string
-	Model    string
-	Now      int64
-}
-
-func (q *Queries) SetGatewayAudioTTSModel(ctx context.Context, arg SetGatewayAudioTTSModelParams) error {
-	_, err := q.db.ExecContext(ctx, setGatewayAudioTTSModel, arg.Provider, arg.Model, arg.Now)
 	return err
 }
 
@@ -1672,6 +1871,20 @@ func (q *Queries) SetGatewayImagePosition(ctx context.Context, arg SetGatewayIma
 	return err
 }
 
+const setGatewayKeyOwnAccounts = `-- name: SetGatewayKeyOwnAccounts :exec
+UPDATE gateway_keys SET own_accounts = ?1 WHERE id = ?2
+`
+
+type SetGatewayKeyOwnAccountsParams struct {
+	OwnAccounts int64
+	ID          string
+}
+
+func (q *Queries) SetGatewayKeyOwnAccounts(ctx context.Context, arg SetGatewayKeyOwnAccountsParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayKeyOwnAccounts, arg.OwnAccounts, arg.ID)
+	return err
+}
+
 const setGatewaySearchOff = `-- name: SetGatewaySearchOff :exec
 INSERT INTO gateway_search_providers (provider, off, updated_at) VALUES (?1, ?2, ?3)
 ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at
@@ -1725,7 +1938,7 @@ const updateGatewayKey = `-- name: UpdateGatewayKey :one
 UPDATE OR IGNORE gateway_keys
 SET name = coalesce(?1, name), models = coalesce(?2, models),
     endpoints = CASE WHEN CAST(?3 AS BOOLEAN) THEN ?4 ELSE endpoints END
-WHERE id = ?5 RETURNING id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id
+WHERE id = ?5 RETURNING id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix, bot_id, endpoints, secret_version_id, masked_value, revoke_reason, last_used_at, coordinator_token_id, own_accounts
 `
 
 type UpdateGatewayKeyParams struct {
@@ -1762,6 +1975,7 @@ func (q *Queries) UpdateGatewayKey(ctx context.Context, arg UpdateGatewayKeyPara
 		&i.RevokeReason,
 		&i.LastUsedAt,
 		&i.CoordinatorTokenID,
+		&i.OwnAccounts,
 	)
 	return i, err
 }

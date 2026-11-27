@@ -41,16 +41,20 @@ func (s *Service) AudioSettings(ctx context.Context) (speech.Settings, error) {
 			out.Voices[r.Provider] = r.Voice
 		}
 
-		for kind, model := range map[string]string{speech.KindSTT: r.SttModel, speech.KindTTS: r.TtsModel} {
-			if model == "" {
-				continue
-			}
-
+		if r.TtsModel != "" {
 			if out.Models == nil {
-				out.Models = map[speech.Slot]string{}
+				out.Models = map[string]string{}
 			}
 
-			out.Models[speech.Slot{Provider: r.Provider, Kind: kind}] = model
+			out.Models[r.Provider] = r.TtsModel
+		}
+
+		if r.SttModel != "" {
+			if out.STTModels == nil {
+				out.STTModels = map[string]string{}
+			}
+
+			out.STTModels[r.Provider] = r.SttModel
 		}
 	}
 
@@ -124,12 +128,12 @@ func (s *Service) SetAudioVoice(ctx context.Context, provider, voice string) err
 	})
 }
 
-// MaxModel bounds a model's id: Soniox's longest (docs.soniox.com /api-reference/tts/websocket-api, "Model name is
-// too long (max length 50)"), with room.
+// MaxModel bounds a provider's model id.
 const MaxModel = 100
 
-// SetAudioModel keeps the model a provider is asked with for a kind, stt or tts (issue #1285, row 1); empty: its
-// newest. It counts from the next request.
+// SetAudioModel keeps the model a provider is asked with for a kind, as the owner picked it from the provider's
+// list: its text-to-speech model (issue #1283, row 1; Soniox's too, issue #1285, row 1), or Soniox's transcription
+// model (issue #1285, row 1); empty: its default. ElevenLabs hears with Scribe alone.
 func (s *Service) SetAudioModel(ctx context.Context, provider, kind, model string) error {
 	model = strings.TrimSpace(model)
 
@@ -138,6 +142,9 @@ func (s *Service) SetAudioModel(ctx context.Context, provider, kind, model strin
 		return fmt.Errorf("%w: no audio provider %q", ErrNotFound, provider)
 	case !slices.Contains(speech.Kinds(), kind):
 		return fmt.Errorf("%w: the kind is %s", ErrInvalid, strings.Join(speech.Kinds(), " or "))
+	case kind == speech.KindSTT && provider != speech.ProviderSoniox:
+		return fmt.Errorf("%w: %s hears with one model, %s", ErrInvalid, provider,
+			speech.Model(provider, speech.KindSTT))
 	case len(model) > MaxModel || strings.ContainsFunc(model, func(r rune) bool { return r <= ' ' }):
 		return fmt.Errorf("%w: a model is an id of at most %d characters, without spaces", ErrInvalid, MaxModel)
 	}
@@ -149,7 +156,7 @@ func (s *Service) SetAudioModel(ctx context.Context, provider, kind, model strin
 				Provider: provider, Model: model, Now: now,
 			})
 		} else {
-			err = q.SetGatewayAudioTTSModel(ctx, store.SetGatewayAudioTTSModelParams{
+			err = q.SetGatewayAudioModel(ctx, store.SetGatewayAudioModelParams{
 				Provider: provider, Model: model, Now: now,
 			})
 		}
@@ -206,6 +213,14 @@ type AudioTally struct {
 	Characters int64
 }
 
+// plus is both tallies together: a kind's requests made with each model the owner chose in the period.
+func (t AudioTally) plus(o AudioTally) AudioTally {
+	return AudioTally{
+		Answered: t.Answered + o.Answered, Failed: t.Failed + o.Failed, Audio: t.Audio + o.Audio,
+		Characters: t.Characters + o.Characters,
+	}
+}
+
 // AudioCount is a provider's requests of one kind, of the UTC day and month.
 type AudioCount struct {
 	Today, Month AudioTally
@@ -213,37 +228,22 @@ type AudioCount struct {
 
 // AudioCounts are each provider's requests of each kind (speech.KindSTT,
 // speech.KindTTS) of the UTC day and month now is in, from the usage rows:
-// the model a row was asked with tells its kind, the owner's choice or one a
-// kind was asked with by default (speech.KnownModels); a request no provider
-// was asked for is no provider's.
+// a row's model tells its kind (speech.KindOf: a provider's one transcription
+// model, else speech, whichever model the owner chose then); a request no
+// provider was asked for is no provider's.
 func (s *Service) AudioCounts(ctx context.Context, now time.Time) (map[string]map[string]AudioCount, error) {
 	q := store.New(s.db)
 	month := monthStart(now)
 	day := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
 
-	set, err := s.AudioSettings(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	kinds := map[string]string{}
-
-	for _, p := range speech.Providers() {
-		for _, k := range speech.Kinds() {
-			for _, m := range append(speech.KnownModels(p, k), set.Model(p, k)) {
-				kinds[ModelAudioPrefix+m] = k
-			}
-		}
-	}
-
 	out := map[string]map[string]AudioCount{}
 
 	for _, period := range []struct {
 		since time.Time
-		set   func(c *AudioCount, t AudioTally)
+		add   func(c *AudioCount, t AudioTally)
 	}{
-		{month, func(c *AudioCount, t AudioTally) { c.Month = t }},
-		{day, func(c *AudioCount, t AudioTally) { c.Today = t }},
+		{month, func(c *AudioCount, t AudioTally) { c.Month = c.Month.plus(t) }},
+		{day, func(c *AudioCount, t AudioTally) { c.Today = c.Today.plus(t) }},
 	} {
 		rows, err := q.CountGatewayAudioCalls(ctx, period.since.UnixMilli())
 		if err != nil {
@@ -251,17 +251,19 @@ func (s *Service) AudioCounts(ctx context.Context, now time.Time) (map[string]ma
 		}
 
 		for _, r := range rows {
-			kind, ok := kinds[r.Model]
-			if !ok || r.Provider == "" {
+			model, ok := strings.CutPrefix(r.Model, ModelAudioPrefix)
+			if !ok || r.Provider == "" || !slices.Contains(speech.Providers(), r.Provider) {
 				continue
 			}
+
+			kind := speech.KindOf(r.Provider, model)
 
 			if out[r.Provider] == nil {
 				out[r.Provider] = map[string]AudioCount{}
 			}
 
 			c := out[r.Provider][kind]
-			period.set(&c, AudioTally{
+			period.add(&c, AudioTally{
 				Answered: int(r.Answered), Failed: int(r.Failed), Audio: time.Duration(r.AudioMs) * time.Millisecond,
 				Characters: r.Characters,
 			})

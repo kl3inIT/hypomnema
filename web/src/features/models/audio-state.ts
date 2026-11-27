@@ -1,11 +1,11 @@
 import type {
   AudioKey,
   AudioKind,
-  AudioModelChoice,
+  AudioModelInfo,
   AudioProvider,
   AudioProviderLink,
   AudioUsage,
-  AudioVoiceChoice,
+  AudioVoiceInfo,
   WebSearchRest,
 } from "@/api/generated/types.gen"
 
@@ -121,53 +121,51 @@ export function audioUsageText(kind: AudioKind, usage: AudioUsage) {
   return `${part("Today", usage.today)} · ${part("this month", usage.month)} · ${amount}`
 }
 
-// An option of a select: its value, and the words shown for it.
-export type Choice = { value: string; label: string }
+// A choice in a picker: what is saved, and what is read. The model and voice pickers list the provider's own
+// models and voices (issue #1283, rows 1 and 5), as open-webui's audio settings list ElevenLabs's from its
+// /v1/models and /v1/voices (backend/open_webui/routers/audio/__init__.py), a voice by its name.
+export type AudioChoice = { value: string; label: string; detail?: string }
 
-// newest is the select's value for "the provider's newest model" and "its own default voice": the empty setting.
-export const newest = "newest"
+// defaultVoice is the value of "its own default voice", which is saved as no voice.
+export const defaultVoice = "@default"
 
-// modelChoices are the models a kind can ask a provider with (issue #1285, row 1): first its newest, which follows
-// the provider as it ships new ones, then its catalog's, with the model chosen now kept when the catalog lacks it.
+// modelChoices are a provider's models of a kind (Soniox's transcription models too, issue #1285), the one in use
+// kept first when the list does not have it (a list that could not be read, or a model the provider no longer
+// offers).
 export function modelChoices(
-  model: string,
-  defaultModel: string,
-  catalog: AudioModelChoice[] | undefined,
-): Choice[] {
-  const out: Choice[] = [{ value: newest, label: `Newest (${defaultModel})` }]
-
-  for (const m of catalog ?? []) {
-    out.push({ value: m.id, label: m.name && m.name !== m.id ? `${m.name} · ${m.id}` : m.id })
-  }
-
-  if (model !== defaultModel && !out.some((c) => c.value === model)) {
-    out.push({ value: model, label: model })
-  }
-
-  return out
-}
-
-// modelValue is the select's value of a kind's model: newest while it is the provider's newest.
-export function modelValue(model: string, defaultModel: string) {
-  return model === defaultModel ? newest : model
-}
-
-// voiceChoices are a provider's voices for videos, by name (issue #1285, row 5): first its own default, then its
-// voices, with the voice set now kept when the list lacks it, as it was typed.
-export function voiceChoices(
+  models: AudioModelInfo[],
   provider: AudioProvider,
-  voice: string | undefined,
-  voices: AudioVoiceChoice[] | undefined,
-): Choice[] {
-  const out: Choice[] = [{ value: newest, label: "Its own default" }]
-
-  for (const v of voices ?? []) {
-    if (v.provider !== provider) continue
-
-    out.push({ value: v.id, label: v.name && v.name !== v.id ? v.name : v.id })
-  }
-
-  if (voice && !out.some((c) => c.value === voice)) out.push({ value: voice, label: voice })
+  current: string,
+  kind: AudioKind = "tts",
+): AudioChoice[] {
+  const out: AudioChoice[] = models
+    .filter((m) => m.provider === provider && m.kind === kind)
+    .map((m) => ({ value: m.id, label: m.name || m.id, detail: languagesText(m.languages) }))
+  if (current && !out.some((c) => c.value === current))
+    out.unshift({ value: current, label: current })
 
   return out
+}
+
+function languagesText(languages: string[]) {
+  if (languages.length === 0) return undefined
+
+  return languages.length === 1 ? "1 language" : `${languages.length} languages`
+}
+
+// voiceChoices are a provider's voices by name, after its own default; a voice set by id or by another name that
+// the list does not have is kept, as it was set.
+export function voiceChoices(
+  voices: AudioVoiceInfo[],
+  provider: AudioProvider,
+  current: string,
+): AudioChoice[] {
+  const out: AudioChoice[] = voices
+    .filter((v) => v.provider === provider)
+    .map((v) => ({ value: v.id, label: v.name || v.id, detail: v.language }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+  if (current && !out.some((c) => c.value === current))
+    out.unshift({ value: current, label: current })
+
+  return [{ value: defaultVoice, label: "Its own default" }, ...out]
 }

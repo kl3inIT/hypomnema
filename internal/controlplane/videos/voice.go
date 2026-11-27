@@ -31,6 +31,7 @@
 package videos
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -86,8 +87,10 @@ func (s *Service) speak(ctx context.Context, source AudioSource, lines []string,
 	pin *voicePin, done func(n int), chosen func(spoken) error,
 ) (spoken, error) {
 	if pin != nil {
-		// A pinned call reads no settings, so it is spoken with the provider's newest model (issue #908, row 4).
-		out := spoken{provider: pin.provider, model: speech.DefaultModel(pin.provider, speech.KindTTS), voice: pin.voice}
+		out := spoken{
+			provider: pin.provider, model: cmp.Or(pin.model, speech.Model(pin.provider, speech.KindTTS)),
+			voice: pin.voice,
+		}
 		if err := chosen(out); err != nil {
 			return spoken{}, err
 		}
@@ -179,9 +182,11 @@ func (s *Service) settings(ctx context.Context) (speech.Settings, error) {
 	return s.cfg.Settings(ctx)
 }
 
-// clip is a line spoken by a provider with a model: from the cache, or asked and kept there. A pinned clip asks its
-// provider alone, without the owner's settings (issue #908, row 4). The words' times are asked with the speech, and
-// kept beside the clip when the provider gives them, so its captions need no transcription (issue #1285, row 2).
+// clip is a line spoken by a provider and model: from the cache, or asked and kept there. A pinned clip asks its
+// provider alone, without the owner's settings (issue #908, row 4). The line is asked with its words' times: when
+// the provider sends them (ElevenLabs's alignment, issue #1283, row 3; Soniox's WebSocket timestamps, issue #1285,
+// row 2), they are kept beside the clip, so that its
+// captions need no transcription; else clipWords hears the clip, as before.
 func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, model, voice string, speed float64,
 	pinned bool,
 ) (string, error) {
@@ -193,8 +198,8 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 	}
 
 	out, err := s.cfg.Speech.Speak(ctx, source, speech.SpeakRequest{
-		Input: text, Voice: voice, Format: clipFormat, Language: Language, Provider: provider, Pinned: pinned,
-		Speed: speed, Timestamps: true,
+		Input: text, Voice: voice, Format: clipFormat, Language: Language, Provider: provider, Model: model,
+		Pinned: pinned, Speed: speed, Timings: true,
 	})
 	if err != nil {
 		return "", err
@@ -214,7 +219,7 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 		return "", err
 	}
 
-	if words := captionWords(out.Words); len(words) > 0 {
+	if words := spokenWords(out.Words); len(words) > 0 {
 		raw, err := json.Marshal(words)
 		if err != nil {
 			return "", err
@@ -228,18 +233,18 @@ func (s *Service) clip(ctx context.Context, source AudioSource, text, provider, 
 	return path, nil
 }
 
-// captionWords are the speech's words as the captions time them, in seconds.
-func captionWords(words []speech.Word) []captions.Word {
-	out := make([]captions.Word, 0, len(words))
-	for _, w := range words {
-		out = append(out, captions.Word{Word: w.Word, Start: w.Start.Seconds(), End: max(w.Start, w.End).Seconds()})
+// spokenWords are the caption words of the words a provider said it spoke, each as it is, with its own times: the
+// provider's words are whole already (speech.alignmentWords splits ElevenLabs's alignment on whitespace), so none
+// is glued to another, not even a mark said on its own (review of #1300).
+func spokenWords(said []speech.Word) []captions.Word {
+	out := make([]captions.Word, 0, len(said))
+	for _, w := range said {
+		out = append(out, captions.Word{Word: w.Word, Start: w.Start.Seconds(), End: w.End.Seconds()})
 	}
 
 	return out
 }
 
-// clipWords are a clip's words with their times: those its provider gave with it, else heard from it again by
-// speech-to-text and kept beside it.
 func (s *Service) clipWords(ctx context.Context, source AudioSource, clip string) ([]captions.Word, error) {
 	info, err := os.Stat(clip)
 	if err != nil {

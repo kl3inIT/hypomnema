@@ -75,3 +75,15 @@ func TestTheCharactersComeInParts(t *testing.T) {
 	assert.Equal(t, []string{"Hi", "you"}, words(speech.AlignedWords("Hi you", a)))
 	assert.Empty(t, speech.AlignedWords("Hi", speech.Alignment{}))
 }
+
+// A tag spoken right beside the words, with no space (review of #1302): it splits them, and the word after it
+// starts at its own first character, as ElevenLabs's words do (alignmentWords).
+func TestATagBesideTheWordsSplitsThem(t *testing.T) {
+	t.Parallel()
+
+	line := "mì[laughs]kìa"
+	got := speech.AlignedWords(line, spokenAs(line))
+
+	assert.Equal(t, []string{"mì", "kìa"}, words(got))
+	assert.Equal(t, time.Second, got[1].Start, "kìa is the tenth character")
+}

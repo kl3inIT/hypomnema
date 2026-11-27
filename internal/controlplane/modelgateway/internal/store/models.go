@@ -15,8 +15,8 @@ type GatewayAudioProvider struct {
 	TtsPosition sql.NullInt64
 	UpdatedAt   int64
 	Voice       string
-	SttModel    string
 	TtsModel    string
+	SttModel    string
 }
 
 type GatewayImageProvider struct {
@@ -43,6 +43,7 @@ type GatewayKey struct {
 	RevokeReason       sql.NullString
 	LastUsedAt         sql.NullInt64
 	CoordinatorTokenID sql.NullString
+	OwnAccounts        int64
 }
 
 type GatewayModel struct {

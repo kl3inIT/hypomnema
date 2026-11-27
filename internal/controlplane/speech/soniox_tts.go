@@ -32,26 +32,6 @@ import (
 // sonioxStreamID names the one stream of a connection.
 const sonioxStreamID = "hypomnema"
 
-// sonioxStream speaks text over the WebSocket and returns its audio and its characters' times; a refusal that may
-// pass is asked again (retry.go).
-func (s *Service) sonioxStream(ctx context.Context, k Key, config map[string]any, text string,
-) ([]byte, Alignment, error) {
-	var (
-		audio     []byte
-		alignment Alignment
-	)
-
-	err := s.retrying(ctx, func(int) error {
-		var err error
-
-		audio, alignment, err = s.sonioxStreamOnce(ctx, k, config, text)
-
-		return err
-	})
-
-	return audio, alignment, err
-}
-
 type sonioxStreamAnswer struct {
 	StreamID     string `json:"stream_id"`
 	Audio        string `json:"audio"`
@@ -66,7 +46,8 @@ type sonioxStreamAnswer struct {
 	} `json:"timestamps"`
 }
 
-func (s *Service) sonioxStreamOnce(ctx context.Context, k Key, config map[string]any, text string,
+// sonioxStream speaks text over the WebSocket once and returns its audio and its characters' times.
+func (s *Service) sonioxStream(ctx context.Context, k Key, config map[string]any, text string,
 ) ([]byte, Alignment, error) {
 	//nolint:bodyclose // The library closes the handshake's body.
 	conn, resp, err := websocket.Dial(ctx, s.cfg.SonioxTTSWebSocketURL, &websocket.DialOptions{
@@ -149,12 +130,6 @@ func (s *Service) sonioxStreamOnce(ctx context.Context, k Key, config map[string
 	}
 }
 
-// ModelChoice is a model a provider can be asked with for a kind.
-type ModelChoice struct {
-	ID   string
-	Name string
-}
-
 // sonioxTTSModel is a TTS model as Soniox's catalog gives it (soniox-python types/api.py:706-743).
 type sonioxTTSModel struct {
 	ID                       string `json:"id"`
@@ -162,10 +137,13 @@ type sonioxTTSModel struct {
 	AliasedModelID           string `json:"aliased_model_id"`
 	SupportsTimestamps       bool   `json:"supports_timestamps"`
 	SupportsSilenceReduction bool   `json:"supports_silence_reduction"`
+	Languages                []struct {
+		Code string `json:"code"`
+	} `json:"languages"`
 }
 
-// modelsRead is a key's Soniox TTS models, kept a day.
-type modelsRead struct {
+// sonioxModelsRead is a key's Soniox TTS models, kept a day.
+type sonioxModelsRead struct {
 	models []sonioxTTSModel
 	at     time.Time
 }
@@ -173,7 +151,7 @@ type modelsRead struct {
 // sonioxTTSModels lists the TTS models of Soniox's catalog with a key.
 func (s *Service) sonioxTTSModels(ctx context.Context, k Key) ([]sonioxTTSModel, error) {
 	s.mu.Lock()
-	kept, ok := s.ttsModels[k.Name]
+	kept, ok := s.sonioxModels[k.Name]
 	s.mu.Unlock()
 
 	if ok && s.now().Sub(kept.at) < voicesKept {
@@ -190,7 +168,7 @@ func (s *Service) sonioxTTSModels(ctx context.Context, k Key) ([]sonioxTTSModel,
 	}
 
 	s.mu.Lock()
-	s.ttsModels[k.Name] = modelsRead{models: answer.Models, at: s.now()}
+	s.sonioxModels[k.Name] = sonioxModelsRead{models: answer.Models, at: s.now()}
 	s.mu.Unlock()
 
 	return answer.Models, nil
@@ -213,58 +191,29 @@ func (s *Service) sonioxModelOf(ctx context.Context, k Key, model string) soniox
 	return sonioxTTSModel{}
 }
 
-// Models lists the models a provider can be asked with for a kind, for the owner's choice (issue #1285, row 1):
-// Soniox's from its catalog with the first of its keys that answers, the transcription models those of its async
-// jobs; ElevenLabs's, its one model, until its catalog is read (issue #1283).
-func (s *Service) Models(ctx context.Context, provider, kind string) ([]ModelChoice, error) {
-	switch {
-	case !slices.Contains(Providers(), provider):
-		return nil, fmt.Errorf("%w: the provider is one of %s", ErrInvalid, strings.Join(Providers(), ", "))
-	case !slices.Contains(Kinds(), kind):
-		return nil, fmt.Errorf("%w: the kind is %s", ErrInvalid, strings.Join(Kinds(), " or "))
-	case provider != ProviderSoniox:
-		return []ModelChoice{{ID: DefaultModel(provider, kind), Name: DefaultModel(provider, kind)}}, nil
-	}
-
-	keys, err := s.keys(ctx)
+// sonioxCatalog is Soniox's models for the owner's choice (issue #1285, row 1): its text-to-speech models of GET
+// /v1/tts-models and its transcription models of async jobs of GET /v1/models, aliases left out.
+func (s *Service) sonioxCatalog(ctx context.Context, k Key) ([]ModelInfo, error) {
+	tts, err := s.sonioxTTSModels(ctx, k)
 	if err != nil {
 		return nil, err
 	}
 
-	var failures []Failure
+	out := make([]ModelInfo, 0, len(tts))
 
-	for _, k := range s.leastRecentlyUsed(keys[provider]) {
-		out, err := s.sonioxModels(ctx, k, kind)
-		if err == nil {
-			return out, nil
+	for _, m := range tts {
+		if m.AliasedModelID != "" {
+			continue
 		}
 
-		failures = append(failures, Failure{Provider: provider, Reason: "key " + k.Name + ": " + reasonOf(sonioxError(err))})
-	}
-
-	if len(failures) == 0 {
-		return nil, fmt.Errorf("%w: Soniox has no key; add one on Settings → Gateway → Audio", ErrUnavailable)
-	}
-
-	return nil, &FailedError{Failures: failures}
-}
-
-func (s *Service) sonioxModels(ctx context.Context, k Key, kind string) ([]ModelChoice, error) {
-	var out []ModelChoice
-
-	if kind == KindTTS {
-		models, err := s.sonioxTTSModels(ctx, k)
-		if err != nil {
-			return nil, err
+		info := ModelInfo{
+			ID: m.ID, Name: cmpOr(m.Name, m.ID), Provider: ProviderSoniox, Kind: KindTTS, Languages: []string{},
+		}
+		for _, l := range m.Languages {
+			info.Languages = append(info.Languages, l.Code)
 		}
 
-		for _, m := range models {
-			if m.AliasedModelID == "" {
-				out = append(out, ModelChoice{ID: m.ID, Name: cmpOr(m.Name, m.ID)})
-			}
-		}
-
-		return out, nil
+		out = append(out, info)
 	}
 
 	var answer struct {
@@ -273,6 +222,9 @@ func (s *Service) sonioxModels(ctx context.Context, k Key, kind string) ([]Model
 			Name              string `json:"name"`
 			AliasedModelID    string `json:"aliased_model_id"`
 			TranscriptionMode string `json:"transcription_mode"`
+			Languages         []struct {
+				Code string `json:"code"`
+			} `json:"languages"`
 		} `json:"models"`
 	}
 
@@ -282,9 +234,18 @@ func (s *Service) sonioxModels(ctx context.Context, k Key, kind string) ([]Model
 	}
 
 	for _, m := range answer.Models {
-		if m.AliasedModelID == "" && m.TranscriptionMode == "async" {
-			out = append(out, ModelChoice{ID: m.ID, Name: cmpOr(m.Name, m.ID)})
+		if m.AliasedModelID != "" || m.TranscriptionMode != "async" {
+			continue
 		}
+
+		info := ModelInfo{
+			ID: m.ID, Name: cmpOr(m.Name, m.ID), Provider: ProviderSoniox, Kind: KindSTT, Languages: []string{},
+		}
+		for _, l := range m.Languages {
+			info.Languages = append(info.Languages, l.Code)
+		}
+
+		out = append(out, info)
 	}
 
 	return out, nil

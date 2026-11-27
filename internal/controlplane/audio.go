@@ -66,8 +66,8 @@ func (a audioSettings) Chain(ctx context.Context) ([]speech.Link, speech.Setting
 	return a.speech.Chain(ctx)
 }
 
-func (a audioSettings) Models(ctx context.Context, provider, kind string) ([]speech.ModelChoice, error) {
-	return a.speech.Models(ctx, provider, kind)
+func (a audioSettings) Models(ctx context.Context) ([]speech.ModelInfo, []speech.Failure, error) {
+	return a.speech.Models(ctx)
 }
 
 func (a audioSettings) Voices(ctx context.Context) ([]speech.Voice, []speech.Failure, error) {

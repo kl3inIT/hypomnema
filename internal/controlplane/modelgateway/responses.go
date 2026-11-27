@@ -129,6 +129,12 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.svc.KeyServes(r.Context(), key, model) {
+		writeError(w, http.StatusForbidden, typePermission, "model_not_allowed", accountsRefuseMessage(req.Model))
+
+		return
+	}
+
 	refused, run := s.refuseOverflow(w, r, key, model)
 	if refused {
 		return
@@ -146,7 +152,7 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: true, started: started}
-	serving, served := withServed(r)
+	serving, served := withServed(withKey(r, key))
 	s.serveResponses(w, serving, raw, session, model, &record, served)
 	s.noteOverflow(r.Context(), key, model, run, record)
 

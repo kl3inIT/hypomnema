@@ -364,14 +364,14 @@ ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.u
 INSERT INTO gateway_audio_providers (provider, voice, updated_at) VALUES (@provider, @voice, @now)
 ON CONFLICT (provider) DO UPDATE SET voice = excluded.voice, updated_at = excluded.updated_at;
 
--- The model a provider is asked with for each kind (issue #1285, row 1); empty: its newest.
+-- name: SetGatewayAudioModel :exec
+INSERT INTO gateway_audio_providers (provider, tts_model, updated_at) VALUES (@provider, @model, @now)
+ON CONFLICT (provider) DO UPDATE SET tts_model = excluded.tts_model, updated_at = excluded.updated_at;
+
+-- The transcription model a provider hears with (issue #1285, row 1); empty: its newest.
 -- name: SetGatewayAudioSTTModel :exec
 INSERT INTO gateway_audio_providers (provider, stt_model, updated_at) VALUES (@provider, @model, @now)
 ON CONFLICT (provider) DO UPDATE SET stt_model = excluded.stt_model, updated_at = excluded.updated_at;
-
--- name: SetGatewayAudioTTSModel :exec
-INSERT INTO gateway_audio_providers (provider, tts_model, updated_at) VALUES (@provider, @model, @now)
-ON CONFLICT (provider) DO UPDATE SET tts_model = excluded.tts_model, updated_at = excluded.updated_at;
 
 -- name: SetGatewayAudioSTTPosition :exec
 INSERT INTO gateway_audio_providers (provider, stt_position, updated_at) VALUES (@provider, @position, @now)
@@ -381,7 +381,7 @@ ON CONFLICT (provider) DO UPDATE SET stt_position = excluded.stt_position, updat
 INSERT INTO gateway_audio_providers (provider, tts_position, updated_at) VALUES (@provider, @position, @now)
 ON CONFLICT (provider) DO UPDATE SET tts_position = excluded.tts_position, updated_at = excluded.updated_at;
 
--- Each audio provider's requests since a moment, by the model it was asked with (one model a provider and kind):
+-- Each audio provider's requests since a moment, by the model it was asked with (speech.KindOf tells its kind):
 -- what answered, what failed, the milliseconds transcribed and the characters spoken, for the Audio page.
 -- name: CountGatewayAudioCalls :many
 SELECT provider, model,
@@ -433,3 +433,37 @@ SELECT count(*) FROM client_tokens WHERE id = @id AND revoked_at IS NULL;
 -- The Bot a chat is with, when the chat and that Bot are there (issue #996): a chat's key is made only then, in the
 -- transaction that makes it, so a key made from a read of the chat before its deletion, or its Bot's, is refused.
 SELECT c.bot_id FROM chats c JOIN bots b ON b.id = c.bot_id WHERE c.id = @chat_id;
+
+-- A key's own routing (issue #1277): the accounts it may use when own_accounts is set, each with its runtime, and
+-- its own web search order.
+-- name: ListGatewayKeyAccounts :many
+SELECT ka.key_id, ka.account_id, a.runtime FROM gateway_key_accounts ka JOIN accounts a ON a.id = ka.account_id
+WHERE ka.key_id = @key_id ORDER BY a.runtime, a.position, a.id;
+
+-- name: ListAllGatewayKeyAccounts :many
+SELECT ka.key_id, ka.account_id, a.runtime FROM gateway_key_accounts ka JOIN accounts a ON a.id = ka.account_id
+ORDER BY ka.key_id, a.runtime, a.position, a.id;
+
+-- name: SetGatewayKeyOwnAccounts :exec
+UPDATE gateway_keys SET own_accounts = @own_accounts WHERE id = @id;
+
+-- name: ClearGatewayKeyAccounts :exec
+DELETE FROM gateway_key_accounts WHERE key_id = @key_id;
+
+-- name: AddGatewayKeyAccount :exec
+INSERT INTO gateway_key_accounts (key_id, account_id) VALUES (@key_id, @account_id);
+
+-- name: AccountExists :one
+SELECT count(*) FROM accounts WHERE id = @id;
+
+-- name: ListGatewayKeySearchOrder :many
+SELECT key_id, provider FROM gateway_key_search_order WHERE key_id = @key_id ORDER BY position;
+
+-- name: ListAllGatewayKeySearchOrders :many
+SELECT key_id, provider FROM gateway_key_search_order ORDER BY key_id, position;
+
+-- name: ClearGatewayKeySearchOrder :exec
+DELETE FROM gateway_key_search_order WHERE key_id = @key_id;
+
+-- name: AddGatewayKeySearchProvider :exec
+INSERT INTO gateway_key_search_order (key_id, provider, position) VALUES (@key_id, @provider, @position);

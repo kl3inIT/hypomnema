@@ -26,8 +26,10 @@ import (
 // or a login.
 
 const gatewayUsage = "gateway models apply FILE | gateway models list | gateway models rm <name> | " +
-	"gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none] | gateway keys list | gateway keys revoke <key id> | " +
-	"gateway keys set <key id> [--name NAME] [--models a,b|*] [--endpoints search,fetch,images,audio|none|*] | " +
+	"gateway keys add <name> [--models a,b] [--endpoints search,fetch,images,audio|none] [--accounts a,b] " +
+	"[--search-order codex,claude,exa] | gateway keys list | gateway keys revoke <key id> | " +
+	"gateway keys set <key id> [--name NAME] [--models a,b|*] [--endpoints search,fetch,images,audio|none|*] " +
+	"[--accounts a,b|*] [--search-order codex,claude,exa|settings] | " +
 	"gateway keys show-value <key id> | " +
 	"gateway antigravity-rewrites list | gateway antigravity-rewrites set FILE | " +
 	"gateway usage [--limit N] | gateway usage --by provider|account [--period 24h|7d|30d|90d|12m]"
@@ -59,14 +61,23 @@ type gatewayAccounts struct{ subs *subscription.Service }
 func (g gatewayAccounts) Token(
 	ctx context.Context, runtime, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.Token(ctx, runtime, session, skip...))
+	return accountToken(g.subs.Token(keyAccounts(ctx), runtime, session, skip...))
 }
 
 // TokenFor is Token for a request for a model: only the accounts whose vendor lists it, when one does (issue #814).
 func (g gatewayAccounts) TokenFor(
 	ctx context.Context, runtime, model, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.TokenFor(listDeadline(ctx), runtime, model, session, skip...))
+	return accountToken(g.subs.TokenFor(keyAccounts(listDeadline(ctx)), runtime, model, session, skip...))
+}
+
+// keyAccounts gives the subscriptions the only accounts the gateway's request may use: its key's own (issue #1277).
+func keyAccounts(ctx context.Context) context.Context {
+	if ids, ok := modelgateway.KeyAccounts(ctx); ok {
+		return subscription.WithAccounts(ctx, ids)
+	}
+
+	return ctx
 }
 
 // listDeadline gives the subscriptions the moment the gateway's request stops waiting for the accounts' lists of
@@ -82,7 +93,7 @@ func listDeadline(ctx context.Context) context.Context {
 func (g gatewayAccounts) FirstFree(
 	ctx context.Context, runtime string, modelReset func(string) time.Time,
 ) (time.Time, error) {
-	return g.subs.FirstFree(ctx, runtime, modelReset)
+	return g.subs.FirstFree(keyAccounts(ctx), runtime, modelReset)
 }
 
 func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
@@ -211,7 +222,7 @@ func gatewayServedLimits(
 			profilestore.ProviderOpenCodeZen:
 			runtime, _ := subscription.ProviderRuntime(kind)
 
-			return subs.ServedLimits(listDeadline(ctx), runtime, upstream)
+			return subs.ServedLimits(keyAccounts(listDeadline(ctx)), runtime, upstream)
 		default:
 			return 0, 0, false
 		}
@@ -228,7 +239,7 @@ func gatewayServedWire(subs servedWires) func(ctx context.Context, kind, upstrea
 
 		runtime, _ := subscription.ProviderRuntime(kind)
 
-		return subs.ServedWire(listDeadline(ctx), runtime, upstream)
+		return subs.ServedWire(keyAccounts(listDeadline(ctx)), runtime, upstream)
 	}
 }
 
@@ -462,6 +473,10 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 	endpoints := fs.String("endpoints", "*",
 		"what the key may use besides chat: search, fetch, images, audio, separated by commas, or none (default: "+
 			"every kind)")
+	accounts := fs.String("accounts", "*", "the only accounts the key may use, separated by commas (default: every "+
+		"account)")
+	order := fs.String("search-order", "settings", "the web search providers the key asks first, in order, separated "+
+		"by commas (default: the order of Settings)")
 
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
@@ -472,12 +487,17 @@ func (o *owner) gatewayKeysAdd(ctx context.Context, name string, args []string) 
 		allowed = strings.Split(*models, ",")
 	}
 
-	k, secret, err := o.gateway.AddKey(ctx, name, allowed, parseKeyEndpoints(*endpoints))
+	routing := modelgateway.KeyRouting{SearchOrder: parseSearchOrder(*order)}
+	if *accounts != modelgateway.AllAccounts {
+		routing.Accounts = splitList(*accounts)
+	}
+
+	k, secret, err := o.gateway.AddRoutedKey(ctx, name, allowed, parseKeyEndpoints(*endpoints), routing)
 	if err != nil {
 		return err
 	}
 
-	o.printf("key %s (%s) for %s; %s\n", k.Name, k.ID, keyModels(k), keyEndpoints(k))
+	o.printf("key %s (%s) for %s; %s%s\n", k.Name, k.ID, keyModels(k), keyEndpoints(k), keyRouting(k))
 	if k.MaskedValue == "" {
 		o.printf("give it to the client as its API key; the value is not stored, so copy it now:\n%s\n", secret)
 	} else {
@@ -493,6 +513,10 @@ func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) er
 	name := fs.String("name", "", "the new name")
 	models := fs.String("models", "", "comma-separated models, or * for every model")
 	endpoints := fs.String("endpoints", "", "comma-separated endpoint kinds, none, or * for every kind")
+	accounts := fs.String("accounts", "", "comma-separated accounts, the only ones the key may use, or * for every "+
+		"account")
+	order := fs.String("search-order", "", "comma-separated web search providers asked first, or settings for the "+
+		"order of Settings")
 
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 || fs.NFlag() == 0 {
 		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
@@ -513,6 +537,10 @@ func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) er
 			if *endpoints == "*" {
 				change.Endpoints = []modelgateway.Endpoint{modelgateway.AllEndpoints}
 			}
+		case "accounts":
+			change.Accounts = splitList(*accounts)
+		case "search-order":
+			change.SearchOrder = parseSearchOrder(*order)
 		}
 	})
 
@@ -521,7 +549,7 @@ func (o *owner) gatewayKeysSet(ctx context.Context, id string, args []string) er
 		return err
 	}
 
-	o.printf("key %s (%s) for %s; %s\n", key.Name, key.ID, keyModels(key), keyEndpoints(key))
+	o.printf("key %s (%s) for %s; %s%s\n", key.Name, key.ID, keyModels(key), keyEndpoints(key), keyRouting(key))
 
 	return nil
 }
@@ -542,6 +570,28 @@ func parseKeyEndpoints(value string) []modelgateway.Endpoint {
 	}
 }
 
+// splitList is a list given separated by commas; empty is a list of none.
+func splitList(value string) []string {
+	out := []string{}
+
+	for item := range strings.SplitSeq(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+
+	return out
+}
+
+// parseSearchOrder is a key's own search order; "settings" (or nothing) is the global order (issue #1277).
+func parseSearchOrder(value string) []string {
+	if strings.TrimSpace(value) == "settings" {
+		return []string{}
+	}
+
+	return splitList(value)
+}
+
 func (o *owner) gatewayKeysList(ctx context.Context) error {
 	keys, err := o.gateway.ListKeys(ctx)
 	if err != nil {
@@ -554,7 +604,7 @@ func (o *owner) gatewayKeysList(ctx context.Context) error {
 			state = "revoked " + k.RevokedAt.Format(time.RFC3339)
 		}
 
-		o.printf("%s\t%s\t%s\t%s\t%s\n", k.ID, k.Name, state, keyModels(k), keyEndpoints(k))
+		o.printf("%s\t%s\t%s\t%s\t%s%s\n", k.ID, k.Name, state, keyModels(k), keyEndpoints(k), keyRouting(k))
 	}
 
 	return nil
@@ -566,6 +616,26 @@ func keyModels(k modelgateway.Key) string {
 	}
 
 	return strings.Join(k.Models, ", ")
+}
+
+// keyRouting says a key's own routing (issue #1277), after what it may use; nothing for a key routed as the others.
+func keyRouting(k modelgateway.Key) string {
+	var out string
+
+	if k.OwnAccounts() {
+		ids := make([]string, 0, len(k.Accounts))
+		for _, a := range k.Accounts {
+			ids = append(ids, a.ID)
+		}
+
+		out += "; only accounts " + orDash(strings.Join(ids, ", "))
+	}
+
+	if len(k.SearchOrder) > 0 {
+		out += "; searches " + strings.Join(k.SearchOrder, ", ") + " first"
+	}
+
+	return out
 }
 
 // keyEndpoints says what a key may use besides chat.

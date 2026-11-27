@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -151,9 +152,12 @@ func audioSpeak(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		}
 	}
 
-	if speed, _ := strconv.ParseFloat(str(fs, "speed"), 64); speed > 0 {
-		body.Speed = &speed
+	speed, err := flagSpeed(fs, 0.25, 4)
+	if err != nil {
+		return err
 	}
+
+	body.Speed = speed
 
 	if p := str(fs, "provider"); p != "" {
 		provider := openapi.AudioProvider(p)
@@ -341,4 +345,21 @@ func audioKeysRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	return e.print(fs, resp.JSON200, func() { e.printf("%s was removed from the vault\n", name) })
+}
+
+// flagSpeed is the --speed flag: none when left at 0; refused, rather than dropped, when it is not a number within
+// from and to (review of #1302: a video made at the provider's speed for a speed typed wrong).
+func flagSpeed(fs *flag.FlagSet, from, to float64) (*float64, error) {
+	speed, err := strconv.ParseFloat(str(fs, "speed"), 64)
+
+	switch {
+	case err != nil:
+		return nil, fmt.Errorf("--speed is a number from %g to %g", from, to)
+	case speed == 0:
+		return nil, nil //nolint:nilnil // No speed asked.
+	case math.IsNaN(speed) || speed < from || speed > to:
+		return nil, fmt.Errorf("--speed is a number from %g to %g, not %s", from, to, str(fs, "speed"))
+	}
+
+	return &speed, nil
 }

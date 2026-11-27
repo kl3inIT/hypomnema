@@ -18,9 +18,9 @@ DELETE FROM videos WHERE id = @id;
 
 -- name: InsertRevision :exec
 INSERT INTO video_revisions (video_id, rev, parent, state, lines, voice, speed, captions, aspect, look, pin_provider,
-                             pin_voice, requested_by, request_id, request_hash, created_at, updated_at)
+                             pin_voice, pin_model, requested_by, request_id, request_hash, created_at, updated_at)
 VALUES (@video_id, @rev, @parent, 'queued', @lines, @voice, @speed, @captions, @aspect, @look, @pin_provider,
-        @pin_voice, @requested_by, @request_id, @request_hash, @now, @now);
+        @pin_voice, @pin_model, @requested_by, @request_id, @request_hash, @now, @now);
 
 -- name: GetRevision :one
 SELECT * FROM video_revisions WHERE video_id = @video_id AND rev = @rev;

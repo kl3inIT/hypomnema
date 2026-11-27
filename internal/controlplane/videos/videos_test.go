@@ -63,16 +63,19 @@ type fakeSpeech struct {
 	failAfter map[string]int
 	sttFails  bool
 	noWords   bool
-	// speeds are the speeds each line was asked with, by its text.
-	speeds map[string][]float64
-	// timed gives the words' times with the speech when they are asked, with an audio tag spoken before them, as
-	// Soniox's WebSocket gives them (issue #1285, row 2).
-	timed bool
 	// lines are the lines spoken, in order, for a speech that hears them back.
 	lines []string
 	// off are the providers the owner turned off: one named is refused unless the call is pinned, as the speech
 	// service refuses it.
 	off []string
+	// aligned makes ElevenLabs answer a line asked with timings with its words, as its alignment gives them, an
+	// audio tag kept out; models are the models each line was asked with, in order.
+	aligned bool
+	models  []string
+	// timed makes Soniox answer a line asked with timings with the words of its timestamps, an audio tag spoken
+	// before them (issue #1285, row 2); speeds are the speeds each line was asked with, by its text.
+	timed  bool
+	speeds map[string][]float64
 }
 
 func newFakeSpeech() *fakeSpeech {
@@ -109,11 +112,18 @@ func (f *fakeSpeech) Speak(_ context.Context, _ AudioSource, req speech.SpeakReq
 	}
 
 	f.spoken[req.Provider+"|"+req.Voice+"|"+req.Input]++
+	f.models = append(f.models, req.Model)
 	f.speeds[req.Input] = append(f.speeds[req.Input], req.Speed)
 
-	out := speech.Speech{Audio: []byte(req.Input), Provider: req.Provider}
+	out := speech.Speech{Audio: []byte(req.Input), Provider: req.Provider, Model: req.Model}
+	if f.aligned && req.Timings && req.Provider == speech.ProviderElevenLabs {
+		for i, w := range strings.Fields(req.Input) {
+			at := time.Duration(i) * time.Second / 2
+			out.Words = append(out.Words, speech.Word{Word: w, Start: at, End: at + 400*time.Millisecond})
+		}
+	}
 
-	if f.timed && req.Timestamps {
+	if f.timed && req.Timings && req.Provider == speech.ProviderSoniox {
 		var a speech.Alignment
 
 		for i, c := range []rune("[excited] " + req.Input) {
@@ -266,6 +276,8 @@ type rig struct {
 	free   uint64
 	off    []string
 	voices map[string]string
+	// models are the owner's choice of each provider's speech model; empty: the default.
+	models map[string]string
 	// order is the owner's order of the speaking providers; empty: the default.
 	order []string
 	mu    sync.Mutex
@@ -294,7 +306,7 @@ func newRig(t *testing.T) *rig {
 			r.mu.Lock()
 			defer r.mu.Unlock()
 
-			return speech.Settings{Off: r.off, Voices: r.voices, TTS: r.order}, nil
+			return speech.Settings{Off: r.off, Voices: r.voices, TTS: r.order, Models: r.models}, nil
 		},
 		Tools:     func(context.Context) (ffmpeg.Tools, error) { return ffmpeg.Tools{FFmpeg: "/x/ffmpeg"}, nil },
 		FreeBytes: func(string) (uint64, error) { r.mu.Lock(); defer r.mu.Unlock(); return r.free, nil },

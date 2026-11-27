@@ -1,5 +1,5 @@
 import { useForm } from "@tanstack/react-form"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import {
   AudioLines,
   Box,
@@ -17,10 +17,6 @@ import { useId, useState, type DragEvent, type ReactNode } from "react"
 import { z } from "zod"
 
 import "@/api/client"
-import {
-  listAudioModelsOptions,
-  listAudioVoicesOptions,
-} from "@/api/generated/@tanstack/react-query.gen"
 import {
   addAudioKey,
   removeAudioKey,
@@ -53,6 +49,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -76,23 +73,22 @@ import {
   audioProviderName,
   audioState,
   audioUsageText,
-  type Choice,
+  defaultVoice,
   kindName,
   modelChoices,
-  modelValue,
-  newest,
   voiceChoices,
+  type AudioChoice,
 } from "./audio-state"
-import { useAudio, useShowAudio } from "./use-models"
+import { useAudio, useAudioModels, useAudioVoices, useShowAudio } from "./use-models"
 import { moved } from "./web-search-state"
 
 // AudioScreen is Settings → Gateway → Audio (issue #694), built from the Web search and Images pages: first the
 // providers with the owner's keys, as the Web search page lists its keyed providers (web-search-screen.tsx): each
 // with its state, its switch for both kinds, a key added in a dialog as OmniRoute's and 9router's "Add API Key"
 // modals take one, and its keys with their rests; then speech to text and text to speech, each in the order it asks
-// the providers, dragged by a handle as the Images page orders its providers (images-screen.tsx), each with the model
-// it is asked with, chosen from its catalog (issue #1285, row 1), and what it heard or spoke. The page does what
-// `hypomnema audio providers|keys|order` does.
+// the providers, dragged by a handle as the Images page orders its providers (images-screen.tsx), each with its
+// model, ElevenLabs's speech model and each provider's voice for videos picked from its own lists (issue #1283),
+// and what it heard or spoke. The page does what `hypomnema audio providers|keys|order` does.
 export function AudioScreen() {
   const audio = useAudio()
 
@@ -488,6 +484,9 @@ function KindRow({
           <ItemDescription>
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
               {link && <StateBadge state={audioState(link)} icon={stateIcon(link.state)} />}
+              <Fact icon={Box} title="The model it is asked with">
+                <span className="font-mono">{entry.model}</span>
+              </Fact>
               {/* The usage wraps on a phone rather than push the row's name off its line. */}
               <span
                 className="inline-flex min-w-0 items-start gap-1"
@@ -502,163 +501,235 @@ function KindRow({
               </span>
             </span>
           </ItemDescription>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
-            <ModelField kind={kind} entry={entry} />
-            {kind === "tts" && link && <VoiceField provider={entry.provider} voice={link.voice} />}
-          </div>
+          {(kind === "tts" || entry.provider === "soniox") && (
+            <ModelField kind={kind} provider={entry.provider} model={entry.model} />
+          )}
+          {kind === "tts" && link && <VoiceField provider={entry.provider} voice={link.voice} />}
         </ItemContent>
       </Item>
     </div>
   )
 }
 
-// ModelField is the model a provider is asked with for a kind (issue #1285, row 1): its newest, which follows the
-// provider's new models, or one of its catalog's, read when the list is opened. A choice is kept at once.
-function ModelField({ kind, entry }: { kind: AudioKind; entry: AudioKindLink }) {
+// ModelField is the model a provider is asked with for a kind (issue #1283, row 1; Soniox's speech and
+// transcription models, issue #1285, row 1), picked from the provider's own list of models of that kind, as
+// open-webui's audio settings pick ElevenLabs's TTS model from its GET /v1/models
+// (backend/open_webui/routers/audio/__init__.py:1588-1601). The choice is saved at once.
+function ModelField({
+  kind,
+  provider,
+  model,
+}: {
+  kind: AudioKind
+  provider: AudioProvider
+  model: string
+}) {
   const id = useId()
-  const [opened, setOpened] = useState(false)
-  const name = audioProviderName(entry.provider)
-  const catalog = useQuery({
-    ...listAudioModelsOptions({ path: { provider: entry.provider, kind } }),
-    enabled: opened,
-    staleTime: 5 * 60_000,
-  })
-  const save = useChange(
-    async (next: string) =>
-      (
-        await setAudioModel({
-          path: { provider: entry.provider, kind },
-          body: { model: next === newest ? "" : next },
-        })
-      ).data,
-    (next) =>
-      next === newest
-        ? `${name} is asked with its newest model for ${kindName(kind)}`
-        : `${name} is asked with ${next} for ${kindName(kind)}`,
-  )
-  const choices = modelChoices(entry.model, entry.default_model, catalog.data?.models)
-
-  return (
-    <ChoiceField
-      id={id}
-      label="Model"
-      icon={Box}
-      value={modelValue(entry.model, entry.default_model)}
-      choices={choices}
-      busy={save.isPending}
-      loading={catalog.isFetching}
-      onOpen={() => setOpened(true)}
-      onChange={(next) => save.mutate(next)}
-      ariaLabel={`${name}'s model for ${kindName(kind)}`}
-      error={save.error ?? catalog.error}
-    />
-  )
-}
-
-// VoiceField is the voice a provider speaks a video of a take with when none is asked (issue #818, row 5), chosen by
-// name from the provider's voices (issue #1285, row 5), read when the list is opened or a voice is set; its own default
-// when none.
-function VoiceField({ provider, voice }: { provider: AudioProvider; voice?: string }) {
-  const id = useId()
-  const [opened, setOpened] = useState(false)
   const name = audioProviderName(provider)
-  // A voice set is read at once, so that it shows by its name and not its id.
-  const voices = useQuery({
-    ...listAudioVoicesOptions(),
-    enabled: opened || !!voice,
-    staleTime: 5 * 60_000,
-  })
-  const choices = voiceChoices(provider, voice, voices.data?.voices)
+  const models = useAudioModels()
+  const choices = modelChoices(models.data?.models ?? [], provider, model, kind)
   const save = useChange(
     async (next: string) =>
-      (await setAudioVoice({ path: { provider }, body: { voice: next === newest ? "" : next } }))
-        .data,
-    (next) =>
-      next === newest
-        ? `${name} speaks videos with its own default voice`
-        : `${name} speaks videos with ${choices.find((c) => c.value === next)?.label ?? next}`,
+      (await setAudioModel({ path: { provider }, body: { model: next, kind } })).data,
+    (next) => (kind === "stt" ? `${name} hears with ${next}` : `${name} speaks with ${next}`),
   )
-  const unread = voices.data?.errors?.find((e) => e.provider === provider)
+  const failed = models.data?.errors?.find((e) => e.provider === provider)
 
   return (
-    <ChoiceField
-      id={id}
-      label="Voice for videos"
-      icon={AudioLines}
-      value={voice || newest}
-      choices={choices}
-      busy={save.isPending}
-      loading={voices.isFetching}
-      onOpen={() => setOpened(true)}
+    <div className="mt-2 flex flex-col gap-2 sm:max-w-xs">
+      <Field>
+        <FieldLabel htmlFor={id}>Model</FieldLabel>
+        <ChoiceSelect
+          id={id}
+          value={model}
+          choices={choices}
+          disabled={save.isPending || models.isPending}
+          onChange={(next) => next !== model && save.mutate(next)}
+        />
+        <FieldDescription>
+          {failed
+            ? `${name}'s list could not be read: ${failed.message}`
+            : kind === "stt"
+              ? `From ${name}'s own list of transcription models.`
+              : `From ${name}'s own list. A line in a language the model does not cover is spoken without its language.`}
+        </FieldDescription>
+      </Field>
+      <ErrorAlert error={save.error ?? models.error} />
+    </div>
+  )
+}
+
+// VoiceField is the voice a provider speaks a video of a take with when none is asked (issue #818, row 5), as
+// `hypomnema audio voice` sets it; empty, the provider's own default. ElevenLabs's is picked by name from its
+// voices (issue #1283, row 5), as openclaw and open-webui list them from its GET /v1/voices, and Soniox's from its
+// model's built-in voices and its cloned ones (issue #1285, row 5); when the list cannot be read, a name or id is
+// typed.
+function VoiceField({ provider, voice }: { provider: AudioProvider; voice?: string }) {
+  const name = audioProviderName(provider)
+  const voices = useAudioVoices()
+  const save = useChange(
+    async (next: string) =>
+      (await setAudioVoice({ path: { provider }, body: { voice: next } })).data,
+    (next) =>
+      next
+        ? `${name} speaks videos with ${voiceName(voices.data?.voices ?? [], provider, next)}`
+        : `${name} speaks videos with its own default voice`,
+  )
+  const listed = (voices.data?.voices ?? []).some((v) => v.provider === provider)
+
+  if (!listed && !voices.isPending) {
+    return <VoiceInput provider={provider} voice={voice} save={save} />
+  }
+
+  return (
+    <VoiceSelect
+      provider={provider}
+      voice={voice}
+      choices={voiceChoices(voices.data?.voices ?? [], provider, voice ?? "")}
+      disabled={save.isPending || voices.isPending}
       onChange={(next) => save.mutate(next)}
-      ariaLabel={`${name}'s voice for videos`}
-      note={unread ? `Its voices could not be read: ${unread.message}` : undefined}
-      error={save.error ?? voices.error}
+      error={save.error}
     />
   )
 }
 
-// ChoiceField is a labelled select whose options are read when it is first opened.
-function ChoiceField({
-  id,
-  label,
-  icon: Icon,
-  value,
+function voiceName(
+  voices: { provider: AudioProvider; id: string; name: string }[],
+  provider: AudioProvider,
+  id: string,
+) {
+  return voices.find((v) => v.provider === provider && v.id === id)?.name ?? id
+}
+
+function VoiceSelect({
+  provider,
+  voice,
   choices,
-  busy,
-  loading,
-  onOpen,
+  disabled,
   onChange,
-  ariaLabel,
-  note,
   error,
 }: {
-  id: string
-  label: string
-  icon: LucideIcon
-  value: string
-  choices: Choice[]
-  busy: boolean
-  loading: boolean
-  onOpen: () => void
-  onChange: (next: string) => void
-  ariaLabel: string
-  note?: string
-  error: unknown
+  provider: AudioProvider
+  voice?: string
+  choices: AudioChoice[]
+  disabled: boolean
+  onChange: (voice: string) => void
+  error: Error | null
 }) {
+  const id = useId()
+  const name = audioProviderName(provider)
+  const value = voice || defaultVoice
+
   return (
-    <div className="sm:w-64">
+    <div className="mt-2 flex flex-col gap-2 sm:max-w-xs">
       <Field>
-        <FieldLabel htmlFor={id}>
-          <Icon className="size-3" aria-hidden />
-          {label}
-        </FieldLabel>
-        <Select
+        <FieldLabel htmlFor={id}>Voice for videos</FieldLabel>
+        <ChoiceSelect
+          id={id}
           value={value}
-          disabled={busy}
-          onOpenChange={(open) => open && onOpen()}
-          onValueChange={(next) => {
-            if (typeof next === "string" && next !== value) onChange(next)
+          choices={choices}
+          disabled={disabled}
+          onChange={(next) => {
+            if (next !== value) onChange(next === defaultVoice ? "" : next)
           }}
-        >
-          <SelectTrigger id={id} size="sm" width="full" aria-label={ariaLabel}>
-            <SelectValue>
-              {(v: string) => choices.find((c) => c.value === v)?.label ?? v}
-            </SelectValue>
-            {(busy || loading) && <Spinner />}
-          </SelectTrigger>
-          <SelectContent>
-            {choices.map((c) => (
-              <SelectItem key={c.value} value={c.value}>
-                {c.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {note && <FieldDescription>{note}</FieldDescription>}
+        />
+        <FieldDescription>
+          {name}&apos;s voices: your own and those you saved from its library.
+        </FieldDescription>
       </Field>
       <ErrorAlert error={error} />
     </div>
+  )
+}
+
+// ChoiceSelect picks one of a list's choices, each read by its name, with a quieter detail beside it.
+function ChoiceSelect({
+  id,
+  value,
+  choices,
+  disabled,
+  onChange,
+}: {
+  id: string
+  value: string
+  choices: AudioChoice[]
+  disabled: boolean
+  onChange: (value: string) => void
+}) {
+  const labels = Object.fromEntries(choices.map((c) => [c.value, c.label]))
+
+  return (
+    <Select
+      value={value}
+      onValueChange={(next) => next && onChange(next)}
+      items={labels}
+      disabled={disabled}
+    >
+      <SelectTrigger id={id} width="full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {choices.map((c) => (
+          <SelectItem key={c.value} value={c.value}>
+            <span className="truncate">{c.label}</span>
+            {c.detail && <span className="text-xs text-muted-foreground">{c.detail}</span>}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+// VoiceInput is the voice typed, by name or id, when the provider's voices cannot be listed.
+function VoiceInput({
+  provider,
+  voice,
+  save,
+}: {
+  provider: AudioProvider
+  voice?: string
+  save: ReturnType<typeof useChange<string>>
+}) {
+  const id = useId()
+  const name = audioProviderName(provider)
+  const [value, setValue] = useState(voice ?? "")
+  const changed = value.trim() !== (voice ?? "")
+
+  return (
+    <form
+      className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (changed) save.mutate(value.trim())
+      }}
+    >
+      <div className="sm:max-w-xs sm:flex-1">
+        <Field>
+          <FieldLabel htmlFor={id}>Voice for videos</FieldLabel>
+          <Input
+            id={id}
+            value={value}
+            maxLength={100}
+            autoComplete="off"
+            placeholder="Its own default"
+            onChange={(event) => setValue(event.target.value)}
+          />
+          <FieldDescription>A voice name or id of {name}&apos;s.</FieldDescription>
+        </Field>
+      </div>
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        aria-label={`Save ${name}'s voice for videos`}
+        disabled={!changed || save.isPending}
+        focusableWhenDisabled={save.isPending}
+      >
+        {save.isPending && <Spinner data-icon="inline-start" />}
+        Save
+      </Button>
+      <ErrorAlert error={save.error} />
+    </form>
   )
 }
 

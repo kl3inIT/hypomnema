@@ -24,12 +24,6 @@
 //     llms/soniox/audio_transcription/handler.py and MemoryOS
 //     voice/SonioxAsync.java, polled as soniox-python's wait polls
 //     (api/async_stt.py:229-246; issue #1285, row 7);
-//   - the model each provider is asked with for each kind is the owner's
-//     setting, its newest by default (issue #1285, row 1; pipecat and
-//     LiveKit take it as a setting);
-//   - a refusal that may pass (408, 429, 500, 503) is asked again twice,
-//     after the Retry-After it names or a backoff (retry.go), and Soniox's
-//     text-to-speech keeps to its limits (limit.go; issue #1285, rows 4, 6);
 //   - a transcript is cut into segments at a speaker change, a pause over
 //     800 ms or 400 characters, as MemoryOS SonioxAsync.group does
 //     (transcript.go).
@@ -37,6 +31,7 @@ package speech
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	crand "crypto/rand"
 	"encoding/hex"
@@ -44,7 +39,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand/v2"
 	"net/http"
 	"slices"
 	"strings"
@@ -71,31 +65,24 @@ const (
 // Kinds are both kinds, in the order shown.
 func Kinds() []string { return []string{KindSTT, KindTTS} }
 
-// The model each provider is asked with for each kind when the owner chose none (issue #694; issue #1285, row 1):
-// Soniox's newest async transcription and TTS (docs.soniox.com /stt/models: v5 is removed on 2026-12-15; /tts/models),
-// ElevenLabs's Scribe and its multilingual voice model (9router-go internal/providers/registry_models.go:139;
-// OmniRoute audioRegistry.ts:486, Bifrost types.go:13).
+// The model each provider is asked with for each kind by default (issue #694):
+// Soniox's newest async transcription and its TTS (docs.soniox.com /stt/models:
+// v5 is removed on 2026-12-15, issue #1285, row 1; /tts/models), ElevenLabs's Scribe (9router-go
+// internal/providers/registry_models.go:139) and Eleven v4 (issue #1283, row
+// 1: ElevenLabs's models page and its 2026-11-02 changelog; multilingual v2,
+// the default before, does not cover Vietnamese). ElevenLabs's text-to-speech
+// model is the owner's to choose (Settings.Models), as LiveKit, pipecat,
+// openclaw and open-webui make it a setting; so are Soniox's text-to-speech and
+// transcription models (Settings.STTModels; issue #1285, row 1).
 const (
 	SonioxSTTModel     = "stt-async-v6"
 	SonioxTTSModel     = "tts-rt-v2"
 	ElevenLabsSTTModel = "scribe_v2"
-	ElevenLabsTTSModel = "eleven_multilingual_v2"
+	ElevenLabsTTSModel = "eleven_v4"
 )
 
-// formerModels are the models a provider was asked with for a kind before its newest, so that the usage they
-// counted is still counted (AudioCounts).
-var formerModels = map[Slot][]string{{ProviderSoniox, KindSTT}: {"stt-async-v5"}}
-
-// Slot is a provider's kind: the place of a model.
-type Slot struct{ Provider, Kind string }
-
-// KnownModels are the models a provider was asked with for a kind by default, the newest first.
-func KnownModels(provider, kind string) []string {
-	return append([]string{DefaultModel(provider, kind)}, formerModels[Slot{provider, kind}]...)
-}
-
-// DefaultModel is the model a provider is asked with for a kind when the owner chose none: its newest.
-func DefaultModel(provider, kind string) string {
+// Model is the model a provider is asked with for a kind by default.
+func Model(provider, kind string) string {
 	switch {
 	case provider == ProviderSoniox && kind == KindSTT:
 		return SonioxSTTModel
@@ -120,7 +107,7 @@ const (
 	// to 30 minutes (LiteLLM's SONIOX_DEFAULT_MAX_POLL_ATTEMPTS of 1 s), and
 	// the upload and transcript take their own time.
 	transcriptionBudget = 35 * time.Minute
-	// speechTimeout bounds one provider's spoken answer.
+	// speechTimeout bounds one provider's spoken answer: Soniox's, or one attempt of ElevenLabs's.
 	speechTimeout = 2 * time.Minute
 	// maxSpeechAnswer bounds the audio a provider sends back.
 	maxSpeechAnswer = 64 << 20
@@ -198,18 +185,26 @@ type Settings struct {
 	// Voices are the voice each provider speaks a video with when none is asked (issue #818, row 5); a
 	// provider not named speaks with its own default.
 	Voices map[string]string
-	// Models are the model the owner chose for a provider's kind (issue #1285, row 1); one not named is
-	// DefaultModel.
-	Models map[Slot]string
+	// Models are the text-to-speech model each provider speaks with, as the owner chose it from the provider's list
+	// (issue #1283, row 1; issue #1285, row 1); a provider not named speaks with its default (Model).
+	Models map[string]string
+	// STTModels are the transcription model each provider hears with, as the owner chose it (issue #1285, row 1);
+	// a provider not named hears with its default.
+	STTModels map[string]string
 }
 
-// Model is the model a provider is asked with for a kind: the owner's, else its newest.
+// Model is the model a provider is asked with for a kind: the owner's choice, else the default.
 func (set Settings) Model(provider, kind string) string {
-	if m := set.Models[Slot{provider, kind}]; m != "" {
+	chosen := set.Models
+	if kind == KindSTT {
+		chosen = set.STTModels
+	}
+
+	if m := chosen[provider]; m != "" {
 		return m
 	}
 
-	return DefaultModel(provider, kind)
+	return Model(provider, kind)
 }
 
 // Order is the providers in the owner's order for a kind.
@@ -255,23 +250,23 @@ type Config struct {
 	// PollFor bounds the polling of one job; zero: 30 minutes (LiteLLM's
 	// SONIOX_DEFAULT_MAX_POLL_ATTEMPTS of 1 s).
 	PollFor time.Duration
-	// Now is the clock rests and limits read; nil: the wall clock.
-	Now func() time.Time
-	// Sleep waits before a request is asked again or a limit lets it go; nil: a timer of the wall clock.
-	Sleep  func(ctx context.Context, d time.Duration) error
+	// Wait is how a retry waits (retry.go), and a Soniox request for a place (limit.go); nil: a timer that stops
+	// with the context.
+	Wait func(ctx context.Context, d time.Duration) error
+	// Now is the clock rests read; nil: the wall clock.
+	Now    func() time.Time
 	Logger *slog.Logger
-	// Jitter gives the share, from -0.5 to 0.5, a backoff is moved by; nil: a random one.
-	Jitter func() float64
 }
 
 // The providers' own hosts: Soniox's REST API (LiteLLM's SONIOX_API_BASE with
 // /v1, MemoryOS's base URL), its TTS host (OmniRoute audioRegistry.ts:466),
 // and ElevenLabs's API (Bifrost, 9router-go, LiteLLM's TTS_BASE_URL).
 const (
-	sonioxURL             = "https://api.soniox.com/v1"
-	sonioxTTSURL          = "https://tts-rt.soniox.com/tts"
+	sonioxURL         = "https://api.soniox.com/v1"
+	sonioxTTSURL      = "https://tts-rt.soniox.com/tts"
+	sonioxRealtimeURL = "wss://stt-rt.soniox.com/transcribe-websocket"
+	// sonioxTTSWebSocketURL is docs.soniox.com /api-reference/tts/websocket-api's endpoint.
 	sonioxTTSWebSocketURL = "wss://tts-rt.soniox.com/tts-websocket"
-	sonioxRealtimeURL     = "wss://stt-rt.soniox.com/transcribe-websocket"
 	elevenLabsURL         = "https://api.elevenlabs.io"
 
 	pollEvery = 5 * time.Second
@@ -284,17 +279,15 @@ type Service struct {
 	client *http.Client
 	now    func() time.Time
 
-	sleep  func(ctx context.Context, d time.Duration) error
-	jitter func() float64
-
 	mu      sync.Mutex
 	resting map[string]rest
 	// lastUsed is when each key was last asked, for least recently used first.
 	lastUsed map[string]time.Time
 	voices   map[string]voicesRead
-	// ttsModels are each key's Soniox TTS models, kept a day; limits each key's Soniox TTS limiter.
-	ttsModels map[string]modelsRead
-	limits    map[string]*limiter
+	models   map[string]modelsRead
+	// sonioxModels are each key's Soniox catalog of TTS models, kept a day; limits each key's Soniox TTS limiter.
+	sonioxModels map[string]sonioxModelsRead
+	limits       map[string]*limiter
 }
 
 // New returns a Service.
@@ -325,45 +318,22 @@ func New(cfg Config) *Service {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 
+	if cfg.Wait == nil {
+		cfg.Wait = wait
+	}
+
 	now := cfg.Now
 	if now == nil {
 		now = time.Now
-	}
-
-	sleep := cfg.Sleep
-	if sleep == nil {
-		sleep = wallSleep
-	}
-
-	jitter := cfg.Jitter
-	if jitter == nil {
-		jitter = func() float64 { return rand.Float64() - 0.5 } //nolint:gosec // A backoff's jitter.
 	}
 
 	//nolint:forcetypeassert // the standard library's own type
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 
 	return &Service{
-		cfg: cfg, client: &http.Client{Transport: transport}, now: now, sleep: sleep, jitter: jitter,
+		cfg: cfg, client: &http.Client{Transport: transport}, now: now,
 		resting: map[string]rest{}, lastUsed: map[string]time.Time{}, voices: map[string]voicesRead{},
-		ttsModels: map[string]modelsRead{}, limits: map[string]*limiter{},
-	}
-}
-
-// wallSleep waits d on the wall clock, or until ctx ends.
-func wallSleep(ctx context.Context, d time.Duration) error {
-	if d <= 0 {
-		return ctx.Err()
-	}
-
-	t := time.NewTimer(d)
-	defer t.Stop()
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
-		return nil
+		models: map[string]modelsRead{}, sonioxModels: map[string]sonioxModelsRead{}, limits: map[string]*limiter{},
 	}
 }
 
@@ -442,22 +412,43 @@ type SpeakRequest struct {
 	Voice string
 	// Format is mp3, wav, pcm or opus; empty: mp3.
 	Format string
-	// Speed is the voice's speed, Soniox's from 0.7 to 1.3 (issue #1285, row 3); zero: the provider's default.
+	// Speed is the voice's speed: Soniox's from 0.7 to 1.3 (issue #1285, row 3), ElevenLabs's within its model's
+	// range (elevenLabsSpeed); zero: the provider's default.
 	Speed float64
 	// ReduceSilence asks Soniox to shorten the pauses between words; it is sent only to a model that supports it
 	// (issue #1285, row 3).
 	ReduceSilence bool
-	// Timestamps asks for the words' times with the speech: Soniox speaks over its WebSocket then (issue #1285,
-	// row 2). A provider that gives none answers without them.
-	Timestamps bool
 	// Reference names the request in the provider's usage logs (Soniox's client_reference_id); empty: a new id.
 	Reference string
-	// Language is Soniox's language for the text; empty: en (OmniRoute's default).
+	// Language is the text's language as an ISO-639-1 code. Soniox speaks it, en when empty (OmniRoute's default);
+	// ElevenLabs is sent it as language_code when its model covers it, else not, with a warning (issue #1283, row 2).
 	Language string
 	Provider string
+	// Model is the model Provider is asked with; empty: the owner's choice, or the default. It is given only with
+	// Provider: a video names the model its clips are kept by (issue #1283).
+	Model string
+	// Timings asks for when each word is spoken: ElevenLabs answers its alignment (/with-timestamps), from which
+	// Speech.Words are built (issue #1283, row 3); Soniox speaks over its WebSocket with return_timestamps (issue
+	// #1285, row 2).
+	Timings bool
 	// Pinned asks Provider alone, even when the owner turned it off since, and reads no settings: a video revision
 	// made again with the voice it was spoken with (issue #908, row 4).
 	Pinned bool
+}
+
+// KindOf is the kind of a call a provider was asked with a model: speech-to-text for a transcription model,
+// text-to-speech for any other. Soniox names its transcription models stt-… and its speech models tts-…
+// (docs.soniox.com /stt/models, /tts/models), so a former model, such as stt-async-v5, still counts as what it
+// was; ElevenLabs's transcription models are its Scribe.
+func KindOf(provider, model string) string {
+	switch {
+	case model == Model(provider, KindSTT),
+		provider == ProviderSoniox && strings.HasPrefix(model, "stt-"),
+		provider == ProviderElevenLabs && strings.HasPrefix(model, "scribe"):
+		return KindSTT
+	}
+
+	return KindTTS
 }
 
 // Formats are the audio formats speech is made in, OpenAI's.
@@ -472,8 +463,8 @@ type Speech struct {
 	Provider   string
 	Model      string
 	Errors     []Failure
-	// Words are the words of the input with their times in the audio, when Timestamps were asked and the provider
-	// gave them; their spelling is the input's, without its audio tags (AlignedWords).
+	// Words are the words spoken with their times, built from the provider's alignment when Timings was asked and it
+	// sent one (alignment.go); nil otherwise.
 	Words []Word
 }
 
@@ -508,7 +499,7 @@ func (s *Service) Transcribe(ctx context.Context, req TranscribeRequest) (Transc
 
 	var out Transcript
 
-	err := s.each(ctx, KindSTT, req.Provider, false, func(ctx context.Context, r route) error {
+	err := s.each(ctx, KindSTT, req.Provider, "", false, func(ctx context.Context, r route) error {
 		var (
 			t   Transcript
 			err error
@@ -518,7 +509,7 @@ func (s *Service) Transcribe(ctx context.Context, req TranscribeRequest) (Transc
 			t, err = s.sonioxTranscribe(ctx, r, req)
 			err = sonioxError(err)
 		} else {
-			t, err = s.elevenLabsTranscribe(ctx, r, req)
+			t, err = s.elevenLabsTranscribe(ctx, r.key, req)
 		}
 
 		out = t
@@ -550,6 +541,8 @@ func (s *Service) Speak(ctx context.Context, req SpeakRequest) (Speech, error) {
 		return Speech{}, fmt.Errorf("%w: the format is one of %s", ErrInvalid, strings.Join(Formats(), ", "))
 	case req.Speed < 0:
 		return Speech{}, fmt.Errorf("%w: the speed is positive", ErrInvalid)
+	case req.Model != "" && req.Provider == "":
+		return Speech{}, fmt.Errorf("%w: a model is named with its provider", ErrInvalid)
 	}
 
 	if req.Reference == "" {
@@ -558,21 +551,20 @@ func (s *Service) Speak(ctx context.Context, req SpeakRequest) (Speech, error) {
 
 	var out Speech
 
-	err := s.each(ctx, KindTTS, req.Provider, req.Pinned, func(ctx context.Context, r route) error {
-		ctx, cancel := context.WithTimeout(ctx, speechTimeout)
-		defer cancel()
-
+	err := s.each(ctx, KindTTS, req.Provider, req.Model, req.Pinned, func(ctx context.Context, r route) error {
 		var (
 			audio []byte
 			words []Word
 			err   error
 		)
 
+		// Each attempt of either provider has its own speechTimeout, the waits between them apart (retry.go), as the
+		// SDK's timeout is a request's and its retries wait outside it.
 		if r.key.Provider == ProviderSoniox {
 			audio, words, err = s.sonioxSpeak(ctx, r, req)
 			err = sonioxError(err)
 		} else {
-			audio, err = s.elevenLabsSpeak(ctx, r, req)
+			audio, words, err = s.elevenLabsSpeak(ctx, r.key, r.model, req)
 		}
 
 		if err == nil && len(audio) == 0 {
@@ -628,8 +620,8 @@ func newReference() string {
 // refused key) rests the key and asks the provider's next key; any other
 // failure goes to the next provider, as web search does (websearch.go,
 // search). answered is told who answered after whose failures. A pinned call asks its provider alone and reads
-// no settings.
-func (s *Service) each(ctx context.Context, kind, provider string, pinned bool,
+// no settings. model is the model the named provider is asked with; empty: the owner's choice, or the default.
+func (s *Service) each(ctx context.Context, kind, provider, asked string, pinned bool,
 	ask func(ctx context.Context, r route) error, answered func(provider, model string, failures []Failure),
 ) error {
 	provider = strings.ToLower(strings.TrimSpace(provider))
@@ -673,7 +665,7 @@ func (s *Service) each(ctx context.Context, kind, provider string, pinned bool,
 			continue
 		}
 
-		model := set.Model(p, kind)
+		model := cmp.Or(asked, set.Model(p, kind))
 
 		for _, k := range s.leastRecentlyUsed(keys[p]) {
 			keyed = true
