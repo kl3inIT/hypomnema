@@ -34,7 +34,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { Link } from "@tanstack/react-router"
-import { useId, useState } from "react"
+import { useId, useState, type ReactNode } from "react"
 import { z } from "zod"
 
 import "@/api/client"
@@ -75,6 +75,7 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@/components/ui/input-group"
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -107,25 +108,35 @@ const every = "*"
 const endpointKinds: {
   id: GatewayEndpoint
   title: string
+  shortLabel: string
   description: string
   icon: LucideIcon
 }[] = [
   {
     id: "search",
     title: "Web search",
+    shortLabel: "Search",
     description: "/v1/search, and the Codex CLI's own search.",
     icon: Globe,
   },
-  { id: "fetch", title: "Reading a web page", description: "/v1/web/fetch.", icon: FileText },
+  {
+    id: "fetch",
+    title: "Reading a web page",
+    shortLabel: "Read pages",
+    description: "/v1/web/fetch.",
+    icon: FileText,
+  },
   {
     id: "images",
     title: "Making and editing images",
+    shortLabel: "Images",
     description: "/v1/images/generations and /edits.",
     icon: ImageIcon,
   },
   {
     id: "audio",
     title: "Speech to text and text to speech",
+    shortLabel: "Audio",
     description: "/v1/audio/transcriptions, /speech and /voices.",
     icon: AudioLines,
   },
@@ -164,7 +175,11 @@ const columns: ColumnDef<typeof features, GatewayKey>[] = [
     accessorKey: "name",
     filterFn: "includesString",
     header: ({ column }) => <SortHead column={column} label="Name" />,
-    cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+    cell: ({ row }) => (
+      <span className="block max-w-28 truncate font-medium sm:max-w-40" title={row.original.name}>
+        {row.original.name}
+      </span>
+    ),
   },
   {
     id: "key",
@@ -229,7 +244,19 @@ export function GatewayKeysScreen() {
       wide
       title="Gateway keys"
       description="Keys for tools outside, such as opencode or omp, to use your models through the gateway."
-      actions={<KeyDialog />}
+      actions={
+        <>
+          <Link
+            to="/settings/connect"
+            search={{}}
+            className={buttonVariants({ variant: "outline" })}
+          >
+            <Cable data-icon="inline-start" />
+            Connect a tool
+          </Link>
+          <KeyDialog />
+        </>
+      }
     >
       <BaseURL />
       {keys.isPending && (
@@ -315,10 +342,23 @@ function KeyValue({ gatewayKey }: { gatewayKey: GatewayKey }) {
 
   if (!gatewayKey.masked_value) {
     return (
-      <div className="grid max-w-56 min-w-40 gap-1 text-xs whitespace-normal text-muted-foreground">
+      <div className="grid gap-1 text-xs text-muted-foreground">
         <code>{gatewayKey.prefix ? `${gatewayKey.prefix}…` : "—"}</code>
-        <span>Made before keys could be shown again; make a new one to copy it.</span>
-        <KeyDialog gatewayKey={gatewayKey} />
+        <div className="flex items-center gap-1">
+          <Popover>
+            <PopoverTrigger type="button">
+              <span className="underline decoration-dotted underline-offset-2">
+                Can&apos;t be shown
+              </span>
+            </PopoverTrigger>
+            <PopoverContent align="start" aria-label="Key value unavailable">
+              <p className="whitespace-normal">
+                Made before keys could be shown again; make a new one to copy it.
+              </p>
+            </PopoverContent>
+          </Popover>
+          <KeyDialog gatewayKey={gatewayKey} />
+        </div>
       </div>
     )
   }
@@ -408,7 +448,7 @@ function KeysTable({ keys }: { keys: GatewayKey[] }) {
           onChange={(event) => name?.setFilterValue(event.target.value.trim().toLowerCase())}
         />
       </InputGroup>
-      <div className="min-w-0 overflow-hidden rounded-xl border bg-card">
+      <div className="min-w-0 overflow-hidden rounded-xl border bg-card [&_[data-key-name]]:sticky [&_[data-key-name]]:start-0 [&_[data-key-name]]:z-10 [&_[data-key-name]]:bg-card [&_[data-key-name]]:shadow-[1px_0_var(--border)]">
         <Table aria-label="Gateway keys">
           <TableHeader>
             {table.getHeaderGroups().map((group) => (
@@ -419,6 +459,7 @@ function KeysTable({ keys }: { keys: GatewayKey[] }) {
                   return (
                     <TableHead
                       key={header.id}
+                      data-key-name={header.column.id === "name" || undefined}
                       aria-sort={
                         sortable.has(header.column.id)
                           ? sorted === "asc"
@@ -440,7 +481,7 @@ function KeysTable({ keys }: { keys: GatewayKey[] }) {
             {rows.map((row) => (
               <TableRow key={row.id} aria-label={row.original.name}>
                 {row.getAllCells().map((cell) => (
-                  <TableCell key={cell.id}>
+                  <TableCell key={cell.id} data-key-name={cell.column.id === "name" || undefined}>
                     <table.FlexRender cell={cell} />
                   </TableCell>
                 ))}
@@ -484,41 +525,86 @@ function KeyModels({ models }: { models: string[] }) {
   }
 
   return (
-    <span className="flex flex-wrap gap-1.5">
-      {models.map((model) => (
-        <span
-          key={model}
-          title={model}
-          className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs"
-        >
-          <ModelMark name={model} className="size-3.5 shrink-0" />
-          {modelName(model)}
-        </span>
-      ))}
-    </span>
+    <KeyChips
+      title="Models"
+      items={models.map((model) => ({
+        id: model,
+        label: modelName(model),
+        icon: <ModelMark name={model} className="size-3.5 shrink-0" />,
+      }))}
+    />
   )
 }
 
-// KeyEndpoints shows what a key may use besides chat: the words of each kind, or that it may use none.
 function KeyEndpoints({ endpoints }: { endpoints: GatewayEndpoint[] }) {
   if (endpoints.length === 0) {
     return <span className="text-muted-foreground">Chat only</span>
   }
 
   return (
-    <span className="flex flex-wrap gap-1.5">
-      {endpointKinds
+    <KeyChips
+      title="Also"
+      items={endpointKinds
         .filter((kind) => endpoints.includes(kind.id))
-        .map((kind) => (
-          <span
-            key={kind.id}
-            className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs"
+        .map((kind) => ({
+          id: kind.id,
+          label: kind.title,
+          shortLabel: kind.shortLabel,
+          icon: <kind.icon className="size-3.5 shrink-0 text-muted-foreground" />,
+        }))}
+    />
+  )
+}
+
+function KeyChips({
+  title,
+  items,
+}: {
+  title: string
+  items: { id: string; label: string; shortLabel?: string; icon: ReactNode }[]
+}) {
+  const visible = items.slice(0, 3)
+  const extra = items.length - visible.length
+
+  return (
+    <div className="flex w-max items-center gap-1.5">
+      {visible.map(({ id, label, shortLabel, icon }) => (
+        <span
+          key={id}
+          title={shortLabel ? label : id}
+          className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+        >
+          {icon}
+          <span className="max-w-36 truncate">{shortLabel ?? label}</span>
+        </span>
+      ))}
+      {extra > 0 && (
+        <Popover>
+          <PopoverTrigger
+            render={
+              <Button
+                variant="outline"
+                size="chip"
+                aria-description={`Show all ${title.toLowerCase()}`}
+              />
+            }
           >
-            <kind.icon className="size-3.5 shrink-0 text-muted-foreground" />
-            {kind.title}
-          </span>
-        ))}
-    </span>
+            +{extra}
+          </PopoverTrigger>
+          <PopoverContent align="end">
+            <PopoverTitle>{title}</PopoverTitle>
+            <ul className="flex max-h-[calc(var(--available-height)-3rem)] flex-col gap-2 overflow-y-auto whitespace-normal">
+              {items.map(({ id, label, icon }) => (
+                <li key={id} className="flex items-center gap-2 [overflow-wrap:anywhere]">
+                  {icon}
+                  <span className="min-w-0">{label}</span>
+                </li>
+              ))}
+            </ul>
+          </PopoverContent>
+        </Popover>
+      )}
+    </div>
   )
 }
 

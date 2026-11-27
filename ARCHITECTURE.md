@@ -454,6 +454,23 @@ sequenceDiagram
   is moved last and made to take text), so a worker gives at most 9 options of its own and more are refused for it
   to cut (issue #714, after Omnara's "Other" with `AllowsText`, `interaction_tools.go:66-72`;
   `internal/node/workertools`).
+  A question stands alone (issue #1219): `ask` and `finish`'s Gate take `questions`, one decision each and at most 3
+  (Codex's `request_user_input`), each with a header of at most 30 characters (opencode) and options
+  `{label, description}`, the description saying what choosing it changes and where it is learned from, the
+  recommended one first. The first decision stays in the question's `text` and `options`, the next ones in `more`
+  (migration `question_header_and_more`, with `header`), and the answer gives one choice for each, the next ones in
+  its `more`; a question asked before is one decision with no header. A worker still may send one `question` with
+  bare labels. The resumed worker is told each decision with its answer. Node and control plane update on their own
+  schedules, so each says what it takes, as `StoreGuides` and MCP's initialize do: the control plane's offer says
+  `question_parts`, and only then do the worker's tools offer several decisions and descriptions (else they offer
+  one question, refuse several, and write a header or a description into its text); the node's hello says
+  `question_parts`, and a node that does not is sent an answered question of several decisions folded into one,
+  every decision in its text and every answer in its answer's text (`nodeapi/questions.go`). The client API gives a
+  Gate asked with headers the `summary` of the final report its worker stopped with (a Gate asked before gets none
+  and reads as it did), and the question card (`QuestionForm`) shows it above the decisions, three lines measured
+  on the page that open to the whole, then each decision under its header with each option's description under
+  its label, sent as one answer (Paperclip's card); the Task's panel, which shows the summary under it, leaves it
+  out. `hypomnema answer` takes one quoted answer for each decision.
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
@@ -4017,6 +4034,9 @@ capabilities do not exist yet.
   `{name, models?, endpoints?}` answers the value once, `endpoints` left out for every kind and empty for none (the
   page's dialog ticks the three kinds and sends the list only when one is unticked); `DELETE /gateway/keys/{id}`
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
+  The name stays visible when the table scrolls sideways. Models and extra capabilities each show up to three
+  chips and open the full list from the remaining count. A key without a stored value shows its prefix and a short
+  status that opens the explanation in a popover when pressed (issue #1235).
 - Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
   `GET /gateway/usage?period=24h|7d|30d|90d|12m&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day
   else, starting at the viewer's midnight; 90 days a bar a UTC day and 12 months a bar a calendar month, read from
@@ -4078,7 +4098,8 @@ capabilities do not exist yet.
   release script's dry run (`RELEASE_DRY_RUN=1`) is how a test checks that Codex's license and notice go out with
   the control plane. Codex then lists the models in `/model` instead of its bundled ones, and a level it sends is one the
   gateway passes on.
-- Settings → Connect a tool (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
+- Connect a tool opens from the Gateway keys header with no key chosen, or from a row with that key chosen
+  (issue #1235). The page (`/settings/connect`, issue #907, after 9router's CLI tools page) has a card for each of
   Claude Code, Codex, omp and OpenCode with a key (the owner's keys whose value is stored; a key opened with its
   row's Connect on Gateway keys even without, its files then holding `<your gateway key>`), a model the key may use
   from the tool, and the files with their paths and copy buttons; a card shows and copies only the answer for the
@@ -5958,7 +5979,7 @@ Node (`internal/node`):
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
   own, away from the user's and the project's); the part that names the gateway is `internal/shared/agentconfig`'s,
-  which writes Settings → Connect a tool's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
+  which writes the Connect a tool page's files too (issue #907). Each CLI's own web and image tools are off, so that the worker has
   the control plane's (issues #354, #492): omp's `web_search.enabled: false` and `generate_image.enabled: false`;
   opencode's `websearch`, `webfetch` and `experimental_image_generate` denied in its `permissions`, which takes them
   out of its tools. Neither is given an image model. The model's context window and largest output are the

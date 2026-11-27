@@ -142,7 +142,7 @@ function PanelBody({ taskId }: { taskId: string }) {
           </div>
 
           <PendingApprovals taskId={task.id} />
-          {card.question && <QuestionForm question={card.question} />}
+          {card.question && <QuestionForm question={card.question} showSummary={false} />}
           {card.piQuestion && <PiQuestion card={card} />}
           <Actions card={card} />
 

@@ -883,6 +883,8 @@ type Question struct {
 	RemindAt     sql.NullInt64
 	CreatedAt    int64
 	UpdatedAt    int64
+	Header       string
+	More         string
 }
 
 type Receipt struct {
