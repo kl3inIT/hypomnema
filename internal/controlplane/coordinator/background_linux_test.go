@@ -72,7 +72,7 @@ func newLauncherWorld(t *testing.T) *launcherWorld {
 		"--symlink", "usr/bin", "/bin", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
 		"--proc", "/proc", "--dev", "/dev", "/usr/bin/true").Run() != nil {
 		bwrap = filepath.Join(root, "bwrap")
-		require.NoError(t, os.WriteFile(bwrap, []byte(bwrapStandIn), 0o700)) //nolint:gosec // the test's stand-in
+		write(t, bwrap, bwrapStandIn, 0o700)
 	}
 
 	b := make([]byte, 4)
