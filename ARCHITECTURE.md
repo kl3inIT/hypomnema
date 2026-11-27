@@ -4583,8 +4583,8 @@ calls, and each call is recorded on a gateway key.
 - Not built: testing a provider from the page (OmniRoute's and 9router's "Check", OpenClaw's "Test search");
   reordering on a touch screen (the CLI does it); routing by the kind of query (web-search-plus), a daily budget.
 
-Images (`modelgateway/images.go`, `images_http.go`, `image_settings.go`, `codex/images.go`, `antigravity/images.go`;
-issue #431): the owner's Codex and Antigravity subscriptions make and edit images, for the gateway's clients
+Images (`modelgateway/images.go`, `images_http.go`, `image_settings.go`, `metered_images.go`, `codex/images.go`,
+`antigravity/images.go`; issue #431): the owner's Codex and Antigravity subscriptions make and edit images, for the gateway's clients
 (`/v1/images/*`, above), for workers and Bots (`generate_image`, see "An agent's tools", below) and for
 the owner and Routine scripts (`hypomnema image`, see Bots). Claude makes none (no reference has it).
 - The providers are asked in the owner's order, by default Codex then Antigravity, each that is on; the first that
@@ -4713,7 +4713,7 @@ not checked against the live site in the change that wrote them.
   tab live, Muse Spark through `api.meta.ai`.
 
 Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.go`, `clientapi/audio.go`,
-`clientcli/audio.go`, `controlplane/audio.go`; issue #694,
+`clientcli/audio.go`, `modelgateway/metered_audio.go`, `controlplane/audio.go`; issue #694,
 [research](docs/research/2026-11-17-meetings-and-gateway-audio.md)): speech to text and text to speech with the
 owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, above) and for the owner and Bots
 (`hypomnema audio`, see the client API).
@@ -4960,7 +4960,7 @@ its client API, its CLI and the Bots' tools.
   it done, a `zalo_sent`, `whatsapp_sent` or `lark_sent` in the item's own source chat and account (an item without
   its account, which `lark` allows, is never closed so), which the store
   reads before the write through `Store.WithSent` and accepts only when it exists, he sent it himself and it is
-  later than the item: the control plane's `inboxSent` reads a Zalo or WhatsApp one from the server's store of that
+  later than the item: `inbox.Sent` (`controlplane/inbox/sent.go`) reads a Zalo or WhatsApp one from the server's store of that
   account (`messaging.Query.ID`) and a Lark one from Lark's API with his own sign-in, `GET
   /open-apis/im/v1/messages/:id` and `GET /open-apis/authen/v1/user_info`, since the server keeps none of his Lark
   messages); or one in another chat of that account where the person who asked is a member when it is read (issue
@@ -5113,7 +5113,7 @@ its client API, its CLI and the Bots' tools.
   or Lark chat or Gmail thread, never a chat the request names, and closes the item done by him, by hand, with the
   message sent as evidence (a proposal is accepted first; an item in review stays as it is), answering `{sent,
   todo}`. A closed item, another revision (409) or a source with no chat of his (400) sends nothing. The control
-  plane's `inboxSender` (`controlplane/inboxsend.go`) sends through his own accounts: a Zalo or WhatsApp chat of the
+  plane's `inbox.Sender` (`controlplane/inbox/send.go`) sends through his own accounts: a Zalo or WhatsApp chat of the
   Connection the item names (`integration.Service.Send`), a Lark chat with his Lark sign-in (`lark:me` when the item
   names none; `POST /open-apis/im/v1/messages?receive_id_type=chat_id`), and a reply in the Gmail thread to the
   Reply-To or From of the item's mail, "Re:" its subject, `In-Reply-To` and `References` its Message-ID (inbox-zero's
@@ -5438,13 +5438,14 @@ flowchart LR
   extension when none is named) or as a new `hypomnema-speech-*` file in the temporary folder; a Bot's under
   `audio/` in its folder with the `MEDIA:` line that sends it, as `generate_image`'s. `audio_speak`'s description
   says to use it only when a voice is asked for, never in place of a written reply (OpenClaw's `tts`). Each call is
-  a usage row on the Dispatch's key or the chat's (`controlplane/audio.go`, `agentAudio`); what was said is never
+  a usage row on the Dispatch's key or the chat's (`modelgateway/metered_audio.go`, routed by `controlplane/audio.go`'s
+  `agentAudio`); what was said is never
   logged.
 - Incoming voice (issue #723; [design](https://github.com/kl3inIT/hypomnema/issues/723#issuecomment-6956018177)): a
   voice message a person sends a Bot is transcribed before the model reads it, with the same speech service, as
   Hermes (`gateway/config.py:635`) and OpenClaw (`audio-preflight.ts`) do. On Lark a direct message of type `audio`
   is downloaded by its `file_key` (`im.messageResource.get`, `type=file`; `channels.Recorder`) and heard
-  (`channels.Hearer`, the wiring's `channelVoice`), and the transcript goes through the same rules as a typed
+  (`channels.Hearer`, `modelgateway.ChannelVoice`), and the transcript goes through the same rules as a typed
   message (who may send it, the sender's label, the queue); it is recorded on the chat's newest gateway key, working
   or not (`modelgateway.Service.ChatKey`), since the chat's pi may not run yet. A group's voice message mentions
   no one and is left alone. On WhatsApp and Zalo, which a Bot reads with tools, `whatsapp_media` and `zalo_media`
@@ -7039,7 +7040,7 @@ the internet, so that a machine created at a provider can install the node from 
 
 ```
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
-internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
+internal/controlplane     package controlplane: configuration, migrate, building each service and serving them (serve), the adapters between packages, and the owner's server commands
 internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's tools and the gateway's (web, images, Muse)
 internal/shared/artifactpack  an Artifact's files: the rules an agent's file or folder is read by, its tar, its type from bytes and name, its limits
 internal/controlplane/spreadsheet  an xlsx workbook read into CSV text a sheet for the web's preview, within its limits
@@ -7099,12 +7100,13 @@ internal/controlplane/orchestration/channelstore  the Channels (tables channels 
 internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
 internal/controlplane/orchestration/meetingstore  the meetings, their voices, lines, notes and items, and the notes model, reached through orchestration's Meetings()
 internal/controlplane/orchestration/inboxstore  the Inbox's to-dos, their state machine and history, reached through orchestration's Inbox()
+internal/controlplane/inbox  the owner's own chats as the Inbox reads and answers them: a message given as evidence, who asked and who is in a chat, his reply sent from an item
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, every memory's notes and the memory tool's commands (issue #589), and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names
 internal/controlplane/modelgateway/antigravity  the Antigravity subscription's formats: chat to Gemini's shape and back, the schema cleaner
 internal/controlplane/modelgateway/codex  the Codex subscription's formats: chat to Responses and back
-internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault
+internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault, the subscription providers given the models their vendors serve
 internal/controlplane/websearch  the web's search and a page's reading: the providers in turn, their rests, the cache, the page read as markdown through the browser's address rules, outside content marked
 internal/shared/agenttool the integrations' tools: the catalog, their setup, and the launcher that asks the control plane for a token
 internal/shared/contextwindow  whether an error's text says a prompt did not fit its model's context window, for the node's runtimes and the gateway
