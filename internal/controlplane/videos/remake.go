@@ -77,7 +77,9 @@ func (s *Service) ChangeLook(ctx context.Context, id string, rev int, req LookCh
 			return newRevision{}, err
 		}
 
-		return newRevision{look: look.encode(), pin: &voicePin{provider: src.Provider, voice: src.UsedVoice}}, nil
+		return newRevision{look: look.encode(), pin: &voicePin{
+			provider: src.Provider, voice: src.UsedVoice, model: src.Model,
+		}}, nil
 	})
 }
 
@@ -113,9 +115,9 @@ func (s *Service) Retry(ctx context.Context, id string, rev int, by, requestID s
 
 		switch {
 		case src.PinProvider != "":
-			out.pin = &voicePin{provider: src.PinProvider, voice: src.PinVoice}
+			out.pin = &voicePin{provider: src.PinProvider, voice: src.PinVoice, model: src.PinModel}
 		case src.Provider != "":
-			out.pin = &voicePin{provider: src.Provider, voice: src.UsedVoice}
+			out.pin = &voicePin{provider: src.Provider, voice: src.UsedVoice, model: src.Model}
 		}
 
 		return out, nil

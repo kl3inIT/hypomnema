@@ -137,7 +137,7 @@ type CountGatewayAudioCallsRow struct {
 	Characters int64
 }
 
-// Each audio provider's requests since a moment, by the model it was asked with (one model a provider and kind):
+// Each audio provider's requests since a moment, by the model it was asked with (speech.KindOf tells its kind):
 // what answered, what failed, the milliseconds transcribed and the characters spoken, for the Audio page.
 func (q *Queries) CountGatewayAudioCalls(ctx context.Context, since int64) ([]CountGatewayAudioCallsRow, error) {
 	rows, err := q.db.QueryContext(ctx, countGatewayAudioCalls, since)
@@ -799,7 +799,7 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 }
 
 const listGatewayAudioProviders = `-- name: ListGatewayAudioProviders :many
-SELECT provider, off, stt_position, tts_position, updated_at, voice FROM gateway_audio_providers ORDER BY provider
+SELECT provider, off, stt_position, tts_position, updated_at, voice, tts_model FROM gateway_audio_providers ORDER BY provider
 `
 
 // What the owner set on Settings, Gateway, Audio (issue #694).
@@ -819,6 +819,7 @@ func (q *Queries) ListGatewayAudioProviders(ctx context.Context) ([]GatewayAudio
 			&i.TtsPosition,
 			&i.UpdatedAt,
 			&i.Voice,
+			&i.TtsModel,
 		); err != nil {
 			return nil, err
 		}
@@ -1538,6 +1539,22 @@ type RevokeGatewayKeysOfNodeParams struct {
 // The keys of a removed node's Dispatches (issue #996).
 func (q *Queries) RevokeGatewayKeysOfNode(ctx context.Context, arg RevokeGatewayKeysOfNodeParams) error {
 	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfNode, arg.Now, arg.Reason, arg.NodeID)
+	return err
+}
+
+const setGatewayAudioModel = `-- name: SetGatewayAudioModel :exec
+INSERT INTO gateway_audio_providers (provider, tts_model, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET tts_model = excluded.tts_model, updated_at = excluded.updated_at
+`
+
+type SetGatewayAudioModelParams struct {
+	Provider string
+	Model    string
+	Now      int64
+}
+
+func (q *Queries) SetGatewayAudioModel(ctx context.Context, arg SetGatewayAudioModelParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewayAudioModel, arg.Provider, arg.Model, arg.Now)
 	return err
 }
 

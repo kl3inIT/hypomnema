@@ -452,6 +452,7 @@ type GatewayAudioProvider struct {
 	TtsPosition sql.NullInt64
 	UpdatedAt   int64
 	Voice       string
+	TtsModel    string
 }
 
 type GatewayImageProvider struct {
@@ -1211,6 +1212,7 @@ type VideoRevision struct {
 	Look        string
 	PinProvider string
 	PinVoice    string
+	PinModel    string
 }
 
 type VideoSetting struct {

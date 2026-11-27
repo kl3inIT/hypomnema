@@ -1181,12 +1181,16 @@ sequenceDiagram
     order that is on and answers speaks the first scene and then every other one, with the voice asked or that
     provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
     no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
-    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the word times heard
-    from a clip are kept beside it (`<clip>.words.json`) and removed before the clip is spoken again. A revision
-    made from another (a look change, a retry) is **pinned** (`pin_provider`, `pin_voice`): only that provider is
-    asked, with exactly that voice, even an empty one, and the owner's audio settings are not read. Composing is
-    `compose.Compose`; captioning transcribes each scene's clip with its words' times through the speech service,
-    joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
+    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the model is the
+    owner's choice for that provider (ElevenLabs's speech model, issue #1283). Each line is asked with its words'
+    times: ElevenLabs answers its alignment (`/with-timestamps`), and the words built from it are kept beside the
+    clip (`<clip>.words.json`), so its captions need no transcription; a provider without one (Soniox, or an
+    ElevenLabs answer without alignment) has its clip transcribed at captioning, as before. The word times are
+    removed before the clip is spoken again. A revision made from another (a look change, a retry) is **pinned**
+    (`pin_provider`, `pin_voice`, `pin_model`, migration of #1283): only that provider is asked, with exactly that
+    voice, even an empty one, and that model (empty: the provider's default), and the owner's audio settings are not
+    read. Composing is `compose.Compose`; captioning takes each clip's kept word times, or transcribes the clip
+    with its words' times through the speech service, joins Soniox's tokens into words, moves them to the scene's place on the video and keeps them within it, cuts
     cues by aidemo's rules (2 lines of 38 characters, at most 12 words, 1-6 s, broken at a sentence end, a clause's
     punctuation or a conjunction; `videos/captions`, ported from src/captions.ts, scene by scene so no cue crosses
     one), writes them as an ASS file with one event for each stretch in which the spoken word is the same, that
@@ -4795,7 +4799,9 @@ Audio (`internal/controlplane/speech`, `modelgateway/audio.go`, `audio_settings.
 owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, above) and for the owner and Bots
 (`hypomnema audio`, see the client API).
 - Providers: Soniox, then ElevenLabs (owner, 2026-11-17), each asked with one model a kind: Soniox `stt-async-v5`
-  and `tts-rt-v2`, ElevenLabs `scribe_v2` and `eleven_multilingual_v2`. Speech to text and text to speech each ask
+  and `tts-rt-v2`, ElevenLabs `scribe_v2` and, for speech, the model the owner chose from ElevenLabs's `GET
+  /v1/models`, `eleven_v4` by default (issue #1283, [research](docs/research/2026-11-27-elevenlabs-integration.md);
+  `speech.Settings.Model`). Speech to text and text to speech each ask
   the providers that are on in the owner's order for that kind; the first that answers wins and the answer says why
   those before it did not.
 - Keys: each provider takes several, vault secrets `speech-<provider>` and `speech-<provider>-<n>` (the lowest free
@@ -4817,8 +4823,16 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   `https://api.elevenlabs.io`: `POST /v1/speech-to-text` multipart `{model_id, file, timestamps_granularity word,
   language_code?, diarize?}`, its words' `speaker_id` the speakers, a spacing no word, an audio event no speech, the
   length the last word's end; `POST /v1/text-to-speech/{voice_id}?output_format=` (LiteLLM's mp3_44100_128,
-  pcm_24000, opus_48000_128, wav_24000) `{text, model_id, voice_settings: {speed}?}`, OpenAI's voice names mapped
-  to LiteLLM's voices, none Rachel; `GET /v1/voices`, kept a day a key.
+  pcm_24000, opus_48000_128, wav_24000) `{text, model_id, language_code?, voice_settings: {speed}?}`, OpenAI's voice
+  names mapped to LiteLLM's voices, none Rachel; `language_code` is the caller's language (a video's `vi`,
+  `audio_speak`'s `language`) when the model's languages in `GET /v1/models` cover it, else left out with a
+  warning (pipecat's guard); when that list cannot be read, or does not name the model, it is sent. A video's line
+  goes to `/with-timestamps` (`{audio_base64, alignment}`): `alignment` (not `normalized_alignment`) is split into
+  words on whitespace, each from its first character's start to its last's end, a bracketed audio tag (`[laughs]`)
+  no word (`speech.Speech.Words`). A 429 or 5xx (not one out of credits) is asked again twice, after its
+  `Retry-After` (at most 60 s) or 1 s doubling, before the key rests (the SDK's retry; `speech/retry.go`, for
+  speech and the lists, not Scribe). `GET /v1/voices` (the account's own and saved library voices) and `GET
+  /v1/models` (those that speak text, with their languages) are each kept a day a key.
 - A transcript is cut into segments at a speaker change, a pause over 800 ms or past 400 characters, markers and
   sounds left out (MemoryOS `SonioxAsync.group`). Base URLs and the poll's pace are `speech.Config`'s.
 - Usage: each request is one row of `gateway_usage` on its key, as model `audio/<the provider's model>` (`audio/stt`
@@ -4831,14 +4845,22 @@ owner's Soniox and ElevenLabs keys, for the gateway's clients (`/v1/audio/*`, ab
   provider again when both are present. A clip voiced before its word times were cached is transcribed on its
   first use with captions.
 - What the owner sets (`gateway_audio_providers`, migration 00103: `provider`, `off`, `stt_position`,
-  `tts_position`; read and written only by the gateway): one switch a provider for both kinds and each kind's order.
+  `tts_position`, then `voice` (00126) and `tts_model` (issue #1283); read and written only by the gateway): one
+  switch a provider for both kinds, each kind's order, a provider's voice for videos and ElevenLabs's speech model.
+  A usage row's kind is told by its model (`speech.KindOf`: the provider's one transcription model, else speech),
+  and a kind's count sums every model it was asked with.
   `GET /gateway/audio` (any token) lists the providers with their switch, `state` (`ready`, `resting` when every key
   rests, `not_set_up` with no key, `off`) and keys (name, state, rest, last used; never a value), and `stt` and `tts`,
   each kind's providers in order with their model and requests today and this month (UTC) with the seconds heard or
   characters spoken. The owner's: `PUT /gateway/audio/providers/{provider}` `{on}`, `PUT /gateway/audio/order/{stt|tts}`
-  `{providers}`, `POST /gateway/audio/providers/{provider}/keys` `{key}` (answers the secret's name) and `DELETE
-  /gateway/audio/providers/{provider}/keys/{name}`. Settings → Gateway → Audio (`web/src/features/models/
-  audio-screen.tsx`) shows and changes them, built from the Web search and Images pages. The CLI: `hypomnema audio
+  `{providers}`, `PUT /gateway/audio/providers/{provider}/voice` `{voice}`, `PUT
+  /gateway/audio/providers/{provider}/model` `{model}` (ElevenLabs only; empty, the default), `POST
+  /gateway/audio/providers/{provider}/keys` `{key}` (answers the secret's name) and `DELETE
+  /gateway/audio/providers/{provider}/keys/{name}`; any token reads `GET /gateway/audio/models` and `GET
+  /gateway/audio/voices`, the providers' own lists. Settings → Gateway → Audio (`web/src/features/models/
+  audio-screen.tsx`) shows and changes them, built from the Web search and Images pages; ElevenLabs's speech row
+  picks its model from its list, and each provider's voice for videos is picked by name (typed when the list
+  cannot be read). The CLI: `hypomnema audio
   providers`, `audio providers set <provider> on|off`, `audio order stt|tts <provider> <provider>`, `audio keys add
   <provider> --key-file`, `audio keys rm <provider> <name>`.
 - Not built: live (streaming) transcription, prices for audio, an agent tool for audio. Not yet measured:
