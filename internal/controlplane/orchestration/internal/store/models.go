@@ -1213,6 +1213,7 @@ type VideoRevision struct {
 	Look        string
 	PinProvider string
 	PinVoice    string
+	Speed       float64
 }
 
 type VideoSetting struct {

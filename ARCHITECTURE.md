@@ -1177,11 +1177,13 @@ sequenceDiagram
     update from `queued` to `voicing`; at its start a revision found `voicing`, `composing` or `captioning` is
     failed `interrupted` at that stage and its files removed, so no paid speech is asked again on its own. At most
     10 revisions wait; one has 20 minutes and does not start with less than 400 MB free. Voicing goes through
-    `speech.Service` in Vietnamese (`vi`), one clip per scene: the first text-to-speech provider of the owner's
+    `speech.Service` in Vietnamese (`vi`), one clip per scene, at the revision's speed (`speed`, 0.7-1.3 or 0 for
+    the provider's own, chosen in the make dialog or `hypomnema videos make --speed`, kept by a look change, a retry
+    and a revision of changed lines; issue #1285, the owner 2026-11-27): the first text-to-speech provider of the owner's
     order that is on and answers speaks the first scene and then every other one, with the voice asked or that
     provider's voice for videos (Settings → Gateway → Audio); a later failure fails the revision at `voicing`, with
     no voice of another provider mixed in. Clips are kept in `videos/.voice/` by the hash of their text, provider,
-    model, voice and language (aidemo's voiceHash, ported) and reused by any later revision; the word times of a clip
+    model, voice, language and speed (none at the provider's own) (aidemo's voiceHash, ported) and reused by any later revision; the word times of a clip
     are kept beside it (`<clip>.words.json`) and removed before the clip is spoken again: those its speech came with
     (`Timestamps`, Soniox's WebSocket; issue #1285), else those heard from it. A revision
     made from another (a look change, a retry) is **pinned** (`pin_provider`, `pin_voice`): only that provider is

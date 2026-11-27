@@ -6875,7 +6875,7 @@ type SpeakRequest struct {
 	ReduceSilence *bool `json:"reduce_silence,omitempty"`
 
 	// Speed The voice's speed: Soniox takes 0.7 to 1.3, ElevenLabs its voice setting's range.
-	Speed *float32 `json:"speed,omitempty"`
+	Speed *float64 `json:"speed,omitempty"`
 
 	// Voice A voice of the provider (the gateway's GET /v1/audio/voices) or one of OpenAI's names; left out, each provider's default.
 	Voice *string `json:"voice,omitempty"`
@@ -7867,7 +7867,10 @@ type VideoMake struct {
 
 	// Look A look sent by section (issue #908): only the sections sent are chosen, the others are the default's or the revision's; each field left out of a sent section takes the reference default.
 	Look *VideoLookInput `json:"look,omitempty"`
-	Take string          `json:"take"`
+
+	// Speed The speed every line is spoken at, Soniox's range; absent: the provider's own. A revision made from this one keeps it.
+	Speed *float64 `json:"speed,omitempty"`
+	Take  string   `json:"take"`
 
 	// Template A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.
 	Template *string `json:"template,omitempty"`
@@ -8003,8 +8006,11 @@ type VideoRevision struct {
 	Progress *VideoProgress `json:"progress,omitempty"`
 
 	// Provider The provider that spoke every scene.
-	Provider  *string            `json:"provider,omitempty"`
-	Rev       int                `json:"rev"`
+	Provider *string `json:"provider,omitempty"`
+	Rev      int     `json:"rev"`
+
+	// Speed The speed its voice was asked at; absent, the provider's own.
+	Speed     *float64           `json:"speed,omitempty"`
 	State     VideoRevisionState `json:"state"`
 	UpdatedAt time.Time          `json:"updated_at"`
 

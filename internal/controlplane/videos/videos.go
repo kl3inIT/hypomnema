@@ -67,6 +67,10 @@ const (
 	MaxNote = 4000
 	// maxVoice bounds a voice's name.
 	maxVoice = 100
+	// MinSpeed and MaxSpeed bound a video's speed: Soniox's range (docs.soniox.com /api-reference/tts/generate_tts;
+	// LiveKit livekit-plugins-soniox tts.py:53-54). ElevenLabs answers for its own range when it speaks.
+	MinSpeed = 0.7
+	MaxSpeed = 1.3
 	// MaxRequestID bounds a request id.
 	MaxRequestID = 255
 	// Owner is who asks when the owner does.
@@ -118,11 +122,13 @@ func (v Video) Approved() (Revision, bool) {
 
 // Revision is one make of a video.
 type Revision struct {
-	Rev         int      `json:"rev"`
-	Parent      int      `json:"parent,omitempty"`
-	State       string   `json:"state"`
-	Lines       []string `json:"lines"`
-	Voice       string   `json:"voice,omitempty"`
+	Rev    int      `json:"rev"`
+	Parent int      `json:"parent,omitempty"`
+	State  string   `json:"state"`
+	Lines  []string `json:"lines"`
+	Voice  string   `json:"voice,omitempty"`
+	// Speed is the speed its voice was asked at, from MinSpeed to MaxSpeed; 0: the provider's own.
+	Speed       float64  `json:"speed,omitempty"`
 	Captions    bool     `json:"captions"`
 	Aspect      string   `json:"aspect"`
 	Provider    string   `json:"provider,omitempty"`
@@ -316,6 +322,9 @@ type MakeRequest struct {
 	Captions *bool
 	// Voice is the voice asked for; empty: each provider's set one.
 	Voice string
+	// Speed is the speed every line is spoken at, from MinSpeed to MaxSpeed; 0: the provider's own (issue #1285,
+	// row 3; the owner, 2026-11-27).
+	Speed float64
 	// By is who asks: an agent's key, or Owner; ByName names it to people.
 	By     string
 	ByName string
@@ -362,6 +371,8 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		return Video{}, Revision{}, fmt.Errorf("%w: a title is at most %d characters", ErrInvalid, devicetool.MaxTitle)
 	case len(req.Voice) > maxVoice:
 		return Video{}, Revision{}, fmt.Errorf("%w: a voice is at most %d characters", ErrInvalid, maxVoice)
+	case req.Speed != 0 && (req.Speed < MinSpeed || req.Speed > MaxSpeed):
+		return Video{}, Revision{}, fmt.Errorf("%w: the speed is from %.1f to %.1f", ErrInvalid, MinSpeed, MaxSpeed)
 	case len(req.RequestID) > MaxRequestID:
 		return Video{}, Revision{}, fmt.Errorf("%w: a request id is at most %d bytes", ErrInvalid, MaxRequestID)
 	case req.By == "":
@@ -374,6 +385,10 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 
 	// A make that sends no look keeps the hash it had before the looks, so that its retry answers the same revision.
 	parts := []string{"make", req.Take, req.Title, req.Aspect, strconv.FormatBool(captionsOn), req.Voice}
+	if req.Speed != 0 {
+		parts = append(parts, "speed", strconv.FormatFloat(req.Speed, 'f', -1, 64))
+	}
+
 	if req.Look != nil {
 		parts = append(parts, req.Look.canonical())
 	}
@@ -486,7 +501,7 @@ func (s *Service) Make(ctx context.Context, req MakeRequest) (Video, Revision, e
 		}
 
 		return s.insertRevision(ctx, q, now, id, newRevision{
-			parent: parent, lines: lines, voice: req.Voice, captions: captionsOn, aspect: req.Aspect,
+			parent: parent, lines: lines, voice: req.Voice, speed: req.Speed, captions: captionsOn, aspect: req.Aspect,
 			look: look.encode(), by: req.By, requestID: req.RequestID, hash: hash,
 		})
 	})
@@ -509,6 +524,7 @@ type newRevision struct {
 	parent   sql.NullInt64
 	lines    []string
 	voice    string
+	speed    float64
 	captions bool
 	aspect   string
 	// look is the resolved look, as stored.
@@ -531,8 +547,9 @@ func (s *Service) insertRevision(ctx context.Context, q *store.Queries, now int6
 	}
 
 	p := store.InsertRevisionParams{
-		VideoID: id, Rev: last + 1, Parent: r.parent, Lines: string(raw), Voice: r.voice, Captions: flag(r.captions),
-		Aspect: r.aspect, Look: r.look, RequestedBy: r.by, RequestID: r.requestID, RequestHash: r.hash, Now: now,
+		VideoID: id, Rev: last + 1, Parent: r.parent, Lines: string(raw), Voice: r.voice, Speed: r.speed,
+		Captions: flag(r.captions),
+		Aspect:   r.aspect, Look: r.look, RequestedBy: r.by, RequestID: r.requestID, RequestHash: r.hash, Now: now,
 	}
 	if r.pin != nil {
 		p.PinProvider, p.PinVoice = r.pin.provider, r.pin.voice
@@ -682,8 +699,9 @@ func (s *Service) withRevisions(ctx context.Context, q *store.Queries, row store
 
 func revisionOf(r store.VideoRevision) Revision {
 	out := Revision{
-		Rev: int(r.Rev), Parent: int(r.Parent.Int64), State: r.State, Voice: r.Voice, Captions: r.Captions != 0,
-		Aspect: r.Aspect, Provider: r.Provider, Model: r.Model, UsedVoice: r.UsedVoice, LengthMs: r.LengthMs,
+		Rev: int(r.Rev), Parent: int(r.Parent.Int64), State: r.State, Voice: r.Voice, Speed: r.Speed,
+		Captions: r.Captions != 0,
+		Aspect:   r.Aspect, Provider: r.Provider, Model: r.Model, UsedVoice: r.UsedVoice, LengthMs: r.LengthMs,
 		FailedStage: r.FailedStage, FailedCause: r.FailedCause, Note: r.Note,
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
@@ -851,7 +869,7 @@ func (s *Service) RequestChanges(ctx context.Context, id string, rev int, req Ch
 		}
 
 		return s.insertRevision(ctx, q, now, id, newRevision{
-			parent: sql.NullInt64{Int64: int64(rev), Valid: true}, lines: req.Lines, voice: r.Voice,
+			parent: sql.NullInt64{Int64: int64(rev), Valid: true}, lines: req.Lines, voice: r.Voice, speed: r.Speed,
 			captions: r.Captions != 0, aspect: r.Aspect, look: look, by: req.By, requestID: req.RequestID, hash: hash,
 		})
 	})

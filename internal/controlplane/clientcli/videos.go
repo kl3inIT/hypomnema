@@ -90,6 +90,10 @@ func (e *env) printVideo(v *openapi.Video) {
 			by = "  " + *r.Provider + " " + val(r.UsedVoice)
 		}
 
+		if r.Speed != nil {
+			by += " at " + strconv.FormatFloat(*r.Speed, 'f', -1, 64) + "x"
+		}
+
 		captions := "captions"
 		if !r.Captions {
 			captions = "no captions"
@@ -125,6 +129,10 @@ func videosMake(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	if str(fs, "no-captions") == "true" {
 		off := false
 		body.Captions = &off
+	}
+
+	if speed, _ := strconv.ParseFloat(str(fs, "speed"), 64); speed > 0 {
+		body.Speed = &speed
 	}
 
 	look, err := lookArg(fs)

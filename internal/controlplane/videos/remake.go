@@ -16,7 +16,7 @@ import (
 
 // Revisions made from another (issue #908, row 4; #937): a look change draws a made revision again in another look,
 // and a retry makes a failed revision again as it was asked. Both number the new revision after the video's last,
-// with the revision they start from as its parent, which is left as it is; both copy its lines, aspect and
+// with the revision they start from as its parent, which is left as it is; both copy its lines, aspect, speed and
 // captions on or off, and pin its voice, so that its clips and their word times are reused from the cache and no
 // other provider or voice is asked (aidemo reuses a scene's voice and captions when only the look changes: AGENTS.md;
 // src/voice.ts:320-372).
@@ -187,7 +187,7 @@ func (s *Service) remake(ctx context.Context, id string, rev int, by, requestID,
 		}
 
 		r.parent = sql.NullInt64{Int64: int64(rev), Valid: true}
-		r.voice, r.captions, r.aspect = src.Voice, src.Captions != 0, src.Aspect
+		r.voice, r.speed, r.captions, r.aspect = src.Voice, src.Speed, src.Captions != 0, src.Aspect
 		r.by, r.requestID, r.hash = by, requestID, hash
 
 		return s.insertRevision(ctx, q, now, id, r)

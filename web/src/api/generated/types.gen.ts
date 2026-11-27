@@ -2450,6 +2450,10 @@ export type VideoRevision = {
    * The voice asked for; absent
    */
   voice?: string;
+  /**
+   * The speed its voice was asked at; absent, the provider's own.
+   */
+  speed?: number;
   captions: boolean;
   aspect: VideoAspect;
   /**
@@ -2547,6 +2551,10 @@ export type VideoMake = {
    * Absent: each provider's set on Settings → Audio.
    */
   voice?: string;
+  /**
+   * The speed every line is spoken at, Soniox's range; absent: the provider's own. A revision made from this one keeps it.
+   */
+  speed?: number;
   look?: VideoLookInput;
   /**
    * A template's id of GET /videos/templates: its look's sections in place of the default's where the make sends none, {title} in its cards' words the video's title. A template's look is not saved in the default.

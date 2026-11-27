@@ -152,8 +152,7 @@ func audioSpeak(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	if speed, _ := strconv.ParseFloat(str(fs, "speed"), 64); speed > 0 {
-		s := float32(speed)
-		body.Speed = &s
+		body.Speed = &speed
 	}
 
 	if p := str(fs, "provider"); p != "" {

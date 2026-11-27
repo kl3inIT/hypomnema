@@ -7079,6 +7079,7 @@ components:
           description: mp3 when left out.
         speed:
           type: number
+          format: double
           minimum: 0.25
           maximum: 4
           description: "The voice's speed: Soniox takes 0.7 to 1.3, ElevenLabs its voice setting's range."
@@ -8615,6 +8616,10 @@ components:
           description: What each scene's voice says, a scene a step of the take (steps said at once are one).
           items: { type: string }
         voice: { type: string, description: The voice asked for; absent, each provider's set on Settings → Audio. }
+        speed:
+          type: number
+          format: double
+          description: "The speed its voice was asked at; absent, the provider's own."
         captions: { type: boolean }
         aspect: { $ref: "#/components/schemas/VideoAspect" }
         provider: { type: string, description: The provider that spoke every scene. }
@@ -8687,6 +8692,14 @@ components:
           description: "One of the template's; absent: the template's first, else 9:16."
         captions: { type: boolean, description: "Absent: the template's, else true." }
         voice: { type: string, maxLength: 100, description: "Absent: each provider's set on Settings → Audio." }
+        speed:
+          type: number
+          format: double
+          minimum: 0.7
+          maximum: 1.3
+          description: >-
+            The speed every line is spoken at, Soniox's range; absent: the provider's own. A revision made from this
+            one keeps it.
         look: { $ref: "#/components/schemas/VideoLookInput" }
         template:
           type: string

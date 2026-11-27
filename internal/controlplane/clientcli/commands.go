@@ -857,6 +857,7 @@ var commands = []command{
 			fs.String("aspect", "", "9:16, 16:9 or 886x1920 (default the template's first, else 9:16)")
 			fs.Bool("no-captions", false, "make it without captions")
 			fs.String("voice", "", "the voice to speak with (default each provider's, from `audio voice`)")
+			fs.Float64("speed", 0, "the speed every line is spoken at, 0.7 to 1.3 (default the provider's)")
 			lookFlags(fs)
 			musicFlags(fs)
 			fs.String("key", "", "idempotency key; repeat a make whose result was lost with the same key")
